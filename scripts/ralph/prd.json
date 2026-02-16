@@ -409,8 +409,8 @@
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added ItemStatus (8 values) and ListingPlatform (8 values) enum types. Added Row/Insert/Update types for inventory_items, listings, sales, shipments. Database interface updated with 4 new tables and 2 new enums. All nullable columns from migration mapped to T | null. Sales has no updated_at (immutable). Typecheck and build pass."
     },
 
     {

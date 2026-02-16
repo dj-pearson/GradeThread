@@ -9,6 +9,8 @@ export type SubmissionStatus = "pending" | "processing" | "completed" | "failed"
 export type GradeTier = "NWT" | "NWOT" | "Excellent" | "Very Good" | "Good" | "Fair" | "Poor";
 export type ImageType = "front" | "back" | "label" | "detail" | "defect";
 export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
+export type ItemStatus = "acquired" | "grading" | "graded" | "listed" | "sold" | "shipped" | "completed" | "returned";
+export type ListingPlatform = "ebay" | "poshmark" | "mercari" | "depop" | "grailed" | "facebook" | "offerup" | "other";
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
@@ -87,6 +89,66 @@ export interface ApiKeyRow {
   created_at: string;
 }
 
+export interface InventoryItemRow {
+  id: string;
+  user_id: string;
+  title: string;
+  brand: string | null;
+  garment_type: GarmentType | null;
+  garment_category: GarmentCategory | null;
+  size: string | null;
+  color: string | null;
+  acquired_price: number | null;
+  acquired_date: string | null;
+  acquired_source: string | null;
+  condition_notes: string | null;
+  status: ItemStatus;
+  submission_id: string | null;
+  grade_report_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListingRow {
+  id: string;
+  inventory_item_id: string;
+  platform: ListingPlatform;
+  platform_listing_id: string | null;
+  listing_url: string | null;
+  listing_price: number;
+  listed_at: string;
+  is_active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SaleRow {
+  id: string;
+  inventory_item_id: string;
+  listing_id: string | null;
+  sale_price: number;
+  platform_fees: number;
+  sale_date: string;
+  buyer_username: string | null;
+  buyer_notes: string | null;
+  created_at: string;
+}
+
+export interface ShipmentRow {
+  id: string;
+  sale_id: string;
+  carrier: string;
+  tracking_number: string | null;
+  shipping_cost: number;
+  label_cost: number;
+  ship_date: string | null;
+  delivery_date: string | null;
+  weight_oz: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Insert types ──────────────────────────────────────────────────
 
 export interface UserInsert {
@@ -144,12 +206,65 @@ export interface ApiKeyInsert {
   expires_at?: string | null;
 }
 
+export interface InventoryItemInsert {
+  user_id: string;
+  title: string;
+  brand?: string | null;
+  garment_type?: GarmentType | null;
+  garment_category?: GarmentCategory | null;
+  size?: string | null;
+  color?: string | null;
+  acquired_price?: number | null;
+  acquired_date?: string | null;
+  acquired_source?: string | null;
+  condition_notes?: string | null;
+  status?: ItemStatus;
+  submission_id?: string | null;
+  grade_report_id?: string | null;
+}
+
+export interface ListingInsert {
+  inventory_item_id: string;
+  platform: ListingPlatform;
+  platform_listing_id?: string | null;
+  listing_url?: string | null;
+  listing_price: number;
+  listed_at?: string;
+  is_active?: boolean;
+  notes?: string | null;
+}
+
+export interface SaleInsert {
+  inventory_item_id: string;
+  listing_id?: string | null;
+  sale_price: number;
+  platform_fees?: number;
+  sale_date?: string;
+  buyer_username?: string | null;
+  buyer_notes?: string | null;
+}
+
+export interface ShipmentInsert {
+  sale_id: string;
+  carrier: string;
+  tracking_number?: string | null;
+  shipping_cost: number;
+  label_cost?: number;
+  ship_date?: string | null;
+  delivery_date?: string | null;
+  weight_oz?: number | null;
+}
+
 // ─── Update types ──────────────────────────────────────────────────
 
 export type UserUpdate = Partial<Omit<UserRow, "id" | "created_at" | "updated_at">>;
 export type SubmissionUpdate = Partial<Omit<SubmissionRow, "id" | "user_id" | "created_at" | "updated_at">>;
 export type GradeReportUpdate = Partial<Omit<GradeReportRow, "id" | "submission_id" | "created_at">>;
 export type DisputeUpdate = Partial<Omit<DisputeRow, "id" | "grade_report_id" | "user_id" | "created_at" | "updated_at">>;
+export type InventoryItemUpdate = Partial<Omit<InventoryItemRow, "id" | "user_id" | "created_at" | "updated_at">>;
+export type ListingUpdate = Partial<Omit<ListingRow, "id" | "created_at" | "updated_at">>;
+export type SaleUpdate = Partial<Omit<SaleRow, "id" | "created_at">>;
+export type ShipmentUpdate = Partial<Omit<ShipmentRow, "id" | "created_at" | "updated_at">>;
 
 // ─── Database schema type (for Supabase client) ────────────────────
 
@@ -186,6 +301,26 @@ export interface Database {
         Insert: ApiKeyInsert;
         Update: Partial<Omit<ApiKeyRow, "id" | "user_id" | "created_at">>;
       };
+      inventory_items: {
+        Row: InventoryItemRow;
+        Insert: InventoryItemInsert;
+        Update: InventoryItemUpdate;
+      };
+      listings: {
+        Row: ListingRow;
+        Insert: ListingInsert;
+        Update: ListingUpdate;
+      };
+      sales: {
+        Row: SaleRow;
+        Insert: SaleInsert;
+        Update: SaleUpdate;
+      };
+      shipments: {
+        Row: ShipmentRow;
+        Insert: ShipmentInsert;
+        Update: ShipmentUpdate;
+      };
     };
     Enums: {
       user_plan: UserPlan;
@@ -195,6 +330,8 @@ export interface Database {
       grade_tier: GradeTier;
       image_type: ImageType;
       dispute_status: DisputeStatus;
+      item_status: ItemStatus;
+      listing_platform: ListingPlatform;
     };
   };
 }

@@ -409,8 +409,8 @@
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added ItemStatus and ListingPlatform enums, Row/Insert/Update types for all 4 tables, updated Database interface."
     },
 
     {

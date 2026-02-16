@@ -15,3 +15,10 @@ Branch: ralph/gradethread-build
 - Notes: Created migration with 2 new enums (item_status, listing_platform), 4 new tables (inventory_items, listings, sales, shipments). All tables have UUID PKs, proper FK constraints (CASCADE on delete, SET NULL for optional refs), indexes on all FKs and status columns, RLS policies enforcing ownership through the inventory_items -> user_id chain, and set_updated_at triggers on tables with updated_at columns. Sales table intentionally has no updated_at (immutable records). Shipments RLS uses a JOIN through sales to inventory_items for ownership verification.
 - Timestamp: 2026-02-16
 ---
+
+## US-023: TypeScript types for inventory and financial tables
+- Status: COMPLETE
+- Files changed: src/types/database.ts, prd.json, scripts/ralph/prd.json
+- Notes: Added ItemStatus (8 values) and ListingPlatform (8 values) enum types. Created Row, Insert, and Update types for inventory_items, listings, sales, and shipments tables. Updated Database interface with 4 new table entries in public.Tables and 2 new enum entries in public.Enums. All nullable SQL columns mapped to `T | null`. Insert types have optional fields for columns with DB defaults. Sales has no updated_at (immutable records per migration design). Typecheck and build pass clean.
+- Timestamp: 2026-02-16
+---
