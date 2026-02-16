@@ -29,3 +29,10 @@ Branch: ralph/gradethread-build
 - Notes: Created user_role enum (user/reviewer/admin/super_admin), added role column to users table (default 'user'). Three new tables: admin_audit_log (for tracking admin actions), human_reviews (for reviewer overrides on low-confidence grades), ai_prompt_versions (for tracking AI prompt iterations and accuracy). Created is_admin() and is_reviewer_or_admin() SECURITY DEFINER helper functions for RLS. RLS policies: audit log admin-only, human reviews admin+reviewer, prompt versions admin-only (full CRUD). Added indexes on all FKs, action/target_type columns, and users.role. TypeScript types updated with UserRole enum, role on UserRow/UserInsert, and Row/Insert/Update types for all 3 new tables plus Database interface entries.
 - Timestamp: 2026-02-16
 ---
+
+## US-025: TypeScript types for admin tables
+- Status: COMPLETE
+- Files changed: scripts/ralph/prd.json, prd.json
+- Notes: All acceptance criteria were already satisfied by the US-024 implementation which added UserRole enum, UserRow.role field, Row/Insert/Update types for admin_audit_log, human_reviews, and ai_prompt_versions, plus Database interface entries and UserRole enum registration. Verified typecheck and build pass. No code changes needed — only prd.json updates to mark story as passing.
+- Timestamp: 2026-02-16
+---
