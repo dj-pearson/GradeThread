@@ -8,3 +8,10 @@ Branch: ralph/gradethread-build
 - 21 stories covering: Vite scaffold, Tailwind/shadcn, TypeScript types, Supabase client, auth layer, routing, layouts, dashboard shell, all pages, static assets, DB migration, edge functions, CF config
 - Notes: Built manually in initial foundation session. All typecheck and build passing.
 ---
+
+## US-022: Database migration: add inventory and financial tracking tables
+- Status: COMPLETE
+- Files changed: supabase/migrations/00002_inventory_financial.sql, prd.json, scripts/ralph/prd.json
+- Notes: Created migration with 2 new enums (item_status, listing_platform), 4 new tables (inventory_items, listings, sales, shipments). All tables have UUID PKs, proper FK constraints (CASCADE on delete, SET NULL for optional refs), indexes on all FKs and status columns, RLS policies enforcing ownership through the inventory_items -> user_id chain, and set_updated_at triggers on tables with updated_at columns. Sales table intentionally has no updated_at (immutable records). Shipments RLS uses a JOIN through sales to inventory_items for ownership verification.
+- Timestamp: 2026-02-16
+---

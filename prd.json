@@ -394,8 +394,8 @@
         "Migration file: supabase/migrations/00002_inventory_financial.sql"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Migration created with 2 enums (item_status, listing_platform), 4 tables (inventory_items, listings, sales, shipments), indexes on all FKs and status columns, RLS policies for ownership chain, and updated_at triggers."
     },
 
     {
