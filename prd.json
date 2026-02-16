@@ -429,8 +429,8 @@
         "Typecheck passes after updating database.ts"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Migration 00003_admin_tables.sql: user_role enum, role column on users, admin_audit_log/human_reviews/ai_prompt_versions tables with RLS. is_admin() and is_reviewer_or_admin() helper functions. TypeScript types updated in database.ts."
     },
 
     {

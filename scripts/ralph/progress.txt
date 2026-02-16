@@ -22,3 +22,10 @@ Branch: ralph/gradethread-build
 - Notes: Added ItemStatus (8 values) and ListingPlatform (8 values) enum types. Created Row, Insert, and Update types for inventory_items, listings, sales, and shipments tables. Updated Database interface with 4 new table entries in public.Tables and 2 new enum entries in public.Enums. All nullable SQL columns mapped to `T | null`. Insert types have optional fields for columns with DB defaults. Sales has no updated_at (immutable records per migration design). Typecheck and build pass clean.
 - Timestamp: 2026-02-16
 ---
+
+## US-024: Database migration: admin tables and roles
+- Status: COMPLETE
+- Files changed: supabase/migrations/00003_admin_tables.sql, src/types/database.ts, prd.json, scripts/ralph/prd.json
+- Notes: Created user_role enum (user/reviewer/admin/super_admin), added role column to users table (default 'user'). Three new tables: admin_audit_log (for tracking admin actions), human_reviews (for reviewer overrides on low-confidence grades), ai_prompt_versions (for tracking AI prompt iterations and accuracy). Created is_admin() and is_reviewer_or_admin() SECURITY DEFINER helper functions for RLS. RLS policies: audit log admin-only, human reviews admin+reviewer, prompt versions admin-only (full CRUD). Added indexes on all FKs, action/target_type columns, and users.role. TypeScript types updated with UserRole enum, role on UserRow/UserInsert, and Row/Insert/Update types for all 3 new tables plus Database interface entries.
+- Timestamp: 2026-02-16
+---

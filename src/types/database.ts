@@ -11,6 +11,7 @@ export type ImageType = "front" | "back" | "label" | "detail" | "defect";
 export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
 export type ItemStatus = "acquired" | "grading" | "graded" | "listed" | "sold" | "shipped" | "completed" | "returned";
 export type ListingPlatform = "ebay" | "poshmark" | "mercari" | "depop" | "grailed" | "facebook" | "offerup" | "other";
+export type UserRole = "user" | "reviewer" | "admin" | "super_admin";
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
@@ -20,6 +21,7 @@ export interface UserRow {
   full_name: string | null;
   avatar_url: string | null;
   plan: UserPlan;
+  role: UserRole;
   stripe_customer_id: string | null;
   grades_used_this_month: number;
   grade_reset_at: string;
@@ -149,6 +151,36 @@ export interface ShipmentRow {
   updated_at: string;
 }
 
+export interface AdminAuditLogRow {
+  id: string;
+  admin_user_id: string;
+  action: string;
+  target_type: string;
+  target_id: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface HumanReviewRow {
+  id: string;
+  grade_report_id: string;
+  reviewer_id: string;
+  original_score: number;
+  adjusted_score: number | null;
+  review_notes: string | null;
+  reviewed_at: string;
+}
+
+export interface AiPromptVersionRow {
+  id: string;
+  version_name: string;
+  prompt_text: string;
+  is_active: boolean;
+  accuracy_score: number | null;
+  total_grades: number;
+  created_at: string;
+}
+
 // ─── Insert types ──────────────────────────────────────────────────
 
 export interface UserInsert {
@@ -157,6 +189,7 @@ export interface UserInsert {
   full_name?: string | null;
   avatar_url?: string | null;
   plan?: UserPlan;
+  role?: UserRole;
   stripe_customer_id?: string | null;
 }
 
@@ -255,6 +288,30 @@ export interface ShipmentInsert {
   weight_oz?: number | null;
 }
 
+export interface AdminAuditLogInsert {
+  admin_user_id: string;
+  action: string;
+  target_type: string;
+  target_id?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+export interface HumanReviewInsert {
+  grade_report_id: string;
+  reviewer_id: string;
+  original_score: number;
+  adjusted_score?: number | null;
+  review_notes?: string | null;
+}
+
+export interface AiPromptVersionInsert {
+  version_name: string;
+  prompt_text: string;
+  is_active?: boolean;
+  accuracy_score?: number | null;
+  total_grades?: number;
+}
+
 // ─── Update types ──────────────────────────────────────────────────
 
 export type UserUpdate = Partial<Omit<UserRow, "id" | "created_at" | "updated_at">>;
@@ -265,6 +322,8 @@ export type InventoryItemUpdate = Partial<Omit<InventoryItemRow, "id" | "user_id
 export type ListingUpdate = Partial<Omit<ListingRow, "id" | "created_at" | "updated_at">>;
 export type SaleUpdate = Partial<Omit<SaleRow, "id" | "created_at">>;
 export type ShipmentUpdate = Partial<Omit<ShipmentRow, "id" | "created_at" | "updated_at">>;
+export type HumanReviewUpdate = Partial<Omit<HumanReviewRow, "id" | "grade_report_id" | "reviewer_id">>;
+export type AiPromptVersionUpdate = Partial<Omit<AiPromptVersionRow, "id" | "created_at">>;
 
 // ─── Database schema type (for Supabase client) ────────────────────
 
@@ -321,6 +380,21 @@ export interface Database {
         Insert: ShipmentInsert;
         Update: ShipmentUpdate;
       };
+      admin_audit_log: {
+        Row: AdminAuditLogRow;
+        Insert: AdminAuditLogInsert;
+        Update: Partial<Omit<AdminAuditLogRow, "id" | "created_at">>;
+      };
+      human_reviews: {
+        Row: HumanReviewRow;
+        Insert: HumanReviewInsert;
+        Update: HumanReviewUpdate;
+      };
+      ai_prompt_versions: {
+        Row: AiPromptVersionRow;
+        Insert: AiPromptVersionInsert;
+        Update: AiPromptVersionUpdate;
+      };
     };
     Enums: {
       user_plan: UserPlan;
@@ -332,6 +406,7 @@ export interface Database {
       dispute_status: DisputeStatus;
       item_status: ItemStatus;
       listing_platform: ListingPlatform;
+      user_role: UserRole;
     };
   };
 }
