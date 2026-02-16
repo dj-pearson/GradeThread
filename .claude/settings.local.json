@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(node --version:*)",
+      "Bash(npm --version:*)",
+      "Bash(git -C \"C:/Users/dpearson/Documents/GradeThread\" log --oneline --all)",
+      "Bash(npx supabase:*)",
+      "Bash(deno:*)",
+      "Bash(npm create:*)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npx shadcn@latest add button card input label separator avatar badge dropdown-menu sheet dialog toast tabs -y)",
+      "Bash(npx shadcn@latest add:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:*)",
+      "Bash(timeout 10 npx vite:*)"
+    ]
+  }
+}

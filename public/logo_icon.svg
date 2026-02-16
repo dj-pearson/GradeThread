@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@700&amp;display=swap');
+      .icon-bg { fill: #0F3460; }
+      .icon-text { font-family: 'Inter', sans-serif; font-weight: bold; font-size: 48px; fill: #FFFFFF; text-anchor: middle; dominant-baseline: central; }
+      .accent { fill: #E94560; }
+    </style>
+  </defs>
+  <rect width="100" height="100" rx="20" class="icon-bg" />
+  <text x="50" y="50" class="icon-text">G<tspan class="accent">T</tspan></text>
+</svg>

@@ -1,0 +1,16 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read src/main.ts",
+    "start": "deno run --allow-net --allow-env --allow-read src/main.ts"
+  },
+  "imports": {
+    "hono": "https://deno.land/x/hono@v4.3.7/mod.ts",
+    "hono/": "https://deno.land/x/hono@v4.3.7/",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.43.1",
+    "@anthropic-ai/sdk": "https://esm.sh/@anthropic-ai/sdk@0.24.1",
+    "stripe": "https://esm.sh/stripe@15.5.0"
+  },
+  "compilerOptions": {
+    "strict": true
+  }
+}

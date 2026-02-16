@@ -1,0 +1,11 @@
+services:
+  edge-functions:
+    build: .
+    ports:
+      - "8787:8787"
+    env_file:
+      - .env
+    environment:
+      - PORT=8787
+    volumes:
+      - ./src:/app/src
