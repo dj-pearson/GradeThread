@@ -20,7 +20,11 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:github.com)",
       "Bash(node -e:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(jq:*)",
+      "Bash(bash scripts/ralph/ralph.sh:*)",
+      "Bash(bash --version)",
+      "Bash(cygpath:*)"
     ]
   }
 }

@@ -1,0 +1,10 @@
+# Ralph Progress Log
+Started: 2026-02-16
+Branch: ralph/gradethread-build
+---
+
+## Foundation (US-001 through US-021)
+- Status: COMPLETE (pre-built before Ralph)
+- 21 stories covering: Vite scaffold, Tailwind/shadcn, TypeScript types, Supabase client, auth layer, routing, layouts, dashboard shell, all pages, static assets, DB migration, edge functions, CF config
+- Notes: Built manually in initial foundation session. All typecheck and build passing.
+---
