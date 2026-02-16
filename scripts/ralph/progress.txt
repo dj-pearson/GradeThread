@@ -36,3 +36,10 @@ Branch: ralph/gradethread-build
 - Notes: All acceptance criteria were already satisfied by the US-024 implementation which added UserRole enum, UserRow.role field, Row/Insert/Update types for admin_audit_log, human_reviews, and ai_prompt_versions, plus Database interface entries and UserRole enum registration. Verified typecheck and build pass. No code changes needed — only prd.json updates to mark story as passing.
 - Timestamp: 2026-02-16
 ---
+
+## US-026: Image upload utility with Supabase Storage
+- Status: COMPLETE
+- Files changed: src/lib/storage.ts, prd.json, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- Notes: Created storage utility module with three exported functions: uploadSubmissionImage (validates file type/size, uploads to {userId}/{submissionId}/{imageType}_{timestamp}.{ext}), getImageUrl (creates signed URLs with 1hr expiry), deleteSubmissionImage (removes files from bucket). Validates against MIME types (jpeg/png/webp) and 10MB size limit matching the DB bucket config. All errors throw with meaningful messages. Typecheck and build pass clean.
+- Timestamp: 2026-02-16
+---
