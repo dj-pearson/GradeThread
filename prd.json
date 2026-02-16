@@ -1,0 +1,1874 @@
+{
+  "project": "GradeThread",
+  "branchName": "ralph/gradethread-build",
+  "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
+  "userStories": [
+
+    {
+      "id": "US-001",
+      "title": "Vite + React + TypeScript project scaffold",
+      "description": "As a developer, I need the project scaffolded with Vite, React 19, TypeScript, and all core dependencies installed so I have a working development environment. Dependencies: react, react-dom, @supabase/supabase-js, @tanstack/react-query, zustand, react-router-dom, @stripe/stripe-js, @sentry/react, posthog-js, lucide-react. Dev deps: vite, typescript, @vitejs/plugin-react, tailwindcss, @tailwindcss/vite, eslint.",
+      "acceptanceCriteria": [
+        "package.json exists with all listed dependencies",
+        "vite.config.ts configured with React plugin, Tailwind v4 plugin, and @/ path alias",
+        "tsconfig.json, tsconfig.app.json, tsconfig.node.json configured with strict mode and @/ paths",
+        "eslint.config.js configured for TypeScript + React",
+        "npm run dev starts dev server on localhost:5173",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Completed in initial foundation build. Vite 7.3, React 19.2, TypeScript strict mode."
+    },
+
+    {
+      "id": "US-002",
+      "title": "Tailwind v4 + shadcn/ui design system with brand theme",
+      "description": "As a developer, I need Tailwind CSS v4 and shadcn/ui initialized with the GradeThread brand colors applied as CSS custom properties so all UI components reflect the brand identity. Brand colors: Navy #0F3460 (primary), Red #E94560 (accent/destructive), Night #1A1A2E (dark bg/foreground), Soft Gray #F5F5F5 (light bg). Font: Inter (400, 500, 700). shadcn/ui components needed: button, card, input, label, separator, avatar, badge, dropdown-menu, sheet, dialog, sonner, tabs.",
+      "acceptanceCriteria": [
+        "shadcn/ui initialized with New York style, Slate base, CSS variables enabled",
+        "All 12 shadcn components installed and importable",
+        "src/index.css has @theme block with --color-brand-navy, --color-brand-red, --color-brand-night, --color-brand-gray",
+        "CSS custom properties map brand colors to semantic tokens (--primary = navy, --accent = red, etc.)",
+        "Dark mode overrides defined in .dark class",
+        "Inter font loaded via Google Fonts link in index.html",
+        "src/lib/utils.ts exports cn() utility function",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Completed. shadcn toast deprecated in v4, using sonner instead. shadcn v4 requires @import 'tailwindcss' in CSS and path alias in root tsconfig.json."
+    },
+
+    {
+      "id": "US-003",
+      "title": "TypeScript database types for all tables and enums",
+      "description": "As a developer, I need comprehensive TypeScript types for the entire database schema so all Supabase queries are type-safe. Types needed for 7 enums (UserPlan, GarmentType, GarmentCategory, SubmissionStatus, GradeTier, ImageType, DisputeStatus) and 6 tables (users, submissions, submission_images, grade_reports, disputes, api_keys) with Row, Insert, and Update variants for each table. Also need a Database interface matching Supabase's generic type parameter.",
+      "acceptanceCriteria": [
+        "src/types/database.ts exports all 7 enum types as TypeScript union types",
+        "Each table has Row interface (full columns), Insert interface (required + optional), Update type (Partial<Omit<...>>)",
+        "Database interface has public.Tables with all 6 tables and public.Enums with all 7 enums",
+        "Grade scores constrained to number type (1.0-10.0 enforced at DB level)",
+        "Confidence score typed as number (0.0-1.0 enforced at DB level)",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Completed. All types in src/types/database.ts."
+    },
+
+    {
+      "id": "US-004",
+      "title": "Supabase client with PKCE auth flow",
+      "description": "As a developer, I need a typed Supabase client instance configured to connect to our self-hosted Supabase at api.gradethread.com using PKCE auth flow for secure browser-based authentication.",
+      "acceptanceCriteria": [
+        "src/lib/supabase.ts exports typed createClient<Database> instance",
+        "Client reads VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY from env",
+        "Auth configured with flowType: 'pkce', autoRefreshToken, persistSession, detectSessionInUrl",
+        "Throws meaningful error if env vars missing",
+        ".env.example contains VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY placeholders",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-005",
+      "title": "Auth functions: signup, signin, Google OAuth, password reset",
+      "description": "As a developer, I need auth utility functions wrapping Supabase auth methods so pages can call clean functions for signup, signin, Google OAuth, signout, and password reset without directly importing supabase everywhere.",
+      "acceptanceCriteria": [
+        "src/lib/auth.ts exports signUpWithEmail(email, password, fullName)",
+        "signUpWithEmail sends full_name in user_metadata and sets emailRedirectTo to /auth/callback",
+        "signInWithEmail(email, password) wraps signInWithPassword",
+        "signInWithGoogle() wraps signInWithOAuth with Google provider and redirectTo",
+        "signOut() wraps supabase.auth.signOut()",
+        "resetPassword(email) wraps resetPasswordForEmail with redirectTo /auth/reset-password",
+        "updatePassword(newPassword) wraps updateUser",
+        "All functions throw on error for caller to handle",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-006",
+      "title": "Zustand auth store and useAuth hook with session listener",
+      "description": "As a developer, I need a global auth state store (Zustand) and a useAuth hook that initializes the session, listens for auth state changes, and fetches the user profile from the users table so auth state is available throughout the app.",
+      "acceptanceCriteria": [
+        "src/stores/auth-store.ts exports useAuthStore with user, session, profile, isLoading state",
+        "Store has setters for each field and a reset() method",
+        "src/hooks/use-auth.ts exports useAuth() hook",
+        "Hook calls getSession() on mount and subscribes to onAuthStateChange",
+        "On auth change, fetches user profile from public.users table by user ID",
+        "Returns { user, session, profile, isLoading }",
+        "Cleans up subscription on unmount",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-007",
+      "title": "Protected route guard component",
+      "description": "As a user, I should be redirected to /login when trying to access dashboard pages without being authenticated, and see a loading spinner while auth state is being determined.",
+      "acceptanceCriteria": [
+        "src/components/auth/protected-route.tsx exports ProtectedRoute component",
+        "Shows loading spinner while isLoading is true",
+        "Redirects to /login via Navigate if no session",
+        "Renders Outlet if session exists",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-008",
+      "title": "React Router configuration with all routes",
+      "description": "As a developer, I need the full routing structure defined using createBrowserRouter covering public routes, guest-only auth routes, and protected dashboard routes.",
+      "acceptanceCriteria": [
+        "src/routes/index.tsx exports router with createBrowserRouter",
+        "Public: / (landing), /cert/:id (certificate), /auth/callback",
+        "Guest-only (AuthLayout wraps, redirects to /dashboard if logged in): /login, /signup, /auth/reset-password",
+        "Protected (ProtectedRoute wraps, DashboardLayout wraps): /dashboard, /dashboard/submissions, /dashboard/submissions/:id, /dashboard/settings, /dashboard/billing, /dashboard/api-keys",
+        "404 catch-all: * renders NotFoundPage",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-009",
+      "title": "Root, Auth, and Dashboard layouts",
+      "description": "As a user, I need proper page layouts: root layout with toast notifications, auth layout with centered card and logo, and dashboard layout with sidebar navigation and header.",
+      "acceptanceCriteria": [
+        "src/layouts/root-layout.tsx renders Outlet + Toaster (sonner)",
+        "src/layouts/auth-layout.tsx centers content, shows logo, redirects authenticated users to /dashboard",
+        "src/layouts/dashboard-layout.tsx has Sidebar (left), Header (top), scrollable main content area",
+        "Dashboard layout uses flex with h-screen overflow-hidden",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-010",
+      "title": "Dashboard sidebar with nav links and header with user menu",
+      "description": "As a user, I need a sidebar with navigation links (Overview, Submissions, Billing, API Keys, Settings) styled in brand navy with active state, and a header showing my plan badge and avatar dropdown with settings/billing/sign-out options.",
+      "acceptanceCriteria": [
+        "src/components/dashboard/sidebar.tsx renders brand logo + 5 nav links using NavLink",
+        "Active link has white/15 background, inactive has white/70 text with hover effects",
+        "Sidebar background is brand-navy (#0F3460)",
+        "src/components/dashboard/header.tsx shows plan badge + avatar dropdown",
+        "Dropdown has user name, email, settings link, billing link, sign-out action",
+        "Sign-out calls signOut() and navigates to /login",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-011",
+      "title": "Landing page with hero, features, and CTA",
+      "description": "As a visitor, I should see a compelling landing page with navigation header, hero section explaining the product, three feature cards (AI-Powered Grading, Trusted Certificates, Detailed Reports), and call-to-action buttons linking to signup.",
+      "acceptanceCriteria": [
+        "Header with logo, Sign in and Get Started buttons",
+        "Hero with headline 'AI-Powered Clothing Condition Grading', description, and two CTAs",
+        "Features section with 3 icon cards (Zap, Shield, BarChart3 from lucide)",
+        "Footer with copyright",
+        "Brand colors: navy buttons, red accents",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-012",
+      "title": "Login page with email/password and Google OAuth",
+      "description": "As a user, I want to sign in with email/password or Google so I can access my dashboard. The page should show errors via toast notifications and redirect to /dashboard on success.",
+      "acceptanceCriteria": [
+        "Email and password inputs with validation",
+        "Submit button calls signInWithEmail, navigates to /dashboard on success",
+        "Error messages shown via sonner toast",
+        "Forgot password link to /auth/reset-password",
+        "Google sign-in button with Google logo SVG calls signInWithGoogle",
+        "Link to /signup at bottom",
+        "Loading state on submit button",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-013",
+      "title": "Signup page with email confirmation flow",
+      "description": "As a new user, I want to create an account with my name, email, and password, then see a confirmation message telling me to check my email.",
+      "acceptanceCriteria": [
+        "Full name, email, password inputs",
+        "Password minimum 8 characters validation",
+        "Submit calls signUpWithEmail, switches to confirmation view on success",
+        "Confirmation view shows 'Check your email' message with the email address",
+        "Google sign-in alternative button",
+        "Link to /login at bottom",
+        "Error handling via toast",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-014",
+      "title": "Auth callback, password reset, and stub pages",
+      "description": "As a user, I need the auth callback page (handles OAuth redirect), password reset page (request + update forms), and stub pages for submissions, submission detail, settings, billing, API keys, certificate, and 404.",
+      "acceptanceCriteria": [
+        "Auth callback listens for SIGNED_IN event and redirects to /dashboard",
+        "Reset password page detects token/code params to show update form vs request form",
+        "All stub pages render with proper heading and placeholder content",
+        "Certificate page shows certificate ID from URL param",
+        "404 page has 'Go home' button linking to /",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-015",
+      "title": "Dashboard overview with stats cards",
+      "description": "As a user, I want my dashboard to show grades used this month (with progress bar), my current plan, and recent submissions count so I can see my usage at a glance.",
+      "acceptanceCriteria": [
+        "Three stat cards: Grades Used (with progress bar), Current Plan (with price badge), Recent Submissions",
+        "Grades Used shows count / limit with percentage bar",
+        "Plan card shows plan name and monthly price",
+        "Recent Activity section with empty state when no submissions",
+        "Uses useAuth hook to get profile data",
+        "Uses PLANS constant for plan config",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-016",
+      "title": "Static assets, index.html, and Cloudflare Pages config",
+      "description": "As a developer, I need SVG logos in public/, favicon, index.html with meta tags and OG tags, _redirects for SPA routing on CF Pages, _headers with security headers, and wrangler.toml for CF Pages deployment.",
+      "acceptanceCriteria": [
+        "public/ contains logo_primary.svg, logo_white.svg, logo_icon.svg, favicon.svg",
+        "index.html has charset, viewport, title, description, OG tags, Twitter card tags, Inter font link",
+        "public/_redirects has /* /index.html 200",
+        "public/_headers has X-Frame-Options DENY, X-Content-Type-Options nosniff, cache headers for /assets/*",
+        "wrangler.toml configured with name='gradethread' and site.bucket='./dist'",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-017",
+      "title": "App entry point with providers",
+      "description": "As a developer, I need the main.tsx entry point wiring React StrictMode, QueryClientProvider (5min stale time), RouterProvider, and conditional Sentry/PostHog initialization.",
+      "acceptanceCriteria": [
+        "src/main.tsx renders StrictMode > QueryClientProvider > RouterProvider",
+        "QueryClient configured with 5-minute staleTime and retry: 1",
+        "Sentry.init called only if VITE_SENTRY_DSN is set",
+        "PostHog.init called only if VITE_POSTHOG_KEY is set, opts out in dev mode",
+        "Imports @/index.css for styles",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-018",
+      "title": "PRD constants: plans, grade factors, enums",
+      "description": "As a developer, I need all PRD-defined constants exported from a single file: grade labels (1-10 scale), grade tiers, garment types/categories, submission statuses, image types, dispute statuses, subscription plans with features/pricing, grade factors with weights, and Stripe price ID placeholders.",
+      "acceptanceCriteria": [
+        "src/lib/constants.ts exports GRADE_LABELS, GRADE_TIERS, GARMENT_TYPES, GARMENT_CATEGORIES",
+        "SUBMISSION_STATUSES, IMAGE_TYPES, DISPUTE_STATUSES exported",
+        "PLANS object with free/starter/professional/enterprise configs including name, gradesPerMonth, priceMonthly, features array",
+        "GRADE_FACTORS with 5 factors and weights summing to 1.0",
+        "STRIPE_PRICE_IDS with placeholder values",
+        "PlanKey and GradeFactorKey types exported",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-019",
+      "title": "Database migration SQL with full schema",
+      "description": "As a developer, I need the complete database migration SQL ready to apply to Supabase with all enums, tables, indexes, constraints, triggers, RLS policies, and storage bucket.",
+      "acceptanceCriteria": [
+        "supabase/migrations/00001_initial_schema.sql creates 7 enums",
+        "Creates 6 tables: users, submissions, submission_images, grade_reports, disputes, api_keys",
+        "CHECK constraints on grade scores (1.0-10.0) and confidence (0.0-1.0)",
+        "Indexes on all foreign keys, status columns, timestamps",
+        "set_updated_at trigger on users, submissions, disputes",
+        "handle_new_user trigger on auth.users for auto profile creation",
+        "RLS enabled on all tables with user-owns-data policies",
+        "Grade reports with certificates publicly viewable",
+        "Storage bucket 'submission-images' with 10MB limit, jpeg/png/webp only",
+        "Storage RLS policies for user-folder isolation"
+      ],
+      "priority": 19,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-020",
+      "title": "Deno/Hono edge functions service scaffold",
+      "description": "As a developer, I need the edge functions backend service scaffolded with Hono framework, CORS, logging, health check, grading route placeholders, webhook route placeholder, service-role Supabase client, Dockerfile, and docker-compose.",
+      "acceptanceCriteria": [
+        "services/edge-functions/deno.json with Hono, Supabase, Anthropic, Stripe imports",
+        "src/main.ts creates Hono app with CORS (localhost:5173 + gradethread.com), logger, route mounting",
+        "src/routes/health.ts returns { status: 'ok', service, timestamp }",
+        "src/routes/grade.ts has POST /submit and GET /status/:id placeholders",
+        "src/routes/webhooks.ts has POST /stripe placeholder",
+        "src/lib/supabase.ts creates service-role client",
+        "Dockerfile for Deno 1.42",
+        "docker-compose.yml with port 8787 and .env file",
+        ".env.example with all server-side vars"
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-021",
+      "title": "Stripe client initialization",
+      "description": "As a developer, I need the frontend Stripe client configured so payment-related features can load Stripe.js when needed.",
+      "acceptanceCriteria": [
+        "src/lib/stripe.ts exports stripePromise using loadStripe with VITE_STRIPE_PUBLISHABLE_KEY",
+        "Returns null if env var not set (graceful degradation)",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": true,
+      "notes": "Completed."
+    },
+
+    {
+      "id": "US-022",
+      "title": "Database migration: add inventory and financial tracking tables",
+      "description": "As a developer, I need additional database tables and enums to support inventory management, item lifecycle tracking, sales recording, and financial data. This extends the existing schema with new tables for inventory items, listings, sales, and shipping records.",
+      "acceptanceCriteria": [
+        "New enum: item_status ('acquired', 'grading', 'graded', 'listed', 'sold', 'shipped', 'completed', 'returned')",
+        "New enum: listing_platform ('ebay', 'poshmark', 'mercari', 'depop', 'grailed', 'facebook', 'offerup', 'other')",
+        "New table: inventory_items (id, user_id FK, title, brand, garment_type, garment_category, size, color, acquired_price decimal, acquired_date, acquired_source text, condition_notes, status item_status, submission_id FK nullable, grade_report_id FK nullable, created_at, updated_at)",
+        "New table: listings (id, inventory_item_id FK, platform listing_platform, platform_listing_id text nullable, listing_url text nullable, listing_price decimal, listed_at timestamptz, is_active boolean default true, notes text nullable, created_at, updated_at)",
+        "New table: sales (id, inventory_item_id FK, listing_id FK nullable, sale_price decimal, platform_fees decimal default 0, sale_date timestamptz, buyer_username text nullable, buyer_notes text nullable, created_at)",
+        "New table: shipments (id, sale_id FK, carrier text, tracking_number text nullable, shipping_cost decimal, label_cost decimal default 0, ship_date timestamptz nullable, delivery_date timestamptz nullable, weight_oz decimal nullable, created_at, updated_at)",
+        "Indexes on all foreign keys and status columns",
+        "RLS policies: users own their inventory items, listings, sales, and shipments",
+        "set_updated_at triggers on inventory_items, listings, shipments",
+        "Migration file: supabase/migrations/00002_inventory_financial.sql"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-023",
+      "title": "TypeScript types for inventory and financial tables",
+      "description": "As a developer, I need TypeScript types for the new inventory, listings, sales, and shipments tables added in the financial migration, plus the new enums.",
+      "acceptanceCriteria": [
+        "src/types/database.ts updated with ItemStatus and ListingPlatform enum types",
+        "Row, Insert, and Update types for inventory_items, listings, sales, shipments",
+        "Database interface updated with all 4 new tables in public.Tables and new enums in public.Enums",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-024",
+      "title": "Database migration: admin tables and roles",
+      "description": "As a developer, I need database support for admin roles, admin audit logs, AI model tracking, and human review records so the admin panel has proper data backing.",
+      "acceptanceCriteria": [
+        "New enum: user_role ('user', 'reviewer', 'admin', 'super_admin')",
+        "Add role column to users table (user_role default 'user')",
+        "New table: admin_audit_log (id, admin_user_id FK, action text, target_type text, target_id uuid, details jsonb, created_at)",
+        "New table: human_reviews (id, grade_report_id FK, reviewer_id FK users, original_score decimal, adjusted_score decimal nullable, review_notes text, reviewed_at timestamptz default now())",
+        "New table: ai_prompt_versions (id, version_name text, prompt_text text, is_active boolean, accuracy_score decimal nullable, total_grades integer default 0, created_at)",
+        "RLS: admin_audit_log readable by admins only, human_reviews by admins+reviewers, ai_prompt_versions by admins",
+        "Admin RLS policy helper function: is_admin() checks user role in ('admin', 'super_admin')",
+        "Migration file: supabase/migrations/00003_admin_tables.sql",
+        "Typecheck passes after updating database.ts"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-025",
+      "title": "TypeScript types for admin tables",
+      "description": "As a developer, I need TypeScript types for admin audit log, human reviews, AI prompt versions, and the user_role enum.",
+      "acceptanceCriteria": [
+        "UserRole type added to database.ts",
+        "UserRow updated with role: UserRole field",
+        "Row, Insert, Update types for admin_audit_log, human_reviews, ai_prompt_versions",
+        "Database interface updated with new tables and UserRole enum",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-026",
+      "title": "Image upload utility with Supabase Storage",
+      "description": "As a developer, I need utility functions for uploading images to the submission-images storage bucket, generating signed URLs, and validating image files before upload.",
+      "acceptanceCriteria": [
+        "src/lib/storage.ts exports uploadSubmissionImage(userId, submissionId, file, imageType) function",
+        "Uploads to path: {userId}/{submissionId}/{imageType}_{timestamp}.{ext}",
+        "Validates file type (jpeg, png, webp only) and size (max 10MB) before upload",
+        "Returns { storagePath, publicUrl } on success",
+        "Exports getImageUrl(storagePath) for creating signed download URLs",
+        "Exports deleteSubmissionImage(storagePath) for cleanup",
+        "Error handling with meaningful error messages",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-027",
+      "title": "Client-side image compression and validation",
+      "description": "As a developer, I need client-side image processing to validate resolution (min 1200x1200), compress large images to reduce upload time, and normalize orientation using EXIF data before uploading to storage.",
+      "acceptanceCriteria": [
+        "src/lib/image-utils.ts exports validateImage(file) that checks min resolution 1200x1200, max size 10MB, allowed types",
+        "Exports compressImage(file, maxWidth=2400, quality=0.85) using canvas API",
+        "Returns compressed File/Blob with reduced file size",
+        "Handles EXIF orientation correction",
+        "Returns validation errors as user-friendly messages",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-028",
+      "title": "Edge function: JWT auth middleware",
+      "description": "As a developer, I need Hono middleware that validates Supabase JWT tokens from the Authorization header so protected edge function routes can identify the calling user.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/middleware/auth.ts exports authMiddleware",
+        "Extracts Bearer token from Authorization header",
+        "Validates token using Supabase auth.getUser()",
+        "Sets c.set('user', user) and c.set('userId', user.id) on context",
+        "Returns 401 JSON error if no token or invalid token",
+        "Applied to grade and user-specific routes but not health or webhooks"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-029",
+      "title": "Edge function: rate limiting middleware",
+      "description": "As a developer, I need rate limiting on the edge functions API to prevent abuse. Implement a simple in-memory rate limiter per user ID with configurable limits.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/middleware/rate-limit.ts exports rateLimiter(maxRequests, windowMs)",
+        "Tracks requests per user ID (from auth context) in a Map",
+        "Returns 429 Too Many Requests with Retry-After header when limit exceeded",
+        "Cleans up expired entries periodically",
+        "Default: 60 requests per minute for authenticated users",
+        "Applied to grade submission endpoint"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-030",
+      "title": "Photo upload UI component with drag-and-drop",
+      "description": "As a user, I want to upload photos of my garment using drag-and-drop or file picker, with visual guides showing which photo types are needed (front, back, label, detail, defect).",
+      "acceptanceCriteria": [
+        "src/components/submission/photo-upload.tsx component",
+        "Displays upload slots for: front (required), back (required), label (required), detail (required), detail 2 (optional), defect 1-3 (optional)",
+        "Each slot shows expected photo type with icon/text guide",
+        "Supports drag-and-drop and click-to-select",
+        "Shows image preview after upload with remove button",
+        "Validates each image (type, size, resolution) with error display",
+        "Compresses images before returning to parent",
+        "Emits onChange with array of { file, imageType, preview } objects",
+        "Responsive grid layout (2 cols mobile, 4 cols desktop)",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-031",
+      "title": "Submission wizard: step 1 - garment info form",
+      "description": "As a user, I want to enter my garment's details (type, category, brand, title, description) as the first step of the grading submission process.",
+      "acceptanceCriteria": [
+        "src/components/submission/garment-info-form.tsx component",
+        "Garment type dropdown using GARMENT_TYPES constant",
+        "Garment category dropdown using GARMENT_CATEGORIES constant (filtered by selected type where applicable)",
+        "Brand text input (optional)",
+        "Title text input (required, max 100 chars)",
+        "Description textarea (optional, max 500 chars)",
+        "Form validation with error messages",
+        "onSubmit callback passes validated garment info to parent",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-032",
+      "title": "Submission wizard: multi-step container with progress",
+      "description": "As a user, I want a multi-step submission wizard with a progress indicator showing which step I'm on (Garment Info → Photos → Review & Pay) so I know how far along I am.",
+      "acceptanceCriteria": [
+        "src/pages/new-submission.tsx implements 3-step wizard",
+        "Step indicator at top showing current step with completed checkmarks",
+        "Step 1: GarmentInfoForm component",
+        "Step 2: PhotoUpload component",
+        "Step 3: Review & payment (shows summary of garment info + photo thumbnails + price)",
+        "Back/Next navigation between steps",
+        "Form state persists when navigating between steps (Zustand or local state)",
+        "Add /dashboard/submissions/new route to router",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-033",
+      "title": "Submission creation API endpoint",
+      "description": "As a developer, I need the edge function endpoint that creates a submission record, uploads images to storage, creates submission_image records, and returns the submission ID.",
+      "acceptanceCriteria": [
+        "POST /api/grade/submit accepts multipart form data (garment info + image files)",
+        "Validates auth (user must be authenticated)",
+        "Checks user grade usage against plan limit (grades_used_this_month < plan limit)",
+        "Creates submission record with status 'pending'",
+        "Uploads each image to storage bucket under user's folder",
+        "Creates submission_image records for each uploaded image",
+        "Increments grades_used_this_month on user record",
+        "Returns { submissionId, status: 'pending' } with 201 status",
+        "Returns 403 if grade limit exceeded with upgrade message",
+        "Returns 400 with validation errors for invalid input"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-034",
+      "title": "Claude Vision API integration for per-image analysis",
+      "description": "As a developer, I need the edge function module that sends individual garment images to Claude Vision API for per-image analysis, extracting condition signals specific to each image type.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/ai-grading.ts exports analyzeImage(imageUrl, imageType, garmentType)",
+        "Constructs prompt with image type context (e.g., 'front view' vs 'defect close-up')",
+        "System prompt establishes expert clothing condition assessor role",
+        "Includes garment-type-specific scoring criteria",
+        "Requests structured JSON response with: detected_issues[], condition_signals[], estimated_scores per factor",
+        "Handles API errors and timeouts gracefully",
+        "Returns typed PerImageAnalysis result",
+        "Logs API usage (tokens, latency) for monitoring"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-035",
+      "title": "Claude Vision API: composite grading from all images",
+      "description": "As a developer, I need the composite grading function that takes all per-image analyses and produces the final grade with factor scores, overall score, grade tier, confidence, and AI summary.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/ai-grading.ts exports compositeGrade(perImageResults[], garmentInfo)",
+        "Sends all per-image analyses to Claude as structured input",
+        "Prompt includes grading scale definitions with descriptions for each tier",
+        "Applies factor weights: fabric 30%, structural 25%, cosmetic 20%, functional 15%, odor 10%",
+        "Returns structured response: overall_score (1.0-10.0), grade_tier, per-factor scores, ai_summary, defects_found[], confidence_score (0.0-1.0)",
+        "Confidence below 0.75 flags grade for human review",
+        "Validates all scores are within valid ranges before returning",
+        "Uses versioned prompt (references ai_prompt_versions table)"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-036",
+      "title": "Grade calculation and report creation pipeline",
+      "description": "As a developer, I need the orchestration function that runs the full grading pipeline: fetch images → per-image analysis → composite grade → create grade report → update submission status.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/grading-pipeline.ts exports processSubmission(submissionId)",
+        "Fetches submission record and associated images from DB",
+        "Downloads images from storage and converts to base64 for API",
+        "Runs analyzeImage() on each image in parallel",
+        "Runs compositeGrade() with all per-image results",
+        "Creates grade_report record with all scores and AI summary",
+        "Generates unique certificate_id (UUID) for the grade report",
+        "Updates submission status to 'completed' (or 'failed' on error)",
+        "Returns the created grade report",
+        "Wraps entire pipeline in try/catch, sets status to 'failed' with error logged on failure"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-037",
+      "title": "Trigger grading pipeline on submission creation",
+      "description": "As a developer, I need the submission endpoint to trigger the grading pipeline asynchronously after creating the submission, and update the status to 'processing' immediately.",
+      "acceptanceCriteria": [
+        "POST /api/grade/submit sets status to 'processing' after image upload",
+        "Triggers processSubmission() without awaiting (fire-and-forget with error handling)",
+        "GET /api/grade/status/:id returns current submission status and grade report if completed",
+        "Status endpoint returns { id, status, grade_report: {...} | null, created_at, updated_at }",
+        "If submission is 'completed', includes full grade_report in response"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-038",
+      "title": "Submission detail page with grade report display",
+      "description": "As a user, I want to see the full grade report for a completed submission including the overall score with tier label, factor breakdown scores as progress bars, AI summary, detected defects list, and confidence indicator.",
+      "acceptanceCriteria": [
+        "src/pages/submission-detail.tsx fetches submission + grade report from Supabase",
+        "Shows loading skeleton while fetching",
+        "Displays garment info (title, brand, type, category) at top",
+        "Overall score displayed large with grade tier badge (color-coded: green >7, yellow 5-7, red <5)",
+        "Factor breakdown section with 5 labeled progress bars (fabric, structural, cosmetic, functional, odor)",
+        "AI summary displayed in a card with readable text",
+        "Defects list shown as badges or bullet points",
+        "Confidence score shown with indicator (high >0.85, medium 0.75-0.85, low <0.75)",
+        "Image gallery showing submitted photos",
+        "Share certificate button (links to /cert/:certificateId)",
+        "Typecheck passes"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-039",
+      "title": "Submissions list page with filtering and pagination",
+      "description": "As a user, I want to see all my grading submissions in a table/list with filters for status, grade range, garment type, and date, with pagination for large result sets.",
+      "acceptanceCriteria": [
+        "src/pages/submissions.tsx displays submissions in a table or card list",
+        "Columns/fields: title, brand, status badge, grade (if completed), date submitted",
+        "Filter controls: status dropdown, garment type dropdown, date range picker",
+        "Sort by: date (newest first default), grade",
+        "Pagination with 20 items per page, page number display",
+        "Click row navigates to /dashboard/submissions/:id",
+        "Empty state with 'Submit your first garment' CTA",
+        "Loading skeleton while fetching",
+        "Uses TanStack Query for data fetching with pagination",
+        "Typecheck passes"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-040",
+      "title": "Stripe checkout session creation for grade payments",
+      "description": "As a developer, I need the edge function endpoint that creates Stripe Checkout sessions for grade submissions so users on free/exceeded plans can pay per-grade.",
+      "acceptanceCriteria": [
+        "POST /api/payments/checkout-session creates Stripe Checkout Session",
+        "Accepts { submissionId, tier } (standard $2.99, premium $7.99, express $12.99)",
+        "Sets metadata with submission_id and user_id for webhook processing",
+        "Success URL redirects to /dashboard/submissions/:id",
+        "Cancel URL redirects to /dashboard/submissions",
+        "Returns { sessionId, url } for frontend redirect",
+        "Validates user owns the submission"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-041",
+      "title": "Stripe webhook handling for payment events",
+      "description": "As a developer, I need the Stripe webhook endpoint to handle checkout completion, subscription changes, and payment failures so billing state stays in sync.",
+      "acceptanceCriteria": [
+        "POST /api/webhooks/stripe verifies webhook signature using STRIPE_WEBHOOK_SECRET",
+        "Handles checkout.session.completed: marks submission as paid, triggers grading pipeline",
+        "Handles customer.subscription.created/updated: updates user plan and stripe_customer_id",
+        "Handles customer.subscription.deleted: downgrades user to free plan",
+        "Handles invoice.payment_failed: logs event, sends notification (future)",
+        "Returns 200 for all handled events, 400 for signature verification failure",
+        "Logs all events for debugging"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-042",
+      "title": "Subscription management page (billing)",
+      "description": "As a user, I want to see my current plan, compare plans, and upgrade/downgrade my subscription through Stripe Checkout or Billing Portal.",
+      "acceptanceCriteria": [
+        "src/pages/billing.tsx shows current plan with feature list",
+        "Displays all plans (free, starter $29/mo, professional $99/mo, enterprise) in a comparison grid",
+        "Current plan highlighted, upgrade buttons on higher plans",
+        "Upgrade button creates Stripe Checkout session for the selected plan",
+        "Manage Subscription button opens Stripe Customer Portal for existing subscribers",
+        "Usage display: grades used this month / limit",
+        "Grade reset date shown",
+        "Typecheck passes"
+      ],
+      "priority": 42,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-043",
+      "title": "Grade certificate public page",
+      "description": "As a buyer or viewer, I want to see a grade certificate at /cert/:id that shows the grade, garment photos, factor breakdown, and QR code for verification without requiring login.",
+      "acceptanceCriteria": [
+        "src/pages/certificate.tsx fetches grade report by certificate_id (public access via RLS policy)",
+        "Shows GradeThread branding with logo and 'Verified Grade Certificate' header",
+        "Displays overall score prominently with grade tier label and color",
+        "Shows garment photos in a gallery/carousel",
+        "Factor breakdown as horizontal bars with scores",
+        "AI summary section",
+        "Graded date and model version",
+        "QR code linking back to the same certificate URL",
+        "Open Graph meta tags for social sharing (title, description, image)",
+        "Mobile-responsive layout",
+        "Loading state and 'Certificate not found' error state",
+        "Typecheck passes"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": "Needs a QR code library. Consider qrcode.react or similar."
+    },
+
+    {
+      "id": "US-044",
+      "title": "Dashboard overview: live data integration",
+      "description": "As a user, I want my dashboard overview to show real data fetched from Supabase: actual grades used count, recent submissions list, and grade distribution mini-chart.",
+      "acceptanceCriteria": [
+        "Dashboard overview fetches real submission count from Supabase",
+        "Recent Submissions card shows last 5 submissions with title, status badge, grade, date",
+        "Click on a recent submission navigates to detail page",
+        "Grades Used card pulls live grades_used_this_month from user profile",
+        "Add a 'New Submission' CTA button linking to /dashboard/submissions/new",
+        "Uses TanStack Query for data fetching with auto-refetch",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-045",
+      "title": "Grade analytics charts on dashboard",
+      "description": "As a user, I want to see analytics charts on my dashboard: grade distribution histogram, average grade over time line chart, and submissions by garment type pie chart.",
+      "acceptanceCriteria": [
+        "Install recharts or a lightweight chart library",
+        "src/components/dashboard/grade-charts.tsx component",
+        "Grade distribution histogram showing count of grades in each tier bucket",
+        "Average grade over time line chart (last 30 days, weekly points)",
+        "Submissions by garment type breakdown (pie or bar chart)",
+        "Charts render with empty state message when insufficient data",
+        "Charts are responsive and resize properly",
+        "Typecheck passes"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-046",
+      "title": "Export submissions as CSV",
+      "description": "As a user, I want to export my grading history as a CSV file for inventory management and record keeping.",
+      "acceptanceCriteria": [
+        "Export button on submissions page",
+        "CSV includes: submission date, title, brand, garment type, category, status, overall grade, grade tier, factor scores, certificate URL",
+        "Fetches all user submissions (not just current page)",
+        "Generates CSV client-side and triggers browser download",
+        "File named gradethread_export_{date}.csv",
+        "Typecheck passes"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-047",
+      "title": "Settings page: profile editing",
+      "description": "As a user, I want to edit my profile name and avatar on the settings page.",
+      "acceptanceCriteria": [
+        "src/pages/settings.tsx has editable full name input",
+        "Avatar upload with preview (stores in Supabase storage)",
+        "Save button updates user profile via Supabase .update()",
+        "Success/error toast notifications",
+        "Password change section (for email/password users): current password, new password, confirm",
+        "Email display (read-only)",
+        "Typecheck passes"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-048",
+      "title": "Inventory management: items list page",
+      "description": "As a reseller, I want to see all my inventory items in a list with their status, acquired price, grade, and listing status so I can manage my inventory at a glance.",
+      "acceptanceCriteria": [
+        "Add /dashboard/inventory route to router and sidebar nav link (Package icon)",
+        "src/pages/inventory.tsx displays inventory items in a table",
+        "Columns: title, brand, status badge (acquired/graded/listed/sold/shipped/completed), grade, acquired price, listed price, days in inventory",
+        "Filter by status, garment type, brand",
+        "Sort by date acquired, price, status",
+        "Pagination with 25 items per page",
+        "Add Item button opens creation form",
+        "Click row navigates to /dashboard/inventory/:id",
+        "Uses TanStack Query",
+        "Typecheck passes"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-049",
+      "title": "Inventory management: add item form",
+      "description": "As a reseller, I want to add a new inventory item with acquisition details so I can track my costs from the moment I acquire a garment.",
+      "acceptanceCriteria": [
+        "src/pages/inventory-add.tsx or modal form",
+        "Fields: title (required), brand, garment type, garment category, size, color",
+        "Acquisition details: acquired price (required, currency input), acquired date (default today), source (thrift store, auction, wholesale, etc.)",
+        "Condition notes textarea",
+        "Creates inventory_items record with status 'acquired'",
+        "Option to immediately submit for grading (navigates to new submission with item linked)",
+        "Success navigates to item detail page",
+        "Route: /dashboard/inventory/new",
+        "Typecheck passes"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-050",
+      "title": "Inventory item detail page with lifecycle timeline",
+      "description": "As a reseller, I want to see a single inventory item's complete lifecycle: acquisition → grading → listing → sale → shipment → completed, with all associated data.",
+      "acceptanceCriteria": [
+        "src/pages/inventory-detail.tsx fetches item with related listings, sales, shipments",
+        "Header: title, brand, status badge, garment type/category",
+        "Lifecycle timeline component showing each status change with date and details",
+        "Acquisition card: price, date, source",
+        "Grading card: link to grade report if graded, or 'Submit for Grading' button if not",
+        "Listings section: active/past listings with platform, price, date, link",
+        "Sale card: sale price, platform fees, date, buyer (if sold)",
+        "Shipment card: carrier, tracking, cost, dates (if shipped)",
+        "Profit/loss summary at bottom: sale price - acquired price - grading cost - shipping cost - platform fees = net profit",
+        "Edit/update item status actions",
+        "Typecheck passes"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-051",
+      "title": "Inventory: add listing to item",
+      "description": "As a reseller, I want to add a marketplace listing to an inventory item, recording which platform, listing price, and listing URL so I can track where items are listed.",
+      "acceptanceCriteria": [
+        "Add Listing button/dialog on inventory detail page",
+        "Platform dropdown (eBay, Poshmark, Mercari, Depop, Grailed, Facebook Marketplace, OfferUp, Other)",
+        "Listing price input (currency)",
+        "Listing URL input (optional)",
+        "Platform listing ID input (optional, for API integrations later)",
+        "Creates listing record linked to inventory item",
+        "Updates item status to 'listed' if currently 'graded' or 'acquired'",
+        "Multiple listings allowed per item (cross-listed)",
+        "Active/inactive toggle on each listing",
+        "Typecheck passes"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-052",
+      "title": "Inventory: record sale",
+      "description": "As a reseller, I want to record a sale for an inventory item including sale price, platform fees, buyer info, and which listing sold so I can track revenue.",
+      "acceptanceCriteria": [
+        "Record Sale button/dialog on inventory detail page",
+        "Links to a listing (dropdown of active listings for this item) or manual entry",
+        "Sale price input (required, currency)",
+        "Platform fees input (currency, default 0)",
+        "Sale date (default today)",
+        "Buyer username (optional)",
+        "Creates sale record linked to inventory item and listing",
+        "Marks linked listing as inactive",
+        "Marks all other listings for this item as inactive (cross-listing cleanup)",
+        "Updates item status to 'sold'",
+        "Typecheck passes"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-053",
+      "title": "Inventory: record shipment",
+      "description": "As a reseller, I want to record shipping details for a sold item including carrier, tracking number, shipping cost, and weight so I have complete cost tracking.",
+      "acceptanceCriteria": [
+        "Record Shipment button/dialog on inventory detail page (visible when status is 'sold')",
+        "Carrier dropdown (USPS, UPS, FedEx, DHL, Other)",
+        "Tracking number input (optional)",
+        "Shipping cost input (required, currency)",
+        "Label cost input (currency, default 0 for pre-paid labels)",
+        "Ship date (default today)",
+        "Weight in oz (optional)",
+        "Creates shipment record linked to sale",
+        "Updates item status to 'shipped'",
+        "Mark as Delivered button updates delivery_date and status to 'completed'",
+        "Typecheck passes"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-054",
+      "title": "Financial dashboard overview",
+      "description": "As a reseller, I want a financial overview page showing total revenue, total costs, net profit, profit margins, and key metrics for the current month and all time.",
+      "acceptanceCriteria": [
+        "Add /dashboard/finances route and sidebar nav link (DollarSign icon)",
+        "src/pages/finances.tsx with summary cards at top",
+        "Cards: Total Revenue (sum of sale prices), Total Costs (acquisition + shipping + platform fees + grading), Net Profit, Profit Margin %",
+        "Period toggle: This Month | Last 30 Days | This Quarter | This Year | All Time",
+        "Items Sold count, Average Profit per Item, Average Days to Sell",
+        "Inventory Value card (sum of acquired_price for unsold items)",
+        "All calculations from Supabase queries against inventory/sales/shipments tables",
+        "Loading skeletons while fetching",
+        "Typecheck passes"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-055",
+      "title": "Financial reporting: profit/loss per item",
+      "description": "As a reseller, I want to see a detailed profit/loss breakdown for each sold item showing all cost components and net profit.",
+      "acceptanceCriteria": [
+        "src/components/finances/profit-table.tsx component used on finances page",
+        "Table with columns: Item Title, Brand, Acquired Price, Grading Cost, Listed Price, Sale Price, Platform Fees, Shipping Cost, Net Profit, Profit Margin %",
+        "Sortable by any column",
+        "Filter by date range, profit (positive/negative), brand, category",
+        "Color coding: green for profit, red for loss",
+        "Totals row at bottom",
+        "Typecheck passes"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-056",
+      "title": "Financial reporting: revenue and profit charts",
+      "description": "As a reseller, I want visual charts showing revenue over time, profit trends, cost breakdown, and top performing categories/brands.",
+      "acceptanceCriteria": [
+        "Revenue over time line chart (daily/weekly/monthly granularity toggle)",
+        "Profit over time line chart overlaid or separate",
+        "Cost breakdown pie chart (acquisition costs, shipping, platform fees, grading fees)",
+        "Top 5 brands by profit bar chart",
+        "Top 5 categories by profit bar chart",
+        "Charts respond to date range filter from financial dashboard",
+        "Typecheck passes"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-057",
+      "title": "Financial reporting: cash flow timeline",
+      "description": "As a reseller, I want a cash flow timeline showing money out (acquisitions, shipping) and money in (sales) chronologically so I can understand my cash position.",
+      "acceptanceCriteria": [
+        "src/components/finances/cash-flow.tsx component",
+        "Timeline chart showing outflows (red/negative) and inflows (green/positive) by date",
+        "Running balance line showing cumulative cash position",
+        "Hover tooltips showing transaction details",
+        "Table view alternative showing all transactions chronologically",
+        "Transactions include: item acquisitions (out), grading fees (out), shipping costs (out), sales revenue (in)",
+        "Typecheck passes"
+      ],
+      "priority": 57,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-058",
+      "title": "Financial reporting: tax-ready export",
+      "description": "As a reseller, I want to export my financial data as CSV or PDF for tax preparation purposes with proper categorization of income and expenses.",
+      "acceptanceCriteria": [
+        "Export button on finances page with CSV and PDF options",
+        "CSV includes all transactions with: date, type (income/expense), category (sale/acquisition/shipping/fee/grading), amount, item title, platform",
+        "Summary section at top with totals: gross revenue, total expenses by category, net profit",
+        "Date range selector for export period (default: current tax year)",
+        "PDF format includes summary table and transaction list",
+        "File named gradethread_financial_report_{startDate}_{endDate}.csv",
+        "Typecheck passes"
+      ],
+      "priority": 58,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-059",
+      "title": "Analytics: time-on-market tracking",
+      "description": "As a reseller, I want to see how long each item has been listed (days on market) and aggregate statistics for average time to sell by category and brand.",
+      "acceptanceCriteria": [
+        "Inventory list shows 'Days Listed' column (calculated from first listing date to sale date or today)",
+        "Analytics section on finances page: Average Days to Sell overall, by garment type, by brand",
+        "Items listed over 30 days highlighted in yellow, over 60 days in red",
+        "Chart showing distribution of time-to-sell",
+        "Slow-moving inventory section listing items over 30 days without sale",
+        "Typecheck passes"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-060",
+      "title": "Analytics: price suggestion engine",
+      "description": "As a reseller, I want price suggestions for my listed items based on their grade, brand, category, and how long they've been listed so I can optimize pricing.",
+      "acceptanceCriteria": [
+        "src/lib/price-suggestions.ts exports calculateSuggestedPrice(item, grade, listings, salesHistory)",
+        "Algorithm considers: grade tier, brand, category, average sale price for similar items, days on market",
+        "Items listed > 14 days: suggest 5-10% reduction",
+        "Items listed > 30 days: suggest 10-20% reduction",
+        "Items listed > 60 days: suggest 20-30% reduction or auction",
+        "Suggestion displayed on inventory detail page as a callout card",
+        "Suggestions page showing all items with pricing recommendations",
+        "Route: /dashboard/analytics/suggestions",
+        "Typecheck passes"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": "Initial version uses simple rules. Future: ML-based pricing model."
+    },
+
+    {
+      "id": "US-061",
+      "title": "Analytics: listing optimization suggestions",
+      "description": "As a reseller, I want suggestions to improve my listings based on grade data, such as adding missing photos, adjusting descriptions, or cross-listing on more platforms.",
+      "acceptanceCriteria": [
+        "src/components/analytics/listing-suggestions.tsx component",
+        "Suggestions include: 'Add to more platforms' if only listed on 1, 'Consider price adjustment' based on time listed, 'Re-grade with more photos' if grade confidence is low",
+        "Each suggestion has an action button (navigate to relevant page or open dialog)",
+        "Displayed on dashboard overview and inventory detail pages",
+        "Dismissible suggestions (stored in localStorage)",
+        "Typecheck passes"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-062",
+      "title": "Dispute submission form and tracking",
+      "description": "As a user, I want to dispute a grade I disagree with by providing a reason and optional additional photos, and track the dispute status.",
+      "acceptanceCriteria": [
+        "Dispute button on submission detail page (visible for completed grades within 7 days)",
+        "Dispute dialog: reason textarea (required, min 20 chars), optional photo upload for additional evidence",
+        "Creates dispute record with status 'open' linked to grade_report and user",
+        "Dispute status shown on submission detail page",
+        "Disputes list section on settings or submissions page showing all user disputes with status",
+        "Status flow: open → under_review → resolved/rejected",
+        "Typecheck passes"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-063",
+      "title": "API key management page",
+      "description": "As a developer/power user on a Professional or Enterprise plan, I want to create, view, and revoke API keys for programmatic access to the GradeThread grading API.",
+      "acceptanceCriteria": [
+        "src/pages/api-keys.tsx shows list of user's API keys",
+        "Each key shows: name, key prefix (gt_sk_xxx...), created date, last used date, expiration",
+        "Create Key button opens dialog: name input, optional expiration date",
+        "Key generated server-side (edge function), hashed for storage, full key shown ONCE to user",
+        "Copy-to-clipboard button for new key",
+        "Revoke/delete button with confirmation dialog",
+        "Gate behind Professional/Enterprise plan check (show upgrade prompt for Free/Starter)",
+        "Typecheck passes"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-064",
+      "title": "Edge function: API key generation and validation",
+      "description": "As a developer, I need edge function endpoints for creating API keys (with secure random generation and hashing) and validating API keys on incoming requests.",
+      "acceptanceCriteria": [
+        "POST /api/keys creates new API key: generates random 32-byte key, hashes with SHA-256 for storage, stores prefix (first 8 chars) for identification",
+        "Returns full key only once in response",
+        "services/edge-functions/src/middleware/api-key-auth.ts validates API key from X-API-Key header",
+        "Looks up key by hashing request key and matching against key_hash",
+        "Updates last_used_at on successful validation",
+        "Checks key is not expired",
+        "Sets user context from key's user_id",
+        "DELETE /api/keys/:id revokes a key"
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-065",
+      "title": "Public REST API: grade submission and retrieval",
+      "description": "As an API consumer, I want REST endpoints to submit garments for grading and retrieve grade reports programmatically using my API key.",
+      "acceptanceCriteria": [
+        "POST /api/v1/grades accepts JSON body with garment info + image URLs or base64 images",
+        "Authenticates via X-API-Key header using api-key-auth middleware",
+        "Checks rate limit per API key (configurable, default 100 req/min)",
+        "Returns { id, status: 'processing' } with 202 status",
+        "GET /api/v1/grades/:id returns full grade report with all scores",
+        "GET /api/v1/grades lists user's grades with pagination (?page=1&limit=20)",
+        "All responses follow consistent JSON structure: { data, error, meta }",
+        "API versioned under /api/v1/"
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-066",
+      "title": "Webhook delivery system for grade completion",
+      "description": "As an API consumer, I want to register a webhook URL and receive POST notifications when a grade is completed so I don't have to poll the status endpoint.",
+      "acceptanceCriteria": [
+        "Database: add webhook_url column to api_keys table (nullable text)",
+        "When grade completes, check if user's API key has webhook_url configured",
+        "POST grade report JSON to webhook URL with HMAC signature in X-GradeThread-Signature header",
+        "Retry failed deliveries 3 times with exponential backoff (5s, 30s, 120s)",
+        "Log delivery attempts and responses",
+        "API endpoint PATCH /api/v1/webhook to set/update webhook URL"
+      ],
+      "priority": 66,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-067",
+      "title": "Admin layout and role-based access control",
+      "description": "As a developer, I need an admin layout with its own navigation and a role check that restricts admin pages to users with admin or super_admin roles.",
+      "acceptanceCriteria": [
+        "src/layouts/admin-layout.tsx with admin sidebar nav (Users, Submissions, Reviews, AI Models, System)",
+        "Admin sidebar uses different brand treatment (darker bg or accent color)",
+        "src/components/auth/admin-route.tsx guards admin routes, checks profile.role in ('admin', 'super_admin')",
+        "Redirects non-admins to /dashboard with toast 'Access denied'",
+        "Add /admin/* routes to router wrapped in AdminRoute guard",
+        "Admin link in dashboard header dropdown (only visible for admin users)",
+        "Typecheck passes"
+      ],
+      "priority": 67,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-068",
+      "title": "Admin dashboard with KPI overview",
+      "description": "As an admin, I want a dashboard showing key platform metrics: total users, submissions today/this week/month, revenue, grade accuracy, dispute rate, and active subscriptions.",
+      "acceptanceCriteria": [
+        "src/pages/admin/dashboard.tsx at /admin route",
+        "KPI cards: Total Users, Active Subscribers, Submissions Today, Revenue This Month",
+        "Secondary cards: Average Grade, Dispute Rate %, AI Accuracy %, Pending Reviews count",
+        "Submission volume line chart (last 30 days)",
+        "Revenue line chart (last 30 days)",
+        "New users line chart (last 30 days)",
+        "All data fetched from Supabase using service-role or admin-specific queries",
+        "Auto-refreshes every 60 seconds",
+        "Typecheck passes"
+      ],
+      "priority": 68,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-069",
+      "title": "Admin: user management list and detail",
+      "description": "As an admin, I want to view all users with search/filter, see user details, and perform actions like plan changes, suspension, and role assignment.",
+      "acceptanceCriteria": [
+        "src/pages/admin/users.tsx at /admin/users",
+        "User table: name, email, plan, role, grades used, signup date, last active",
+        "Search by name or email",
+        "Filter by plan, role, signup date range",
+        "Click row opens /admin/users/:id detail page",
+        "Detail page shows: profile info, subscription history, submission history, usage stats",
+        "Admin actions: change plan (dropdown), change role (dropdown), suspend/unsuspend toggle",
+        "All admin actions create admin_audit_log entries",
+        "Confirmation dialogs for destructive actions",
+        "Typecheck passes"
+      ],
+      "priority": 69,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-070",
+      "title": "Admin: submission queue and monitoring",
+      "description": "As an admin, I want to see all submissions across all users with their processing status, and be able to view details, re-trigger grading, or manually override status.",
+      "acceptanceCriteria": [
+        "src/pages/admin/submissions.tsx at /admin/submissions",
+        "Table: title, user email, status, grade (if completed), confidence, date, processing time",
+        "Filter by status (pending, processing, completed, failed), confidence level, date",
+        "Sort by date, confidence, processing time",
+        "Click opens submission detail with full grade report",
+        "Admin actions: re-trigger grading, mark as failed, view AI raw analysis",
+        "Failed submissions section with error details",
+        "Processing time SLA indicator (highlight overdue items)",
+        "Typecheck passes"
+      ],
+      "priority": 70,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-071",
+      "title": "Admin: human review queue",
+      "description": "As a reviewer/admin, I want a queue of grades flagged for human review (low confidence <0.75 or premium/express tier) where I can review the AI grade, adjust scores, and approve.",
+      "acceptanceCriteria": [
+        "src/pages/admin/reviews.tsx at /admin/reviews",
+        "Queue shows: submission title, garment type, AI overall score, confidence, tier, waiting time",
+        "Filter by: unreviewed only, confidence range, grade tier (standard/premium/express)",
+        "Sort by: waiting time (oldest first), confidence (lowest first)",
+        "Review view shows: submitted photos, AI analysis per image, AI composite scores, AI summary",
+        "Reviewer can: approve AI grade as-is, adjust any factor score with notes, reject and re-grade",
+        "Score adjustments > 1.5 points require super_admin approval (visual warning)",
+        "Creates human_reviews record with original and adjusted scores",
+        "Updates grade_report with adjusted scores if changed",
+        "Typecheck passes"
+      ],
+      "priority": 71,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-072",
+      "title": "Admin: dispute management",
+      "description": "As an admin, I want to manage grade disputes: view dispute queue, review original grade vs user complaint, and resolve or reject disputes with notes.",
+      "acceptanceCriteria": [
+        "src/pages/admin/disputes.tsx at /admin/disputes",
+        "Dispute queue: user, submission title, dispute reason, status, created date",
+        "Filter by status (open, under_review, resolved, rejected)",
+        "Dispute detail view: original grade report, user's dispute reason, user's additional photos",
+        "Admin actions: mark as under_review, resolve (with resolution notes, optional grade adjustment), reject (with reason)",
+        "Grade adjustment creates new human_review record",
+        "Updates submission status to 'completed' after dispute resolution",
+        "Email notification to user on resolution (future)",
+        "Typecheck passes"
+      ],
+      "priority": 72,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-073",
+      "title": "Admin: AI model management and prompt versioning",
+      "description": "As an admin, I want to manage AI prompt versions, see accuracy metrics per version, and activate/deactivate prompts so I can iteratively improve grading quality.",
+      "acceptanceCriteria": [
+        "src/pages/admin/ai-models.tsx at /admin/ai-models",
+        "List of prompt versions: name, is_active, accuracy score, total grades processed, created date",
+        "Create new prompt version: name, prompt text (large textarea with markdown preview)",
+        "Activate/deactivate prompt (only one active at a time for production)",
+        "Accuracy score calculated from human review adjustments (grades where human agreed = accurate)",
+        "Chart: accuracy trend over time per prompt version",
+        "Side-by-side comparison of two prompt versions",
+        "Test prompt button: run grading on a sample submission with selected prompt (dry run)",
+        "Typecheck passes"
+      ],
+      "priority": 73,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-074",
+      "title": "Admin: system health and traffic monitoring",
+      "description": "As an admin, I want to monitor system health including API response times, error rates, queue depths, and traffic patterns to proactively identify issues.",
+      "acceptanceCriteria": [
+        "src/pages/admin/system.tsx at /admin/system",
+        "Health indicators: API uptime (edge functions), database connection, storage availability",
+        "Traffic charts: requests per hour (last 24h), unique users per day (last 30d)",
+        "Error rate chart: failed grading rate, API error rate",
+        "Queue metrics: pending submissions count, average processing time, current processing count",
+        "Storage usage: total images stored, storage size",
+        "Subscription metrics: MRR, churn rate, plan distribution pie chart",
+        "Auto-refresh every 30 seconds",
+        "Typecheck passes"
+      ],
+      "priority": 74,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-075",
+      "title": "Admin: AI accuracy feedback loop",
+      "description": "As an admin, I want the system to track AI grading accuracy over time using human review data and dispute outcomes as ground truth, feeding this data back to improve prompts.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/accuracy-tracking.ts module",
+        "After each human review, calculate accuracy: |AI_score - human_score| for each factor",
+        "Aggregate accuracy metrics per prompt version: mean absolute error, agreement rate (within 0.5 points), correlation coefficient",
+        "Dashboard chart on AI Models page showing accuracy trend",
+        "Export training dataset: all human-reviewed grades with AI analysis + human adjustments as JSONL",
+        "Weekly accuracy summary calculation (background job or on-demand)",
+        "Alert when accuracy drops below threshold (configurable, default 80%)"
+      ],
+      "priority": 75,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-076",
+      "title": "Email notification system",
+      "description": "As a user, I want to receive email notifications when my grade is complete, when a dispute is resolved, and for account-related events.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/email.ts email sending utility using Resend or SMTP",
+        "Email templates: grade_complete (overall score, tier, link to report), dispute_resolved (outcome, notes), welcome (getting started guide)",
+        "Trigger grade_complete email after grading pipeline completes",
+        "Trigger dispute_resolved email after admin resolves dispute",
+        "Trigger welcome email after signup (via handle_new_user trigger or webhook)",
+        "All emails use GradeThread branding (navy header, logo, red CTA buttons)",
+        "Unsubscribe link in all marketing emails"
+      ],
+      "priority": 76,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-077",
+      "title": "In-app notification center",
+      "description": "As a user, I want an in-app notification bell in the dashboard header showing unread notifications for grade completions, dispute updates, and system messages.",
+      "acceptanceCriteria": [
+        "Database: notifications table (id, user_id, type, title, message, link, is_read, created_at)",
+        "Bell icon in header with unread count badge",
+        "Click opens dropdown/sheet showing last 20 notifications",
+        "Each notification: icon by type, title, time ago, click navigates to relevant page",
+        "Mark as read on click, mark all read button",
+        "Notifications created automatically by grade completion and dispute resolution events",
+        "Typecheck passes"
+      ],
+      "priority": 77,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-078",
+      "title": "Dark mode toggle and persistence",
+      "description": "As a user, I want to toggle between light and dark mode, with my preference saved and applied on next visit.",
+      "acceptanceCriteria": [
+        "Theme toggle button in header (Sun/Moon icons)",
+        "Toggles .dark class on document.documentElement",
+        "Saves preference to localStorage",
+        "On load, checks localStorage then prefers-color-scheme media query",
+        "All pages render correctly in dark mode (verify brand colors work in both modes)",
+        "src/hooks/use-theme.ts hook encapsulating theme logic",
+        "Typecheck passes"
+      ],
+      "priority": 78,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-079",
+      "title": "Mobile responsive sidebar (sheet/drawer)",
+      "description": "As a mobile user, I want the dashboard sidebar to collapse into a hamburger menu that opens as a slide-out sheet, since the fixed sidebar doesn't work on small screens.",
+      "acceptanceCriteria": [
+        "Sidebar hidden on mobile (md:hidden already in place)",
+        "Hamburger menu button in header on mobile (visible below md breakpoint)",
+        "Click opens Sheet component from shadcn/ui with same nav links as sidebar",
+        "Sheet closes on navigation (link click)",
+        "Sheet has logo at top matching sidebar",
+        "Dashboard layout adjusts: on mobile, full-width main content area",
+        "Typecheck passes"
+      ],
+      "priority": 79,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-080",
+      "title": "Loading states and skeleton screens",
+      "description": "As a user, I want to see skeleton loading placeholders instead of blank screens while data is being fetched on dashboard, submissions, and inventory pages.",
+      "acceptanceCriteria": [
+        "src/components/ui/skeleton.tsx component (add via shadcn if not already installed)",
+        "Dashboard overview: skeleton cards matching stat card layout",
+        "Submissions list: skeleton table rows",
+        "Inventory list: skeleton table rows",
+        "Submission detail: skeleton for grade report layout",
+        "Inventory detail: skeleton for lifecycle timeline",
+        "All pages using TanStack Query show skeletons during isLoading state",
+        "Typecheck passes"
+      ],
+      "priority": 80,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-081",
+      "title": "Error boundary and fallback UI",
+      "description": "As a user, I want a graceful error page shown if something crashes in the app, instead of a blank white screen, with an option to reload or go home.",
+      "acceptanceCriteria": [
+        "src/components/error-boundary.tsx implements React error boundary",
+        "Fallback UI shows GradeThread branding, 'Something went wrong' message",
+        "Reload button and Go Home button",
+        "Reports error to Sentry if configured",
+        "Wraps router in error boundary in main.tsx",
+        "Individual route error boundaries via React Router errorElement",
+        "Typecheck passes"
+      ],
+      "priority": 81,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-082",
+      "title": "Performance: code splitting and lazy loading",
+      "description": "As a developer, I need route-based code splitting using React.lazy and Suspense so the initial bundle is smaller and pages load on demand.",
+      "acceptanceCriteria": [
+        "All page components loaded via React.lazy() in routes/index.tsx",
+        "Suspense wrapper with loading spinner fallback",
+        "Admin pages in a separate chunk (not loaded for regular users)",
+        "Verify with npm run build that output has multiple JS chunks instead of one large bundle",
+        "Main chunk under 300KB gzipped",
+        "Typecheck passes"
+      ],
+      "priority": 82,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-083",
+      "title": "Bulk submission upload",
+      "description": "As a power seller, I want to upload multiple garments at once via a CSV file with garment info and a ZIP of photos, so I can grade large batches efficiently.",
+      "acceptanceCriteria": [
+        "Add /dashboard/submissions/bulk route",
+        "CSV upload component: parses CSV with columns (title, brand, garment_type, category, photo_filenames)",
+        "ZIP upload component: accepts ZIP containing image files",
+        "Preview table showing parsed items before submission",
+        "Validates CSV format and matches photo filenames to ZIP contents",
+        "Creates multiple submissions in sequence with progress bar",
+        "Gate behind Professional/Enterprise plan",
+        "Error handling: skips invalid rows, shows error summary at end",
+        "Typecheck passes"
+      ],
+      "priority": 83,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-084",
+      "title": "Inventory ROI analytics",
+      "description": "As a reseller, I want to see ROI (return on investment) analytics showing which brands, categories, and acquisition sources yield the best profit margins.",
+      "acceptanceCriteria": [
+        "ROI section on finances page",
+        "ROI by brand: table showing brand, items sold, avg ROI %, total profit",
+        "ROI by category: same breakdown by garment category",
+        "ROI by acquisition source: which sourcing channels are most profitable",
+        "Best performing items: top 10 by ROI percentage",
+        "Worst performing items: bottom 10 (losses)",
+        "Charts for visual comparison",
+        "Typecheck passes"
+      ],
+      "priority": 84,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-085",
+      "title": "Inventory value and aging report",
+      "description": "As a reseller, I want to see the total value of my unsold inventory, broken down by age brackets, to understand my capital tied up in unsold goods.",
+      "acceptanceCriteria": [
+        "Inventory value card on finances dashboard: total cost basis of unsold items",
+        "Age brackets: 0-14 days, 15-30 days, 31-60 days, 60+ days",
+        "Each bracket shows: item count, total value, percentage of total",
+        "Bar chart visualization of inventory aging",
+        "Items in 60+ day bracket flagged with 'Consider repricing' suggestion",
+        "Typecheck passes"
+      ],
+      "priority": 85,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-086",
+      "title": "Grade-to-price correlation analysis",
+      "description": "As a reseller, I want to see how grades correlate to sale prices so I can better predict pricing based on condition grades.",
+      "acceptanceCriteria": [
+        "Scatter plot chart: grade (x-axis) vs sale price (y-axis) for all sold items",
+        "Trendline showing price/grade relationship",
+        "Breakdown by category showing average sale price per grade tier",
+        "Table: grade tier, avg sale price, avg profit, item count",
+        "Insight text: 'Items graded Excellent sell for X% more on average than Good'",
+        "Uses only user's own historical data",
+        "Typecheck passes"
+      ],
+      "priority": 86,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-087",
+      "title": "Admin: platform-wide analytics dashboard",
+      "description": "As an admin, I want comprehensive platform analytics showing user growth, engagement funnel, revenue breakdown, grade volume trends, and geographic distribution.",
+      "acceptanceCriteria": [
+        "Extends /admin/dashboard with analytics tabs",
+        "User funnel: signups → first submission → paid submission → subscription",
+        "Cohort retention chart: monthly cohort retention rates",
+        "Revenue breakdown: per-grade revenue vs subscription revenue pie chart",
+        "Grade volume trend: daily grades processed (last 90 days)",
+        "Top users by submissions table",
+        "Plan distribution: users per plan (free/starter/pro/enterprise) bar chart",
+        "Typecheck passes"
+      ],
+      "priority": 87,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-088",
+      "title": "Admin: audit log viewer",
+      "description": "As a super admin, I want to view the admin audit log showing all administrative actions taken on the platform for accountability and debugging.",
+      "acceptanceCriteria": [
+        "src/pages/admin/audit-log.tsx at /admin/audit-log",
+        "Table: timestamp, admin user, action, target type, target ID, details",
+        "Filter by admin user, action type, date range",
+        "Expandable row showing full details JSON",
+        "Pagination for large result sets",
+        "Only visible to super_admin role",
+        "Typecheck passes"
+      ],
+      "priority": 88,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-089",
+      "title": "Notification preferences page",
+      "description": "As a user, I want to configure which email and in-app notifications I receive so I'm not overwhelmed by alerts I don't need.",
+      "acceptanceCriteria": [
+        "Section on settings page: Notification Preferences",
+        "Toggle switches for each notification type: grade_complete (email/in-app), dispute_updates (email/in-app), billing_alerts (email), product_updates (email)",
+        "Database: notification_preferences JSONB column on users table (or separate table)",
+        "Preferences checked before sending notifications",
+        "Default: all enabled",
+        "Typecheck passes"
+      ],
+      "priority": 89,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-090",
+      "title": "SEO: dynamic meta tags and sitemap",
+      "description": "As a developer, I need dynamic Open Graph and Twitter Card meta tags for certificate pages and a basic sitemap.xml for search engine indexing.",
+      "acceptanceCriteria": [
+        "Certificate pages have dynamic OG tags (title includes grade tier, description includes brand/category)",
+        "React Helmet or equivalent for managing <head> tags",
+        "Landing page has proper H1, meta description, structured data",
+        "public/robots.txt allowing crawlers",
+        "Basic sitemap.xml with landing page and certificate pages pattern",
+        "Typecheck passes"
+      ],
+      "priority": 90,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-091",
+      "title": "Accessibility audit and fixes",
+      "description": "As a developer, I need to ensure all interactive elements have proper ARIA labels, focus management, keyboard navigation, and color contrast meets WCAG AA standards.",
+      "acceptanceCriteria": [
+        "All form inputs have associated labels",
+        "All buttons have accessible names",
+        "Modal dialogs trap focus and close on Escape",
+        "Color contrast ratio >= 4.5:1 for all text",
+        "Skip-to-content link for keyboard users",
+        "Image uploads have alt text alternatives",
+        "Status badges/charts have screen reader text alternatives",
+        "Tab order is logical throughout dashboard",
+        "Typecheck passes"
+      ],
+      "priority": 91,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-092",
+      "title": "Onboarding flow for new users",
+      "description": "As a new user, I want a quick onboarding flow after first login that asks my primary use case (seller, buyer, consignment, developer) and gives me a guided tour of the dashboard.",
+      "acceptanceCriteria": [
+        "Detect first login (profile has no submissions and no use_case set)",
+        "Show onboarding modal/flow: Welcome screen, select use case, quick feature tour (3-4 tooltips highlighting key areas)",
+        "Use case saved to user profile (add use_case column to users table)",
+        "Dashboard customized slightly based on use case (e.g., developers see API Keys prominently)",
+        "Skip button to dismiss",
+        "Don't show again after completion",
+        "Typecheck passes"
+      ],
+      "priority": 92,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-093",
+      "title": "Landing page: pricing section",
+      "description": "As a visitor, I want to see pricing plans on the landing page so I can understand costs before signing up.",
+      "acceptanceCriteria": [
+        "Pricing section added to landing page below features",
+        "Shows all 4 plans (Free, Starter, Professional, Enterprise) in a comparison grid",
+        "Each plan card: name, price, included grades, feature list, CTA button",
+        "Professional plan highlighted as 'Most Popular'",
+        "Enterprise shows 'Contact Sales' instead of price",
+        "Monthly/yearly toggle (yearly shows 20% discount)",
+        "CTAs link to /signup",
+        "Responsive: stacks on mobile",
+        "Typecheck passes"
+      ],
+      "priority": 93,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-094",
+      "title": "Landing page: how it works section",
+      "description": "As a visitor, I want to see a 'How It Works' section explaining the 3-step process (Upload Photos → AI Grades → Share Certificate) with visual illustrations.",
+      "acceptanceCriteria": [
+        "How It Works section between hero and features on landing page",
+        "3 numbered steps with icons: 1) Upload Photos (Camera icon), 2) AI Analysis (Cpu icon), 3) Get Certificate (Award icon)",
+        "Each step has title, brief description, and illustrative icon or graphic",
+        "Steps connected with visual flow (arrows or line)",
+        "Responsive layout",
+        "Typecheck passes"
+      ],
+      "priority": 94,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-095",
+      "title": "Realtime submission status updates",
+      "description": "As a user, I want to see my submission status update in realtime (pending → processing → completed) without manually refreshing the page.",
+      "acceptanceCriteria": [
+        "Use Supabase Realtime subscription on submissions table",
+        "Submission detail page subscribes to changes for the current submission ID",
+        "Status badge updates automatically when status changes",
+        "Dashboard overview recent submissions update automatically",
+        "Submissions list page updates status badges in realtime",
+        "Toast notification when a grade completes",
+        "Cleanup subscription on component unmount",
+        "Typecheck passes"
+      ],
+      "priority": 95,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-096",
+      "title": "Inventory: link grading submission to inventory item",
+      "description": "As a reseller, I want to link a grading submission to an existing inventory item so the grade data flows into my inventory tracking automatically.",
+      "acceptanceCriteria": [
+        "When creating a new submission, optional dropdown to link to an existing inventory item",
+        "Submission detail shows linked inventory item with link to its detail page",
+        "Inventory detail shows linked grade report with scores",
+        "When grade completes, update inventory item's status to 'graded' if currently 'grading'",
+        "When starting submission from inventory item, auto-populate garment info from item",
+        "Typecheck passes"
+      ],
+      "priority": 96,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-097",
+      "title": "Quick actions and keyboard shortcuts",
+      "description": "As a power user, I want quick action buttons and keyboard shortcuts to speed up common workflows like creating submissions, adding inventory, and navigating between sections.",
+      "acceptanceCriteria": [
+        "Command palette (Cmd/Ctrl+K) with search for pages and actions",
+        "Quick actions in dashboard: New Submission, Add Inventory Item, View Finances",
+        "Keyboard shortcut hints shown on hover for nav items",
+        "N key creates new item from list pages (submissions, inventory)",
+        "Escape closes modals and dialogs",
+        "Arrow keys navigate table rows",
+        "src/hooks/use-keyboard-shortcuts.ts hook",
+        "Typecheck passes"
+      ],
+      "priority": 97,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-098",
+      "title": "Data backup and export: full account export",
+      "description": "As a user, I want to export all my data (submissions, grades, inventory, financial records) as a ZIP file for backup or migration purposes.",
+      "acceptanceCriteria": [
+        "Export My Data button on settings page",
+        "Generates ZIP containing: submissions.json, grade_reports.json, inventory.json, sales.json, financial_summary.json",
+        "Includes image URLs (not the images themselves to keep size manageable)",
+        "Progress indicator during generation",
+        "Download triggered when complete",
+        "Rate limited to 1 export per day",
+        "Typecheck passes"
+      ],
+      "priority": 98,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-099",
+      "title": "Admin: content moderation and flagging system",
+      "description": "As an admin, I want submissions with potentially inappropriate or invalid images to be automatically flagged for review, and a moderation queue to handle flagged content.",
+      "acceptanceCriteria": [
+        "AI analysis includes image_validity check (is this actually clothing?)",
+        "Flag submissions where images don't appear to be clothing",
+        "Admin moderation queue at /admin/moderation",
+        "Queue shows flagged submissions with reason and images",
+        "Admin can: approve (clear flag), reject (mark as invalid, refund user), ban user",
+        "User ban prevents new submissions and marks account as suspended",
+        "Typecheck passes"
+      ],
+      "priority": 99,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-100",
+      "title": "Final integration testing and polish",
+      "description": "As a developer, I need to verify the complete user flow end-to-end: signup → onboarding → create inventory item → submit for grading → receive grade → add listing → record sale → record shipment → view financial report. Also verify admin flow: login as admin → review queue → adjust grade → view analytics.",
+      "acceptanceCriteria": [
+        "Full user flow works without errors",
+        "Full admin flow works without errors",
+        "All pages render correctly in both light and dark mode",
+        "All pages are responsive (mobile, tablet, desktop)",
+        "No TypeScript errors: npx tsc --noEmit passes",
+        "Build succeeds: npm run build produces dist/ without errors",
+        "No console errors or warnings in browser",
+        "All form validations work correctly",
+        "All navigation links work correctly",
+        "Loading states and error states display properly"
+      ],
+      "priority": 100,
+      "passes": false,
+      "notes": "This is the final verification story. Run through every major flow manually."
+    }
+  ]
+}
