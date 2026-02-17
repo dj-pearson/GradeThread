@@ -246,3 +246,10 @@ Branch: ralph/gradethread-build
 - Notes: Created ProfitTable component with all 10 required columns (Item Title, Brand, Acquired Price, Grading Cost, Listed Price, Sale Price, Platform Fees, Shipping Cost, Net Profit, Profit Margin %). All columns sortable via header buttons with directional arrows. Filters: date range (from/to date inputs), profit/loss toggle (Select dropdown), brand filter, category filter. Green/red color coding on Net Profit and Margin columns. Totals footer row sums all monetary columns and calculates aggregate margin. Added listings fetch to finances page data query for Listed Price column. Grading Cost column present as placeholder (0) since no grading fee field in DB yet.
 - Timestamp: 2026-02-16
 ---
+
+## US-056: Financial reporting: revenue and profit charts
+- Status: COMPLETE
+- Files changed: src/components/finances/financial-charts.tsx (new), src/pages/finances.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created FinancialCharts component with 5 charts using recharts: (1) Revenue & Profit over time line chart with daily/weekly/monthly granularity toggle, (2) Cost breakdown pie chart (acquisition, shipping, platform fees, grading fees), (3) Top 5 brands by profit horizontal bar chart, (4) Top 5 categories by profit vertical bar chart. All charts respond to the period filter from the finances page. Used recharts Tooltip formatter pattern from grade-charts.tsx (Number(value) cast) to avoid tsc -b type errors.
+- Timestamp: 2026-02-16
+---

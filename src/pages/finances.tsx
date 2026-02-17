@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ProfitTable } from "@/components/finances/profit-table";
+import { FinancialCharts } from "@/components/finances/financial-charts";
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -343,6 +344,21 @@ export function FinancesPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Financial Charts */}
+      <div>
+        <h2 className="text-lg font-semibold">Financial Reports</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Revenue trends, cost analysis, and top performers.
+        </p>
+        <FinancialCharts
+          items={data?.items ?? []}
+          sales={data?.sales ?? []}
+          shipments={data?.shipments ?? []}
+          periodStart={getPeriodStartDate(period)}
+          isLoading={isLoading}
+        />
       </div>
 
       {/* Profit/Loss per Item Table */}
