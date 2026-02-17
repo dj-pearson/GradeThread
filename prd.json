@@ -715,8 +715,8 @@
         "Typecheck passes"
       ],
       "priority": 39,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented full submissions list page with table, status/garment type filters, sort by date/grade, pagination (20 per page), empty state CTA, loading skeleton. Added shadcn table component. Used type assertion for Supabase query results due to tsc -b issue."
     },
 
     {

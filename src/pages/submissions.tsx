@@ -1,27 +1,406 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { FileText } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import {
+  FileText,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
+  Search,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
+import { GARMENT_TYPES, SUBMISSION_STATUSES } from "@/lib/constants";
+import type { SubmissionRow, GradeReportRow } from "@/types/database";
+
+const PAGE_SIZE = 20;
+
+type SortField = "created_at" | "overall_score";
+type SortDirection = "asc" | "desc";
+
+function formatLabel(value: string): string {
+  return value
+    .split(/[-_]/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function getStatusBadgeClasses(status: string): string {
+  switch (status) {
+    case "completed":
+      return "border-green-200 bg-green-100 text-green-800";
+    case "processing":
+      return "border-blue-200 bg-blue-100 text-blue-800";
+    case "pending":
+      return "border-yellow-200 bg-yellow-100 text-yellow-800";
+    case "failed":
+      return "border-red-200 bg-red-100 text-red-800";
+    case "disputed":
+      return "border-purple-200 bg-purple-100 text-purple-800";
+    default:
+      return "";
+  }
+}
+
+function getScoreColor(score: number): string {
+  if (score > 7) return "text-green-600";
+  if (score >= 5) return "text-yellow-600";
+  return "text-red-600";
+}
+
+interface SubmissionWithGrade extends SubmissionRow {
+  grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <Skeleton className="h-10 flex-1" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function SubmissionsPage() {
+  const navigate = useNavigate();
+  const [page, setPage] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
+  const [sortField, setSortField] = useState<SortField>("created_at");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
+  const { data, isLoading } = useQuery({
+    queryKey: [
+      "submissions",
+      page,
+      statusFilter,
+      garmentTypeFilter,
+      sortField,
+      sortDirection,
+    ],
+    queryFn: async () => {
+      let query = supabase
+        .from("submissions")
+        .select("*", { count: "exact" });
+
+      if (statusFilter !== "all") {
+        query = query.eq("status", statusFilter);
+      }
+      if (garmentTypeFilter !== "all") {
+        query = query.eq("garment_type", garmentTypeFilter);
+      }
+
+      query = query
+        .order("created_at", { ascending: sortDirection === "asc" })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      const { data: submissions, error, count } = await query;
+
+      if (error) throw error;
+
+      const submissionRows = (submissions ?? []) as SubmissionRow[];
+
+      // Fetch grade reports for completed submissions
+      const completedIds = submissionRows
+        .filter((s) => s.status === "completed")
+        .map((s) => s.id);
+
+      let gradeMap: Record<
+        string,
+        Pick<GradeReportRow, "overall_score" | "grade_tier">
+      > = {};
+
+      if (completedIds.length > 0) {
+        const { data: reports } = await supabase
+          .from("grade_reports")
+          .select("submission_id, overall_score, grade_tier")
+          .in("submission_id", completedIds);
+
+        const reportRows = (reports ?? []) as Array<
+          Pick<GradeReportRow, "overall_score" | "grade_tier"> & {
+            submission_id: string;
+          }
+        >;
+
+        gradeMap = Object.fromEntries(
+          reportRows.map((r) => [
+            r.submission_id,
+            { overall_score: r.overall_score, grade_tier: r.grade_tier },
+          ])
+        );
+      }
+
+      const merged: SubmissionWithGrade[] = submissionRows.map((s) => ({
+        ...s,
+        grade_report: gradeMap[s.id] ?? null,
+      }));
+
+      // Sort by grade if requested
+      if (sortField === "overall_score") {
+        merged.sort((a, b) => {
+          const aScore = a.grade_report?.overall_score ?? -1;
+          const bScore = b.grade_report?.overall_score ?? -1;
+          return sortDirection === "asc"
+            ? aScore - bScore
+            : bScore - aScore;
+        });
+      }
+
+      return { submissions: merged, totalCount: count ?? 0 };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const submissions = data?.submissions ?? [];
+  const totalCount = data?.totalCount ?? 0;
+  const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDirection("desc");
+    }
+    setPage(0);
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Submissions</h1>
-        <p className="text-muted-foreground">View and manage your grading submissions.</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Submissions</h1>
+          <p className="text-muted-foreground">
+            View and manage your grading submissions.
+          </p>
+        </div>
+        <Button onClick={() => navigate("/dashboard/submissions/new")}>
+          <Plus className="mr-1 h-4 w-4" />
+          New Submission
+        </Button>
       </div>
 
+      {/* Filters */}
       <Card>
-        <CardHeader>
-          <CardTitle>All Submissions</CardTitle>
-          <CardDescription>Your grading history will appear here.</CardDescription>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">
+            <Search className="mr-1.5 inline-block h-4 w-4" />
+            Filters
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground/50" />
-            <h3 className="mt-4 text-lg font-medium">No submissions yet</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Submit your first garment for grading to get started.
-            </p>
+          <div className="flex flex-wrap gap-3">
+            <div className="w-44">
+              <Select
+                value={statusFilter}
+                onValueChange={(v) => {
+                  setStatusFilter(v);
+                  setPage(0);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  {SUBMISSION_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {formatLabel(s)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-44">
+              <Select
+                value={garmentTypeFilter}
+                onValueChange={(v) => {
+                  setGarmentTypeFilter(v);
+                  setPage(0);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Garment Type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {GARMENT_TYPES.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {formatLabel(t)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Table */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">All Submissions</CardTitle>
+            {totalCount > 0 && (
+              <CardDescription>
+                {totalCount} submission{totalCount !== 1 ? "s" : ""}
+              </CardDescription>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <LoadingSkeleton />
+          ) : submissions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <FileText className="h-12 w-12 text-muted-foreground/50" />
+              <h3 className="mt-4 text-lg font-medium">No submissions yet</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Submit your first garment for grading to get started.
+              </p>
+              <Button
+                className="mt-4"
+                onClick={() => navigate("/dashboard/submissions/new")}
+              >
+                <Plus className="mr-1 h-4 w-4" />
+                Submit Your First Garment
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Brand</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>
+                        <button
+                          className="inline-flex items-center gap-1 hover:text-foreground"
+                          onClick={() => toggleSort("overall_score")}
+                        >
+                          Grade
+                          <ArrowUpDown className="h-3.5 w-3.5" />
+                        </button>
+                      </TableHead>
+                      <TableHead>
+                        <button
+                          className="inline-flex items-center gap-1 hover:text-foreground"
+                          onClick={() => toggleSort("created_at")}
+                        >
+                          Date Submitted
+                          <ArrowUpDown className="h-3.5 w-3.5" />
+                        </button>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {submissions.map((sub) => (
+                      <TableRow
+                        key={sub.id}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          navigate(`/dashboard/submissions/${sub.id}`)
+                        }
+                      >
+                        <TableCell className="font-medium">
+                          {sub.title}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {sub.brand ?? "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="outline"
+                            className={cn(getStatusBadgeClasses(sub.status))}
+                          >
+                            {formatLabel(sub.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {sub.grade_report ? (
+                            <span
+                              className={cn(
+                                "font-semibold",
+                                getScoreColor(sub.grade_report.overall_score)
+                              )}
+                            >
+                              {sub.grade_report.overall_score.toFixed(1)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {new Date(sub.created_at).toLocaleDateString()}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Page {page + 1} of {totalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page === 0}
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Previous
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page >= totalPages - 1}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      Next
+                      <ChevronRight className="ml-1 h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

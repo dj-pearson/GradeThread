@@ -127,3 +127,10 @@ Branch: ralph/gradethread-build
 - Notes: Fully rebuilt submission-detail.tsx from placeholder to complete grade report page. Features: loading skeleton while fetching, garment info card (title/brand/type/category), large circular overall score with color-coded tier badge (green >7, yellow 5-7, red <5), factor breakdown with 5 labeled progress bars showing weights, AI analysis summary card, confidence indicator (high/medium/low with icons), detected issues as badges or bullet points from detailed_notes, image gallery with signed URLs from Supabase Storage, share certificate button linking to /cert/:certificateId, status-aware states (processing spinner, failed error, pending info). Added shadcn skeleton and progress components. Used type assertion for submission_images query due to tsc -b type inference resolving data to 'never' despite correct Database interface definition.
 - Timestamp: 2026-02-16
 ---
+
+## US-039: Submissions list page with filtering and pagination
+- Status: COMPLETE
+- Files changed: src/pages/submissions.tsx, src/components/ui/table.tsx (shadcn), prd.json, scripts/ralph/prd.json
+- Notes: Replaced placeholder submissions page with full implementation. Table displays title, brand, status badge (color-coded), grade score (with color), and date submitted. Filter controls for status (all/pending/processing/completed/failed/disputed) and garment type (all 6 types). Sort by date (default newest first) or grade with toggle direction. Pagination with 20 items per page, page number display, previous/next buttons. Click row navigates to /dashboard/submissions/:id. Empty state with CTA button to create first submission. Loading skeleton while fetching. Uses TanStack Query with queryKey including all filter/sort/page params and 5-minute stale time. Fetches grade reports for completed submissions in a second query and merges results. Type assertions used for Supabase query results due to tsc -b type resolution issue.
+- Timestamp: 2026-02-16
+---
