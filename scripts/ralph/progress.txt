@@ -162,3 +162,10 @@ Branch: ralph/gradethread-build
 - Notes: Fully rebuilt certificate.tsx as a public-facing grade certificate page. Fetches grade report by certificate_id via Supabase (public RLS). Shows GradeThread branding header with logo_white.svg and Shield icon. Displays overall score in a large circle with tier badge and color coding. Shows garment photos in a responsive grid gallery with signed URLs. Factor breakdown with 5 horizontal Progress bars matching submission-detail patterns. AI summary section. Footer with graded date (Calendar icon), model version (Cpu icon), certificate ID. QR code via qrcode.react (QRCodeSVG) linking back to the certificate URL in brand navy color. OG meta tags set dynamically via useEffect. Loading skeleton and "Certificate not found" error state. Mobile-responsive layout throughout.
 - Timestamp: 2026-02-16
 ---
+
+## US-044: Dashboard overview: live data integration
+- Status: COMPLETE
+- Files changed: src/pages/dashboard.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Replaced placeholder dashboard with live data integration. Fetches real submission count and last 5 recent submissions from Supabase via TanStack Query (5-min stale time). Recent submissions show title, date, status badge (color-coded), and grade score for completed items. Clicking a submission navigates to /dashboard/submissions/:id. Added "New Submission" CTA button in header linking to /dashboard/submissions/new. "View All" button links to submissions list. Empty state with CTA when no submissions exist. Total Submissions card shows live count with loading skeleton. Grades Used card already uses live profile data (grades_used_this_month). Grade reports fetched for completed submissions and merged. Type assertions used for Supabase query results per tsc -b workaround.
+- Timestamp: 2026-02-16
+---

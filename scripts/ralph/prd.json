@@ -811,8 +811,8 @@
         "Typecheck passes"
       ],
       "priority": 44,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Dashboard fetches real submission count and last 5 submissions via TanStack Query. Recent submissions show title, status badge, grade score, and date. Clicking navigates to detail page. New Submission CTA button added. Grades Used card already uses live profile data."
     },
 
     {
