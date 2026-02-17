@@ -5,6 +5,7 @@ import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
 import { authMiddleware } from "./middleware/auth.ts";
+import { rateLimiter } from "./middleware/rate-limit.ts";
 
 const app = new Hono();
 
@@ -26,6 +27,9 @@ app.use(
 
 // Auth middleware — applied to protected routes only (not health or webhooks)
 app.use("/api/grade/*", authMiddleware);
+
+// Rate limiting — 60 requests per minute for authenticated grade endpoints
+app.use("/api/grade/*", rateLimiter(60, 60_000));
 
 // Routes
 app.route("/health", healthRoutes);

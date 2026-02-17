@@ -57,3 +57,10 @@ Branch: ralph/gradethread-build
 - Notes: Created Hono middleware that extracts Bearer token from Authorization header, validates it via supabase.auth.getUser(), and sets user and userId on the Hono context. Returns 401 JSON error for missing or invalid tokens. Applied to /api/grade/* routes in main.ts using app.use() path matching. Health and webhook routes remain unprotected as required. Uses createMiddleware from hono/factory with typed Variables for user and userId.
 - Timestamp: 2026-02-16
 ---
+
+## US-029: Edge function: rate limiting middleware
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/middleware/rate-limit.ts, services/edge-functions/src/main.ts, prd.json, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- Notes: Created rateLimiter(maxRequests, windowMs) factory function that returns Hono middleware. Uses in-memory Map keyed by userId from auth context. Tracks request count and window reset time per user. Returns 429 with Retry-After header and JSON error body when limit exceeded. Includes periodic cleanup of expired entries (every 5 minutes). Adds standard X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset headers to all responses. Applied to /api/grade/* routes after auth middleware with default 60 requests per 60 seconds. Skips rate limiting if no userId is available in context.
+- Timestamp: 2026-02-16
+---
