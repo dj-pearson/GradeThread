@@ -1031,8 +1031,8 @@
         "Typecheck passes"
       ],
       "priority": 55,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created profit-table.tsx with sortable columns (title, brand, all cost/price fields, net profit, margin %), filters (date range, profit/loss, brand, category), color coding (green/red), and totals footer row. Fetches listings data for listed price. Grading cost column included as placeholder (0) since no grading fee field exists in DB yet."
     },
 
     {

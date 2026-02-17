@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { InventoryItemRow, SaleRow, ShipmentRow } from "@/types/database";
+import type { InventoryItemRow, SaleRow, ShipmentRow, ListingRow } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +15,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ProfitTable } from "@/components/finances/profit-table";
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -59,6 +60,7 @@ interface FinancialData {
   items: InventoryItemRow[];
   sales: SaleRow[];
   shipments: ShipmentRow[];
+  listings: ListingRow[];
 }
 
 export function FinancesPage() {
@@ -67,20 +69,23 @@ export function FinancesPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["finances-data"],
     queryFn: async (): Promise<FinancialData> => {
-      const [itemsRes, salesRes, shipmentsRes] = await Promise.all([
+      const [itemsRes, salesRes, shipmentsRes, listingsRes] = await Promise.all([
         supabase.from("inventory_items").select("*"),
         supabase.from("sales").select("*"),
         supabase.from("shipments").select("*"),
+        supabase.from("listings").select("*"),
       ]);
 
       if (itemsRes.error) throw itemsRes.error;
       if (salesRes.error) throw salesRes.error;
       if (shipmentsRes.error) throw shipmentsRes.error;
+      if (listingsRes.error) throw listingsRes.error;
 
       return {
         items: (itemsRes.data ?? []) as InventoryItemRow[],
         sales: (salesRes.data ?? []) as SaleRow[],
         shipments: (shipmentsRes.data ?? []) as ShipmentRow[],
+        listings: (listingsRes.data ?? []) as ListingRow[],
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -338,6 +343,29 @@ export function FinancesPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Profit/Loss per Item Table */}
+      <div>
+        <h2 className="text-lg font-semibold">Profit / Loss per Item</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Detailed breakdown of costs and profit for each sold item.
+        </p>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+            <Skeleton className="h-8 w-full" />
+          </div>
+        ) : (
+          <ProfitTable
+            items={data?.items ?? []}
+            sales={data?.sales ?? []}
+            shipments={data?.shipments ?? []}
+            listings={data?.listings ?? []}
+            periodStart={getPeriodStartDate(period)}
+          />
+        )}
       </div>
     </div>
   );

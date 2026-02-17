@@ -239,3 +239,10 @@ Branch: ralph/gradethread-build
 - Notes: Created financial dashboard page at /dashboard/finances. Features 8 metric cards in two rows: Row 1 - Total Revenue, Total Costs, Net Profit, Profit Margin %. Row 2 - Items Sold, Avg Profit/Item, Avg Days to Sell, Inventory Value. Period toggle with 5 options (This Month, Last 30 Days, This Quarter, This Year, All Time) filters sales by date. Revenue = sum of sale prices, costs = acquisition + shipping + label + platform fees, inventory value = sum of acquired_price for unsold items (acquired/grading/graded/listed statuses). All data fetched via Supabase queries with loading skeletons. Color coding: green for revenue/positive profit, red for costs/losses. Used explicit type casts for tsc -b compatibility.
 - Timestamp: 2026-02-16
 ---
+
+## US-055: Financial reporting: profit/loss per item
+- Status: COMPLETE
+- Files changed: src/components/finances/profit-table.tsx (new), src/pages/finances.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created ProfitTable component with all 10 required columns (Item Title, Brand, Acquired Price, Grading Cost, Listed Price, Sale Price, Platform Fees, Shipping Cost, Net Profit, Profit Margin %). All columns sortable via header buttons with directional arrows. Filters: date range (from/to date inputs), profit/loss toggle (Select dropdown), brand filter, category filter. Green/red color coding on Net Profit and Margin columns. Totals footer row sums all monetary columns and calculates aggregate margin. Added listings fetch to finances page data query for Listed Price column. Grading Cost column present as placeholder (0) since no grading fee field in DB yet.
+- Timestamp: 2026-02-16
+---
