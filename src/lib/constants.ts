@@ -148,6 +148,18 @@ export const GRADE_FACTORS = {
 
 export type GradeFactorKey = keyof typeof GRADE_FACTORS;
 
+// Listing platforms
+export const LISTING_PLATFORMS = [
+  "ebay",
+  "poshmark",
+  "mercari",
+  "depop",
+  "grailed",
+  "facebook",
+  "offerup",
+  "other",
+] as const;
+
 // Inventory item statuses
 export const ITEM_STATUSES = [
   "acquired",

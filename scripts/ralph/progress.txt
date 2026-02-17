@@ -211,3 +211,10 @@ Branch: ralph/gradethread-build
 - Notes: Created inventory detail page at /dashboard/inventory/:id. Features: header with title, brand, garment type/category and status badge. Lifecycle timeline component with 7 steps (acquired → grading → graded → listed → sold → shipped → completed) shown as connected circles with icons, current step highlighted with ring. Special "returned" state shown separately. Acquisition card with price, date, source, size, color, condition notes. Grading card with link to grade report if graded or Submit for Grading button. Listings section showing all listings with platform, price, date, active/inactive badge, external link. Sales section with sale price, platform fees, date, buyer. Shipments section with carrier, tracking, cost, dates. Profit/loss summary calculating net profit = sale revenue - acquired price - platform fees - shipping costs (green/red color coding). Edit status via dropdown select with all 8 statuses. Used 'as never' cast on .update() for tsc -b compatibility.
 - Timestamp: 2026-02-16
 ---
+
+## US-051: Inventory: add listing to item
+- Status: COMPLETE
+- Files changed: src/pages/inventory-detail.tsx, src/lib/constants.ts, prd.json, scripts/ralph/prd.json
+- Notes: Added Add Listing dialog to inventory detail page with platform dropdown (8 platforms), listing price input, listing URL input (optional), and platform listing ID input (optional). Dialog creates listing record via Supabase insert and auto-updates item status to 'listed' when current status is 'graded' or 'acquired'. Added active/inactive toggle button on each listing row. Added LISTING_PLATFORMS constant to constants.ts and formatPlatform helper with proper display names (e.g. "eBay", "Facebook Marketplace"). Used 'as never' casts on Supabase .insert()/.update() for tsc -b compatibility. Multiple listings per item supported (cross-listing).
+- Timestamp: 2026-02-16
+---

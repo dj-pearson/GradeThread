@@ -949,8 +949,8 @@
         "Typecheck passes"
       ],
       "priority": 51,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Add Listing dialog with platform dropdown, price, URL, and platform listing ID inputs. Added active/inactive toggle on each listing. Auto-updates item status to listed. Added LISTING_PLATFORMS constant and formatPlatform helper."
     },
 
     {

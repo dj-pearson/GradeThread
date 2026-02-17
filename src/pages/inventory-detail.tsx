@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Pencil,
   ExternalLink,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -34,22 +46,38 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { ITEM_STATUSES } from "@/lib/constants";
+import { ITEM_STATUSES, LISTING_PLATFORMS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type {
   InventoryItemRow,
   ListingRow,
+  ListingPlatform,
   SaleRow,
   ShipmentRow,
   ItemStatus,
 } from "@/types/database";
+
+const PLATFORM_LABELS: Record<string, string> = {
+  ebay: "eBay",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+  grailed: "Grailed",
+  facebook: "Facebook Marketplace",
+  offerup: "OfferUp",
+  other: "Other",
+};
 
 function formatLabel(value: string): string {
   return value
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function formatPlatform(platform: string): string {
+  return PLATFORM_LABELS[platform] ?? formatLabel(platform);
 }
 
 function formatCurrency(amount: number | null | undefined): string {
@@ -138,6 +166,15 @@ export function InventoryDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
+  // Add Listing dialog state
+  const [addListingOpen, setAddListingOpen] = useState(false);
+  const [addListingSubmitting, setAddListingSubmitting] = useState(false);
+  const [listingPlatform, setListingPlatform] = useState<ListingPlatform>("ebay");
+  const [listingPrice, setListingPrice] = useState("");
+  const [listingUrl, setListingUrl] = useState("");
+  const [platformListingId, setPlatformListingId] = useState("");
+  const [togglingListingId, setTogglingListingId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
 
@@ -212,6 +249,80 @@ export function InventoryDetailPage() {
       toast.success(`Status updated to ${formatLabel(newStatus)}.`);
     }
     setUpdatingStatus(false);
+  }
+
+  async function handleAddListing() {
+    if (!item) return;
+    const price = parseFloat(listingPrice);
+    if (isNaN(price) || price <= 0) {
+      toast.error("Please enter a valid listing price.");
+      return;
+    }
+
+    setAddListingSubmitting(true);
+
+    const { data: newListing, error: insertError } = await supabase
+      .from("listings")
+      .insert({
+        inventory_item_id: item.id,
+        platform: listingPlatform,
+        listing_price: price,
+        listing_url: listingUrl.trim() || null,
+        platform_listing_id: platformListingId.trim() || null,
+        is_active: true,
+      } as never)
+      .select()
+      .single();
+
+    if (insertError) {
+      toast.error("Failed to add listing.");
+      setAddListingSubmitting(false);
+      return;
+    }
+
+    const created = newListing as ListingRow;
+    setListings((prev) => [created, ...prev]);
+
+    // Update item status to 'listed' if currently 'graded' or 'acquired'
+    if (item.status === "graded" || item.status === "acquired") {
+      const { error: statusError } = await supabase
+        .from("inventory_items")
+        .update({ status: "listed" } as never)
+        .eq("id", item.id);
+
+      if (!statusError) {
+        setItem({ ...item, status: "listed" });
+      }
+    }
+
+    // Reset form
+    setListingPlatform("ebay");
+    setListingPrice("");
+    setListingUrl("");
+    setPlatformListingId("");
+    setAddListingOpen(false);
+    setAddListingSubmitting(false);
+    toast.success(`Listing added on ${formatPlatform(listingPlatform)}.`);
+  }
+
+  async function handleToggleListing(listing: ListingRow) {
+    setTogglingListingId(listing.id);
+    const newActive = !listing.is_active;
+
+    const { error: updateError } = await supabase
+      .from("listings")
+      .update({ is_active: newActive } as never)
+      .eq("id", listing.id);
+
+    if (updateError) {
+      toast.error("Failed to update listing.");
+    } else {
+      setListings((prev) =>
+        prev.map((l) => (l.id === listing.id ? { ...l, is_active: newActive } : l))
+      );
+      toast.success(`Listing marked as ${newActive ? "active" : "inactive"}.`);
+    }
+    setTogglingListingId(null);
   }
 
   if (loading) {
@@ -478,16 +589,102 @@ export function InventoryDetailPage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">
-              <Tag className="mr-1.5 inline-block h-4 w-4" />
-              Listings
-            </CardTitle>
-            {listings.length > 0 && (
-              <CardDescription>
-                {listings.filter((l) => l.is_active).length} active /{" "}
-                {listings.length} total
-              </CardDescription>
-            )}
+            <div className="flex items-center gap-3">
+              <CardTitle className="text-base">
+                <Tag className="mr-1.5 inline-block h-4 w-4" />
+                Listings
+              </CardTitle>
+              {listings.length > 0 && (
+                <CardDescription>
+                  {listings.filter((l) => l.is_active).length} active /{" "}
+                  {listings.length} total
+                </CardDescription>
+              )}
+            </div>
+            <Dialog open={addListingOpen} onOpenChange={setAddListingOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add Listing
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Add Listing</DialogTitle>
+                  <DialogDescription>
+                    Record a marketplace listing for this item.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="listing-platform">Platform</Label>
+                    <Select
+                      value={listingPlatform}
+                      onValueChange={(v) => setListingPlatform(v as ListingPlatform)}
+                    >
+                      <SelectTrigger id="listing-platform">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LISTING_PLATFORMS.map((p) => (
+                          <SelectItem key={p} value={p}>
+                            {formatPlatform(p)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="listing-price">Listing Price ($)</Label>
+                    <Input
+                      id="listing-price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={listingPrice}
+                      onChange={(e) => setListingPrice(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="listing-url">Listing URL (optional)</Label>
+                    <Input
+                      id="listing-url"
+                      type="url"
+                      placeholder="https://..."
+                      value={listingUrl}
+                      onChange={(e) => setListingUrl(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="platform-listing-id">
+                      Platform Listing ID (optional)
+                    </Label>
+                    <Input
+                      id="platform-listing-id"
+                      placeholder="For API integrations"
+                      value={platformListingId}
+                      onChange={(e) => setPlatformListingId(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setAddListingOpen(false)}
+                    disabled={addListingSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleAddListing}
+                    disabled={addListingSubmitting || !listingPrice}
+                  >
+                    {addListingSubmitting ? "Adding..." : "Add Listing"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </CardHeader>
         <CardContent>
@@ -505,7 +702,7 @@ export function InventoryDetailPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">
-                        {formatLabel(listing.platform)}
+                        {formatPlatform(listing.platform)}
                       </span>
                       <Badge
                         variant="outline"
@@ -523,17 +720,31 @@ export function InventoryDetailPage() {
                       {formatDate(listing.listed_at)}
                     </p>
                   </div>
-                  {listing.listing_url && (
-                    <Button variant="ghost" size="sm" asChild>
-                      <a
-                        href={listing.listing_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleToggleListing(listing)}
+                      disabled={togglingListingId === listing.id}
+                    >
+                      {togglingListingId === listing.id
+                        ? "..."
+                        : listing.is_active
+                          ? "Deactivate"
+                          : "Activate"}
                     </Button>
-                  )}
+                    {listing.listing_url && (
+                      <Button variant="ghost" size="sm" asChild>
+                        <a
+                          href={listing.listing_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
