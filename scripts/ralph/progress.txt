@@ -64,3 +64,10 @@ Branch: ralph/gradethread-build
 - Notes: Created rateLimiter(maxRequests, windowMs) factory function that returns Hono middleware. Uses in-memory Map keyed by userId from auth context. Tracks request count and window reset time per user. Returns 429 with Retry-After header and JSON error body when limit exceeded. Includes periodic cleanup of expired entries (every 5 minutes). Adds standard X-RateLimit-Limit, X-RateLimit-Remaining, and X-RateLimit-Reset headers to all responses. Applied to /api/grade/* routes after auth middleware with default 60 requests per 60 seconds. Skips rate limiting if no userId is available in context.
 - Timestamp: 2026-02-16
 ---
+
+## US-030: Photo upload UI component with drag-and-drop
+- Status: COMPLETE
+- Files changed: src/components/submission/photo-upload.tsx, prd.json, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- Notes: Created PhotoUpload component with 8 upload slots (front, back, label, detail required; detail 2, defect 1-3 optional). Each slot shows icon (Shirt/Tag/Search/AlertTriangle from lucide-react), label, required indicator, and description. Supports drag-and-drop (onDragOver/onDrop) and click-to-select (hidden file input). Shows image preview with hover-reveal remove button. Validates via existing validateImage (type/size/resolution) and compresses via compressImage before emitting. Emits onChange with PhotoUploadItem[] ({file, imageType, preview}). Responsive grid: 2 cols mobile, 4 cols desktop. Used Map<string, SlotState> instead of Record for strict TypeScript compatibility. Processing spinner shown during validation/compression.
+- Timestamp: 2026-02-16
+---
