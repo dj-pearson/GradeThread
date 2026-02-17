@@ -672,8 +672,8 @@
         "If submission is 'completed', includes full grade_report in response"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated POST /submit to set status='processing' after image upload and trigger processSubmission() fire-and-forget with .catch() error handler. Updated GET /status/:id to return {id, status, grade_report, created_at, updated_at} with grade_report populated from grade_reports table when status is 'completed'. Updated processSubmission() to accept both 'pending' and 'processing' statuses."
     },
 
     {

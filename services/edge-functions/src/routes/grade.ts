@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { processSubmission } from "../lib/grading-pipeline.ts";
 
 type GradeEnv = {
   Variables: {
@@ -224,9 +225,22 @@ gradeRoutes.post("/submit", async (c) => {
     await supabaseAdmin.rpc("increment_grades_used", { user_id_param: userId });
   }
 
+  // Set status to 'processing' and trigger grading pipeline (fire-and-forget)
+  await supabaseAdmin
+    .from("submissions")
+    .update({ status: "processing" })
+    .eq("id", submissionId);
+
+  processSubmission(submissionId).catch((error) => {
+    console.error(
+      `[Grade] Fire-and-forget pipeline error for submission ${submissionId}:`,
+      error instanceof Error ? error.message : String(error)
+    );
+  });
+
   return c.json({
     submissionId,
-    status: "pending",
+    status: "processing",
   }, 201);
 });
 
@@ -237,7 +251,7 @@ gradeRoutes.get("/status/:id", async (c) => {
 
   const { data: submission, error } = await supabaseAdmin
     .from("submissions")
-    .select("id, status, garment_type, garment_category, title, brand, created_at, updated_at")
+    .select("id, status, created_at, updated_at")
     .eq("id", id)
     .eq("user_id", userId)
     .single();
@@ -246,5 +260,23 @@ gradeRoutes.get("/status/:id", async (c) => {
     return c.json({ error: "Submission not found" }, 404);
   }
 
-  return c.json(submission);
+  // If completed, fetch the grade report
+  let gradeReport = null;
+  if (submission.status === "completed") {
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("*")
+      .eq("submission_id", id)
+      .single();
+
+    gradeReport = report || null;
+  }
+
+  return c.json({
+    id: submission.id,
+    status: submission.status,
+    grade_report: gradeReport,
+    created_at: submission.created_at,
+    updated_at: submission.updated_at,
+  });
 });

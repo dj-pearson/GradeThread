@@ -113,3 +113,10 @@ Branch: ralph/gradethread-build
 - Notes: Created processSubmission(submissionId) orchestration function that runs the full grading pipeline. Fetches submission record and validates status is 'pending', sets status to 'processing'. Fetches associated submission_images, downloads each from Supabase Storage, converts Blob to base64 data URI with correct MIME type detection from file extension. Runs analyzeImage() on all images in parallel via Promise.all. Runs compositeGrade() with per-image results and garment info. Creates grade_report record with all factor scores, AI summary, confidence score, model version, and a UUID certificate_id generated via crypto.randomUUID(). Builds detailed_notes object from per-image issue/signal summaries plus defects summary. Updates submission status to 'completed' on success. Full try/catch wraps entire pipeline — on failure, logs error and updates submission status to 'failed' (with nested try/catch to handle status update failures). Comprehensive console logging at each pipeline stage with timing metrics.
 - Timestamp: 2026-02-16
 ---
+
+## US-037: Trigger grading pipeline on submission creation
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/routes/grade.ts, services/edge-functions/src/lib/grading-pipeline.ts, prd.json, scripts/ralph/prd.json
+- Notes: Updated POST /api/grade/submit to set status to 'processing' after image upload and trigger processSubmission() as fire-and-forget with .catch() error handler. Response now returns status 'processing' instead of 'pending'. Updated GET /api/grade/status/:id to return { id, status, grade_report, created_at, updated_at } — fetches from grade_reports table when status is 'completed', returns null otherwise. Updated processSubmission() to accept both 'pending' and 'processing' statuses (since submit endpoint now sets 'processing' before calling the pipeline). Typecheck and build pass clean.
+- Timestamp: 2026-02-16
+---

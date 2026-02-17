@@ -34,15 +34,17 @@ export async function processSubmission(submissionId: string) {
       throw new Error(`Submission not found: ${submissionId}`);
     }
 
-    if (submission.status !== "pending") {
-      throw new Error(`Submission ${submissionId} is not pending (status: ${submission.status})`);
+    if (submission.status !== "pending" && submission.status !== "processing") {
+      throw new Error(`Submission ${submissionId} is not pending/processing (status: ${submission.status})`);
     }
 
-    // Update status to 'processing'
-    await supabaseAdmin
-      .from("submissions")
-      .update({ status: "processing" })
-      .eq("id", submissionId);
+    // Update status to 'processing' if not already set
+    if (submission.status === "pending") {
+      await supabaseAdmin
+        .from("submissions")
+        .update({ status: "processing" })
+        .eq("id", submissionId);
+    }
 
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
