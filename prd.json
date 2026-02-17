@@ -733,8 +733,8 @@
         "Validates user owns the submission"
       ],
       "priority": 40,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created services/edge-functions/src/routes/payments.ts with POST /checkout-session endpoint. Uses Stripe SDK to create checkout sessions with tier-based pricing (standard $2.99, premium $7.99, express $12.99). Sets metadata with submission_id, user_id, and tier. Validates user owns submission via Supabase query. Registered route in main.ts with auth middleware."
     },
 
     {

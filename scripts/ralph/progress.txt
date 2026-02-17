@@ -134,3 +134,10 @@ Branch: ralph/gradethread-build
 - Notes: Replaced placeholder submissions page with full implementation. Table displays title, brand, status badge (color-coded), grade score (with color), and date submitted. Filter controls for status (all/pending/processing/completed/failed/disputed) and garment type (all 6 types). Sort by date (default newest first) or grade with toggle direction. Pagination with 20 items per page, page number display, previous/next buttons. Click row navigates to /dashboard/submissions/:id. Empty state with CTA button to create first submission. Loading skeleton while fetching. Uses TanStack Query with queryKey including all filter/sort/page params and 5-minute stale time. Fetches grade reports for completed submissions in a second query and merges results. Type assertions used for Supabase query results due to tsc -b type resolution issue.
 - Timestamp: 2026-02-16
 ---
+
+## US-040: Stripe checkout session creation for grade payments
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/routes/payments.ts (new), services/edge-functions/src/main.ts, scripts/ralph/prd.json, prd.json
+- Notes: Created new payments route file with POST /checkout-session endpoint. Accepts { submissionId, tier } JSON body. Three tiers: standard ($2.99/299 cents), premium ($7.99/799 cents), express ($12.99/1299 cents). Validates tier is valid, validates user owns the submission via Supabase query. Creates Stripe Checkout Session with mode:payment, price_data with product name/description, and metadata containing submission_id, user_id, and tier for webhook processing. Success URL redirects to /dashboard/submissions/:id?payment=success, cancel URL to /dashboard/submissions?payment=cancelled. Returns { sessionId, url }. Registered route in main.ts at /api/payments with auth middleware applied.
+- Timestamp: 2026-02-16
+---
