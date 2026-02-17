@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
-import type { SubmissionRow, GradeReportRow } from "@/types/database";
+import type { SubmissionRow, GradeReportRow, InventoryItemRow, ListingRow } from "@/types/database";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart3, FileText, TrendingUp, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradeCharts } from "@/components/dashboard/grade-charts";
+import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
 
 interface RecentSubmission extends SubmissionRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
@@ -114,6 +115,41 @@ export function DashboardPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: inventoryData } = useQuery({
+    queryKey: ["dashboard-listing-suggestions"],
+    queryFn: async () => {
+      const { data: itemsRaw } = await supabase
+        .from("inventory_items")
+        .select("*");
+      const items = (itemsRaw ?? []) as InventoryItemRow[];
+
+      const itemIds = items.map((i) => i.id);
+      let allListings: ListingRow[] = [];
+      if (itemIds.length > 0) {
+        const { data: listingsRaw } = await supabase
+          .from("listings")
+          .select("*")
+          .in("inventory_item_id", itemIds);
+        allListings = (listingsRaw ?? []) as ListingRow[];
+      }
+
+      const submissionIds = items
+        .map((i) => i.submission_id)
+        .filter((id): id is string => id !== null);
+      let allReports: GradeReportRow[] = [];
+      if (submissionIds.length > 0) {
+        const { data: reportsRaw } = await supabase
+          .from("grade_reports")
+          .select("*")
+          .in("submission_id", submissionIds);
+        allReports = (reportsRaw ?? []) as GradeReportRow[];
+      }
+
+      return { items, listings: allListings, gradeReports: allReports };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const totalCount = submissionData?.totalCount ?? 0;
   const recentSubmissions = submissionData?.recentSubmissions ?? [];
 
@@ -197,6 +233,16 @@ export function DashboardPage() {
 
       {/* Analytics charts */}
       <GradeCharts />
+
+      {/* Listing optimization suggestions */}
+      {inventoryData && (
+        <ListingSuggestions
+          items={inventoryData.items}
+          listings={inventoryData.listings}
+          gradeReports={inventoryData.gradeReports}
+          maxItems={5}
+        />
+      )}
 
       {/* Recent submissions */}
       <Card>

@@ -281,3 +281,10 @@ Branch: ralph/gradethread-build
 - Notes: Created price suggestion algorithm in src/lib/price-suggestions.ts with calculateSuggestedPrice function. Algorithm uses grade tier multipliers (NWT 1.3x down to Poor 0.6x), brand/category matching for comparable sales, grade-weighted averaging when sufficient data exists, and time-based reduction thresholds (14d: -7%, 30d: -15%, 60d: -25% with auction suggestion). Added callout card on inventory detail page with severity-colored left border (blue/yellow/red), showing current vs suggested price and adjustment percentage. Created full suggestions page at /dashboard/analytics/suggestions with summary cards (total items, urgent actions, warnings) and detailed table with all items sorted by severity. Added sidebar navigation item with Lightbulb icon.
 - Timestamp: 2026-02-16
 ---
+
+## US-061: Analytics: listing optimization suggestions
+- Status: COMPLETE
+- Files changed: src/components/analytics/listing-suggestions.tsx (new), src/pages/dashboard.tsx, src/pages/inventory-detail.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created listing-suggestions.tsx with generateListingSuggestions engine producing three suggestion types: (1) add_platforms when item listed on only 1 platform, (2) price_adjustment when listed 14+ days without selling (severity escalates at 30d/60d), (3) regrade_photos when grade confidence < 0.75. Two display components exported: ListingSuggestions (card with list, used on dashboard with maxItems=5) and InventoryItemSuggestions (individual cards, used on inventory detail page). Dismissible suggestions stored in localStorage under gradethread_dismissed_suggestions key. Dashboard uses separate TanStack Query for inventory/listings/grade_reports data. tsc -b caught array index access issue requiring guard for activeListings[0].
+- Timestamp: 2026-02-16
+---

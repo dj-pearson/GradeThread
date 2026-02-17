@@ -1139,8 +1139,8 @@
         "Typecheck passes"
       ],
       "priority": 61,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/components/analytics/listing-suggestions.tsx with generateListingSuggestions engine and two display components (ListingSuggestions for dashboard, InventoryItemSuggestions for detail page). Three suggestion types: add_platforms (single-platform items), price_adjustment (14+ days listed), regrade_photos (confidence < 0.75). Dismissible via localStorage. Integrated into dashboard.tsx with separate TanStack Query for inventory data, and into inventory-detail.tsx after price suggestion callout."
     },
 
     {

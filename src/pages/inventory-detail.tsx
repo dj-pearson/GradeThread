@@ -60,6 +60,7 @@ import type {
   GradeReportRow,
 } from "@/types/database";
 import { calculateSuggestedPrice } from "@/lib/price-suggestions";
+import { InventoryItemSuggestions } from "@/components/analytics/listing-suggestions";
 
 const CARRIERS = [
   { value: "usps", label: "USPS" },
@@ -1078,6 +1079,13 @@ export function InventoryDetailPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Listing Optimization Suggestions */}
+      <InventoryItemSuggestions
+        item={item}
+        listings={listings}
+        gradeReport={gradeReport}
+      />
 
       {/* Sale Card */}
       <Card>
