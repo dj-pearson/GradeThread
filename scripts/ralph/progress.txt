@@ -71,3 +71,10 @@ Branch: ralph/gradethread-build
 - Notes: Created PhotoUpload component with 8 upload slots (front, back, label, detail required; detail 2, defect 1-3 optional). Each slot shows icon (Shirt/Tag/Search/AlertTriangle from lucide-react), label, required indicator, and description. Supports drag-and-drop (onDragOver/onDrop) and click-to-select (hidden file input). Shows image preview with hover-reveal remove button. Validates via existing validateImage (type/size/resolution) and compresses via compressImage before emitting. Emits onChange with PhotoUploadItem[] ({file, imageType, preview}). Responsive grid: 2 cols mobile, 4 cols desktop. Used Map<string, SlotState> instead of Record for strict TypeScript compatibility. Processing spinner shown during validation/compression.
 - Timestamp: 2026-02-16
 ---
+
+## US-031: Submission wizard: step 1 - garment info form
+- Status: COMPLETE
+- Files changed: src/components/submission/garment-info-form.tsx, src/components/ui/select.tsx (shadcn), src/components/ui/textarea.tsx (shadcn), prd.json, scripts/ralph/prd.json
+- Notes: Created GarmentInfoForm component with garment type select (GARMENT_TYPES), category select (GARMENT_CATEGORIES filtered by type via CATEGORY_BY_TYPE mapping), brand input (optional), title input (required, max 100 chars with counter), description textarea (optional, max 500 chars with counter). Form validation shows inline error messages for required fields. onSubmit passes validated GarmentInfo to parent. Supports defaultValues prop for state persistence. Added shadcn select and textarea components via npx shadcn@latest add.
+- Timestamp: 2026-02-16
+---

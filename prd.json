@@ -556,8 +556,8 @@
         "Typecheck passes"
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created garment-info-form.tsx with Select dropdowns for type/category (categories filtered by type via CATEGORY_BY_TYPE map), Input for brand/title, Textarea for description. Added shadcn select and textarea components. Form validation with inline error messages."
     },
 
     {
