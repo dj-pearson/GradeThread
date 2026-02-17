@@ -78,3 +78,10 @@ Branch: ralph/gradethread-build
 - Notes: Created GarmentInfoForm component with garment type select (GARMENT_TYPES), category select (GARMENT_CATEGORIES filtered by type via CATEGORY_BY_TYPE mapping), brand input (optional), title input (required, max 100 chars with counter), description textarea (optional, max 500 chars with counter). Form validation shows inline error messages for required fields. onSubmit passes validated GarmentInfo to parent. Supports defaultValues prop for state persistence. Added shadcn select and textarea components via npx shadcn@latest add.
 - Timestamp: 2026-02-16
 ---
+
+## US-032: Submission wizard: multi-step container with progress
+- Status: COMPLETE
+- Files changed: src/pages/new-submission.tsx (new), src/routes/index.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created 3-step submission wizard at /dashboard/submissions/new. StepIndicator component shows numbered circles with checkmarks for completed steps and connecting lines. Step 1 renders GarmentInfoForm with defaultValues for state persistence when navigating back. Step 2 renders PhotoUpload with Back/Next buttons (Next disabled until all 4 required photos uploaded). Step 3 shows review with garment details grid, photo thumbnails grid, and pricing info from user's plan. All state (garmentInfo, photos) persisted in parent component via useState so navigating back preserves data. Route added to router inside protected dashboard layout.
+- Timestamp: 2026-02-16
+---

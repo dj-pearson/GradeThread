@@ -576,8 +576,8 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created new-submission.tsx with 3-step wizard (Garment Info -> Photos -> Review & Pay). StepIndicator shows numbered circles with checkmarks for completed steps. State persisted via useState in parent. GarmentInfoForm and PhotoUpload components integrated. Review step shows garment details summary, photo thumbnails grid, and pricing info. Back/Next navigation between all steps. Route added at /dashboard/submissions/new."
     },
 
     {

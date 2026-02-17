@@ -10,6 +10,7 @@ import { AuthCallbackPage } from "@/pages/auth-callback";
 import { ResetPasswordPage } from "@/pages/reset-password";
 import { DashboardPage } from "@/pages/dashboard";
 import { SubmissionsPage } from "@/pages/submissions";
+import { NewSubmissionPage } from "@/pages/new-submission";
 import { SubmissionDetailPage } from "@/pages/submission-detail";
 import { SettingsPage } from "@/pages/settings";
 import { BillingPage } from "@/pages/billing";
@@ -47,6 +48,7 @@ export const router = createBrowserRouter([
             children: [
               { path: "/dashboard", element: <DashboardPage /> },
               { path: "/dashboard/submissions", element: <SubmissionsPage /> },
+              { path: "/dashboard/submissions/new", element: <NewSubmissionPage /> },
               { path: "/dashboard/submissions/:id", element: <SubmissionDetailPage /> },
               { path: "/dashboard/settings", element: <SettingsPage /> },
               { path: "/dashboard/billing", element: <BillingPage /> },
