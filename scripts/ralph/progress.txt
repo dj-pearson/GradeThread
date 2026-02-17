@@ -155,3 +155,10 @@ Branch: ralph/gradethread-build
 - Notes: Fully rebuilt billing.tsx with plan comparison grid showing all 4 plans (Free, Starter $29/mo, Professional $99/mo, Enterprise custom). Current plan card shows feature list, usage progress bar (grades used / limit), and grade reset date with CalendarClock icon. Current plan highlighted with border-brand-navy border. Upgrade buttons call POST /api/payments/subscribe to create Stripe Checkout subscription sessions. Manage Subscription button calls POST /api/payments/portal to open Stripe Customer Portal for existing subscribers with stripe_customer_id. Enterprise plan directs to sales email. Added two new edge function endpoints: /subscribe (creates subscription checkout with existing customer or customer_email) and /portal (creates billing portal session). Downgrade handled via portal. All loading states with Loader2 spinner, errors via sonner toast.
 - Timestamp: 2026-02-16
 ---
+
+## US-043: Grade certificate public page
+- Status: COMPLETE
+- Files changed: src/pages/certificate.tsx, package.json, package-lock.json, scripts/ralph/prd.json, prd.json
+- Notes: Fully rebuilt certificate.tsx as a public-facing grade certificate page. Fetches grade report by certificate_id via Supabase (public RLS). Shows GradeThread branding header with logo_white.svg and Shield icon. Displays overall score in a large circle with tier badge and color coding. Shows garment photos in a responsive grid gallery with signed URLs. Factor breakdown with 5 horizontal Progress bars matching submission-detail patterns. AI summary section. Footer with graded date (Calendar icon), model version (Cpu icon), certificate ID. QR code via qrcode.react (QRCodeSVG) linking back to the certificate URL in brand navy color. OG meta tags set dynamically via useEffect. Loading skeleton and "Certificate not found" error state. Mobile-responsive layout throughout.
+- Timestamp: 2026-02-16
+---
