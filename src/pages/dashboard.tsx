@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BarChart3, FileText, TrendingUp, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { GradeCharts } from "@/components/dashboard/grade-charts";
 
 interface RecentSubmission extends SubmissionRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
@@ -193,6 +194,9 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Analytics charts */}
+      <GradeCharts />
 
       {/* Recent submissions */}
       <Card>

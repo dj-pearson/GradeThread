@@ -169,3 +169,10 @@ Branch: ralph/gradethread-build
 - Notes: Replaced placeholder dashboard with live data integration. Fetches real submission count and last 5 recent submissions from Supabase via TanStack Query (5-min stale time). Recent submissions show title, date, status badge (color-coded), and grade score for completed items. Clicking a submission navigates to /dashboard/submissions/:id. Added "New Submission" CTA button in header linking to /dashboard/submissions/new. "View All" button links to submissions list. Empty state with CTA when no submissions exist. Total Submissions card shows live count with loading skeleton. Grades Used card already uses live profile data (grades_used_this_month). Grade reports fetched for completed submissions and merged. Type assertions used for Supabase query results per tsc -b workaround.
 - Timestamp: 2026-02-16
 ---
+
+## US-045: Grade analytics charts on dashboard
+- Status: COMPLETE
+- Files changed: src/components/dashboard/grade-charts.tsx (new), src/pages/dashboard.tsx, package.json, package-lock.json, prd.json, scripts/ralph/prd.json
+- Notes: Installed recharts library. Created GradeCharts component with 3 charts: (1) Grade Distribution bar chart showing count of grades in each tier bucket (NWT through Poor) with color-coded bars, (2) Average Grade Over Time line chart with 4 weekly data points over last 30 days using brand navy color, (3) Submissions by Garment Type donut pie chart with labels showing percentages. All charts use ResponsiveContainer for responsive sizing. Empty state shows centered message when no completed submissions exist. Loading state shows skeleton cards. Integrated into dashboard.tsx between stats cards and recent submissions. Fixed tsc -b strict type issues: Record indexing returns possibly-undefined values, recharts Tooltip formatter type incompatibility, and Pie label percent possibly undefined.
+- Timestamp: 2026-02-16
+---
