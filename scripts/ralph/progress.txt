@@ -232,3 +232,10 @@ Branch: ralph/gradethread-build
 - Notes: Added Record Shipment dialog to the Shipments card on inventory detail page. Dialog visible when item status is sold or shipped and sales exist. Features: carrier dropdown (USPS, UPS, FedEx, DHL, Other), tracking number input (optional), shipping cost input (required), label cost input (default 0 for pre-paid labels), ship date (default today), weight in oz (optional). Auto-selects sale when only one exists, shows sale selector for multiple sales. Creates shipment record linked to sale, updates item status to shipped. Mark as Delivered button on undelivered shipments sets delivery_date to today and updates item status to completed. Used 'as ShipmentRow' cast for tsc -b compatibility on spread operations.
 - Timestamp: 2026-02-16
 ---
+
+## US-054: Financial dashboard overview
+- Status: COMPLETE
+- Files changed: src/pages/finances.tsx (new), src/routes/index.tsx, src/components/dashboard/sidebar.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created financial dashboard page at /dashboard/finances. Features 8 metric cards in two rows: Row 1 - Total Revenue, Total Costs, Net Profit, Profit Margin %. Row 2 - Items Sold, Avg Profit/Item, Avg Days to Sell, Inventory Value. Period toggle with 5 options (This Month, Last 30 Days, This Quarter, This Year, All Time) filters sales by date. Revenue = sum of sale prices, costs = acquisition + shipping + label + platform fees, inventory value = sum of acquired_price for unsold items (acquired/grading/graded/listed statuses). All data fetched via Supabase queries with loading skeletons. Color coding: green for revenue/positive profit, red for costs/losses. Used explicit type casts for tsc -b compatibility.
+- Timestamp: 2026-02-16
+---
