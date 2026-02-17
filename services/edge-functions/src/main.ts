@@ -4,6 +4,7 @@ import { logger } from "hono/middleware";
 import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
+import { authMiddleware } from "./middleware/auth.ts";
 
 const app = new Hono();
 
@@ -22,6 +23,9 @@ app.use(
     maxAge: 86400,
   })
 );
+
+// Auth middleware — applied to protected routes only (not health or webhooks)
+app.use("/api/grade/*", authMiddleware);
 
 // Routes
 app.route("/health", healthRoutes);

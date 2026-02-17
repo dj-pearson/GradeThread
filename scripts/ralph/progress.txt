@@ -50,3 +50,10 @@ Branch: ralph/gradethread-build
 - Notes: Created image-utils module with two exported functions: validateImage(file) checks MIME type (jpeg/png/webp), file size (10MB max), and resolution (min 1200x1200px), returning structured validation errors with user-friendly messages. compressImage(file, maxWidth, quality) uses canvas API to resize images (default max 2400px wide), compress (default 0.85 quality), and correct EXIF orientation by parsing the orientation tag from the first 64KB of JPEG files. Handles all 8 EXIF orientation values including dimension swaps for rotated images. Outputs WebP for JPEG/WebP inputs, preserves PNG format. Typecheck and build pass clean.
 - Timestamp: 2026-02-16
 ---
+
+## US-028: Edge function: JWT auth middleware
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/middleware/auth.ts, services/edge-functions/src/main.ts, prd.json, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- Notes: Created Hono middleware that extracts Bearer token from Authorization header, validates it via supabase.auth.getUser(), and sets user and userId on the Hono context. Returns 401 JSON error for missing or invalid tokens. Applied to /api/grade/* routes in main.ts using app.use() path matching. Health and webhook routes remain unprotected as required. Uses createMiddleware from hono/factory with typed Variables for user and userId.
+- Timestamp: 2026-02-16
+---

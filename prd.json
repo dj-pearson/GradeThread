@@ -498,8 +498,8 @@
         "Applied to grade and user-specific routes but not health or webhooks"
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created services/edge-functions/src/middleware/auth.ts exporting authMiddleware. Extracts Bearer token, validates via supabase.auth.getUser(), sets user and userId on Hono context. Returns 401 for missing/invalid tokens. Applied to /api/grade/* routes in main.ts; health and webhook routes remain unprotected."
     },
 
     {
