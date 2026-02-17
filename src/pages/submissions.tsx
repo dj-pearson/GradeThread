@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   FileText,
   Plus,
@@ -8,6 +9,7 @@ import {
   ChevronRight,
   ArrowUpDown,
   Search,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -90,8 +92,115 @@ function LoadingSkeleton() {
   );
 }
 
+function escapeCsvField(value: string): string {
+  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+async function exportSubmissionsCsv() {
+  // Fetch ALL submissions (no pagination)
+  const { data: submissions, error: subError } = await supabase
+    .from("submissions")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (subError) throw subError;
+
+  const allSubmissions = (submissions ?? []) as SubmissionRow[];
+
+  if (allSubmissions.length === 0) {
+    toast.info("No submissions to export.");
+    return;
+  }
+
+  // Fetch all grade reports for these submissions
+  const submissionIds = allSubmissions.map((s) => s.id);
+  const { data: reports } = await supabase
+    .from("grade_reports")
+    .select(
+      "submission_id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, certificate_id"
+    )
+    .in("submission_id", submissionIds);
+
+  type ExportGradeReport = Pick<
+    GradeReportRow,
+    | "overall_score"
+    | "grade_tier"
+    | "fabric_condition_score"
+    | "structural_integrity_score"
+    | "cosmetic_appearance_score"
+    | "functional_elements_score"
+    | "odor_cleanliness_score"
+    | "certificate_id"
+  > & { submission_id: string };
+
+  const reportRows = (reports ?? []) as ExportGradeReport[];
+  const gradeMap = new Map(reportRows.map((r) => [r.submission_id, r]));
+
+  const headers = [
+    "Submission Date",
+    "Title",
+    "Brand",
+    "Garment Type",
+    "Category",
+    "Status",
+    "Overall Grade",
+    "Grade Tier",
+    "Fabric Condition",
+    "Structural Integrity",
+    "Cosmetic Appearance",
+    "Functional Elements",
+    "Odor & Cleanliness",
+    "Certificate URL",
+  ];
+
+  const rows = allSubmissions.map((sub) => {
+    const grade = gradeMap.get(sub.id);
+    const certUrl = grade?.certificate_id
+      ? `${window.location.origin}/certificate/${grade.certificate_id}`
+      : "";
+
+    const dateStr = new Date(sub.created_at).toISOString().slice(0, 10);
+    const fields: string[] = [
+      dateStr,
+      sub.title,
+      sub.brand ?? "",
+      formatLabel(sub.garment_type),
+      formatLabel(sub.garment_category),
+      formatLabel(sub.status),
+      grade ? grade.overall_score.toFixed(1) : "",
+      grade?.grade_tier ?? "",
+      grade ? grade.fabric_condition_score.toFixed(1) : "",
+      grade ? grade.structural_integrity_score.toFixed(1) : "",
+      grade ? grade.cosmetic_appearance_score.toFixed(1) : "",
+      grade ? grade.functional_elements_score.toFixed(1) : "",
+      grade ? grade.odor_cleanliness_score.toFixed(1) : "",
+      certUrl,
+    ];
+    return fields.map(escapeCsvField);
+  });
+
+  const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join(
+    "\n"
+  );
+
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const dateStr = new Date().toISOString().split("T")[0];
+  link.href = url;
+  link.download = `gradethread_export_${dateStr}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 export function SubmissionsPage() {
   const navigate = useNavigate();
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
@@ -203,10 +312,29 @@ export function SubmissionsPage() {
             View and manage your grading submissions.
           </p>
         </div>
-        <Button onClick={() => navigate("/dashboard/submissions/new")}>
-          <Plus className="mr-1 h-4 w-4" />
-          New Submission
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={exporting}
+            onClick={async () => {
+              setExporting(true);
+              try {
+                await exportSubmissionsCsv();
+              } catch {
+                toast.error("Failed to export submissions.");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            <Download className="mr-1 h-4 w-4" />
+            {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+          <Button onClick={() => navigate("/dashboard/submissions/new")}>
+            <Plus className="mr-1 h-4 w-4" />
+            New Submission
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}

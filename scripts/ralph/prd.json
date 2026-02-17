@@ -847,8 +847,8 @@
         "Typecheck passes"
       ],
       "priority": 46,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Export CSV button to submissions page. Fetches all submissions + grade reports client-side, generates CSV with all required columns (date, title, brand, garment type, category, status, overall grade, grade tier, 5 factor scores, certificate URL). Uses Blob download. Fixed tsc -b type issue with .slice(0,10) instead of .split('T')[0] and explicit string[] typing."
     },
 
     {

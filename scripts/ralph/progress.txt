@@ -176,3 +176,10 @@ Branch: ralph/gradethread-build
 - Notes: Installed recharts library. Created GradeCharts component with 3 charts: (1) Grade Distribution bar chart showing count of grades in each tier bucket (NWT through Poor) with color-coded bars, (2) Average Grade Over Time line chart with 4 weekly data points over last 30 days using brand navy color, (3) Submissions by Garment Type donut pie chart with labels showing percentages. All charts use ResponsiveContainer for responsive sizing. Empty state shows centered message when no completed submissions exist. Loading state shows skeleton cards. Integrated into dashboard.tsx between stats cards and recent submissions. Fixed tsc -b strict type issues: Record indexing returns possibly-undefined values, recharts Tooltip formatter type incompatibility, and Pie label percent possibly undefined.
 - Timestamp: 2026-02-16
 ---
+
+## US-046: Export submissions as CSV
+- Status: COMPLETE
+- Files changed: src/pages/submissions.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Added Export CSV button (with Download icon) to submissions page header alongside New Submission button. Export function fetches all user submissions and their grade reports from Supabase (bypassing pagination), then builds a CSV with 14 columns: Submission Date, Title, Brand, Garment Type, Category, Status, Overall Grade, Grade Tier, Fabric Condition, Structural Integrity, Cosmetic Appearance, Functional Elements, Odor & Cleanliness, Certificate URL. CSV fields properly escaped for commas/quotes/newlines. File downloads as gradethread_export_{YYYY-MM-DD}.csv via Blob URL. Shows loading state on button during export. Empty submissions show info toast. Fixed tsc -b type issue by using .slice(0,10) instead of .split('T')[0] and explicit string[] array typing.
+- Timestamp: 2026-02-16
+---
