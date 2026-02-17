@@ -183,3 +183,10 @@ Branch: ralph/gradethread-build
 - Notes: Added Export CSV button (with Download icon) to submissions page header alongside New Submission button. Export function fetches all user submissions and their grade reports from Supabase (bypassing pagination), then builds a CSV with 14 columns: Submission Date, Title, Brand, Garment Type, Category, Status, Overall Grade, Grade Tier, Fabric Condition, Structural Integrity, Cosmetic Appearance, Functional Elements, Odor & Cleanliness, Certificate URL. CSV fields properly escaped for commas/quotes/newlines. File downloads as gradethread_export_{YYYY-MM-DD}.csv via Blob URL. Shows loading state on button during export. Empty submissions show info toast. Fixed tsc -b type issue by using .slice(0,10) instead of .split('T')[0] and explicit string[] array typing.
 - Timestamp: 2026-02-16
 ---
+
+## US-047: Settings page: profile editing
+- Status: COMPLETE
+- Files changed: src/pages/settings.tsx, src/hooks/use-auth.ts, prd.json, scripts/ralph/prd.json
+- Notes: Rewrote settings page with full profile editing: editable full name input, avatar upload with FileReader preview and Supabase storage upload, read-only email display, save button that updates users table via .update(). Password change section for email/password users (hidden for OAuth) with current password verification via re-auth, new password + confirm fields, min 6 chars validation. Added refreshProfile() to useAuth hook to reload profile after save. Used 'as never' cast on .update() to work around tsc -b type resolution issue. All toasts via sonner.
+- Timestamp: 2026-02-16
+---

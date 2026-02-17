@@ -865,8 +865,8 @@
         "Typecheck passes"
       ],
       "priority": 47,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented full settings page with editable name, avatar upload with preview (stored in submission-images bucket), read-only email, save profile via Supabase .update(), password change section for email/password users with current password verification. Added refreshProfile to useAuth hook. Used 'as never' cast for tsc -b compatibility."
     },
 
     {
