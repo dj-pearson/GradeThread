@@ -190,3 +190,10 @@ Branch: ralph/gradethread-build
 - Notes: Rewrote settings page with full profile editing: editable full name input, avatar upload with FileReader preview and Supabase storage upload, read-only email display, save button that updates users table via .update(). Password change section for email/password users (hidden for OAuth) with current password verification via re-auth, new password + confirm fields, min 6 chars validation. Added refreshProfile() to useAuth hook to reload profile after save. Used 'as never' cast on .update() to work around tsc -b type resolution issue. All toasts via sonner.
 - Timestamp: 2026-02-16
 ---
+
+## US-048: Inventory management: items list page
+- Status: COMPLETE
+- Files changed: src/pages/inventory.tsx, src/routes/index.tsx, src/components/dashboard/sidebar.tsx, src/lib/constants.ts, prd.json, scripts/ralph/prd.json
+- Notes: Created inventory list page with table displaying title, brand, status badge, grade, acquired price, listed price, and days in inventory columns. Added filters for status, garment type, and brand (brand filter dynamically populated from existing items). Sort by date, price, or status. 25-item pagination. Add Item button navigates to /dashboard/inventory/new. Row click navigates to /dashboard/inventory/:id. Added ITEM_STATUSES constant to constants.ts. Added Package icon sidebar nav link. Uses TanStack Query with 5-min stale time. Used explicit cast pattern for Supabase query results (consistent with tsc -b workaround).
+- Timestamp: 2026-02-16
+---

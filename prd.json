@@ -886,8 +886,8 @@
         "Typecheck passes"
       ],
       "priority": 48,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented inventory list page with table, status badges, filters (status/garment type/brand), sorting (date/price/status), 25-item pagination, Add Item button, and row click navigation."
     },
 
     {

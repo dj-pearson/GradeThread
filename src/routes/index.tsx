@@ -12,6 +12,7 @@ import { DashboardPage } from "@/pages/dashboard";
 import { SubmissionsPage } from "@/pages/submissions";
 import { NewSubmissionPage } from "@/pages/new-submission";
 import { SubmissionDetailPage } from "@/pages/submission-detail";
+import { InventoryPage } from "@/pages/inventory";
 import { SettingsPage } from "@/pages/settings";
 import { BillingPage } from "@/pages/billing";
 import { ApiKeysPage } from "@/pages/api-keys";
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/submissions", element: <SubmissionsPage /> },
               { path: "/dashboard/submissions/new", element: <NewSubmissionPage /> },
               { path: "/dashboard/submissions/:id", element: <SubmissionDetailPage /> },
+              { path: "/dashboard/inventory", element: <InventoryPage /> },
               { path: "/dashboard/settings", element: <SettingsPage /> },
               { path: "/dashboard/billing", element: <BillingPage /> },
               { path: "/dashboard/api-keys", element: <ApiKeysPage /> },

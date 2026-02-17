@@ -2,6 +2,7 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   FileText,
+  Package,
   CreditCard,
   Key,
   Settings,
@@ -10,6 +11,7 @@ import {
 const navItems = [
   { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
   { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
+  { to: "/dashboard/inventory", icon: Package, label: "Inventory", end: false },
   { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false },
   { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false },
   { to: "/dashboard/settings", icon: Settings, label: "Settings", end: false },

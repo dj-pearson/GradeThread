@@ -148,6 +148,18 @@ export const GRADE_FACTORS = {
 
 export type GradeFactorKey = keyof typeof GRADE_FACTORS;
 
+// Inventory item statuses
+export const ITEM_STATUSES = [
+  "acquired",
+  "grading",
+  "graded",
+  "listed",
+  "sold",
+  "shipped",
+  "completed",
+  "returned",
+] as const;
+
 // Stripe price IDs (replace with actual IDs)
 export const STRIPE_PRICE_IDS = {
   starter_monthly: "price_starter_monthly_placeholder",
