@@ -597,8 +597,8 @@
         "Returns 400 with validation errors for invalid input"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented POST /api/grade/submit with multipart form data parsing, garment info validation, image type validation (requires front/back/label + at least 1 detail), plan limit checking with monthly reset logic, Supabase storage upload under {userId}/{submissionId}/{imageType}_{timestamp}.{ext}, submission_image record creation, grades_used_this_month increment via RPC function. Added increment_grades_used Postgres function in migration 00004. Status endpoint also implemented to return submission details scoped to authenticated user."
     },
 
     {

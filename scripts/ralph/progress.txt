@@ -85,3 +85,10 @@ Branch: ralph/gradethread-build
 - Notes: Created 3-step submission wizard at /dashboard/submissions/new. StepIndicator component shows numbered circles with checkmarks for completed steps and connecting lines. Step 1 renders GarmentInfoForm with defaultValues for state persistence when navigating back. Step 2 renders PhotoUpload with Back/Next buttons (Next disabled until all 4 required photos uploaded). Step 3 shows review with garment details grid, photo thumbnails grid, and pricing info from user's plan. All state (garmentInfo, photos) persisted in parent component via useState so navigating back preserves data. Route added to router inside protected dashboard layout.
 - Timestamp: 2026-02-16
 ---
+
+## US-033: Submission creation API endpoint
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/routes/grade.ts, supabase/migrations/00004_increment_grades_function.sql, prd.json, scripts/ralph/prd.json
+- Notes: Fully implemented POST /api/grade/submit endpoint with multipart form data parsing. Validates garment_type, garment_category, title (required), and image files (requires front, back, label, and at least 1 detail image). Checks user's grade usage against plan limits (free:5, starter:50, professional:500, enterprise:unlimited) with monthly reset logic. Creates submission record with status 'pending', uploads each image to Supabase storage under {userId}/{submissionId}/{imageType}_{timestamp}.{ext}, creates submission_image records with display_order. Increments grades_used_this_month via Postgres RPC function (new migration 00004) or resets counter if month rolled over. Returns 201 with { submissionId, status } on success, 403 with upgrade message if limit exceeded, 400 with detailed validation errors for invalid input. Also implemented GET /status/:id endpoint scoped to authenticated user. Includes cleanup logic on failure (deletes uploaded images and submission record).
+- Timestamp: 2026-02-16
+---
