@@ -1085,8 +1085,8 @@
         "Typecheck passes"
       ],
       "priority": 58,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented FinancialExport component with date range selector, CSV export with summary+transactions, and PDF via print dialog. Added to finances page."
     },
 
     {

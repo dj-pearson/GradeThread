@@ -260,3 +260,10 @@ Branch: ralph/gradethread-build
 - Notes: Created CashFlow component with dual-view toggle (chart/table). Chart view: bar chart showing inflows (green) and outflows (red) by date, plus line chart showing cumulative cash position with running balance. Table view: chronological transaction list with date, type (In/Out with icons), category, description, amount, and running balance columns. Transaction types include item acquisitions (outflow), sales revenue (inflow), platform fees (outflow), and shipping costs (outflow). Hover tooltips show formatted currency values. Used same recharts Tooltip formatter pattern (Number(value)) as financial-charts.tsx.
 - Timestamp: 2026-02-16
 ---
+
+## US-058: Financial reporting: tax-ready export
+- Status: COMPLETE
+- Files changed: src/components/finances/financial-export.tsx (new), src/pages/finances.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created FinancialExport component with date range selector (defaults to current tax year), dropdown menu with CSV and PDF export options. CSV export generates file with summary section (gross revenue, expenses by category, net profit) followed by transaction details (date, type, category, amount, item title, platform). PDF export opens a styled HTML document in a new window for browser print-to-PDF. Transactions are built from inventory items (acquisition expenses), sales (income + platform fees), and shipments (shipping costs). File naming follows gradethread_financial_report_{startDate}_{endDate}.csv convention. Used existing CSV escape pattern from submissions.tsx.
+- Timestamp: 2026-02-16
+---

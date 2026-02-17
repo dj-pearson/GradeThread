@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialCharts } from "@/components/finances/financial-charts";
 import { CashFlow } from "@/components/finances/cash-flow";
+import { FinancialExport } from "@/components/finances/financial-export";
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -185,19 +186,29 @@ export function FinancesPage() {
         </p>
       </div>
 
-      {/* Period toggle */}
-      <div className="flex flex-wrap gap-2">
-        {PERIOD_OPTIONS.map((opt) => (
-          <Button
-            key={opt.value}
-            variant={period === opt.value ? "default" : "outline"}
-            size="sm"
-            onClick={() => setPeriod(opt.value)}
-          >
-            {opt.label}
-          </Button>
-        ))}
+      {/* Period toggle + Export */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap gap-2">
+          {PERIOD_OPTIONS.map((opt) => (
+            <Button
+              key={opt.value}
+              variant={period === opt.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setPeriod(opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
       </div>
+
+      {/* Financial Export */}
+      <FinancialExport
+        items={data?.items ?? []}
+        sales={data?.sales ?? []}
+        shipments={data?.shipments ?? []}
+        listings={data?.listings ?? []}
+      />
 
       {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
