@@ -14,6 +14,7 @@ import { NewSubmissionPage } from "@/pages/new-submission";
 import { SubmissionDetailPage } from "@/pages/submission-detail";
 import { InventoryPage } from "@/pages/inventory";
 import { InventoryAddPage } from "@/pages/inventory-add";
+import { InventoryDetailPage } from "@/pages/inventory-detail";
 import { SettingsPage } from "@/pages/settings";
 import { BillingPage } from "@/pages/billing";
 import { ApiKeysPage } from "@/pages/api-keys";
@@ -54,6 +55,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/submissions/:id", element: <SubmissionDetailPage /> },
               { path: "/dashboard/inventory", element: <InventoryPage /> },
               { path: "/dashboard/inventory/new", element: <InventoryAddPage /> },
+              { path: "/dashboard/inventory/:id", element: <InventoryDetailPage /> },
               { path: "/dashboard/settings", element: <SettingsPage /> },
               { path: "/dashboard/billing", element: <BillingPage /> },
               { path: "/dashboard/api-keys", element: <ApiKeysPage /> },

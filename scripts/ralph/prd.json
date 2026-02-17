@@ -928,8 +928,8 @@
         "Typecheck passes"
       ],
       "priority": 50,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented inventory detail page at /dashboard/inventory/:id with lifecycle timeline, acquisition/grading/listings/sales/shipments cards, profit/loss summary, and status update actions. Used 'as never' cast for supabase .update() to work around tsc -b type resolution issue."
     },
 
     {
