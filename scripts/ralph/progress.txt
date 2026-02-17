@@ -218,3 +218,10 @@ Branch: ralph/gradethread-build
 - Notes: Added Add Listing dialog to inventory detail page with platform dropdown (8 platforms), listing price input, listing URL input (optional), and platform listing ID input (optional). Dialog creates listing record via Supabase insert and auto-updates item status to 'listed' when current status is 'graded' or 'acquired'. Added active/inactive toggle button on each listing row. Added LISTING_PLATFORMS constant to constants.ts and formatPlatform helper with proper display names (e.g. "eBay", "Facebook Marketplace"). Used 'as never' casts on Supabase .insert()/.update() for tsc -b compatibility. Multiple listings per item supported (cross-listing).
 - Timestamp: 2026-02-16
 ---
+
+## US-052: Inventory: record sale
+- Status: COMPLETE
+- Files changed: src/pages/inventory-detail.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Added Record Sale dialog to the Sales card on inventory detail page. Dialog includes: linked listing dropdown (shows active listings with platform name and price, or "No linked listing"), sale price input (required), platform fees input (default 0), sale date input (default today), buyer username input (optional). On submit: creates sale record in Supabase linked to inventory item and optional listing, marks ALL active listings for this item as inactive (cross-listing cleanup), updates item status to 'sold'. Used 'as never' cast on Supabase insert/update for tsc -b compatibility.
+- Timestamp: 2026-02-16
+---

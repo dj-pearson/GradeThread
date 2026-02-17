@@ -175,6 +175,15 @@ export function InventoryDetailPage() {
   const [platformListingId, setPlatformListingId] = useState("");
   const [togglingListingId, setTogglingListingId] = useState<string | null>(null);
 
+  // Record Sale dialog state
+  const [recordSaleOpen, setRecordSaleOpen] = useState(false);
+  const [recordSaleSubmitting, setRecordSaleSubmitting] = useState(false);
+  const [saleListingId, setSaleListingId] = useState<string>("none");
+  const [salePrice, setSalePrice] = useState("");
+  const [salePlatformFees, setSalePlatformFees] = useState("");
+  const [saleDate, setSaleDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [saleBuyerUsername, setSaleBuyerUsername] = useState("");
+
   useEffect(() => {
     if (!id) return;
 
@@ -323,6 +332,80 @@ export function InventoryDetailPage() {
       toast.success(`Listing marked as ${newActive ? "active" : "inactive"}.`);
     }
     setTogglingListingId(null);
+  }
+
+  async function handleRecordSale() {
+    if (!item) return;
+    const price = parseFloat(salePrice);
+    if (isNaN(price) || price <= 0) {
+      toast.error("Please enter a valid sale price.");
+      return;
+    }
+    const fees = salePlatformFees ? parseFloat(salePlatformFees) : 0;
+    if (isNaN(fees) || fees < 0) {
+      toast.error("Please enter valid platform fees.");
+      return;
+    }
+
+    setRecordSaleSubmitting(true);
+
+    const linkedListingId = saleListingId === "none" ? null : saleListingId;
+
+    // Create sale record
+    const { data: newSale, error: saleError } = await supabase
+      .from("sales")
+      .insert({
+        inventory_item_id: item.id,
+        listing_id: linkedListingId,
+        sale_price: price,
+        platform_fees: fees,
+        sale_date: saleDate,
+        buyer_username: saleBuyerUsername.trim() || null,
+      } as never)
+      .select()
+      .single();
+
+    if (saleError) {
+      toast.error("Failed to record sale.");
+      setRecordSaleSubmitting(false);
+      return;
+    }
+
+    const createdSale = newSale as SaleRow;
+    setSales((prev) => [createdSale, ...prev]);
+
+    // Mark ALL listings for this item as inactive (cross-listing cleanup)
+    const activeListingIds = listings.filter((l) => l.is_active).map((l) => l.id);
+    if (activeListingIds.length > 0) {
+      await supabase
+        .from("listings")
+        .update({ is_active: false } as never)
+        .in("id", activeListingIds);
+
+      setListings((prev) =>
+        prev.map((l) => (activeListingIds.includes(l.id) ? { ...l, is_active: false } : l))
+      );
+    }
+
+    // Update item status to 'sold'
+    const { error: statusError } = await supabase
+      .from("inventory_items")
+      .update({ status: "sold" } as never)
+      .eq("id", item.id);
+
+    if (!statusError) {
+      setItem({ ...item, status: "sold" });
+    }
+
+    // Reset form
+    setSaleListingId("none");
+    setSalePrice("");
+    setSalePlatformFees("");
+    setSaleDate(new Date().toISOString().split("T")[0]);
+    setSaleBuyerUsername("");
+    setRecordSaleOpen(false);
+    setRecordSaleSubmitting(false);
+    toast.success("Sale recorded successfully.");
   }
 
   if (loading) {
@@ -755,10 +838,114 @@ export function InventoryDetailPage() {
       {/* Sale Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            <ShoppingCart className="mr-1.5 inline-block h-4 w-4" />
-            Sales
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              <ShoppingCart className="mr-1.5 inline-block h-4 w-4" />
+              Sales
+            </CardTitle>
+            <Dialog open={recordSaleOpen} onOpenChange={setRecordSaleOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Record Sale
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Record Sale</DialogTitle>
+                  <DialogDescription>
+                    Record a sale for this item. All active listings will be
+                    deactivated automatically.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="sale-listing">Linked Listing</Label>
+                    <Select
+                      value={saleListingId}
+                      onValueChange={setSaleListingId}
+                    >
+                      <SelectTrigger id="sale-listing">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No linked listing</SelectItem>
+                        {listings
+                          .filter((l) => l.is_active)
+                          .map((l) => (
+                            <SelectItem key={l.id} value={l.id}>
+                              {formatPlatform(l.platform)} —{" "}
+                              {formatCurrency(l.listing_price)}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sale-price">Sale Price ($) *</Label>
+                    <Input
+                      id="sale-price"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={salePrice}
+                      onChange={(e) => setSalePrice(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sale-platform-fees">
+                      Platform Fees ($)
+                    </Label>
+                    <Input
+                      id="sale-platform-fees"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder="0.00"
+                      value={salePlatformFees}
+                      onChange={(e) => setSalePlatformFees(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sale-date">Sale Date</Label>
+                    <Input
+                      id="sale-date"
+                      type="date"
+                      value={saleDate}
+                      onChange={(e) => setSaleDate(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="sale-buyer">
+                      Buyer Username (optional)
+                    </Label>
+                    <Input
+                      id="sale-buyer"
+                      placeholder="e.g. buyer123"
+                      value={saleBuyerUsername}
+                      onChange={(e) => setSaleBuyerUsername(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setRecordSaleOpen(false)}
+                    disabled={recordSaleSubmitting}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleRecordSale}
+                    disabled={recordSaleSubmitting || !salePrice}
+                  >
+                    {recordSaleSubmitting ? "Recording..." : "Record Sale"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
         </CardHeader>
         <CardContent>
           {sales.length === 0 ? (

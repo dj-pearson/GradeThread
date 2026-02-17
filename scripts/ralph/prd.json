@@ -971,8 +971,8 @@
         "Typecheck passes"
       ],
       "priority": 52,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Record Sale dialog added to inventory detail page Sales card. Dropdown of active listings, sale price, platform fees (default 0), sale date (default today), buyer username. On submit: creates sale record, marks ALL active listings inactive (cross-listing cleanup), updates item status to sold."
     },
 
     {
