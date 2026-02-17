@@ -993,8 +993,8 @@
         "Typecheck passes"
       ],
       "priority": 53,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Record Shipment dialog added to inventory detail page Shipments card. Visible when status is sold/shipped and sales exist. Carrier dropdown (USPS, UPS, FedEx, DHL, Other), tracking number, shipping cost, label cost, ship date, weight fields. Creates shipment record linked to sale, updates item status to shipped. Mark as Delivered button on undelivered shipments sets delivery_date to today and updates item status to completed."
     },
 
     {

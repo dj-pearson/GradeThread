@@ -225,3 +225,10 @@ Branch: ralph/gradethread-build
 - Notes: Added Record Sale dialog to the Sales card on inventory detail page. Dialog includes: linked listing dropdown (shows active listings with platform name and price, or "No linked listing"), sale price input (required), platform fees input (default 0), sale date input (default today), buyer username input (optional). On submit: creates sale record in Supabase linked to inventory item and optional listing, marks ALL active listings for this item as inactive (cross-listing cleanup), updates item status to 'sold'. Used 'as never' cast on Supabase insert/update for tsc -b compatibility.
 - Timestamp: 2026-02-16
 ---
+
+## US-053: Inventory: record shipment
+- Status: COMPLETE
+- Files changed: src/pages/inventory-detail.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Added Record Shipment dialog to the Shipments card on inventory detail page. Dialog visible when item status is sold or shipped and sales exist. Features: carrier dropdown (USPS, UPS, FedEx, DHL, Other), tracking number input (optional), shipping cost input (required), label cost input (default 0 for pre-paid labels), ship date (default today), weight in oz (optional). Auto-selects sale when only one exists, shows sale selector for multiple sales. Creates shipment record linked to sale, updates item status to shipped. Mark as Delivered button on undelivered shipments sets delivery_date to today and updates item status to completed. Used 'as ShipmentRow' cast for tsc -b compatibility on spread operations.
+- Timestamp: 2026-02-16
+---

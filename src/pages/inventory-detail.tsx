@@ -58,6 +58,14 @@ import type {
   ItemStatus,
 } from "@/types/database";
 
+const CARRIERS = [
+  { value: "usps", label: "USPS" },
+  { value: "ups", label: "UPS" },
+  { value: "fedex", label: "FedEx" },
+  { value: "dhl", label: "DHL" },
+  { value: "other", label: "Other" },
+] as const;
+
 const PLATFORM_LABELS: Record<string, string> = {
   ebay: "eBay",
   poshmark: "Poshmark",
@@ -183,6 +191,18 @@ export function InventoryDetailPage() {
   const [salePlatformFees, setSalePlatformFees] = useState("");
   const [saleDate, setSaleDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [saleBuyerUsername, setSaleBuyerUsername] = useState("");
+
+  // Record Shipment dialog state
+  const [recordShipmentOpen, setRecordShipmentOpen] = useState(false);
+  const [recordShipmentSubmitting, setRecordShipmentSubmitting] = useState(false);
+  const [shipmentSaleId, setShipmentSaleId] = useState<string>("");
+  const [shipmentCarrier, setShipmentCarrier] = useState("usps");
+  const [shipmentTrackingNumber, setShipmentTrackingNumber] = useState("");
+  const [shipmentCost, setShipmentCost] = useState("");
+  const [shipmentLabelCost, setShipmentLabelCost] = useState("");
+  const [shipmentDate, setShipmentDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [shipmentWeightOz, setShipmentWeightOz] = useState("");
+  const [deliveringShipmentId, setDeliveringShipmentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -406,6 +426,115 @@ export function InventoryDetailPage() {
     setRecordSaleOpen(false);
     setRecordSaleSubmitting(false);
     toast.success("Sale recorded successfully.");
+  }
+
+  async function handleRecordShipment() {
+    if (!item) return;
+    const cost = parseFloat(shipmentCost);
+    if (isNaN(cost) || cost < 0) {
+      toast.error("Please enter a valid shipping cost.");
+      return;
+    }
+    const labelCost = shipmentLabelCost ? parseFloat(shipmentLabelCost) : 0;
+    if (isNaN(labelCost) || labelCost < 0) {
+      toast.error("Please enter a valid label cost.");
+      return;
+    }
+    const weightOz = shipmentWeightOz ? parseFloat(shipmentWeightOz) : null;
+    if (shipmentWeightOz && (isNaN(weightOz!) || weightOz! < 0)) {
+      toast.error("Please enter a valid weight.");
+      return;
+    }
+
+    if (!shipmentSaleId) {
+      toast.error("Please select a sale to link this shipment to.");
+      return;
+    }
+
+    setRecordShipmentSubmitting(true);
+
+    const carrierLabel = CARRIERS.find((c) => c.value === shipmentCarrier)?.label ?? shipmentCarrier;
+
+    const { data: newShipment, error: shipmentError } = await supabase
+      .from("shipments")
+      .insert({
+        sale_id: shipmentSaleId,
+        carrier: carrierLabel,
+        tracking_number: shipmentTrackingNumber.trim() || null,
+        shipping_cost: cost,
+        label_cost: labelCost,
+        ship_date: shipmentDate || null,
+        weight_oz: weightOz,
+      } as never)
+      .select()
+      .single();
+
+    if (shipmentError) {
+      toast.error("Failed to record shipment.");
+      setRecordShipmentSubmitting(false);
+      return;
+    }
+
+    const created = newShipment as ShipmentRow;
+    setShipments((prev) => [created, ...prev]);
+
+    // Update item status to 'shipped'
+    const { error: statusError } = await supabase
+      .from("inventory_items")
+      .update({ status: "shipped" } as never)
+      .eq("id", item.id);
+
+    if (!statusError) {
+      setItem({ ...item, status: "shipped" });
+    }
+
+    // Reset form
+    setShipmentSaleId("");
+    setShipmentCarrier("usps");
+    setShipmentTrackingNumber("");
+    setShipmentCost("");
+    setShipmentLabelCost("");
+    setShipmentDate(new Date().toISOString().split("T")[0]);
+    setShipmentWeightOz("");
+    setRecordShipmentOpen(false);
+    setRecordShipmentSubmitting(false);
+    toast.success("Shipment recorded successfully.");
+  }
+
+  async function handleMarkDelivered(shipment: ShipmentRow) {
+    if (!item) return;
+    setDeliveringShipmentId(shipment.id);
+
+    const today = new Date().toISOString().split("T")[0];
+    const { error: updateError } = await supabase
+      .from("shipments")
+      .update({ delivery_date: today } as never)
+      .eq("id", shipment.id);
+
+    if (updateError) {
+      toast.error("Failed to mark as delivered.");
+      setDeliveringShipmentId(null);
+      return;
+    }
+
+    setShipments((prev) =>
+      prev.map((s) =>
+        s.id === shipment.id ? ({ ...s, delivery_date: today } as ShipmentRow) : s
+      )
+    );
+
+    // Update item status to 'completed'
+    const { error: statusError } = await supabase
+      .from("inventory_items")
+      .update({ status: "completed" } as never)
+      .eq("id", item.id);
+
+    if (!statusError) {
+      setItem({ ...item, status: "completed" });
+    }
+
+    setDeliveringShipmentId(null);
+    toast.success("Shipment marked as delivered.");
   }
 
   if (loading) {
@@ -989,10 +1118,151 @@ export function InventoryDetailPage() {
       {/* Shipment Card */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">
-            <Truck className="mr-1.5 inline-block h-4 w-4" />
-            Shipments
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              <Truck className="mr-1.5 inline-block h-4 w-4" />
+              Shipments
+            </CardTitle>
+            {(item.status === "sold" || item.status === "shipped") && sales.length > 0 && (
+              <Dialog open={recordShipmentOpen} onOpenChange={(open) => {
+                setRecordShipmentOpen(open);
+                const firstSale = sales[0];
+                if (open && sales.length === 1 && firstSale) {
+                  setShipmentSaleId(firstSale.id);
+                }
+              }}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Record Shipment
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Record Shipment</DialogTitle>
+                    <DialogDescription>
+                      Record shipping details for a sold item.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
+                    {sales.length > 1 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="shipment-sale">Linked Sale</Label>
+                        <Select
+                          value={shipmentSaleId}
+                          onValueChange={setShipmentSaleId}
+                        >
+                          <SelectTrigger id="shipment-sale">
+                            <SelectValue placeholder="Select a sale" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sales.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {formatCurrency(s.sale_price)} — {formatDate(s.sale_date)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="shipment-carrier">Carrier</Label>
+                      <Select
+                        value={shipmentCarrier}
+                        onValueChange={setShipmentCarrier}
+                      >
+                        <SelectTrigger id="shipment-carrier">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CARRIERS.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>
+                              {c.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipment-tracking">
+                        Tracking Number (optional)
+                      </Label>
+                      <Input
+                        id="shipment-tracking"
+                        placeholder="e.g. 1Z999AA10123456784"
+                        value={shipmentTrackingNumber}
+                        onChange={(e) => setShipmentTrackingNumber(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipment-cost">Shipping Cost ($) *</Label>
+                      <Input
+                        id="shipment-cost"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00"
+                        value={shipmentCost}
+                        onChange={(e) => setShipmentCost(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipment-label-cost">
+                        Label Cost ($)
+                      </Label>
+                      <Input
+                        id="shipment-label-cost"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="0.00 (for pre-paid labels)"
+                        value={shipmentLabelCost}
+                        onChange={(e) => setShipmentLabelCost(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipment-date">Ship Date</Label>
+                      <Input
+                        id="shipment-date"
+                        type="date"
+                        value={shipmentDate}
+                        onChange={(e) => setShipmentDate(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="shipment-weight">
+                        Weight in oz (optional)
+                      </Label>
+                      <Input
+                        id="shipment-weight"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        placeholder="e.g. 12.5"
+                        value={shipmentWeightOz}
+                        onChange={(e) => setShipmentWeightOz(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      onClick={() => setRecordShipmentOpen(false)}
+                      disabled={recordShipmentSubmitting}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={handleRecordShipment}
+                      disabled={recordShipmentSubmitting || !shipmentCost}
+                    >
+                      {recordShipmentSubmitting ? "Recording..." : "Record Shipment"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {shipments.length === 0 ? (
@@ -1027,6 +1297,12 @@ export function InventoryDetailPage() {
                       <p className="text-muted-foreground">Ship Date</p>
                       <p className="font-medium">{formatDate(shipment.ship_date)}</p>
                     </div>
+                    {shipment.weight_oz && (
+                      <div>
+                        <p className="text-muted-foreground">Weight</p>
+                        <p className="font-medium">{shipment.weight_oz} oz</p>
+                      </div>
+                    )}
                     {shipment.delivery_date && (
                       <div>
                         <p className="text-muted-foreground">Delivered</p>
@@ -1034,6 +1310,21 @@ export function InventoryDetailPage() {
                       </div>
                     )}
                   </div>
+                  {!shipment.delivery_date && (
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleMarkDelivered(shipment)}
+                        disabled={deliveringShipmentId === shipment.id}
+                      >
+                        <CheckCircle2 className="mr-1.5 h-4 w-4" />
+                        {deliveringShipmentId === shipment.id
+                          ? "Updating..."
+                          : "Mark as Delivered"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
