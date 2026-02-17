@@ -253,3 +253,10 @@ Branch: ralph/gradethread-build
 - Notes: Created FinancialCharts component with 5 charts using recharts: (1) Revenue & Profit over time line chart with daily/weekly/monthly granularity toggle, (2) Cost breakdown pie chart (acquisition, shipping, platform fees, grading fees), (3) Top 5 brands by profit horizontal bar chart, (4) Top 5 categories by profit vertical bar chart. All charts respond to the period filter from the finances page. Used recharts Tooltip formatter pattern from grade-charts.tsx (Number(value) cast) to avoid tsc -b type errors.
 - Timestamp: 2026-02-16
 ---
+
+## US-057: Financial reporting: cash flow timeline
+- Status: COMPLETE
+- Files changed: src/components/finances/cash-flow.tsx (new), src/pages/finances.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created CashFlow component with dual-view toggle (chart/table). Chart view: bar chart showing inflows (green) and outflows (red) by date, plus line chart showing cumulative cash position with running balance. Table view: chronological transaction list with date, type (In/Out with icons), category, description, amount, and running balance columns. Transaction types include item acquisitions (outflow), sales revenue (inflow), platform fees (outflow), and shipping costs (outflow). Hover tooltips show formatted currency values. Used same recharts Tooltip formatter pattern (Number(value)) as financial-charts.tsx.
+- Timestamp: 2026-02-16
+---

@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialCharts } from "@/components/finances/financial-charts";
+import { CashFlow } from "@/components/finances/cash-flow";
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -353,6 +354,21 @@ export function FinancesPage() {
           Revenue trends, cost analysis, and top performers.
         </p>
         <FinancialCharts
+          items={data?.items ?? []}
+          sales={data?.sales ?? []}
+          shipments={data?.shipments ?? []}
+          periodStart={getPeriodStartDate(period)}
+          isLoading={isLoading}
+        />
+      </div>
+
+      {/* Cash Flow Timeline */}
+      <div>
+        <h2 className="text-lg font-semibold">Cash Flow</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Track money in and out with a running cash position.
+        </p>
+        <CashFlow
           items={data?.items ?? []}
           sales={data?.sales ?? []}
           shipments={data?.shipments ?? []}
