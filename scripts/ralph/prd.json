@@ -616,8 +616,8 @@
         "Logs API usage (tokens, latency) for monitoring"
       ],
       "priority": 34,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented analyzeImage() in services/edge-functions/src/lib/ai-grading.ts. Uses base64 image source for SDK v0.24.1 compatibility. Exports PerImageAnalysis, DetectedIssue, ConditionSignal, FactorScores types. Image type context prompts for front/back/label/detail/defect. Garment-type-specific criteria for all 6 garment types. Score clamping to 1.0-10.0 range. Comprehensive error handling for timeouts, rate limits, and parse failures. API usage logging with tokens and latency."
     },
 
     {
