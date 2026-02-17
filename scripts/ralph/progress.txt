@@ -120,3 +120,10 @@ Branch: ralph/gradethread-build
 - Notes: Updated POST /api/grade/submit to set status to 'processing' after image upload and trigger processSubmission() as fire-and-forget with .catch() error handler. Response now returns status 'processing' instead of 'pending'. Updated GET /api/grade/status/:id to return { id, status, grade_report, created_at, updated_at } — fetches from grade_reports table when status is 'completed', returns null otherwise. Updated processSubmission() to accept both 'pending' and 'processing' statuses (since submit endpoint now sets 'processing' before calling the pipeline). Typecheck and build pass clean.
 - Timestamp: 2026-02-16
 ---
+
+## US-038: Submission detail page with grade report display
+- Status: COMPLETE
+- Files changed: src/pages/submission-detail.tsx, src/components/ui/skeleton.tsx (shadcn), src/components/ui/progress.tsx (shadcn), prd.json, scripts/ralph/prd.json
+- Notes: Fully rebuilt submission-detail.tsx from placeholder to complete grade report page. Features: loading skeleton while fetching, garment info card (title/brand/type/category), large circular overall score with color-coded tier badge (green >7, yellow 5-7, red <5), factor breakdown with 5 labeled progress bars showing weights, AI analysis summary card, confidence indicator (high/medium/low with icons), detected issues as badges or bullet points from detailed_notes, image gallery with signed URLs from Supabase Storage, share certificate button linking to /cert/:certificateId, status-aware states (processing spinner, failed error, pending info). Added shadcn skeleton and progress components. Used type assertion for submission_images query due to tsc -b type inference resolving data to 'never' despite correct Database interface definition.
+- Timestamp: 2026-02-16
+---
