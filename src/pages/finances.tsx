@@ -19,6 +19,7 @@ import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialCharts } from "@/components/finances/financial-charts";
 import { CashFlow } from "@/components/finances/cash-flow";
 import { FinancialExport } from "@/components/finances/financial-export";
+import { TimeOnMarket } from "@/components/finances/time-on-market";
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -383,6 +384,21 @@ export function FinancesPage() {
           items={data?.items ?? []}
           sales={data?.sales ?? []}
           shipments={data?.shipments ?? []}
+          periodStart={getPeriodStartDate(period)}
+          isLoading={isLoading}
+        />
+      </div>
+
+      {/* Time on Market Analytics */}
+      <div>
+        <h2 className="text-lg font-semibold">Time on Market</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Track how long items stay listed and identify slow-moving inventory.
+        </p>
+        <TimeOnMarket
+          items={data?.items ?? []}
+          sales={data?.sales ?? []}
+          listings={data?.listings ?? []}
           periodStart={getPeriodStartDate(period)}
           isLoading={isLoading}
         />

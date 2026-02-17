@@ -1102,8 +1102,8 @@
         "Typecheck passes"
       ],
       "priority": 59,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated inventory page Days Listed column to use listing dates with yellow/red highlighting. Created TimeOnMarket component with overall avg, by-category/brand breakdowns, distribution histogram, and slow-moving inventory table. Integrated into finances page."
     },
 
     {

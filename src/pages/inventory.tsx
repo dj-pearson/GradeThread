@@ -37,7 +37,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { GARMENT_TYPES, ITEM_STATUSES } from "@/lib/constants";
-import type { InventoryItemRow } from "@/types/database";
+import type { InventoryItemRow, ListingRow, SaleRow } from "@/types/database";
 
 const PAGE_SIZE = 25;
 
@@ -82,12 +82,43 @@ function formatCurrency(amount: number | null): string {
   }).format(amount);
 }
 
-function daysInInventory(acquiredDate: string | null): string {
-  if (!acquiredDate) return "—";
-  const acquired = new Date(acquiredDate);
-  const now = new Date();
-  const diffMs = now.getTime() - acquired.getTime();
-  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+function calcDaysListed(
+  itemId: string,
+  itemStatus: string,
+  listingsByItem: Map<string, ListingRow[]>,
+  saleByItem: Map<string, SaleRow>,
+): number | null {
+  const listings = listingsByItem.get(itemId);
+  if (!listings || listings.length === 0) return null;
+
+  // Earliest listing date
+  const first = listings[0];
+  if (!first) return null;
+  const earliest = listings.reduce((min, l) =>
+    l.listed_at < min ? l.listed_at : min, first.listed_at);
+
+  // End date: sale date if sold, otherwise today
+  const sale = saleByItem.get(itemId);
+  const soldStatuses = new Set(["sold", "shipped", "completed"]);
+  const endDate = sale && soldStatuses.has(itemStatus)
+    ? new Date(sale.sale_date)
+    : new Date();
+
+  const days = Math.floor(
+    (endDate.getTime() - new Date(earliest).getTime()) / (1000 * 60 * 60 * 24)
+  );
+  return days >= 0 ? days : 0;
+}
+
+function getDaysListedClasses(days: number | null): string {
+  if (days === null) return "text-muted-foreground";
+  if (days >= 60) return "text-red-600 font-medium";
+  if (days >= 30) return "text-yellow-600 font-medium";
+  return "text-muted-foreground";
+}
+
+function formatDaysListed(days: number | null): string {
+  if (days === null) return "—";
   return `${days}d`;
 }
 
@@ -132,6 +163,38 @@ export function InventoryPage() {
   });
 
   const brands = brandsData ?? [];
+
+  // Fetch listings and sales for days-listed calculation
+  const { data: listingsData } = useQuery({
+    queryKey: ["inventory-listings"],
+    queryFn: async () => {
+      const [listingsRes, salesRes] = await Promise.all([
+        supabase.from("listings").select("*"),
+        supabase.from("sales").select("*"),
+      ]);
+      if (listingsRes.error) throw listingsRes.error;
+      if (salesRes.error) throw salesRes.error;
+      return {
+        listings: (listingsRes.data ?? []) as ListingRow[],
+        sales: (salesRes.data ?? []) as SaleRow[],
+      };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Build lookup maps for days-listed calculation
+  const listingsByItem = new Map<string, ListingRow[]>();
+  const saleByItem = new Map<string, SaleRow>();
+  if (listingsData) {
+    for (const l of listingsData.listings) {
+      const arr = listingsByItem.get(l.inventory_item_id) ?? [];
+      arr.push(l);
+      listingsByItem.set(l.inventory_item_id, arr);
+    }
+    for (const s of listingsData.sales) {
+      saleByItem.set(s.inventory_item_id, s);
+    }
+  }
 
   const { data, isLoading } = useQuery({
     queryKey: [
@@ -359,7 +422,7 @@ export function InventoryPage() {
                           className="inline-flex items-center gap-1 hover:text-foreground"
                           onClick={() => toggleSort("created_at")}
                         >
-                          Days in Inventory
+                          Days Listed
                           <ArrowUpDown className="h-3.5 w-3.5" />
                         </button>
                       </TableHead>
@@ -397,8 +460,12 @@ export function InventoryPage() {
                         <TableCell className="text-muted-foreground">
                           —
                         </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          {daysInInventory(item.acquired_date)}
+                        <TableCell className={getDaysListedClasses(
+                          calcDaysListed(item.id, item.status, listingsByItem, saleByItem)
+                        )}>
+                          {formatDaysListed(
+                            calcDaysListed(item.id, item.status, listingsByItem, saleByItem)
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

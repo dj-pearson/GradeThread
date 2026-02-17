@@ -267,3 +267,10 @@ Branch: ralph/gradethread-build
 - Notes: Created FinancialExport component with date range selector (defaults to current tax year), dropdown menu with CSV and PDF export options. CSV export generates file with summary section (gross revenue, expenses by category, net profit) followed by transaction details (date, type, category, amount, item title, platform). PDF export opens a styled HTML document in a new window for browser print-to-PDF. Transactions are built from inventory items (acquisition expenses), sales (income + platform fees), and shipments (shipping costs). File naming follows gradethread_financial_report_{startDate}_{endDate}.csv convention. Used existing CSV escape pattern from submissions.tsx.
 - Timestamp: 2026-02-16
 ---
+
+## US-059: Analytics: time-on-market tracking
+- Status: COMPLETE
+- Files changed: src/pages/inventory.tsx, src/components/finances/time-on-market.tsx (new), src/pages/finances.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Updated inventory page to show "Days Listed" column calculated from earliest listing date to sale date (for sold items) or today (for active items), replacing the old "Days in Inventory" column. Added yellow highlighting for 30+ days and red for 60+ days. Created TimeOnMarket analytics component with: overall average days-to-sell metric, slowest category summary card, slow-moving items count card, time-to-sell distribution histogram (6 buckets), average days by garment type table, average days by brand table, and slow-moving inventory section showing unsold items listed 30+ days. Fetches listings and sales data in inventory page for the days-listed calculation. Used non-null assertion for array[0] access after .length check to satisfy tsc -b strict mode.
+- Timestamp: 2026-02-16
+---
