@@ -197,3 +197,10 @@ Branch: ralph/gradethread-build
 - Notes: Created inventory list page with table displaying title, brand, status badge, grade, acquired price, listed price, and days in inventory columns. Added filters for status, garment type, and brand (brand filter dynamically populated from existing items). Sort by date, price, or status. 25-item pagination. Add Item button navigates to /dashboard/inventory/new. Row click navigates to /dashboard/inventory/:id. Added ITEM_STATUSES constant to constants.ts. Added Package icon sidebar nav link. Uses TanStack Query with 5-min stale time. Used explicit cast pattern for Supabase query results (consistent with tsc -b workaround).
 - Timestamp: 2026-02-16
 ---
+
+## US-049: Inventory management: add item form
+- Status: COMPLETE
+- Files changed: src/pages/inventory-add.tsx, src/routes/index.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created inventory add form page at /dashboard/inventory/new with garment details (title, brand, garment type/category, size, color, condition notes) and acquisition details (price with $ prefix, date defaulting to today, source dropdown). Title and acquired price are required fields. Creates inventory_items record with status 'acquired' via Supabase insert. Two submit options: "Add to Inventory" navigates to item detail page, "Save & Submit for Grading" navigates to new submission page. Used InventoryItemInsert type with 'as never' cast for tsc -b compatibility.
+- Timestamp: 2026-02-16
+---

@@ -906,8 +906,8 @@
         "Typecheck passes"
       ],
       "priority": 49,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented inventory add form at /dashboard/inventory/new with title, brand, garment type/category, size, color, acquired price, date, source, condition notes. Creates inventory_items record with status 'acquired'. Option to save and submit for grading."
     },
 
     {
