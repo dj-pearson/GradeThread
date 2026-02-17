@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
@@ -15,6 +15,7 @@ import {
   Pencil,
   ExternalLink,
   Plus,
+  Lightbulb,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,9 @@ import type {
   SaleRow,
   ShipmentRow,
   ItemStatus,
+  GradeReportRow,
 } from "@/types/database";
+import { calculateSuggestedPrice } from "@/lib/price-suggestions";
 
 const CARRIERS = [
   { value: "usps", label: "USPS" },
@@ -203,6 +206,9 @@ export function InventoryDetailPage() {
   const [shipmentDate, setShipmentDate] = useState(() => new Date().toISOString().split("T")[0]);
   const [shipmentWeightOz, setShipmentWeightOz] = useState("");
   const [deliveringShipmentId, setDeliveringShipmentId] = useState<string | null>(null);
+  const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
+  const [allUserItems, setAllUserItems] = useState<InventoryItemRow[]>([]);
+  const [allUserSales, setAllUserSales] = useState<SaleRow[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -255,6 +261,31 @@ export function InventoryDetailPage() {
 
         setShipments((shipmentsRaw ?? []) as ShipmentRow[]);
       }
+
+      // Fetch grade report if available
+      const currentItem = itemData as InventoryItemRow;
+      if (currentItem.grade_report_id) {
+        const { data: gradeData } = await supabase
+          .from("grade_reports")
+          .select("*")
+          .eq("id", currentItem.grade_report_id)
+          .single();
+        if (gradeData) {
+          setGradeReport(gradeData as GradeReportRow);
+        }
+      }
+
+      // Fetch all user items and sales for price suggestion comparisons
+      const { data: userItemsRaw } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("user_id", currentItem.user_id);
+      setAllUserItems((userItemsRaw ?? []) as InventoryItemRow[]);
+
+      const { data: userSalesRaw } = await supabase
+        .from("sales")
+        .select("*");
+      setAllUserSales((userSalesRaw ?? []) as SaleRow[]);
 
       setLoading(false);
     }
@@ -576,6 +607,23 @@ export function InventoryDetailPage() {
   const netProfit =
     totalSaleRevenue - acquiredPrice - totalPlatformFees - totalShippingCost;
   const hasSales = sales.length > 0;
+
+  // Price suggestion
+  const priceSuggestion = useMemo(() => {
+    if (item.status === "sold" || item.status === "shipped" || item.status === "completed" || item.status === "returned") {
+      return null;
+    }
+    const salesHistory = allUserSales
+      .map((sale) => {
+        const saleItem = allUserItems.find((i) => i.id === sale.inventory_item_id);
+        if (!saleItem) return null;
+        return { item: saleItem, sale, grade: null as number | null };
+      })
+      .filter((h): h is NonNullable<typeof h> => h !== null);
+
+    const grade = gradeReport?.overall_score ?? null;
+    return calculateSuggestedPrice(item, grade, listings, salesHistory);
+  }, [item, gradeReport, listings, allUserSales, allUserItems]);
 
   return (
     <div className="space-y-6">
@@ -963,6 +1011,73 @@ export function InventoryDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Price Suggestion Callout */}
+      {priceSuggestion && priceSuggestion.suggestedPrice !== null && (
+        <Card
+          className={cn(
+            "border-l-4",
+            priceSuggestion.severity === "urgent"
+              ? "border-l-red-500 bg-red-50"
+              : priceSuggestion.severity === "warning"
+                ? "border-l-yellow-500 bg-yellow-50"
+                : "border-l-blue-500 bg-blue-50"
+          )}
+        >
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Lightbulb
+                className={cn(
+                  "h-4 w-4",
+                  priceSuggestion.severity === "urgent"
+                    ? "text-red-600"
+                    : priceSuggestion.severity === "warning"
+                      ? "text-yellow-600"
+                      : "text-blue-600"
+                )}
+              />
+              Price Suggestion
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2 text-sm">
+              <p>{priceSuggestion.reason}</p>
+              <div className="flex items-center gap-4">
+                {priceSuggestion.currentPrice !== null && (
+                  <div>
+                    <span className="text-muted-foreground">Current: </span>
+                    <span className="font-medium">
+                      {formatCurrency(priceSuggestion.currentPrice)}
+                    </span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-muted-foreground">Suggested: </span>
+                  <span className="font-semibold">
+                    {formatCurrency(priceSuggestion.suggestedPrice)}
+                  </span>
+                </div>
+                {priceSuggestion.adjustmentPercent !== null && (
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      priceSuggestion.adjustmentPercent > 0
+                        ? "border-green-200 bg-green-100 text-green-800"
+                        : "border-red-200 bg-red-100 text-red-800"
+                    )}
+                  >
+                    {priceSuggestion.adjustmentPercent > 0 ? "+" : ""}
+                    {priceSuggestion.adjustmentPercent}%
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {priceSuggestion.action}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Sale Card */}
       <Card>

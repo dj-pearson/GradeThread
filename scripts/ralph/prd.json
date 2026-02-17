@@ -1122,8 +1122,8 @@
         "Typecheck passes"
       ],
       "priority": 60,
-      "passes": false,
-      "notes": "Initial version uses simple rules. Future: ML-based pricing model."
+      "passes": true,
+      "notes": "Implemented price suggestion engine in src/lib/price-suggestions.ts with calculateSuggestedPrice. Algorithm considers grade tier multipliers, brand/category matching, average sale prices, and days-on-market thresholds (14d: -7%, 30d: -15%, 60d: -25%). Added callout card on inventory detail page and full suggestions page at /dashboard/analytics/suggestions with summary cards and sortable table."
     },
 
     {

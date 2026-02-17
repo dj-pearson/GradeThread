@@ -19,6 +19,7 @@ import { FinancesPage } from "@/pages/finances";
 import { SettingsPage } from "@/pages/settings";
 import { BillingPage } from "@/pages/billing";
 import { ApiKeysPage } from "@/pages/api-keys";
+import { PriceSuggestionsPage } from "@/pages/price-suggestions";
 import { CertificatePage } from "@/pages/certificate";
 import { NotFoundPage } from "@/pages/not-found";
 
@@ -58,6 +59,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/inventory/new", element: <InventoryAddPage /> },
               { path: "/dashboard/inventory/:id", element: <InventoryDetailPage /> },
               { path: "/dashboard/finances", element: <FinancesPage /> },
+              { path: "/dashboard/analytics/suggestions", element: <PriceSuggestionsPage /> },
               { path: "/dashboard/settings", element: <SettingsPage /> },
               { path: "/dashboard/billing", element: <BillingPage /> },
               { path: "/dashboard/api-keys", element: <ApiKeysPage /> },

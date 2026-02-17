@@ -274,3 +274,10 @@ Branch: ralph/gradethread-build
 - Notes: Updated inventory page to show "Days Listed" column calculated from earliest listing date to sale date (for sold items) or today (for active items), replacing the old "Days in Inventory" column. Added yellow highlighting for 30+ days and red for 60+ days. Created TimeOnMarket analytics component with: overall average days-to-sell metric, slowest category summary card, slow-moving items count card, time-to-sell distribution histogram (6 buckets), average days by garment type table, average days by brand table, and slow-moving inventory section showing unsold items listed 30+ days. Fetches listings and sales data in inventory page for the days-listed calculation. Used non-null assertion for array[0] access after .length check to satisfy tsc -b strict mode.
 - Timestamp: 2026-02-16
 ---
+
+## US-060: Analytics: price suggestion engine
+- Status: COMPLETE
+- Files changed: src/lib/price-suggestions.ts (new), src/pages/price-suggestions.tsx (new), src/pages/inventory-detail.tsx, src/routes/index.tsx, src/components/dashboard/sidebar.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Created price suggestion algorithm in src/lib/price-suggestions.ts with calculateSuggestedPrice function. Algorithm uses grade tier multipliers (NWT 1.3x down to Poor 0.6x), brand/category matching for comparable sales, grade-weighted averaging when sufficient data exists, and time-based reduction thresholds (14d: -7%, 30d: -15%, 60d: -25% with auction suggestion). Added callout card on inventory detail page with severity-colored left border (blue/yellow/red), showing current vs suggested price and adjustment percentage. Created full suggestions page at /dashboard/analytics/suggestions with summary cards (total items, urgent actions, warnings) and detailed table with all items sorted by severity. Added sidebar navigation item with Lightbulb icon.
+- Timestamp: 2026-02-16
+---
