@@ -770,8 +770,8 @@
         "Typecheck passes"
       ],
       "priority": 42,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented full billing page with plan comparison grid (free/starter/professional/enterprise). Shows current plan with feature list, usage bar (grades used / limit), and grade reset date. Upgrade buttons create Stripe Checkout subscription sessions via POST /api/payments/subscribe. Manage Subscription button opens Stripe Customer Portal via POST /api/payments/portal for existing subscribers. Current plan highlighted with border and badge. Enterprise plan links to sales email."
     },
 
     {
