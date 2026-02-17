@@ -635,8 +635,8 @@
         "Uses versioned prompt (references ai_prompt_versions table)"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented compositeGrade() in services/edge-functions/src/lib/ai-grading.ts. Exports CompositeGradeResult, GarmentInfo, DefectFound types. Sends per-image analyses as structured JSON to Claude. Includes full grade tier definitions with score ranges and descriptions. Applies factor weights (30/25/20/15/10) and recalculates weighted average server-side for accuracy. Rounds overall_score to nearest 0.5. Derives grade_tier from calculated score. Validates and clamps all factor scores to 1.0-10.0 range, confidence to 0.0-1.0. Flags needs_human_review when confidence < 0.75. Includes prompt_version field referencing ai_prompt_versions concept (composite_v1). Comprehensive error handling for timeouts, rate limits, and parse failures."
     },
 
     {

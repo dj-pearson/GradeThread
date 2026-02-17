@@ -28,6 +28,32 @@ export interface FactorScores {
   odor_cleanliness: number;
 }
 
+export interface GarmentInfo {
+  garment_type: string;
+  garment_category: string;
+  brand: string | null;
+  title: string;
+  description: string | null;
+}
+
+export interface DefectFound {
+  defect: string;
+  severity: "minor" | "moderate" | "major";
+  location: string;
+  impact_on_grade: string;
+}
+
+export interface CompositeGradeResult {
+  overall_score: number;
+  grade_tier: string;
+  factor_scores: FactorScores;
+  ai_summary: string;
+  defects_found: DefectFound[];
+  confidence_score: number;
+  needs_human_review: boolean;
+  prompt_version: string;
+}
+
 // --- Constants ---
 
 const IMAGE_TYPE_CONTEXT: Record<string, string> = {
@@ -282,5 +308,260 @@ export async function analyzeImage(
       throw new Error("AI service rate limit reached. Please try again shortly.");
     }
     throw new Error(`AI analysis failed for ${imageType} image: ${errorMessage}`);
+  }
+}
+
+// --- Composite Grading ---
+
+const FACTOR_WEIGHTS: Record<keyof FactorScores, number> = {
+  fabric_condition: 0.30,
+  structural_integrity: 0.25,
+  cosmetic_appearance: 0.20,
+  functional_elements: 0.15,
+  odor_cleanliness: 0.10,
+};
+
+const GRADE_TIER_DEFINITIONS = `Grade Tiers (score ranges):
+- 10.0: NWT (New with Tags) — Unworn item with original retail tags still attached. No signs of wear, washing, or handling beyond store display. Perfect condition.
+- 9.0-9.5: NWOT (New without Tags) — Unworn item, tags removed. No signs of wear, washing, or use. Indistinguishable from new except missing tags.
+- 8.0-8.5: Excellent — Barely worn, minimal signs of use. No visible defects, stains, or wear patterns. May have been worn 1-3 times.
+- 7.0-7.5: Very Good — Light wear evident but no notable flaws. Minor signs of washing/wearing. All functional elements work perfectly.
+- 6.0-6.5: Good — Moderate wear visible. May have minor flaws (light pilling, slight fading, small mark). Still presentable and fully functional.
+- 5.0-5.5: Fair — Noticeable wear and minor flaws. Some pilling, fading, or small stains. Functional but shows clear use history.
+- 3.0-4.5: Poor — Significant wear, damage, or flaws. May have holes, major stains, broken elements, or heavy fading. Still wearable but with obvious issues.
+- 1.0-2.5: Very Poor/Salvage — Severe damage. Primarily useful for parts, fabric, or craft projects. Major structural issues.`;
+
+const COMPOSITE_SYSTEM_PROMPT = `You are an expert clothing condition grading specialist for GradeThread, a professional garment grading service. You produce final composite grades by synthesizing per-image analysis results into a single, authoritative condition assessment.
+
+${GRADE_TIER_DEFINITIONS}
+
+Factor Weights:
+- Fabric Condition: 30% — Material integrity, pilling, thinning, holes, stains, fading
+- Structural Integrity: 25% — Seams, hems, construction, shape retention
+- Cosmetic Appearance: 20% — Visual appeal, color consistency, print condition
+- Functional Elements: 15% — Zippers, buttons, closures, pockets, elastic
+- Odor & Cleanliness: 10% — Visible cleanliness indicators, staining patterns
+
+You must synthesize all individual image analyses into one cohesive grade. When images disagree, weight the more revealing image type (e.g., defect images carry more weight for their specific area than front overview shots).
+
+IMPORTANT: You must respond ONLY with valid JSON matching the exact schema requested. No markdown, no explanation, no preamble — just the JSON object.`;
+
+function buildCompositeUserPrompt(
+  perImageResults: PerImageAnalysis[],
+  garmentInfo: GarmentInfo
+): string {
+  const analysesJson = JSON.stringify(perImageResults, null, 2);
+
+  return `Synthesize the following per-image analyses into a single composite grade for this garment.
+
+GARMENT INFO:
+- Type: ${garmentInfo.garment_type}
+- Category: ${garmentInfo.garment_category}
+- Brand: ${garmentInfo.brand || "Unknown"}
+- Title: ${garmentInfo.title}
+${garmentInfo.description ? `- Description: ${garmentInfo.description}` : ""}
+
+PER-IMAGE ANALYSES:
+${analysesJson}
+
+Apply the factor weights (Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%) to produce the final scores.
+
+Respond with a JSON object matching this exact schema:
+{
+  "overall_score": <1.0-10.0, weighted average rounded to nearest 0.5>,
+  "grade_tier": "<NWT|NWOT|Excellent|Very Good|Good|Fair|Poor>",
+  "factor_scores": {
+    "fabric_condition": <1.0-10.0>,
+    "structural_integrity": <1.0-10.0>,
+    "cosmetic_appearance": <1.0-10.0>,
+    "functional_elements": <1.0-10.0>,
+    "odor_cleanliness": <1.0-10.0>
+  },
+  "ai_summary": "<2-4 sentence professional condition summary>",
+  "defects_found": [
+    {
+      "defect": "<description>",
+      "severity": "minor|moderate|major",
+      "location": "<where on garment>",
+      "impact_on_grade": "<how this affects the score>"
+    }
+  ],
+  "confidence_score": <0.0-1.0, your confidence in the accuracy of this grade>
+}
+
+Rules:
+- overall_score must be the weighted average of factor scores, rounded to nearest 0.5
+- grade_tier must match the overall_score according to the tier definitions
+- factor_scores: synthesize across all images, weighting image types appropriately
+- ai_summary: professional, objective summary suitable for a grade certificate
+- defects_found: consolidate all unique defects from all images (empty array if none)
+- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, or unusual garment`;
+}
+
+function scoreToGradeTier(score: number): string {
+  if (score >= 10.0) return "NWT";
+  if (score >= 9.0) return "NWOT";
+  if (score >= 8.0) return "Excellent";
+  if (score >= 7.0) return "Very Good";
+  if (score >= 6.0) return "Good";
+  if (score >= 5.0) return "Fair";
+  return "Poor";
+}
+
+function roundToHalf(value: number): number {
+  return Math.round(value * 2) / 2;
+}
+
+export async function compositeGrade(
+  perImageResults: PerImageAnalysis[],
+  garmentInfo: GarmentInfo
+): Promise<CompositeGradeResult> {
+  const client = getClient();
+  const startTime = Date.now();
+
+  // Determine prompt version — references ai_prompt_versions concept
+  const promptVersion = "composite_v1";
+
+  try {
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-5-20250929",
+      max_tokens: 2048,
+      system: COMPOSITE_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: buildCompositeUserPrompt(perImageResults, garmentInfo),
+        },
+      ],
+    });
+
+    const latencyMs = Date.now() - startTime;
+
+    console.log(
+      `[AI Grading] compositeGrade | garment_type=${garmentInfo.garment_type} | ` +
+        `images=${perImageResults.length} | ` +
+        `input_tokens=${response.usage.input_tokens} | output_tokens=${response.usage.output_tokens} | ` +
+        `latency_ms=${latencyMs}`
+    );
+
+    // Extract text content
+    const textBlock = response.content.find((block) => block.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      throw new Error("No text content in composite grade API response");
+    }
+
+    // Parse JSON response
+    const rawText = textBlock.text.trim();
+    const jsonText = rawText.replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```\s*$/i, "");
+
+    let parsed: {
+      overall_score: number;
+      grade_tier: string;
+      factor_scores: FactorScores;
+      ai_summary: string;
+      defects_found: DefectFound[];
+      confidence_score: number;
+    };
+
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch {
+      console.error(`[AI Grading] Failed to parse composite grade JSON: ${rawText}`);
+      throw new Error("AI returned invalid JSON for composite grade");
+    }
+
+    // Validate and clamp factor scores
+    const factorKeys: (keyof FactorScores)[] = [
+      "fabric_condition",
+      "structural_integrity",
+      "cosmetic_appearance",
+      "functional_elements",
+      "odor_cleanliness",
+    ];
+
+    if (!parsed.factor_scores || typeof parsed.factor_scores !== "object") {
+      throw new Error("AI response missing factor_scores");
+    }
+
+    for (const key of factorKeys) {
+      const value = parsed.factor_scores[key];
+      if (typeof value !== "number" || isNaN(value)) {
+        parsed.factor_scores[key] = 7.0;
+      } else {
+        parsed.factor_scores[key] = Math.max(1.0, Math.min(10.0, value));
+      }
+    }
+
+    // Recalculate overall_score from factor scores with weights to ensure correctness
+    let weightedSum = 0;
+    for (const key of factorKeys) {
+      weightedSum += parsed.factor_scores[key] * FACTOR_WEIGHTS[key];
+    }
+    const calculatedScore = roundToHalf(Math.max(1.0, Math.min(10.0, weightedSum)));
+
+    // Use calculated score (authoritative) and derive tier from it
+    const overallScore = calculatedScore;
+    const gradeTier = scoreToGradeTier(overallScore);
+
+    // Validate confidence score
+    let confidenceScore =
+      typeof parsed.confidence_score === "number" && !isNaN(parsed.confidence_score)
+        ? Math.max(0.0, Math.min(1.0, parsed.confidence_score))
+        : 0.5;
+
+    // Validate ai_summary
+    const aiSummary =
+      typeof parsed.ai_summary === "string" && parsed.ai_summary.length > 0
+        ? parsed.ai_summary
+        : "Grade report generated by AI analysis.";
+
+    // Validate defects_found
+    const defectsFound: DefectFound[] = Array.isArray(parsed.defects_found)
+      ? parsed.defects_found.filter(
+          (d) =>
+            typeof d === "object" &&
+            d !== null &&
+            typeof d.defect === "string" &&
+            typeof d.severity === "string" &&
+            ["minor", "moderate", "major"].includes(d.severity)
+        )
+      : [];
+
+    // Flag for human review if confidence is below threshold
+    const needsHumanReview = confidenceScore < 0.75;
+
+    if (needsHumanReview) {
+      console.log(
+        `[AI Grading] compositeGrade FLAGGED for human review | ` +
+          `confidence=${confidenceScore} | overall_score=${overallScore}`
+      );
+    }
+
+    return {
+      overall_score: overallScore,
+      grade_tier: gradeTier,
+      factor_scores: parsed.factor_scores,
+      ai_summary: aiSummary,
+      defects_found: defectsFound,
+      confidence_score: confidenceScore,
+      needs_human_review: needsHumanReview,
+      prompt_version: promptVersion,
+    };
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    console.error(
+      `[AI Grading] compositeGrade FAILED | garment_type=${garmentInfo.garment_type} | ` +
+        `images=${perImageResults.length} | latency_ms=${latencyMs} | error=${errorMessage}`
+    );
+
+    if (errorMessage.includes("timeout") || errorMessage.includes("TIMEOUT")) {
+      throw new Error("AI composite grading timed out");
+    }
+    if (errorMessage.includes("rate_limit") || errorMessage.includes("429")) {
+      throw new Error("AI service rate limit reached. Please try again shortly.");
+    }
+    throw new Error(`AI composite grading failed: ${errorMessage}`);
   }
 }
