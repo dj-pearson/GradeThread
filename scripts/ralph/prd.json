@@ -751,8 +751,8 @@
         "Logs all events for debugging"
       ],
       "priority": 41,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented full Stripe webhook handler in services/edge-functions/src/routes/webhooks.ts. Verifies webhook signature using STRIPE_WEBHOOK_SECRET. Handles checkout.session.completed (marks submission paid + triggers grading pipeline), customer.subscription.created/updated (maps subscription to plan tier, updates user), customer.subscription.deleted (downgrades to free), and invoice.payment_failed (logs with user context). Returns 200 for all handled events, 400 for signature failures."
     },
 
     {
