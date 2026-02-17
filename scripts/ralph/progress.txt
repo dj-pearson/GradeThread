@@ -43,3 +43,10 @@ Branch: ralph/gradethread-build
 - Notes: Created storage utility module with three exported functions: uploadSubmissionImage (validates file type/size, uploads to {userId}/{submissionId}/{imageType}_{timestamp}.{ext}), getImageUrl (creates signed URLs with 1hr expiry), deleteSubmissionImage (removes files from bucket). Validates against MIME types (jpeg/png/webp) and 10MB size limit matching the DB bucket config. All errors throw with meaningful messages. Typecheck and build pass clean.
 - Timestamp: 2026-02-16
 ---
+
+## US-027: Client-side image compression and validation
+- Status: COMPLETE
+- Files changed: src/lib/image-utils.ts, prd.json, scripts/ralph/prd.json, scripts/ralph/progress.txt
+- Notes: Created image-utils module with two exported functions: validateImage(file) checks MIME type (jpeg/png/webp), file size (10MB max), and resolution (min 1200x1200px), returning structured validation errors with user-friendly messages. compressImage(file, maxWidth, quality) uses canvas API to resize images (default max 2400px wide), compress (default 0.85 quality), and correct EXIF orientation by parsing the orientation tag from the first 64KB of JPEG files. Handles all 8 EXIF orientation values including dimension swaps for rotated images. Outputs WebP for JPEG/WebP inputs, preserves PNG format. Typecheck and build pass clean.
+- Timestamp: 2026-02-16
+---
