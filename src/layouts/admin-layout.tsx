@@ -4,6 +4,7 @@ import {
   Users,
   FileText,
   MessageSquare,
+  Scale,
   Brain,
   Wrench,
   ArrowLeft,
@@ -16,6 +17,7 @@ const adminNavItems = [
   { to: "/admin/users", icon: Users, label: "Users", end: false },
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false },
   { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false },
+  { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false },
 ];

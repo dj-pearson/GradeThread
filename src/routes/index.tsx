@@ -30,6 +30,7 @@ import { AdminSubmissionsPage } from "@/pages/admin/submissions";
 import { AdminReviewsPage } from "@/pages/admin/reviews";
 import { AdminAiModelsPage } from "@/pages/admin/ai-models";
 import { AdminUserDetailPage } from "@/pages/admin/user-detail";
+import { AdminDisputesPage } from "@/pages/admin/disputes";
 import { AdminSystemPage } from "@/pages/admin/system";
 
 export const router = createBrowserRouter([
@@ -89,6 +90,7 @@ export const router = createBrowserRouter([
               { path: "/admin/users/:id", element: <AdminUserDetailPage /> },
               { path: "/admin/submissions", element: <AdminSubmissionsPage /> },
               { path: "/admin/reviews", element: <AdminReviewsPage /> },
+              { path: "/admin/disputes", element: <AdminDisputesPage /> },
               { path: "/admin/ai-models", element: <AdminAiModelsPage /> },
               { path: "/admin/system", element: <AdminSystemPage /> },
             ],
