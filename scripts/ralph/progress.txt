@@ -344,3 +344,10 @@ Branch: ralph/gradethread-build
 - Notes: Rebuilt users.tsx from placeholder to full admin user management list. Table with 7 columns (name, email, plan, role, grades used, signup date, last active). Search by name or email, filter by plan/role/signup date range. Paginated at 20 rows. Click row navigates to /admin/users/:id. Created user-detail.tsx with profile card (avatar, name, email, plan, role, join date, Stripe ID), usage stats (4 metric cards), admin actions section with 3 controls (change plan dropdown, change role dropdown, suspend/unsuspend button), subscription info card, and submission history table (last 20 with status badges and grade scores). All admin actions create admin_audit_log entries with details object. AlertDialog confirmation for all destructive actions. Added shadcn alert-dialog component. Added route /admin/users/:id.
 - Timestamp: 2026-02-18
 ---
+
+## US-070: Admin: submission queue and monitoring
+- Status: COMPLETE
+- Files changed: src/pages/admin/submissions.tsx, prd.json, scripts/ralph/prd.json
+- Notes: Rebuilt placeholder admin submissions page with full implementation. Table with 8 columns (title, user email, status badge, grade score, confidence %, date, processing time, actions). Search by title/email/name. Filters for status (5 options), confidence level (high/medium/low), and date range. Sortable by date, confidence, and processing time with toggle direction. 25-row pagination. Click row navigates to submission detail. Three admin actions per row: (1) View AI Raw Analysis dialog showing full grade report with scores, factor breakdown, AI summary, detailed notes JSON, and metadata; (2) Re-trigger Grading with AlertDialog confirmation that resets status to 'processing'; (3) Mark as Failed for stuck processing items. Dedicated Failed Submissions section with table showing failed items and re-trigger buttons. 5-minute SLA indicator: overdue processing items highlighted with red background, clock icon in status badge, red processing time text, and warning banner showing count of overdue items. All admin actions create audit log entries.
+- Timestamp: 2026-02-18
+---
