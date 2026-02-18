@@ -1249,8 +1249,8 @@
         "Typecheck passes"
       ],
       "priority": 67,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "AdminRoute guard checks profile.role for admin/super_admin, redirects non-admins to /dashboard with toast. AdminLayout uses brand-night bg with accent red active states. 6 placeholder admin pages created. Admin link in header dropdown only visible for admin users."
     },
 
     {

@@ -323,3 +323,10 @@ Branch: ralph/gradethread-build
 - Notes: Migration 00005 adds nullable webhook_url column to api_keys table and an UPDATE RLS policy. Created webhook-delivery.ts with notifyWebhooks() orchestrator, HMAC-SHA256 signature computation using key_hash as secret, retry logic with exponential backoff (5s, 30s, 120s = 3 retries after initial attempt), 10s delivery timeout, and comprehensive logging of all attempts/responses. PATCH /api/v1/webhook endpoint validates URL format (http/https), allows null to clear, and updates all user's API keys. Grading pipeline triggers notifyWebhooks as fire-and-forget after grade completion (Step 8). Added PATCH to CORS allowMethods. Updated ApiKeyRow and ApiKeyInsert types with webhook_url field. Typecheck and build pass clean.
 - Timestamp: 2026-02-18
 ---
+
+## US-067: Admin layout and role-based access control
+- Status: COMPLETE
+- Files changed: src/components/auth/admin-route.tsx (new), src/layouts/admin-layout.tsx (new), src/pages/admin/dashboard.tsx (new), src/pages/admin/users.tsx (new), src/pages/admin/submissions.tsx (new), src/pages/admin/reviews.tsx (new), src/pages/admin/ai-models.tsx (new), src/pages/admin/system.tsx (new), src/routes/index.tsx, src/components/dashboard/header.tsx, prd.json, scripts/ralph/prd.json
+- Notes: AdminRoute guard component checks profile.role for 'admin' or 'super_admin', redirects non-admins to /dashboard with 'Access denied' toast (using useRef to prevent duplicate toasts), redirects unauthenticated to /login. AdminLayout uses brand-night (#1A1A2E) background for darker treatment distinct from dashboard's brand-navy sidebar. Active nav items use brand-red highlight instead of white. Admin header shows "Admin Panel" badge. "Back to Dashboard" link at sidebar bottom. Six placeholder admin pages created under src/pages/admin/. Routes wrapped in AdminRoute guard at /admin/*. Shield icon admin link added to dashboard header dropdown, only rendered when profile.role is admin or super_admin.
+- Timestamp: 2026-02-18
+---

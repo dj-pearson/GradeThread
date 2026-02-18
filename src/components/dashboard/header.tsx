@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { LogOut, Settings, CreditCard } from "lucide-react";
+import { LogOut, Settings, CreditCard, Shield } from "lucide-react";
 import { signOut } from "@/lib/auth";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
@@ -66,6 +66,15 @@ export function Header() {
             <CreditCard className="mr-2 h-4 w-4" />
             Billing
           </DropdownMenuItem>
+          {(profile?.role === "admin" || profile?.role === "super_admin") && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/admin")}>
+                <Shield className="mr-2 h-4 w-4" />
+                Admin Panel
+              </DropdownMenuItem>
+            </>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleSignOut}>
             <LogOut className="mr-2 h-4 w-4" />

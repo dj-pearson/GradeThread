@@ -2,7 +2,9 @@ import { createBrowserRouter } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";
 import { AuthLayout } from "@/layouts/auth-layout";
 import { DashboardLayout } from "@/layouts/dashboard-layout";
+import { AdminLayout } from "@/layouts/admin-layout";
 import { ProtectedRoute } from "@/components/auth/protected-route";
+import { AdminRoute } from "@/components/auth/admin-route";
 import { LandingPage } from "@/pages/landing";
 import { LoginPage } from "@/pages/login";
 import { SignupPage } from "@/pages/signup";
@@ -22,6 +24,12 @@ import { ApiKeysPage } from "@/pages/api-keys";
 import { PriceSuggestionsPage } from "@/pages/price-suggestions";
 import { CertificatePage } from "@/pages/certificate";
 import { NotFoundPage } from "@/pages/not-found";
+import { AdminDashboardPage } from "@/pages/admin/dashboard";
+import { AdminUsersPage } from "@/pages/admin/users";
+import { AdminSubmissionsPage } from "@/pages/admin/submissions";
+import { AdminReviewsPage } from "@/pages/admin/reviews";
+import { AdminAiModelsPage } from "@/pages/admin/ai-models";
+import { AdminSystemPage } from "@/pages/admin/system";
 
 export const router = createBrowserRouter([
   {
@@ -63,6 +71,24 @@ export const router = createBrowserRouter([
               { path: "/dashboard/settings", element: <SettingsPage /> },
               { path: "/dashboard/billing", element: <BillingPage /> },
               { path: "/dashboard/api-keys", element: <ApiKeysPage /> },
+            ],
+          },
+        ],
+      },
+
+      // Admin routes (admin/super_admin only)
+      {
+        element: <AdminRoute />,
+        children: [
+          {
+            element: <AdminLayout />,
+            children: [
+              { path: "/admin", element: <AdminDashboardPage /> },
+              { path: "/admin/users", element: <AdminUsersPage /> },
+              { path: "/admin/submissions", element: <AdminSubmissionsPage /> },
+              { path: "/admin/reviews", element: <AdminReviewsPage /> },
+              { path: "/admin/ai-models", element: <AdminAiModelsPage /> },
+              { path: "/admin/system", element: <AdminSystemPage /> },
             ],
           },
         ],
