@@ -1157,8 +1157,8 @@
         "Typecheck passes"
       ],
       "priority": 62,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added Dispute Grade button on submission detail page (visible for completed grades within 7 days, hidden if dispute already exists). Dialog has reason textarea (min 20 chars) with character counter and optional photo upload for additional evidence. Creates dispute record linked to grade_report and user, updates submission status to 'disputed'. Dispute status card shown on submission detail page with color-coded badge, reason, resolution notes, and pending review message. My Disputes section added to submissions page with table showing submission title, status badge, reason, filed date, and resolution notes. Clicking a dispute navigates to its submission. Uses 'as GradeReportRow' cast for tsc -b compatibility on reportData.id access."
     },
 
     {

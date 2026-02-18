@@ -6,6 +6,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   Info,
+  Flag,
+  Clock,
+  Loader2,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,16 +20,30 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
+import { toast } from "sonner";
 import type {
   SubmissionRow,
   GradeReportRow,
   SubmissionImageRow,
+  DisputeRow,
 } from "@/types/database";
 
 function getScoreColor(score: number): string {
@@ -91,12 +109,18 @@ function LoadingSkeleton() {
 
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dispute, setDispute] = useState<DisputeRow | null>(null);
+  const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
+  const [submittingDispute, setSubmittingDispute] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -156,11 +180,108 @@ export function SubmissionDetailPage() {
         setImageUrls(urls);
       }
 
+      // Fetch existing dispute for this grade report
+      if (reportData) {
+        const reportId = (reportData as GradeReportRow).id;
+        const { data: disputeData } = await supabase
+          .from("disputes")
+          .select("*")
+          .eq("grade_report_id", reportId)
+          .single();
+
+        if (disputeData) {
+          setDispute(disputeData as DisputeRow);
+        }
+      }
+
       setLoading(false);
     }
 
     fetchData();
   }, [id]);
+
+  const canDispute =
+    submission?.status === "completed" &&
+    gradeReport &&
+    !dispute &&
+    (() => {
+      const createdAt = new Date(gradeReport.created_at);
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      return createdAt > sevenDaysAgo;
+    })();
+
+  async function handleSubmitDispute() {
+    if (!user || !gradeReport) return;
+
+    if (disputeReason.trim().length < 20) {
+      toast.error("Please provide a reason of at least 20 characters.");
+      return;
+    }
+
+    setSubmittingDispute(true);
+
+    try {
+      // Upload dispute evidence photos if any
+      if (disputePhotos.length > 0 && submission) {
+        for (const photo of disputePhotos) {
+          const ext = photo.name.split(".").pop() ?? "jpg";
+          const path = `${user.id}/${submission.id}/dispute_${Date.now()}.${ext}`;
+          await supabase.storage
+            .from("submission-images")
+            .upload(path, photo);
+        }
+      }
+
+      const { data: newDispute, error: disputeError } = await supabase
+        .from("disputes")
+        .insert({
+          grade_report_id: gradeReport.id,
+          user_id: user.id,
+          reason: disputeReason.trim(),
+        } as never)
+        .select()
+        .single();
+
+      if (disputeError) throw disputeError;
+
+      // Update submission status to disputed
+      await supabase
+        .from("submissions")
+        .update({ status: "disputed" } as never)
+        .eq("id", submission!.id);
+
+      setDispute(newDispute as DisputeRow);
+      setSubmission((prev) =>
+        prev ? { ...prev, status: "disputed" as const } : prev
+      );
+      setDisputeDialogOpen(false);
+      setDisputeReason("");
+      setDisputePhotos([]);
+      toast.success("Dispute submitted successfully. We'll review it shortly.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to submit dispute"
+      );
+    } finally {
+      setSubmittingDispute(false);
+    }
+  }
+
+  function getDisputeStatusBadge(status: string) {
+    switch (status) {
+      case "open":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "under_review":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+      case "resolved":
+        return "bg-green-100 text-green-800 border-green-200";
+      case "rejected":
+        return "bg-red-100 text-red-800 border-red-200";
+      default:
+        return "";
+    }
+  }
 
   if (loading) {
     return <LoadingSkeleton />;
@@ -262,6 +383,118 @@ export function SubmissionDetailPage() {
                 Share Certificate
               </Link>
             </Button>
+          )}
+          {canDispute && (
+            <Dialog open={disputeDialogOpen} onOpenChange={setDisputeDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Flag className="mr-1 h-4 w-4" />
+                  Dispute Grade
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Dispute This Grade</DialogTitle>
+                  <DialogDescription>
+                    Explain why you believe this grade is inaccurate. You can also
+                    upload additional photos as evidence.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="dispute-reason">
+                      Reason for dispute{" "}
+                      <span className="text-muted-foreground">
+                        (min 20 characters)
+                      </span>
+                    </Label>
+                    <Textarea
+                      id="dispute-reason"
+                      placeholder="Describe why you believe this grade is inaccurate..."
+                      value={disputeReason}
+                      onChange={(e) => setDisputeReason(e.target.value)}
+                      rows={4}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {disputeReason.length}/20 characters minimum
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Additional evidence (optional)</Label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const input = document.createElement("input");
+                          input.type = "file";
+                          input.accept = "image/jpeg,image/png,image/webp";
+                          input.multiple = true;
+                          input.onchange = (e) => {
+                            const files = (e.target as HTMLInputElement).files;
+                            if (files) {
+                              setDisputePhotos((prev) => [
+                                ...prev,
+                                ...Array.from(files),
+                              ]);
+                            }
+                          };
+                          input.click();
+                        }}
+                      >
+                        <Upload className="mr-1 h-4 w-4" />
+                        Upload Photos
+                      </Button>
+                      {disputePhotos.length > 0 && (
+                        <span className="text-sm text-muted-foreground">
+                          {disputePhotos.length} photo
+                          {disputePhotos.length !== 1 ? "s" : ""} selected
+                        </span>
+                      )}
+                    </div>
+                    {disputePhotos.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {disputePhotos.map((photo, i) => (
+                          <Badge
+                            key={i}
+                            variant="secondary"
+                            className="cursor-pointer"
+                            onClick={() =>
+                              setDisputePhotos((prev) =>
+                                prev.filter((_, idx) => idx !== i)
+                              )
+                            }
+                          >
+                            {photo.name} &times;
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => setDisputeDialogOpen(false)}
+                    disabled={submittingDispute}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleSubmitDispute}
+                    disabled={
+                      submittingDispute || disputeReason.trim().length < 20
+                    }
+                  >
+                    {submittingDispute && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    Submit Dispute
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           )}
         </div>
       </div>
@@ -470,6 +703,7 @@ export function SubmissionDetailPage() {
             </div>
           </div>
         </div>
+
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -503,6 +737,53 @@ export function SubmissionDetailPage() {
                   The grade report will appear here once processing is complete.
                 </p>
               </>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Dispute Status */}
+      {dispute && (
+        <Card className="border-l-4 border-l-yellow-500">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Flag className="h-4 w-4" />
+                Dispute
+              </CardTitle>
+              <Badge
+                variant="outline"
+                className={cn(getDisputeStatusBadge(dispute.status))}
+              >
+                {formatLabel(dispute.status)}
+              </Badge>
+            </div>
+            <CardDescription>
+              Submitted {new Date(dispute.created_at).toLocaleDateString()}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-muted-foreground">
+                Reason
+              </p>
+              <p className="text-sm">{dispute.reason}</p>
+            </div>
+            {dispute.resolution_notes && (
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Resolution
+                </p>
+                <p className="text-sm">{dispute.resolution_notes}</p>
+              </div>
+            )}
+            {(dispute.status === "open" ||
+              dispute.status === "under_review") && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Clock className="h-4 w-4" />
+                Your dispute is being reviewed. We{"'"}ll notify you when a
+                decision is made.
+              </div>
             )}
           </CardContent>
         </Card>

@@ -10,6 +10,7 @@ import {
   ArrowUpDown,
   Search,
   Download,
+  Flag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +40,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { GARMENT_TYPES, SUBMISSION_STATUSES } from "@/lib/constants";
-import type { SubmissionRow, GradeReportRow } from "@/types/database";
+import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
 
 const PAGE_SIZE = 20;
 
@@ -198,6 +199,26 @@ async function exportSubmissionsCsv() {
   URL.revokeObjectURL(url);
 }
 
+function getDisputeStatusBadgeClasses(status: string): string {
+  switch (status) {
+    case "open":
+      return "border-yellow-200 bg-yellow-100 text-yellow-800";
+    case "under_review":
+      return "border-blue-200 bg-blue-100 text-blue-800";
+    case "resolved":
+      return "border-green-200 bg-green-100 text-green-800";
+    case "rejected":
+      return "border-red-200 bg-red-100 text-red-800";
+    default:
+      return "";
+  }
+}
+
+interface DisputeWithSubmission extends DisputeRow {
+  submission_title?: string;
+  submission_id?: string;
+}
+
 export function SubmissionsPage() {
   const navigate = useNavigate();
   const [exporting, setExporting] = useState(false);
@@ -288,6 +309,62 @@ export function SubmissionsPage() {
     },
     staleTime: 5 * 60 * 1000,
   });
+
+  const { data: disputesData, isLoading: disputesLoading } = useQuery({
+    queryKey: ["my-disputes"],
+    queryFn: async () => {
+      // Fetch all user disputes
+      const { data: disputes, error: disputeError } = await supabase
+        .from("disputes")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (disputeError) throw disputeError;
+
+      const disputeRows = (disputes ?? []) as DisputeRow[];
+
+      if (disputeRows.length === 0) return [];
+
+      // Fetch grade reports to get submission IDs
+      const gradeReportIds = disputeRows.map((d) => d.grade_report_id);
+      const { data: gradeReports } = await supabase
+        .from("grade_reports")
+        .select("id, submission_id")
+        .in("id", gradeReportIds);
+
+      const gradeReportRows = (gradeReports ?? []) as Array<{
+        id: string;
+        submission_id: string;
+      }>;
+      const gradeReportMap = new Map(
+        gradeReportRows.map((gr) => [gr.id, gr.submission_id])
+      );
+
+      // Fetch submission titles
+      const submissionIds = gradeReportRows.map((gr) => gr.submission_id);
+      const { data: subs } = await supabase
+        .from("submissions")
+        .select("id, title")
+        .in("id", submissionIds);
+
+      const subRows = (subs ?? []) as Array<{ id: string; title: string }>;
+      const subMap = new Map(subRows.map((s) => [s.id, s.title]));
+
+      const result: DisputeWithSubmission[] = disputeRows.map((d) => {
+        const subId = gradeReportMap.get(d.grade_report_id);
+        return {
+          ...d,
+          submission_id: subId,
+          submission_title: subId ? subMap.get(subId) : undefined,
+        };
+      });
+
+      return result;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const myDisputes = disputesData ?? [];
 
   const submissions = data?.submissions ?? [];
   const totalCount = data?.totalCount ?? 0;
@@ -528,6 +605,83 @@ export function SubmissionsPage() {
                 </div>
               )}
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* My Disputes */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Flag className="h-4 w-4" />
+              My Disputes
+            </CardTitle>
+            {myDisputes.length > 0 && (
+              <CardDescription>
+                {myDisputes.length} dispute{myDisputes.length !== 1 ? "s" : ""}
+              </CardDescription>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {disputesLoading ? (
+            <LoadingSkeleton />
+          ) : myDisputes.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              No disputes filed. If you disagree with a grade, you can dispute it
+              from the submission detail page within 7 days.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Submission</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Reason</TableHead>
+                    <TableHead>Filed</TableHead>
+                    <TableHead>Resolution</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {myDisputes.map((d) => (
+                    <TableRow
+                      key={d.id}
+                      className={d.submission_id ? "cursor-pointer" : ""}
+                      onClick={() => {
+                        if (d.submission_id) {
+                          navigate(`/dashboard/submissions/${d.submission_id}`);
+                        }
+                      }}
+                    >
+                      <TableCell className="font-medium">
+                        {d.submission_title ?? "Unknown"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            getDisputeStatusBadgeClasses(d.status)
+                          )}
+                        >
+                          {formatLabel(d.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        {d.reason}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {new Date(d.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell className="max-w-[200px] truncate text-muted-foreground">
+                        {d.resolution_notes ?? "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
