@@ -1427,8 +1427,8 @@
         "Unsubscribe link in all marketing emails"
       ],
       "priority": 76,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created email.ts utility using Resend API with branded HTML templates (navy header, red CTA buttons, branded footer). Three email types: grade_complete (score card, tier badge, report link, cert link), dispute_resolved (outcome display, grade adjustment, reviewer notes), welcome (3-step getting started guide). Grade complete triggered as fire-and-forget in grading-pipeline.ts after grade report creation. Dispute resolved/rejected triggered via POST /api/notifications/dispute-resolved from admin disputes page. Welcome email triggered via POST /api/notifications/welcome from signup page (unauthenticated, IP rate-limited). Unsubscribe link on welcome email linking to /dashboard/settings. .env.example updated with RESEND_API_KEY."
     },
 
     {

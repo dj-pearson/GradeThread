@@ -7,6 +7,7 @@ import {
   type CompositeGradeResult,
 } from "./ai-grading.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
+import { sendGradeCompleteEmail } from "./email.ts";
 
 /**
  * Processes a submission through the full grading pipeline:
@@ -195,6 +196,33 @@ export async function processSubmission(submissionId: string) {
         );
       }
     );
+
+    // --- Step 9: Send grade complete email (fire-and-forget) ---
+    (async () => {
+      try {
+        const { data: user } = await supabaseAdmin
+          .from("users")
+          .select("email, full_name")
+          .eq("id", submission.user_id)
+          .single();
+
+        if (user?.email) {
+          await sendGradeCompleteEmail(user.email, {
+            userName: user.full_name || "there",
+            submissionTitle: submission.title,
+            overallScore: compositeResult.overall_score,
+            gradeTier: compositeResult.grade_tier,
+            submissionId,
+            certificateId,
+          });
+        }
+      } catch (emailErr) {
+        console.error(
+          `[Pipeline] Email notification error for submission ${submissionId}:`,
+          emailErr instanceof Error ? emailErr.message : String(emailErr)
+        );
+      }
+    })();
 
     return gradeReport;
   } catch (error) {

@@ -68,6 +68,29 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
+  ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}`
+  : "";
+
+async function sendDisputeNotification(disputeId: string): Promise<void> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token || !EDGE_URL) return;
+
+    await fetch(`${EDGE_URL}/api/notifications/dispute-resolved`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ disputeId }),
+    });
+  } catch (err) {
+    console.error("[Disputes] Failed to send notification email:", err);
+  }
+}
+
 // ─── Types ──────────────────────────────────────────────────────────
 
 interface EnrichedDispute {
@@ -478,6 +501,9 @@ export function AdminDisputesPage() {
         resolution_notes: resolutionNotes,
       });
 
+      // Send dispute resolved email notification (fire-and-forget)
+      sendDisputeNotification(selectedDispute.dispute.id);
+
       toast.success("Dispute resolved", {
         description: adjustGrade
           ? `Grade adjusted from ${selectedDispute.report.overall_score.toFixed(1)} to ${computedOverallScore.toFixed(1)}.`
@@ -528,6 +554,9 @@ export function AdminDisputesPage() {
         grade_report_id: rejectTarget.report.id,
         rejection_reason: rejectReason,
       });
+
+      // Send dispute rejected email notification (fire-and-forget)
+      sendDisputeNotification(rejectTarget.dispute.id);
 
       toast.success("Dispute rejected", {
         description: `Dispute for "${rejectTarget.submission.title}" has been rejected.`,

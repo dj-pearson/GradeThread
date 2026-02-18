@@ -8,6 +8,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 
+const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
+  ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}`
+  : "";
+
 export function SignupPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -23,8 +27,17 @@ export function SignupPage() {
     }
     setIsLoading(true);
     try {
-      await signUpWithEmail(email, password, fullName);
+      const data = await signUpWithEmail(email, password, fullName);
       setIsConfirmation(true);
+
+      // Send welcome email (fire-and-forget)
+      if (data?.user?.id && EDGE_URL) {
+        fetch(`${EDGE_URL}/api/notifications/welcome`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: data.user.id }),
+        }).catch(() => {});
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to sign up");
     } finally {

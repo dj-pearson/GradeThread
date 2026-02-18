@@ -7,6 +7,7 @@ import { webhookRoutes } from "./routes/webhooks.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
+import { notificationRoutes } from "./routes/notifications.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
@@ -33,6 +34,7 @@ app.use(
 app.use("/api/grade/*", authMiddleware);
 app.use("/api/payments/*", authMiddleware);
 app.use("/api/keys/*", authMiddleware);
+app.use("/api/notifications/dispute-resolved", authMiddleware);
 
 // Rate limiting — 60 requests per minute for authenticated grade endpoints
 app.use("/api/grade/*", rateLimiter(60, 60_000));
@@ -48,6 +50,7 @@ app.route("/api/payments", paymentRoutes);
 app.route("/api/webhooks", webhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/v1", apiV1Routes);
+app.route("/api/notifications", notificationRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));
