@@ -295,3 +295,10 @@ Branch: ralph/gradethread-build
 - Notes: Added Dispute Grade button on submission detail page (visible for completed grades within 7 days, hidden if dispute already exists). Dispute dialog with reason textarea (min 20 chars, character counter) and optional multi-photo upload for additional evidence. Creates dispute record linked to grade_report and user_id, updates submission status to 'disputed'. Dispute status card displayed on submission detail page with color-coded badge (open=yellow, under_review=blue, resolved=green, rejected=red), reason, resolution notes, and pending review message. My Disputes section added to submissions page with table showing submission title, status, reason, filed date, and resolution notes — clicking navigates to the submission detail. Used 'as GradeReportRow' cast for tsc -b compatibility. No new lint errors.
 - Timestamp: 2026-02-18
 ---
+
+## US-063: API key management page
+- Status: COMPLETE
+- Files changed: src/pages/api-keys.tsx, services/edge-functions/src/routes/api-keys.ts (new), services/edge-functions/src/main.ts, prd.json, scripts/ralph/prd.json
+- Notes: Created edge function routes for API key CRUD at /api/keys with auth middleware. POST creates key with crypto.getRandomValues (32 bytes), SHA-256 hashing for storage, returns full key once. GET lists user's keys (id, name, prefix, dates). DELETE revokes by id with ownership check. Server-side plan gating (Professional/Enterprise only) and 10-key limit. Frontend page rebuilt with plan gate (Crown upgrade prompt for Free/Starter), TanStack Query for key list, create dialog with name + optional expiry date, one-time full key display with copy-to-clipboard and security warning, revoke confirmation dialog. Key format: gt_sk_{64 hex chars}, prefix shows first 14 chars. Fixed pre-existing tsc -b stale cache issue (recharts/qrcode.react types were resolvable but tsBuildInfo was stale).
+- Timestamp: 2026-02-18
+---

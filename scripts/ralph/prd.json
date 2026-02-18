@@ -1176,8 +1176,8 @@
         "Typecheck passes"
       ],
       "priority": 63,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Edge function routes for API key CRUD (POST create with SHA-256 hashing, GET list, DELETE revoke) at /api/keys. Frontend page with plan gating (Professional/Enterprise only), TanStack Query for key list, create dialog with name + optional expiry, one-time full key reveal with copy-to-clipboard, revoke confirmation dialog. 10-key limit per user enforced server-side."
     },
 
     {
