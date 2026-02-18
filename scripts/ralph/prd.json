@@ -1409,8 +1409,8 @@
         "Alert when accuracy drops below threshold (configurable, default 80%)"
       ],
       "priority": 75,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented AI accuracy feedback loop with: (1) accuracy-tracking.ts edge function module with calculateReviewAccuracy, computeAccuracySummary, updatePromptVersionAccuracy, exportTrainingDataset, computeWeeklyAccuracySummary. Pearson correlation, MAE, agreement rate (within 0.5 points) per prompt version. (2) Enhanced AI Models page with full Accuracy Feedback Dashboard section: ComposedChart (recharts) showing agreement rate bars + MAE line + threshold reference per version, detail tab with per-factor accuracy breakdown using Progress bars. (3) Export JSONL button downloads training dataset with all AI scores + human adjustments. (4) Weekly Summary button computes 7-day accuracy on-demand with toast notification. (5) Red alert banner when any version drops below 80% agreement threshold (configurable ACCURACY_THRESHOLD constant). All data computed from real human_reviews + grade_reports joined by grade_report_id -> model_version."
     },
 
     {

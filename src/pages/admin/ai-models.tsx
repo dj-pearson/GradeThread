@@ -7,12 +7,14 @@ import type {
   AiPromptVersionInsert,
   AiPromptVersionUpdate,
   HumanReviewRow,
+  GradeReportRow,
   AdminAuditLogInsert,
 } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import {
   Table,
   TableBody,
@@ -65,15 +67,87 @@ import {
   Zap,
   Columns2,
   FlaskConical,
+  AlertTriangle,
+  BarChart3,
+  RefreshCw,
+  FileDown,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+  CartesianGrid,
+  Line,
+  ComposedChart,
+  Legend,
+} from "recharts";
 
 // ─── Types ──────────────────────────────────────────────────────────
+
+interface ReviewAccuracyData {
+  versionName: string;
+  totalReviews: number;
+  meanAbsoluteError: number;
+  agreementRate: number; // within 0.5 points
+  correlation: number;
+  factorAccuracies: {
+    factor: string;
+    mae: number;
+    agreementRate: number;
+  }[];
+}
 
 interface EnrichedPromptVersion extends AiPromptVersionRow {
   computedAccuracy: number | null;
   totalReviewed: number;
   agreedCount: number;
+}
+
+const ACCURACY_THRESHOLD = 0.8; // 80% agreement rate
+
+const FACTOR_NAMES = [
+  "fabric_condition",
+  "structural_integrity",
+  "cosmetic_appearance",
+  "functional_elements",
+  "odor_cleanliness",
+] as const;
+
+const FACTOR_LABELS: Record<string, string> = {
+  fabric_condition: "Fabric Condition",
+  structural_integrity: "Structural Integrity",
+  cosmetic_appearance: "Cosmetic Appearance",
+  functional_elements: "Functional Elements",
+  odor_cleanliness: "Odor & Cleanliness",
+};
+
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    backgroundColor: "hsl(var(--card))",
+    border: "1px solid hsl(var(--border))",
+    borderRadius: "8px",
+    fontSize: "12px",
+  },
+};
+
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = x.length;
+  if (n < 2) return 0;
+  const meanX = x.reduce((s, v) => s + v, 0) / n;
+  const meanY = y.reduce((s, v) => s + v, 0) / n;
+  let num = 0, denomX = 0, denomY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i]! - meanX;
+    const dy = y[i]! - meanY;
+    num += dx * dy;
+    denomX += dx * dx;
+    denomY += dy * dy;
+  }
+  const denom = Math.sqrt(denomX * denomY);
+  return denom === 0 ? 0 : num / denom;
 }
 
 type SortField = "created_at" | "accuracy" | "total_grades" | "version_name";
@@ -139,42 +213,133 @@ export function AdminAiModelsPage() {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testLoading, setTestLoading] = useState(false);
 
+  // Export loading state
+  const [exportLoading, setExportLoading] = useState(false);
+  // Weekly summary state
+  const [weeklySummaryLoading, setWeeklySummaryLoading] = useState(false);
+
   // ─── Data Fetching ────────────────────────────────────────────────
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-ai-models"],
     queryFn: async () => {
-      const [versionsRes, reviewsRes] = await Promise.all([
+      const [versionsRes, reviewsRes, reportsRes] = await Promise.all([
         supabase.from("ai_prompt_versions").select("*"),
         supabase.from("human_reviews").select("*"),
+        supabase.from("grade_reports").select("*"),
       ]);
       if (versionsRes.error) throw versionsRes.error;
       if (reviewsRes.error) throw reviewsRes.error;
+      if (reportsRes.error) throw reportsRes.error;
 
       const versions = (versionsRes.data ?? []) as AiPromptVersionRow[];
       const reviews = (reviewsRes.data ?? []) as HumanReviewRow[];
+      const reports = (reportsRes.data ?? []) as GradeReportRow[];
 
-      // Compute accuracy from human reviews:
-      // - "agreed" = review where adjusted_score is null (approved as-is)
-      // - total reviewed = all human_reviews
-      // Note: We use all reviews globally for accuracy since reviews aren't linked
-      // directly to a prompt version. In a production system, grade_reports would
-      // reference which prompt version was used. For now, we use the stored accuracy_score
-      // field as the primary metric, and compute a global review agreement rate.
       const totalReviewed = reviews.length;
       const agreedCount = reviews.filter((r) => r.adjusted_score === null).length;
 
-      return versions.map((v): EnrichedPromptVersion => ({
-        ...v,
-        computedAccuracy: v.accuracy_score,
-        totalReviewed,
-        agreedCount,
-      }));
+      return {
+        versions: versions.map((v): EnrichedPromptVersion => ({
+          ...v,
+          computedAccuracy: v.accuracy_score,
+          totalReviewed,
+          agreedCount,
+        })),
+        reviews,
+        reports,
+      };
     },
     staleTime: 30 * 1000,
   });
 
-  const versions = data ?? [];
+  const versions = useMemo(() => data?.versions ?? [], [data]);
+  const allReviews = useMemo(() => data?.reviews ?? [], [data]);
+  const allReports = useMemo(() => data?.reports ?? [], [data]);
+
+  // ─── Compute accuracy metrics per prompt version ───────────────────
+
+  const accuracyByVersion = useMemo((): ReviewAccuracyData[] => {
+    if (allReviews.length === 0 || allReports.length === 0) return [];
+
+    // Build report lookup
+    const reportMap = new Map<string, GradeReportRow>();
+    for (const r of allReports) {
+      reportMap.set(r.id, r);
+    }
+
+    // Group reviews by model_version (via grade report)
+    const groups = new Map<string, { aiScores: number[]; humanScores: number[]; errors: number[]; agreed: number; factorErrors: Record<string, number[]> }>();
+
+    for (const review of allReviews) {
+      const report = reportMap.get(review.grade_report_id);
+      if (!report) continue;
+
+      const versionKey = report.model_version || "unknown";
+      if (!groups.has(versionKey)) {
+        const fe: Record<string, number[]> = {};
+        for (const f of FACTOR_NAMES) fe[f] = [];
+        groups.set(versionKey, { aiScores: [], humanScores: [], errors: [], agreed: 0, factorErrors: fe });
+      }
+
+      const g = groups.get(versionKey)!;
+      const humanFinal = review.adjusted_score ?? review.original_score;
+      const error = Math.abs(report.overall_score - humanFinal);
+      g.errors.push(error);
+      if (error <= 0.5) g.agreed++;
+      g.aiScores.push(report.overall_score);
+      g.humanScores.push(humanFinal);
+
+      // Per-factor error estimation
+      const aiOverall = report.overall_score;
+      const errorRatio = aiOverall !== 0 ? (humanFinal - aiOverall) / aiOverall : 0;
+      const factorScores: Record<string, number> = {
+        fabric_condition: report.fabric_condition_score,
+        structural_integrity: report.structural_integrity_score,
+        cosmetic_appearance: report.cosmetic_appearance_score,
+        functional_elements: report.functional_elements_score,
+        odor_cleanliness: report.odor_cleanliness_score,
+      };
+      for (const f of FACTOR_NAMES) {
+        const fScore = factorScores[f] ?? 0;
+        const fErr = review.adjusted_score === null ? 0 : Math.abs(fScore * errorRatio);
+        const arr = g.factorErrors[f];
+        if (arr) arr.push(fErr);
+      }
+    }
+
+    const result: ReviewAccuracyData[] = [];
+    for (const [versionName, g] of groups) {
+      const mae = g.errors.length > 0 ? g.errors.reduce((s, e) => s + e, 0) / g.errors.length : 0;
+      const agreementRate = g.errors.length > 0 ? g.agreed / g.errors.length : 0;
+      const correlation = pearsonCorrelation(g.aiScores, g.humanScores);
+
+      result.push({
+        versionName,
+        totalReviews: g.errors.length,
+        meanAbsoluteError: mae,
+        agreementRate,
+        correlation,
+        factorAccuracies: FACTOR_NAMES.map((f) => {
+          const fErrors = g.factorErrors[f] ?? [];
+          return {
+            factor: f,
+            mae: fErrors.length > 0 ? fErrors.reduce((s, e) => s + e, 0) / fErrors.length : 0,
+            agreementRate: fErrors.length > 0 ? fErrors.filter((e) => e <= 0.5).length / fErrors.length : 0,
+          };
+        }),
+      });
+    }
+
+    return result.sort((a, b) => b.totalReviews - a.totalReviews);
+  }, [allReviews, allReports]);
+
+  // Detect low accuracy alert
+  const lowAccuracyVersions = useMemo(() => {
+    return accuracyByVersion.filter(
+      (v) => v.totalReviews >= 5 && v.agreementRate < ACCURACY_THRESHOLD
+    );
+  }, [accuracyByVersion]);
 
   // ─── Filtering ────────────────────────────────────────────────────
 
@@ -485,8 +650,21 @@ export function AdminAiModelsPage() {
   const compareLeftVersion = versions.find((v) => v.id === compareLeft);
   const compareRightVersion = versions.find((v) => v.id === compareRight);
 
-  // ─── Accuracy trend data (simulated from version data) ────────────
+  // ─── Accuracy trend chart data (from real review data) ─────────────
 
+  const accuracyChartData = useMemo(() => {
+    return accuracyByVersion.map((v) => ({
+      name: v.versionName.length > 16 ? v.versionName.slice(0, 16) + "..." : v.versionName,
+      fullName: v.versionName,
+      agreementRate: Number((v.agreementRate * 100).toFixed(1)),
+      mae: Number(v.meanAbsoluteError.toFixed(2)),
+      correlation: Number((v.correlation * 100).toFixed(1)),
+      reviews: v.totalReviews,
+      threshold: ACCURACY_THRESHOLD * 100,
+    }));
+  }, [accuracyByVersion]);
+
+  // Legacy accuracy bar data (from stored accuracy_score on versions)
   const accuracyTrendData = useMemo(() => {
     return versions
       .filter((v) => v.computedAccuracy !== null)
@@ -498,6 +676,170 @@ export function AdminAiModelsPage() {
         date: formatDate(v.created_at),
       }));
   }, [versions]);
+
+  // ─── JSONL Export Handler ──────────────────────────────────────────
+
+  async function handleExportTrainingData() {
+    setExportLoading(true);
+    try {
+      if (allReviews.length === 0) {
+        toast.info("No training data", {
+          description: "No human reviews found to export.",
+        });
+        return;
+      }
+
+      // Build report lookup
+      const reportMap = new Map<string, GradeReportRow>();
+      for (const r of allReports) {
+        reportMap.set(r.id, r);
+      }
+
+      // Fetch submissions for garment info
+      const submissionIds = [...new Set(allReports.map((r) => r.submission_id))];
+      const { data: submissions } = await supabase
+        .from("submissions")
+        .select("id, garment_type, garment_category")
+        .in("id", submissionIds);
+
+      const submissionMap = new Map<string, { garment_type: string; garment_category: string }>();
+      for (const sub of (submissions ?? []) as { id: string; garment_type: string; garment_category: string }[]) {
+        submissionMap.set(sub.id, sub);
+      }
+
+      // Build JSONL
+      const lines: string[] = [];
+      for (const review of allReviews) {
+        const report = reportMap.get(review.grade_report_id);
+        if (!report) continue;
+        const sub = submissionMap.get(report.submission_id);
+
+        lines.push(JSON.stringify({
+          review_id: review.id,
+          grade_report_id: review.grade_report_id,
+          submission_id: report.submission_id,
+          garment_type: sub?.garment_type ?? "unknown",
+          garment_category: sub?.garment_category ?? "unknown",
+          ai_overall_score: report.overall_score,
+          ai_grade_tier: report.grade_tier,
+          ai_fabric_condition: report.fabric_condition_score,
+          ai_structural_integrity: report.structural_integrity_score,
+          ai_cosmetic_appearance: report.cosmetic_appearance_score,
+          ai_functional_elements: report.functional_elements_score,
+          ai_odor_cleanliness: report.odor_cleanliness_score,
+          ai_confidence: report.confidence_score,
+          ai_summary: report.ai_summary,
+          human_original_score: review.original_score,
+          human_adjusted_score: review.adjusted_score,
+          human_review_notes: review.review_notes,
+          reviewed_at: review.reviewed_at,
+          model_version: report.model_version,
+        }));
+      }
+
+      if (lines.length === 0) {
+        toast.info("No training data", {
+          description: "No matching review-report pairs found to export.",
+        });
+        return;
+      }
+
+      const blob = new Blob([lines.join("\n")], { type: "application/jsonl" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const dateStr = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `gradethread_training_data_${dateStr}.jsonl`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      toast.success("Training data exported", {
+        description: `${lines.length} review entries exported as JSONL.`,
+      });
+    } catch (err) {
+      toast.error("Export failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  // ─── Weekly Summary Handler ────────────────────────────────────────
+
+  async function handleWeeklySummary() {
+    setWeeklySummaryLoading(true);
+    try {
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+      // Filter reviews from the last 7 days
+      const recentReviews = allReviews.filter(
+        (r) => new Date(r.reviewed_at) >= weekAgo
+      );
+
+      if (recentReviews.length === 0) {
+        toast.info("No recent reviews", {
+          description: "No human reviews in the last 7 days to summarize.",
+        });
+        return;
+      }
+
+      // Build report lookup for recent reviews only
+      const reportMap = new Map<string, GradeReportRow>();
+      for (const r of allReports) {
+        reportMap.set(r.id, r);
+      }
+
+      let totalError = 0;
+      let totalAgreed = 0;
+      let count = 0;
+
+      for (const review of recentReviews) {
+        const report = reportMap.get(review.grade_report_id);
+        if (!report) continue;
+        const humanFinal = review.adjusted_score ?? review.original_score;
+        const error = Math.abs(report.overall_score - humanFinal);
+        totalError += error;
+        if (error <= 0.5) totalAgreed++;
+        count++;
+      }
+
+      if (count === 0) {
+        toast.info("No matched reviews", {
+          description: "Could not match reviews to grade reports.",
+        });
+        return;
+      }
+
+      const mae = totalError / count;
+      const agreementRate = totalAgreed / count;
+
+      toast.success("Weekly Accuracy Summary", {
+        description:
+          `Last 7 days: ${count} reviews | ` +
+          `MAE: ${mae.toFixed(2)} | ` +
+          `Agreement: ${(agreementRate * 100).toFixed(1)}% | ` +
+          `${agreementRate >= ACCURACY_THRESHOLD ? "Above" : "BELOW"} threshold`,
+        duration: 10000,
+      });
+
+      await logAuditAction("weekly_accuracy_summary", "ai_accuracy", "weekly", {
+        period: "7d",
+        total_reviews: count,
+        mean_absolute_error: mae,
+        agreement_rate: agreementRate,
+      });
+    } catch (err) {
+      toast.error("Summary failed", {
+        description: err instanceof Error ? err.message : "Unknown error",
+      });
+    } finally {
+      setWeeklySummaryLoading(false);
+    }
+  }
 
   // ─── Render ───────────────────────────────────────────────────────
 
@@ -610,11 +952,196 @@ export function AdminAiModelsPage() {
         </Card>
       </div>
 
-      {/* Accuracy Trend Chart (simple table-based visualization) */}
+      {/* Accuracy Threshold Alert */}
+      {lowAccuracyVersions.length > 0 && (
+        <Card className="border-red-300 bg-red-50">
+          <CardContent className="flex items-start gap-3 pt-4">
+            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-medium text-red-800">
+                Accuracy Below Threshold ({(ACCURACY_THRESHOLD * 100).toFixed(0)}%)
+              </p>
+              <p className="text-sm text-red-700 mt-1">
+                {lowAccuracyVersions.map((v) => (
+                  <span key={v.versionName}>
+                    <strong>{v.versionName}</strong>: {(v.agreementRate * 100).toFixed(1)}%
+                    agreement ({v.totalReviews} reviews)
+                    {". "}
+                  </span>
+                ))}
+                Consider reviewing and updating the prompts.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Accuracy Feedback Dashboard */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-brand-navy" />
+              <CardTitle className="text-sm font-medium">AI Accuracy Feedback Loop</CardTitle>
+              <Badge variant="secondary" className="ml-1">
+                {allReviews.length} reviews
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleWeeklySummary}
+                disabled={weeklySummaryLoading}
+              >
+                {weeklySummaryLoading ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                )}
+                Weekly Summary
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportTrainingData}
+                disabled={exportLoading}
+              >
+                {exportLoading ? (
+                  <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="mr-2 h-3.5 w-3.5" />
+                )}
+                Export JSONL
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {accuracyByVersion.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <BarChart3 className="h-10 w-10 text-muted-foreground/40 mb-3" />
+              <p className="text-sm text-muted-foreground">
+                No human reviews yet. Accuracy metrics will appear here after reviews are completed.
+              </p>
+            </div>
+          ) : (
+            <Tabs defaultValue="chart" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="chart">Chart</TabsTrigger>
+                <TabsTrigger value="details">Details</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="chart">
+                {/* Agreement Rate + MAE Composed Chart */}
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={accuracyChartData} margin={{ top: 10, right: 30, left: 0, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                      <YAxis yAxisId="left" domain={[0, 100]} tick={{ fontSize: 12 }} label={{ value: "Agreement %", angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 11 } }} />
+                      <YAxis yAxisId="right" orientation="right" domain={[0, "auto"]} tick={{ fontSize: 12 }} label={{ value: "MAE", angle: 90, position: "insideRight", offset: 10, style: { fontSize: 11 } }} />
+                      <Tooltip
+                        {...TOOLTIP_STYLE}
+                        formatter={(value: unknown, name: unknown) => {
+                          const v = Number(value);
+                          const n = String(name);
+                          if (n === "Agreement Rate") return [`${v.toFixed(1)}%`, n];
+                          if (n === "MAE") return [v.toFixed(2), n];
+                          return [v, n];
+                        }}
+                        labelFormatter={(label: unknown, payload: unknown) => {
+                          const items = payload as { payload?: { fullName?: string; reviews?: number } }[] | undefined;
+                          const item = items?.[0]?.payload;
+                          return `${item?.fullName ?? String(label)} (${item?.reviews ?? 0} reviews)`;
+                        }}
+                      />
+                      <Legend />
+                      <Bar yAxisId="left" dataKey="agreementRate" name="Agreement Rate" fill="#0F3460" radius={[4, 4, 0, 0]} />
+                      <Line yAxisId="right" dataKey="mae" name="MAE" stroke="#E94560" strokeWidth={2} dot={{ fill: "#E94560", r: 4 }} />
+                      {/* Threshold reference line */}
+                      <Line yAxisId="left" dataKey="threshold" name="Threshold" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" dot={false} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="details">
+                <div className="space-y-4">
+                  {accuracyByVersion.map((version) => (
+                    <Card key={version.versionName} className={version.agreementRate < ACCURACY_THRESHOLD && version.totalReviews >= 5 ? "border-red-300" : ""}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-sm font-medium">{version.versionName}</CardTitle>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">{version.totalReviews} reviews</Badge>
+                            {version.agreementRate >= ACCURACY_THRESHOLD ? (
+                              <Badge className="bg-green-100 text-green-700">Good</Badge>
+                            ) : version.totalReviews >= 5 ? (
+                              <Badge className="bg-red-100 text-red-700">Below Threshold</Badge>
+                            ) : (
+                              <Badge variant="secondary">Insufficient Data</Badge>
+                            )}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {/* Overall metrics */}
+                        <div className="grid grid-cols-3 gap-4 text-sm">
+                          <div>
+                            <p className="text-muted-foreground">Agreement Rate</p>
+                            <p className={`font-bold text-lg ${version.agreementRate >= ACCURACY_THRESHOLD ? "text-green-600" : version.totalReviews >= 5 ? "text-red-600" : ""}`}>
+                              {(version.agreementRate * 100).toFixed(1)}%
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Mean Absolute Error</p>
+                            <p className="font-bold text-lg">{version.meanAbsoluteError.toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Correlation</p>
+                            <p className="font-bold text-lg">{(version.correlation * 100).toFixed(1)}%</p>
+                          </div>
+                        </div>
+
+                        {/* Per-factor breakdown */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-muted-foreground">Per-Factor Accuracy</p>
+                          {version.factorAccuracies.map((fa) => (
+                            <div key={fa.factor} className="flex items-center gap-2">
+                              <span className="w-40 text-xs text-muted-foreground">
+                                {FACTOR_LABELS[fa.factor] ?? fa.factor}
+                              </span>
+                              <div className="flex-1">
+                                <Progress
+                                  value={fa.agreementRate * 100}
+                                  className="h-2"
+                                />
+                              </div>
+                              <span className="w-14 text-xs text-right tabular-nums">
+                                {(fa.agreementRate * 100).toFixed(0)}%
+                              </span>
+                              <span className="w-16 text-xs text-muted-foreground text-right tabular-nums">
+                                MAE {fa.mae.toFixed(2)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Accuracy Trend by Version (stored accuracy_score) */}
       {accuracyTrendData.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium">Accuracy Trend by Version</CardTitle>
+            <CardTitle className="text-sm font-medium">Stored Accuracy by Version</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
