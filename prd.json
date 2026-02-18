@@ -1214,8 +1214,8 @@
         "API versioned under /api/v1/"
       ],
       "priority": 65,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created api-v1.ts route file with 3 endpoints: POST /api/v1/grades (JSON body with image URLs or base64, returns 202), GET /api/v1/grades/:id (full grade report), GET /api/v1/grades (paginated list with ?page=&limit=&status= filters). All responses use { data, error, meta } structure. API key auth via apiKeyAuthMiddleware, rate limited at 100 req/min."
     },
 
     {

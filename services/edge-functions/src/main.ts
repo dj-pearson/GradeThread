@@ -6,7 +6,9 @@ import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
 import { paymentRoutes } from "./routes/payments.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
+import { apiV1Routes } from "./routes/api-v1.ts";
 import { authMiddleware } from "./middleware/auth.ts";
+import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
 
 const app = new Hono();
@@ -35,12 +37,17 @@ app.use("/api/keys/*", authMiddleware);
 // Rate limiting — 60 requests per minute for authenticated grade endpoints
 app.use("/api/grade/*", rateLimiter(60, 60_000));
 
+// Public API v1 — API key auth + 100 requests per minute
+app.use("/api/v1/*", apiKeyAuthMiddleware);
+app.use("/api/v1/*", rateLimiter(100, 60_000));
+
 // Routes
 app.route("/health", healthRoutes);
 app.route("/api/grade", gradeRoutes);
 app.route("/api/payments", paymentRoutes);
 app.route("/api/webhooks", webhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
+app.route("/api/v1", apiV1Routes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));

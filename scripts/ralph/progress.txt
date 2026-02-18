@@ -309,3 +309,10 @@ Branch: ralph/gradethread-build
 - Notes: Created api-key-auth.ts middleware that validates API keys from the X-API-Key header. Hashes the provided key with SHA-256 and matches against stored key_hash in api_keys table. Validates key format (gt_sk_ prefix + 64 hex chars = 70 chars total). Checks if key is expired via expires_at timestamp. Updates last_used_at as fire-and-forget (non-blocking) on successful validation. Sets user and userId on Hono context from the key's user_id, matching the same interface as the JWT auth middleware. Updated CORS configuration to allow X-API-Key header. POST/DELETE routes and key generation logic already existed from US-063.
 - Timestamp: 2026-02-18
 ---
+
+## US-065: Public REST API: grade submission and retrieval
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/routes/api-v1.ts (new), services/edge-functions/src/main.ts, prd.json, scripts/ralph/prd.json
+- Notes: Created api-v1.ts route file with 3 endpoints versioned under /api/v1/. POST /api/v1/grades accepts JSON body with garment info and images array (each image has image_type + url or base64), validates required fields and image types, downloads/decodes images, uploads to Supabase Storage, creates submission, triggers grading pipeline, returns 202 with { data: { id, status }, error: null, meta: null }. GET /api/v1/grades/:id returns full submission info with grade report (all factor scores, AI summary, certificate_id) for completed grades. GET /api/v1/grades returns paginated list with ?page=&limit=&status= query params, includes grade summary for completed items, returns meta with page/limit/total/total_pages/has_next/has_prev. All responses follow consistent { data, error, meta } JSON structure. Authenticated via X-API-Key header using apiKeyAuthMiddleware. Rate limited at 100 req/min via existing rateLimiter middleware. Plan limit checking and usage increment reuse same logic as internal grade routes.
+- Timestamp: 2026-02-18
+---
