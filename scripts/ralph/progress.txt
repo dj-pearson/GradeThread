@@ -302,3 +302,10 @@ Branch: ralph/gradethread-build
 - Notes: Created edge function routes for API key CRUD at /api/keys with auth middleware. POST creates key with crypto.getRandomValues (32 bytes), SHA-256 hashing for storage, returns full key once. GET lists user's keys (id, name, prefix, dates). DELETE revokes by id with ownership check. Server-side plan gating (Professional/Enterprise only) and 10-key limit. Frontend page rebuilt with plan gate (Crown upgrade prompt for Free/Starter), TanStack Query for key list, create dialog with name + optional expiry date, one-time full key display with copy-to-clipboard and security warning, revoke confirmation dialog. Key format: gt_sk_{64 hex chars}, prefix shows first 14 chars. Fixed pre-existing tsc -b stale cache issue (recharts/qrcode.react types were resolvable but tsBuildInfo was stale).
 - Timestamp: 2026-02-18
 ---
+
+## US-064: Edge function: API key generation and validation
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/middleware/api-key-auth.ts (new), services/edge-functions/src/main.ts, prd.json, scripts/ralph/prd.json
+- Notes: Created api-key-auth.ts middleware that validates API keys from the X-API-Key header. Hashes the provided key with SHA-256 and matches against stored key_hash in api_keys table. Validates key format (gt_sk_ prefix + 64 hex chars = 70 chars total). Checks if key is expired via expires_at timestamp. Updates last_used_at as fire-and-forget (non-blocking) on successful validation. Sets user and userId on Hono context from the key's user_id, matching the same interface as the JWT auth middleware. Updated CORS configuration to allow X-API-Key header. POST/DELETE routes and key generation logic already existed from US-063.
+- Timestamp: 2026-02-18
+---

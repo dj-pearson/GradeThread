@@ -1195,8 +1195,8 @@
         "DELETE /api/keys/:id revokes a key"
       ],
       "priority": 64,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created api-key-auth.ts middleware that validates X-API-Key header by SHA-256 hashing the provided key and matching against stored key_hash. Checks expiration, updates last_used_at (fire-and-forget), and sets user/userId context. Key format validation (gt_sk_ prefix + 64 hex chars). CORS updated to allow X-API-Key header. POST/DELETE routes already existed from US-063."
     },
 
     {

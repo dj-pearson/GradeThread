@@ -22,7 +22,7 @@ app.use(
       "https://www.gradethread.com",
     ],
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization"],
+    allowHeaders: ["Content-Type", "Authorization", "X-API-Key"],
     maxAge: 86400,
   })
 );
