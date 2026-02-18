@@ -1269,8 +1269,8 @@
         "Typecheck passes"
       ],
       "priority": 68,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Admin dashboard with 8 KPI cards (Total Users, Active Subscribers, Submissions Today, Revenue This Month, Average Grade, Dispute Rate %, AI Accuracy %, Pending Reviews) and 3 line charts (submission volume, revenue, new users - all 30-day daily). Auto-refreshes every 60s via TanStack Query refetchInterval. Migration 00006 adds admin SELECT policies on users, submissions, grade_reports, disputes, and sales tables."
     },
 
     {

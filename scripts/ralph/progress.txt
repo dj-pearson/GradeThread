@@ -330,3 +330,10 @@ Branch: ralph/gradethread-build
 - Notes: AdminRoute guard component checks profile.role for 'admin' or 'super_admin', redirects non-admins to /dashboard with 'Access denied' toast (using useRef to prevent duplicate toasts), redirects unauthenticated to /login. AdminLayout uses brand-night (#1A1A2E) background for darker treatment distinct from dashboard's brand-navy sidebar. Active nav items use brand-red highlight instead of white. Admin header shows "Admin Panel" badge. "Back to Dashboard" link at sidebar bottom. Six placeholder admin pages created under src/pages/admin/. Routes wrapped in AdminRoute guard at /admin/*. Shield icon admin link added to dashboard header dropdown, only rendered when profile.role is admin or super_admin.
 - Timestamp: 2026-02-18
 ---
+
+## US-068: Admin dashboard with KPI overview
+- Status: COMPLETE
+- Files changed: src/pages/admin/dashboard.tsx, supabase/migrations/00006_admin_read_policies.sql (new), prd.json, scripts/ralph/prd.json
+- Notes: Replaced placeholder admin dashboard with full implementation. 8 KPI cards in 2 rows: Primary row — Total Users, Active Subscribers, Submissions Today, Revenue This Month. Secondary row — Average Grade, Dispute Rate %, AI Accuracy % (high-confidence rate), Pending Reviews count. 3 line charts (recharts): Submission Volume (daily, 30 days, brand navy), Revenue (daily, 30 days, green), New Users (daily, 30 days, brand red). All data fetched from Supabase in parallel via Promise.all with admin RLS policies. Auto-refreshes every 60 seconds via TanStack Query refetchInterval. Created migration 00006 adding admin SELECT policies on users, submissions, grade_reports, disputes, and sales tables so admin users can query platform-wide data. Used same recharts patterns (Tooltip Number() cast, TOOLTIP_STYLE constant) as existing charts for consistency. Typecheck and build pass clean.
+- Timestamp: 2026-02-18
+---
