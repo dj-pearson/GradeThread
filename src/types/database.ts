@@ -88,6 +88,7 @@ export interface ApiKeyRow {
   key_prefix: string;
   last_used_at: string | null;
   expires_at: string | null;
+  webhook_url: string | null;
   created_at: string;
 }
 
@@ -237,6 +238,7 @@ export interface ApiKeyInsert {
   key_hash: string;
   key_prefix: string;
   expires_at?: string | null;
+  webhook_url?: string | null;
 }
 
 export interface InventoryItemInsert {

@@ -6,6 +6,7 @@ import {
   type GarmentInfo,
   type CompositeGradeResult,
 } from "./ai-grading.ts";
+import { notifyWebhooks } from "./webhook-delivery.ts";
 
 /**
  * Processes a submission through the full grading pipeline:
@@ -183,6 +184,16 @@ export async function processSubmission(submissionId: string) {
       `[Pipeline] Grading pipeline COMPLETE for submission ${submissionId} | ` +
         `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
         `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
+    );
+
+    // --- Step 8: Send webhook notifications (fire-and-forget) ---
+    notifyWebhooks(submission.user_id, submissionId, gradeReport as Record<string, unknown>).catch(
+      (err) => {
+        console.error(
+          `[Pipeline] Webhook delivery error for submission ${submissionId}:`,
+          err instanceof Error ? err.message : String(err)
+        );
+      }
     );
 
     return gradeReport;

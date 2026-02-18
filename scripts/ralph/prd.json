@@ -1231,8 +1231,8 @@
         "API endpoint PATCH /api/v1/webhook to set/update webhook URL"
       ],
       "priority": 66,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Migration 00005 adds webhook_url to api_keys. webhook-delivery.ts handles HMAC-SHA256 signing with key_hash as secret, 3 retries with exponential backoff (5s/30s/120s), and parallel delivery to all user keys with webhook_url set. PATCH /api/v1/webhook endpoint validates URL format and updates all user's API keys. Grading pipeline calls notifyWebhooks as fire-and-forget after grade completion."
     },
 
     {

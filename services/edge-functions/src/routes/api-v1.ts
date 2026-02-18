@@ -479,3 +479,102 @@ apiV1Routes.get("/grades", async (c) => {
     },
   });
 });
+
+// --- PATCH /api/v1/webhook — Set or update webhook URL ---
+apiV1Routes.patch("/webhook", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { webhook_url?: string | null };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({
+      data: null,
+      error: { message: "Invalid JSON body", details: [] },
+      meta: null,
+    }, 400);
+  }
+
+  const { webhook_url } = body;
+
+  // Allow null to clear the webhook URL
+  if (webhook_url !== null && webhook_url !== undefined) {
+    if (typeof webhook_url !== "string" || webhook_url.trim().length === 0) {
+      return c.json({
+        data: null,
+        error: { message: "webhook_url must be a non-empty string or null", details: [] },
+        meta: null,
+      }, 400);
+    }
+
+    // Validate URL format (must be HTTPS in production)
+    try {
+      const parsed = new URL(webhook_url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        return c.json({
+          data: null,
+          error: { message: "webhook_url must use HTTPS (or HTTP for development)", details: [] },
+          meta: null,
+        }, 400);
+      }
+    } catch {
+      return c.json({
+        data: null,
+        error: { message: "webhook_url is not a valid URL", details: [] },
+        meta: null,
+      }, 400);
+    }
+  }
+
+  // Find the user's API keys and update all of them with the webhook URL
+  // (The API key used for this request is identified by userId from the middleware)
+  const { data: keys, error: fetchError } = await supabaseAdmin
+    .from("api_keys")
+    .select("id")
+    .eq("user_id", userId);
+
+  if (fetchError) {
+    console.error("[API v1] Failed to fetch API keys for webhook update:", fetchError);
+    return c.json({
+      data: null,
+      error: { message: "Failed to update webhook URL", details: [] },
+      meta: null,
+    }, 500);
+  }
+
+  if (!keys || keys.length === 0) {
+    return c.json({
+      data: null,
+      error: { message: "No API keys found", details: [] },
+      meta: null,
+    }, 404);
+  }
+
+  // Update all user's API keys with the webhook URL
+  const { error: updateError } = await supabaseAdmin
+    .from("api_keys")
+    .update({ webhook_url: webhook_url ?? null })
+    .eq("user_id", userId);
+
+  if (updateError) {
+    console.error("[API v1] Failed to update webhook URL:", updateError);
+    return c.json({
+      data: null,
+      error: { message: "Failed to update webhook URL", details: [] },
+      meta: null,
+    }, 500);
+  }
+
+  console.log(
+    `[API v1] Webhook URL ${webhook_url ? "set" : "cleared"} for user ${userId} (${keys.length} key(s))`
+  );
+
+  return c.json({
+    data: {
+      webhook_url: webhook_url ?? null,
+      keys_updated: keys.length,
+    },
+    error: null,
+    meta: null,
+  });
+});
