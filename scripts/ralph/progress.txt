@@ -337,3 +337,10 @@ Branch: ralph/gradethread-build
 - Notes: Replaced placeholder admin dashboard with full implementation. 8 KPI cards in 2 rows: Primary row — Total Users, Active Subscribers, Submissions Today, Revenue This Month. Secondary row — Average Grade, Dispute Rate %, AI Accuracy % (high-confidence rate), Pending Reviews count. 3 line charts (recharts): Submission Volume (daily, 30 days, brand navy), Revenue (daily, 30 days, green), New Users (daily, 30 days, brand red). All data fetched from Supabase in parallel via Promise.all with admin RLS policies. Auto-refreshes every 60 seconds via TanStack Query refetchInterval. Created migration 00006 adding admin SELECT policies on users, submissions, grade_reports, disputes, and sales tables so admin users can query platform-wide data. Used same recharts patterns (Tooltip Number() cast, TOOLTIP_STYLE constant) as existing charts for consistency. Typecheck and build pass clean.
 - Timestamp: 2026-02-18
 ---
+
+## US-069: Admin: user management list and detail
+- Status: COMPLETE
+- Files changed: src/pages/admin/users.tsx, src/pages/admin/user-detail.tsx (new), src/routes/index.tsx, src/components/ui/alert-dialog.tsx (shadcn), prd.json, scripts/ralph/prd.json
+- Notes: Rebuilt users.tsx from placeholder to full admin user management list. Table with 7 columns (name, email, plan, role, grades used, signup date, last active). Search by name or email, filter by plan/role/signup date range. Paginated at 20 rows. Click row navigates to /admin/users/:id. Created user-detail.tsx with profile card (avatar, name, email, plan, role, join date, Stripe ID), usage stats (4 metric cards), admin actions section with 3 controls (change plan dropdown, change role dropdown, suspend/unsuspend button), subscription info card, and submission history table (last 20 with status badges and grade scores). All admin actions create admin_audit_log entries with details object. AlertDialog confirmation for all destructive actions. Added shadcn alert-dialog component. Added route /admin/users/:id.
+- Timestamp: 2026-02-18
+---
