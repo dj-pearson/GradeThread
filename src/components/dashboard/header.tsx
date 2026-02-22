@@ -1,8 +1,10 @@
 import { useNavigate } from "react-router-dom";
-import { LogOut, Settings, CreditCard, Shield } from "lucide-react";
+import { LogOut, Settings, CreditCard, Shield, Sun, Moon } from "lucide-react";
 import { signOut } from "@/lib/auth";
 import { useAuth } from "@/hooks/use-auth";
+import { useThemeStore } from "@/stores/theme-store";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -11,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { MobileNav } from "@/components/dashboard/sidebar";
 
 export function Header() {
   const { user, profile } = useAuth();
@@ -28,6 +31,8 @@ export function Header() {
     ? profile.plan.charAt(0).toUpperCase() + profile.plan.slice(1)
     : "Free";
 
+  const { theme, toggleTheme } = useThemeStore();
+
   async function handleSignOut() {
     await signOut();
     navigate("/login");
@@ -36,10 +41,25 @@ export function Header() {
   return (
     <header className="flex h-16 items-center justify-between border-b bg-card px-6">
       <div className="flex items-center gap-3">
+        <MobileNav />
         <Badge variant="secondary" className="text-xs font-medium">
           {planLabel} Plan
         </Badge>
       </div>
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+        >
+          {theme === "light" ? (
+            <Moon className="h-4 w-4" />
+          ) : (
+            <Sun className="h-4 w-4" />
+          )}
+        </Button>
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -82,6 +102,7 @@ export function Header() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      </div>
     </header>
   );
 }

@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import {
   GarmentInfoForm,
   type GarmentInfo,
@@ -90,9 +93,11 @@ function StepIndicator({
 
 export function NewSubmissionPage() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
   const [photos, setPhotos] = useState<PhotoUploadItem[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const plan = profile?.plan ?? "free";
   const planConfig = PLANS[plan as PlanKey];
@@ -129,9 +134,74 @@ export function NewSubmissionPage() {
     }
   }
 
-  function handleSubmit() {
-    // Submission logic will be implemented in a later story
-    // For now this is a placeholder
+  async function handleSubmit() {
+    if (!garmentInfo || photos.length === 0) return;
+    setIsSubmitting(true);
+
+    try {
+      // Get current session for auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error("You must be logged in to submit a garment.");
+        return;
+      }
+
+      // Build multipart form data matching edge function expectations
+      const formData = new FormData();
+      formData.append("garment_type", garmentInfo.garmentType);
+      formData.append("garment_category", garmentInfo.garmentCategory);
+      formData.append("title", garmentInfo.title);
+      if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
+      if (garmentInfo.description) formData.append("description", garmentInfo.description);
+
+      // Append images and their types as parallel arrays
+      for (const photo of photos) {
+        formData.append("images", photo.file);
+        formData.append("image_types", photo.imageType);
+      }
+
+      const edgeUrl = import.meta.env.VITE_SUPABASE_URL
+        ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
+        : "";
+
+      // Prefer dedicated edge function URL if available, fall back to supabase functions
+      const baseUrl = import.meta.env.VITE_EDGE_URL || edgeUrl;
+
+      const response = await fetch(`${baseUrl}/api/grade/submit`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        const message = result.error || "Submission failed";
+        if (result.details && Array.isArray(result.details)) {
+          toast.error(message, {
+            description: result.details.join(", "),
+          });
+        } else {
+          toast.error(message);
+        }
+        return;
+      }
+
+      toast.success("Submission created! Your garment is being graded.", {
+        description: "You'll be redirected to the submission details.",
+      });
+
+      // Navigate to the submission detail page
+      navigate(`/dashboard/submissions/${result.submissionId}`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to submit. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -262,12 +332,19 @@ export function NewSubmissionPage() {
 
               {/* Actions */}
               <div className="flex items-center justify-between pt-4">
-                <Button type="button" variant="outline" onClick={handleBack}>
+                <Button type="button" variant="outline" onClick={handleBack} disabled={isSubmitting}>
                   <ChevronLeft className="mr-1 h-4 w-4" />
                   Back
                 </Button>
-                <Button type="button" onClick={handleSubmit}>
-                  Submit for Grading
+                <Button type="button" onClick={handleSubmit} disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    "Submit for Grading"
+                  )}
                 </Button>
               </div>
             </div>
