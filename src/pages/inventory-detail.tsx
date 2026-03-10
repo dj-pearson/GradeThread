@@ -569,6 +569,24 @@ export function InventoryDetailPage() {
     toast.success("Shipment marked as delivered.");
   }
 
+  // Price suggestion (must be before early returns to satisfy rules-of-hooks)
+  const priceSuggestion = useMemo(() => {
+    if (!item) return null;
+    if (item.status === "sold" || item.status === "shipped" || item.status === "completed" || item.status === "returned") {
+      return null;
+    }
+    const salesHistory = allUserSales
+      .map((sale) => {
+        const saleItem = allUserItems.find((i) => i.id === sale.inventory_item_id);
+        if (!saleItem) return null;
+        return { item: saleItem, sale, grade: null as number | null };
+      })
+      .filter((h): h is NonNullable<typeof h> => h !== null);
+
+    const grade = gradeReport?.overall_score ?? null;
+    return calculateSuggestedPrice(item, grade, listings, salesHistory);
+  }, [item, gradeReport, listings, allUserSales, allUserItems]);
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -608,23 +626,6 @@ export function InventoryDetailPage() {
   const netProfit =
     totalSaleRevenue - acquiredPrice - totalPlatformFees - totalShippingCost;
   const hasSales = sales.length > 0;
-
-  // Price suggestion
-  const priceSuggestion = useMemo(() => {
-    if (item.status === "sold" || item.status === "shipped" || item.status === "completed" || item.status === "returned") {
-      return null;
-    }
-    const salesHistory = allUserSales
-      .map((sale) => {
-        const saleItem = allUserItems.find((i) => i.id === sale.inventory_item_id);
-        if (!saleItem) return null;
-        return { item: saleItem, sale, grade: null as number | null };
-      })
-      .filter((h): h is NonNullable<typeof h> => h !== null);
-
-    const grade = gradeReport?.overall_score ?? null;
-    return calculateSuggestedPrice(item, grade, listings, salesHistory);
-  }, [item, gradeReport, listings, allUserSales, allUserItems]);
 
   return (
     <div className="space-y-6">

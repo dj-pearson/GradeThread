@@ -425,7 +425,7 @@ apiV1Routes.get("/grades", async (c) => {
     .filter((s) => s.status === "completed" || s.status === "disputed")
     .map((s) => s.id);
 
-  let gradeReports: Record<string, {
+  const gradeReports: Record<string, {
     overall_score: number;
     grade_tier: string;
     confidence_score: number;
