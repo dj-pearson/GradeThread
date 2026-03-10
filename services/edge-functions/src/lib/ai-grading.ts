@@ -504,7 +504,7 @@ export async function compositeGrade(
     const gradeTier = scoreToGradeTier(overallScore);
 
     // Validate confidence score
-    let confidenceScore =
+    const confidenceScore =
       typeof parsed.confidence_score === "number" && !isNaN(parsed.confidence_score)
         ? Math.max(0.0, Math.min(1.0, parsed.confidence_score))
         : 0.5;
