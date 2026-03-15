@@ -1,0 +1,155 @@
+# GradeThread Progress Tracker
+# Ralph AI / Snarktank Format
+# Last updated: 2026-03-15
+
+## Completed Stories
+
+### Phase 1: Foundation (US-001 → US-021)
+- [x] US-001 | Vite + React + TypeScript project scaffold | PASSED
+- [x] US-002 | Tailwind v4 + shadcn/ui design system with brand theme | PASSED
+- [x] US-003 | TypeScript database types for all tables and enums | PASSED
+- [x] US-004 | Supabase client with PKCE auth flow | PASSED
+- [x] US-005 | Auth functions: signup, signin, Google OAuth, password reset | PASSED
+- [x] US-006 | Zustand auth store and useAuth hook with session listener | PASSED
+- [x] US-007 | Protected route guard component | PASSED
+- [x] US-008 | React Router configuration with all routes | PASSED
+- [x] US-009 | Root, Auth, and Dashboard layouts | PASSED
+- [x] US-010 | Dashboard sidebar with nav links and header with user menu | PASSED
+- [x] US-011 | Landing page with hero, features, and CTA | PASSED
+- [x] US-012 | Login page with email/password and Google OAuth | PASSED
+- [x] US-013 | Signup page with email confirmation flow | PASSED
+- [x] US-014 | Auth callback, password reset, and stub pages | PASSED
+- [x] US-015 | Dashboard overview with stats cards | PASSED
+- [x] US-016 | Static assets, index.html, and Cloudflare Pages config | PASSED
+- [x] US-017 | App entry point with providers | PASSED
+- [x] US-018 | PRD constants: plans, grade factors, enums | PASSED
+- [x] US-019 | Database migration SQL with full schema | PASSED
+- [x] US-020 | Deno/Hono edge functions service scaffold | PASSED
+- [x] US-021 | Stripe client initialization | PASSED
+
+### Phase 2: DB Extensions (US-022 → US-025)
+- [x] US-022 | Database migration: add inventory and financial tracking tables | PASSED
+- [x] US-023 | TypeScript types for inventory and financial tables | PASSED
+- [x] US-024 | Database migration: admin tables and roles | PASSED
+- [x] US-025 | TypeScript types for admin tables | PASSED
+
+### Phase 3: Backend Infrastructure (US-026 → US-029)
+- [x] US-026 | Image upload utility with Supabase Storage | PASSED
+- [x] US-027 | Client-side image compression and validation | PASSED
+- [x] US-028 | Edge function: JWT auth middleware | PASSED
+- [x] US-029 | Edge function: rate limiting middleware | PASSED
+
+### Phase 4: AI Grading Engine + Submission Flow (US-030 → US-037)
+- [x] US-030 | Photo upload UI component with drag-and-drop | PASSED
+- [x] US-031 | Submission wizard: step 1 - garment info form | PASSED
+- [x] US-032 | Submission wizard: multi-step container with progress | PASSED
+- [x] US-033 | Submission creation API endpoint | PASSED
+- [x] US-034 | Claude Vision API integration for per-image analysis | PASSED
+- [x] US-035 | Claude Vision API: composite grading from all images | PASSED
+- [x] US-036 | Grade calculation and report creation pipeline | PASSED
+- [x] US-037 | Trigger grading pipeline on submission creation | PASSED
+
+### Phase 5: Submissions, Payments, Certificates, Analytics (US-038 → US-046)
+- [x] US-038 | Submission detail page with grade report display | PASSED
+- [x] US-039 | Submissions list page with filtering and pagination | PASSED
+- [x] US-040 | Stripe checkout session creation for grade payments | PASSED
+- [x] US-041 | Stripe webhook handling for payment events | PASSED
+- [x] US-042 | Subscription management page (billing) | PASSED
+- [x] US-043 | Grade certificate public page | PASSED
+- [x] US-044 | Dashboard overview: live data integration | PASSED
+- [x] US-045 | Grade analytics charts on dashboard | PASSED
+- [x] US-046 | Export submissions as CSV | PASSED
+
+### Phase 6: Settings (US-047)
+- [x] US-047 | Settings page: profile editing | PASSED
+
+### Phase 7: Inventory Management + Financial Tracking (US-048 → US-061)
+- [x] US-048 | Inventory management: items list page | PASSED
+- [x] US-049 | Inventory management: add item form | PASSED
+- [x] US-050 | Inventory item detail page with lifecycle timeline | PASSED
+- [x] US-051 | Inventory: add listing to item | PASSED
+- [x] US-052 | Inventory: record sale | PASSED
+- [x] US-053 | Inventory: record shipment | PASSED
+- [x] US-054 | Financial dashboard overview | PASSED
+- [x] US-055 | Financial reporting: profit/loss per item | PASSED
+- [x] US-056 | Financial reporting: revenue and profit charts | PASSED
+- [x] US-057 | Financial reporting: cash flow timeline | PASSED
+- [x] US-058 | Financial reporting: tax-ready export | PASSED
+- [x] US-059 | Analytics: time-on-market tracking | PASSED
+- [x] US-060 | Analytics: price suggestion engine | PASSED
+- [x] US-061 | Analytics: listing optimization suggestions | PASSED
+
+### Phase 8: Disputes + Public API (US-062 → US-066)
+- [x] US-062 | Dispute submission form and tracking | PASSED
+- [x] US-063 | API key management page | PASSED
+- [x] US-064 | Edge function: API key generation and validation | PASSED
+- [x] US-065 | Public REST API: grade submission and retrieval | PASSED
+- [x] US-066 | Webhook delivery system for grade completion | PASSED
+
+### Phase 9: Admin Platform (US-067 → US-075)
+- [x] US-067 | Admin layout and role-based access control | PASSED
+- [x] US-068 | Admin dashboard with KPI overview | PASSED
+- [x] US-069 | Admin: user management list and detail | PASSED
+- [x] US-070 | Admin: submission queue and monitoring | PASSED
+- [x] US-071 | Admin: human review queue | PASSED
+- [x] US-072 | Admin: dispute management | PASSED
+- [x] US-073 | Admin: AI model management and prompt versioning | PASSED
+- [x] US-074 | Admin: system health and traffic monitoring | PASSED
+- [x] US-075 | Admin: AI accuracy feedback loop | PASSED
+
+### Phase 10: Notifications + UX Polish (US-076 → US-082)
+- [x] US-076 | Email notification system | PASSED
+- [x] US-077 | In-app notification center | PASSED ← NEW (2026-03-15)
+- [x] US-078 | Dark mode toggle and persistence | PASSED ← Verified (2026-03-15)
+- [x] US-079 | Mobile responsive sidebar (sheet/drawer) | PASSED ← Verified (2026-03-15)
+- [x] US-080 | Loading states and skeleton screens | PASSED ← Verified (2026-03-15)
+- [x] US-081 | Error boundary and fallback UI | PASSED ← NEW (2026-03-15)
+- [x] US-082 | Performance: code splitting and lazy loading | PASSED ← Verified (2026-03-15)
+
+### Phase 11: Landing + SEO (US-090, US-093, US-094, US-095)
+- [x] US-090 | SEO: dynamic meta tags and sitemap | PASSED ← NEW (2026-03-15)
+- [x] US-093 | Landing page: pricing section | PASSED ← Verified (2026-03-15)
+- [x] US-094 | Landing page: how it works section | PASSED ← Verified (2026-03-15)
+- [x] US-095 | Realtime submission status updates | PASSED ← NEW (2026-03-15)
+
+## In Progress Stories
+(none)
+
+## Remaining Stories (not started)
+- [ ] US-083 | Bulk submission upload
+- [ ] US-084 | Inventory ROI analytics
+- [ ] US-085 | Inventory value and aging report
+- [ ] US-086 | Grade-to-price correlation analysis
+- [ ] US-087 | Admin: platform-wide analytics dashboard
+- [ ] US-088 | Admin: audit log viewer
+- [ ] US-089 | Notification preferences page
+- [ ] US-091 | Accessibility audit and fixes
+- [ ] US-092 | Onboarding flow for new users
+- [ ] US-096 | Inventory: link grading submission to inventory item
+- [ ] US-097 | Quick actions and keyboard shortcuts
+- [ ] US-098 | Data backup and export: full account export
+- [ ] US-099 | Admin: content moderation and flagging system
+- [ ] US-100 | Final integration testing and polish
+
+## Summary
+- Total stories: 100
+- Passed: 86
+- Remaining: 14
+- Completion: 86%
+
+## Session Notes (2026-03-15)
+### Implemented (4 new items):
+1. US-077: In-app notification center - notifications DB table, bell icon with unread badge, popover with mark-read
+2. US-081: Error boundary enhancement - Sentry integration, RouteErrorFallback, branded fallback UI
+3. US-090: SEO infrastructure - robots.txt, sitemap.xml, react-helmet-async, dynamic OG meta tags
+4. US-095: Realtime submission status - Supabase Realtime subscriptions, toast notifications, auto-refresh
+
+### Verified (already implemented, marked as passed):
+- US-078: Dark mode (theme-store.ts + toggle in header)
+- US-079: Mobile responsive sidebar (MobileNav + Sheet)
+- US-080: Loading states/skeletons (22 files)
+- US-082: Code splitting (lazy() in routes/index.tsx)
+- US-093: Landing page pricing section
+- US-094: Landing page how it works section
+
+### Build status: PASSING (npm run build succeeds, no TypeScript errors)

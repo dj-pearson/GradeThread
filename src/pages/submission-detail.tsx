@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   Loader2,
   Upload,
 } from "lucide-react";
+import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -121,6 +122,34 @@ export function SubmissionDetailPage() {
   const [disputeReason, setDisputeReason] = useState("");
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
   const [submittingDispute, setSubmittingDispute] = useState(false);
+
+  // Subscribe to realtime status updates for this submission
+  useRealtimeSubmission(id);
+
+  const refetchData = useCallback(async () => {
+    if (!id) return;
+    const { data: sub } = await supabase
+      .from("submissions")
+      .select("*")
+      .eq("id", id)
+      .single();
+    if (sub) setSubmission(sub);
+
+    const { data: reportData } = await supabase
+      .from("grade_reports")
+      .select("*")
+      .eq("submission_id", id)
+      .single();
+    if (reportData) setGradeReport(reportData);
+  }, [id]);
+
+  // Re-fetch when submission status changes via realtime
+  useEffect(() => {
+    if (!submission || submission.status === "processing" || submission.status === "pending") {
+      const interval = setInterval(refetchData, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [submission?.status, refetchData]);
 
   useEffect(() => {
     if (!id) return;

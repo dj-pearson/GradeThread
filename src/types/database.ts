@@ -12,6 +12,7 @@ export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
 export type ItemStatus = "acquired" | "grading" | "graded" | "listed" | "sold" | "shipped" | "completed" | "returned";
 export type ListingPlatform = "ebay" | "poshmark" | "mercari" | "depop" | "grailed" | "facebook" | "offerup" | "other";
 export type UserRole = "user" | "reviewer" | "admin" | "super_admin";
+export type NotificationType = "grade_complete" | "dispute_update" | "billing" | "system";
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
@@ -182,6 +183,17 @@ export interface AiPromptVersionRow {
   created_at: string;
 }
 
+export interface NotificationRow {
+  id: string;
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link: string | null;
+  is_read: boolean;
+  created_at: string;
+}
+
 // ─── Insert types ──────────────────────────────────────────────────
 
 export interface UserInsert {
@@ -314,6 +326,15 @@ export interface AiPromptVersionInsert {
   total_grades?: number;
 }
 
+export interface NotificationInsert {
+  user_id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link?: string | null;
+  is_read?: boolean;
+}
+
 // ─── Update types ──────────────────────────────────────────────────
 
 export type UserUpdate = Partial<Omit<UserRow, "id" | "created_at" | "updated_at">>;
@@ -326,6 +347,7 @@ export type SaleUpdate = Partial<Omit<SaleRow, "id" | "created_at">>;
 export type ShipmentUpdate = Partial<Omit<ShipmentRow, "id" | "created_at" | "updated_at">>;
 export type HumanReviewUpdate = Partial<Omit<HumanReviewRow, "id" | "grade_report_id" | "reviewer_id">>;
 export type AiPromptVersionUpdate = Partial<Omit<AiPromptVersionRow, "id" | "created_at">>;
+export type NotificationUpdate = Partial<Omit<NotificationRow, "id" | "user_id" | "created_at">>;
 
 // ─── Database schema type (for Supabase client) ────────────────────
 
@@ -397,6 +419,11 @@ export interface Database {
         Insert: AiPromptVersionInsert;
         Update: AiPromptVersionUpdate;
       };
+      notifications: {
+        Row: NotificationRow;
+        Insert: NotificationInsert;
+        Update: NotificationUpdate;
+      };
     };
     Enums: {
       user_plan: UserPlan;
@@ -409,6 +436,7 @@ export interface Database {
       item_status: ItemStatus;
       listing_platform: ListingPlatform;
       user_role: UserRole;
+      notification_type: NotificationType;
     };
   };
 }

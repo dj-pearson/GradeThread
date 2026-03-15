@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/layouts/dashboard-layout";
 import { AdminLayout } from "@/layouts/admin-layout";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { AdminRoute } from "@/components/auth/admin-route";
+import { RouteErrorFallback } from "@/components/error-boundary";
 
 // Lazy-loaded pages for code splitting
 const LandingPage = lazy(() => import("@/pages/landing").then(m => ({ default: m.LandingPage })));
@@ -51,6 +52,7 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
 export const router = createBrowserRouter([
   {
     element: <RootLayout />,
+    errorElement: <RouteErrorFallback />,
     children: [
       // Public routes
       { path: "/", element: <SuspenseWrapper><LandingPage /></SuspenseWrapper> },

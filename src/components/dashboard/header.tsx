@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MobileNav } from "@/components/dashboard/sidebar";
+import { NotificationCenter } from "@/components/dashboard/notification-center";
 
 export function Header() {
   const { user, profile } = useAuth();
@@ -48,6 +49,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <NotificationCenter />
+
         <Button
           variant="ghost"
           size="icon"

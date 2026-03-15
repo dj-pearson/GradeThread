@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { SEO } from "@/components/seo";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
 
@@ -153,6 +154,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 export function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
+      <SEO canonicalUrl="https://gradethread.com/" />
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">
         <img src="/logo_primary.svg" alt="GradeThread" className="h-8" />
