@@ -1445,8 +1445,8 @@
         "Typecheck passes"
       ],
       "priority": 77,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented in-app notification center with: notifications DB table (migration 00007) with type enum (grade_complete, dispute_update, billing, system), RLS policies, and realtime enabled. NotificationCenter component with bell icon, unread count badge, popover dropdown showing last 20 notifications with type-specific icons, time-ago display, mark-as-read on click, and mark-all-read button. Supabase Realtime subscription for instant notification delivery. Integrated into dashboard header. Typecheck and build pass."
     },
 
     {
@@ -1463,8 +1463,8 @@
         "Typecheck passes"
       ],
       "priority": 78,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. Zustand theme store in src/stores/theme-store.ts with localStorage persistence, prefers-color-scheme detection, and .dark class toggling. Sun/Moon toggle button in dashboard header. Applied on load before React renders."
     },
 
     {
@@ -1481,8 +1481,8 @@
         "Typecheck passes"
       ],
       "priority": 79,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. MobileNav component in sidebar.tsx uses shadcn Sheet with slide-out drawer containing same nav links as desktop sidebar. Hamburger menu button in header visible below md breakpoint. Sheet closes on navigation via route change detection. Logo at top matching sidebar. Full-width main content on mobile."
     },
 
     {
@@ -1500,8 +1500,8 @@
         "Typecheck passes"
       ],
       "priority": 80,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. Skeleton component installed from shadcn/ui. Used in 22 files across the app including dashboard, submissions list, inventory list, submission detail, inventory detail, certificate, finances, and all admin pages. All TanStack Query pages show skeletons during isLoading state."
     },
 
     {
@@ -1518,8 +1518,8 @@
         "Typecheck passes"
       ],
       "priority": 81,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented ErrorBoundary class component with Sentry integration (reports errors when VITE_SENTRY_DSN is set), GradeThread branding, Reload/Try Again/Go Home buttons, and error message display (dev only). RouteErrorFallback component for React Router errorElement. ErrorBoundary wraps RootLayout for global coverage. Route-level errorElement added to router config. Typecheck and build pass."
     },
 
     {
@@ -1535,8 +1535,8 @@
         "Typecheck passes"
       ],
       "priority": 82,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. All page components loaded via React.lazy() in routes/index.tsx with SuspenseWrapper and PageLoader fallback. Admin pages in separate chunks. Build produces 70+ separate JS chunks. Main chunk 874KB (270KB gzipped). Typecheck passes."
     },
 
     {
@@ -1680,8 +1680,8 @@
         "Typecheck passes"
       ],
       "priority": 90,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented SEO infrastructure: public/robots.txt (allows /, /cert/, blocks /dashboard/ and /admin/), public/sitemap.xml with landing/login/signup pages, react-helmet-async HelmetProvider wrapping app in main.tsx. SEO component (src/components/seo.tsx) for dynamic OG/Twitter meta tags with title, description, ogType, ogImage, canonicalUrl props. Integrated into landing page and certificate page with dynamic grade data in meta tags. Typecheck and build pass."
     },
 
     {
@@ -1738,8 +1738,8 @@
         "Typecheck passes"
       ],
       "priority": 93,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. Full pricing section in landing.tsx with all 4 plans (Free/Starter/Professional/Enterprise) in comparison grid. Each plan shows name, price, included grades, feature list, and CTA button. Professional plan highlighted as Most Popular with brand-red border. Enterprise shows Custom pricing. CTAs link to /signup. Responsive grid layout. Uses PLANS constant."
     },
 
     {
@@ -1755,8 +1755,8 @@
         "Typecheck passes"
       ],
       "priority": 94,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Already implemented. How It Works section in landing.tsx with 4 numbered steps (Upload Photos, AI Grades It, Get Your Grade, Share & Sell) using Camera, Cpu, Award, Share2 icons. Each step has numbered badge, icon, title, and description. Responsive grid layout (2 cols mobile, 4 cols desktop)."
     },
 
     {
@@ -1774,8 +1774,8 @@
         "Typecheck passes"
       ],
       "priority": 95,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented Supabase Realtime subscriptions for submission status updates. useRealtimeSubmissions() hook in dashboard-layout.tsx subscribes to all user submission changes, invalidates TanStack Query caches, and shows toast notifications on grade completion or failure. useRealtimeSubmission() hook for single-submission detail page. Submission detail page also polls every 5s while status is pending/processing for fallback. Dashboard overview and submissions list auto-update via query invalidation. Typecheck and build pass."
     },
 
     {

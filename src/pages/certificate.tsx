@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SEO } from "@/components/seo";
 import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
@@ -195,6 +196,12 @@ export function CertificatePage() {
 
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title={`Grade Certificate - ${gradeReport.grade_tier} (${gradeReport.overall_score}/10)`}
+        description={`Verified GradeThread grade certificate for ${submission?.title ?? "garment"}. Grade: ${gradeReport.grade_tier} (${gradeReport.overall_score}/10).`}
+        ogType="article"
+        canonicalUrl={`https://gradethread.com/cert/${id}`}
+      />
       {/* Header with branding */}
       <div className="bg-brand-navy py-6 text-white">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 px-6">

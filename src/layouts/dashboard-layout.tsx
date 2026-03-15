@@ -2,8 +2,12 @@ import { Outlet } from "react-router-dom";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 
 export function DashboardLayout() {
+  // Subscribe to realtime submission updates for toast notifications
+  useRealtimeSubmissions();
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar />
