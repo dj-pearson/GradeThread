@@ -24,7 +24,18 @@ export type ItemStatus =
   | "shipped"
   | "completed"
   | "returned"
-  | "archived";
+  | "archived"
+  | "keeping"
+  | "wearing";
+
+// One comp record stored inside inventory_items.comp_set jsonb.
+export interface ItemComp {
+  price: number;
+  source?: string;
+  url?: string;
+  sold_date?: string;
+  notes?: string;
+}
 export type ListingPlatform =
   | "ebay"
   | "poshmark"
@@ -175,6 +186,12 @@ export interface InventoryItemRow {
   grade_value: number | null;
   grade_label: string | null;
   certificate_url: string | null;
+  // Tracking fields (mirror user's Google Sheet)
+  container: string | null;
+  style: string | null;
+  description: string | null;
+  sourced_by: string | null;
+  comp_set: ItemComp[];
   created_at: string;
   updated_at: string;
 }
@@ -220,6 +237,8 @@ export interface SaleRow {
   shipped_at: string | null;
   tracking_number: string | null;
   payout_reference: string | null;
+  tax: number;
+  payout_amount: number | null;
   created_at: string;
 }
 
@@ -276,6 +295,50 @@ export interface PayoutImportRow {
   sale_id: string | null;
   payout_date: string | null;
   amount: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Read-only join of inventory_items + most-recent listing + sale.
+// Backed by the items_full view (migration 00009).
+export interface ItemFullRow {
+  id: string;
+  user_id: string;
+  item_number: string | null;
+  container: string | null;
+  item_title: string;
+  item_description: string | null;
+  brand: string | null;
+  style: string | null;
+  size: string | null;
+  notes: string | null;
+  comps: ItemComp[];
+  category: string | null;
+  source_name: string | null;
+  source_id: string | null;
+  sourced_by: string | null;
+  purchase_date: string | null;
+  purchase_price: number | null;
+  listed: boolean;
+  list_date: string | null;
+  link: string | null;
+  list_price: number | null;
+  sale_date: string | null;
+  sale_price: number | null;
+  fees: number | null;
+  tax: number | null;
+  shipping_cost: number | null;
+  net_profit: number | null;
+  payout: number | null;
+  status: ItemStatus;
+  days_to_sell: number | null;
+  tracking: string | null;
+  target_price: number | null;
+  grade_value: number | null;
+  grade_label: string | null;
+  certificate_url: string | null;
+  measurements: Record<string, number | string> | null;
+  location_bin: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -435,6 +498,11 @@ export interface InventoryItemInsert {
   grade_value?: number | null;
   grade_label?: string | null;
   certificate_url?: string | null;
+  container?: string | null;
+  style?: string | null;
+  description?: string | null;
+  sourced_by?: string | null;
+  comp_set?: ItemComp[];
 }
 
 export interface ListingInsert {
@@ -472,6 +540,8 @@ export interface SaleInsert {
   shipped_at?: string | null;
   tracking_number?: string | null;
   payout_reference?: string | null;
+  tax?: number;
+  payout_amount?: number | null;
 }
 
 // ─── FlipDesk inserts ──────────────────────────────────────────────
@@ -689,6 +759,12 @@ export interface Database {
         Row: FlipdeskGradingSubmissionRow;
         Insert: FlipdeskGradingSubmissionInsert;
         Update: FlipdeskGradingSubmissionUpdate;
+      };
+      // View — read-only join used by the spreadsheet/table view.
+      items_full: {
+        Row: ItemFullRow;
+        Insert: never;
+        Update: never;
       };
     };
     Enums: {

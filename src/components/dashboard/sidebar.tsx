@@ -14,6 +14,8 @@ import {
   MapPin,
   Plug,
   Scale,
+  Table2,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,7 +40,9 @@ const navGroups: NavGroup[] = [
   {
     title: "FlipDesk",
     items: [
+      { to: "/dashboard/flipdesk/items", icon: Table2, label: "Items", end: false },
       { to: "/dashboard/flipdesk/pipeline", icon: LayoutGrid, label: "Pipeline", end: false },
+      { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },

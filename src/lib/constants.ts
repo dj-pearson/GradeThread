@@ -162,7 +162,7 @@ export const LISTING_PLATFORMS = [
   "other",
 ] as const;
 
-// Inventory item statuses (full lifecycle; see FlipDesk PRD section 3.2)
+// Inventory item statuses (full lifecycle + personal-use side tracks)
 export const ITEM_STATUSES = [
   "sourced",
   "acquired",
@@ -179,7 +179,36 @@ export const ITEM_STATUSES = [
   "completed",
   "returned",
   "archived",
+  "keeping",
+  "wearing",
 ] as const;
+
+// Personal-use statuses — items the user is keeping/wearing rather than selling.
+// These are filtered out of the main Kanban pipeline view (US-101 / US-109).
+export const PERSONAL_STATUSES = ["keeping", "wearing"] as const;
+
+export const ITEM_STATUS_LABELS: Record<
+  (typeof ITEM_STATUSES)[number],
+  string
+> = {
+  sourced: "Sourced",
+  acquired: "Acquired",
+  cataloged: "Cataloged",
+  measured: "Measured",
+  photographed: "Photographed",
+  grading: "Grading",
+  graded: "Graded",
+  comped: "Comped",
+  drafted: "Draft",
+  listed: "Listed",
+  sold: "Sold",
+  shipped: "Shipped",
+  completed: "Complete",
+  returned: "Returned",
+  archived: "Archived",
+  keeping: "Keeping",
+  wearing: "Wearing",
+};
 
 // ─── FlipDesk ────────────────────────────────────────────────────
 

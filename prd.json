@@ -1869,6 +1869,650 @@
       "priority": 100,
       "passes": false,
       "notes": "This is the final verification story. Run through every major flow manually."
+    },
+
+    {
+      "id": "US-101",
+      "title": "FlipDesk foundation: schema, types, skeleton UI, edge stubs, Coolify deploy",
+      "description": "As a developer, I need the FlipDesk reseller-management module bootstrapped inside GradeThread so subsequent FlipDesk stories have something to extend. This covers the database migration adding sources/item_photos/marketplace_connections/payout_imports/flipdesk_grading_submissions tables and extending inventory_items/listings/sales with FlipDesk fields, the TypeScript types, constants, skeleton pages, sidebar navigation, edge-function route stubs returning 501, and a Coolify-ready Dockerfile + docker-compose.yml. Source PRD: FlipDesk_PRD_v1.docx.",
+      "acceptanceCriteria": [
+        "supabase/migrations/00008_flipdesk_schema.sql exists with new tables, enum extensions, RLS, indexes, triggers",
+        "src/types/database.ts exports FlipdeskSourceType, ItemCategory, FlipdeskPhotoType, ListingStatus, GradingSubmissionTier, PayoutImportMethod and matching Row/Insert/Update types",
+        "src/lib/constants.ts exports FLIPDESK_PIPELINE, FLIPDESK_SOURCE_TYPES, LISTING_STATUSES, MARKETPLACE_LABELS",
+        "src/pages/flipdesk/{pipeline,sources,marketplaces,reconciliation}.tsx render without error",
+        "src/components/dashboard/sidebar.tsx has a FlipDesk nav group",
+        "services/edge-functions/src/routes/flipdesk-*.ts modules exist (ebay, webhooks, grading, images, reconciliation) and mount under /api/flipdesk/*",
+        "services/edge-functions/docker-compose.yml has production settings (healthcheck, restart, Coolify labels)",
+        "npx tsc --noEmit passes, npm run lint passes (zero errors)"
+      ],
+      "priority": 101,
+      "passes": true,
+      "notes": "Completed. See migration 00008, src/pages/flipdesk/, services/edge-functions/src/routes/flipdesk-*.ts, COOLIFY.md."
+    },
+
+    {
+      "id": "US-102",
+      "title": "Sources CRUD: create, edit, delete, list",
+      "description": "As a reseller, I need to manage source records so I can attribute every inventory item to where it came from. Sources live in the sources table (created in US-101). UI lives at /dashboard/flipdesk/sources. Auto-link the most-recently-used source as default on the intake form (US-103).",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/sources lists all sources for the authed user with name, source_type, location, item count",
+        "New Source button opens a dialog with name (required), source_type select (FLIPDESK_SOURCE_TYPES), location, notes",
+        "Edit and Delete row actions work; delete confirms before action",
+        "TanStack Query useSources() hook fetches/caches sources",
+        "RLS enforced — user only sees own sources",
+        "Item-count cell joins inventory_items where source_id matches",
+        "Typecheck + lint pass"
+      ],
+      "priority": 102,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-103",
+      "title": "Quick intake flow: photo-first item capture with auto-SKU",
+      "description": "As a reseller working a thrift trip, I need a mobile-first intake screen that lets me snap photos and capture minimal metadata for a new inventory item. Auto-generate SKU using user pattern. Page at /dashboard/flipdesk/intake.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/intake renders a single-column mobile-first form",
+        "Photo capture uses native camera (input type=file accept=image/* capture=environment)",
+        "Form fields: title, brand, item_category, garment_type, size, color, cost_basis, source_id (default = last-used)",
+        "SKU auto-generated using pattern from user settings (default: GT-{YYMMDD}-{seq}) and shown to user",
+        "Save creates inventory_items row with status='cataloged' and at least one item_photos row",
+        "Form survives accidental navigation via React Router's unstable_useBlocker",
+        "Success → redirect to /dashboard/flipdesk/pipeline with toast",
+        "Typecheck + lint pass"
+      ],
+      "priority": 103,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-104",
+      "title": "Bulk intake mode for hauls",
+      "description": "As a reseller post-haul, I need to capture multiple items in sequence with batch-shared cost basis and source so cataloging 30+ items takes 10 min not 90 min.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/intake?mode=bulk shows a session header with shared source + total cost",
+        "Each saved item moves to a 'session items' strip; next item form auto-clears photo + title/brand only",
+        "Total-cost-per-item recomputed from haul total ÷ item count on submit",
+        "End-session button finalizes all items at status='cataloged' and routes to pipeline",
+        "Session draft persists in localStorage so refresh doesn't lose progress",
+        "Typecheck + lint pass"
+      ],
+      "priority": 104,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-105",
+      "title": "Per-category measurement templates",
+      "description": "As a reseller, I need category-specific measurement forms with required vs optional fields so I capture the right dimensions for each garment type. Templates pre-loaded for t-shirt, hoodie, button-up, pants, dress, jacket, shoes, watch. Stored client-side in src/lib/measurement-templates.ts.",
+      "acceptanceCriteria": [
+        "src/lib/measurement-templates.ts exports MEASUREMENT_TEMPLATES keyed by garment_category",
+        "Each template defines fields[] with { key, label, unit, required }",
+        "MeasurementForm component renders the correct template based on item.garment_category",
+        "Unit toggle (in/cm) persists in user settings",
+        "Submit writes to inventory_items.measurements jsonb and advances status to 'measured' only if required fields present",
+        "Brand-specific size guide link rendered inline for known brands (Lululemon, Vuori, Eileen Fisher) via a small lookup table",
+        "Typecheck + lint pass"
+      ],
+      "priority": 105,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-106",
+      "title": "Item photo upload with required-set enforcement",
+      "description": "As a reseller, I need to upload the required photo set per category before I can advance an item to 'photographed'. Photos go to Supabase Storage bucket item-photos with path {user_id}/{item_id}/{photo_type}_{timestamp}.{ext}.",
+      "acceptanceCriteria": [
+        "Storage bucket item-photos exists with per-user folder RLS",
+        "PhotoUploader component shows required slots (front, back, tag, detail) + optional slots",
+        "Drag-and-drop OR camera capture per slot",
+        "Successful upload writes item_photos row with photo_type set",
+        "Advance-to-photographed CTA disabled until required slots filled",
+        "Existing PHOTO_TYPE list comes from FLIPDESK_PHOTO_TYPES constant",
+        "Typecheck + lint pass"
+      ],
+      "priority": 106,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-107",
+      "title": "Image processing endpoint (Sharp-compatible)",
+      "description": "As a reseller, I need uploaded photos auto-processed (resize, EXIF strip, thumbnail) so listings look consistent and load fast. Endpoint POST /api/flipdesk/images/process. Implementation note: Deno doesn't have native Sharp — use npm:sharp via Deno 2.x compat OR npm:@jimp/core fallback.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/images/process accepts { item_photo_id } and returns processed variants",
+        "Generates 3 sizes: thumb 200x200, medium 800x800, full 1600x1600 (preserve aspect)",
+        "Strips EXIF metadata",
+        "Updates item_photos.storage_path with array of variant paths OR adds variants JSON column",
+        "Returns 200 with { variants: { thumb, medium, full } } on success",
+        "Returns 500 with descriptive error on failure",
+        "Deno run --allow-net --allow-env --allow-read passes; image lib confirmed working"
+      ],
+      "priority": 107,
+      "passes": false,
+      "notes": "May need migration to add item_photos.variants jsonb column. Deno-Sharp compatibility is the risk — investigate npm:sharp via Deno 2 compat layer first."
+    },
+
+    {
+      "id": "US-108",
+      "title": "Photo reorder and retag UI",
+      "description": "As a reseller, I need to reorder photos and change their type tag without losing grading state. Photos already sent to GradeThread should not be deletable until the grade returns.",
+      "acceptanceCriteria": [
+        "Item detail page has a Photos tab with drag-to-reorder (dnd-kit/sortable)",
+        "Per-photo dropdown to change photo_type",
+        "Reorder writes item_photos.sort_order in batch",
+        "Delete is blocked with a tooltip when used_for_grading=true and item has an in-flight grading submission",
+        "Typecheck + lint pass"
+      ],
+      "priority": 108,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-109",
+      "title": "Kanban pipeline view (read-only)",
+      "description": "As a reseller, I need the primary management surface — a Kanban board with columns matching FLIPDESK_PIPELINE and cards for each inventory item. Read-only in this story; drag-drop in US-110.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/pipeline replaces the placeholder with a horizontal-scroll Kanban",
+        "Columns ordered per FLIPDESK_PIPELINE constant",
+        "Each card shows: thumbnail, title, brand, target_price (or cost_basis), grade badge if graded, age-in-status",
+        "TanStack Query useInventoryItems({ status }) hook per column",
+        "Filter bar: category, brand, source, value range",
+        "Card click → /dashboard/flipdesk/items/:id (US-115 builds detail)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 109,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-110",
+      "title": "Drag-and-drop status transitions with validation",
+      "description": "As a reseller, I need to drag a card from one column to another to advance its status, with guardrails preventing invalid transitions (e.g., 'listed' without a draft).",
+      "acceptanceCriteria": [
+        "dnd-kit/core wired up on the Kanban board",
+        "Drop updates inventory_items.status via Supabase update",
+        "Validation rules (centralized in src/lib/pipeline-rules.ts): can't move to measured without measurements, can't move to photographed without required photos, can't move to listed without a draft listings row",
+        "Invalid transitions show a toast with the reason and the card snaps back",
+        "Optimistic update with TanStack Query mutation",
+        "Typecheck + lint pass"
+      ],
+      "priority": 110,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-111",
+      "title": "Batch operations within Kanban columns",
+      "description": "As a reseller, I need to multi-select items in a column and perform a batch operation: move all to next status, send all to grading, or export.",
+      "acceptanceCriteria": [
+        "Checkbox in card header (visible on column hover)",
+        "Selected count + actions bar floats at bottom of viewport",
+        "Actions: Move to next status, Send to GradeThread, Export CSV",
+        "Move-to-next runs validation per-item; failures listed in a results dialog",
+        "Send-to-GradeThread routes to a single submit endpoint with array of item IDs (US-114)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 111,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-112",
+      "title": "WIP limits + aging indicators",
+      "description": "As a reseller, I need WIP limits per column and visible aging on items stuck >14 days so I can spot bottlenecks.",
+      "acceptanceCriteria": [
+        "User settings page gains a 'Pipeline limits' section: WIP limit per status (number or blank)",
+        "Settings stored in users.flipdesk_settings jsonb (add column via migration 00009)",
+        "Column header shows count + limit; turns red when count > limit",
+        "Cards in same status for >14 days show a red dot icon with tooltip 'X days in status'",
+        "Aging computed from inventory_items.updated_at where last update was status change (use audit log or separate status_history table — pick simplest)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 112,
+      "passes": false,
+      "notes": "Decide: track status changes via trigger to a status_history table, or just trust updated_at as a heuristic. Heuristic is fine for v1."
+    },
+
+    {
+      "id": "US-113",
+      "title": "Send item to GradeThread from FlipDesk",
+      "description": "As a reseller, I need a one-click 'Send to GradeThread' action on any item with the required photo set. Pre-fills a grading submission, creates a flipdesk_grading_submissions row, and sends to the GradeThread internal API (or directly creates a submissions row since both products share Supabase).",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/grading/submit accepts { inventory_item_id, tier } and returns { submission_id }",
+        "Endpoint copies item_photos rows (used_for_grading=true) to submission_images",
+        "Creates submissions row with user_id, garment_type, category, brand, title (auto-built)",
+        "Creates flipdesk_grading_submissions row linking inventory_item_id ↔ submission_id ↔ tier",
+        "Inventory item status advances to 'grading'",
+        "Cost preview surfaced before submit (tier prices in constants)",
+        "Item detail page surfaces a 'Send to GradeThread' button with tier selector",
+        "Endpoint passes integration test against existing /api/grade pipeline"
+      ],
+      "priority": 113,
+      "passes": false,
+      "notes": "Since both products share the Supabase instance, the bridge is a direct DB insert + queue, not an external API call. GradeThread Public API can come later."
+    },
+
+    {
+      "id": "US-114",
+      "title": "GradeThread completion handler updates inventory item",
+      "description": "As a reseller, when a grade completes I need the inventory item auto-updated with grade_value, grade_label, certificate_url so it appears in the 'graded' column without manual sync. This is the receiver-side of US-113 — wires into the existing grading pipeline (no external webhook needed since both products share the DB).",
+      "acceptanceCriteria": [
+        "When grade_reports row is inserted, a postgres trigger or app-side hook updates the linked inventory_items.grade_value/grade_label/certificate_url + status='graded'",
+        "Linkage via flipdesk_grading_submissions.submission_id = grade_reports.submission_id",
+        "flipdesk_grading_submissions.status, graded_at, webhook_received_at populated",
+        "Toast notification visible on the user's next Kanban view via real-time channel OR polling",
+        "POST /api/flipdesk/grading/webhook still implemented as fallback for the eventual Public API path; verifies HMAC against GRADETHREAD_WEBHOOK_SECRET",
+        "Typecheck + lint pass"
+      ],
+      "priority": 114,
+      "passes": false,
+      "notes": "Trigger approach is preferred (atomic with grade insert). Migration 00010 creates the trigger."
+    },
+
+    {
+      "id": "US-115",
+      "title": "Item detail page with grade card",
+      "description": "As a reseller, I need a full item detail page at /dashboard/flipdesk/items/:id showing every inventory_items field, photos, the grade card (when graded), grading submissions history, listing(s), and sale record. Acts as the central canvas for per-item work.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/items/:id route exists and loads via TanStack Query",
+        "Header: title, SKU, status badge, age-in-status",
+        "Tabs: Details, Measurements, Photos, Grading, Listings, Sale",
+        "Grading tab shows grade card (overall score, factor bars, AI summary, certificate link) when grade present",
+        "Edit-in-place for title/brand/size/color/material/cost_basis/target_price",
+        "Empty-state CTAs for missing required photos, missing measurements, no listing yet",
+        "Typecheck + lint pass"
+      ],
+      "priority": 115,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-116",
+      "title": "Price comp workspace",
+      "description": "As a reseller, I need a side-by-side comp workspace that generates Terapeak-prefilled deep links from item attributes and lets me paste sold-price references for documentation.",
+      "acceptanceCriteria": [
+        "Comps tab on item detail (US-115) renders a left-pane (item summary) and right-pane (comp results)",
+        "Generated Terapeak URL uses brand + garment_type + size as filter params (link opens in new tab)",
+        "Manual comp entry: list of { price, date, url, notes } stored on inventory_items.comp_set jsonb (migration 00011)",
+        "'Set target price' input writes inventory_items.target_price",
+        "Suggested price: simple heuristic from grade tier × brand-specific multiplier (constants table)",
+        "Status advance to 'comped' once target_price set",
+        "Typecheck + lint pass"
+      ],
+      "priority": 116,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-117",
+      "title": "Listing composer (draft)",
+      "description": "As a reseller, I need a listing composer that builds an eBay-ready title, description, and item-specifics map from item data — saved as a local draft before any push.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/items/:id/draft route renders the composer",
+        "Title builder: 80-char counter, brand-first ordering, suggested keywords",
+        "Description: template per garment_category with variable interpolation ({{brand}}, {{size}}, {{material}}, {{grade}}, {{condition_summary}})",
+        "Item specifics auto-mapped from item attributes (uses an offline mapping table — eBay Taxonomy API integration is US-121)",
+        "Auto-embed GradeThread certificate URL + condition language when item has a grade",
+        "Save creates a listings row with platform='ebay', listing_status='draft', listing_title, listing_description",
+        "Status advances to 'drafted'",
+        "Typecheck + lint pass"
+      ],
+      "priority": 117,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-118",
+      "title": "Listing composer: variants and preview",
+      "description": "As a reseller, I need to preview how my drafted listing will render and choose photo variants + grade-badge overlay before pushing.",
+      "acceptanceCriteria": [
+        "Preview pane shows title, photos, description, and item specifics as eBay-style cards",
+        "Photo carousel: drag to reorder, pick primary",
+        "Optional 'Add grade badge to primary photo' toggle composites a corner badge (client-side canvas) and writes a new item_photos row marked ebay_uploaded=false",
+        "Description preview renders with variables resolved",
+        "Save persists picks (primary_photo_id, badge_enabled) on listings row",
+        "Typecheck + lint pass"
+      ],
+      "priority": 118,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-119",
+      "title": "eBay OAuth: start + callback flow",
+      "description": "As a reseller, I need to connect my eBay store via OAuth so FlipDesk can list and read orders on my behalf. Requires EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_REDIRECT_URI env vars.",
+      "acceptanceCriteria": [
+        "GET /api/flipdesk/ebay/oauth/start returns { consent_url } with PKCE-style state stored server-side",
+        "GET /api/flipdesk/ebay/oauth/callback exchanges code for tokens, stores encrypted in marketplace_connections",
+        "Encryption uses AES-256-GCM with key derived from FLIPDESK_INTERNAL_JOB_SECRET",
+        "Marketplaces page shows 'Connected as <ebay_username>' once linked",
+        "Disconnect button revokes locally (sets is_active=false) and deletes encrypted tokens",
+        "Re-auth flow works without duplicate marketplace_connections rows (UNIQUE user_id+marketplace+account_handle)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 119,
+      "passes": false,
+      "notes": "BLOCKER for Ralph: requires real eBay developer credentials. Story passes on code-level criteria; manual verification against eBay sandbox needed."
+    },
+
+    {
+      "id": "US-120",
+      "title": "eBay token refresh worker",
+      "description": "As the system, I need to rotate eBay access tokens before they expire so listing pushes don't fail at the worst moment.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/ebay/oauth/refresh accepts internal job auth (FLIPDESK_INTERNAL_JOB_SECRET header)",
+        "Selects marketplace_connections rows where token_expires_at < now() + interval '2 hours' AND is_active=true",
+        "Calls eBay refresh endpoint with stored refresh_token; updates access_token_encrypted + token_expires_at",
+        "On failure, writes refresh_error and last_refresh_attempt_at; doesn't deactivate (gives next sweep a chance)",
+        "After 3 consecutive failures, sets is_active=false and creates a notification for the user",
+        "Typecheck + lint pass"
+      ],
+      "priority": 120,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-121",
+      "title": "eBay listing validate + push",
+      "description": "As a reseller, I need to push a drafted listing to eBay with pre-flight validation against Sell Metadata API so I see specific errors before the push attempt fails.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/ebay/listings/validate { listing_id } returns { errors: string[] } from Sell Metadata API rules",
+        "POST /api/flipdesk/ebay/listings/push { listing_id } runs validate first; rejects if errors",
+        "Push sequence: PUT /sell/inventory/v1/inventory_item/{sku} → POST /sell/inventory/v1/offer → POST /sell/inventory/v1/offer/{offerId}/publish",
+        "On publish success, updates listings.platform_listing_id, external_url, listed_at, listing_status='active' and inventory_items.status='listed'",
+        "Failures captured with eBay error code + message; user sees actionable toast",
+        "Honors eBay rate limits (rate-limit middleware already set at 30/min for /listings/*)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 121,
+      "passes": false,
+      "notes": "BLOCKER: requires real eBay creds + an active OAuth connection (US-119)."
+    },
+
+    {
+      "id": "US-122",
+      "title": "eBay Fulfillment API sync (orders + shipping + payouts)",
+      "description": "As a reseller, I need orders that come through eBay automatically reflected as sales records so my P&L is current without manual entry.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/ebay/sync/orders (internal job auth) pulls /sell/fulfillment/v1/order since last_synced_at",
+        "Matches order to listing by listingId (or SKU as fallback)",
+        "Creates sales row with sold_price, shipping_collected, marketplace_fees, payment_processing_fees, buyer_id, sold_at",
+        "On tracking add, updates sales.shipped_at + tracking_number and advances item status to 'shipped'",
+        "On payout posted, updates sales.payout_reference + net_profit (computed = sold + shipping_collected − all fees − cost_basis)",
+        "Updates marketplace_connections.last_synced_at",
+        "Typecheck + lint pass"
+      ],
+      "priority": 122,
+      "passes": false,
+      "notes": "BLOCKER: requires real eBay creds. Net-profit formula must match the columns added in migration 00008."
+    },
+
+    {
+      "id": "US-123",
+      "title": "eBay Notification API: webhook + account-deletion handler",
+      "description": "As the system, I need to handle eBay's real-time event notifications (order created, paid, shipped, return, payout) and the legally-required account-deletion notification.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/webhooks/ebay handles eBay challenge-response handshake (returns SHA-256 of challengeCode+verificationToken+endpoint)",
+        "Validates incoming notifications against EBAY_VERIFICATION_TOKEN",
+        "Dispatches by topic: ORDER_CREATED, PAYMENT_RECEIVED, SHIPPING_ADDED, PAYOUT_COMPLETED, RETURN_INITIATED",
+        "POST /api/flipdesk/webhooks/ebay/account-deletion soft-deletes the user's marketplace_connections row and scrubs OAuth tokens",
+        "Endpoints are public (no authMiddleware) but reject bad signatures with 401",
+        "Typecheck + lint pass"
+      ],
+      "priority": 123,
+      "passes": false,
+      "notes": "BLOCKER: requires eBay developer account subscription to Notification API."
+    },
+
+    {
+      "id": "US-124",
+      "title": "Payout CSV importer",
+      "description": "As a reseller without Marketplace Insights API access, I need to upload an eBay payout CSV and have rows queued for reconciliation against my sales.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/ebay/payouts/import-csv accepts multipart file (eBay payout CSV format)",
+        "Parses each row into a payout_imports row with raw_payload JSON, marketplace='ebay', import_method='csv_upload', reconciled=false, payout_date, amount",
+        "UI at /dashboard/flipdesk/reconciliation has an Upload CSV button",
+        "After upload, user is redirected to the reconciliation queue showing unmatched rows",
+        "Idempotent: re-uploading the same file doesn't create duplicate rows (dedupe by raw_payload hash or transaction reference)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 124,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-125",
+      "title": "Reconciliation matcher + manual review queue",
+      "description": "As a reseller, I need an automated matcher that pairs payout rows with sales records, and a manual review UI for unmatched rows so I never silently mis-allocate fees.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/reconciliation/run iterates unreconciled payout_imports for the authed user",
+        "Match strategy: by listing_id + timestamp window (±48h); fallback by buyer_id + amount",
+        "On match, update payout_imports.reconciled=true, sale_id set; update sales fee breakdowns from payload",
+        "Unmatched rows surface in /dashboard/flipdesk/reconciliation queue with side-by-side compare UI",
+        "POST /api/flipdesk/reconciliation/match { payout_import_id, sale_id } for manual link",
+        "POST /api/flipdesk/reconciliation/dismiss/:id for rows that don't correspond to a tracked sale",
+        "Typecheck + lint pass"
+      ],
+      "priority": 125,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-126",
+      "title": "Per-item P&L view + discrepancy alerts",
+      "description": "As a reseller, I need each item's full P&L breakdown visible on its detail page, and alerts when actual fees deviate from expected.",
+      "acceptanceCriteria": [
+        "Item detail Sale tab shows: sold_price, shipping_collected, marketplace_fees, payment_processing_fees, shipping_cost, grading_cost, other_costs, net_profit, margin %",
+        "Margin computed live from sales + inventory_items.acquired_price (cost basis)",
+        "Discrepancy badge when marketplace_fees > 15% of sold_price OR shipping_cost > shipping_collected + $2",
+        "Discrepancies listed in /dashboard/flipdesk/reconciliation under a separate tab",
+        "Typecheck + lint pass"
+      ],
+      "priority": 126,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-127",
+      "title": "Operational FlipDesk dashboard",
+      "description": "As a reseller, I need an at-a-glance dashboard showing what to do next, not vanity metrics.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk renders an operational summary (extend the placeholder pipeline view OR add a separate /dashboard/flipdesk/overview)",
+        "Widgets: items by status (with WIP-limit warnings), items aging >14 days, items listed this week, items sold this week, net revenue this week",
+        "Each widget click drills into a filtered Kanban view",
+        "TanStack Query with 5-min staleTime",
+        "Typecheck + lint pass"
+      ],
+      "priority": 127,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-128",
+      "title": "Sell-through analytics by category, brand, source",
+      "description": "As a reseller, I need to see which categories/brands/sources are profitable so I source smarter.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/analytics renders charts: sell-through rate by category, by brand, by source, over a date range filter",
+        "Sell-through = items sold / items listed (within range)",
+        "Avg net profit per item by group",
+        "Median days-to-sell by group",
+        "Uses Recharts (already in deps); falls back to a simple table if no data",
+        "Typecheck + lint pass"
+      ],
+      "priority": 128,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-129",
+      "title": "Grading ROI report",
+      "description": "As a reseller, I need to see whether GradeThread grades actually lift my sale prices so I can justify the grading cost.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/analytics/grading-roi compares net profit of graded vs ungraded items",
+        "Buckets by garment_category + price band (under $50, $50-150, $150+)",
+        "Surfaces 'graded items sell for $X more on average within bucket Y' callouts",
+        "Excludes buckets with <5 items per side (statistically meaningless)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 129,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-130",
+      "title": "Photo archival to Cloudflare R2",
+      "description": "As the system, I need to archive photos for completed items older than 30 days to R2 so Supabase storage costs stay flat.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/images/archive (internal job auth) finds item_photos rows where inventory_items.status='completed' AND inventory_items.updated_at < now() - interval '30 days' AND archived_to_r2=false",
+        "Uploads each photo to R2 bucket R2_BUCKET under path archive/{user_id}/{item_id}/{photo_id}.{ext}",
+        "Updates item_photos.photo_url to R2 public URL, archived_to_r2=true",
+        "Deletes the Supabase Storage object only after R2 upload confirmed",
+        "Batch size configurable (default 100 per run)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 130,
+      "passes": false,
+      "notes": "BLOCKER: requires R2 bucket and credentials. AWS-SDK v3 for S3-compatible client works against R2."
+    },
+
+    {
+      "id": "US-131",
+      "title": "Scheduled job runner",
+      "description": "As the system, I need scheduled jobs for token-refresh, photo-archive, reconciliation-sweep so daily ops happen without manual triggering.",
+      "acceptanceCriteria": [
+        "Add a sibling Docker service services/edge-functions-scheduler/ OR configure Coolify scheduled tasks calling the internal endpoints",
+        "Hourly: POST /api/flipdesk/ebay/oauth/refresh (US-120)",
+        "Daily 04:00 UTC: POST /api/flipdesk/images/archive (US-130)",
+        "Daily 05:00 UTC: POST /api/flipdesk/reconciliation/run for each connected user",
+        "All scheduled calls send Authorization: Bearer ${FLIPDESK_INTERNAL_JOB_SECRET}",
+        "Document the chosen approach in services/edge-functions/COOLIFY.md",
+        "Typecheck + lint pass"
+      ],
+      "priority": 131,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-132",
+      "title": "Closed-loop data back to GradeThread (sale outcomes)",
+      "description": "As FlipDesk, I need to report sale outcomes back to GradeThread so its grade-to-price correlation dataset improves over time (PRD section 6.4).",
+      "acceptanceCriteria": [
+        "On sales row insert/update where grade_report_id is present on the linked inventory_item, write a record to a new grade_outcomes table",
+        "Migration 00012 creates grade_outcomes (grade_report_id, listing_price, sold_price, sold_at, dispute_reported, source='flipdesk')",
+        "User-consent gate: only writes when user.profile.share_sale_outcomes=true (add to user settings)",
+        "Dispute outcomes (US-126 discrepancy or buyer claim) also reported as soft feedback signal",
+        "Typecheck + lint pass"
+      ],
+      "priority": 132,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-133",
+      "title": "Legacy spreadsheet CSV importer",
+      "description": "As a reseller migrating from spreadsheets, I need to bulk-import historical inventory + sales so my analytics start with real data on day one.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/import accepts a CSV upload",
+        "Column-mapper UI maps CSV columns to FlipDesk fields (title, brand, size, cost_basis, source, status, listed_price, sold_price)",
+        "Preview shows first 10 rows post-mapping",
+        "Confirm runs a batched insert: creates sources (deduped by name), inventory_items, listings (when listed_price present), sales (when sold_price present)",
+        "Errors surfaced per-row with skip/fix options",
+        "Idempotent: re-upload with same source CSV does nothing (dedupe by user-defined external_id column)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 133,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-134",
+      "title": "PWA install + offline photo capture queue",
+      "description": "As a reseller working a thrift trip with spotty signal, I need to install FlipDesk as a PWA and queue photo+intake submissions offline.",
+      "acceptanceCriteria": [
+        "public/manifest.webmanifest with FlipDesk metadata, icons (use logo_icon.svg variants)",
+        "vite-plugin-pwa configured with workbox runtime caching",
+        "Service worker registers on /dashboard/flipdesk/intake",
+        "Photo+metadata submissions in offline mode persist in IndexedDB queue",
+        "Reconnect handler flushes queue with toast progress",
+        "Install prompt surfaces a one-time banner on /dashboard/flipdesk/intake",
+        "Typecheck + lint pass; lighthouse PWA score >85 on /dashboard/flipdesk"
+      ],
+      "priority": 134,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-135",
+      "title": "FlipDesk onboarding tour",
+      "description": "As a first-time FlipDesk user, I need a brief in-app tour that walks me through creating a source, intaking my first item, and sending it to GradeThread.",
+      "acceptanceCriteria": [
+        "On first visit to /dashboard/flipdesk/* with users.flipdesk_onboarded=false, a welcome card renders",
+        "3-step interactive tour: 1) Add source, 2) Intake item, 3) Send to GradeThread (each step waits for the real action)",
+        "Skippable; can be reopened from settings",
+        "Sets users.flipdesk_onboarded=true on completion (migration 00013 adds column)",
+        "Tour UX uses driver.js or react-joyride (lightweight)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 135,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-136",
+      "title": "FlipDesk landing + marketing surface inside GradeThread",
+      "description": "As a GradeThread customer, I need a visible callout on the GradeThread dashboard advertising FlipDesk (PRD 11.3 cross-promotion).",
+      "acceptanceCriteria": [
+        "GradeThread /dashboard adds a dismissable FlipDesk callout card linking to /dashboard/flipdesk",
+        "Card shows only when user has zero inventory_items (not for active FlipDesk users)",
+        "Dismiss persists in users.dismissed_flipdesk_promo (migration 00014 adds column)",
+        "Public landing page (/) adds a 'Now with FlipDesk' section below the fold",
+        "Typecheck + lint pass"
+      ],
+      "priority": 136,
+      "passes": false,
+      "notes": ""
+    },
+
+    {
+      "id": "US-137",
+      "title": "FlipDesk end-to-end integration test + dogfood pass",
+      "description": "As the operator, I need a full end-to-end smoke test that exercises the entire FlipDesk lifecycle so I trust the system before opening it to beta users.",
+      "acceptanceCriteria": [
+        "Playwright spec: signup → connect eBay sandbox → create source → intake item → upload photos → measure → send to GradeThread → wait for grade → comp → draft listing → push to sandbox eBay → simulate sandbox sale → reconcile payout CSV → verify net_profit on item detail",
+        "Spec runs against staging Supabase + eBay sandbox + mocked R2",
+        "All assertions for status transitions, fee allocations, and P&L numbers pass",
+        "Operator runs the same flow manually (per PRD 11.1 dogfood requirement) and logs friction items",
+        "Documented success metric: 50% increase in items-listed-per-week vs spreadsheet baseline (per PRD 14.2) over 4 weeks of daily use"
+      ],
+      "priority": 137,
+      "passes": false,
+      "notes": "BLOCKER: requires eBay sandbox creds, R2 mocks, and an operator-side baseline measurement. This is the gate before private beta (PRD 11.2)."
     }
   ]
 }

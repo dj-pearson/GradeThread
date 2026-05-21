@@ -28,7 +28,9 @@
       "PowerShell($env:PYTHONIOENCODING=\"utf-8\"; python -c \"from docx import Document; d=Document\\('FlipDesk_PRD_v1.docx'\\); [print\\(p.text\\) for p in d.paragraphs]\" > flipdesk_prd_extract.txt 2>&1; \\(Get-Content flipdesk_prd_extract.txt | Measure-Object -Line\\).Lines)",
       "PowerShell(npx tsc --noEmit 2>&1 | Select-Object -Last 40)",
       "PowerShell(npm run *)",
-      "PowerShell(deno --version 2>&1 | Select-Object -First 3; \"EXIT: $LASTEXITCODE\")"
+      "PowerShell(deno --version 2>&1 | Select-Object -First 3; \"EXIT: $LASTEXITCODE\")",
+      "PowerShell(node -e \"const d=JSON.parse\\(require\\('fs'\\).readFileSync\\('prd.json','utf8'\\)\\); console.log\\('stories:', d.userStories.length\\); console.log\\('last id:', d.userStories.at\\(-1\\).id, '| passes:', d.userStories.at\\(-1\\).passes\\); const fd=d.userStories.filter\\(s=>s.id>='US-101'\\); console.log\\('flipdesk stories:', fd.length\\); console.log\\('done:', fd.filter\\(s=>s.passes\\).length, '| todo:', fd.filter\\(s=>!s.passes\\).length\\);\")",
+      "PowerShell(npx tsc --noEmit; \"EXIT: $LASTEXITCODE\")"
     ]
   }
 }
