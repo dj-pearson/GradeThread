@@ -7,14 +7,28 @@ container. Deploy it as a single Coolify resource.
 
 1. In Coolify: **New Resource → Docker Compose → from Git**.
 2. Point at this repository.
-3. Set the compose file path to `services/edge-functions/docker-compose.coolify.yml`.
-4. Set the FQDN to `api.gradethread.com` (or override `COOLIFY_FQDN`).
+3. Set the **Base Directory** to `/services/edge-functions`. Coolify will
+   auto-pick `docker-compose.yml` from there (now production-ready).
+4. Set the FQDN to `api.gradethread.com` (or set `COOLIFY_FQDN` env var).
 5. Add the env vars from `.env.example` (Supabase, Anthropic, Stripe, eBay, R2).
 6. Save and deploy.
 
 Coolify reads the `coolify.*` labels on the service to provision a Traefik
-route with Let's Encrypt. The fallback `traefik.*` labels match the same
-behavior if you're running plain Traefik instead of Coolify.
+route with Let's Encrypt automatically.
+
+If you prefer to keep extra Traefik-specific labels (e.g. for self-managed
+Traefik without Coolify), use `docker-compose.coolify.yml` instead — it has
+both the `coolify.*` labels and explicit `traefik.*` fallbacks.
+
+## Local development
+
+For hot-reload during local development:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+```
+
+The dev override mounts `./src` and runs Deno with `--watch`.
 
 ## Routes hosted
 

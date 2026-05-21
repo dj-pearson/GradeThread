@@ -1,11 +1,31 @@
+# Production compose used by Coolify. For local development with hot-reload,
+# use docker-compose.dev.yml (mounts ./src into the container).
 services:
   edge-functions:
-    build: .
-    ports:
-      - "8787:8787"
-    env_file:
-      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8787"
     environment:
       - PORT=8787
-    volumes:
-      - ./src:/app/src
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        - CMD
+        - deno
+        - eval
+        - "fetch('http://127.0.0.1:8787/health').then(r => r.ok ? Deno.exit(0) : Deno.exit(1)).catch(() => Deno.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      # Coolify reads these to provision a Traefik route with Let's Encrypt.
+      - coolify.managed=true
+      - coolify.name=gradethread-edge-functions
+      - coolify.fqdn=${COOLIFY_FQDN:-https://api.gradethread.com}
+      - coolify.port=8787
+      - coolify.healthcheckPath=/health

@@ -1,0 +1,17 @@
+# Local development override: hot-reload from host ./src.
+# Run with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  edge-functions:
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./src:/app/src
+    command:
+      - deno
+      - run
+      - --watch
+      - --no-check
+      - --allow-net
+      - --allow-env
+      - --allow-read
+      - src/main.ts
