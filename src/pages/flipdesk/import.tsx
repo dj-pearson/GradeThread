@@ -66,8 +66,9 @@ function buildMapped(
   const result: Partial<Record<ImportField, string>> = {};
   for (let i = 0; i < headers.length; i++) {
     const field = mapping[i];
-    if (field === "skip" || !row[i]) continue;
-    result[field] = row[i].trim();
+    const value = row[i];
+    if (!field || field === "skip" || !value) continue;
+    result[field] = value.trim();
   }
   return result;
 }
@@ -127,7 +128,9 @@ export function FlipdeskImportPage() {
     const sourceCache = new Map<string, string>();
 
     for (let i = 0; i < mappedRows.length; i++) {
-      const { mapped } = mappedRows[i];
+      const item = mappedRows[i];
+      if (!item) continue;
+      const { mapped } = item;
       const title = mapped.title;
       if (!title) {
         errors.push({ row: i + 2, message: "Missing item title" });
@@ -135,23 +138,26 @@ export function FlipdeskImportPage() {
       }
 
       try {
-        // 1) Resolve source via RPC (creates if missing)
+        // 1) Resolve source via RPC (creates if missing).
+        // Cast: get_or_create_source isn't in the generated Database type.
         let sourceId: string | null = null;
         const sourceName = mapped.source;
         if (sourceName) {
           if (sourceCache.has(sourceName)) {
             sourceId = sourceCache.get(sourceName) ?? null;
           } else {
-            const { data: sid, error: sErr } = await supabase.rpc(
-              "get_or_create_source",
-              {
-                p_user_id: user.id,
-                p_name: sourceName,
-                p_source_type: "other",
-              },
-            );
+            const { data: sid, error: sErr } = await (
+              supabase.rpc as unknown as (
+                fn: string,
+                args: Record<string, unknown>,
+              ) => Promise<{ data: string | null; error: Error | null }>
+            )("get_or_create_source", {
+              p_user_id: user.id,
+              p_name: sourceName,
+              p_source_type: "other",
+            });
             if (sErr) throw sErr;
-            sourceId = (sid as string) ?? null;
+            sourceId = sid ?? null;
             if (sourceId) sourceCache.set(sourceName, sourceId);
           }
         }
@@ -191,12 +197,13 @@ export function FlipdeskImportPage() {
 
         const { data: itemRow, error: itemErr } = await supabase
           .from("inventory_items")
-          .insert(itemInsert)
+          .insert(itemInsert as never)
           .select("id")
           .single();
 
         if (itemErr) throw itemErr;
-        const itemId = itemRow.id;
+        const itemId = (itemRow as { id: string } | null)?.id;
+        if (!itemId) throw new Error("Insert returned no id");
 
         // 4) Optional listing row
         const listPrice = parsePrice(mapped.list_price ?? "");
@@ -212,7 +219,7 @@ export function FlipdeskImportPage() {
           };
           const { error: lErr } = await supabase
             .from("listings")
-            .insert(listingInsert);
+            .insert(listingInsert as never);
           if (lErr) throw lErr;
         }
 
@@ -234,7 +241,7 @@ export function FlipdeskImportPage() {
           };
           const { error: sErr } = await supabase
             .from("sales")
-            .insert(saleInsert);
+            .insert(saleInsert as never);
           if (sErr) throw sErr;
         }
 

@@ -86,12 +86,24 @@ export function FlipdeskItemsPage() {
     queryKey: ["items_full", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("items_full")
+      // items_full is a view (migration 00009); not in the generated Database type.
+      // Cast through unknown so the Supabase client doesn't reject the table name.
+      const { data, error } = await (
+        supabase.from as unknown as (
+          name: "items_full",
+        ) => {
+          select: (cols: string) => {
+            order: (
+              col: string,
+              opts?: { ascending?: boolean },
+            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
+          };
+        }
+      )("items_full")
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as ItemFullRow[];
+      return data ?? [];
     },
   });
 

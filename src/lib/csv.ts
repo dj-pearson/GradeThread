@@ -67,10 +67,9 @@ export function parseDelimited(input: string, delimiter: Delimiter): string[][] 
   }
 
   // Drop trailing fully-empty row (common when input ends with newline)
-  while (
-    rows.length > 0 &&
-    rows[rows.length - 1].every((c) => c.trim() === "")
-  ) {
+  while (rows.length > 0) {
+    const last = rows[rows.length - 1];
+    if (!last || !last.every((c) => c.trim() === "")) break;
     rows.pop();
   }
 
@@ -85,9 +84,7 @@ export function parseSheet(input: string): {
 } {
   const delimiter = detectDelimiter(input);
   const parsed = parseDelimited(input, delimiter);
-  if (parsed.length === 0) {
-    return { delimiter, headers: [], rows: [] };
-  }
-  const [headers, ...rows] = parsed;
+  const headers = parsed[0] ?? [];
+  const rows = parsed.slice(1);
   return { delimiter, headers, rows };
 }

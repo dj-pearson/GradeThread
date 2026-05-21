@@ -198,7 +198,10 @@ export function parseDate(raw: string): string | null {
   // M/D/YYYY or M/D/YY explicit fallback
   const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
   if (m) {
-    const [, mm, dd, yyRaw] = m;
+    const mm = m[1];
+    const dd = m[2];
+    const yyRaw = m[3];
+    if (!mm || !dd || !yyRaw) return null;
     const yy = yyRaw.length === 2 ? `20${yyRaw}` : yyRaw;
     const iso = `${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
     if (!isNaN(new Date(iso).getTime())) return iso;

@@ -760,12 +760,6 @@ export interface Database {
         Insert: FlipdeskGradingSubmissionInsert;
         Update: FlipdeskGradingSubmissionUpdate;
       };
-      // View — read-only join used by the spreadsheet/table view.
-      items_full: {
-        Row: ItemFullRow;
-        Insert: never;
-        Update: never;
-      };
     };
     Enums: {
       user_plan: UserPlan;
