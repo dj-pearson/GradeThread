@@ -2342,8 +2342,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 127,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Page at src/pages/flipdesk/overview.tsx — now the landing route for /dashboard/flipdesk. Stat cards (total items / listed 7d / sold 7d / net 7d) + pipeline status grid + aging items (>14d in same status, ranked) + top brands by all-time net profit + recent sales. Widget clicks navigate to /items?status=X (items page now reads URL query param). WIP limits deferred to US-112."
     },
 
     {

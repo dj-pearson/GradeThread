@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -324,9 +324,34 @@ function downloadCsv(rows: ItemFullRow[]): void {
 export function FlipdeskItemsPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ItemStatus | "all">("all");
-  const [view, setView] = useState<ViewMode>("pipeline");
+  // Pre-fill from ?status= URL param so dashboard widgets can drill in.
+  const initialStatusParam = searchParams.get("status");
+  const initialStatus: ItemStatus | "all" =
+    initialStatusParam &&
+    (ITEM_STATUSES as readonly string[]).includes(initialStatusParam)
+      ? (initialStatusParam as ItemStatus)
+      : "all";
+  const [statusFilter, setStatusFilter] = useState<ItemStatus | "all">(
+    initialStatus,
+  );
+  const initialView = searchParams.get("view");
+  const [view, setView] = useState<ViewMode>(
+    initialView === "personal" || initialView === "all"
+      ? initialView
+      : "pipeline",
+  );
+  // Keep ?status= in sync when filter changes (so URLs are sharable).
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (statusFilter === "all") next.delete("status");
+    else next.set("status", statusFilter);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
   const [preset, setPreset] = useState<Preset>("triage");
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   const [pending, setPending] = useState<Map<string, Patch>>(new Map());
