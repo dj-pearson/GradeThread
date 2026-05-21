@@ -1,0 +1,226 @@
+FlipDesk
+Reseller Management Platform
+with native GradeThread integration
+Product Requirements Document
+Version 1.0  |  May 2026
+Pearson Media LLC
+Confidential
+
+1. Executive Summary
+FlipDesk is a personal-first reseller management platform that handles the full lifecycle of a resale operation: sourcing, intake, photography, condition grading (via native GradeThread integration), price research, listing to marketplaces, sales sync, COGS/profit tracking, and post-sale operations. It is built primarily to serve a high-volume solo reseller workflow, with a clear path to multi-user / SaaS productization once the personal workflow is proven.
+FlipDesk replaces a sprawling spreadsheet-based workflow with a structured, queryable system. Items flow through a Kanban-style status pipeline (Sourced → Measured → Photographed → Graded → Comped → Drafted → Listed → Sold → Shipped → Completed) with batch operations at every stage. Native integration with GradeThread eliminates the friction of getting standardized condition data into listings — a single click sends an item for grading and the certificate URL is auto-embedded in the eBay listing.
+FlipDesk is built on the same proven stack as existing Pearson Media platforms: TypeScript React frontend, self-hosted Supabase backend on Contabo VPS, Stripe billing, Cloudflare Pages for frontend hosting, and Deno Edge Functions for marketplace API integrations.
+2. Problem Statement
+2.1 The Operational Bottleneck
+High-volume resellers are operationally constrained, not sourcing-constrained. A single power reseller working from thrift, estate, and auction sources can acquire 50–200 items per week, but throughput to listed-and-live on eBay rarely exceeds 25–40 items per week. The bottleneck is the workflow itself: items get measured but not photographed, photographed but not listed, listed but not tracked through sale and reorder of consumables.
+Spreadsheets capture the data but lack workflow primitives — there is no native concept of "this item is blocked waiting on a tag photo," no way to batch-list 20 items in one operation, no automatic sync of sales back to inventory, and no way to enforce a consistent photo set per garment type.
+2.2 The Condition Description Problem
+Writing a defensible condition description for each item is one of the slowest parts of listing clothing and accessories. It is also the most common source of buyer disputes and returns. GradeThread solves the condition problem at the grading layer; FlipDesk operationalizes it by making the grade a first-class field in every listing flow.
+2.3 The Reconciliation Problem
+Solo resellers reconcile eBay payout CSVs against inventory by hand — matching SKUs, allocating fees, computing per-item net profit, and updating status. This is hours of work per week and is the data layer that determines whether the operation is actually profitable. FlipDesk closes this loop with automatic eBay sync.
+2.4 Target User
+3. Product Vision
+3.1 Platform Name
+FlipDesk — Suggested primary domain: FlipDesk.com (alternatives: FlipDesk.app, ResellDesk.com, PearsonFlip.com). Naming mirrors the existing Pearson Media "Desk" pattern (Build-Desk) and pairs cleanly with GradeThread as a sibling product.
+3.2 Core Workflow
+FlipDesk is organized around a single item moving through a status pipeline. Each status has a clear definition of "done" and a default next action. Items can be batch-moved between statuses (e.g., select 20 items and move all from Measured → Photographed).
+3.3 Design Principles
+Speed over polish. Power resellers list 20+ items per session; every click matters.
+Batch everything. Any operation that can run on N items should support N items.
+Mobile-first capture, desktop-first management. Photos and measurements happen on a phone; listing and reconciliation happen on a laptop.
+Spreadsheet as escape hatch. Every view exports to CSV; bulk import accepts CSV.
+Grading is optional but frictionless. One click from any item; never block on grade.
+4. Technical Architecture
+4.1 Stack Overview
+4.2 Database Schema (Core Tables)
+All tables include standard id (UUID), created_at, and updated_at columns. Row Level Security (RLS) policies enforce per-user data isolation. Indexes are added on user_id, status, marketplace_listing_id, and sku for query performance.
+4.2.1 items
+4.2.2 sources
+4.2.3 item_photos
+4.2.4 listings
+4.2.5 sales
+4.2.6 grading_submissions
+4.2.7 marketplace_connections
+4.2.8 payout_imports
+
+5. Core Features — MVP (Phase 1)
+5.1 Quick Intake Flow
+Optimized for thrift-store sourcing trips and post-haul cataloging. The intake flow runs on mobile (PWA) with one item per screen and aggressive keyboard shortcuts on desktop.
+Scan barcode/tag → auto-fill brand and size when possible
+Photo-first entry: snap photos, then add minimal metadata
+Voice notes attached to item record for later transcription
+Bulk intake mode: capture a haul, batch-fill cost basis and source
+Auto-SKU generation with configurable patterns
+5.2 Measurement Templates
+Category-specific measurement forms with required and optional fields. Templates are pre-loaded for the most common reseller categories: t-shirt, hoodie, button-up, pants, dress, jacket, shoes, watch, sports card.
+Required vs optional fields enforced before status moves to Measured
+Brand-specific size guides surfaced inline (Lululemon, Vuori, Eileen Fisher, etc.)
+Unit toggles (in/cm) with persistence per user
+Custom template builder for niche categories
+5.3 Photo Capture & Management
+Required photo set per category with overlay guides (matches GradeThread photo guide for clothing)
+Auto-crop, auto-rotate, auto-white-balance via Sharp
+Background removal option for flat-lay product shots
+Reorder, retag, and replace photos without losing grading state
+Bulk upload from camera roll or direct camera capture
+Per-photo flags: "used for grading", "uploaded to eBay"
+5.4 Kanban Pipeline View
+The primary management surface. Columns are statuses; cards are items. Drag-and-drop moves items between statuses, with validation (e.g., cannot move to Listed without a draft, cannot move to Drafted without measurements).
+Filter by category, brand, source, value range, age in pipeline
+WIP limits per column with visual alerts when exceeded
+Bulk-select within a column for batch operations
+Aging indicator (items stuck in a status > 14 days)
+5.5 Price Comp Workspace
+Side-by-side workspace for comping an item. Left pane shows the item; right pane shows sold-comp results with sort/filter controls.
+eBay sold-comp links generated automatically from item attributes (Terapeak / sold filter)
+Manual comp entry: paste sold prices for reference
+Suggested target price based on grade (when GradeThread grade exists), brand floor, and recorded comps
+Save comp set to item record for later reference and dispute documentation
+5.6 Listing Composer
+Drafts a complete eBay listing from item data. Pre-fills title, description, condition, item specifics, photos, and shipping.
+Title builder with character counter, keyword suggestions, and brand-priority ordering
+Description templates per category with variable interpolation ({{brand}}, {{size}}, {{grade}}, etc.)
+Auto-embed GradeThread certificate URL when item has a grade
+Item Specifics auto-mapped from item attributes (uses eBay's GetCategoryFeatures)
+Shipping policy picker (uses existing eBay business policies)
+Preview pane showing how the listing will render on eBay
+Save as draft locally before pushing to eBay (allows offline drafting)
+5.7 Sales Reconciliation
+Bridges the gap between marketplace payouts and per-item profitability. Two ingestion paths: real-time webhook from eBay (preferred) and CSV upload from eBay seller dashboard (fallback).
+Auto-match payout rows to listings by listing ID and timestamp
+Manual match UI for unmatched rows
+Per-item P&L computed automatically from sale + costs + cost_basis
+Discrepancy alerts when fees or shipping deviate from expected
+5.8 Dashboard
+Operational dashboard, not vanity metrics. Shows what to do next and where the operation is bottlenecked.
+Items by status with WIP-limit warnings
+Items aging in pipeline ("7 items photographed > 14 days, not listed")
+Sell-through rate by category, brand, source
+Cost basis vs sold price over time
+Grading ROI: net profit lift on graded items vs ungraded comparables
+6. GradeThread Integration
+FlipDesk is the first-party operational front-end for GradeThread. The integration is deep: grades are first-class fields in items, listings, and analytics. The integration is mediated by the GradeThread Public API (Phase 2 of the GradeThread roadmap) using a Pro or Enterprise API key.
+6.1 Integration Architecture
+6.2 In-Product Experience
+"Send to GradeThread" button visible on any item with at least the GradeThread-required photo set
+Tier selector (Standard / Premium / Express) with cost preview and turnaround estimate
+Grade card embedded in item detail view: overall grade, factor breakdown, defects, certificate link
+Inline cost tracking: grading fees automatically allocated to the item's sale P&L
+Bulk grading: select N items in Photographed status, send all to GradeThread in one batch
+Grading queue view: see all in-flight submissions, retry failed, escalate slow ones
+6.3 Listing Augmentation
+When an item has a GradeThread grade, the listing composer automatically:
+Embeds the certificate URL in the eBay description (as a clickable link and as a thumbnail card)
+Inserts grade-derived condition language into the description body ("Independently graded by GradeThread: 8.5 / Near Mint")
+Adjusts the suggested price band based on grade-to-price correlation data (uses GradeThread Phase 2 pricing data once available)
+Adds a grade badge overlay to the primary listing photo (optional toggle)
+6.4 Closed-Loop Data
+Sale outcomes for graded items are reported back to GradeThread (with user consent) to power GradeThread's grade-to-price correlation dataset. This is the closed loop that turns FlipDesk into a strategic asset for GradeThread.
+On sale, FlipDesk posts the sold_price + listing_price + grade_value + grade_report_id to GradeThread
+Dispute outcomes (buyer claimed condition mismatch) are reported as soft feedback signals
+Aggregate FlipDesk data becomes a training signal for GradeThread's Phase 3 proprietary model
+6.5 Identity & Billing
+FlipDesk and GradeThread share the same Supabase auth identity. A user signed in to FlipDesk is automatically authenticated against GradeThread via shared JWT. Grading fees are charged to the user's GradeThread Stripe customer (not double-billed through FlipDesk).
+7. eBay Marketplace Integration
+7.1 API Surface
+7.2 OAuth Flow
+Single-store user token via the eBay Auth’n’Auth or OAuth User Consent flow
+Tokens stored encrypted in marketplace_connections table
+Refresh token rotation handled by a scheduled Edge Function
+Multi-store support deferred to Phase 2 (SaaS phase)
+7.3 Listing Push Flow
+From a Drafted item, the user clicks "Push to eBay". FlipDesk:
+1. Validates the listing against eBay category metadata (required Item Specifics, shipping policy, etc.)
+2. Uploads photos to eBay (or references hosted URLs if eBay supports for the category)
+3. Creates inventory item via Inventory API (PUT /inventory_item/{sku})
+4. Creates offer (POST /offer) referencing existing business policies
+5. Publishes offer (POST /offer/{offerId}/publish) to go live
+6. Stores listing ID and moves item status to Listed
+7.4 Sales Sync Flow
+Webhook fires on order creation, payment, shipping, payout
+Edge Function matches order to listing by SKU and listingId
+Sale record created with all fees and costs allocated
+Item status moves to Sold, then to Shipped on tracking upload
+Payout webhook reconciles final net amount against expected
+7.5 Comp Research
+Sold-comp data via API is restricted (Marketplace Insights API requires approval). FlipDesk's Phase 1 approach is pragmatic:
+Generate deep links into Terapeak (in Seller Hub) pre-filtered by item attributes
+Manual comp paste-in supported
+Use Browse API for active-listing comp range (less useful but free)
+Apply for Marketplace Insights API access ahead of Phase 2
+8. Additional Marketplace Integrations (Phase 2)
+
+9. Phase 2 Features
+9.1 Multi-User / SaaS Productization
+Once the personal workflow is hardened, open the platform to other resellers. Requires team accounts, per-user RLS, billing, and SLAs.
+9.2 Consignment Mode
+Consignor portal: clients see their items and payouts
+Split accounting: configurable percentage splits per consignor
+Intake forms with electronic signature
+Automatic payout calculation and ACH disbursement (Stripe Connect)
+9.3 AI-Drafted Listings
+LLM-generated listing titles and descriptions from item attributes + GradeThread grade
+Brand-voice tuning (sparse vs verbose, formal vs casual)
+Keyword optimization per category
+9.4 Sourcing Tools
+Browse-anywhere extension that flags potential flips on retail sites and ShopGoodwill auctions
+ROI calculator using GradeThread grade-to-price data
+Saved searches with alerts on ShopGoodwill and other auction sites
+9.5 Mobile App
+Native iOS app (SwiftUI + SwiftData) optimized for thrift-store capture sessions
+Offline-first photo and metadata capture
+Barcode/RFID tag scanning
+Background upload when on Wi-Fi
+9.6 Analytics + BI
+Cohort analysis by source, brand, category
+Time-to-list, time-to-sell distribution analysis
+"What should I source more of" recommendations
+Sell-through rate vs target price elasticity by grade
+10. Pricing & Monetization (SaaS Phase)
+Phase 0 and Phase 1 are personal-use only — no billing layer. Pricing applies once FlipDesk is productized for external users.
+11. Launch Strategy
+11.1 Phase 0 — Personal Use (Weeks 1–8)
+Build the system for one user — the operator — and use it daily. The goal of Phase 0 is to prove the workflow on real volume before any productization.
+Hard requirement: every feature must beat the equivalent spreadsheet workflow on time-to-complete
+All bugs and friction logged via dogfooding; weekly iteration cycles
+Success metric: 50% increase in items-listed-per-week vs. spreadsheet baseline
+11.2 Phase 1 — Private Beta (Weeks 9–16)
+Invite 10–20 high-volume resellers from the GradeThread customer base. Free for the beta period in exchange for structured feedback and case-study participation.
+11.3 Phase 2 — Public Launch (Weeks 17+)
+Cross-promotion with GradeThread (every GradeThread user sees a FlipDesk callout)
+Content marketing through r/Flipping, eBay reseller groups, YouTube
+Launch offer: 60 days free for Reseller tier
+12. Development Timeline
+13. Risks & Mitigations
+14. Success Metrics
+14.1 North Star Metric
+Items Listed Per Week. The throughput of the operator (Phase 0) and customers (Phase 1+). Directly correlates with revenue and platform value.
+14.2 Operational KPIs (Phase 0)
+14.3 SaaS KPIs (Phase 2+)
+15. Appendix
+15.1 Spreadsheet Migration Path
+The existing flip-tracking Google Sheet maps to FlipDesk as follows:
+15.2 Edge Function Inventory (Phase 1)
+ebay-oauth-callback — handles eBay OAuth redirect, stores encrypted tokens
+ebay-token-refresh — scheduled hourly; rotates tokens nearing expiry
+ebay-listing-push — receives item ID, builds Inventory API payload, creates+publishes offer
+ebay-webhook-receiver — receives order/payout/return notifications
+ebay-csv-importer — parses uploaded eBay payout CSV and queues reconciliation
+gradethread-submit — sends item to GradeThread API with image URLs
+gradethread-webhook-receiver — receives grade-completion webhook from GradeThread
+image-processor — Sharp pipeline (resize, EXIF strip, watermark, thumbnail)
+photo-archiver — scheduled daily; moves completed-item photos from Supabase to R2
+reconciliation-matcher — matches payout imports to sales by listing ID + timestamp
+15.3 Out of Scope for Phase 1
+Multi-user accounts and team permissions
+Stripe billing layer (not needed for personal use)
+Poshmark, Mercari, Depop integrations
+Consignor portal and split accounting
+Native mobile app (PWA only)
+Sourcing-side browser extension
+15.4 Open Questions
+Should Phase 0 use GradeThread's not-yet-built Public API, or take a shortcut via direct DB access (since both products are owned)?
+Photo storage strategy at scale — R2 archive trigger threshold (days since item completed)?
+Should reconciliation auto-apply payouts or require manual approval per payout batch?
+eBay Marketplace Insights API approval — should the application be filed during Phase 1?
+End of Document

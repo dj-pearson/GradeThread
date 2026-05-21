@@ -10,6 +10,10 @@ import {
   Key,
   Settings,
   Menu,
+  LayoutGrid,
+  MapPin,
+  Plug,
+  Scale,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,37 +22,66 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-const navItems = [
-  { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
-  { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
-  { to: "/dashboard/inventory", icon: Package, label: "Inventory", end: false },
-  { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
-  { to: "/dashboard/analytics/suggestions", icon: Lightbulb, label: "Price Suggestions", end: false },
-  { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false },
-  { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false },
-  { to: "/dashboard/settings", icon: Settings, label: "Settings", end: false },
+type NavItem = { to: string; icon: typeof LayoutDashboard; label: string; end: boolean };
+type NavGroup = { title?: string; items: NavItem[] };
+
+const navGroups: NavGroup[] = [
+  {
+    items: [
+      { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
+      { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
+      { to: "/dashboard/inventory", icon: Package, label: "Inventory", end: false },
+      { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
+      { to: "/dashboard/analytics/suggestions", icon: Lightbulb, label: "Price Suggestions", end: false },
+    ],
+  },
+  {
+    title: "FlipDesk",
+    items: [
+      { to: "/dashboard/flipdesk/pipeline", icon: LayoutGrid, label: "Pipeline", end: false },
+      { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
+      { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
+      { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
+    ],
+  },
+  {
+    items: [
+      { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false },
+      { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false },
+      { to: "/dashboard/settings", icon: Settings, label: "Settings", end: false },
+    ],
+  },
 ];
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <nav className="mt-2 flex-1 space-y-1 px-3">
-      {navItems.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.end}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-              isActive
-                ? "bg-white/15 text-white"
-                : "text-white/70 hover:bg-white/10 hover:text-white"
-            }`
-          }
-        >
-          <item.icon className="h-5 w-5" />
-          {item.label}
-        </NavLink>
+    <nav className="mt-2 flex-1 space-y-4 px-3">
+      {navGroups.map((group, gi) => (
+        <div key={gi} className="space-y-1">
+          {group.title && (
+            <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">
+              {group.title}
+            </div>
+          )}
+          {group.items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              onClick={onNavigate}
+              className={({ isActive }) =>
+                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  isActive
+                    ? "bg-white/15 text-white"
+                    : "text-white/70 hover:bg-white/10 hover:text-white"
+                }`
+              }
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
       ))}
     </nav>
   );

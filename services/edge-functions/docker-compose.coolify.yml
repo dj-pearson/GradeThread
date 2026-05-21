@@ -1,0 +1,56 @@
+# Coolify-ready compose for the consolidated edge service.
+# Hosts GradeThread + FlipDesk endpoints behind one container.
+#
+# In Coolify:
+#   1. New Resource → Docker Compose → point at this repo + this file.
+#   2. Set environment variables (see .env.example).
+#   3. Coolify reads the `coolify.fqdn` label and provisions a Traefik route
+#      with Let's Encrypt for that hostname.
+#
+# Override the FQDN by exporting COOLIFY_FQDN before deploy (Coolify supports
+# build-time arg interpolation).
+
+services:
+  edge-functions:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8787"
+    environment:
+      - PORT=8787
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        - CMD
+        - deno
+        - eval
+        - "fetch('http://127.0.0.1:8787/health').then(r => r.ok ? Deno.exit(0) : Deno.exit(1)).catch(() => Deno.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    labels:
+      # Coolify-managed Traefik routing
+      - coolify.managed=true
+      - coolify.name=gradethread-edge-functions
+      - coolify.fqdn=${COOLIFY_FQDN:-https://api.gradethread.com}
+      - coolify.port=8787
+      - coolify.healthcheckPath=/health
+      # Direct Traefik labels (fallback if Coolify auto-detection is off)
+      - traefik.enable=true
+      - traefik.http.routers.edge-functions.rule=Host(`api.gradethread.com`)
+      - traefik.http.routers.edge-functions.entrypoints=https
+      - traefik.http.routers.edge-functions.tls=true
+      - traefik.http.routers.edge-functions.tls.certresolver=letsencrypt
+      - traefik.http.services.edge-functions.loadbalancer.server.port=8787
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M

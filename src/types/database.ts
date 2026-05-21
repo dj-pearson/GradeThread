@@ -9,10 +9,65 @@ export type SubmissionStatus = "pending" | "processing" | "completed" | "failed"
 export type GradeTier = "NWT" | "NWOT" | "Excellent" | "Very Good" | "Good" | "Fair" | "Poor";
 export type ImageType = "front" | "back" | "label" | "detail" | "defect";
 export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
-export type ItemStatus = "acquired" | "grading" | "graded" | "listed" | "sold" | "shipped" | "completed" | "returned";
-export type ListingPlatform = "ebay" | "poshmark" | "mercari" | "depop" | "grailed" | "facebook" | "offerup" | "other";
+export type ItemStatus =
+  | "sourced"
+  | "acquired"
+  | "cataloged"
+  | "measured"
+  | "photographed"
+  | "grading"
+  | "graded"
+  | "comped"
+  | "drafted"
+  | "listed"
+  | "sold"
+  | "shipped"
+  | "completed"
+  | "returned"
+  | "archived";
+export type ListingPlatform =
+  | "ebay"
+  | "poshmark"
+  | "mercari"
+  | "depop"
+  | "grailed"
+  | "facebook"
+  | "offerup"
+  | "shopify"
+  | "whatnot"
+  | "other";
 export type UserRole = "user" | "reviewer" | "admin" | "super_admin";
 export type NotificationType = "grade_complete" | "dispute_update" | "billing" | "system";
+
+// ─── FlipDesk enums ────────────────────────────────────────────────
+export type FlipdeskSourceType =
+  | "thrift"
+  | "goodwill_auction"
+  | "estate_sale"
+  | "wholesale"
+  | "retail_arbitrage"
+  | "consignment"
+  | "other";
+export type ItemCategory =
+  | "clothing"
+  | "shoes"
+  | "watches"
+  | "sports_cards"
+  | "collectibles"
+  | "electronics"
+  | "books"
+  | "other";
+export type FlipdeskPhotoType =
+  | "front"
+  | "back"
+  | "tag"
+  | "detail"
+  | "defect"
+  | "flatlay"
+  | "on_model";
+export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
+export type GradingSubmissionTier = "standard" | "premium" | "express";
+export type PayoutImportMethod = "csv_upload" | "api_sync";
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
@@ -109,6 +164,17 @@ export interface InventoryItemRow {
   status: ItemStatus;
   submission_id: string | null;
   grade_report_id: string | null;
+  // FlipDesk extensions
+  sku: string | null;
+  item_category: ItemCategory | null;
+  source_id: string | null;
+  target_price: number | null;
+  location_bin: string | null;
+  measurements: Record<string, number | string> | null;
+  material: string | null;
+  grade_value: number | null;
+  grade_label: string | null;
+  certificate_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -123,6 +189,12 @@ export interface ListingRow {
   listed_at: string;
   is_active: boolean;
   notes: string | null;
+  // FlipDesk extensions
+  listing_title: string | null;
+  listing_description: string | null;
+  listing_status: ListingStatus;
+  watchers: number;
+  views: number;
   created_at: string;
   updated_at: string;
 }
@@ -136,7 +208,92 @@ export interface SaleRow {
   sale_date: string;
   buyer_username: string | null;
   buyer_notes: string | null;
+  // FlipDesk extensions
+  shipping_collected: number;
+  payment_processing_fees: number;
+  shipping_cost: number;
+  grading_cost: number;
+  other_costs: number;
+  net_profit: number | null;
+  buyer_id: string | null;
+  sold_at: string | null;
+  shipped_at: string | null;
+  tracking_number: string | null;
+  payout_reference: string | null;
   created_at: string;
+}
+
+// ─── FlipDesk rows ─────────────────────────────────────────────────
+
+export interface SourceRow {
+  id: string;
+  user_id: string;
+  name: string;
+  source_type: FlipdeskSourceType;
+  location: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ItemPhotoRow {
+  id: string;
+  inventory_item_id: string;
+  photo_url: string;
+  storage_path: string | null;
+  photo_type: FlipdeskPhotoType;
+  sort_order: number;
+  used_for_grading: boolean;
+  ebay_uploaded: boolean;
+  archived_to_r2: boolean;
+  created_at: string;
+}
+
+export interface MarketplaceConnectionRow {
+  id: string;
+  user_id: string;
+  marketplace: ListingPlatform;
+  access_token_encrypted: string | null;
+  refresh_token_encrypted: string | null;
+  token_expires_at: string | null;
+  account_handle: string | null;
+  scopes: string[];
+  is_active: boolean;
+  last_synced_at: string | null;
+  last_refresh_attempt_at: string | null;
+  refresh_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PayoutImportRow {
+  id: string;
+  user_id: string;
+  marketplace: ListingPlatform;
+  import_method: PayoutImportMethod;
+  raw_payload: Record<string, unknown>;
+  reconciled: boolean;
+  sale_id: string | null;
+  payout_date: string | null;
+  amount: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlipdeskGradingSubmissionRow {
+  id: string;
+  inventory_item_id: string;
+  submission_id: string | null;
+  gradethread_submission_id: string | null;
+  tier: GradingSubmissionTier;
+  status: SubmissionStatus;
+  cost: number;
+  submitted_at: string | null;
+  graded_at: string | null;
+  webhook_received_at: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ShipmentRow {
@@ -268,6 +425,16 @@ export interface InventoryItemInsert {
   status?: ItemStatus;
   submission_id?: string | null;
   grade_report_id?: string | null;
+  sku?: string | null;
+  item_category?: ItemCategory | null;
+  source_id?: string | null;
+  target_price?: number | null;
+  location_bin?: string | null;
+  measurements?: Record<string, number | string> | null;
+  material?: string | null;
+  grade_value?: number | null;
+  grade_label?: string | null;
+  certificate_url?: string | null;
 }
 
 export interface ListingInsert {
@@ -279,6 +446,11 @@ export interface ListingInsert {
   listed_at?: string;
   is_active?: boolean;
   notes?: string | null;
+  listing_title?: string | null;
+  listing_description?: string | null;
+  listing_status?: ListingStatus;
+  watchers?: number;
+  views?: number;
 }
 
 export interface SaleInsert {
@@ -289,6 +461,70 @@ export interface SaleInsert {
   sale_date?: string;
   buyer_username?: string | null;
   buyer_notes?: string | null;
+  shipping_collected?: number;
+  payment_processing_fees?: number;
+  shipping_cost?: number;
+  grading_cost?: number;
+  other_costs?: number;
+  net_profit?: number | null;
+  buyer_id?: string | null;
+  sold_at?: string | null;
+  shipped_at?: string | null;
+  tracking_number?: string | null;
+  payout_reference?: string | null;
+}
+
+// ─── FlipDesk inserts ──────────────────────────────────────────────
+
+export interface SourceInsert {
+  user_id: string;
+  name: string;
+  source_type?: FlipdeskSourceType;
+  location?: string | null;
+  notes?: string | null;
+}
+
+export interface ItemPhotoInsert {
+  inventory_item_id: string;
+  photo_url: string;
+  storage_path?: string | null;
+  photo_type?: FlipdeskPhotoType;
+  sort_order?: number;
+  used_for_grading?: boolean;
+  ebay_uploaded?: boolean;
+  archived_to_r2?: boolean;
+}
+
+export interface MarketplaceConnectionInsert {
+  user_id: string;
+  marketplace: ListingPlatform;
+  access_token_encrypted?: string | null;
+  refresh_token_encrypted?: string | null;
+  token_expires_at?: string | null;
+  account_handle?: string | null;
+  scopes?: string[];
+  is_active?: boolean;
+}
+
+export interface PayoutImportInsert {
+  user_id: string;
+  marketplace: ListingPlatform;
+  import_method: PayoutImportMethod;
+  raw_payload: Record<string, unknown>;
+  reconciled?: boolean;
+  sale_id?: string | null;
+  payout_date?: string | null;
+  amount?: number | null;
+}
+
+export interface FlipdeskGradingSubmissionInsert {
+  inventory_item_id: string;
+  submission_id?: string | null;
+  gradethread_submission_id?: string | null;
+  tier?: GradingSubmissionTier;
+  status?: SubmissionStatus;
+  cost?: number;
+  submitted_at?: string | null;
 }
 
 export interface ShipmentInsert {
@@ -348,6 +584,11 @@ export type ShipmentUpdate = Partial<Omit<ShipmentRow, "id" | "created_at" | "up
 export type HumanReviewUpdate = Partial<Omit<HumanReviewRow, "id" | "grade_report_id" | "reviewer_id">>;
 export type AiPromptVersionUpdate = Partial<Omit<AiPromptVersionRow, "id" | "created_at">>;
 export type NotificationUpdate = Partial<Omit<NotificationRow, "id" | "user_id" | "created_at">>;
+export type SourceUpdate = Partial<Omit<SourceRow, "id" | "user_id" | "created_at" | "updated_at">>;
+export type ItemPhotoUpdate = Partial<Omit<ItemPhotoRow, "id" | "inventory_item_id" | "created_at">>;
+export type MarketplaceConnectionUpdate = Partial<Omit<MarketplaceConnectionRow, "id" | "user_id" | "created_at" | "updated_at">>;
+export type PayoutImportUpdate = Partial<Omit<PayoutImportRow, "id" | "user_id" | "created_at" | "updated_at">>;
+export type FlipdeskGradingSubmissionUpdate = Partial<Omit<FlipdeskGradingSubmissionRow, "id" | "inventory_item_id" | "created_at" | "updated_at">>;
 
 // ─── Database schema type (for Supabase client) ────────────────────
 
@@ -424,6 +665,31 @@ export interface Database {
         Insert: NotificationInsert;
         Update: NotificationUpdate;
       };
+      sources: {
+        Row: SourceRow;
+        Insert: SourceInsert;
+        Update: SourceUpdate;
+      };
+      item_photos: {
+        Row: ItemPhotoRow;
+        Insert: ItemPhotoInsert;
+        Update: ItemPhotoUpdate;
+      };
+      marketplace_connections: {
+        Row: MarketplaceConnectionRow;
+        Insert: MarketplaceConnectionInsert;
+        Update: MarketplaceConnectionUpdate;
+      };
+      payout_imports: {
+        Row: PayoutImportRow;
+        Insert: PayoutImportInsert;
+        Update: PayoutImportUpdate;
+      };
+      flipdesk_grading_submissions: {
+        Row: FlipdeskGradingSubmissionRow;
+        Insert: FlipdeskGradingSubmissionInsert;
+        Update: FlipdeskGradingSubmissionUpdate;
+      };
     };
     Enums: {
       user_plan: UserPlan;
@@ -437,6 +703,12 @@ export interface Database {
       listing_platform: ListingPlatform;
       user_role: UserRole;
       notification_type: NotificationType;
+      flipdesk_source_type: FlipdeskSourceType;
+      item_category: ItemCategory;
+      flipdesk_photo_type: FlipdeskPhotoType;
+      listing_status: ListingStatus;
+      grading_submission_tier: GradingSubmissionTier;
+      payout_import_method: PayoutImportMethod;
     };
   };
 }

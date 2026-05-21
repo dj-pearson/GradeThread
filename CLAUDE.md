@@ -215,6 +215,26 @@ PORT=8787
 - Edge functions return `{ error: string }` with appropriate HTTP status
 - Frontend shows toast notifications for user-facing errors
 
+## FlipDesk Module
+
+FlipDesk is the reseller-management surface inside GradeThread. It's a section under `/dashboard/flipdesk/*` that handles the full eBay lifecycle: source → catalog → measure → photograph → grade → comp → draft → list → sell → ship → reconcile. Source-of-truth PRD: `FlipDesk_PRD_v1.docx`.
+
+### Database
+- Migration `00008_flipdesk_schema.sql` extends `inventory_items`, `listings`, `sales` and adds `sources`, `item_photos`, `marketplace_connections`, `payout_imports`, `flipdesk_grading_submissions`.
+- Pipeline statuses added to `item_status`: `sourced, cataloged, measured, photographed, comped, drafted, archived`.
+
+### Frontend
+- Pages: `src/pages/flipdesk/{pipeline,sources,marketplaces,reconciliation}.tsx`.
+- Sidebar group: "FlipDesk" in `src/components/dashboard/sidebar.tsx`.
+- Constants: `FLIPDESK_PIPELINE`, `FLIPDESK_SOURCE_TYPES`, `LISTING_STATUSES`, `MARKETPLACE_LABELS` in `src/lib/constants.ts`.
+
+### Edge service (consolidated; deploys to Coolify)
+- Single Deno/Hono container at `services/edge-functions/` hosting BOTH GradeThread and FlipDesk endpoints.
+- Coolify compose: `services/edge-functions/docker-compose.coolify.yml` with Traefik labels, healthcheck, restart policy.
+- FlipDesk route modules under `services/edge-functions/src/routes/flipdesk-*.ts` mounted at `/api/flipdesk/*`.
+- All handlers currently return 501 — wire up incrementally (PRD section 15.2).
+- See `services/edge-functions/COOLIFY.md` for deploy instructions.
+
 ## PRD & Roadmap
 
 The full product roadmap is in `prd.json` (Ralph AI format). 100 user stories across 11 phases:

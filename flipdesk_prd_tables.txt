@@ -1,0 +1,240 @@
+TABLE COUNT: 20
+
+=== TABLE 0 (5 rows x 3 cols) ===
+User Persona :: Pain Point :: Value Proposition
+Solo Power Reseller (50+ items/week) :: Throughput limited by manual workflow; spreadsheet sprawl :: Structured pipeline, batch ops, end-to-end automation
+Multi-Category Reseller (clothing, watches, cards, collectibles) :: Different categories need different fields and workflows :: Category-specific templates and grading integrations
+Consignment / Estate Operations :: Tracking items by source and consignor; payout splits :: Source attribution, consignor portal, automatic split accounting
+GradeThread User :: Wants grades baked into the listing workflow, not a separate tab :: Native one-click grading from any item; certificate auto-embedded
+
+=== TABLE 1 (13 rows x 3 cols) ===
+Status :: Definition of Done :: Default Next Action
+Sourced :: Item acquired; cost basis + source recorded :: Catalog basic info (brand, type, size)
+Cataloged :: Brand, garment type, size, category captured :: Capture measurements
+Measured :: All category-required measurements complete :: Photograph item
+Photographed :: Minimum required photos uploaded and verified :: Send to GradeThread (optional) or Comp
+Graded :: GradeThread grade attached (clothing only) :: Run price comps
+Comped :: Sold-comp research done; target price set :: Draft listing
+Drafted :: Listing copy written; ready to push to eBay :: Push to eBay
+Listed :: Live on marketplace with active listing ID :: Wait for sale; monitor offers/views
+Sold :: Marketplace reports sold; awaiting shipment :: Ship within SLA
+Shipped :: Tracking number recorded; on the way :: Wait for delivery + feedback
+Completed :: Funds received, feedback received or window closed :: Archive
+Returned :: Buyer return processed :: Re-list or write off
+
+=== TABLE 2 (14 rows x 3 cols) ===
+Layer :: Technology :: Notes
+Frontend :: React 18 + TypeScript + Vite :: Consistent with existing Pearson Media platforms
+UI Framework :: Tailwind CSS + shadcn/ui :: Matches GradeThread UI patterns
+State Management :: Zustand + TanStack Query :: Server state caching critical for batch ops
+Backend / API :: Supabase (Self-Hosted) :: Same Contabo instance as other Pearson Media platforms
+Edge Functions :: Supabase Deno Edge Functions :: eBay sync, GradeThread bridge, payout reconciliation
+Frontend Hosting :: Cloudflare Pages :: Edge CDN, automatic deployments from GitHub
+Image Storage :: Supabase Storage + Cloudflare R2 :: Hot in Supabase, cold/archive in R2
+Image Processing :: Sharp (Deno-compatible build) :: Resize, EXIF strip, watermark, thumbnail
+Marketplace APIs :: eBay Sell APIs (Phase 1); Poshmark, Mercari (Phase 2) :: OAuth user tokens for personal store
+Grading :: GradeThread Public API :: Pro/Enterprise API key; webhook delivery
+Payments / Billing :: Stripe (for SaaS phase) :: Not required for personal-use Phase 0
+Mobile Capture :: Progressive Web App (Phase 1); React Native (Phase 3) :: PWA handles camera + offline well enough for MVP
+Monitoring :: Sentry + PostHog :: Same as other Pearson Media platforms
+
+=== TABLE 3 (23 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+user_id :: UUID (FK) :: Owner
+sku :: TEXT (unique per user) :: Internal SKU, auto-generated or user-defined
+status :: ENUM :: sourced | cataloged | measured | photographed | graded | comped | drafted | listed | sold | shipped | completed | returned | archived
+title :: TEXT :: Internal working title (not the listing title)
+category :: ENUM :: clothing | shoes | watches | sports_cards | collectibles | electronics | books | other
+garment_type :: ENUM (nullable) :: shirt | pants | jacket | dress | etc. — clothing only
+brand :: TEXT :: Brand name
+size :: TEXT :: Size as marked on the item
+color :: TEXT :: Primary color
+material :: TEXT :: Fabric or material composition
+measurements :: JSONB :: Category-specific dimensions (chest, length, sleeve, etc.)
+condition_notes :: TEXT :: Free-text notes; auto-populated from GradeThread when graded
+cost_basis :: DECIMAL(10,2) :: Acquisition cost
+source_id :: UUID (FK sources) :: Where it came from
+acquired_date :: DATE :: Date acquired
+location_bin :: TEXT :: Storage location (Bin A1, Shelf 3, etc.)
+target_price :: DECIMAL(10,2) :: Listing target after comp research
+grade_report_id :: TEXT (nullable) :: GradeThread grade report ID
+grade_value :: DECIMAL(3,1) (nullable) :: Cached grade for fast filtering
+grade_label :: TEXT (nullable) :: Cached grade label
+certificate_url :: TEXT (nullable) :: GradeThread certificate URL
+
+=== TABLE 4 (7 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+user_id :: UUID (FK) :: Owner
+name :: TEXT :: e.g., "Goodwill SE 14th", "ShopGoodwill auction lot 123"
+source_type :: ENUM :: thrift | goodwill_auction | estate_sale | wholesale | retail_arbitrage | consignment | other
+location :: TEXT :: Address or URL
+notes :: TEXT :: Source-specific notes (best days, contacts, etc.)
+
+=== TABLE 5 (8 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+item_id :: UUID (FK items) :: Parent item
+photo_url :: TEXT :: Supabase Storage path
+photo_type :: ENUM :: front | back | tag | detail | defect | flatlay | on_model
+sort_order :: INT :: Display order
+used_for_grading :: BOOLEAN :: Whether this photo was sent to GradeThread
+ebay_uploaded :: BOOLEAN :: Whether already uploaded to eBay listing
+
+=== TABLE 6 (13 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+item_id :: UUID (FK items) :: Linked item
+marketplace :: ENUM :: ebay | poshmark | mercari | depop | grailed | shopify
+marketplace_listing_id :: TEXT :: Platform's listing ID
+listing_title :: TEXT :: Title used in the listing
+listing_description :: TEXT :: Full description (may include grade certificate)
+listing_price :: DECIMAL(10,2) :: Listed price
+status :: ENUM :: draft | active | ended | sold | relisted
+listed_at :: TIMESTAMPTZ :: When listing went live
+watchers :: INT :: Cached watcher count (eBay)
+views :: INT :: Cached view count
+external_url :: TEXT :: URL to the listing on the marketplace
+
+=== TABLE 7 (17 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+listing_id :: UUID (FK listings) :: Source listing
+item_id :: UUID (FK items) :: Denormalized for fast joins
+sold_price :: DECIMAL(10,2) :: Gross sale price
+shipping_collected :: DECIMAL(10,2) :: Shipping paid by buyer
+marketplace_fees :: DECIMAL(10,2) :: Platform fees
+payment_processing_fees :: DECIMAL(10,2) :: Payment fees
+shipping_cost :: DECIMAL(10,2) :: Actual shipping label cost
+grading_cost :: DECIMAL(10,2) :: GradeThread fee (if used)
+other_costs :: DECIMAL(10,2) :: Supplies, packaging allocation, etc.
+net_profit :: DECIMAL(10,2) :: Computed: sold + shipping_collected − all costs − cost_basis
+buyer_id :: TEXT :: Marketplace buyer reference
+sold_at :: TIMESTAMPTZ :: Sale date
+shipped_at :: TIMESTAMPTZ :: Shipment date
+tracking_number :: TEXT :: Tracking
+payout_reference :: TEXT :: Reference to payout (for reconciliation)
+
+=== TABLE 8 (10 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+item_id :: UUID (FK items) :: Item being graded
+gradethread_submission_id :: TEXT :: GradeThread platform submission ID
+tier :: ENUM :: standard | premium | express
+status :: ENUM :: queued | submitted | processing | graded | failed | disputed
+cost :: DECIMAL(10,2) :: What was paid to GradeThread
+submitted_at :: TIMESTAMPTZ :: When submission was sent
+graded_at :: TIMESTAMPTZ :: When grade returned
+webhook_received_at :: TIMESTAMPTZ :: When completion webhook fired
+
+=== TABLE 9 (10 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+user_id :: UUID (FK) :: Owner
+marketplace :: ENUM :: ebay | poshmark | mercari | etc.
+access_token_encrypted :: TEXT :: OAuth access token (encrypted at rest)
+refresh_token_encrypted :: TEXT :: OAuth refresh token (encrypted at rest)
+token_expires_at :: TIMESTAMPTZ :: When access token expires
+account_handle :: TEXT :: Store/username on the platform
+scopes :: TEXT[] :: Granted OAuth scopes
+is_active :: BOOLEAN :: Connection enabled
+
+=== TABLE 10 (10 rows x 3 cols) ===
+Column :: Type :: Description
+id :: UUID :: Primary key
+user_id :: UUID (FK) :: Owner
+marketplace :: ENUM :: ebay | poshmark | etc.
+import_method :: ENUM :: csv_upload | api_sync
+raw_payload :: JSONB :: Original CSV row or API response
+reconciled :: BOOLEAN :: Whether matched to a sale
+sale_id :: UUID (FK sales, nullable) :: Linked sale if reconciled
+payout_date :: DATE :: Payout date
+amount :: DECIMAL(10,2) :: Payout amount
+
+=== TABLE 11 (7 rows x 3 cols) ===
+Capability :: Direction :: Mechanism
+Submit item for grading :: FlipDesk → GradeThread :: POST /v1/submissions with image URLs (Supabase signed URLs) and metadata
+Check submission status :: FlipDesk → GradeThread :: GET /v1/submissions/{id} (used as fallback if webhook misses)
+Receive grade completion :: GradeThread → FlipDesk :: Webhook to /api/webhooks/gradethread Edge Function
+Pull full grade report :: FlipDesk → GradeThread :: GET /v1/grade-reports/{id} on webhook receipt
+Dispute a grade :: FlipDesk → GradeThread :: POST /v1/disputes with FlipDesk-collected context
+Single sign-on :: Shared identity :: Shared Supabase auth (same user table across products)
+
+=== TABLE 12 (8 rows x 3 cols) ===
+eBay API :: FlipDesk Use :: Notes
+Sell Inventory API :: Create / update / end listings; manage SKUs :: Primary listing surface
+Sell Fulfillment API :: Pull orders, shipping info, payouts :: Source of truth for sales
+Sell Account API :: Read business policies (shipping, return, payment) :: Policies are referenced by ID, not recreated
+Notification API :: Subscribe to order, payout, return events :: Eliminates polling
+Browse API :: Active comp research and item lookup :: Sold comps are not in Browse; use Terapeak via Seller Hub
+Taxonomy API :: Category and Item Specifics lookup :: Powers the listing composer
+Sell Metadata API :: Listing eligibility checks per category :: Surface category-specific requirements
+
+=== TABLE 13 (7 rows x 3 cols) ===
+Marketplace :: Approach :: Phase
+Poshmark :: No public API. Browser extension for listing + scheduled share automation. :: Phase 2
+Mercari :: Partner API for approved sellers; CSV import fallback. :: Phase 2
+Depop :: No public API. Manual listing with FlipDesk data export. :: Phase 3
+Grailed :: No public API at consumer tier. Manual export. :: Phase 3
+Shopify (own store) :: Full Admin API integration for resellers with branded storefronts. :: Phase 2
+Whatnot :: Live auction platform; FlipDesk preps inventory and exports for show prep. :: Phase 3
+
+=== TABLE 14 (6 rows x 4 cols) ===
+Plan :: Price :: Items / Month :: Features
+Hobbyist :: $0 :: Up to 30 active listings :: Single marketplace, manual reconciliation, no API
+Reseller :: $19/mo :: Up to 300 active listings :: eBay sync, GradeThread integration, batch ops, CSV import
+Power Seller :: $49/mo :: Up to 1,500 active listings :: Multi-marketplace, AI drafts, advanced analytics
+Consignment :: $99/mo :: Unlimited + consignor portal :: Consignor accounts, payout splits, white-label option
+Enterprise :: Custom :: Unlimited + multi-user :: SSO, audit logs, SLA, custom integrations
+
+=== TABLE 15 (9 rows x 3 cols) ===
+Phase :: Weeks :: Deliverables
+Foundation :: 1–2 :: Supabase schema, auth (shared with GradeThread), Cloudflare Pages deploy, RLS policies
+Core Pipeline :: 3–4 :: Item CRUD, status pipeline, Kanban view, photo upload, measurement templates
+GradeThread Integration :: 5–6 :: Submission flow, webhook receiver, grade card in item view, listing augmentation
+eBay Integration :: 7–10 :: OAuth flow, Inventory API push, Fulfillment API sync, payout reconciliation
+Reconciliation & Analytics :: 11–12 :: Per-item P&L, dashboard, CSV import for legacy data, batch operations
+Polish & Dogfood :: 13–14 :: Mobile PWA polish, performance tuning, daily-use validation
+Private Beta :: 15–18 :: Onboard 10–20 GradeThread users, structured feedback, iteration
+Public Launch :: 19+ :: Billing, marketing site, public registration
+
+=== TABLE 16 (9 rows x 3 cols) ===
+Risk :: Severity :: Mitigation
+eBay API rate limits hit during bulk push :: Medium :: Queue and throttle in Edge Function; respect Retry-After; batch within limits
+eBay listing failures due to category metadata mismatches :: High :: Pre-validate against Sell Metadata API; surface required fields in composer
+GradeThread API not yet available for direct integration :: High :: Build GradeThread Phase 2 API in parallel; until then use shared DB access since both products are owned
+OAuth token rotation failures lose marketplace connection :: Medium :: Scheduled refresh well before expiry; alerting on rotation failure; clear re-auth UX
+Photo storage costs balloon with high item volume :: Medium :: Archive photos for completed items to R2; aggressive thumbnail strategy; periodic cleanup
+Personal-workflow features don't translate to general SaaS :: Medium :: Build configurable templates from day one; don't hardcode the operator's specific patterns
+Payout reconciliation edge cases (returns, partial refunds, disputes) :: Medium :: Treat reconciliation as a queue with manual-review escape; never silently mis-match
+Marketplace policy changes break integration :: Low-Medium :: Subscribe to eBay developer announcements; version-pin API; integration tests run weekly
+
+=== TABLE 17 (6 rows x 3 cols) ===
+Metric :: Baseline (Spreadsheet) :: Target (FlipDesk, 3 mo)
+Items listed per week :: 20–25 :: 40+
+Time from sourced → listed (median) :: 9 days :: 4 days
+Items aging > 30 days in pipeline :: ~30% :: < 10%
+Time spent on reconciliation per week :: 3+ hours :: < 30 minutes
+Items with grade attached :: 0% :: 60%+ of clothing
+
+=== TABLE 18 (6 rows x 3 cols) ===
+Metric :: Month 3 Target :: Month 12 Target
+Paying customers :: 25 :: 400
+MRR :: $1,000 :: $18,000
+Items listed via FlipDesk / month (network) :: 5,000 :: 100,000+
+GradeThread submissions originating from FlipDesk :: 1,500 :: 30,000+
+Churn rate (monthly) :: < 8% :: < 4%
+
+=== TABLE 19 (11 rows x 3 cols) ===
+Spreadsheet Field :: FlipDesk Field :: Notes
+Item title / description :: items.title :: Working title only; listing title is separate
+Brand :: items.brand :: Direct mapping
+Size :: items.size :: Direct mapping
+Cost :: items.cost_basis :: Direct mapping
+Source :: items.source_id + sources table :: Existing source names imported as source records
+Status (Need Pics, Need Comps, etc.) :: items.status :: Mapped to canonical status enum
+Listed Price :: listings.listing_price :: Direct mapping
+Sold Price :: sales.sold_price :: Direct mapping
+eBay Item ID :: listings.marketplace_listing_id :: With marketplace = 'ebay'
+Conditional formatting rules :: (not migrated) :: Replaced by status-based views and filters

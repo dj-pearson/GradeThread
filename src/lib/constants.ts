@@ -157,20 +157,124 @@ export const LISTING_PLATFORMS = [
   "grailed",
   "facebook",
   "offerup",
+  "shopify",
+  "whatnot",
   "other",
 ] as const;
 
-// Inventory item statuses
+// Inventory item statuses (full lifecycle; see FlipDesk PRD section 3.2)
 export const ITEM_STATUSES = [
+  "sourced",
   "acquired",
+  "cataloged",
+  "measured",
+  "photographed",
   "grading",
   "graded",
+  "comped",
+  "drafted",
   "listed",
   "sold",
   "shipped",
   "completed",
   "returned",
+  "archived",
 ] as const;
+
+// ─── FlipDesk ────────────────────────────────────────────────────
+
+// Pipeline columns in display order with the next-action hint.
+export const FLIPDESK_PIPELINE: Array<{
+  status: (typeof ITEM_STATUSES)[number];
+  label: string;
+  nextAction: string;
+}> = [
+  { status: "sourced",      label: "Sourced",      nextAction: "Catalog basic info" },
+  { status: "cataloged",    label: "Cataloged",    nextAction: "Measure" },
+  { status: "measured",     label: "Measured",     nextAction: "Photograph" },
+  { status: "photographed", label: "Photographed", nextAction: "Send to GradeThread" },
+  { status: "graded",       label: "Graded",       nextAction: "Run comps" },
+  { status: "comped",       label: "Comped",       nextAction: "Draft listing" },
+  { status: "drafted",      label: "Drafted",      nextAction: "Push to eBay" },
+  { status: "listed",       label: "Listed",       nextAction: "Wait for sale" },
+  { status: "sold",         label: "Sold",         nextAction: "Ship" },
+  { status: "shipped",      label: "Shipped",      nextAction: "Confirm delivery" },
+  { status: "completed",    label: "Completed",    nextAction: "Archive" },
+  { status: "returned",     label: "Returned",     nextAction: "Relist or write off" },
+];
+
+export const FLIPDESK_SOURCE_TYPES = [
+  "thrift",
+  "goodwill_auction",
+  "estate_sale",
+  "wholesale",
+  "retail_arbitrage",
+  "consignment",
+  "other",
+] as const;
+
+export const FLIPDESK_SOURCE_TYPE_LABELS: Record<
+  (typeof FLIPDESK_SOURCE_TYPES)[number],
+  string
+> = {
+  thrift: "Thrift store",
+  goodwill_auction: "Goodwill auction",
+  estate_sale: "Estate sale",
+  wholesale: "Wholesale",
+  retail_arbitrage: "Retail arbitrage",
+  consignment: "Consignment",
+  other: "Other",
+};
+
+export const ITEM_CATEGORIES = [
+  "clothing",
+  "shoes",
+  "watches",
+  "sports_cards",
+  "collectibles",
+  "electronics",
+  "books",
+  "other",
+] as const;
+
+export const FLIPDESK_PHOTO_TYPES = [
+  "front",
+  "back",
+  "tag",
+  "detail",
+  "defect",
+  "flatlay",
+  "on_model",
+] as const;
+
+export const LISTING_STATUSES = [
+  "draft",
+  "active",
+  "ended",
+  "sold",
+  "relisted",
+] as const;
+
+export const GRADING_SUBMISSION_TIERS = [
+  "standard",
+  "premium",
+  "express",
+] as const;
+
+export const PAYOUT_IMPORT_METHODS = ["csv_upload", "api_sync"] as const;
+
+export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], string> = {
+  ebay: "eBay",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+  grailed: "Grailed",
+  facebook: "Facebook",
+  offerup: "OfferUp",
+  shopify: "Shopify",
+  whatnot: "Whatnot",
+  other: "Other",
+};
 
 // Stripe price IDs (replace with actual IDs)
 export const STRIPE_PRICE_IDS = {
