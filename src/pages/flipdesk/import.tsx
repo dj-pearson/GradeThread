@@ -54,7 +54,7 @@ type ImportRow = {
 
 type ImportResult = {
   inserted: number;
-  updated: number;
+  skipped: number;
   failed: number;
   errors: { row: number; message: string }[];
 };
@@ -92,12 +92,12 @@ export function FlipdeskImportPage() {
   const [progress, setProgress] = useState<Progress>({ phase: "idle" });
   const [result, setResult] = useState<ImportResult | null>(null);
 
-  function handleDetect() {
-    if (!text.trim()) {
-      toast.error("Paste some data first.");
+  function detectFromText(raw: string) {
+    if (!raw.trim()) {
+      toast.error("No data found.");
       return;
     }
-    const { headers: h, rows: r } = parseSheet(text);
+    const { headers: h, rows: r } = parseSheet(raw);
     if (h.length === 0) {
       toast.error("Could not detect headers — first row appears empty.");
       return;
@@ -106,6 +106,23 @@ export function FlipdeskImportPage() {
     setRows(r);
     setMapping(h.map(guessField));
     setResult(null);
+    toast.success(`Detected ${h.length} columns, ${r.length} rows.`);
+  }
+
+  function handleDetect() {
+    detectFromText(text);
+  }
+
+  async function handleFile(file: File | null) {
+    if (!file) return;
+    try {
+      const raw = await file.text();
+      setText(raw);
+      detectFromText(raw);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to read file: ${msg}`);
+    }
   }
 
   const mappedRows: ImportRow[] = useMemo(
@@ -134,7 +151,7 @@ export function FlipdeskImportPage() {
     setResult(null);
     const errors: { row: number; message: string }[] = [];
     let inserted = 0;
-    let updated = 0;
+    let skipped = 0;
 
     try {
       // ── Phase 1: pre-resolve all unique sources in one pass ─────────
@@ -179,8 +196,9 @@ export function FlipdeskImportPage() {
 
       type ExistingRow = { id: string; sku: string | null };
       const existingMap = new Map<string, string>(); // sku → id
-      // Chunk the IN clause — PostgREST URL length has a practical limit.
-      const CHUNK = 200;
+      // Chunk small to stay well under PostgREST URL length even with
+      // unusual chars in SKUs that need percent-encoding.
+      const CHUNK = 50;
       for (let i = 0; i < skus.length; i += CHUNK) {
         const chunk = skus.slice(i, i + CHUNK);
         const { data, error: lookupErr } = await supabase
@@ -250,74 +268,78 @@ export function FlipdeskImportPage() {
             comp_set,
           };
 
-          let itemId: string;
-          const existingId = sku ? existingMap.get(sku) : undefined;
-          if (existingId) {
-            // UPDATE existing item by id. Skip listings/sales — preserve any
-            // edits made in the UI since the last import.
-            const { error: updErr } = await supabase
-              .from("inventory_items")
-              .update(itemPayload as never)
-              .eq("id", existingId);
-            if (updErr) throw updErr;
-            itemId = existingId;
-            updated++;
-          } else {
-            const { data: itemRow, error: itemErr } = await supabase
-              .from("inventory_items")
-              .insert(itemPayload as never)
-              .select("id")
-              .single();
-            if (itemErr) throw itemErr;
-            const newId = (itemRow as { id: string } | null)?.id;
-            if (!newId) throw new Error("Insert returned no id");
-            itemId = newId;
-            inserted++;
-            if (sku) existingMap.set(sku, itemId);
+          // Skip rows whose SKU already exists — don't even attempt INSERT.
+          if (sku && existingMap.has(sku)) {
+            skipped++;
+            continue;
+          }
 
-            // Only insert listings/sales for NEW items. Re-imports should not
-            // resurrect deleted listings or duplicate sale rows.
-            const listPrice = parsePrice(mapped.list_price ?? "");
-            const listDate = mapped.list_date
-              ? parseDate(mapped.list_date)
-              : null;
-            if (listPrice !== null || listDate !== null || mapped.link) {
-              const listingInsert: ListingInsert = {
-                inventory_item_id: itemId,
-                platform: "ebay",
-                listing_price: listPrice ?? 0,
-                listing_url: mapped.link ?? null,
-                listed_at: listDate ?? undefined,
-                is_active: status === "listed",
-              };
-              const { error: lErr } = await supabase
-                .from("listings")
-                .insert(listingInsert as never);
-              if (lErr) throw lErr;
-            }
+          const { data: itemRow, error: itemErr } = await supabase
+            .from("inventory_items")
+            .insert(itemPayload as never)
+            .select("id")
+            .single();
 
-            const salePrice = parsePrice(mapped.sale_price ?? "");
-            const saleDate = mapped.sale_date
-              ? parseDate(mapped.sale_date)
-              : null;
-            if (salePrice !== null || saleDate !== null) {
-              const saleInsert: SaleInsert = {
-                inventory_item_id: itemId,
-                sale_price: salePrice ?? 0,
-                platform_fees: parsePrice(mapped.fees ?? "") ?? 0,
-                tax: parsePrice(mapped.tax ?? "") ?? 0,
-                shipping_cost: parsePrice(mapped.shipping_cost ?? "") ?? 0,
-                net_profit: parsePrice(mapped.net_profit ?? "") ?? null,
-                payout_amount: parsePrice(mapped.payout ?? "") ?? null,
-                tracking_number: mapped.tracking ?? null,
-                sold_at: saleDate,
-                sale_date: saleDate ?? undefined,
-              };
-              const { error: sErr } = await supabase
-                .from("sales")
-                .insert(saleInsert as never);
-              if (sErr) throw sErr;
+          if (itemErr) {
+            // Defensive 409 fallback: if INSERT conflicts on SKU unique index
+            // (pre-flight missed it, e.g., a concurrent import in another
+            // tab), treat as already existing and skip.
+            const errObj = itemErr as { code?: string };
+            if (errObj.code === "23505" && sku) {
+              existingMap.set(sku, "skipped"); // mark so future dupes also skip
+              skipped++;
+              continue;
             }
+            throw itemErr;
+          }
+
+          const newId = (itemRow as { id: string } | null)?.id;
+          if (!newId) throw new Error("Insert returned no id");
+          const itemId: string = newId;
+          inserted++;
+          if (sku) existingMap.set(sku, itemId);
+
+          // Only insert listings/sales for NEW items. Re-imports skip these.
+          const listPrice = parsePrice(mapped.list_price ?? "");
+          const listDate = mapped.list_date
+            ? parseDate(mapped.list_date)
+            : null;
+          if (listPrice !== null || listDate !== null || mapped.link) {
+            const listingInsert: ListingInsert = {
+              inventory_item_id: itemId,
+              platform: "ebay",
+              listing_price: listPrice ?? 0,
+              listing_url: mapped.link ?? null,
+              listed_at: listDate ?? undefined,
+              is_active: status === "listed",
+            };
+            const { error: lErr } = await supabase
+              .from("listings")
+              .insert(listingInsert as never);
+            if (lErr) throw lErr;
+          }
+
+          const salePrice = parsePrice(mapped.sale_price ?? "");
+          const saleDate = mapped.sale_date
+            ? parseDate(mapped.sale_date)
+            : null;
+          if (salePrice !== null || saleDate !== null) {
+            const saleInsert: SaleInsert = {
+              inventory_item_id: itemId,
+              sale_price: salePrice ?? 0,
+              platform_fees: parsePrice(mapped.fees ?? "") ?? 0,
+              tax: parsePrice(mapped.tax ?? "") ?? 0,
+              shipping_cost: parsePrice(mapped.shipping_cost ?? "") ?? 0,
+              net_profit: parsePrice(mapped.net_profit ?? "") ?? null,
+              payout_amount: parsePrice(mapped.payout ?? "") ?? null,
+              tracking_number: mapped.tracking ?? null,
+              sold_at: saleDate,
+              sale_date: saleDate ?? undefined,
+            };
+            const { error: sErr } = await supabase
+              .from("sales")
+              .insert(saleInsert as never);
+            if (sErr) throw sErr;
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
@@ -333,15 +355,19 @@ export function FlipdeskImportPage() {
     setProgress({ phase: "done" });
     setResult({
       inserted,
-      updated,
+      skipped,
       failed: errors.length,
       errors,
     });
     if (errors.length === 0) {
-      toast.success(`Imported ${inserted} new, updated ${updated}.`);
+      toast.success(
+        `Imported ${inserted} new${
+          skipped > 0 ? `, skipped ${skipped} existing` : ""
+        }.`,
+      );
     } else {
       toast.warning(
-        `Imported ${inserted}, updated ${updated}, failed ${errors.length}.`,
+        `Imported ${inserted}, skipped ${skipped}, failed ${errors.length}.`,
       );
     }
   }
@@ -361,20 +387,51 @@ export function FlipdeskImportPage() {
         </div>
       </div>
 
-      {/* Step 1: paste */}
+      {/* Step 1: input — upload OR paste */}
       <Card>
         <CardHeader>
-          <CardTitle>1. Paste your data</CardTitle>
+          <CardTitle>1. Load your data</CardTitle>
           <CardDescription>
-            In Google Sheets, select your data (including the header row) and
-            copy. Paste here. Tabs or commas — both work.
+            Upload a CSV file (recommended for 200+ rows — more reliable than
+            paste), or paste from Google Sheets (handles tabs or commas).
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
+          <div className="rounded-md border-2 border-dashed border-muted-foreground/30 p-4 text-center">
+            <input
+              type="file"
+              accept=".csv,.tsv,text/csv,text/tab-separated-values,text/plain"
+              onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+              className="hidden"
+              id="csv-file-input"
+            />
+            <label
+              htmlFor="csv-file-input"
+              className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-brand-navy px-4 py-2 text-sm font-medium text-white hover:bg-brand-navy/90"
+            >
+              <Upload className="h-4 w-4" />
+              Choose CSV file
+            </label>
+            <p className="mt-2 text-xs text-muted-foreground">
+              In Google Sheets: File → Download → Comma-separated values (.csv)
+            </p>
+          </div>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-2 text-muted-foreground">
+                or paste
+              </span>
+            </div>
+          </div>
+
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            rows={8}
+            rows={6}
             placeholder="Container	Item #	Item Title	...
 A1	GT-0001	Lululemon Align Pant	..."
             className="font-mono text-xs"
@@ -564,7 +621,7 @@ A1	GT-0001	Lululemon Align Pant	..."
               Import complete
             </CardTitle>
             <CardDescription>
-              {result.inserted} new · {result.updated} updated ·{" "}
+              {result.inserted} new · {result.skipped} already existed ·{" "}
               {result.failed} failed
             </CardDescription>
           </CardHeader>
