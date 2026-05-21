@@ -36,3 +36,4 @@ temp_prd/
 
 # Local Netlify folder
 .netlify
+.env.example
