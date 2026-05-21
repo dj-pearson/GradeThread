@@ -164,12 +164,16 @@ export function FlipdeskImportPage() {
             .filter((s): s is string => !!s),
         ),
       );
-      const rpcFn = supabase.rpc as unknown as (
-        fn: string,
-        args: Record<string, unknown>,
-      ) => Promise<{ data: string | null; error: Error | null }>;
+      // Call rpc as a method on `supabase` — extracting it as a standalone
+      // function loses `this` and the client crashes reading `this.rest`.
+      const supabaseAny = supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: string | null; error: Error | null }>;
+      };
       for (const name of uniqueSources) {
-        const { data: sid, error: sErr } = await rpcFn(
+        const { data: sid, error: sErr } = await supabaseAny.rpc(
           "get_or_create_source",
           {
             p_user_id: user.id,
