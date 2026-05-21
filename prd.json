@@ -1904,8 +1904,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 102,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Hook in src/hooks/use-sources.ts; page in src/pages/flipdesk/sources.tsx with create/edit dialog (shadcn Dialog) + delete confirm (AlertDialog) + item count via separate select."
     },
 
     {
@@ -1923,8 +1923,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 103,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed (form-only — photo capture deferred to US-106). Page at src/pages/flipdesk/intake.tsx. Source picker supports existing + new source (auto-creates via get_or_create_source RPC). Save & Add another keeps source/container/sourced_by/purchase_date so batch entry stays fast. Auto-SKU and unstable_useBlocker not yet implemented."
     },
 
     {
@@ -2133,8 +2133,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 115,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed as a Dialog (ItemDetailDialog in src/components/flipdesk/item-detail-dialog.tsx) rather than a full route — opens from the pencil button in the items table and from the table's row context. Read-only Sale summary embedded. Grading/Measurements/Photos tabs deferred — wire when US-114/US-105/US-106 land."
     },
 
     {
@@ -2444,8 +2444,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 133,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. /dashboard/flipdesk/import supports BOTH file-upload (.csv/.tsv) and paste from Google Sheets. Auto-detects delimiter. Column mapping via guessField fuzzy match (e.g., \"Item #\" → SKU). Pre-flight resolves all unique sources via get_or_create_source RPC, then pre-fetches existing SKUs (chunked .in()) to skip rows already in DB. INSERT 409 fallback also skips. Live progress UI. Imports inventory_items + auto-creates listings/sales when those columns present. Idempotent on SKU."
     },
 
     {
