@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -9,6 +9,15 @@ import {
   ExternalLink,
   Filter,
   Pencil,
+  Check,
+  X,
+  Loader2,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Download,
 } from "lucide-react";
 import {
   Card,
@@ -44,9 +53,139 @@ import {
 } from "@/lib/constants";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 
 type ViewMode = "pipeline" | "personal" | "all";
+type Preset = "triage" | "listing" | "sold" | "all";
+type SortDir = "asc" | "desc";
+
+type ColumnId =
+  | "select"
+  | "pencil"
+  | "title"
+  | "bin"
+  | "sku"
+  | "brand"
+  | "style"
+  | "size"
+  | "category"
+  | "source"
+  | "by"
+  | "cost"
+  | "bought"
+  | "listed"
+  | "list_price"
+  | "link"
+  | "sold"
+  | "sale_price"
+  | "fees"
+  | "tax"
+  | "ship"
+  | "net"
+  | "payout"
+  | "status"
+  | "days"
+  | "tracking";
+
+type EditableField =
+  | "container"
+  | "sku"
+  | "title"
+  | "brand"
+  | "style"
+  | "size"
+  | "sourced_by"
+  | "acquired_price"
+  | "status";
+
+type Patch = Partial<Record<EditableField, string | number | null>>;
+
+const PRESETS: Record<Preset, Set<ColumnId>> = {
+  triage: new Set<ColumnId>([
+    "select",
+    "pencil",
+    "title",
+    "bin",
+    "sku",
+    "brand",
+    "style",
+    "size",
+    "category",
+    "source",
+    "by",
+    "cost",
+    "bought",
+    "status",
+  ]),
+  listing: new Set<ColumnId>([
+    "select",
+    "pencil",
+    "title",
+    "sku",
+    "brand",
+    "style",
+    "size",
+    "cost",
+    "listed",
+    "list_price",
+    "link",
+    "status",
+  ]),
+  sold: new Set<ColumnId>([
+    "select",
+    "pencil",
+    "title",
+    "sku",
+    "sold",
+    "sale_price",
+    "fees",
+    "tax",
+    "ship",
+    "net",
+    "payout",
+    "days",
+    "tracking",
+    "status",
+  ]),
+  all: new Set<ColumnId>([
+    "select",
+    "pencil",
+    "title",
+    "bin",
+    "sku",
+    "brand",
+    "style",
+    "size",
+    "category",
+    "source",
+    "by",
+    "cost",
+    "bought",
+    "listed",
+    "list_price",
+    "link",
+    "sold",
+    "sale_price",
+    "fees",
+    "tax",
+    "ship",
+    "net",
+    "payout",
+    "status",
+    "days",
+    "tracking",
+  ]),
+};
+
+const PRESET_LABELS: Record<Preset, string> = {
+  triage: "Triage",
+  listing: "Listing prep",
+  sold: "Sold / P&L",
+  all: "All columns",
+};
+
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
 
 function fmtMoney(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return "";
@@ -83,13 +222,139 @@ const STATUS_BADGE_VARIANT: Record<
   wearing: "outline",
 };
 
+interface ColumnSpec {
+  id: ColumnId;
+  header: ReactNode;
+  headerClassName?: string;
+  cellClassName?: string;
+  align?: "left" | "right";
+  stickyLeft?: string;
+  /** When present, header is clickable to sort by this key. */
+  sortKey?: keyof ItemFullRow;
+  render: (it: ItemFullRow) => ReactNode;
+}
+
+function escapeCsvCell(value: unknown): string {
+  if (value == null) return "";
+  const s = String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function downloadCsv(rows: ItemFullRow[]): void {
+  const headers = [
+    "Container",
+    "Item #",
+    "Item Title",
+    "Item Description",
+    "Brand",
+    "Style",
+    "Size",
+    "Notes",
+    "Category",
+    "Source",
+    "Sourced By",
+    "Purchase Date",
+    "Purchase Price",
+    "List Date",
+    "Link",
+    "List Price",
+    "Sale Date",
+    "Sale Price",
+    "Fees",
+    "Tax",
+    "Shipping Cost",
+    "Net Profit",
+    "Payout",
+    "Status",
+    "Days to Sell",
+    "Tracking",
+  ];
+  const lines = [headers.map(escapeCsvCell).join(",")];
+  for (const r of rows) {
+    lines.push(
+      [
+        r.container,
+        r.item_number,
+        r.item_title,
+        r.item_description,
+        r.brand,
+        r.style,
+        r.size,
+        r.notes,
+        r.category,
+        r.source_name,
+        r.sourced_by,
+        r.purchase_date?.slice(0, 10),
+        r.purchase_price,
+        r.list_date?.slice(0, 10),
+        r.link,
+        r.list_price,
+        r.sale_date?.slice(0, 10),
+        r.sale_price,
+        r.fees,
+        r.tax,
+        r.shipping_cost,
+        r.net_profit,
+        r.payout,
+        r.status,
+        r.days_to_sell,
+        r.tracking,
+      ]
+        .map(escapeCsvCell)
+        .join(","),
+    );
+  }
+  const blob = new Blob([lines.join("\n")], {
+    type: "text/csv;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const ts = new Date().toISOString().slice(0, 10);
+  a.download = `flipdesk-items-${ts}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function FlipdeskItemsPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ItemStatus | "all">("all");
   const [view, setView] = useState<ViewMode>("pipeline");
+  const [preset, setPreset] = useState<Preset>("triage");
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
+  const [pending, setPending] = useState<Map<string, Patch>>(new Map());
+  const [saving, setSaving] = useState(false);
+
+  // Sorting
+  const [sortField, setSortField] = useState<keyof ItemFullRow | null>(
+    "created_at",
+  );
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(100);
+
+  // Selection
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkStatus, setBulkStatus] = useState<ItemStatus | "">("");
+
+  // Reset page when filters change.
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, view, pageSize]);
+
+  // Reset selection when filters or view changes.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [search, statusFilter, view]);
 
   const { data: items, isLoading, error } = useQuery({
     queryKey: ["items_full", user?.id],
@@ -140,38 +405,587 @@ export function FlipdeskItemsPage() {
     });
   }, [items, view, statusFilter, search]);
 
-  async function updateField(
-    id: string,
-    patch: Record<string, string | number | null>,
-  ) {
-    try {
-      const { error: uErr } = await supabase
-        .from("inventory_items")
-        .update(patch as never)
-        .eq("id", id);
-      if (uErr) throw uErr;
-      await qc.invalidateQueries({ queryKey: ["items_full"] });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toast.error(`Save failed: ${msg}`);
+  const sorted = useMemo(() => {
+    if (!sortField) return filtered;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const av = a[sortField];
+      const bv = b[sortField];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1; // nulls last
+      if (bv == null) return -1;
+      if (typeof av === "number" && typeof bv === "number") {
+        return (av - bv) * dir;
+      }
+      return String(av).localeCompare(String(bv)) * dir;
+    });
+  }, [filtered, sortField, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageRows = sorted.slice(pageStart, pageStart + pageSize);
+
+  function toggleSort(field: keyof ItemFullRow) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
     }
   }
 
-  async function updateStatus(id: string, status: ItemStatus) {
-    await updateField(id, { status });
+  function stage(
+    id: string,
+    field: EditableField,
+    value: string | number | null,
+  ) {
+    setPending((prev) => {
+      const next = new Map(prev);
+      const existing: Patch = next.get(id) ?? {};
+      next.set(id, { ...existing, [field]: value });
+      return next;
+    });
+  }
+
+  function isPending(id: string, field: EditableField): boolean {
+    return pending.get(id)?.[field] !== undefined;
+  }
+
+  function displayValue<T extends string | number | null>(
+    id: string,
+    field: EditableField,
+    fallback: T,
+  ): T | string | number | null {
+    const p = pending.get(id);
+    if (p && field in p) return p[field] ?? null;
+    return fallback;
+  }
+
+  function discardAll() {
+    setPending(new Map());
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const pageRowIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
+  const allOnPageSelected =
+    pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
+
+  function toggleSelectAllOnPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) {
+        for (const id of pageRowIds) next.delete(id);
+      } else {
+        for (const id of pageRowIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function applyBulkStatus() {
+    if (!bulkStatus || selected.size === 0) return;
+    setPending((prev) => {
+      const next = new Map(prev);
+      for (const id of selected) {
+        const existing: Patch = next.get(id) ?? {};
+        next.set(id, { ...existing, status: bulkStatus });
+      }
+      return next;
+    });
+    toast.info(
+      `Staged status = ${ITEM_STATUS_LABELS[bulkStatus]} on ${selected.size} item${selected.size === 1 ? "" : "s"}. Confirm at bottom.`,
+    );
+    setBulkStatus("");
+  }
+
+  async function confirmAll() {
+    if (pending.size === 0) return;
+    setSaving(true);
+    const errors: { id: string; message: string }[] = [];
+    await Promise.all(
+      Array.from(pending.entries()).map(async ([id, patch]) => {
+        try {
+          const cleaned: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(patch)) {
+            cleaned[k] = typeof v === "string" && v.trim() === "" ? null : v;
+          }
+          const { error: uErr } = await supabase
+            .from("inventory_items")
+            .update(cleaned as never)
+            .eq("id", id);
+          if (uErr) throw uErr;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push({ id, message: msg });
+        }
+      }),
+    );
+    setSaving(false);
+    if (errors.length === 0) {
+      setPending(new Map());
+      setSelected(new Set());
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success(
+        `Saved ${pending.size} item${pending.size === 1 ? "" : "s"}.`,
+      );
+    } else {
+      const failedIds = new Set(errors.map((e) => e.id));
+      setPending((prev) => {
+        const next = new Map<string, Patch>();
+        for (const [id, patch] of prev) {
+          if (failedIds.has(id)) next.set(id, patch);
+        }
+        return next;
+      });
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.warning(
+        `Saved ${pending.size - errors.length}, ${errors.length} failed. First error: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+  }
+
+  const pendingCount = useMemo(() => {
+    let n = 0;
+    for (const p of pending.values()) n += Object.keys(p).length;
+    return n;
+  }, [pending]);
+
+  function SortIndicator({ field }: { field: keyof ItemFullRow }) {
+    if (sortField !== field) {
+      return (
+        <ChevronsUpDown className="ml-1 inline h-3 w-3 opacity-30" />
+      );
+    }
+    return sortDir === "asc" ? (
+      <ChevronUp className="ml-1 inline h-3 w-3" />
+    ) : (
+      <ChevronDown className="ml-1 inline h-3 w-3" />
+    );
+  }
+
+  function sortableHeader(label: string, field: keyof ItemFullRow) {
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSort(field)}
+        className="inline-flex items-center hover:text-foreground"
+      >
+        {label}
+        <SortIndicator field={field} />
+      </button>
+    );
+  }
+
+  const columns: ColumnSpec[] = [
+    {
+      id: "select",
+      header: (
+        <input
+          type="checkbox"
+          checked={allOnPageSelected}
+          onChange={toggleSelectAllOnPage}
+          className="h-3.5 w-3.5 cursor-pointer"
+          aria-label="Select all on page"
+        />
+      ),
+      headerClassName: "w-8 px-2",
+      cellClassName: "px-2 w-8",
+      stickyLeft: "0",
+      render: (it) => (
+        <input
+          type="checkbox"
+          checked={selected.has(it.id)}
+          onChange={() => toggleSelected(it.id)}
+          className="h-3.5 w-3.5 cursor-pointer"
+          aria-label="Select row"
+        />
+      ),
+    },
+    {
+      id: "pencil",
+      header: null,
+      headerClassName: "w-10 px-2",
+      cellClassName: "px-2 w-10",
+      stickyLeft: "2rem", // w-8 of checkbox
+      render: (it) => (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={() => setDetailItem(it)}
+          aria-label="Open full editor"
+        >
+          <Pencil className="h-3 w-3" />
+        </Button>
+      ),
+    },
+    {
+      id: "title",
+      header: sortableHeader("Title", "item_title"),
+      headerClassName: "min-w-[220px] w-[220px]",
+      cellClassName: "max-w-[220px] truncate font-medium",
+      stickyLeft: "4.5rem", // w-8 + w-10
+      sortKey: "item_title",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "title", it.item_title)}
+          pending={isPending(it.id, "title")}
+          onChange={(v) => stage(it.id, "title", v || it.item_title)}
+          className="truncate"
+        />
+      ),
+    },
+    {
+      id: "bin",
+      header: sortableHeader("Bin", "container"),
+      headerClassName: "w-16",
+      cellClassName: "font-mono text-[10px]",
+      sortKey: "container",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "container", it.container)}
+          pending={isPending(it.id, "container")}
+          onChange={(v) => stage(it.id, "container", v)}
+        />
+      ),
+    },
+    {
+      id: "sku",
+      header: sortableHeader("SKU", "item_number"),
+      headerClassName: "w-20",
+      cellClassName: "font-mono text-[10px]",
+      sortKey: "item_number",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "sku", it.item_number)}
+          pending={isPending(it.id, "sku")}
+          onChange={(v) => stage(it.id, "sku", v)}
+        />
+      ),
+    },
+    {
+      id: "brand",
+      header: sortableHeader("Brand", "brand"),
+      headerClassName: "w-24",
+      cellClassName: "max-w-[100px] truncate",
+      sortKey: "brand",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "brand", it.brand)}
+          pending={isPending(it.id, "brand")}
+          onChange={(v) => stage(it.id, "brand", v)}
+          className="truncate"
+        />
+      ),
+    },
+    {
+      id: "style",
+      header: sortableHeader("Style", "style"),
+      headerClassName: "w-24",
+      cellClassName: "max-w-[100px] truncate",
+      sortKey: "style",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "style", it.style)}
+          pending={isPending(it.id, "style")}
+          onChange={(v) => stage(it.id, "style", v)}
+          className="truncate"
+        />
+      ),
+    },
+    {
+      id: "size",
+      header: sortableHeader("Size", "size"),
+      headerClassName: "w-14",
+      cellClassName: "max-w-[60px] truncate",
+      sortKey: "size",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "size", it.size)}
+          pending={isPending(it.id, "size")}
+          onChange={(v) => stage(it.id, "size", v)}
+          className="truncate"
+        />
+      ),
+    },
+    {
+      id: "category",
+      header: sortableHeader("Category", "category"),
+      headerClassName: "w-20",
+      cellClassName: "text-[10px]",
+      sortKey: "category",
+      render: (it) => it.category ?? "",
+    },
+    {
+      id: "source",
+      header: sortableHeader("Source", "source_name"),
+      headerClassName: "w-24",
+      cellClassName: "max-w-[100px] truncate",
+      sortKey: "source_name",
+      render: (it) => it.source_name ?? "",
+    },
+    {
+      id: "by",
+      header: sortableHeader("By", "sourced_by"),
+      headerClassName: "w-20",
+      cellClassName: "max-w-[80px] truncate",
+      sortKey: "sourced_by",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "sourced_by", it.sourced_by)}
+          pending={isPending(it.id, "sourced_by")}
+          onChange={(v) => stage(it.id, "sourced_by", v)}
+          className="truncate"
+        />
+      ),
+    },
+    {
+      id: "cost",
+      header: (
+        <div className="text-right">
+          {sortableHeader("Cost", "purchase_price")}
+        </div>
+      ),
+      headerClassName: "w-16",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "purchase_price",
+      render: (it) => (
+        <InlineCell
+          value={displayValue(it.id, "acquired_price", it.purchase_price)}
+          pending={isPending(it.id, "acquired_price")}
+          type="number"
+          align="right"
+          onChange={(v) =>
+            stage(it.id, "acquired_price", v === "" ? null : Number(v))
+          }
+        />
+      ),
+    },
+    {
+      id: "bought",
+      header: sortableHeader("Bought", "purchase_date"),
+      headerClassName: "w-20",
+      cellClassName: "text-[10px]",
+      sortKey: "purchase_date",
+      render: (it) => fmtDate(it.purchase_date),
+    },
+    {
+      id: "listed",
+      header: sortableHeader("Listed", "list_date"),
+      headerClassName: "w-20",
+      cellClassName: "text-[10px]",
+      sortKey: "list_date",
+      render: (it) => fmtDate(it.list_date),
+    },
+    {
+      id: "list_price",
+      header: (
+        <div className="text-right">
+          {sortableHeader("List $", "list_price")}
+        </div>
+      ),
+      headerClassName: "w-16",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "list_price",
+      render: (it) => fmtMoney(it.list_price),
+    },
+    {
+      id: "link",
+      header: "Link",
+      headerClassName: "w-8",
+      render: (it) =>
+        it.link ? (
+          <a
+            href={it.link}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex text-brand-red"
+            aria-label="Open listing"
+          >
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        ) : null,
+    },
+    {
+      id: "sold",
+      header: sortableHeader("Sold", "sale_date"),
+      headerClassName: "w-20",
+      cellClassName: "text-[10px]",
+      sortKey: "sale_date",
+      render: (it) => fmtDate(it.sale_date),
+    },
+    {
+      id: "sale_price",
+      header: (
+        <div className="text-right">
+          {sortableHeader("Sale $", "sale_price")}
+        </div>
+      ),
+      headerClassName: "w-16",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "sale_price",
+      render: (it) => fmtMoney(it.sale_price),
+    },
+    {
+      id: "fees",
+      header: (
+        <div className="text-right">{sortableHeader("Fees", "fees")}</div>
+      ),
+      headerClassName: "w-14",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "fees",
+      render: (it) => fmtMoney(it.fees),
+    },
+    {
+      id: "tax",
+      header: (
+        <div className="text-right">{sortableHeader("Tax", "tax")}</div>
+      ),
+      headerClassName: "w-14",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "tax",
+      render: (it) => fmtMoney(it.tax),
+    },
+    {
+      id: "ship",
+      header: (
+        <div className="text-right">
+          {sortableHeader("Ship", "shipping_cost")}
+        </div>
+      ),
+      headerClassName: "w-14",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "shipping_cost",
+      render: (it) => fmtMoney(it.shipping_cost),
+    },
+    {
+      id: "net",
+      header: (
+        <div className="text-right">{sortableHeader("Net", "net_profit")}</div>
+      ),
+      headerClassName: "w-16",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "net_profit",
+      render: (it) => fmtMoney(it.net_profit),
+    },
+    {
+      id: "payout",
+      header: (
+        <div className="text-right">{sortableHeader("Payout", "payout")}</div>
+      ),
+      headerClassName: "w-16",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "payout",
+      render: (it) => fmtMoney(it.payout),
+    },
+    {
+      id: "status",
+      header: sortableHeader("Status", "status"),
+      headerClassName: "w-28",
+      sortKey: "status",
+      render: (it) => (
+        <Select
+          value={
+            displayValue(it.id, "status", it.status) as ItemStatus | string
+          }
+          onValueChange={(v) => stage(it.id, "status", v)}
+        >
+          <SelectTrigger
+            className={cn(
+              "h-7 border-0 bg-transparent px-2 text-xs hover:bg-muted/60",
+              isPending(it.id, "status") && "ring-1 ring-amber-400/60",
+            )}
+          >
+            <Badge
+              variant={
+                STATUS_BADGE_VARIANT[
+                  String(displayValue(it.id, "status", it.status))
+                ] ?? "secondary"
+              }
+              className="text-[10px]"
+            >
+              {
+                ITEM_STATUS_LABELS[
+                  String(displayValue(it.id, "status", it.status)) as ItemStatus
+                ]
+              }
+            </Badge>
+          </SelectTrigger>
+          <SelectContent>
+            {ITEM_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {ITEM_STATUS_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    },
+    {
+      id: "days",
+      header: (
+        <div className="text-right">{sortableHeader("Days", "days_to_sell")}</div>
+      ),
+      headerClassName: "w-10",
+      cellClassName: "text-right tabular-nums",
+      align: "right",
+      sortKey: "days_to_sell",
+      render: (it) => it.days_to_sell ?? "",
+    },
+    {
+      id: "tracking",
+      header: "Tracking",
+      headerClassName: "w-24",
+      cellClassName: "max-w-[120px] truncate font-mono text-[10px]",
+      render: (it) => it.tracking ?? "",
+    },
+  ];
+
+  const visibleColumns = columns.filter((c) => PRESETS[preset].has(c.id));
+
+  function stickyBgClasses(): string {
+    // Background that matches both default and row-hover. We apply both
+    // classes; the group-hover variant takes precedence on row hover.
+    return "bg-card group-hover:bg-muted/30";
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-24">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Items</h1>
           <p className="text-sm text-muted-foreground">
-            Click any cell to edit. Click <Pencil className="inline h-3 w-3" />{" "}
-            to open the full editor.
+            Click a cell to edit. Changes stage in amber until you{" "}
+            <strong>Confirm</strong> at the bottom of the screen.
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => downloadCsv(sorted)}
+            disabled={sorted.length === 0}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
           <Button variant="outline" asChild>
             <Link to="/dashboard/flipdesk/import">
               <Upload className="mr-2 h-4 w-4" />
@@ -232,11 +1046,35 @@ export function FlipdeskItemsPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Columns:
+        </span>
+        {(["triage", "listing", "sold", "all"] as const).map((p) => (
+          <Button
+            key={p}
+            variant={preset === p ? "secondary" : "ghost"}
+            size="sm"
+            onClick={() => setPreset(p)}
+          >
+            {PRESET_LABELS[p]}
+          </Button>
+        ))}
+      </div>
+
       <Card>
         <CardHeader>
-          <CardTitle>{filtered.length} items</CardTitle>
+          <CardTitle>
+            {sorted.length} item{sorted.length === 1 ? "" : "s"}
+            {selected.size > 0 && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({selected.size} selected)
+              </span>
+            )}
+          </CardTitle>
           <CardDescription>
-            Click a cell to edit; press Enter to save, Esc to cancel.
+            Title stays pinned on the left. Click a column header to sort.
+            Click a cell to edit.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -252,11 +1090,8 @@ export function FlipdeskItemsPage() {
               <div className="font-mono text-xs text-muted-foreground">
                 {error instanceof Error ? error.message : String(error)}
               </div>
-              <div className="text-xs text-muted-foreground">
-                If you just imported, apply migration 00010 (view permissions).
-              </div>
             </div>
-          ) : filtered.length === 0 ? (
+          ) : pageRows.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               No items yet.{" "}
               <Link
@@ -275,213 +1110,200 @@ export function FlipdeskItemsPage() {
               .
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table className="text-xs">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10" />
-                    <TableHead className="w-16">Bin</TableHead>
-                    <TableHead className="w-20">SKU</TableHead>
-                    <TableHead className="min-w-[180px]">Title</TableHead>
-                    <TableHead className="w-24">Brand</TableHead>
-                    <TableHead className="w-24">Style</TableHead>
-                    <TableHead className="w-14">Size</TableHead>
-                    <TableHead className="w-20">Category</TableHead>
-                    <TableHead className="w-24">Source</TableHead>
-                    <TableHead className="w-20">By</TableHead>
-                    <TableHead className="w-16 text-right">Cost</TableHead>
-                    <TableHead className="w-20">Bought</TableHead>
-                    <TableHead className="w-20">Listed</TableHead>
-                    <TableHead className="w-16 text-right">List $</TableHead>
-                    <TableHead className="w-8">Link</TableHead>
-                    <TableHead className="w-20">Sold</TableHead>
-                    <TableHead className="w-16 text-right">Sale $</TableHead>
-                    <TableHead className="w-14 text-right">Fees</TableHead>
-                    <TableHead className="w-14 text-right">Tax</TableHead>
-                    <TableHead className="w-14 text-right">Ship</TableHead>
-                    <TableHead className="w-16 text-right">Net</TableHead>
-                    <TableHead className="w-16 text-right">Payout</TableHead>
-                    <TableHead className="w-28">Status</TableHead>
-                    <TableHead className="w-10 text-right">Days</TableHead>
-                    <TableHead className="w-24">Tracking</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((it) => (
-                    <TableRow key={it.id} className="hover:bg-muted/30">
-                      <TableCell className="px-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={() => setDetailItem(it)}
-                          aria-label="Open full editor"
-                        >
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                      <TableCell className="font-mono text-[10px]">
-                        <InlineCell
-                          value={it.container}
-                          onCommit={(v) =>
-                            updateField(it.id, { container: v || null })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="font-mono text-[10px]">
-                        <InlineCell
-                          value={it.item_number}
-                          onCommit={(v) =>
-                            updateField(it.id, { sku: v || null })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="max-w-[220px] truncate font-medium">
-                        <InlineCell
-                          value={it.item_title}
-                          onCommit={(v) =>
-                            updateField(it.id, { title: v || it.item_title })
-                          }
-                          className="truncate"
-                        />
-                      </TableCell>
-                      <TableCell className="max-w-[100px] truncate">
-                        <InlineCell
-                          value={it.brand}
-                          onCommit={(v) =>
-                            updateField(it.id, { brand: v || null })
-                          }
-                          className="truncate"
-                        />
-                      </TableCell>
-                      <TableCell className="max-w-[100px] truncate">
-                        <InlineCell
-                          value={it.style}
-                          onCommit={(v) =>
-                            updateField(it.id, { style: v || null })
-                          }
-                          className="truncate"
-                        />
-                      </TableCell>
-                      <TableCell className="max-w-[60px] truncate">
-                        <InlineCell
-                          value={it.size}
-                          onCommit={(v) =>
-                            updateField(it.id, { size: v || null })
-                          }
-                          className="truncate"
-                        />
-                      </TableCell>
-                      <TableCell className="text-[10px]">
-                        {it.category ?? ""}
-                      </TableCell>
-                      <TableCell className="max-w-[100px] truncate">
-                        {it.source_name ?? ""}
-                      </TableCell>
-                      <TableCell className="max-w-[80px] truncate">
-                        <InlineCell
-                          value={it.sourced_by}
-                          onCommit={(v) =>
-                            updateField(it.id, { sourced_by: v || null })
-                          }
-                          className="truncate"
-                        />
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        <InlineCell
-                          value={it.purchase_price}
-                          type="number"
-                          align="right"
-                          onCommit={(v) =>
-                            updateField(it.id, {
-                              acquired_price: v === "" ? null : Number(v),
-                            })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="text-[10px]">
-                        {fmtDate(it.purchase_date)}
-                      </TableCell>
-                      <TableCell className="text-[10px]">
-                        {fmtDate(it.list_date)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.list_price)}
-                      </TableCell>
-                      <TableCell>
-                        {it.link ? (
-                          <a
-                            href={it.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex text-brand-red"
-                            aria-label="Open listing"
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="text-[10px]">
-                        {fmtDate(it.sale_date)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.sale_price)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.fees)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.tax)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.shipping_cost)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.net_profit)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {fmtMoney(it.payout)}
-                      </TableCell>
-                      <TableCell>
-                        <Select
-                          value={it.status}
-                          onValueChange={(v) =>
-                            updateStatus(it.id, v as ItemStatus)
+            <>
+              <div className="relative overflow-x-auto">
+                <Table className="text-xs">
+                  <TableHeader>
+                    <TableRow>
+                      {visibleColumns.map((c) => (
+                        <TableHead
+                          key={c.id}
+                          className={cn(
+                            c.headerClassName,
+                            c.align === "right" && "text-right",
+                            c.stickyLeft != null &&
+                              "sticky z-20 bg-card shadow-[1px_0_0_rgba(0,0,0,0.04)]",
+                          )}
+                          style={
+                            c.stickyLeft != null
+                              ? { left: c.stickyLeft }
+                              : undefined
                           }
                         >
-                          <SelectTrigger className="h-7 border-0 bg-transparent px-2 text-xs hover:bg-muted/60">
-                            <Badge
-                              variant={
-                                STATUS_BADGE_VARIANT[it.status] ?? "secondary"
-                              }
-                              className="text-[10px]"
-                            >
-                              {ITEM_STATUS_LABELS[it.status]}
-                            </Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {ITEM_STATUSES.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {ITEM_STATUS_LABELS[s]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {it.days_to_sell ?? ""}
-                      </TableCell>
-                      <TableCell className="max-w-[120px] truncate font-mono text-[10px]">
-                        {it.tracking ?? ""}
-                      </TableCell>
+                          {c.header}
+                        </TableHead>
+                      ))}
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {pageRows.map((it) => {
+                      const rowHasPending = pending.has(it.id);
+                      const isSel = selected.has(it.id);
+                      return (
+                        <TableRow
+                          key={it.id}
+                          className={cn(
+                            "group",
+                            rowHasPending && "border-l-2 border-l-amber-400",
+                            isSel && "bg-brand-navy/5",
+                          )}
+                        >
+                          {visibleColumns.map((c) => (
+                            <TableCell
+                              key={c.id}
+                              className={cn(
+                                c.cellClassName,
+                                c.stickyLeft != null && [
+                                  "sticky z-10",
+                                  stickyBgClasses(),
+                                  "shadow-[1px_0_0_rgba(0,0,0,0.04)]",
+                                  isSel && "!bg-brand-navy/5",
+                                ],
+                              )}
+                              style={
+                                c.stickyLeft != null
+                                  ? { left: c.stickyLeft }
+                                  : undefined
+                              }
+                            >
+                              {c.render(it)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination footer */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground">Rows per page:</span>
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(v) => setPageSize(Number(v))}
+                  >
+                    <SelectTrigger className="h-7 w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PAGE_SIZE_OPTIONS.map((n) => (
+                        <SelectItem key={n} value={String(n)}>
+                          {n}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="text-muted-foreground">
+                  {pageStart + 1}–{pageStart + pageRows.length} of {sorted.length}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage <= 1}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Prev
+                  </Button>
+                  <span className="px-2">
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage >= totalPages}
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk action bar — separate from pending bar, sits above it */}
+      {selected.size > 0 && (
+        <div
+          className={cn(
+            "fixed inset-x-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80",
+            pending.size > 0 ? "bottom-[68px]" : "bottom-0",
+          )}
+        >
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="text-sm">
+              <span className="font-semibold text-brand-navy">
+                {selected.size} selected
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                value={bulkStatus}
+                onValueChange={(v) => setBulkStatus(v as ItemStatus)}
+              >
+                <SelectTrigger className="h-9 w-48">
+                  <SelectValue placeholder="Set status to…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ITEM_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {ITEM_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button onClick={applyBulkStatus} disabled={!bulkStatus}>
+                Stage
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setSelected(new Set())}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pending.size > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="text-sm">
+              <span className="font-semibold text-amber-700 dark:text-amber-400">
+                {pendingCount} pending change{pendingCount === 1 ? "" : "s"}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                across {pending.size} item{pending.size === 1 ? "" : "s"}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={discardAll}
+                disabled={saving}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Discard
+              </Button>
+              <Button onClick={confirmAll} disabled={saving}>
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-2 h-4 w-4" />
+                )}
+                Confirm
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
     </div>

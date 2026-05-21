@@ -3,25 +3,28 @@ import { cn } from "@/lib/utils";
 
 type Props = {
   value: string | number | null;
-  onCommit: (next: string) => Promise<void> | void;
+  onChange: (next: string) => void;
   type?: "text" | "number";
   align?: "left" | "right";
   className?: string;
   placeholder?: string;
+  pending?: boolean;
 };
 
-// Click-to-edit cell. Save on Enter or blur, cancel on Esc.
+// Click-to-edit cell. Enter/blur stages the change (parent decides when to
+// actually persist). Esc cancels the edit. `pending` flag adds an amber tint
+// so the user can see which cells have unsaved changes.
 export function InlineCell({
   value,
-  onCommit,
+  onChange,
   type = "text",
   align = "left",
   className,
   placeholder = "—",
+  pending = false,
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(value == null ? "" : String(value));
-  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,21 +35,13 @@ export function InlineCell({
     if (editing) inputRef.current?.select();
   }, [editing]);
 
-  async function commit() {
-    if (saving) return;
+  function stage() {
     const trimmed = draft.trim();
     const current = value == null ? "" : String(value);
-    if (trimmed === current.trim()) {
-      setEditing(false);
-      return;
+    if (trimmed !== current.trim()) {
+      onChange(trimmed);
     }
-    setSaving(true);
-    try {
-      await onCommit(trimmed);
-    } finally {
-      setSaving(false);
-      setEditing(false);
-    }
+    setEditing(false);
   }
 
   if (editing) {
@@ -56,18 +51,17 @@ export function InlineCell({
         type={type}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => void commit()}
+        onBlur={stage}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            void commit();
+            stage();
           } else if (e.key === "Escape") {
             e.preventDefault();
             setDraft(value == null ? "" : String(value));
             setEditing(false);
           }
         }}
-        disabled={saving}
         className={cn(
           "w-full rounded-sm bg-background px-1 outline-none ring-1 ring-brand-navy",
           align === "right" && "text-right tabular-nums",
@@ -97,6 +91,7 @@ export function InlineCell({
       role="button"
       className={cn(
         "cursor-text rounded-sm px-1 -mx-1 hover:bg-muted/60 focus:bg-muted focus:outline-none",
+        pending && "bg-amber-100 ring-1 ring-amber-400/60 dark:bg-amber-950/40",
         align === "right" && "text-right tabular-nums",
         className,
       )}
