@@ -348,6 +348,9 @@ export function FlipdeskImportPage() {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Log full error to console so it's visible in DevTools even if the
+      // result panel is collapsed.
+      console.error("[FlipDesk import] pre-flight failed:", err);
       errors.push({ row: 0, message: `Pre-flight failed: ${message}` });
     }
 
@@ -366,9 +369,18 @@ export function FlipdeskImportPage() {
         }.`,
       );
     } else {
+      // Surface the first error message in the toast so the user doesn't
+      // have to dig into the result panel for the diagnostic.
+      const first = errors[0];
+      const firstMsg = first?.message ?? "unknown error";
       toast.warning(
-        `Imported ${inserted}, skipped ${skipped}, failed ${errors.length}.`,
+        `Imported ${inserted}, skipped ${skipped}, failed ${errors.length}. First error: ${firstMsg}`,
+        { duration: 12_000 },
       );
+      // Log each error to console for easy copy-paste.
+      for (const e of errors) {
+        console.error(`[FlipDesk import] row ${e.row}: ${e.message}`);
+      }
     }
   }
 
