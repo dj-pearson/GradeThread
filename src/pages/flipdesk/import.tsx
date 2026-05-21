@@ -54,9 +54,16 @@ type ImportRow = {
 
 type ImportResult = {
   inserted: number;
+  updated: number;
   failed: number;
   errors: { row: number; message: string }[];
 };
+
+type Progress =
+  | { phase: "idle" }
+  | { phase: "preflight"; message: string }
+  | { phase: "running"; current: number; total: number; message: string }
+  | { phase: "done" };
 
 function buildMapped(
   row: string[],
@@ -82,6 +89,7 @@ export function FlipdeskImportPage() {
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ImportField[]>([]);
   const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState<Progress>({ phase: "idle" });
   const [result, setResult] = useState<ImportResult | null>(null);
 
   function handleDetect() {
@@ -123,141 +131,218 @@ export function FlipdeskImportPage() {
     }
 
     setImporting(true);
+    setResult(null);
     const errors: { row: number; message: string }[] = [];
     let inserted = 0;
-    const sourceCache = new Map<string, string>();
+    let updated = 0;
 
-    for (let i = 0; i < mappedRows.length; i++) {
-      const item = mappedRows[i];
-      if (!item) continue;
-      const { mapped } = item;
-      const title = mapped.title;
-      if (!title) {
-        errors.push({ row: i + 2, message: "Missing item title" });
-        continue;
+    try {
+      // ── Phase 1: pre-resolve all unique sources in one pass ─────────
+      setProgress({ phase: "preflight", message: "Resolving sources…" });
+      const sourceCache = new Map<string, string>();
+      const uniqueSources = Array.from(
+        new Set(
+          mappedRows
+            .map((r) => r.mapped.source?.trim())
+            .filter((s): s is string => !!s),
+        ),
+      );
+      const rpcFn = supabase.rpc as unknown as (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: string | null; error: Error | null }>;
+      for (const name of uniqueSources) {
+        const { data: sid, error: sErr } = await rpcFn(
+          "get_or_create_source",
+          {
+            p_user_id: user.id,
+            p_name: name,
+            p_source_type: "other",
+          },
+        );
+        if (sErr) {
+          errors.push({ row: 0, message: `Source "${name}": ${sErr.message}` });
+          continue;
+        }
+        if (sid) sourceCache.set(name, sid);
       }
 
-      try {
-        // 1) Resolve source via RPC (creates if missing).
-        // Cast: get_or_create_source isn't in the generated Database type.
-        let sourceId: string | null = null;
-        const sourceName = mapped.source;
-        if (sourceName) {
-          if (sourceCache.has(sourceName)) {
-            sourceId = sourceCache.get(sourceName) ?? null;
-          } else {
-            const { data: sid, error: sErr } = await (
-              supabase.rpc as unknown as (
-                fn: string,
-                args: Record<string, unknown>,
-              ) => Promise<{ data: string | null; error: Error | null }>
-            )("get_or_create_source", {
-              p_user_id: user.id,
-              p_name: sourceName,
-              p_source_type: "other",
-            });
-            if (sErr) throw sErr;
-            sourceId = sid ?? null;
-            if (sourceId) sourceCache.set(sourceName, sourceId);
-          }
-        }
+      // ── Phase 2: pre-fetch existing SKUs so we route INSERT vs UPDATE ─
+      setProgress({ phase: "preflight", message: "Checking for duplicates…" });
+      const skus = Array.from(
+        new Set(
+          mappedRows
+            .map((r) => r.mapped.sku?.trim())
+            .filter((s): s is string => !!s),
+        ),
+      );
 
-        // 2) Parse comps cell into ItemComp[] (one comp with raw text in notes)
-        const comp_set: ItemComp[] = mapped.comps
-          ? [{ price: 0, notes: mapped.comps }]
-          : [];
-
-        // 3) Build inventory item insert
-        const purchaseDate = mapped.purchase_date
-          ? parseDate(mapped.purchase_date)
-          : null;
-        const status = mapped.status ? normalizeStatus(mapped.status) : null;
-        const category = mapped.item_category
-          ? normalizeCategory(mapped.item_category)
-          : null;
-
-        const itemInsert: InventoryItemInsert = {
-          user_id: user.id,
-          title,
-          sku: mapped.sku ?? null,
-          container: mapped.container ?? null,
-          description: mapped.description ?? null,
-          brand: mapped.brand ?? null,
-          style: mapped.style ?? null,
-          size: mapped.size ?? null,
-          condition_notes: mapped.condition_notes ?? null,
-          item_category: category,
-          source_id: sourceId,
-          sourced_by: mapped.sourced_by ?? null,
-          acquired_date: purchaseDate,
-          acquired_price: parsePrice(mapped.purchase_price ?? "") ?? null,
-          status: status ?? "acquired",
-          comp_set,
-        };
-
-        const { data: itemRow, error: itemErr } = await supabase
+      type ExistingRow = { id: string; sku: string | null };
+      const existingMap = new Map<string, string>(); // sku → id
+      // Chunk the IN clause — PostgREST URL length has a practical limit.
+      const CHUNK = 200;
+      for (let i = 0; i < skus.length; i += CHUNK) {
+        const chunk = skus.slice(i, i + CHUNK);
+        const { data, error: lookupErr } = await supabase
           .from("inventory_items")
-          .insert(itemInsert as never)
-          .select("id")
-          .single();
-
-        if (itemErr) throw itemErr;
-        const itemId = (itemRow as { id: string } | null)?.id;
-        if (!itemId) throw new Error("Insert returned no id");
-
-        // 4) Optional listing row
-        const listPrice = parsePrice(mapped.list_price ?? "");
-        const listDate = mapped.list_date ? parseDate(mapped.list_date) : null;
-        if (listPrice !== null || listDate !== null || mapped.link) {
-          const listingInsert: ListingInsert = {
-            inventory_item_id: itemId,
-            platform: "ebay",
-            listing_price: listPrice ?? 0,
-            listing_url: mapped.link ?? null,
-            listed_at: listDate ?? undefined,
-            is_active: status === "listed",
-          };
-          const { error: lErr } = await supabase
-            .from("listings")
-            .insert(listingInsert as never);
-          if (lErr) throw lErr;
+          .select("id, sku")
+          .eq("user_id", user.id)
+          .in("sku", chunk);
+        if (lookupErr) throw lookupErr;
+        for (const row of (data ?? []) as ExistingRow[]) {
+          if (row.sku) existingMap.set(row.sku, row.id);
         }
-
-        // 5) Optional sale row
-        const salePrice = parsePrice(mapped.sale_price ?? "");
-        const saleDate = mapped.sale_date ? parseDate(mapped.sale_date) : null;
-        if (salePrice !== null || saleDate !== null) {
-          const saleInsert: SaleInsert = {
-            inventory_item_id: itemId,
-            sale_price: salePrice ?? 0,
-            platform_fees: parsePrice(mapped.fees ?? "") ?? 0,
-            tax: parsePrice(mapped.tax ?? "") ?? 0,
-            shipping_cost: parsePrice(mapped.shipping_cost ?? "") ?? 0,
-            net_profit: parsePrice(mapped.net_profit ?? "") ?? null,
-            payout_amount: parsePrice(mapped.payout ?? "") ?? null,
-            tracking_number: mapped.tracking ?? null,
-            sold_at: saleDate,
-            sale_date: saleDate ?? undefined,
-          };
-          const { error: sErr } = await supabase
-            .from("sales")
-            .insert(saleInsert as never);
-          if (sErr) throw sErr;
-        }
-
-        inserted++;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push({ row: i + 2, message });
       }
+
+      // ── Phase 3: process rows sequentially with live progress ─────
+      for (let i = 0; i < mappedRows.length; i++) {
+        const item = mappedRows[i];
+        if (!item) continue;
+        const { mapped } = item;
+        const title = mapped.title;
+        if (!title) {
+          errors.push({ row: i + 2, message: "Missing item title" });
+          continue;
+        }
+
+        setProgress({
+          phase: "running",
+          current: i + 1,
+          total: mappedRows.length,
+          message: `Row ${i + 1} of ${mappedRows.length}`,
+        });
+
+        try {
+          const sourceName = mapped.source?.trim();
+          const sourceId = sourceName
+            ? sourceCache.get(sourceName) ?? null
+            : null;
+
+          const comp_set: ItemComp[] = mapped.comps
+            ? [{ price: 0, notes: mapped.comps }]
+            : [];
+
+          const purchaseDate = mapped.purchase_date
+            ? parseDate(mapped.purchase_date)
+            : null;
+          const status = mapped.status ? normalizeStatus(mapped.status) : null;
+          const category = mapped.item_category
+            ? normalizeCategory(mapped.item_category)
+            : null;
+
+          const sku = mapped.sku?.trim() ?? null;
+          const itemPayload: InventoryItemInsert = {
+            user_id: user.id,
+            title,
+            sku,
+            container: mapped.container ?? null,
+            description: mapped.description ?? null,
+            brand: mapped.brand ?? null,
+            style: mapped.style ?? null,
+            size: mapped.size ?? null,
+            condition_notes: mapped.condition_notes ?? null,
+            item_category: category,
+            source_id: sourceId,
+            sourced_by: mapped.sourced_by ?? null,
+            acquired_date: purchaseDate,
+            acquired_price: parsePrice(mapped.purchase_price ?? "") ?? null,
+            status: status ?? "acquired",
+            comp_set,
+          };
+
+          let itemId: string;
+          const existingId = sku ? existingMap.get(sku) : undefined;
+          if (existingId) {
+            // UPDATE existing item by id. Skip listings/sales — preserve any
+            // edits made in the UI since the last import.
+            const { error: updErr } = await supabase
+              .from("inventory_items")
+              .update(itemPayload as never)
+              .eq("id", existingId);
+            if (updErr) throw updErr;
+            itemId = existingId;
+            updated++;
+          } else {
+            const { data: itemRow, error: itemErr } = await supabase
+              .from("inventory_items")
+              .insert(itemPayload as never)
+              .select("id")
+              .single();
+            if (itemErr) throw itemErr;
+            const newId = (itemRow as { id: string } | null)?.id;
+            if (!newId) throw new Error("Insert returned no id");
+            itemId = newId;
+            inserted++;
+            if (sku) existingMap.set(sku, itemId);
+
+            // Only insert listings/sales for NEW items. Re-imports should not
+            // resurrect deleted listings or duplicate sale rows.
+            const listPrice = parsePrice(mapped.list_price ?? "");
+            const listDate = mapped.list_date
+              ? parseDate(mapped.list_date)
+              : null;
+            if (listPrice !== null || listDate !== null || mapped.link) {
+              const listingInsert: ListingInsert = {
+                inventory_item_id: itemId,
+                platform: "ebay",
+                listing_price: listPrice ?? 0,
+                listing_url: mapped.link ?? null,
+                listed_at: listDate ?? undefined,
+                is_active: status === "listed",
+              };
+              const { error: lErr } = await supabase
+                .from("listings")
+                .insert(listingInsert as never);
+              if (lErr) throw lErr;
+            }
+
+            const salePrice = parsePrice(mapped.sale_price ?? "");
+            const saleDate = mapped.sale_date
+              ? parseDate(mapped.sale_date)
+              : null;
+            if (salePrice !== null || saleDate !== null) {
+              const saleInsert: SaleInsert = {
+                inventory_item_id: itemId,
+                sale_price: salePrice ?? 0,
+                platform_fees: parsePrice(mapped.fees ?? "") ?? 0,
+                tax: parsePrice(mapped.tax ?? "") ?? 0,
+                shipping_cost: parsePrice(mapped.shipping_cost ?? "") ?? 0,
+                net_profit: parsePrice(mapped.net_profit ?? "") ?? null,
+                payout_amount: parsePrice(mapped.payout ?? "") ?? null,
+                tracking_number: mapped.tracking ?? null,
+                sold_at: saleDate,
+                sale_date: saleDate ?? undefined,
+              };
+              const { error: sErr } = await supabase
+                .from("sales")
+                .insert(saleInsert as never);
+              if (sErr) throw sErr;
+            }
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          errors.push({ row: i + 2, message });
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push({ row: 0, message: `Pre-flight failed: ${message}` });
     }
 
     setImporting(false);
-    setResult({ inserted, failed: errors.length, errors });
+    setProgress({ phase: "done" });
+    setResult({
+      inserted,
+      updated,
+      failed: errors.length,
+      errors,
+    });
     if (errors.length === 0) {
-      toast.success(`Imported ${inserted} items.`);
+      toast.success(`Imported ${inserted} new, updated ${updated}.`);
     } else {
-      toast.warning(`Imported ${inserted}, failed ${errors.length}.`);
+      toast.warning(
+        `Imported ${inserted}, updated ${updated}, failed ${errors.length}.`,
+      );
     }
   }
 
@@ -411,12 +496,14 @@ A1	GT-0001	Lululemon Align Pant	..."
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
+            disabled={importing}
             onClick={() => {
               setText("");
               setHeaders([]);
               setRows([]);
               setMapping([]);
               setResult(null);
+              setProgress({ phase: "idle" });
             }}
           >
             Reset
@@ -426,6 +513,42 @@ A1	GT-0001	Lululemon Align Pant	..."
             Import {rows.length} items
           </Button>
         </div>
+      )}
+
+      {/* Progress */}
+      {importing && progress.phase !== "idle" && progress.phase !== "done" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Importing…
+            </CardTitle>
+            <CardDescription>
+              {progress.phase === "preflight"
+                ? progress.message
+                : `${progress.message} (${Math.round(
+                    (progress.current / progress.total) * 100,
+                  )}%)`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-brand-navy transition-all"
+                style={{
+                  width:
+                    progress.phase === "running"
+                      ? `${(progress.current / progress.total) * 100}%`
+                      : "10%",
+                }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Don't close this tab — re-imports of the same SKUs will update
+              existing items, but it's faster to let this finish.
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Results */}
@@ -441,7 +564,8 @@ A1	GT-0001	Lululemon Align Pant	..."
               Import complete
             </CardTitle>
             <CardDescription>
-              {result.inserted} imported · {result.failed} failed
+              {result.inserted} new · {result.updated} updated ·{" "}
+              {result.failed} failed
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">

@@ -82,7 +82,7 @@ export function FlipdeskItemsPage() {
   const [statusFilter, setStatusFilter] = useState<ItemStatus | "all">("all");
   const [view, setView] = useState<ViewMode>("pipeline");
 
-  const { data: items, isLoading } = useQuery({
+  const { data: items, isLoading, error } = useQuery({
     queryKey: ["items_full", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -211,6 +211,19 @@ export function FlipdeskItemsPage() {
           {isLoading ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               Loading items…
+            </div>
+          ) : error ? (
+            <div className="space-y-2 py-12 text-center">
+              <div className="text-sm font-medium text-destructive">
+                Failed to load items
+              </div>
+              <div className="font-mono text-xs text-muted-foreground">
+                {error instanceof Error ? error.message : String(error)}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                If you just imported, make sure migration 00010 has been applied
+                to grant the view permissions.
+              </div>
             </div>
           ) : filtered.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
