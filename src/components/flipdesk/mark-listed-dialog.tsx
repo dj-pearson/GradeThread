@@ -1,0 +1,148 @@
+import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Loader2, Rocket } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { supabase } from "@/lib/supabase";
+import type { ItemFullRow, ListingInsert } from "@/types/database";
+
+// Quick "this is live on eBay now" action — the manual bridge until the
+// eBay API push (US-121) is wired.
+export function MarkListedDialog({
+  item,
+  onClose,
+}: {
+  item: ItemFullRow | null;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [url, setUrl] = useState("");
+  const [price, setPrice] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (item) {
+      setUrl(item.link ?? "");
+      setPrice(
+        String(item.list_price ?? item.target_price ?? ""),
+      );
+      setDate(new Date().toISOString().slice(0, 10));
+    }
+  }, [item]);
+
+  if (!item) return null;
+
+  async function save() {
+    if (!item) return;
+    const p = Number(price);
+    if (!Number.isFinite(p) || p <= 0) {
+      toast.error("Enter a valid list price.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload: ListingInsert = {
+        inventory_item_id: item.id,
+        platform: "ebay",
+        listing_status: "active",
+        listing_price: p,
+        listing_url: url.trim() || null,
+        listed_at: date || undefined,
+        is_active: true,
+      };
+      // Update the existing listing row if one exists, else insert.
+      if (item.listing_id) {
+        const { error } = await supabase
+          .from("listings")
+          .update(payload as never)
+          .eq("id", item.listing_id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("listings")
+          .insert(payload as never);
+        if (error) throw error;
+      }
+      const { error: sErr } = await supabase
+        .from("inventory_items")
+        .update({ status: "listed" } as never)
+        .eq("id", item.id);
+      if (sErr) throw sErr;
+
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success(`"${item.item_title}" marked as listed.`);
+      onClose();
+    } catch (err) {
+      toast.error(
+        `Failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Mark as listed</DialogTitle>
+          <DialogDescription>
+            Record that "{item.item_title}" is live on eBay.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <Label>List price</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Listing URL</Label>
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://www.ebay.com/itm/…"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>Listed date</Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Rocket className="mr-2 h-4 w-4" />
+            )}
+            Mark listed
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

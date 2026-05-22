@@ -33,6 +33,7 @@ import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
+import { resolveStatus } from "@/lib/workflow";
 import type {
   ItemComp,
   ItemFullRow,
@@ -125,6 +126,16 @@ export function ItemDetailDialog({ item, onClose }: Props) {
     if (!item || !state) return;
     setSaving(true);
     try {
+      const targetPrice = priceOrNull(state.target_price);
+      // Auto-advance status forward from completed work; manual picks of
+      // non-prep statuses still win. Never regresses.
+      const resolvedStatus = resolveStatus(item.status, state.status, {
+        hasMeasurements: Object.keys(state.measurements).length > 0,
+        hasRequiredPhotos: item.has_required_photos === true,
+        hasTargetPrice: targetPrice != null,
+        hasDraftListing: item.listing_id != null,
+      });
+
       const update = {
         title: state.title.trim() || item.item_title,
         sku: trimOrNull(state.sku),
@@ -137,10 +148,10 @@ export function ItemDetailDialog({ item, onClose }: Props) {
         item_category:
           state.item_category === "" ? null : state.item_category,
         sourced_by: trimOrNull(state.sourced_by),
-        status: state.status,
+        status: resolvedStatus,
         acquired_date: state.acquired_date || null,
         acquired_price: priceOrNull(state.acquired_price),
-        target_price: priceOrNull(state.target_price),
+        target_price: targetPrice,
         comp_set: state.comp_set.filter(
           (c) => Number.isFinite(c.price) && c.price > 0,
         ),
@@ -291,7 +302,7 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             Upload the required set (front, back, tag, detail) before sending
             the item to GradeThread or listing it.
           </p>
-          <PhotoUploader itemId={item.id} />
+          <PhotoUploader itemId={item.id} currentStatus={item.status} />
         </div>
 
         <div className="space-y-2">

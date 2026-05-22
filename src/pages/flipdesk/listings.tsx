@@ -60,6 +60,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
+import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
+import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import { cn } from "@/lib/utils";
 import type {
@@ -286,6 +288,12 @@ export function FlipdeskListingsPage() {
   const [busy, setBusy] = useState(false);
   const [endTarget, setEndTarget] = useState<ItemFullRow | null>(null);
   const [bulkDropPct, setBulkDropPct] = useState<string>("10");
+  const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(
+    null,
+  );
+  const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(
+    null,
+  );
 
   const isToList = tab === "to_list";
   const isSold = tab === "sold";
@@ -962,7 +970,12 @@ export function FlipdeskListingsPage() {
                         <TableHead className="w-16 text-right">Age</TableHead>
                       )}
                       {isActive && (
-                        <TableHead className="w-10 text-right" />
+                        <TableHead className="w-24 text-right">
+                          Actions
+                        </TableHead>
+                      )}
+                      {tab === "drafts" && (
+                        <TableHead className="w-16 text-right" />
                       )}
                       <TableHead className="w-8" />
                     </TableRow>
@@ -1184,15 +1197,40 @@ export function FlipdeskListingsPage() {
                               className="text-right"
                               onClick={(e) => e.stopPropagation()}
                             >
+                              <div className="flex items-center justify-end gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 px-2 text-[10px]"
+                                  onClick={() => setRecordSaleItem(it)}
+                                >
+                                  Sold
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-6 w-6 text-destructive"
+                                  onClick={() => setEndTarget(it)}
+                                  aria-label="End listing early"
+                                  title="End listing early"
+                                >
+                                  <XCircle className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                          )}
+                          {tab === "drafts" && (
+                            <TableCell
+                              className="text-right"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-6 w-6 text-destructive"
-                                onClick={() => setEndTarget(it)}
-                                aria-label="End listing early"
-                                title="End listing early"
+                                variant="outline"
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() => setMarkListedItem(it)}
                               >
-                                <XCircle className="h-3.5 w-3.5" />
+                                List it
                               </Button>
                             </TableCell>
                           )}
@@ -1371,6 +1409,15 @@ export function FlipdeskListingsPage() {
       </AlertDialog>
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+
+      <MarkListedDialog
+        item={markListedItem}
+        onClose={() => setMarkListedItem(null)}
+      />
+      <RecordSaleDialog
+        item={recordSaleItem}
+        onClose={() => setRecordSaleItem(null)}
+      />
     </div>
   );
 }

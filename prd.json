@@ -2791,6 +2791,39 @@
       "priority": 151,
       "passes": false,
       "notes": "BLOCKER: requires Sell Analytics API access (separate eBay subscription beyond basic OAuth). Document the access requirement in COOLIFY.md / setup docs."
+    },
+
+    {
+      "id": "US-152",
+      "title": "Auto-advancing status + per-item next action",
+      "description": "As a reseller, I should never babysit a status dropdown. Status should be a consequence of completed work, and every item should clearly show what to do next.",
+      "acceptanceCriteria": [
+        "src/lib/workflow.ts: stage ranks, earnedStatus (from measurements/photos/price/draft facts), resolveStatus (forward-only auto-advance, manual override for non-prep statuses, never regresses), nextAction (per-item what-to-do-next)",
+        "Migration adds photo_count + has_required_photos to items_full so the photographed gate is computable",
+        "ItemDetailDialog save runs resolveStatus; PhotoUploader auto-advances to photographed when the required set completes",
+        "NextActionBadge surfaced in the items table, Kanban cards, and listings",
+        "Manual status override preserved; status never moves backward automatically",
+        "Typecheck + lint pass"
+      ],
+      "priority": 152,
+      "passes": true,
+      "notes": "Completed. Workflow refinement requested by the operator — status auto-advances forward as prep work is done (measurements→measured, required photos→photographed, target price→comped, draft→drafted); manual picks of side-track/sale statuses still win; never regresses. Migration 00018 adds photo facts to items_full. NextActionBadge shows Add measurements / Add photos / Comp & price / Draft listing / Ready to list / Ship it / etc."
+    },
+
+    {
+      "id": "US-153",
+      "title": "Record-sale + mark-listed quick actions",
+      "description": "As a reseller, I need to log a sale and mark an item live without leaving FlipDesk — the back half of the workflow (list → sell → ship → complete) must be operable manually until the eBay API integration lands.",
+      "acceptanceCriteria": [
+        "MarkListedDialog: listing URL + price + date → upserts the listings row to active, advances item to 'listed'",
+        "RecordSaleDialog: sale price / fees / shipping / tax / buyer with a live net-profit preview → inserts a sales row, advances item to 'sold'",
+        "Both reachable from the Listings page (Drafts tab → List it, Active tab → Sold)",
+        "Sale row stores computed net_profit; P&L panel + reconciliation pick it up",
+        "Typecheck + lint pass"
+      ],
+      "priority": 153,
+      "passes": true,
+      "notes": "Completed. Fills the genuine gap where sales previously only existed via CSV import. src/components/flipdesk/mark-listed-dialog.tsx + record-sale-dialog.tsx. Wired into the Listings page as per-row actions on the Drafts and Active tabs. RecordSaleDialog shows a live net-profit preview against cost basis."
     }
   ]
 }

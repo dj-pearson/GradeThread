@@ -10,15 +10,26 @@ import {
   OPTIONAL_PHOTO_TYPES,
   PHOTO_TYPE_LABELS,
 } from "@/lib/constants";
+import { rankOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
-import type { ItemPhotoRow, FlipdeskPhotoType } from "@/types/database";
+import type {
+  ItemPhotoRow,
+  FlipdeskPhotoType,
+  ItemStatus,
+} from "@/types/database";
 
 function extOf(file: File): string {
   const m = file.name.match(/\.([a-z0-9]+)$/i);
   return m ? m[1]!.toLowerCase() : "jpg";
 }
 
-export function PhotoUploader({ itemId }: { itemId: string }) {
+export function PhotoUploader({
+  itemId,
+  currentStatus,
+}: {
+  itemId: string;
+  currentStatus?: ItemStatus;
+}) {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
@@ -63,6 +74,25 @@ export function PhotoUploader({ itemId }: { itemId: string }) {
           sort_order: photos.length,
         } as never);
       if (insErr) throw insErr;
+
+      // Auto-advance to "photographed" once the required set is complete.
+      const typesAfter = new Set(
+        photos.map((p) => p.photo_type).concat(photoType),
+      );
+      const requiredNowComplete = REQUIRED_PHOTO_TYPES.every((t) =>
+        typesAfter.has(t),
+      );
+      if (
+        requiredNowComplete &&
+        currentStatus &&
+        rankOf(currentStatus) < rankOf("photographed")
+      ) {
+        await supabase
+          .from("inventory_items")
+          .update({ status: "photographed" } as never)
+          .eq("id", itemId);
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+      }
 
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
       toast.success(`${PHOTO_TYPE_LABELS[photoType]} photo uploaded.`);

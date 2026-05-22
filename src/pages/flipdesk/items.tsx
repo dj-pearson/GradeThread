@@ -53,6 +53,7 @@ import {
 } from "@/lib/constants";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
@@ -75,6 +76,7 @@ type ColumnId =
   | "select"
   | "pencil"
   | "title"
+  | "next"
   | "bin"
   | "sku"
   | "brand"
@@ -117,6 +119,7 @@ const PRESETS: Record<Preset, Set<ColumnId>> = {
     "select",
     "pencil",
     "title",
+    "next",
     "bin",
     "sku",
     "brand",
@@ -133,6 +136,7 @@ const PRESETS: Record<Preset, Set<ColumnId>> = {
     "select",
     "pencil",
     "title",
+    "next",
     "sku",
     "brand",
     "style",
@@ -163,6 +167,7 @@ const PRESETS: Record<Preset, Set<ColumnId>> = {
     "select",
     "pencil",
     "title",
+    "next",
     "bin",
     "sku",
     "brand",
@@ -729,6 +734,12 @@ export function FlipdeskItemsPage() {
           className="truncate"
         />
       ),
+    },
+    {
+      id: "next",
+      header: "Next",
+      headerClassName: "w-32",
+      render: (it) => <NextActionBadge item={it} />,
     },
     {
       id: "bin",

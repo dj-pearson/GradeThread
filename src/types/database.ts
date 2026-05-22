@@ -350,6 +350,9 @@ export interface ItemFullRow {
   listing_id: string | null;
   listing_watchers: number | null;
   listing_views: number | null;
+  // Trailing columns added in migration 00018
+  photo_count: number;
+  has_required_photos: boolean;
 }
 
 export interface SavedViewRow {

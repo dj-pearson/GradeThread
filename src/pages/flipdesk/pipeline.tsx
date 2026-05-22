@@ -50,6 +50,7 @@ import {
 import { cn } from "@/lib/utils";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import type { ItemFullRow, ItemStatus, ItemCategory } from "@/types/database";
 
 const COLUMN_CAP = 50;
@@ -471,6 +472,9 @@ function ItemCardVisual({
       <div className="mt-1 line-clamp-1 text-[10px] text-muted-foreground">
         {[item.brand, item.style, item.size].filter(Boolean).join(" · ") ||
           "—"}
+      </div>
+      <div className="mt-1.5">
+        <NextActionBadge item={item} />
       </div>
       <div className="mt-2 flex items-center justify-between gap-2 text-[10px]">
         <div className="flex items-center gap-1.5">
