@@ -2571,8 +2571,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 140,
-      "passes": false,
-      "notes": "Pulls from sales + payout_imports + listings. Needs the items_full view (or a new sales_full view) to keep query count to 1."
+      "passes": true,
+      "notes": "Completed. Migration 00012 appends buyer_id / sold_at_raw / payout_reference / listing_status to items_full. Sold tab in listings.tsx: dedicated columns (sold$ / net / margin% / payout state / ship-by countdown / repeat-buyer star). Payout state inferred without US-125 (payout amount present = cleared; fees >20% of sale = discrepancy). Ship-by from sold_at + 3-day default handling window (red <24h or overdue, amber <48h, green otherwise). Repeat-buyer star when buyer_id has >1 sale. Filter chips: All / Awaiting payout / Discrepancy / 7d / 30d / YTD. Aggregate strip: count / gross / net / avg margin%. Bulk Mark-Shipped (reuses selection infra). 'Print label' eBay deep-link deferred — needs per-order eBay URL from US-122 sync."
     },
 
     {

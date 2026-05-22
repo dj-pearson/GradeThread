@@ -341,6 +341,11 @@ export interface ItemFullRow {
   location_bin: string | null;
   created_at: string;
   updated_at: string;
+  // Trailing columns added in migration 00012
+  buyer_id: string | null;
+  sold_at_raw: string | null;
+  payout_reference: string | null;
+  listing_status: ListingStatus | null;
 }
 
 export interface FlipdeskGradingSubmissionRow {

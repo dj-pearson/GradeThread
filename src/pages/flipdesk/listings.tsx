@@ -14,6 +14,8 @@ import {
   AlertCircle,
   FileText,
   Loader2,
+  Truck,
+  Star,
 } from "lucide-react";
 import {
   Card,
@@ -63,6 +65,7 @@ type TabId =
   | "returned";
 
 type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
+type SoldFilter = "all" | "awaiting_payout" | "discrepancy" | "d7" | "d30" | "ytd";
 
 const SORT_PRESET_LABELS: Record<SortPreset, string> = {
   listability: "Listability score",
@@ -71,11 +74,24 @@ const SORT_PRESET_LABELS: Record<SortPreset, string> = {
   highest_comp: "Highest comp",
 };
 
+const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
+  all: "All",
+  awaiting_payout: "Awaiting payout",
+  discrepancy: "Discrepancy",
+  d7: "Last 7 days",
+  d30: "Last 30 days",
+  ytd: "Year to date",
+};
+
 const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set([
   "graded",
   "comped",
   "photographed",
 ]);
+
+// Default eBay handling window for the ship-by countdown when no explicit
+// handling time is stored on the listing.
+const DEFAULT_HANDLING_DAYS = 3;
 
 interface TabDef {
   id: TabId;
@@ -146,6 +162,7 @@ const TABS: TabDef[] = [
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
 function fmtMoney(n: number | null | undefined): string {
@@ -189,6 +206,55 @@ function scoreColor(score: number): string {
   return "text-muted-foreground";
 }
 
+type PayoutState = "cleared" | "pending" | "discrepancy";
+
+// Without US-125 reconciliation, payout state is inferred: a recorded payout
+// amount = cleared; abnormally high fees (>20% of sale) = discrepancy.
+function payoutState(it: ItemFullRow): PayoutState {
+  if (it.payout != null && it.payout > 0) {
+    if (
+      it.sale_price != null &&
+      it.sale_price > 0 &&
+      it.fees != null &&
+      it.fees > it.sale_price * 0.2
+    ) {
+      return "discrepancy";
+    }
+    return "cleared";
+  }
+  return "pending";
+}
+
+function marginPct(it: ItemFullRow): number | null {
+  if (it.sale_price == null || it.sale_price <= 0) return null;
+  if (it.net_profit == null) return null;
+  return (it.net_profit / it.sale_price) * 100;
+}
+
+interface ShipBy {
+  label: string;
+  tone: "red" | "amber" | "green" | "none";
+}
+
+function shipByInfo(it: ItemFullRow): ShipBy {
+  const sold = it.sold_at_raw ?? it.sale_date;
+  const t = sold ? new Date(sold).getTime() : null;
+  if (t == null || isNaN(t)) return { label: "", tone: "none" };
+  const dueBy = t + DEFAULT_HANDLING_DAYS * DAY_MS;
+  const msLeft = dueBy - Date.now();
+  if (msLeft < 0) {
+    return {
+      label: `${Math.ceil(-msLeft / DAY_MS)}d overdue`,
+      tone: "red",
+    };
+  }
+  const hoursLeft = msLeft / HOUR_MS;
+  if (hoursLeft < 24) return { label: `${Math.round(hoursLeft)}h left`, tone: "red" };
+  if (hoursLeft < 48)
+    return { label: `${Math.round(hoursLeft)}h left`, tone: "amber" };
+  return { label: `${Math.round(hoursLeft / 24)}d left`, tone: "green" };
+}
+
 export function FlipdeskListingsPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
@@ -202,10 +268,13 @@ export function FlipdeskListingsPage() {
   const [pageSize, setPageSize] = useState<number>(100);
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   const [sortPreset, setSortPreset] = useState<SortPreset>("listability");
+  const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [drafting, setDrafting] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const isToList = tab === "to_list";
+  const isSold = tab === "sold";
+  const selectable = isToList || isSold;
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -221,7 +290,7 @@ export function FlipdeskListingsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, pageSize]);
+  }, [search, pageSize, soldFilter]);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", user?.id],
@@ -258,24 +327,31 @@ export function FlipdeskListingsPage() {
       returned: 0,
     };
     for (const it of items) {
-      for (const t of TABS) {
-        if (t.matches(it)) counts[t.id]++;
-      }
+      for (const t of TABS) if (t.matches(it)) counts[t.id]++;
     }
     return counts;
   }, [items]);
 
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0]!;
 
-  // Pre-compute listability for every item once.
   const scoreById = useMemo(() => {
     const m = new Map<string, number>();
     for (const it of items) m.set(it.id, scoreListability(it).score);
     return m;
   }, [items]);
 
+  // Count of sales per buyer — drives the repeat-buyer star.
+  const buyerCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of items) {
+      if (it.buyer_id) m.set(it.buyer_id, (m.get(it.buyer_id) ?? 0) + 1);
+    }
+    return m;
+  }, [items]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
     const rows = items.filter((it) => {
       if (!activeTab.matches(it)) return false;
       if (q) {
@@ -291,11 +367,29 @@ export function FlipdeskListingsPage() {
           .toLowerCase();
         if (!hay.includes(q)) return false;
       }
+      if (isSold && soldFilter !== "all") {
+        const soldT = it.sale_date ? new Date(it.sale_date).getTime() : null;
+        if (soldFilter === "awaiting_payout" && payoutState(it) !== "pending")
+          return false;
+        if (soldFilter === "discrepancy" && payoutState(it) !== "discrepancy")
+          return false;
+        if (
+          soldFilter === "d7" &&
+          (soldT == null || soldT < Date.now() - 7 * DAY_MS)
+        )
+          return false;
+        if (
+          soldFilter === "d30" &&
+          (soldT == null || soldT < Date.now() - 30 * DAY_MS)
+        )
+          return false;
+        if (soldFilter === "ytd" && (soldT == null || soldT < yearStart))
+          return false;
+      }
       return true;
     });
 
     if (isToList) {
-      // To-List has its own sort presets.
       rows.sort((a, b) => {
         switch (sortPreset) {
           case "listability":
@@ -335,7 +429,31 @@ export function FlipdeskListingsPage() {
       return String(av).localeCompare(String(bv)) * dir;
     });
     return rows;
-  }, [items, activeTab, search, isToList, sortPreset, scoreById]);
+  }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById]);
+
+  // Aggregate strip for the Sold tab — over the current filter.
+  const soldAgg = useMemo(() => {
+    if (!isSold) return null;
+    let gross = 0;
+    let net = 0;
+    let marginSum = 0;
+    let marginN = 0;
+    for (const it of filtered) {
+      gross += it.sale_price ?? 0;
+      net += it.net_profit ?? 0;
+      const m = marginPct(it);
+      if (m != null) {
+        marginSum += m;
+        marginN += 1;
+      }
+    }
+    return {
+      count: filtered.length,
+      gross,
+      net,
+      avgMargin: marginN > 0 ? marginSum / marginN : null,
+    };
+  }, [isSold, filtered]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -366,17 +484,13 @@ export function FlipdeskListingsPage() {
 
   async function bulkCreateDrafts() {
     if (selected.size === 0) return;
-    setDrafting(true);
-    const errors: { title: string; message: string }[] = [];
+    setBusy(true);
+    const errors: { message: string }[] = [];
     let created = 0;
-
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
       if (!it) continue;
       try {
-        // US-117's per-category template composer is not built yet — for now
-        // a draft seeds title/description from item fields and price from the
-        // target (fallback list) price. The composer will enrich these later.
         const listing: ListingInsert = {
           inventory_item_id: it.id,
           platform: "ebay",
@@ -390,21 +504,19 @@ export function FlipdeskListingsPage() {
           .from("listings")
           .insert(listing as never);
         if (lErr) throw lErr;
-
         const { error: uErr } = await supabase
           .from("inventory_items")
           .update({ status: "drafted" } as never)
           .eq("id", it.id);
         if (uErr) throw uErr;
-
         created++;
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        errors.push({ title: it.item_title, message });
+        errors.push({
+          message: err instanceof Error ? err.message : String(err),
+        });
       }
     }
-
-    setDrafting(false);
+    setBusy(false);
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     if (errors.length === 0) {
@@ -417,8 +529,40 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  async function bulkMarkShipped() {
+    if (selected.size === 0) return;
+    setBusy(true);
+    const errors: { message: string }[] = [];
+    let done = 0;
+    for (const id of selected) {
+      try {
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({ status: "shipped" } as never)
+          .eq("id", id);
+        if (error) throw error;
+        done++;
+      } catch (err) {
+        errors.push({
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    setBusy(false);
+    setSelected(new Set());
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(`Marked ${done} shipped.`);
+    } else {
+      toast.warning(
+        `Marked ${done} shipped, ${errors.length} failed. First: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+  }
+
   return (
-    <div className={cn("space-y-6", selected.size > 0 && "pb-24")}>
+    <div className={cn("space-y-6", selectable && selected.size > 0 && "pb-24")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Listings</h1>
@@ -458,6 +602,27 @@ export function FlipdeskListingsPage() {
         </TabsList>
       </Tabs>
 
+      {/* Sold-tab aggregate strip */}
+      {isSold && soldAgg && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <AggCard label="Sold" value={soldAgg.count.toLocaleString()} />
+          <AggCard label="Gross" value={fmtMoney(soldAgg.gross) || "$0.00"} />
+          <AggCard
+            label="Net profit"
+            value={fmtMoney(soldAgg.net) || "$0.00"}
+            tone={soldAgg.net < 0 ? "bad" : "good"}
+          />
+          <AggCard
+            label="Avg margin"
+            value={
+              soldAgg.avgMargin == null
+                ? "—"
+                : `${soldAgg.avgMargin.toFixed(1)}%`
+            }
+          />
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -477,9 +642,7 @@ export function FlipdeskListingsPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(
-                Object.keys(SORT_PRESET_LABELS) as SortPreset[]
-              ).map((p) => (
+              {(Object.keys(SORT_PRESET_LABELS) as SortPreset[]).map((p) => (
                 <SelectItem key={p} value={p}>
                   {SORT_PRESET_LABELS[p]}
                 </SelectItem>
@@ -488,6 +651,22 @@ export function FlipdeskListingsPage() {
           </Select>
         )}
       </div>
+
+      {/* Sold-tab filter chips */}
+      {isSold && (
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(SOLD_FILTER_LABELS) as SoldFilter[]).map((f) => (
+            <Button
+              key={f}
+              size="sm"
+              variant={soldFilter === f ? "default" : "outline"}
+              onClick={() => setSoldFilter(f)}
+            >
+              {SOLD_FILTER_LABELS[f]}
+            </Button>
+          ))}
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -499,11 +678,14 @@ export function FlipdeskListingsPage() {
           </CardTitle>
           <CardDescription>
             {isToList
-              ? "Sorted by " + SORT_PRESET_LABELS[sortPreset].toLowerCase() +
+              ? "Sorted by " +
+                SORT_PRESET_LABELS[sortPreset].toLowerCase() +
                 ". Select rows to bulk-create drafts."
-              : activeTab.sortDir === "asc"
-                ? "Oldest first. Click a row for full details."
-                : "Most recent first. Click a row for full details."}
+              : isSold
+                ? "Most recent sale first. Select rows to bulk mark shipped."
+                : activeTab.sortDir === "asc"
+                  ? "Oldest first. Click a row for full details."
+                  : "Most recent first. Click a row for full details."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -521,7 +703,7 @@ export function FlipdeskListingsPage() {
                     : tab === "active"
                       ? "No active listings."
                       : tab === "sold"
-                        ? "No sold items waiting to ship."
+                        ? "No sold items match this filter."
                         : tab === "shipped"
                           ? "Nothing shipped."
                           : tab === "returned"
@@ -557,7 +739,7 @@ export function FlipdeskListingsPage() {
                 <Table className="text-xs">
                   <TableHeader>
                     <TableRow>
-                      {isToList && (
+                      {selectable && (
                         <TableHead className="w-8 px-2">
                           <input
                             type="checkbox"
@@ -571,14 +753,39 @@ export function FlipdeskListingsPage() {
                       <TableHead className="w-10" />
                       <TableHead className="min-w-[220px]">Title</TableHead>
                       <TableHead className="w-32">Brand · Size</TableHead>
-                      <TableHead className="w-20 text-right">Cost</TableHead>
-                      <TableHead className="w-20 text-right">
-                        Target / List
-                      </TableHead>
-                      {isToList ? (
-                        <TableHead className="w-20 text-right">Score</TableHead>
+                      {isSold ? (
+                        <>
+                          <TableHead className="w-20 text-right">
+                            Sold $
+                          </TableHead>
+                          <TableHead className="w-20 text-right">Net</TableHead>
+                          <TableHead className="w-16 text-right">
+                            Margin
+                          </TableHead>
+                          <TableHead className="w-24">Payout</TableHead>
+                          <TableHead className="w-24">Ship by</TableHead>
+                          <TableHead className="w-10">Buyer</TableHead>
+                        </>
+                      ) : isToList ? (
+                        <>
+                          <TableHead className="w-20 text-right">
+                            Cost
+                          </TableHead>
+                          <TableHead className="w-20 text-right">
+                            Target / List
+                          </TableHead>
+                          <TableHead className="w-20 text-right">
+                            Score
+                          </TableHead>
+                        </>
                       ) : (
                         <>
+                          <TableHead className="w-20 text-right">
+                            Cost
+                          </TableHead>
+                          <TableHead className="w-20 text-right">
+                            Target / List
+                          </TableHead>
                           <TableHead className="w-20 text-right">
                             Sale
                           </TableHead>
@@ -586,7 +793,9 @@ export function FlipdeskListingsPage() {
                         </>
                       )}
                       <TableHead className="w-24">Status</TableHead>
-                      <TableHead className="w-16 text-right">Age</TableHead>
+                      {!isSold && (
+                        <TableHead className="w-16 text-right">Age</TableHead>
+                      )}
                       <TableHead className="w-8" />
                     </TableRow>
                   </TableHeader>
@@ -596,6 +805,12 @@ export function FlipdeskListingsPage() {
                       const aging = age != null && age >= 14;
                       const score = scoreById.get(it.id) ?? 0;
                       const isSel = selected.has(it.id);
+                      const pay = payoutState(it);
+                      const ship = shipByInfo(it);
+                      const m = marginPct(it);
+                      const repeat =
+                        it.buyer_id != null &&
+                        (buyerCounts.get(it.buyer_id) ?? 0) > 1;
                       return (
                         <TableRow
                           key={it.id}
@@ -605,7 +820,7 @@ export function FlipdeskListingsPage() {
                           )}
                           onClick={() => setDetailItem(it)}
                         >
-                          {isToList && (
+                          {selectable && (
                             <TableCell
                               className="px-2"
                               onClick={(e) => e.stopPropagation()}
@@ -639,25 +854,94 @@ export function FlipdeskListingsPage() {
                           <TableCell className="max-w-[140px] truncate text-muted-foreground">
                             {[it.brand, it.size].filter(Boolean).join(" · ")}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {fmtMoney(it.purchase_price)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {fmtMoney(it.target_price ?? it.list_price)}
-                          </TableCell>
-                          {isToList ? (
-                            <TableCell className="text-right">
-                              <span
+                          {isSold ? (
+                            <>
+                              <TableCell className="text-right tabular-nums">
+                                {fmtMoney(it.sale_price)}
+                              </TableCell>
+                              <TableCell
                                 className={cn(
-                                  "font-mono font-semibold tabular-nums",
-                                  scoreColor(score),
+                                  "text-right tabular-nums",
+                                  it.net_profit != null &&
+                                    it.net_profit < 0 &&
+                                    "text-destructive",
                                 )}
                               >
-                                {score}
-                              </span>
-                            </TableCell>
+                                {fmtMoney(it.net_profit)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {m == null ? "" : `${m.toFixed(0)}%`}
+                              </TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    pay === "cleared"
+                                      ? "default"
+                                      : pay === "discrepancy"
+                                        ? "destructive"
+                                        : "secondary"
+                                  }
+                                  className="text-[10px]"
+                                >
+                                  {pay}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {ship.tone !== "none" && (
+                                  <span
+                                    className={cn(
+                                      "inline-flex items-center gap-1 text-[10px] font-medium",
+                                      ship.tone === "red" &&
+                                        "text-destructive",
+                                      ship.tone === "amber" &&
+                                        "text-amber-600 dark:text-amber-400",
+                                      ship.tone === "green" &&
+                                        "text-emerald-600 dark:text-emerald-400",
+                                    )}
+                                  >
+                                    <Truck className="h-3 w-3" />
+                                    {ship.label}
+                                  </span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                {repeat && (
+                                  <span
+                                    title="Repeat buyer"
+                                    className="text-amber-500"
+                                  >
+                                    <Star className="h-3.5 w-3.5 fill-current" />
+                                  </span>
+                                )}
+                              </TableCell>
+                            </>
+                          ) : isToList ? (
+                            <>
+                              <TableCell className="text-right tabular-nums">
+                                {fmtMoney(it.purchase_price)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {fmtMoney(it.target_price ?? it.list_price)}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span
+                                  className={cn(
+                                    "font-mono font-semibold tabular-nums",
+                                    scoreColor(score),
+                                  )}
+                                >
+                                  {score}
+                                </span>
+                              </TableCell>
+                            </>
                           ) : (
                             <>
+                              <TableCell className="text-right tabular-nums">
+                                {fmtMoney(it.purchase_price)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {fmtMoney(it.target_price ?? it.list_price)}
+                              </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {fmtMoney(it.sale_price)}
                               </TableCell>
@@ -683,25 +967,27 @@ export function FlipdeskListingsPage() {
                               {ITEM_STATUS_LABELS[it.status]}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">
-                            {age != null && (
-                              <span
-                                className={cn(
-                                  "inline-flex items-center gap-1 tabular-nums",
-                                  aging
-                                    ? "font-medium text-destructive"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {aging ? (
-                                  <AlertCircle className="h-3 w-3" />
-                                ) : (
-                                  <Clock className="h-3 w-3" />
-                                )}
-                                {age}d
-                              </span>
-                            )}
-                          </TableCell>
+                          {!isSold && (
+                            <TableCell className="text-right">
+                              {age != null && (
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1 tabular-nums",
+                                    aging
+                                      ? "font-medium text-destructive"
+                                      : "text-muted-foreground",
+                                  )}
+                                >
+                                  {aging ? (
+                                    <AlertCircle className="h-3 w-3" />
+                                  ) : (
+                                    <Clock className="h-3 w-3" />
+                                  )}
+                                  {age}d
+                                </span>
+                              )}
+                            </TableCell>
+                          )}
                           <TableCell onClick={(e) => e.stopPropagation()}>
                             {it.link && (
                               <a
@@ -774,8 +1060,7 @@ export function FlipdeskListingsPage() {
         </CardContent>
       </Card>
 
-      {/* Bulk draft bar — To-List tab only */}
-      {isToList && selected.size > 0 && (
+      {selectable && selected.size > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
             <div className="text-sm font-semibold text-brand-navy">
@@ -785,24 +1070,63 @@ export function FlipdeskListingsPage() {
               <Button
                 variant="outline"
                 onClick={() => setSelected(new Set())}
-                disabled={drafting}
+                disabled={busy}
               >
                 Clear
               </Button>
-              <Button onClick={bulkCreateDrafts} disabled={drafting}>
-                {drafting ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <FileText className="mr-2 h-4 w-4" />
-                )}
-                Create {selected.size} draft{selected.size === 1 ? "" : "s"}
-              </Button>
+              {isToList ? (
+                <Button onClick={bulkCreateDrafts} disabled={busy}>
+                  {busy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileText className="mr-2 h-4 w-4" />
+                  )}
+                  Create {selected.size} draft
+                  {selected.size === 1 ? "" : "s"}
+                </Button>
+              ) : (
+                <Button onClick={bulkMarkShipped} disabled={busy}>
+                  {busy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Truck className="mr-2 h-4 w-4" />
+                  )}
+                  Mark {selected.size} shipped
+                </Button>
+              )}
             </div>
           </div>
         </div>
       )}
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+    </div>
+  );
+}
+
+function AggCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "good" | "bad";
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={cn(
+          "mt-1 text-xl font-bold tabular-nums",
+          tone === "bad" && "text-destructive",
+          tone === "good" && "text-emerald-600 dark:text-emerald-400",
+        )}
+      >
+        {value}
+      </div>
     </div>
   );
 }
