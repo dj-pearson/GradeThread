@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
+import { CommandPalette } from "@/components/flipdesk/command-palette";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -19,6 +20,8 @@ export function DashboardLayout() {
           </ErrorBoundary>
         </main>
       </div>
+      {/* Global Cmd/Ctrl-K command palette */}
+      <CommandPalette />
     </div>
   );
 }

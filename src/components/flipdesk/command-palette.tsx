@@ -1,0 +1,331 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  Search,
+  Package,
+  MapPin,
+  Plus,
+  LayoutGrid,
+  Gauge,
+  ListChecks,
+  Table2,
+  Scale,
+  Clock,
+  CornerDownLeft,
+} from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { useAuthStore } from "@/stores/auth-store";
+import { useRecentStore } from "@/stores/recent-store";
+import { ITEM_STATUS_LABELS } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import type { ItemFullRow, SourceRow } from "@/types/database";
+
+type Entry =
+  | { kind: "action"; id: string; label: string; icon: React.ReactNode; run: () => void }
+  | { kind: "item"; id: string; item: ItemFullRow }
+  | { kind: "source"; id: string; source: SourceRow };
+
+interface Section {
+  title: string;
+  entries: Entry[];
+}
+
+const PER_SECTION = 8;
+
+export function CommandPalette() {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const recentIds = useRecentStore((s) => s.recentItemIds);
+
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  // Global Cmd/Ctrl-K toggle.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpen((o) => !o);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      setActiveIdx(0);
+    }
+  }, [open]);
+
+  // Read whatever the app already cached — no extra round-trips.
+  const items =
+    qc.getQueryData<ItemFullRow[]>(["items_full", user?.id]) ?? [];
+  const sources = qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? [];
+
+  const go = (to: string) => {
+    setOpen(false);
+    navigate(to);
+  };
+
+  const actions: Entry[] = useMemo(
+    () => [
+      {
+        kind: "action",
+        id: "intake",
+        label: "Intake new item",
+        icon: <Plus className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/intake"),
+      },
+      {
+        kind: "action",
+        id: "new-source",
+        label: "New source",
+        icon: <MapPin className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/sources"),
+      },
+      {
+        kind: "action",
+        id: "overview",
+        label: "Go to Overview",
+        icon: <Gauge className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk"),
+      },
+      {
+        kind: "action",
+        id: "listings",
+        label: "Go to Listings",
+        icon: <ListChecks className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/listings"),
+      },
+      {
+        kind: "action",
+        id: "items",
+        label: "Go to Items",
+        icon: <Table2 className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/items"),
+      },
+      {
+        kind: "action",
+        id: "pipeline",
+        label: "Go to Pipeline",
+        icon: <LayoutGrid className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/pipeline"),
+      },
+      {
+        kind: "action",
+        id: "reconciliation",
+        label: "Go to Reconciliation",
+        icon: <Scale className="h-4 w-4" />,
+        run: () => go("/dashboard/flipdesk/reconciliation"),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  const sections: Section[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+
+    const matchAction = actions.filter(
+      (a) => a.kind === "action" && a.label.toLowerCase().includes(q),
+    );
+
+    const matchItems: Entry[] = items
+      .filter((it) => {
+        if (!q) return false;
+        const hay = [it.item_title, it.brand, it.item_number, it.style]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(q);
+      })
+      .slice(0, PER_SECTION)
+      .map((it) => ({ kind: "item", id: it.id, item: it }) as Entry);
+
+    const matchSources: Entry[] = sources
+      .filter((s) => q && s.name.toLowerCase().includes(q))
+      .slice(0, PER_SECTION)
+      .map((s) => ({ kind: "source", id: s.id, source: s }) as Entry);
+
+    const recentEntries: Entry[] = !q
+      ? recentIds
+          .map((id) => items.find((it) => it.id === id))
+          .filter((it): it is ItemFullRow => !!it)
+          .slice(0, 5)
+          .map((it) => ({ kind: "item", id: it.id, item: it }) as Entry)
+      : [];
+
+    const out: Section[] = [];
+    if (recentEntries.length > 0)
+      out.push({ title: "Recent", entries: recentEntries });
+    if (matchAction.length > 0)
+      out.push({ title: "Actions", entries: matchAction });
+    if (matchItems.length > 0)
+      out.push({ title: "Items", entries: matchItems });
+    if (matchSources.length > 0)
+      out.push({ title: "Sources", entries: matchSources });
+    return out;
+  }, [query, actions, items, sources, recentIds]);
+
+  // Flat list for keyboard navigation.
+  const flat = useMemo(
+    () => sections.flatMap((s) => s.entries),
+    [sections],
+  );
+
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [query]);
+
+  function selectEntry(entry: Entry) {
+    if (entry.kind === "action") {
+      entry.run();
+    } else if (entry.kind === "item") {
+      setOpen(false);
+      navigate(`/dashboard/flipdesk/items?focus=${entry.item.id}`);
+    } else {
+      setOpen(false);
+      navigate("/dashboard/flipdesk/sources");
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(flat.length - 1, i + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(0, i - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const entry = flat[activeIdx];
+      if (entry) selectEntry(entry);
+    }
+  }
+
+  // Scroll the active row into view.
+  useEffect(() => {
+    const el = listRef.current?.querySelector(`[data-idx="${activeIdx}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
+  let runningIdx = -1;
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent
+        className="max-w-xl gap-0 overflow-hidden p-0"
+        onKeyDown={onKeyDown}
+      >
+        <DialogTitle className="sr-only">Command palette</DialogTitle>
+        <div className="flex items-center gap-2 border-b px-3">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <input
+            ref={inputRef}
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search items, sources, actions…"
+            className="h-12 flex-1 bg-transparent text-sm outline-none"
+          />
+          <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            Esc
+          </kbd>
+        </div>
+
+        <div ref={listRef} className="max-h-[60vh] overflow-y-auto p-2">
+          {flat.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              {query ? "No matches." : "Type to search, or pick an action."}
+            </div>
+          ) : (
+            sections.map((section) => (
+              <div key={section.title} className="mb-2">
+                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {section.title}
+                </div>
+                {section.entries.map((entry) => {
+                  runningIdx++;
+                  const idx = runningIdx;
+                  const isActive = idx === activeIdx;
+                  return (
+                    <button
+                      key={`${entry.kind}-${entry.id}`}
+                      type="button"
+                      data-idx={idx}
+                      onMouseMove={() => setActiveIdx(idx)}
+                      onClick={() => selectEntry(entry)}
+                      className={cn(
+                        "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm",
+                        isActive ? "bg-muted" : "hover:bg-muted/60",
+                      )}
+                    >
+                      {entry.kind === "action" && (
+                        <>
+                          <span className="text-muted-foreground">
+                            {entry.icon}
+                          </span>
+                          <span className="flex-1">{entry.label}</span>
+                        </>
+                      )}
+                      {entry.kind === "item" && (
+                        <>
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <span className="flex-1 truncate">
+                            {entry.item.item_title}
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px]"
+                          >
+                            {ITEM_STATUS_LABELS[entry.item.status]}
+                          </Badge>
+                          {entry.item.target_price != null && (
+                            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                              ${entry.item.target_price.toFixed(0)}
+                            </span>
+                          )}
+                        </>
+                      )}
+                      {entry.kind === "source" && (
+                        <>
+                          <MapPin className="h-4 w-4 text-muted-foreground" />
+                          <span className="flex-1 truncate">
+                            {entry.source.name}
+                          </span>
+                        </>
+                      )}
+                      {isActive && (
+                        <CornerDownLeft className="h-3 w-3 text-muted-foreground" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 border-t px-3 py-2 text-[10px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Clock className="h-3 w-3" /> ↑↓ navigate
+          </span>
+          <span>↵ select</span>
+          <span className="ml-auto">⌘K to toggle</span>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

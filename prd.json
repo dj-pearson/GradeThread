@@ -2611,8 +2611,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 142,
-      "passes": false,
-      "notes": "Pairs with US-144 (FTS index) — palette uses the same backing search RPC. Without FTS it falls back to ilike on a few columns."
+      "passes": true,
+      "notes": "Completed. Built without cmdk (no dep added) — Dialog + manual keyboard nav. src/components/flipdesk/command-palette.tsx mounted globally in dashboard-layout. Cmd/Ctrl-K toggles. Sections: Recent / Actions / Items / Sources. Searches the already-cached items_full + sources query data client-side (no extra round-trips, so no debounce needed) — when US-144 FTS lands this can swap to the RPC. Recent = src/stores/recent-store.ts (zustand + localStorage persist, last 10 opened items, pushed from ItemDetailDialog). Keyboard nav up/down/enter/esc, mouse hover updates focus. Item select navigates to /items?focus=<id>; items.tsx opens the detail dialog from that param. Listing/Sale/Buyer/Payout sections folded into Items for now; composer-open deferred to US-117."
     },
 
     {

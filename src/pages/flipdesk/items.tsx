@@ -404,6 +404,20 @@ export function FlipdeskItemsPage() {
     },
   });
 
+  // Open the detail dialog when arrived via ?focus=<id> (command palette).
+  useEffect(() => {
+    const focusId = searchParams.get("focus");
+    if (!focusId || !items || detailItem) return;
+    const target = items.find((i) => i.id === focusId);
+    if (target) {
+      setDetailItem(target);
+      const next = new URLSearchParams(searchParams);
+      next.delete("focus");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, searchParams]);
+
   const filtered = useMemo(() => {
     if (!items) return [];
     const personalSet = new Set<string>(PERSONAL_STATUSES);

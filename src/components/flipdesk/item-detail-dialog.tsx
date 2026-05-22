@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
+import { useRecentStore } from "@/stores/recent-store";
 import {
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
@@ -93,12 +94,15 @@ function priceOrNull(v: string): number | null {
 
 export function ItemDetailDialog({ item, onClose }: Props) {
   const qc = useQueryClient();
+  const pushRecent = useRecentStore((s) => s.pushRecent);
   const [state, setState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setState(item ? toState(item) : null);
-  }, [item]);
+    // Record the opened item for the command-palette Recent section.
+    if (item) pushRecent(item.id);
+  }, [item, pushRecent]);
 
   if (!item || !state) return null;
 
