@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { FileText } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -101,6 +103,7 @@ function priceOrNull(v: string): number | null {
 
 export function ItemDetailDialog({ item, onClose }: Props) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const pushRecent = useRecentStore((s) => s.pushRecent);
   const [state, setState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -348,13 +351,26 @@ export function ItemDetailDialog({ item, onClose }: Props) {
           </div>
         )}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="outline"
+            onClick={() => {
+              onClose();
+              navigate(`/dashboard/flipdesk/items/${item.id}/draft`);
+            }}
+            disabled={saving}
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Draft listing
           </Button>
-          <Button onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

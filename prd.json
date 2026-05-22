@@ -2170,8 +2170,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 117,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Route /dashboard/flipdesk/items/:id/draft → src/pages/flipdesk/composer.tsx. Title builder: 80-char counter (amber >70, red at cap), brand-first Suggest, append-keyword chips. src/lib/listing-templates.ts: per-group description templates (top/bottom/dress/outerwear/shoes/watch/generic) with {{brand}}/{{title}}/{{size}}/{{color}}/{{material}}/{{condition}}/{{measurements}}/{{grade}} interpolation; measurements jsonb rendered as a block; GradeThread grade + certificate URL auto-embedded when graded. Save upserts the draft listings row (updates existing draft else inserts) + sets item status=drafted, routes to Listings?tab=drafts. Reachable via 'Draft listing' button in ItemDetailDialog footer. Structured item-specifics map deferred — folded into the description for now; eBay Taxonomy mapping is US-121."
     },
 
     {
