@@ -2231,8 +2231,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 128,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. /dashboard/flipdesk/analytics — Sell-through tab. src/lib/flipdesk-analytics.ts (pure helpers over items_full), src/pages/flipdesk/analytics.tsx. Group by category/brand/source, date-range presets (all/30d/90d/12mo), horizontal Recharts bar for sell-through rate + detail table with avg net profit and median days-to-sell. Sidebar Analytics entry."
     },
     {
       "id": "US-129",
@@ -2246,8 +2246,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 129,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. /dashboard/flipdesk/analytics/grading-roi (Grading ROI tab on the same page). Graded vs ungraded sold items bucketed by garment category + price band (<$50, $50-150, $150+); buckets with <5 items per side flagged low-n and excluded from callouts; positive-lift callouts surfaced. gradingRoiBuckets in src/lib/flipdesk-analytics.ts."
     },
     {
       "id": "US-130",
