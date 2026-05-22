@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Search,
   ChevronLeft,
@@ -11,6 +12,8 @@ import {
   Upload,
   Clock,
   AlertCircle,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import {
   Card,
@@ -42,8 +45,13 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { scoreListability, maxCompPrice } from "@/lib/listability";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type {
+  ItemFullRow,
+  ItemStatus,
+  ListingInsert,
+} from "@/types/database";
 
 type TabId =
   | "all"
@@ -53,6 +61,15 @@ type TabId =
   | "sold"
   | "shipped"
   | "returned";
+
+type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
+
+const SORT_PRESET_LABELS: Record<SortPreset, string> = {
+  listability: "Listability score",
+  oldest: "Oldest first",
+  best_roi: "Best ROI",
+  highest_comp: "Highest comp",
+};
 
 const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set([
   "graded",
@@ -64,7 +81,6 @@ interface TabDef {
   id: TabId;
   label: string;
   matches: (it: ItemFullRow) => boolean;
-  // Date field used for the default sort
   sortKey: keyof ItemFullRow;
   sortDir: "asc" | "desc";
   emptyCta: { label: string; to: string };
@@ -84,7 +100,7 @@ const TABS: TabDef[] = [
     label: "To List",
     matches: (it) => TO_LIST_STATUSES.has(it.status),
     sortKey: "updated_at",
-    sortDir: "asc", // oldest first — these have been waiting longest
+    sortDir: "asc",
     emptyCta: { label: "Add an item", to: "/dashboard/flipdesk/intake" },
   },
   {
@@ -167,8 +183,15 @@ const STATUS_BADGE_VARIANT: Record<
   wearing: "outline",
 };
 
+function scoreColor(score: number): string {
+  if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
+  if (score >= 45) return "text-amber-600 dark:text-amber-400";
+  return "text-muted-foreground";
+}
+
 export function FlipdeskListingsPage() {
   const user = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get("tab") as TabId) ?? "to_list";
   const [tab, setTab] = useState<TabId>(
@@ -178,8 +201,12 @@ export function FlipdeskListingsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(100);
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
+  const [sortPreset, setSortPreset] = useState<SortPreset>("listability");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [drafting, setDrafting] = useState(false);
 
-  // Sync URL ?tab= when tab changes.
+  const isToList = tab === "to_list";
+
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
     if (tab === "to_list") next.delete("tab");
@@ -188,6 +215,7 @@ export function FlipdeskListingsPage() {
       setSearchParams(next, { replace: true });
     }
     setPage(1);
+    setSelected(new Set());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -219,7 +247,6 @@ export function FlipdeskListingsPage() {
     },
   });
 
-  // Tab counts — derived from a single client-side filter pass.
   const tabCounts = useMemo(() => {
     const counts: Record<TabId, number> = {
       all: 0,
@@ -239,6 +266,13 @@ export function FlipdeskListingsPage() {
   }, [items]);
 
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0]!;
+
+  // Pre-compute listability for every item once.
+  const scoreById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const it of items) m.set(it.id, scoreListability(it).score);
+    return m;
+  }, [items]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -260,6 +294,33 @@ export function FlipdeskListingsPage() {
       return true;
     });
 
+    if (isToList) {
+      // To-List has its own sort presets.
+      rows.sort((a, b) => {
+        switch (sortPreset) {
+          case "listability":
+            return (scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0);
+          case "oldest": {
+            const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return at - bt;
+          }
+          case "best_roi": {
+            const roi = (it: ItemFullRow) => {
+              const price = it.target_price ?? it.list_price;
+              const cost = it.purchase_price ?? 0;
+              if (price == null || price <= 0) return -1;
+              return (price - cost) / price;
+            };
+            return roi(b) - roi(a);
+          }
+          case "highest_comp":
+            return maxCompPrice(b) - maxCompPrice(a);
+        }
+      });
+      return rows;
+    }
+
     const dir = activeTab.sortDir === "asc" ? 1 : -1;
     const key = activeTab.sortKey;
     rows.sort((a, b) => {
@@ -274,15 +335,90 @@ export function FlipdeskListingsPage() {
       return String(av).localeCompare(String(bv)) * dir;
     });
     return rows;
-  }, [items, activeTab, search]);
+  }, [items, activeTab, search, isToList, sortPreset, scoreById]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
   const pageRows = filtered.slice(pageStart, pageStart + pageSize);
 
+  const pageRowIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
+  const allOnPageSelected =
+    pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) for (const id of pageRowIds) next.delete(id);
+      else for (const id of pageRowIds) next.add(id);
+      return next;
+    });
+  }
+
+  async function bulkCreateDrafts() {
+    if (selected.size === 0) return;
+    setDrafting(true);
+    const errors: { title: string; message: string }[] = [];
+    let created = 0;
+
+    for (const id of selected) {
+      const it = items.find((i) => i.id === id);
+      if (!it) continue;
+      try {
+        // US-117's per-category template composer is not built yet — for now
+        // a draft seeds title/description from item fields and price from the
+        // target (fallback list) price. The composer will enrich these later.
+        const listing: ListingInsert = {
+          inventory_item_id: it.id,
+          platform: "ebay",
+          listing_status: "draft",
+          listing_price: it.target_price ?? it.list_price ?? 0,
+          listing_title: it.item_title,
+          listing_description: it.item_description ?? null,
+          is_active: false,
+        };
+        const { error: lErr } = await supabase
+          .from("listings")
+          .insert(listing as never);
+        if (lErr) throw lErr;
+
+        const { error: uErr } = await supabase
+          .from("inventory_items")
+          .update({ status: "drafted" } as never)
+          .eq("id", it.id);
+        if (uErr) throw uErr;
+
+        created++;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push({ title: it.item_title, message });
+      }
+    }
+
+    setDrafting(false);
+    setSelected(new Set());
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(`Created ${created} draft${created === 1 ? "" : "s"}.`);
+    } else {
+      toast.warning(
+        `Created ${created}, ${errors.length} failed. First: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+  }
+
   return (
-    <div className="space-y-6">
+    <div className={cn("space-y-6", selected.size > 0 && "pb-24")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Listings</h1>
@@ -332,6 +468,25 @@ export function FlipdeskListingsPage() {
             className="w-64 pl-9"
           />
         </div>
+        {isToList && (
+          <Select
+            value={sortPreset}
+            onValueChange={(v) => setSortPreset(v as SortPreset)}
+          >
+            <SelectTrigger className="w-48">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(
+                Object.keys(SORT_PRESET_LABELS) as SortPreset[]
+              ).map((p) => (
+                <SelectItem key={p} value={p}>
+                  {SORT_PRESET_LABELS[p]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
 
       <Card>
@@ -343,8 +498,12 @@ export function FlipdeskListingsPage() {
             </span>
           </CardTitle>
           <CardDescription>
-            {activeTab.sortDir === "asc" ? "Oldest first" : "Most recent first"}
-            . Click a row for full details.
+            {isToList
+              ? "Sorted by " + SORT_PRESET_LABELS[sortPreset].toLowerCase() +
+                ". Select rows to bulk-create drafts."
+              : activeTab.sortDir === "asc"
+                ? "Oldest first. Click a row for full details."
+                : "Most recent first. Click a row for full details."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -398,6 +557,17 @@ export function FlipdeskListingsPage() {
                 <Table className="text-xs">
                   <TableHeader>
                     <TableRow>
+                      {isToList && (
+                        <TableHead className="w-8 px-2">
+                          <input
+                            type="checkbox"
+                            checked={allOnPageSelected}
+                            onChange={toggleSelectAll}
+                            className="h-3.5 w-3.5 cursor-pointer"
+                            aria-label="Select all on page"
+                          />
+                        </TableHead>
+                      )}
                       <TableHead className="w-10" />
                       <TableHead className="min-w-[220px]">Title</TableHead>
                       <TableHead className="w-32">Brand · Size</TableHead>
@@ -405,8 +575,16 @@ export function FlipdeskListingsPage() {
                       <TableHead className="w-20 text-right">
                         Target / List
                       </TableHead>
-                      <TableHead className="w-20 text-right">Sale</TableHead>
-                      <TableHead className="w-20 text-right">Net</TableHead>
+                      {isToList ? (
+                        <TableHead className="w-20 text-right">Score</TableHead>
+                      ) : (
+                        <>
+                          <TableHead className="w-20 text-right">
+                            Sale
+                          </TableHead>
+                          <TableHead className="w-20 text-right">Net</TableHead>
+                        </>
+                      )}
                       <TableHead className="w-24">Status</TableHead>
                       <TableHead className="w-16 text-right">Age</TableHead>
                       <TableHead className="w-8" />
@@ -416,12 +594,31 @@ export function FlipdeskListingsPage() {
                     {pageRows.map((it) => {
                       const age = daysSince(it.updated_at);
                       const aging = age != null && age >= 14;
+                      const score = scoreById.get(it.id) ?? 0;
+                      const isSel = selected.has(it.id);
                       return (
                         <TableRow
                           key={it.id}
-                          className="cursor-pointer hover:bg-muted/30"
+                          className={cn(
+                            "cursor-pointer hover:bg-muted/30",
+                            isSel && "bg-brand-navy/5",
+                          )}
                           onClick={() => setDetailItem(it)}
                         >
+                          {isToList && (
+                            <TableCell
+                              className="px-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isSel}
+                                onChange={() => toggleSelected(it.id)}
+                                className="h-3.5 w-3.5 cursor-pointer"
+                                aria-label="Select row"
+                              />
+                            </TableCell>
+                          )}
                           <TableCell
                             className="px-2"
                             onClick={(e) => e.stopPropagation()}
@@ -448,19 +645,34 @@ export function FlipdeskListingsPage() {
                           <TableCell className="text-right tabular-nums">
                             {fmtMoney(it.target_price ?? it.list_price)}
                           </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {fmtMoney(it.sale_price)}
-                          </TableCell>
-                          <TableCell
-                            className={cn(
-                              "text-right tabular-nums",
-                              it.net_profit != null &&
-                                it.net_profit < 0 &&
-                                "text-destructive",
-                            )}
-                          >
-                            {fmtMoney(it.net_profit)}
-                          </TableCell>
+                          {isToList ? (
+                            <TableCell className="text-right">
+                              <span
+                                className={cn(
+                                  "font-mono font-semibold tabular-nums",
+                                  scoreColor(score),
+                                )}
+                              >
+                                {score}
+                              </span>
+                            </TableCell>
+                          ) : (
+                            <>
+                              <TableCell className="text-right tabular-nums">
+                                {fmtMoney(it.sale_price)}
+                              </TableCell>
+                              <TableCell
+                                className={cn(
+                                  "text-right tabular-nums",
+                                  it.net_profit != null &&
+                                    it.net_profit < 0 &&
+                                    "text-destructive",
+                                )}
+                              >
+                                {fmtMoney(it.net_profit)}
+                              </TableCell>
+                            </>
+                          )}
                           <TableCell>
                             <Badge
                               variant={
@@ -490,14 +702,13 @@ export function FlipdeskListingsPage() {
                               </span>
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell onClick={(e) => e.stopPropagation()}>
                             {it.link && (
                               <a
                                 href={it.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="inline-flex text-brand-red"
-                                onClick={(e) => e.stopPropagation()}
                                 aria-label="Open listing"
                               >
                                 <ExternalLink className="h-3 w-3" />
@@ -562,6 +773,34 @@ export function FlipdeskListingsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Bulk draft bar — To-List tab only */}
+      {isToList && selected.size > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div className="text-sm font-semibold text-brand-navy">
+              {selected.size} selected
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setSelected(new Set())}
+                disabled={drafting}
+              >
+                Clear
+              </Button>
+              <Button onClick={bulkCreateDrafts} disabled={drafting}>
+                {drafting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                Create {selected.size} draft{selected.size === 1 ? "" : "s"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
     </div>

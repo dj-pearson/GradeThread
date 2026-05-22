@@ -2552,8 +2552,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 139,
-      "passes": false,
-      "notes": "Depends on US-138 (tab surface) and US-117 (composer). The score is a heuristic — tune after dogfood."
+      "passes": true,
+      "notes": "Completed. src/lib/listability.ts — pure-TS scorer (graded 25 / has-comps 20 / target-priced 15 / margin up to 25 / age nudge up to 15). To-List tab gets a Score column (color-coded), sort presets (Listability/Oldest/Best ROI/Highest comp), multi-select checkboxes, floating Create-Drafts bar. Bulk-draft runs client-side: inserts listings rows (listing_status=draft, price from target/list) + sets inventory_items.status=drafted; result toast with failure count. Photo-readiness factor + per-category composer templates deferred to US-106/US-117 — drafts currently seed title/description from item fields. items_listability_v SQL view not needed; TS scorer suffices."
     },
 
     {
