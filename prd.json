@@ -1976,8 +1976,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 106,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Migration 00017 creates the item-photos Storage bucket (public read, owner-only write via per-user folder RLS on storage.objects, 10MB limit, image mime allowlist). src/components/flipdesk/photo-uploader.tsx — required slots (front/back/tag/detail) + optional (defect/flatlay/on_model), file input with capture=environment for mobile camera, uploads to {user_id}/{item_id}/{type}_{ts}.{ext}, writes item_photos rows, thumbnail display, delete (removes storage object + row). 'Required set complete' badge. Wired into ItemDetailDialog as a Photos section. Constants REQUIRED_PHOTO_TYPES / PHOTO_TYPE_LABELS added. Drag-drop not implemented (click/camera only); the photographed-status gate is visual in the dialog — Kanban drag validation hook (US-110 pipeline-rules) still TODO."
     },
 
     {

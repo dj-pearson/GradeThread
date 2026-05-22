@@ -28,6 +28,7 @@ import {
   ITEM_CATEGORIES,
 } from "@/lib/constants";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
+import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import type {
   ItemComp,
   ItemFullRow,
@@ -258,6 +259,15 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             onChange={(v) => patch("target_price", v)}
             type="number"
           />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Photos</Label>
+          <p className="text-xs text-muted-foreground">
+            Upload the required set (front, back, tag, detail) before sending
+            the item to GradeThread or listing it.
+          </p>
+          <PhotoUploader itemId={item.id} />
         </div>
 
         <div className="space-y-2">
