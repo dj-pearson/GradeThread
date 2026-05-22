@@ -32,6 +32,7 @@ import {
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
+import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import type {
   ItemComp,
   ItemFullRow,
@@ -330,24 +331,14 @@ export function ItemDetailDialog({ item, onClose }: Props) {
           />
         </div>
 
-        {/* Read-only sale summary if a sale exists */}
+        {/* Per-item P&L (US-126) — only when a sale exists */}
         {item.sale_price != null && (
-          <div className="rounded-md border bg-muted/30 p-3 text-sm">
-            <div className="mb-2 font-semibold">Sale</div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div>
-                Sold ${item.sale_price.toFixed(2)} on{" "}
-                {item.sale_date?.slice(0, 10) ?? "—"}
-              </div>
-              <div>Fees: ${(item.fees ?? 0).toFixed(2)}</div>
-              <div>Shipping: ${(item.shipping_cost ?? 0).toFixed(2)}</div>
-              <div>Tax: ${(item.tax ?? 0).toFixed(2)}</div>
-              <div>
-                Net profit: $
-                {item.net_profit == null ? "—" : item.net_profit.toFixed(2)}
-              </div>
-              <div>Payout: ${(item.payout ?? 0).toFixed(2)}</div>
-            </div>
+          <div className="space-y-2">
+            <Label>Profit &amp; loss</Label>
+            <PnlPanel
+              inventoryItemId={item.id}
+              costBasis={item.purchase_price}
+            />
           </div>
         )}
 

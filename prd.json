@@ -2326,8 +2326,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 126,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. src/lib/pnl.ts: computePnl (revenue = sold + shipping_collected; net = revenue − fees − costs − cost_basis; margin %) + detectDiscrepancies (marketplace fees >15% of sale, shipping_cost > collected + $2). PnlPanel component queries the granular sales row (items_full collapses fees) — full line-by-line breakdown ending in Net profit, margin badge, inline discrepancy alerts. Replaces the old read-only Sale summary in ItemDetailDialog. Reconciliation page gained a 'Fee & shipping discrepancies' card listing every flagged sale with the item title. computePnl recomputes live rather than trusting the stored net_profit column."
     },
 
     {
