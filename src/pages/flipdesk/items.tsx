@@ -53,8 +53,19 @@ import {
 } from "@/lib/constants";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { FilterBuilder } from "@/components/flipdesk/filter-builder";
+import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
+import { useSavedViews } from "@/hooks/use-saved-views";
+import {
+  EMPTY_QUERY,
+  evalQuery,
+  encodeQuery,
+  decodeQuery,
+  describeRule,
+  type FilterQuery,
+} from "@/lib/item-filter";
 import { cn } from "@/lib/utils";
-import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type { ItemFullRow, ItemStatus, SavedViewRow } from "@/types/database";
 
 type ViewMode = "pipeline" | "personal" | "all";
 type Preset = "triage" | "listing" | "sold" | "all";
@@ -357,6 +368,40 @@ export function FlipdeskItemsPage() {
   const [pending, setPending] = useState<Map<string, Patch>>(new Map());
   const [saving, setSaving] = useState(false);
 
+  // Advanced filter — initialised from ?filter= or a saved view via ?view=.
+  const { data: savedViews = [] } = useSavedViews();
+  const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => {
+    const f = searchParams.get("filter");
+    return (f && decodeQuery(f)) || EMPTY_QUERY;
+  });
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+
+  // Load a saved view when ?view=<id> resolves.
+  useEffect(() => {
+    const viewId = searchParams.get("view");
+    if (!viewId || savedViews.length === 0) return;
+    const v = savedViews.find((sv: SavedViewRow) => sv.id === viewId);
+    if (v) {
+      const q = decodeQuery(encodeQuery(v.query_json as unknown as FilterQuery));
+      setFilterQuery(q ?? (v.query_json as unknown as FilterQuery));
+      const next = new URLSearchParams(searchParams);
+      next.delete("view");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedViews, searchParams]);
+
+  // Keep ?filter= in the URL in sync with the builder.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (filterQuery.rules.length === 0) next.delete("filter");
+    else next.set("filter", encodeQuery(filterQuery));
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterQuery]);
+
   // Sorting
   const [sortField, setSortField] = useState<keyof ItemFullRow | null>(
     "created_at",
@@ -440,9 +485,10 @@ export function FlipdeskItemsPage() {
           .toLowerCase();
         if (!hay.includes(q)) return false;
       }
+      if (!evalQuery(it, filterQuery)) return false;
       return true;
     });
-  }, [items, view, statusFilter, search]);
+  }, [items, view, statusFilter, search, filterQuery]);
 
   const sorted = useMemo(() => {
     if (!sortField) return filtered;
@@ -1099,7 +1145,82 @@ export function FlipdeskItemsPage() {
             {PRESET_LABELS[p]}
           </Button>
         ))}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <FilterBuilder query={filterQuery} onChange={setFilterQuery} />
+          {savedViews.length > 0 && (
+            <Select
+              value=""
+              onValueChange={(id) => {
+                const v = savedViews.find((sv) => sv.id === id);
+                if (v) {
+                  const q = v.query_json as unknown as FilterQuery;
+                  setFilterQuery(
+                    q && Array.isArray(q.rules) ? q : EMPTY_QUERY,
+                  );
+                }
+              }}
+            >
+              <SelectTrigger className="h-8 w-44 text-xs">
+                <SelectValue placeholder="Saved views" />
+              </SelectTrigger>
+              <SelectContent>
+                {savedViews.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.emoji ? `${v.emoji} ` : ""}
+                    {v.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {filterQuery.rules.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSaveViewOpen(true)}
+            >
+              Save view
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Active filter chips */}
+      {filterQuery.rules.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {filterQuery.combinator === "and" ? "All of:" : "Any of:"}
+          </span>
+          {filterQuery.rules.map((rule) => (
+            <span
+              key={rule.id}
+              className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs"
+            >
+              {describeRule(rule)}
+              <button
+                type="button"
+                onClick={() =>
+                  setFilterQuery({
+                    ...filterQuery,
+                    rules: filterQuery.rules.filter((r) => r.id !== rule.id),
+                  })
+                }
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Remove filter"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => setFilterQuery(EMPTY_QUERY)}
+            className="text-xs text-brand-red hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -1345,6 +1466,12 @@ export function FlipdeskItemsPage() {
       )}
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+
+      <SaveViewDialog
+        open={saveViewOpen}
+        onOpenChange={setSaveViewOpen}
+        query={filterQuery}
+      />
     </div>
   );
 }

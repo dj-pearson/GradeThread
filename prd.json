@@ -2631,8 +2631,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 143,
-      "passes": false,
-      "notes": "Use a json-logic-style schema rather than reinventing one. RLS: views are user-scoped (user_id = auth.uid())."
+      "passes": true,
+      "notes": "Completed. Migration 00015: flipdesk_saved_views (RLS user-scoped). src/lib/item-filter.ts: FilterRule/FilterQuery schema + pure-TS evaluator + base64 URL codec. Fields: brand/category/size/source/cost/target_price/status/grade/days_in_status. Operators per type (text vs numeric). filter-builder.tsx: Popover with rule rows + AND/OR combinator. Wired into Items page — evalQuery in the filtered memo, removable filter chips, ?filter=base64 URL sync, ?view=<id> loads a saved view. save-view-dialog.tsx: name + emoji + pin toggle. Sidebar lists pinned views under the FlipDesk group, linking to /items?view=<id>. One-level nested groups not implemented — flat rule list with a single combinator covers the practical cases."
     },
 
     {

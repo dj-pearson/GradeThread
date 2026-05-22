@@ -25,6 +25,7 @@ import {
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useSavedViews } from "@/hooks/use-saved-views";
 
 type NavItem = { to: string; icon: typeof LayoutDashboard; label: string; end: boolean };
 type NavGroup = { title?: string; items: NavItem[] };
@@ -89,9 +90,34 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               {item.label}
             </NavLink>
           ))}
+          {/* Pinned saved views render below the FlipDesk group */}
+          {group.title === "FlipDesk" && <PinnedViews onNavigate={onNavigate} />}
         </div>
       ))}
     </nav>
+  );
+}
+
+function PinnedViews({ onNavigate }: { onNavigate?: () => void }) {
+  const { data: views = [] } = useSavedViews();
+  const pinned = views.filter((v) => v.pinned);
+  if (pinned.length === 0) return null;
+  return (
+    <>
+      {pinned.map((v) => (
+        <NavLink
+          key={v.id}
+          to={`/dashboard/flipdesk/items?view=${v.id}`}
+          onClick={onNavigate}
+          className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <span className="flex h-5 w-5 items-center justify-center text-xs">
+            {v.emoji || "★"}
+          </span>
+          <span className="truncate">{v.name}</span>
+        </NavLink>
+      ))}
+    </>
   );
 }
 

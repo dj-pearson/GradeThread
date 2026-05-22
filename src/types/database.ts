@@ -352,6 +352,30 @@ export interface ItemFullRow {
   listing_views: number | null;
 }
 
+export interface SavedViewRow {
+  id: string;
+  user_id: string;
+  name: string;
+  emoji: string | null;
+  query_json: Record<string, unknown>;
+  pinned: boolean;
+  scope: string;
+  created_at: string;
+}
+
+export interface SavedViewInsert {
+  user_id: string;
+  name: string;
+  emoji?: string | null;
+  query_json: Record<string, unknown>;
+  pinned?: boolean;
+  scope?: string;
+}
+
+export type SavedViewUpdate = Partial<
+  Omit<SavedViewRow, "id" | "user_id" | "created_at">
+>;
+
 export interface FlipdeskGradingSubmissionRow {
   id: string;
   inventory_item_id: string;
@@ -768,6 +792,11 @@ export interface Database {
         Row: FlipdeskGradingSubmissionRow;
         Insert: FlipdeskGradingSubmissionInsert;
         Update: FlipdeskGradingSubmissionUpdate;
+      };
+      flipdesk_saved_views: {
+        Row: SavedViewRow;
+        Insert: SavedViewInsert;
+        Update: SavedViewUpdate;
       };
     };
     Enums: {
