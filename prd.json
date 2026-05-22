@@ -2651,8 +2651,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 144,
-      "passes": false,
-      "notes": "ts_headline can be slow; pre-compute snippet only for the visible page slice."
+      "passes": true,
+      "notes": "Completed. Migration 00016: weighted tsvector GENERATED columns on inventory_items (title A / brand+sku B / description C / notes D), listings (title A / description C), sales (buyer B) + GIN indexes. RPC flipdesk_search(query, scope, limit) — websearch_to_tsquery + ts_headline <mark> highlight, UNION ALL across the three tables, ranked, SECURITY INVOKER so RLS filters to the caller's rows. Command palette wired: debounced 250ms RPC call adds a 'Full-text matches' section (deduped against the cached client-side Items section). Snippet renderer splits on <mark> and renders non-marked text as escaped React text — no XSS from user content. Field-scoped queries (brand:Nike) not parsed — websearch_to_tsquery handles quoted phrases + OR; field prefixes are a later enhancement. Listings-page wiring skipped — US-143 filter builder already covers that surface."
     },
 
     {

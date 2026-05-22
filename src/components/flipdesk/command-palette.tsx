@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,6 +13,7 @@ import {
   Scale,
   Clock,
   CornerDownLeft,
+  FileSearch,
 } from "lucide-react";
 import {
   Dialog,
@@ -20,16 +21,27 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRecentStore } from "@/stores/recent-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { ItemFullRow, SourceRow } from "@/types/database";
 
+interface SearchHit {
+  result_type: string;
+  result_id: string;
+  inventory_item_id: string | null;
+  title: string;
+  snippet: string;
+  rank: number;
+}
+
 type Entry =
   | { kind: "action"; id: string; label: string; icon: React.ReactNode; run: () => void }
   | { kind: "item"; id: string; item: ItemFullRow }
-  | { kind: "source"; id: string; source: SourceRow };
+  | { kind: "source"; id: string; source: SourceRow }
+  | { kind: "deep"; id: string; hit: SearchHit };
 
 interface Section {
   title: string;
@@ -37,6 +49,22 @@ interface Section {
 }
 
 const PER_SECTION = 8;
+
+// Render a ts_headline snippet: highlight <mark> spans, render the rest as
+// plain React text (so any raw HTML in user content is escaped, not executed).
+function renderSnippet(snippet: string): ReactNode {
+  const parts = snippet.split(/(<mark>.*?<\/mark>)/g);
+  return parts.map((p, i) => {
+    if (p.startsWith("<mark>") && p.endsWith("</mark>")) {
+      return (
+        <mark key={i} className="bg-amber-200 dark:bg-amber-800/60">
+          {p.slice(6, -7)}
+        </mark>
+      );
+    }
+    return <span key={i}>{p}</span>;
+  });
+}
 
 export function CommandPalette() {
   const navigate = useNavigate();
@@ -47,6 +75,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [deepHits, setDeepHits] = useState<SearchHit[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -66,8 +95,33 @@ export function CommandPalette() {
     if (open) {
       setQuery("");
       setActiveIdx(0);
+      setDeepHits([]);
     }
   }, [open]);
+
+  // Debounced full-text search via the flipdesk_search RPC (US-144).
+  // Searches deep text (descriptions, notes) the client-side filter misses.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setDeepHits([]);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      try {
+        const { data } = await (
+          supabase.rpc as unknown as (
+            fn: string,
+            args: Record<string, unknown>,
+          ) => Promise<{ data: SearchHit[] | null; error: Error | null }>
+        )("flipdesk_search", { p_query: q, p_scope: "all", p_limit: 8 });
+        setDeepHits(data ?? []);
+      } catch {
+        setDeepHits([]);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [query]);
 
   // Read whatever the app already cached — no extra round-trips.
   const items =
@@ -167,6 +221,25 @@ export function CommandPalette() {
           .map((it) => ({ kind: "item", id: it.id, item: it }) as Entry)
       : [];
 
+    // Deep matches from the FTS RPC — exclude items already in the Items
+    // section so we don't show duplicates.
+    const shownItemIds = new Set(
+      matchItems.map((e) => (e.kind === "item" ? e.item.id : "")),
+    );
+    const deepEntries: Entry[] = deepHits
+      .filter(
+        (h) =>
+          !(h.inventory_item_id && shownItemIds.has(h.inventory_item_id)),
+      )
+      .map(
+        (h) =>
+          ({
+            kind: "deep",
+            id: `${h.result_type}-${h.result_id}`,
+            hit: h,
+          }) as Entry,
+      );
+
     const out: Section[] = [];
     if (recentEntries.length > 0)
       out.push({ title: "Recent", entries: recentEntries });
@@ -176,8 +249,10 @@ export function CommandPalette() {
       out.push({ title: "Items", entries: matchItems });
     if (matchSources.length > 0)
       out.push({ title: "Sources", entries: matchSources });
+    if (deepEntries.length > 0)
+      out.push({ title: "Full-text matches", entries: deepEntries });
     return out;
-  }, [query, actions, items, sources, recentIds]);
+  }, [query, actions, items, sources, recentIds, deepHits]);
 
   // Flat list for keyboard navigation.
   const flat = useMemo(
@@ -195,6 +270,10 @@ export function CommandPalette() {
     } else if (entry.kind === "item") {
       setOpen(false);
       navigate(`/dashboard/flipdesk/items?focus=${entry.item.id}`);
+    } else if (entry.kind === "deep") {
+      setOpen(false);
+      const itemId = entry.hit.inventory_item_id ?? entry.hit.result_id;
+      navigate(`/dashboard/flipdesk/items?focus=${itemId}`);
     } else {
       setOpen(false);
       navigate("/dashboard/flipdesk/sources");
@@ -307,8 +386,24 @@ export function CommandPalette() {
                           </span>
                         </>
                       )}
+                      {entry.kind === "deep" && (
+                        <>
+                          <FileSearch className="mt-0.5 h-4 w-4 flex-shrink-0 self-start text-muted-foreground" />
+                          <span className="flex-1 overflow-hidden">
+                            <span className="block truncate font-medium">
+                              {entry.hit.title}
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {renderSnippet(entry.hit.snippet)}
+                            </span>
+                          </span>
+                          <Badge variant="outline" className="text-[10px]">
+                            {entry.hit.result_type}
+                          </Badge>
+                        </>
+                      )}
                       {isActive && (
-                        <CornerDownLeft className="h-3 w-3 text-muted-foreground" />
+                        <CornerDownLeft className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
                       )}
                     </button>
                   );
