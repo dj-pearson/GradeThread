@@ -2671,8 +2671,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 145,
-      "passes": false,
-      "notes": "This is the bridge that lets spreadsheet refugees feel at home. Pair with US-147 to keep the actual spreadsheet workflow alive too."
+      "passes": true,
+      "notes": "Completed. /dashboard/flipdesk/grid (src/pages/flipdesk/grid.tsx). Editable grid of inventory_items: SKU/Title/Brand/Style/Size/Cost/Target/Notes. Every cell is a native input — Tab moves natively; Enter/↑/↓ move between rows (data-attr focus targeting); Esc reverts a cell. Multi-cell paste: TSV from Sheets/Excel fills cells down+right from the focused cell. Dirty cells amber-highlighted; bottom bar shows N cells changed / Save all / Discard. Cmd-Z undo of last staged edit (history stack). Save = parallel per-row supabase updates. Route + sidebar 'Grid edit' entry. Used per-row updates instead of an flipdesk_bulk_update_items RPC — same pattern as items.tsx confirmAll, no migration needed. listing_price + source columns omitted (cross-table); grid edits inventory_items fields only."
     },
 
     {
