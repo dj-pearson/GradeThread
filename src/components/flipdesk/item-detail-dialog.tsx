@@ -26,7 +26,9 @@ import {
   ITEM_STATUS_LABELS,
   ITEM_CATEGORIES,
 } from "@/lib/constants";
+import { CompEditor } from "@/components/flipdesk/comp-editor";
 import type {
+  ItemComp,
   ItemFullRow,
   ItemStatus,
   ItemCategory,
@@ -53,6 +55,7 @@ type EditState = {
   acquired_date: string;
   acquired_price: string;
   target_price: string;
+  comp_set: ItemComp[];
 };
 
 function toState(item: ItemFullRow): EditState {
@@ -72,6 +75,7 @@ function toState(item: ItemFullRow): EditState {
     acquired_price:
       item.purchase_price == null ? "" : String(item.purchase_price),
     target_price: item.target_price == null ? "" : String(item.target_price),
+    comp_set: Array.isArray(item.comps) ? item.comps : [],
   };
 }
 
@@ -122,6 +126,9 @@ export function ItemDetailDialog({ item, onClose }: Props) {
         acquired_date: state.acquired_date || null,
         acquired_price: priceOrNull(state.acquired_price),
         target_price: priceOrNull(state.target_price),
+        comp_set: state.comp_set.filter(
+          (c) => Number.isFinite(c.price) && c.price > 0,
+        ),
       };
 
       const { error } = await supabase
@@ -246,6 +253,25 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             value={state.target_price}
             onChange={(v) => patch("target_price", v)}
             type="number"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Comps</Label>
+          <p className="text-xs text-muted-foreground">
+            Track sold comparable items to set a target price. The eBay
+            search opens a sold-listings filter for this item.
+          </p>
+          <CompEditor
+            comps={state.comp_set}
+            onChange={(next) => patch("comp_set", next)}
+            brand={state.brand}
+            style={state.style}
+            size={state.size}
+            title={state.title}
+            onSuggestTarget={(price) =>
+              patch("target_price", price.toFixed(2))
+            }
           />
         </div>
 

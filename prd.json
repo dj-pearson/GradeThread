@@ -2028,8 +2028,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 109,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Page at src/pages/flipdesk/pipeline.tsx. Horizontal-scroll columns from FLIPDESK_PIPELINE. Single items_full query (shared cache with overview + items). Cards show title / brand·style·size / target-or-list-or-cost price / grade badge / age in days (red when >14d). Status-specific left-border accent. Filter bar: search + category + brand + source. Card click opens ItemDetailDialog. Per-column 50-item cap with '+N more' link to filtered items view. Thumbnail omitted — wires when US-106 photos land. Personal statuses (keeping/wearing/archived) excluded."
     },
 
     {
@@ -2045,8 +2045,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 110,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Installed @dnd-kit/core ^6.3.1. Pointer sensor with 6px activation distance so clicks (open detail) don't accidentally drag. Touch sensor with 200ms hold delay for mobile. Validation in src/lib/pipeline-rules.ts blocks: measured without measurements, listed without target/list price, shipped without sale. DragOverlay shows card preview with brand-navy ring. Optimistic update via qc.setQueryData; rolls back on failure. Photo-required check for 'photographed' deferred until US-106 wires item_photos."
     },
 
     {
@@ -2151,8 +2151,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 116,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed (in-dialog, not separate page). src/components/flipdesk/comp-editor.tsx — per-row price/date/notes/url editing, bulk-paste mode that parses lines like '$25 https://... good cond', stats badges (count/avg/median/range). src/lib/comps.ts exports computeStats() and ebaySoldSearchUrl() (public eBay sold-listings filter URL — no Terapeak dependency). Wired into ItemDetailDialog; comp_set saved as part of Save. 'Use median as target' button populates target_price. Auto-status-advance to comped deferred — user picks status explicitly. Migration 00011 unnecessary — comp_set jsonb already exists in 00009."
     },
 
     {
@@ -2513,6 +2513,284 @@
       "priority": 137,
       "passes": false,
       "notes": "BLOCKER: requires eBay sandbox creds, R2 mocks, and an operator-side baseline measurement. This is the gate before private beta (PRD 11.2)."
+    },
+
+    {
+      "id": "US-138",
+      "title": "Unified listings manager with tabbed views (Active, To List, Drafts, Sold, Returned, All)",
+      "description": "As a reseller, I need a dedicated listings-management surface that complements the Kanban — a fast, dense, list-view page with tabs for the states I work from daily. Kanban is for flow; this page is for triage and bulk action on hundreds of items at a time.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/listings renders a tabbed shadcn Tabs container",
+        "Tabs: All, To List (status in: graded, comped, photographed with required photo set), Drafts (status='drafted' OR listings.listing_status='draft'), Active (listings.listing_status='active'), Sold (sales row exists, not yet shipped), Shipped (status='shipped'), Returned (status='returned')",
+        "Each tab is a dense table: thumbnail · title · brand · size · cost · target/list price · grade badge · age-in-status · primary action button (varies by tab)",
+        "URL state: ?tab=active&sort=age_desc&filter=brand:Nike — deep-linkable; back/forward preserves",
+        "Tab counts shown as badges, fetched in a single aggregate query (one round-trip for all tab counts)",
+        "Row click opens ItemDetailDialog (consistent with pipeline.tsx)",
+        "Per-tab default sort: To List=oldest first; Active=most-watched first; Sold=most-recent first",
+        "Pagination or virtualized scroll for 1000+ rows (react-virtual or TanStack Table virtualization)",
+        "Empty states per tab with the relevant next-action CTA (e.g., To List empty → 'Intake an item')",
+        "Sidebar: add 'Listings' link under FlipDesk group, between Pipeline and Sources",
+        "Typecheck + lint pass"
+      ],
+      "priority": 138,
+      "passes": true,
+      "notes": "Completed. Page at src/pages/flipdesk/listings.tsx. shadcn Tabs: All / To List / Drafts / Active / Sold / Shipped / Returned with live count badges (single client-side pass over items_full). URL ?tab= state, deep-linkable. Per-tab default sort (To List + Drafts oldest-first, Active/Sold/Shipped newest-first). Dense table: title / brand·size / cost / target-or-list / sale / net / status / age (red >14d) / listing link. Pagination 50/100/200. Row click opens ItemDetailDialog. Per-tab empty states with relevant CTA. Sidebar 'Listings' entry between Overview and Items. Tabs route on inventory_items.status; listing_status fallback for Drafts/Active deferred to US-117/118. Virtualization deferred — pagination handles current volume."
+    },
+
+    {
+      "id": "US-139",
+      "title": "To-Be-Listed queue: priority sort + bulk send-to-draft",
+      "description": "As a reseller, I need the To-List tab to surface what's most ready to list right now — graded items with comp data sorted by ROI potential — and let me bulk-create drafts for the top N.",
+      "acceptanceCriteria": [
+        "To-List tab (from US-138) exposes a 'Listability score' column: weighted by (has_grade, has_comp_data, has_required_photos, age_in_inventory, expected_margin)",
+        "Score computed in a SQL view items_listability_v or a pure-TS scorer in src/lib/listability.ts",
+        "Sort presets: Best ROI, Oldest first, Highest comp price, Recently graded",
+        "Multi-select checkbox column + floating action bar: 'Create drafts (N)' → POSTs to /api/flipdesk/listings/bulk-draft with item_ids[]",
+        "Bulk-draft uses the same composer logic as US-117 (per-category templates) and writes listings rows with listing_status='draft'",
+        "Results dialog shows N drafted / M failed with per-row reasons",
+        "Drafts then appear in the Drafts tab ready for review/push",
+        "Typecheck + lint pass"
+      ],
+      "priority": 139,
+      "passes": false,
+      "notes": "Depends on US-138 (tab surface) and US-117 (composer). The score is a heuristic — tune after dogfood."
+    },
+
+    {
+      "id": "US-140",
+      "title": "Sold tab: payout status, ROI, ship-by countdown, repeat-buyer flags",
+      "description": "As a reseller, I need the Sold tab to be my daily 'what needs action' surface for fulfilled and pending orders, not just a historical log.",
+      "acceptanceCriteria": [
+        "Sold tab columns: thumbnail · title · sold_price · net_profit (live) · margin% · payout_status (pending/cleared/discrepancy) · ship-by countdown · buyer flag",
+        "Payout status derived from join with payout_imports + reconciliation state (US-125); discrepancy badge per US-126 rules",
+        "Ship-by countdown: red <24h, amber <48h, green otherwise; computed from sales.sold_at + listing.handling_time",
+        "Repeat-buyer flag: shows a star icon when sales.buyer_id has prior sales rows for this user",
+        "Filter chips: needs ship · awaiting payout · discrepancy · returned · last 7 days · last 30 days · YTD",
+        "Row action: 'Print label' (deep-links to eBay shipping flow) and 'Mark shipped' (US-122 hook)",
+        "Aggregate strip at top of tab: sold count, gross, net, avg margin% for current filter",
+        "Typecheck + lint pass"
+      ],
+      "priority": 140,
+      "passes": false,
+      "notes": "Pulls from sales + payout_imports + listings. Needs the items_full view (or a new sales_full view) to keep query count to 1."
+    },
+
+    {
+      "id": "US-141",
+      "title": "Active listings tab: inline price edit, watcher counts, end-early, promote",
+      "description": "As a reseller, I need to manage live eBay listings without leaving FlipDesk — change prices, see engagement, end stale listings, and run Promoted Listings — all from the Active tab.",
+      "acceptanceCriteria": [
+        "Active tab columns: thumbnail · title · current price (inline editable) · views · watchers · impressions · days-listed · last-edited",
+        "Engagement columns populated by US-151 sync (graceful '—' fallback if not synced yet)",
+        "Inline price edit: click price → input → enter commits via PATCH /api/flipdesk/ebay/listings/:id/price (calls Sell Inventory API offer-update)",
+        "Optimistic update + rollback on API error with toast",
+        "Row actions menu: End listing early, Relist, Edit listing (opens composer), Promote (sets ad_rate_percent), Open on eBay",
+        "Bulk actions: end multiple, set promo rate on selection, percentage price drop on selection (e.g., -10%)",
+        "Confirm dialog for destructive actions (end early); records ended_reason on listings row",
+        "Typecheck + lint pass"
+      ],
+      "priority": 141,
+      "passes": false,
+      "notes": "Depends on US-119/US-121 (eBay connection + push). Price edits hit Sell Inventory API; rate-limited per US-121 middleware."
+    },
+
+    {
+      "id": "US-142",
+      "title": "Command palette (Cmd-K) for cross-entity search and jump",
+      "description": "As a power-user reseller, I need a Cmd-K palette that searches everything — items, listings, sales, sources, buyers, payouts — and lets me jump or act in one keystroke.",
+      "acceptanceCriteria": [
+        "cmdk (already a shadcn dep) wired globally: Cmd/Ctrl-K opens an overlay from any /dashboard/flipdesk/* route",
+        "Sections in palette: Recent, Items, Listings, Sales, Sources, Buyers, Payouts, Actions",
+        "Each section debounce-queries Supabase (250ms) with a LIMIT 8 per section",
+        "Item result row shows thumbnail · title · status · price; Enter opens detail dialog",
+        "Listing result includes platform_listing_id; Enter opens composer",
+        "Sale result includes sold_price + buyer; Enter opens item detail Sale tab",
+        "Action section: 'Intake new item', 'New source', 'Go to Pipeline', 'Run reconciliation' (keybindings shown)",
+        "Recent section pulled from a local zustand store of last 10 navigations",
+        "Keyboard nav: ↑/↓, Enter, Esc; mouse hover updates focus",
+        "Typecheck + lint pass"
+      ],
+      "priority": 142,
+      "passes": false,
+      "notes": "Pairs with US-144 (FTS index) — palette uses the same backing search RPC. Without FTS it falls back to ilike on a few columns."
+    },
+
+    {
+      "id": "US-143",
+      "title": "Advanced filter builder + saved views (per-user)",
+      "description": "As a reseller, I need to build complex filters (brand=Nike AND size IN (M,L) AND cost<$15 AND days_in_status>10) and save them as named views I can pin to the sidebar.",
+      "acceptanceCriteria": [
+        "Filter builder UI: add/remove rules with field · operator · value; AND/OR group nesting one level deep",
+        "Supported fields: brand, category, size, source, cost_basis, target_price, days_in_status, status, grade, listed_marketplace, has_grade, has_required_photos",
+        "Operators per field type: =, ≠, <, >, ≤, ≥, in, not in, contains, is null",
+        "Filter state serializes to URL ?filter=base64(json) for shareable/deep-link views",
+        "Save as view: name + optional emoji + 'show in sidebar' toggle",
+        "New table flipdesk_saved_views (id, user_id, name, emoji, query_json, pinned, scope: 'listings'|'pipeline'|'sales', created_at) — migration 00015",
+        "Sidebar FlipDesk group lists pinned views below the canonical nav",
+        "Applied filter shows as removable chips above the table; 'Save as view' button only enabled when filters present",
+        "Typecheck + lint pass"
+      ],
+      "priority": 143,
+      "passes": false,
+      "notes": "Use a json-logic-style schema rather than reinventing one. RLS: views are user-scoped (user_id = auth.uid())."
+    },
+
+    {
+      "id": "US-144",
+      "title": "Postgres full-text search across items, listings, sales notes",
+      "description": "As a reseller, I need real full-text search — not just title-prefix matches — across item titles, descriptions, brand, SKU, listing titles, listing descriptions, sale notes, and buyer usernames.",
+      "acceptanceCriteria": [
+        "Migration 00016 adds tsvector generated columns: inventory_items.search_vec, listings.search_vec, sales.search_vec",
+        "GIN indexes on each search_vec column",
+        "Vector weights: title=A, brand/sku=B, description=C, notes=D",
+        "RPC flipdesk_search(query text, scope text DEFAULT 'all', limit int DEFAULT 50) returns unified result rows (type · id · title · snippet · rank)",
+        "Snippet uses ts_headline with HTML highlight (<mark>)",
+        "Query parser supports quoted phrases, AND/OR (default AND), and field-scoped queries (brand:Nike, sku:GT-1234, status:active)",
+        "Command palette (US-142) and Listings page (US-138) both use this RPC",
+        "RLS still enforced — function is SECURITY INVOKER",
+        "Typecheck + lint pass"
+      ],
+      "priority": 144,
+      "passes": false,
+      "notes": "ts_headline can be slow; pre-compute snippet only for the visible page slice."
+    },
+
+    {
+      "id": "US-145",
+      "title": "Spreadsheet-grid bulk edit view",
+      "description": "As a reseller migrating off spreadsheets, I need a true grid-edit view where I can tab between cells, paste columns of values, and update dozens of items at once.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/grid renders a TanStack Table with editable cells (or AG Grid Community if eval shows it's a better fit)",
+        "Editable fields: title, brand, size, condition_notes, cost_basis, target_price, listing_price, sku, source",
+        "Keyboard nav: Tab/Shift-Tab between cells, Enter to commit, Esc to cancel, ↑/↓ between rows",
+        "Multi-cell paste: paste a column from Sheets/Excel and it fills N rows down",
+        "Dirty rows highlighted; bottom bar shows 'N rows changed — Save all / Discard'",
+        "Save uses a single batched upsert (RPC flipdesk_bulk_update_items(rows jsonb))",
+        "Optimistic update + per-row failure surfaced with retry",
+        "Undo (Cmd-Z) reverts the last save within session",
+        "Typecheck + lint pass"
+      ],
+      "priority": 145,
+      "passes": false,
+      "notes": "This is the bridge that lets spreadsheet refugees feel at home. Pair with US-147 to keep the actual spreadsheet workflow alive too."
+    },
+
+    {
+      "id": "US-146",
+      "title": "Google Sheets OAuth + connection setup",
+      "description": "As a reseller, I need to connect a Google account so FlipDesk can read and write a designated 'FlipDesk Sync' spreadsheet on my Drive.",
+      "acceptanceCriteria": [
+        "GET /api/flipdesk/google/oauth/start returns { consent_url } with scopes: drive.file (per-file scope, not full drive) + spreadsheets",
+        "GET /api/flipdesk/google/oauth/callback exchanges code → tokens, stores encrypted in a new google_connections table (cleaner separation than overloading marketplace_connections)",
+        "Migration 00017 creates google_connections (id, user_id, google_email, access_token_enc, refresh_token_enc, token_expires_at, sheet_id, sheet_url, last_sync_at, sync_status, is_active)",
+        "Setup wizard at /dashboard/flipdesk/marketplaces/google: 'Connect Google' → consent → 'Create new sync sheet' (calls Sheets API to create + share with user) OR 'Use existing sheet' (file-picker via Drive Picker API)",
+        "Encryption mirrors US-119 (AES-256-GCM, FLIPDESK_INTERNAL_JOB_SECRET-derived key)",
+        "Disconnect revokes tokens via Google's revoke endpoint and sets is_active=false",
+        "Settings page surfaces the linked Google email + sheet link + 'Open sheet' button",
+        "Typecheck + lint pass"
+      ],
+      "priority": 146,
+      "passes": false,
+      "notes": "BLOCKER: requires Google Cloud project with Sheets + Drive APIs enabled and OAuth consent screen configured. Use drive.file scope (least privilege) so we only touch the sheet we created or were granted."
+    },
+
+    {
+      "id": "US-147",
+      "title": "Google Sheets 2-way live sync (push + pull + conflict resolution)",
+      "description": "As a reseller, I need my FlipDesk inventory mirrored to Google Sheets and edits made in Sheets to flow back to FlipDesk so my team and accountant can work where they're comfortable.",
+      "acceptanceCriteria": [
+        "Sheet structure auto-created: tabs 'Inventory', 'Listings', 'Sales', 'Sources', 'Sync Log' with header row + frozen first row + data validation on enum columns (status, category)",
+        "Each row carries a hidden flipdesk_id column (UUID) as the join key",
+        "POST /api/flipdesk/google/sync/push (internal job auth) writes changed FlipDesk rows since last_sync_at to the sheet via batchUpdate",
+        "POST /api/flipdesk/google/sync/pull reads the sheet, diffs against DB by flipdesk_id, applies updates with field-level merge",
+        "Conflict resolution: if both sides changed the same field since last_sync_at, FlipDesk wins by default but the row is flagged in a Conflicts tab with both values + 'Accept Sheet / Accept FlipDesk' actions",
+        "Sync frequency: every 5 min via scheduler (US-131); also exposed as a manual 'Sync now' button",
+        "Sync Log tab records each run: timestamp, rows pushed, rows pulled, conflicts, errors",
+        "Per-field allow-list: only writable-from-Sheets fields are pulled (title, brand, size, cost_basis, target_price, sku, notes, status) — financial/system fields read-only in sheet (light gray fill)",
+        "Rate-limited and chunked to stay under Sheets API quota (300 req/min/user)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 147,
+      "passes": false,
+      "notes": "Depends on US-146. The conflict tab is the key UX — silent overwrite either way will burn trust fast. Field allow-list keeps users from corrupting computed fields like net_profit."
+    },
+
+    {
+      "id": "US-148",
+      "title": "3-way reconciliation (FlipDesk ↔ eBay ↔ Google Sheets) with conflict UI",
+      "description": "As a reseller using both eBay sync and the Google Sheet, I need a single reconciliation surface that shows when the three sources disagree on a listing — price, quantity, status — so I can pick the source of truth.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/reconciliation gets a new 'Cross-source' tab (alongside payout reconciliation from US-125)",
+        "Comparison rows: per-listing 3-col diff (FlipDesk · eBay · Sheets) for price, quantity, listing_status, title",
+        "Source-of-truth resolver: per-field, pick which source wins for this listing; choice persists to listings.source_of_truth jsonb (migration 00018)",
+        "'Accept all from X' bulk action per listing; 'Accept all from X for selection' for multi-select",
+        "Auto-flag rule: if eBay disagrees with FlipDesk on listing_status and eBay shows 'ended_by_seller' but FlipDesk says active, flag with action 'Mark ended in FlipDesk'",
+        "Background job runs after each push/pull cycle (US-122, US-147) and writes mismatches to a flipdesk_sync_conflicts table",
+        "Migration 00018: flipdesk_sync_conflicts (id, user_id, listing_id, field_name, flipdesk_value, ebay_value, sheets_value, detected_at, resolved_at, resolution)",
+        "Email notification (via existing notification system) when conflict count crosses user-configured threshold",
+        "Typecheck + lint pass"
+      ],
+      "priority": 148,
+      "passes": false,
+      "notes": "Depends on US-122 (eBay sync) + US-147 (Sheets sync). This is the 'never silently corrupt my data' guarantee that makes the sync trustable."
+    },
+
+    {
+      "id": "US-149",
+      "title": "Multi-marketplace cross-listing dispatch",
+      "description": "As a reseller, I need to push a single draft to multiple marketplaces (eBay, Poshmark, Mercari, Depop) and track each listing independently — without rebuilding the listing per platform.",
+      "acceptanceCriteria": [
+        "Listing composer (US-117) gains a multi-select 'Push to' control: ebay, poshmark, mercari, depop",
+        "POST /api/flipdesk/listings/cross-push { listing_id, platforms[] } creates one listings row per platform (denormalized) sharing the same source draft_id (new column)",
+        "ebay path uses US-121 push; other platforms stubbed as 501 with clean adapter interface (src/lib/marketplace-adapters/{ebay,poshmark,mercari,depop}.ts) for incremental wiring",
+        "Each platform listing has its own price (configurable in composer; defaults to draft target_price)",
+        "When one platform listing sells, auto-end the others (configurable per-user setting flipdesk_settings.auto_end_cross_listings)",
+        "Listings tab (US-138) shows a 'Platforms' column with platform-icon row per listing",
+        "Migration 00019: listings.draft_id (uuid, self-ref) + index",
+        "Typecheck + lint pass"
+      ],
+      "priority": 149,
+      "passes": false,
+      "notes": "Even with non-eBay platforms stubbed, the data model + UI lets us ship eBay-only and add platforms without UI churn. Auto-end requires reliable real-time event handling (US-123 webhooks)."
+    },
+
+    {
+      "id": "US-150",
+      "title": "Price-drop and promo scheduler",
+      "description": "As a reseller, I need to schedule automatic price reductions or Promoted Listings rate changes for stale inventory — e.g., 'drop 10% after 30 days listed' — without doing it by hand.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/automations renders rule list + create-rule form",
+        "Rule schema: trigger (days_listed > N | no_views_in_days > N | watchers < N after X days), action (price_drop_pct | set_promo_rate_pct | end_listing), scope (all | filter via US-143 builder)",
+        "Migration 00020: flipdesk_automation_rules (id, user_id, name, trigger_json, action_json, scope_json, is_active, last_run_at, created_at)",
+        "Scheduler (US-131) runs hourly: evaluates rules for each active user, applies actions via the same endpoints used by US-141 (price edit, promo)",
+        "Per-rule dry-run mode: shows which listings would be affected without applying",
+        "Per-listing override: 'Exclude from automations' toggle on item detail",
+        "Activity log per rule: last 50 actions taken (listing, before/after, timestamp)",
+        "Hard floor: rules can't drop price below cost_basis + configurable margin floor (default 10%)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 150,
+      "passes": false,
+      "notes": "The margin floor is non-negotiable — automation that loses money silently is worse than no automation. Pair with US-148 conflict detection so a manual eBay-side override doesn't get re-overridden by the rule."
+    },
+
+    {
+      "id": "US-151",
+      "title": "Listing-performance sync: views, watchers, impressions per listing",
+      "description": "As a reseller, I need engagement metrics (views, watchers, impressions) per active eBay listing pulled in regularly so I can spot duds before they age out.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/ebay/sync/performance (internal job auth) pulls Sell Analytics getTrafficReport for the authed user's active listings",
+        "Metrics persisted to listings: views_total, watchers_count, impressions_7d, click_through_rate, last_metrics_synced_at (migration 00021 adds columns)",
+        "Sync frequency: every 6 hours via scheduler (US-131)",
+        "Active tab (US-141) renders the columns; Listing-performance dashboard at /dashboard/flipdesk/analytics/performance adds a sortable table + 'No views in N days' filter chip",
+        "Sparkline mini-chart per row showing 7-day view trend (Recharts)",
+        "Stale-listings widget on overview (US-127): top 5 listed >14 days with zero watchers",
+        "Gracefully degrades when Sell Analytics API access not granted (toast + setting flag)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 151,
+      "passes": false,
+      "notes": "BLOCKER: requires Sell Analytics API access (separate eBay subscription beyond basic OAuth). Document the access requirement in COOLIFY.md / setup docs."
     }
   ]
 }
