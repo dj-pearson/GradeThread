@@ -5,11 +5,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import type { UserUpdate } from "@/types/database";
+import type { UserUpdate, NotificationPreferences } from "@/types/database";
+import {
+  NOTIFICATION_TYPES,
+  withPreferenceDefaults,
+} from "@/lib/notification-preferences";
 import { Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
+
+const CHANNEL_LABELS: Record<string, string> = {
+  email: "Email",
+  in_app: "In-app",
+};
 
 export function SettingsPage() {
   const { user, profile, refreshProfile } = useAuth();
@@ -24,6 +34,11 @@ export function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+
+  const [prefs, setPrefs] = useState<NotificationPreferences>(() =>
+    withPreferenceDefaults(profile?.notification_preferences)
+  );
+  const [savingPrefs, setSavingPrefs] = useState(false);
 
   const isOAuthUser = user?.app_metadata?.provider === "google";
 
@@ -145,6 +160,40 @@ export function SettingsPage() {
     }
   }
 
+  function setChannel(
+    typeKey: keyof NotificationPreferences,
+    channel: "email" | "in_app",
+    value: boolean
+  ) {
+    setPrefs((prev) => {
+      const current = prev[typeKey] as Record<string, boolean>;
+      return {
+        ...prev,
+        [typeKey]: { ...current, [channel]: value },
+      } as NotificationPreferences;
+    });
+  }
+
+  async function handleSavePreferences() {
+    if (!user) return;
+    setSavingPrefs(true);
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({ notification_preferences: prefs } as never)
+        .eq("id", user.id);
+      if (error) throw error;
+      await refreshProfile();
+      toast.success("Notification preferences saved");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save preferences"
+      );
+    } finally {
+      setSavingPrefs(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -219,6 +268,64 @@ export function SettingsPage() {
           <Button onClick={handleSaveProfile} disabled={saving}>
             {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Changes
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Notification Preferences Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Notification Preferences</CardTitle>
+          <CardDescription>
+            Choose which notifications you receive and how.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {NOTIFICATION_TYPES.map((type, index) => (
+            <div key={type.key}>
+              {index > 0 && <Separator className="mb-4" />}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{type.label}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {type.description}
+                  </p>
+                </div>
+                <div className="flex gap-4">
+                  {type.channels.map((channel) => {
+                    const checked = (
+                      prefs[type.key] as Record<string, boolean>
+                    )[channel];
+                    const switchId = `${type.key}-${channel}`;
+                    return (
+                      <div
+                        key={channel}
+                        className="flex items-center gap-2"
+                      >
+                        <Switch
+                          id={switchId}
+                          checked={checked}
+                          onCheckedChange={(value) =>
+                            setChannel(type.key, channel, value)
+                          }
+                        />
+                        <Label
+                          htmlFor={switchId}
+                          className="text-xs text-muted-foreground"
+                        >
+                          {CHANNEL_LABELS[channel]}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <Button onClick={handleSavePreferences} disabled={savingPrefs}>
+            {savingPrefs && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Preferences
           </Button>
         </CardContent>
       </Card>

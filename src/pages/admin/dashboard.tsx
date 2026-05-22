@@ -10,6 +10,8 @@ import type {
 } from "@/types/database";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PlatformAnalytics } from "@/components/admin/platform-analytics";
 import {
   LayoutDashboard,
   Users,
@@ -76,6 +78,11 @@ interface AdminChartData {
 interface AdminDashboardData {
   kpis: AdminKPIs;
   charts: AdminChartData;
+  raw: {
+    users: UserRow[];
+    submissions: SubmissionRow[];
+    gradeReports: GradeReportRow[];
+  };
 }
 
 function buildDailyBuckets(days: number): Array<{ date: string; label: string; start: Date; end: Date }> {
@@ -201,6 +208,7 @@ function processAdminData(
   return {
     kpis,
     charts: { submissionVolume, revenueOverTime, newUsers },
+    raw: { users, submissions, gradeReports },
   };
 }
 
@@ -255,6 +263,13 @@ export function AdminDashboardPage() {
         </div>
       </div>
 
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="analytics">Platform Analytics</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-6">
       {/* Primary KPI Cards */}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -540,6 +555,31 @@ export function AdminDashboardPage() {
           </Card>
         </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="analytics">
+          {isLoading ? (
+            <div className="grid gap-4">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Card key={i}>
+                  <CardHeader>
+                    <Skeleton className="h-5 w-40" />
+                  </CardHeader>
+                  <CardContent>
+                    <Skeleton className="h-[250px] w-full" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <PlatformAnalytics
+              users={data?.raw.users ?? []}
+              submissions={data?.raw.submissions ?? []}
+              gradeReports={data?.raw.gradeReports ?? []}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

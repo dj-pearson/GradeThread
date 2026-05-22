@@ -117,27 +117,47 @@
 
 ### Phase 12: Advanced Features (US-083 → US-100)
 - [x] US-083 | Bulk submission upload | PASSED ← NEW (2026-05-22)
+- [x] US-084 | Inventory ROI analytics | PASSED ← NEW (2026-05-22)
+- [x] US-085 | Inventory value and aging report | PASSED ← NEW (2026-05-22)
+- [x] US-086 | Grade-to-price correlation analysis | PASSED ← NEW (2026-05-22)
+- [x] US-087 | Admin: platform-wide analytics dashboard | PASSED ← NEW (2026-05-22)
+- [x] US-088 | Admin: audit log viewer | PASSED ← NEW (2026-05-22)
+- [x] US-089 | Notification preferences page | PASSED ← NEW (2026-05-22)
+- [x] US-091 | Accessibility audit and fixes | PASSED ← NEW (2026-05-22)
+- [x] US-092 | Onboarding flow for new users | PASSED ← NEW (2026-05-22)
+- [x] US-096 | Inventory: link grading submission to inventory item | PASSED ← NEW (2026-05-22)
 
 ## Remaining Stories (not started)
-- [ ] US-084 | Inventory ROI analytics
-- [ ] US-085 | Inventory value and aging report
-- [ ] US-086 | Grade-to-price correlation analysis
-- [ ] US-087 | Admin: platform-wide analytics dashboard
-- [ ] US-088 | Admin: audit log viewer
-- [ ] US-089 | Notification preferences page
-- [ ] US-091 | Accessibility audit and fixes
-- [ ] US-092 | Onboarding flow for new users
-- [ ] US-096 | Inventory: link grading submission to inventory item
 - [ ] US-097 | Quick actions and keyboard shortcuts
 - [ ] US-098 | Data backup and export: full account export
 - [ ] US-099 | Admin: content moderation and flagging system
 - [ ] US-100 | Final integration testing and polish
 
+### Phase 13: AI-Assisted Item Enrichment (US-158 → US-167) — NEW (2026-05-22)
+- [ ] US-158 | Migration: AI item-enrichment schema
+- [ ] US-159 | Edge AI extraction service with Haiku/Sonnet model routing
+- [ ] US-160 | AI text field extraction (Haiku)
+- [ ] US-161 | AI photo field extraction (Sonnet vision)
+- [ ] US-162 | Shared AI Fill review panel + text-based AI Fill in intake
+- [ ] US-163 | Photo-first 'Snap & Catalog' intake mode
+- [ ] US-164 | 'Complete this item' enrichment in ItemDetailDialog
+- [ ] US-165 | AI listing title + description generator
+- [ ] US-166 | Bulk AI enrichment from the items table
+- [ ] US-167 | AI usage settings, monthly budget guardrails & acceptance feedback
+
 ## Summary
 - Total stories: 100
-- Passed: 87
-- Remaining: 13
-- Completion: 87%
+- Passed: 96
+- Remaining: 4
+- Completion: 96%
+
+## Session Notes (2026-05-22) — AI Item Enrichment planning
+Added Phase 13 (US-158 → US-167) to prd.json: AI-assisted item add/management for FlipDesk.
+Goal: paste a description and/or attach photos, AI auto-fills brand/size/color/material/category/etc.
+Model routing: Haiku 4.5 for text-only extraction (cheap, high-volume), Sonnet 4.6 for photo/vision.
+Build order: US-158 (schema) → US-159 (edge service) → US-160/161 (extractors) → US-162 (review panel)
+→ US-163/164/165 (intake, complete-item, listing copy) → US-166 (bulk) → US-167 (guardrails).
+Every AI write goes through a review/accept panel — no silent field writes.
 
 ## Session Notes (2026-03-15)
 ### Implemented (4 new items):

@@ -7,24 +7,31 @@ import {
   Scale,
   Brain,
   Wrench,
+  ScrollText,
   ArrowLeft,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const adminNavItems = [
-  { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true },
-  { to: "/admin/users", icon: Users, label: "Users", end: false },
-  { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false },
-  { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false },
-  { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false },
-  { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false },
-  { to: "/admin/system", icon: Wrench, label: "System", end: false },
+  { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true, superAdminOnly: false },
+  { to: "/admin/users", icon: Users, label: "Users", end: false, superAdminOnly: false },
+  { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
+  { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false, superAdminOnly: false },
+  { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
+  { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
+  { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
+  { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
 ];
 
 export function AdminLayout() {
   const { user, profile } = useAuth();
   const navigate = useNavigate();
+
+  const isSuperAdmin = profile?.role === "super_admin";
+  const visibleNavItems = adminNavItems.filter(
+    (item) => !item.superAdminOnly || isSuperAdmin
+  );
 
   const initials = profile?.full_name
     ? profile.full_name
@@ -36,6 +43,12 @@ export function AdminLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-brand-red focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg"
+      >
+        Skip to content
+      </a>
       {/* Admin sidebar — darker treatment with brand-night bg */}
       <aside className="hidden w-64 flex-shrink-0 flex-col bg-brand-night text-white md:flex">
         <div className="flex h-16 items-center justify-between px-6">
@@ -46,7 +59,7 @@ export function AdminLayout() {
         </div>
 
         <nav className="mt-2 flex-1 space-y-1 px-3">
-          {adminNavItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -98,7 +111,11 @@ export function AdminLayout() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-background p-6">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 overflow-y-auto bg-background p-6 outline-none"
+        >
           <Outlet />
         </main>
       </div>

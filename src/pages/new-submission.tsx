@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -10,12 +10,30 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
+import type { InventoryItemRow } from "@/types/database";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+
+// Item statuses from which a submission moves the item into 'grading'.
+const PRE_GRADE_STATUSES = new Set([
+  "sourced",
+  "acquired",
+  "cataloged",
+  "measured",
+  "photographed",
+]);
 import {
   GarmentInfoForm,
   type GarmentInfo,
@@ -94,10 +112,49 @@ function StepIndicator({
 export function NewSubmissionPage() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [currentStep, setCurrentStep] = useState(0);
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
   const [photos, setPhotos] = useState<PhotoUploadItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
+  const [linkedItemId, setLinkedItemId] = useState<string>(
+    () => searchParams.get("item") ?? "none"
+  );
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .is("grade_report_id", null)
+        .order("created_at", { ascending: false });
+      setInventoryItems((data ?? []) as InventoryItemRow[]);
+    })();
+  }, []);
+
+  const linkedItem =
+    linkedItemId === "none"
+      ? null
+      : inventoryItems.find((i) => i.id === linkedItemId) ?? null;
+
+  const garmentDefaults: Partial<GarmentInfo> | undefined =
+    garmentInfo ??
+    (linkedItem
+      ? {
+          garmentType: linkedItem.garment_type ?? undefined,
+          garmentCategory: linkedItem.garment_category ?? undefined,
+          brand: linkedItem.brand ?? "",
+          title: linkedItem.title,
+          description: linkedItem.description ?? "",
+        }
+      : undefined);
+
+  function handleLinkedItemChange(value: string) {
+    setLinkedItemId(value);
+    // Drop any prior garment info so the form re-fills from the new item.
+    setGarmentInfo(null);
+  }
 
   const plan = profile?.plan ?? "free";
   const planConfig = PLANS[plan as PlanKey];
@@ -189,6 +246,27 @@ export function NewSubmissionPage() {
         return;
       }
 
+      // Link the submission to an inventory item if one was selected.
+      if (linkedItem && result.submissionId) {
+        try {
+          const updates: Record<string, unknown> = {
+            submission_id: result.submissionId,
+          };
+          if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
+            updates.status = "grading";
+          }
+          await supabase
+            .from("inventory_items")
+            .update(updates as never)
+            .eq("id", linkedItem.id);
+        } catch {
+          // Linking is non-fatal — the submission was still created.
+          toast.warning(
+            "Submission created, but linking to the inventory item failed."
+          );
+        }
+      }
+
       toast.success("Submission created! Your garment is being graded.", {
         description: "You'll be redirected to the submission details.",
       });
@@ -223,10 +301,43 @@ export function NewSubmissionPage() {
         <CardContent>
           {/* Step 1: Garment Info */}
           {currentStep === 0 && (
-            <GarmentInfoForm
-              onSubmit={handleGarmentInfoSubmit}
-              defaultValues={garmentInfo ?? undefined}
-            />
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="linked-item">
+                  Link to inventory item{" "}
+                  <span className="text-muted-foreground">(optional)</span>
+                </Label>
+                <Select
+                  value={linkedItemId}
+                  onValueChange={handleLinkedItemChange}
+                >
+                  <SelectTrigger id="linked-item" className="w-full">
+                    <SelectValue placeholder="No linked item" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No linked item</SelectItem>
+                    {inventoryItems.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.title}
+                        {item.brand ? ` — ${item.brand}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {linkedItem && (
+                  <p className="text-xs text-muted-foreground">
+                    Garment details below were pre-filled from this item. The
+                    grade will flow back into its inventory record.
+                  </p>
+                )}
+              </div>
+              <Separator />
+              <GarmentInfoForm
+                key={linkedItemId}
+                onSubmit={handleGarmentInfoSubmit}
+                defaultValues={garmentDefaults}
+              />
+            </div>
           )}
 
           {/* Step 2: Photos */}

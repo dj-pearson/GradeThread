@@ -51,16 +51,21 @@ notificationRoutes.post("/dispute-resolved", async (c) => {
       return c.json({ error: "Dispute is not resolved or rejected" }, 400);
     }
 
-    // Fetch user email and name
+    // Fetch user email, name, and notification preferences
     const { data: user } = await supabaseAdmin
       .from("users")
-      .select("email, full_name")
+      .select("email, full_name, notification_preferences")
       .eq("id", dispute.user_id)
       .single();
 
     if (!user?.email) {
       console.warn(`[Notifications] No email found for user ${dispute.user_id}`);
       return c.json({ error: "User email not found" }, 404);
+    }
+
+    // Respect the user's notification preferences (default: enabled).
+    if (user.notification_preferences?.dispute_updates?.email === false) {
+      return c.json({ sent: false, skipped: "user opted out of dispute emails" });
     }
 
     // Fetch grade report for scores

@@ -91,6 +91,15 @@ export type ExpenseCategory =
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
+export interface NotificationPreferences {
+  grade_complete: { email: boolean; in_app: boolean };
+  dispute_updates: { email: boolean; in_app: boolean };
+  billing_alerts: { email: boolean };
+  product_updates: { email: boolean };
+}
+
+export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";
+
 export interface UserRow {
   id: string;
   email: string;
@@ -101,6 +110,9 @@ export interface UserRow {
   stripe_customer_id: string | null;
   grades_used_this_month: number;
   grade_reset_at: string;
+  notification_preferences: NotificationPreferences;
+  use_case: UserUseCase | null;
+  onboarded_at: string | null;
   created_at: string;
   updated_at: string;
 }

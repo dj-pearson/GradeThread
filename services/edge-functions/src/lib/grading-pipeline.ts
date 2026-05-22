@@ -180,6 +180,36 @@ export async function processSubmission(submissionId: string) {
       .update({ status: "completed" })
       .eq("id", submissionId);
 
+    // --- Step 7b: Sync a linked inventory item, if any ---
+    try {
+      const { data: linkedItem } = await supabaseAdmin
+        .from("inventory_items")
+        .select("id, status")
+        .eq("submission_id", submissionId)
+        .maybeSingle();
+
+      if (linkedItem) {
+        const itemUpdate: Record<string, unknown> = {
+          grade_report_id: gradeReport.id,
+          grade_value: compositeResult.overall_score,
+          grade_label: compositeResult.grade_tier,
+        };
+        // Advance the lifecycle only if it's still mid-grading.
+        if (linkedItem.status === "grading") {
+          itemUpdate.status = "graded";
+        }
+        await supabaseAdmin
+          .from("inventory_items")
+          .update(itemUpdate)
+          .eq("id", linkedItem.id);
+      }
+    } catch (itemErr) {
+      console.error(
+        `[Pipeline] Inventory item sync error for submission ${submissionId}:`,
+        itemErr instanceof Error ? itemErr.message : String(itemErr)
+      );
+    }
+
     const totalMs = Date.now() - startTime;
     console.log(
       `[Pipeline] Grading pipeline COMPLETE for submission ${submissionId} | ` +
@@ -202,11 +232,15 @@ export async function processSubmission(submissionId: string) {
       try {
         const { data: user } = await supabaseAdmin
           .from("users")
-          .select("email, full_name")
+          .select("email, full_name, notification_preferences")
           .eq("id", submission.user_id)
           .single();
 
-        if (user?.email) {
+        // Respect the user's notification preferences (default: enabled).
+        const emailEnabled =
+          user?.notification_preferences?.grade_complete?.email !== false;
+
+        if (user?.email && emailEnabled) {
           await sendGradeCompleteEmail(user.email, {
             userName: user.full_name || "there",
             submissionTitle: submission.title,

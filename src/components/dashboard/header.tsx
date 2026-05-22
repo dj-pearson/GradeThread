@@ -66,7 +66,10 @@ export function Header() {
 
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex items-center gap-2 rounded-full outline-none ring-ring focus-visible:ring-2">
+          <button
+            aria-label="Account menu"
+            className="flex items-center gap-2 rounded-full outline-none ring-ring focus-visible:ring-2"
+          >
             <Avatar className="h-8 w-8">
               <AvatarImage src={profile?.avatar_url ?? undefined} />
               <AvatarFallback className="bg-primary text-primary-foreground text-xs">

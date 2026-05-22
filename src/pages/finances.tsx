@@ -20,6 +20,9 @@ import { FinancialCharts } from "@/components/finances/financial-charts";
 import { CashFlow } from "@/components/finances/cash-flow";
 import { FinancialExport } from "@/components/finances/financial-export";
 import { TimeOnMarket } from "@/components/finances/time-on-market";
+import { RoiAnalytics } from "@/components/finances/roi-analytics";
+import { InventoryAging } from "@/components/finances/inventory-aging";
+import { GradePriceCorrelation } from "@/components/finances/grade-price-correlation";
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -370,6 +373,44 @@ export function FinancesPage() {
           sales={data?.sales ?? []}
           shipments={data?.shipments ?? []}
           periodStart={getPeriodStartDate(period)}
+          isLoading={isLoading}
+        />
+      </div>
+
+      {/* ROI Analytics */}
+      <div>
+        <h2 className="text-lg font-semibold">ROI Analytics</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          See which brands, categories, and acquisition sources yield the best
+          margins.
+        </p>
+        <RoiAnalytics
+          items={data?.items ?? []}
+          sales={data?.sales ?? []}
+          periodStart={getPeriodStartDate(period)}
+          isLoading={isLoading}
+        />
+      </div>
+
+      {/* Inventory Value & Aging */}
+      <div>
+        <h2 className="text-lg font-semibold">Inventory Value & Aging</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          Capital tied up in unsold inventory, bracketed by how long it's been
+          held.
+        </p>
+        <InventoryAging items={data?.items ?? []} isLoading={isLoading} />
+      </div>
+
+      {/* Grade-to-Price Correlation */}
+      <div>
+        <h2 className="text-lg font-semibold">Grade-to-Price Correlation</h2>
+        <p className="mb-4 text-sm text-muted-foreground">
+          How condition grades relate to the prices your items sell for.
+        </p>
+        <GradePriceCorrelation
+          items={data?.items ?? []}
+          sales={data?.sales ?? []}
           isLoading={isLoading}
         />
       </div>

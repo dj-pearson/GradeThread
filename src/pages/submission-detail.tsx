@@ -10,6 +10,7 @@ import {
   Clock,
   Loader2,
   Upload,
+  Package,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ import type {
   GradeReportRow,
   SubmissionImageRow,
   DisputeRow,
+  InventoryItemRow,
 } from "@/types/database";
 
 function getScoreColor(score: number): string {
@@ -118,6 +120,7 @@ export function SubmissionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dispute, setDispute] = useState<DisputeRow | null>(null);
+  const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
   const [disputeReason, setDisputeReason] = useState("");
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
@@ -181,6 +184,16 @@ export function SubmissionDetailPage() {
 
       if (reportData) {
         setGradeReport(reportData);
+      }
+
+      // Fetch a linked inventory item, if any
+      const { data: linkedItemData } = await supabase
+        .from("inventory_items")
+        .select("*")
+        .eq("submission_id", id!)
+        .maybeSingle();
+      if (linkedItemData) {
+        setLinkedItem(linkedItemData as InventoryItemRow);
       }
 
       // Fetch submission images
@@ -560,6 +573,33 @@ export function SubmissionDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Linked Inventory Item */}
+      {linkedItem && (
+        <Card>
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="rounded-md bg-muted p-2">
+                <Package className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">
+                  Linked to inventory item
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {linkedItem.title}
+                  {linkedItem.brand ? ` · ${linkedItem.brand}` : ""}
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`/dashboard/inventory/${linkedItem.id}`}>
+                View Inventory Item
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Grade Report */}
       {gradeReport ? (

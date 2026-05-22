@@ -47,7 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { ITEM_STATUSES, LISTING_PLATFORMS } from "@/lib/constants";
+import { ITEM_STATUSES, LISTING_PLATFORMS, GRADE_FACTORS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type {
@@ -107,6 +107,12 @@ function formatDate(date: string | null): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function getScoreColor(score: number): string {
+  if (score > 7) return "text-green-600";
+  if (score >= 5) return "text-yellow-600";
+  return "text-red-600";
 }
 
 function getStatusBadgeClasses(status: string): string {
@@ -816,7 +822,78 @@ export function InventoryDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {item.grade_report_id ? (
+            {gradeReport ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div
+                    className={cn(
+                      "flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full border-4",
+                      gradeReport.overall_score > 7
+                        ? "border-green-500"
+                        : gradeReport.overall_score >= 5
+                          ? "border-yellow-500"
+                          : "border-red-500"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "text-xl font-bold",
+                        getScoreColor(gradeReport.overall_score)
+                      )}
+                    >
+                      {gradeReport.overall_score.toFixed(1)}
+                    </span>
+                  </div>
+                  <div>
+                    <Badge variant="outline">{gradeReport.grade_tier}</Badge>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Overall condition grade
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
+                  {(
+                    [
+                      ["fabric_condition", gradeReport.fabric_condition_score],
+                      [
+                        "structural_integrity",
+                        gradeReport.structural_integrity_score,
+                      ],
+                      [
+                        "cosmetic_appearance",
+                        gradeReport.cosmetic_appearance_score,
+                      ],
+                      [
+                        "functional_elements",
+                        gradeReport.functional_elements_score,
+                      ],
+                      [
+                        "odor_cleanliness",
+                        gradeReport.odor_cleanliness_score,
+                      ],
+                    ] as const
+                  ).map(([key, score]) => (
+                    <div key={key} className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        {GRADE_FACTORS[key].label}
+                      </span>
+                      <span
+                        className={cn("font-medium", getScoreColor(score))}
+                      >
+                        {score.toFixed(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {item.submission_id && (
+                  <Button variant="outline" size="sm" asChild>
+                    <Link to={`/dashboard/submissions/${item.submission_id}`}>
+                      View Full Report
+                    </Link>
+                  </Button>
+                )}
+              </div>
+            ) : item.grade_report_id ? (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
                   This item has been graded.
@@ -829,6 +906,17 @@ export function InventoryDetailPage() {
                   </Button>
                 )}
               </div>
+            ) : item.submission_id ? (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  A grading submission is in progress for this item.
+                </p>
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={`/dashboard/submissions/${item.submission_id}`}>
+                    View Submission
+                  </Link>
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
                 <p className="text-sm text-muted-foreground">
@@ -837,7 +925,11 @@ export function InventoryDetailPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate("/dashboard/submissions/new")}
+                  onClick={() =>
+                    navigate(
+                      `/dashboard/submissions/new?item=${item.id}`
+                    )
+                  }
                 >
                   Submit for Grading
                 </Button>

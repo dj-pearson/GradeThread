@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BarChart3, FileText, TrendingUp, Plus } from "lucide-react";
+import { BarChart3, FileText, TrendingUp, Plus, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradeCharts } from "@/components/dashboard/grade-charts";
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
@@ -167,6 +167,33 @@ export function DashboardPage() {
           New Submission
         </Button>
       </div>
+
+      {/* Use-case tailored quick start */}
+      {profile?.use_case === "developer" && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="rounded-md bg-primary/10 p-2">
+                <KeyRound className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Developer quick start</p>
+                <p className="text-xs text-muted-foreground">
+                  Generate an API key and start grading garments
+                  programmatically.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate("/dashboard/api-keys")}
+            >
+              Manage API Keys
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Stats cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
