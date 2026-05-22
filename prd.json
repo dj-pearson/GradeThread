@@ -1472,8 +1472,8 @@
         "Typecheck passes"
       ],
       "priority": 83,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented. New route /dashboard/submissions/bulk (BulkSubmissionPage). CSV parsed via parseSheet (title, brand, garment_type, category, photo_filenames cols; photos split on ; or |). ZIP read by new dependency-free src/lib/zip.ts using native DecompressionStream (deflate-raw + stored). Preview table flags valid/invalid rows with per-row error reasons. Sequential submission with Progress bar; invalid rows skipped; failed-row summary shown at end. Gated to professional/enterprise plans with an upgrade card. Bulk Upload button added to submissions page. Build passes."
     },
     {
       "id": "US-084",

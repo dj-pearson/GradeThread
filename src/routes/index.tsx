@@ -17,6 +17,7 @@ const ResetPasswordPage = lazy(() => import("@/pages/reset-password").then(m => 
 const DashboardPage = lazy(() => import("@/pages/dashboard").then(m => ({ default: m.DashboardPage })));
 const SubmissionsPage = lazy(() => import("@/pages/submissions").then(m => ({ default: m.SubmissionsPage })));
 const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => ({ default: m.NewSubmissionPage })));
+const BulkSubmissionPage = lazy(() => import("@/pages/bulk-submission").then(m => ({ default: m.BulkSubmissionPage })));
 const SubmissionDetailPage = lazy(() => import("@/pages/submission-detail").then(m => ({ default: m.SubmissionDetailPage })));
 const InventoryPage = lazy(() => import("@/pages/inventory").then(m => ({ default: m.InventoryPage })));
 const InventoryAddPage = lazy(() => import("@/pages/inventory-add").then(m => ({ default: m.InventoryAddPage })));
@@ -95,6 +96,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard", element: <SuspenseWrapper><DashboardPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions", element: <SuspenseWrapper><SubmissionsPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/new", element: <SuspenseWrapper><NewSubmissionPage /></SuspenseWrapper> },
+              { path: "/dashboard/submissions/bulk", element: <SuspenseWrapper><BulkSubmissionPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/:id", element: <SuspenseWrapper><SubmissionDetailPage /></SuspenseWrapper> },
               { path: "/dashboard/inventory", element: <SuspenseWrapper><InventoryPage /></SuspenseWrapper> },
               { path: "/dashboard/inventory/new", element: <SuspenseWrapper><InventoryAddPage /></SuspenseWrapper> },

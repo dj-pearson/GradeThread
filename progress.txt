@@ -115,8 +115,10 @@
 ## In Progress Stories
 (none)
 
+### Phase 12: Advanced Features (US-083 → US-100)
+- [x] US-083 | Bulk submission upload | PASSED ← NEW (2026-05-22)
+
 ## Remaining Stories (not started)
-- [ ] US-083 | Bulk submission upload
 - [ ] US-084 | Inventory ROI analytics
 - [ ] US-085 | Inventory value and aging report
 - [ ] US-086 | Grade-to-price correlation analysis
@@ -133,9 +135,9 @@
 
 ## Summary
 - Total stories: 100
-- Passed: 86
-- Remaining: 14
-- Completion: 86%
+- Passed: 87
+- Remaining: 13
+- Completion: 87%
 
 ## Session Notes (2026-03-15)
 ### Implemented (4 new items):

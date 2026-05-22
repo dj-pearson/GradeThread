@@ -11,6 +11,7 @@ import {
   Search,
   Download,
   Flag,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -406,6 +407,13 @@ export function SubmissionsPage() {
           >
             <Download className="mr-1 h-4 w-4" />
             {exporting ? "Exporting…" : "Export CSV"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => navigate("/dashboard/submissions/bulk")}
+          >
+            <Layers className="mr-1 h-4 w-4" />
+            Bulk Upload
           </Button>
           <Button onClick={() => navigate("/dashboard/submissions/new")}>
             <Plus className="mr-1 h-4 w-4" />

@@ -1,0 +1,612 @@
+import { useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  FileSpreadsheet,
+  FileArchive,
+  Loader2,
+  Lock,
+  Upload,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Separator } from "@/components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
+import { parseSheet } from "@/lib/csv";
+import { readZip, baseName, type ZipEntry } from "@/lib/zip";
+import { compressImage } from "@/lib/image-utils";
+import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
+import type { ImageType } from "@/types/database";
+
+// Plans permitted to use bulk upload (PRD: gate behind Professional/Enterprise).
+const ALLOWED_PLANS = ["professional", "enterprise"];
+
+// Photos are assigned image types by their position in the photo_filenames
+// list. The grading pipeline requires front, back, label and one detail shot.
+const IMAGE_TYPE_BY_INDEX: ImageType[] = ["front", "back", "label", "detail"];
+const REQUIRED_PHOTO_COUNT = 4;
+
+interface ParsedRow {
+  rowNumber: number;
+  title: string;
+  brand: string;
+  garmentType: string;
+  garmentCategory: string;
+  photoFilenames: string[];
+  errors: string[];
+}
+
+interface SubmitResult {
+  submitted: number;
+  errors: { rowNumber: number; title: string; message: string }[];
+}
+
+function mimeForName(name: string): string {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  if (ext === "png") return "image/png";
+  if (ext === "webp") return "image/webp";
+  return "image/jpeg";
+}
+
+function findHeader(headers: string[], candidates: string[]): number {
+  const normalized = headers.map((h) => h.trim().toLowerCase());
+  for (const candidate of candidates) {
+    const idx = normalized.indexOf(candidate);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+function validateRow(
+  row: ParsedRow,
+  zipNames: Set<string>
+): string[] {
+  const errors: string[] = [];
+  if (!row.title) errors.push("Missing title");
+  if (!row.garmentType) {
+    errors.push("Missing garment_type");
+  } else if (!GARMENT_TYPES.includes(row.garmentType as never)) {
+    errors.push(`Invalid garment_type "${row.garmentType}"`);
+  }
+  if (!row.garmentCategory) {
+    errors.push("Missing category");
+  } else if (!GARMENT_CATEGORIES.includes(row.garmentCategory as never)) {
+    errors.push(`Invalid category "${row.garmentCategory}"`);
+  }
+  if (row.photoFilenames.length < REQUIRED_PHOTO_COUNT) {
+    errors.push(
+      `Needs at least ${REQUIRED_PHOTO_COUNT} photos (front, back, label, detail)`
+    );
+  }
+  for (const name of row.photoFilenames) {
+    if (!zipNames.has(baseName(name))) {
+      errors.push(`Photo not found in ZIP: ${name}`);
+    }
+  }
+  return errors;
+}
+
+export function BulkSubmissionPage() {
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const csvInputRef = useRef<HTMLInputElement>(null);
+  const zipInputRef = useRef<HTMLInputElement>(null);
+
+  const [csvName, setCsvName] = useState<string>("");
+  const [zipName, setZipName] = useState<string>("");
+  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [zipEntries, setZipEntries] = useState<Map<string, ZipEntry>>(
+    new Map()
+  );
+  const [parseError, setParseError] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [result, setResult] = useState<SubmitResult | null>(null);
+
+  const plan = profile?.plan ?? "free";
+  const planAllowed = ALLOWED_PLANS.includes(plan);
+
+  const validRows = rows.filter((r) => r.errors.length === 0);
+  const invalidRows = rows.filter((r) => r.errors.length > 0);
+
+  function reparse(
+    rawRows: ParsedRow[] | null,
+    entries: Map<string, ZipEntry> | null
+  ) {
+    const sourceRows = rawRows ?? rows;
+    const sourceEntries = entries ?? zipEntries;
+    if (sourceRows.length === 0) return;
+    const zipNames = new Set(sourceEntries.keys());
+    setRows(
+      sourceRows.map((row) => ({
+        ...row,
+        errors: validateRow(row, zipNames),
+      }))
+    );
+  }
+
+  async function handleCsvSelect(file: File) {
+    setParseError("");
+    setResult(null);
+    try {
+      const text = await file.text();
+      const { headers, rows: dataRows } = parseSheet(text);
+
+      const titleIdx = findHeader(headers, ["title", "name"]);
+      const brandIdx = findHeader(headers, ["brand"]);
+      const typeIdx = findHeader(headers, ["garment_type", "type"]);
+      const categoryIdx = findHeader(headers, ["category", "garment_category"]);
+      const photosIdx = findHeader(headers, [
+        "photo_filenames",
+        "photos",
+        "photo_files",
+      ]);
+
+      if (titleIdx === -1 || typeIdx === -1 || categoryIdx === -1 || photosIdx === -1) {
+        setParseError(
+          "CSV must include columns: title, garment_type, category, photo_filenames."
+        );
+        return;
+      }
+
+      const zipNames = new Set(zipEntries.keys());
+      const parsed: ParsedRow[] = dataRows
+        .filter((cells) => cells.some((c) => c.trim() !== ""))
+        .map((cells, i) => {
+          const photoFilenames = (cells[photosIdx] ?? "")
+            .split(/[;|]/)
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const row: ParsedRow = {
+            rowNumber: i + 1,
+            title: (cells[titleIdx] ?? "").trim(),
+            brand: brandIdx === -1 ? "" : (cells[brandIdx] ?? "").trim(),
+            garmentType: (cells[typeIdx] ?? "").trim().toLowerCase(),
+            garmentCategory: (cells[categoryIdx] ?? "").trim().toLowerCase(),
+            photoFilenames,
+            errors: [],
+          };
+          row.errors = validateRow(row, zipNames);
+          return row;
+        });
+
+      if (parsed.length === 0) {
+        setParseError("CSV has no data rows.");
+        return;
+      }
+
+      setCsvName(file.name);
+      setRows(parsed);
+    } catch {
+      setParseError("Failed to read CSV file.");
+    }
+  }
+
+  async function handleZipSelect(file: File) {
+    setParseError("");
+    setResult(null);
+    try {
+      const entries = await readZip(file);
+      const map = new Map<string, ZipEntry>();
+      for (const entry of entries) {
+        map.set(baseName(entry.name), entry);
+      }
+      if (map.size === 0) {
+        setParseError("ZIP file contains no files.");
+        return;
+      }
+      setZipName(file.name);
+      setZipEntries(map);
+      reparse(null, map);
+    } catch (err) {
+      setParseError(
+        err instanceof Error ? err.message : "Failed to read ZIP file."
+      );
+    }
+  }
+
+  async function buildPhotoFile(
+    entry: ZipEntry,
+    name: string
+  ): Promise<File> {
+    const raw = new File([entry.data as BlobPart], name, {
+      type: mimeForName(name),
+    });
+    const compressed = await compressImage(raw);
+    return new File([compressed], name, { type: compressed.type });
+  }
+
+  async function handleSubmit() {
+    if (validRows.length === 0) return;
+    setIsSubmitting(true);
+    setResult(null);
+    setProgress({ current: 0, total: validRows.length });
+
+    const errors: SubmitResult["errors"] = [];
+    let submitted = 0;
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        toast.error("You must be logged in to submit garments.");
+        setIsSubmitting(false);
+        return;
+      }
+
+      const edgeUrl = import.meta.env.VITE_SUPABASE_URL
+        ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
+        : "";
+      const baseUrl = import.meta.env.VITE_EDGE_URL || edgeUrl;
+
+      for (let i = 0; i < validRows.length; i++) {
+        const row = validRows[i]!;
+        setProgress({ current: i, total: validRows.length });
+        try {
+          const formData = new FormData();
+          formData.append("garment_type", row.garmentType);
+          formData.append("garment_category", row.garmentCategory);
+          formData.append("title", row.title);
+          if (row.brand) formData.append("brand", row.brand);
+
+          for (let p = 0; p < row.photoFilenames.length; p++) {
+            const fileName = row.photoFilenames[p]!;
+            const entry = zipEntries.get(baseName(fileName));
+            if (!entry) throw new Error(`Photo missing: ${fileName}`);
+            const photoFile = await buildPhotoFile(entry, fileName);
+            const imageType =
+              IMAGE_TYPE_BY_INDEX[p] ?? ("detail" as ImageType);
+            formData.append("images", photoFile);
+            formData.append("image_types", imageType);
+          }
+
+          const response = await fetch(`${baseUrl}/api/grade/submit`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            body: formData,
+          });
+          const json = await response.json();
+          if (!response.ok) {
+            throw new Error(json.error || "Submission failed");
+          }
+          submitted++;
+        } catch (err) {
+          errors.push({
+            rowNumber: row.rowNumber,
+            title: row.title,
+            message:
+              err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+      }
+
+      setProgress({ current: validRows.length, total: validRows.length });
+      setResult({ submitted, errors });
+
+      if (submitted > 0) {
+        toast.success(
+          `${submitted} submission${submitted === 1 ? "" : "s"} created.`,
+          {
+            description:
+              errors.length > 0
+                ? `${errors.length} row${errors.length === 1 ? "" : "s"} failed.`
+                : "Your garments are being graded.",
+          }
+        );
+      } else {
+        toast.error("No submissions were created.");
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Bulk upload failed."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (!planAllowed) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Bulk Submission Upload</h1>
+          <p className="text-muted-foreground">
+            Grade large batches of garments at once.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
+            <div className="rounded-full bg-muted p-3">
+              <Lock className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">
+                Available on Professional & Enterprise
+              </h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Bulk upload lets you grade many garments at once with a CSV
+                and a ZIP of photos. Upgrade your plan to unlock it.
+              </p>
+            </div>
+            <Button onClick={() => navigate("/dashboard/billing")}>
+              Upgrade Plan
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-2">
+        <Link
+          to="/dashboard/submissions"
+          className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Submissions
+        </Link>
+        <div>
+          <h1 className="text-2xl font-bold">Bulk Submission Upload</h1>
+          <p className="text-muted-foreground">
+            Upload a CSV of garment info and a ZIP of photos to grade many
+            items at once.
+          </p>
+        </div>
+      </div>
+
+      {/* Step 1: Uploads */}
+      <Card>
+        <CardHeader>
+          <CardTitle>1. Upload files</CardTitle>
+          <CardDescription>
+            CSV columns: <code>title</code>, <code>brand</code>,{" "}
+            <code>garment_type</code>, <code>category</code>,{" "}
+            <code>photo_filenames</code> (filenames separated by{" "}
+            <code>;</code> or <code>|</code>).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleCsvSelect(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => csvInputRef.current?.click()}
+              className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors hover:border-primary hover:bg-muted/50"
+            >
+              <FileSpreadsheet className="h-8 w-8 text-muted-foreground" />
+              <span className="text-sm font-medium">
+                {csvName || "Select CSV file"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {csvName ? "Click to replace" : "Garment info spreadsheet"}
+              </span>
+            </button>
+          </div>
+
+          <div>
+            <input
+              ref={zipInputRef}
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleZipSelect(file);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => zipInputRef.current?.click()}
+              className="flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors hover:border-primary hover:bg-muted/50"
+            >
+              <FileArchive className="h-8 w-8 text-muted-foreground" />
+              <span className="text-sm font-medium">
+                {zipName || "Select ZIP file"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {zipName
+                  ? `${zipEntries.size} photos`
+                  : "Archive of garment photos"}
+              </span>
+            </button>
+          </div>
+
+          {parseError && (
+            <div className="sm:col-span-2 flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              {parseError}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Step 2: Preview */}
+      {rows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>2. Preview</CardTitle>
+            <CardDescription>
+              {validRows.length} valid · {invalidRows.length} invalid (invalid
+              rows are skipped).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-12">#</TableHead>
+                    <TableHead>Title</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Photos</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row) => (
+                    <TableRow key={row.rowNumber}>
+                      <TableCell className="text-muted-foreground">
+                        {row.rowNumber}
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {row.title || (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>{row.garmentType || "—"}</TableCell>
+                      <TableCell>{row.garmentCategory || "—"}</TableCell>
+                      <TableCell>{row.photoFilenames.length}</TableCell>
+                      <TableCell>
+                        {row.errors.length === 0 ? (
+                          <Badge
+                            variant="outline"
+                            className="border-green-600/40 text-green-700 dark:text-green-400"
+                          >
+                            <CheckCircle2 className="mr-1 h-3 w-3" />
+                            Valid
+                          </Badge>
+                        ) : (
+                          <span className="flex items-center gap-1 text-xs text-destructive">
+                            <XCircle className="h-3 w-3 shrink-0" />
+                            {row.errors.join("; ")}
+                          </span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {isSubmitting && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span>Submitting…</span>
+                  <span className="text-muted-foreground">
+                    {progress.current} / {progress.total}
+                  </span>
+                </div>
+                <Progress
+                  value={
+                    progress.total > 0
+                      ? (progress.current / progress.total) * 100
+                      : 0
+                  }
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {zipName
+                  ? `${validRows.length} garment${
+                      validRows.length === 1 ? "" : "s"
+                    } ready to submit`
+                  : "Upload a ZIP of photos to continue"}
+              </p>
+              <Button
+                onClick={handleSubmit}
+                disabled={
+                  isSubmitting || validRows.length === 0 || !zipName
+                }
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="mr-2 h-4 w-4" />
+                    Submit {validRows.length} Garment
+                    {validRows.length === 1 ? "" : "s"}
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Step 3: Result summary */}
+      {result && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Upload complete</CardTitle>
+            <CardDescription>
+              {result.submitted} submission
+              {result.submitted === 1 ? "" : "s"} created ·{" "}
+              {result.errors.length} failed
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {result.errors.length > 0 && (
+              <>
+                <div className="space-y-1">
+                  <h3 className="text-sm font-medium text-destructive">
+                    Failed rows
+                  </h3>
+                  <ul className="space-y-1 text-sm">
+                    {result.errors.map((e) => (
+                      <li
+                        key={e.rowNumber}
+                        className="flex items-start gap-2"
+                      >
+                        <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                        <span>
+                          Row {e.rowNumber} ({e.title || "untitled"}):{" "}
+                          {e.message}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <Separator />
+              </>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => navigate("/dashboard/submissions")}
+            >
+              View Submissions
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
