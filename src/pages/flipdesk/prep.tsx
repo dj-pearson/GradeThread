@@ -1,0 +1,402 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import {
+  Hammer,
+  ChevronLeft,
+  ChevronRight,
+  SkipForward,
+  Check,
+  Circle,
+  CircleCheck,
+  Loader2,
+  FileText,
+  CircleDot,
+} from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/auth-store";
+import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
+import { MeasurementForm } from "@/components/flipdesk/measurement-form";
+import { CompEditor } from "@/components/flipdesk/comp-editor";
+import { rankOf, resolveStatus, factsOf } from "@/lib/workflow";
+import { cn } from "@/lib/utils";
+import type { ItemFullRow, ItemComp } from "@/types/database";
+
+const DRAFTED_RANK = rankOf("drafted");
+
+interface PrepState {
+  measurements: Record<string, number | string>;
+  comp_set: ItemComp[];
+  targetPrice: string;
+}
+
+export function FlipdeskPrepPage() {
+  const user = useAuthStore((s) => s.user);
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [index, setIndex] = useState(0);
+  const [draft, setDraft] = useState<PrepState | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const { data: items = [], isLoading } = useQuery({
+    queryKey: ["items_full", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<ItemFullRow[]> => {
+      const { data, error } = await (
+        supabase.from as unknown as (
+          name: "items_full",
+        ) => {
+          select: (cols: string) => {
+            order: (
+              col: string,
+              opts?: { ascending?: boolean },
+            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
+          };
+        }
+      )("items_full")
+        .select("*")
+        .order("created_at", { ascending: true }); // oldest first
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Items still in the prep phase (before drafted), oldest first.
+  const queue = useMemo(
+    () =>
+      items.filter((it) => {
+        const r = rankOf(it.status);
+        return r >= 0 && r < DRAFTED_RANK;
+      }),
+    [items],
+  );
+
+  const current: ItemFullRow | undefined = queue[index];
+
+  // Seed the editable draft whenever the current item changes.
+  useEffect(() => {
+    if (current) {
+      setDraft({
+        measurements:
+          current.measurements && typeof current.measurements === "object"
+            ? current.measurements
+            : {},
+        comp_set: Array.isArray(current.comps) ? current.comps : [],
+        targetPrice:
+          current.target_price == null ? "" : String(current.target_price),
+      });
+    } else {
+      setDraft(null);
+    }
+  }, [current]);
+
+  // Clamp index if the queue shrinks (e.g. an item advances out of prep).
+  useEffect(() => {
+    if (index > 0 && index >= queue.length) {
+      setIndex(Math.max(0, queue.length - 1));
+    }
+  }, [queue.length, index]);
+
+  async function persist(current: ItemFullRow, d: PrepState) {
+    const targetPrice =
+      d.targetPrice.trim() === "" ? null : Number(d.targetPrice);
+    const resolved = resolveStatus(current.status, current.status, {
+      hasMeasurements: Object.keys(d.measurements).length > 0,
+      hasRequiredPhotos: current.has_required_photos === true,
+      hasTargetPrice: targetPrice != null,
+      hasDraftListing: current.listing_id != null,
+    });
+    const { error } = await supabase
+      .from("inventory_items")
+      .update({
+        measurements:
+          Object.keys(d.measurements).length > 0 ? d.measurements : null,
+        comp_set: d.comp_set.filter(
+          (c) => Number.isFinite(c.price) && c.price > 0,
+        ),
+        target_price: targetPrice,
+        status: resolved,
+      } as never)
+      .eq("id", current.id);
+    if (error) throw error;
+  }
+
+  async function saveAndAdvance(goToComposer = false) {
+    if (!current || !draft) return;
+    setSaving(true);
+    try {
+      await persist(current, draft);
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      if (goToComposer) {
+        navigate(`/dashboard/flipdesk/items/${current.id}/draft`);
+        return;
+      }
+      toast.success(`Saved "${current.item_title}".`);
+      // Stay on the same index — the saved item usually drops out of the
+      // queue, sliding the next item into place.
+      setIndex((i) => Math.min(i, Math.max(0, queue.length - 2)));
+    } catch (err) {
+      toast.error(
+        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="py-12 text-center text-sm text-muted-foreground">
+        Loading prep queue…
+      </div>
+    );
+  }
+
+  if (queue.length === 0 || !current || !draft) {
+    return (
+      <div className="space-y-6">
+        <PrepHeader queueLength={0} index={0} />
+        <Card>
+          <CardContent className="space-y-3 py-16 text-center">
+            <CircleCheck className="mx-auto h-10 w-10 text-emerald-600" />
+            <div className="text-lg font-semibold">Prep queue is clear</div>
+            <p className="text-sm text-muted-foreground">
+              Every item has moved past prep. Time to draft and list.
+            </p>
+            <Button asChild>
+              <Link to="/dashboard/flipdesk/listings?tab=to_list">
+                Go to the To-List queue
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const facts = factsOf({
+    ...current,
+    measurements:
+      Object.keys(draft.measurements).length > 0 ? draft.measurements : null,
+    target_price:
+      draft.targetPrice.trim() === "" ? null : Number(draft.targetPrice),
+  });
+
+  const steps = [
+    { key: "photos", label: "Photos", done: facts.hasRequiredPhotos },
+    { key: "measure", label: "Measured", done: facts.hasMeasurements },
+    { key: "price", label: "Priced", done: facts.hasTargetPrice },
+  ];
+
+  return (
+    <div className="space-y-5 pb-10">
+      <PrepHeader queueLength={queue.length} index={index} />
+
+      {/* Item header + nav */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <CardTitle className="truncate">{current.item_title}</CardTitle>
+              <CardDescription>
+                {[current.brand, current.style, current.size]
+                  .filter(Boolean)
+                  .join(" · ") || "—"}
+                {current.item_number ? ` · ${current.item_number}` : ""}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setIndex((i) => Math.max(0, i - 1))}
+                disabled={index === 0 || saving}
+                aria-label="Previous item"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="px-2 text-xs tabular-nums text-muted-foreground">
+                {index + 1} / {queue.length}
+              </span>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() =>
+                  setIndex((i) => Math.min(queue.length - 1, i + 1))
+                }
+                disabled={index >= queue.length - 1 || saving}
+                aria-label="Next item"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          {/* Step progress */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {steps.map((s) => (
+              <span
+                key={s.key}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
+                  s.done
+                    ? "border-emerald-400/50 bg-emerald-100 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                    : "border-muted-foreground/30 text-muted-foreground",
+                )}
+              >
+                {s.done ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <Circle className="h-3 w-3" />
+                )}
+                {s.label}
+              </span>
+            ))}
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Step 1 — Photos */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CircleDot className="h-4 w-4" />
+            Photos
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <PhotoUploader itemId={current.id} currentStatus={current.status} />
+        </CardContent>
+      </Card>
+
+      {/* Step 2 — Measurements */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CircleDot className="h-4 w-4" />
+            Measurements
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <MeasurementForm
+            category={current.category}
+            brand={current.brand}
+            values={draft.measurements}
+            onChange={(m) => setDraft({ ...draft, measurements: m })}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Step 3 — Comp & price */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CircleDot className="h-4 w-4" />
+            Comp &amp; price
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="max-w-[200px] space-y-1">
+            <Label>Target price</Label>
+            <Input
+              type="number"
+              value={draft.targetPrice}
+              onChange={(e) =>
+                setDraft({ ...draft, targetPrice: e.target.value })
+              }
+              placeholder="0.00"
+            />
+          </div>
+          <CompEditor
+            comps={draft.comp_set}
+            onChange={(c) => setDraft({ ...draft, comp_set: c })}
+            brand={current.brand}
+            style={current.style}
+            size={current.size}
+            title={current.item_title}
+            onSuggestTarget={(p) =>
+              setDraft({ ...draft, targetPrice: p.toFixed(2) })
+            }
+          />
+        </CardContent>
+      </Card>
+
+      {/* Action bar */}
+      <div className="sticky bottom-0 -mx-6 border-t bg-card/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => setIndex((i) => Math.min(queue.length - 1, i + 1))}
+            disabled={index >= queue.length - 1 || saving}
+          >
+            <SkipForward className="mr-2 h-4 w-4" />
+            Skip
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => saveAndAdvance(true)}
+              disabled={saving}
+            >
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FileText className="mr-2 h-4 w-4" />
+              )}
+              Save &amp; draft listing
+            </Button>
+            <Button onClick={() => saveAndAdvance(false)} disabled={saving}>
+              {saving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-2 h-4 w-4" />
+              )}
+              Save &amp; next
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrepHeader({
+  queueLength,
+  index,
+}: {
+  queueLength: number;
+  index: number;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+        <Hammer className="h-5 w-5" />
+      </div>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Prep workspace</h1>
+        <p className="text-sm text-muted-foreground">
+          {queueLength > 0
+            ? `Working through ${queueLength} item${queueLength === 1 ? "" : "s"} that need prep — item ${index + 1}.`
+            : "Assembly-line prep for items that need photos, measurements, or pricing."}
+        </p>
+      </div>
+      {queueLength > 0 && (
+        <Badge variant="secondary" className="ml-auto">
+          {queueLength} in queue
+        </Badge>
+      )}
+    </div>
+  );
+}

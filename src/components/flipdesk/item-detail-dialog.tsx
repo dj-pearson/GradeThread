@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText } from "lucide-react";
+import { FileText, MoreHorizontal, Copy, RotateCcw } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -22,8 +22,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
 import { useRecentStore } from "@/stores/recent-store";
+import { useAuthStore } from "@/stores/auth-store";
 import {
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
@@ -107,6 +114,7 @@ export function ItemDetailDialog({ item, onClose }: Props) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const pushRecent = useRecentStore((s) => s.pushRecent);
+  const user = useAuthStore((s) => s.user);
   const [state, setState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -175,6 +183,63 @@ export function ItemDetailDialog({ item, onClose }: Props) {
       toast.error(`Save failed: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Duplicate — copies item-level fields into a fresh row (for buying
+  // multiples of the same thing). Photos/listings/sales are NOT copied.
+  async function duplicate() {
+    if (!item || !user) return;
+    try {
+      const category = (ITEM_CATEGORIES as readonly string[]).includes(
+        item.category ?? "",
+      )
+        ? (item.category as ItemCategory)
+        : null;
+      const { error } = await supabase.from("inventory_items").insert({
+        user_id: user.id,
+        title: item.item_title,
+        brand: item.brand,
+        style: item.style,
+        size: item.size,
+        item_category: category,
+        source_id: item.source_id,
+        sourced_by: item.sourced_by,
+        acquired_price: item.purchase_price,
+        acquired_date: item.purchase_date,
+        description: item.item_description,
+        condition_notes: item.notes,
+        measurements: item.measurements,
+        status: "cataloged",
+      } as never);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Duplicated. The copy is in Cataloged.");
+      onClose();
+    } catch (err) {
+      toast.error(
+        `Duplicate failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Relist — sends a returned/completed item back to Drafted to re-enter
+  // the listing flow. Photos and measurements are kept.
+  async function relist() {
+    if (!item) return;
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ status: "drafted" } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Item moved back to Draft for relisting.");
+      onClose();
+    } catch (err) {
+      toast.error(
+        `Relist failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -354,17 +419,39 @@ export function ItemDetailDialog({ item, onClose }: Props) {
         )}
 
         <DialogFooter className="sm:justify-between">
-          <Button
-            variant="outline"
-            onClick={() => {
-              onClose();
-              navigate(`/dashboard/flipdesk/items/${item.id}/draft`);
-            }}
-            disabled={saving}
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            Draft listing
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                onClose();
+                navigate(`/dashboard/flipdesk/items/${item.id}/draft`);
+              }}
+              disabled={saving}
+            >
+              <FileText className="mr-2 h-4 w-4" />
+              Draft listing
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" disabled={saving}>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={duplicate}>
+                  <Copy className="mr-2 h-4 w-4" />
+                  Duplicate item
+                </DropdownMenuItem>
+                {(item.status === "returned" ||
+                  item.status === "completed") && (
+                  <DropdownMenuItem onClick={relist}>
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Relist (back to Draft)
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={onClose} disabled={saving}>
               Cancel

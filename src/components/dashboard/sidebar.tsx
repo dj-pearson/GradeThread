@@ -19,6 +19,8 @@ import {
   Gauge,
   ListChecks,
   Grid3x3,
+  Hammer,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +48,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: "/dashboard/flipdesk", icon: Gauge, label: "Overview", end: true },
       { to: "/dashboard/flipdesk/listings", icon: ListChecks, label: "Listings", end: false },
+      { to: "/dashboard/flipdesk/prep", icon: Hammer, label: "Prep", end: false },
       { to: "/dashboard/flipdesk/items", icon: Table2, label: "Items", end: false },
       { to: "/dashboard/flipdesk/grid", icon: Grid3x3, label: "Grid edit", end: false },
       { to: "/dashboard/flipdesk/pipeline", icon: LayoutGrid, label: "Pipeline", end: false },
@@ -53,6 +56,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
+      { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
     ],
   },
   {

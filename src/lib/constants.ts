@@ -309,6 +309,31 @@ export const GRADING_SUBMISSION_TIERS = [
 
 export const PAYOUT_IMPORT_METHODS = ["csv_upload", "api_sync"] as const;
 
+export const EXPENSE_CATEGORIES = [
+  "shipping_supplies",
+  "mileage",
+  "subscriptions",
+  "platform_fees",
+  "sourcing_travel",
+  "equipment",
+  "storage",
+  "other",
+] as const;
+
+export const EXPENSE_CATEGORY_LABELS: Record<
+  (typeof EXPENSE_CATEGORIES)[number],
+  string
+> = {
+  shipping_supplies: "Shipping supplies",
+  mileage: "Mileage",
+  subscriptions: "Subscriptions",
+  platform_fees: "Platform fees",
+  sourcing_travel: "Sourcing travel",
+  equipment: "Equipment",
+  storage: "Storage",
+  other: "Other",
+};
+
 export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], string> = {
   ebay: "eBay",
   poshmark: "Poshmark",

@@ -79,6 +79,15 @@ export type FlipdeskPhotoType =
 export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
 export type GradingSubmissionTier = "standard" | "premium" | "express";
 export type PayoutImportMethod = "csv_upload" | "api_sync";
+export type ExpenseCategory =
+  | "shipping_supplies"
+  | "mileage"
+  | "subscriptions"
+  | "platform_fees"
+  | "sourcing_travel"
+  | "equipment"
+  | "storage"
+  | "other";
 
 // ─── Row types (what you SELECT) ───────────────────────────────────
 
@@ -377,6 +386,29 @@ export interface SavedViewInsert {
 
 export type SavedViewUpdate = Partial<
   Omit<SavedViewRow, "id" | "user_id" | "created_at">
+>;
+
+export interface ExpenseRow {
+  id: string;
+  user_id: string;
+  category: ExpenseCategory;
+  description: string | null;
+  amount: number;
+  spent_on: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExpenseInsert {
+  user_id: string;
+  category?: ExpenseCategory;
+  description?: string | null;
+  amount: number;
+  spent_on?: string;
+}
+
+export type ExpenseUpdate = Partial<
+  Omit<ExpenseRow, "id" | "user_id" | "created_at" | "updated_at">
 >;
 
 export interface FlipdeskGradingSubmissionRow {
@@ -800,6 +832,11 @@ export interface Database {
         Row: SavedViewRow;
         Insert: SavedViewInsert;
         Update: SavedViewUpdate;
+      };
+      flipdesk_expenses: {
+        Row: ExpenseRow;
+        Insert: ExpenseInsert;
+        Update: ExpenseUpdate;
       };
     };
     Enums: {

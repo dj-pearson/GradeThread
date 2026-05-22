@@ -49,6 +49,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import {
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
+  ITEM_CATEGORIES,
   PERSONAL_STATUSES,
 } from "@/lib/constants";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
@@ -110,9 +111,21 @@ type EditableField =
   | "size"
   | "sourced_by"
   | "acquired_price"
+  | "item_category"
   | "status";
 
 type Patch = Partial<Record<EditableField, string | number | null>>;
+
+// Fields offered in the bulk-edit field picker.
+const BULK_FIELDS: { field: EditableField; label: string }[] = [
+  { field: "status", label: "Status" },
+  { field: "container", label: "Container / Bin" },
+  { field: "brand", label: "Brand" },
+  { field: "style", label: "Style" },
+  { field: "size", label: "Size" },
+  { field: "item_category", label: "Category" },
+  { field: "sourced_by", label: "Sourced By" },
+];
 
 const PRESETS: Record<Preset, Set<ColumnId>> = {
   triage: new Set<ColumnId>([
@@ -419,7 +432,8 @@ export function FlipdeskItemsPage() {
 
   // Selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkStatus, setBulkStatus] = useState<ItemStatus | "">("");
+  const [bulkField, setBulkField] = useState<EditableField>("status");
+  const [bulkValue, setBulkValue] = useState<string>("");
 
   // Reset page when filters change.
   useEffect(() => {
@@ -581,20 +595,24 @@ export function FlipdeskItemsPage() {
     });
   }
 
-  function applyBulkStatus() {
-    if (!bulkStatus || selected.size === 0) return;
+  function applyBulkField() {
+    if (selected.size === 0 || bulkValue.trim() === "") return;
+    const value: string | number =
+      bulkField === "acquired_price" ? Number(bulkValue) : bulkValue.trim();
     setPending((prev) => {
       const next = new Map(prev);
       for (const id of selected) {
         const existing: Patch = next.get(id) ?? {};
-        next.set(id, { ...existing, status: bulkStatus });
+        next.set(id, { ...existing, [bulkField]: value });
       }
       return next;
     });
+    const label =
+      BULK_FIELDS.find((f) => f.field === bulkField)?.label ?? bulkField;
     toast.info(
-      `Staged status = ${ITEM_STATUS_LABELS[bulkStatus]} on ${selected.size} item${selected.size === 1 ? "" : "s"}. Confirm at bottom.`,
+      `Staged ${label} on ${selected.size} item${selected.size === 1 ? "" : "s"}. Confirm at bottom.`,
     );
-    setBulkStatus("");
+    setBulkValue("");
   }
 
   async function confirmAll() {
@@ -1414,22 +1432,64 @@ export function FlipdeskItemsPage() {
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-muted-foreground">Set</span>
               <Select
-                value={bulkStatus}
-                onValueChange={(v) => setBulkStatus(v as ItemStatus)}
+                value={bulkField}
+                onValueChange={(v) => {
+                  setBulkField(v as EditableField);
+                  setBulkValue("");
+                }}
               >
-                <SelectTrigger className="h-9 w-48">
-                  <SelectValue placeholder="Set status to…" />
+                <SelectTrigger className="h-9 w-36">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ITEM_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {ITEM_STATUS_LABELS[s]}
+                  {BULK_FIELDS.map((f) => (
+                    <SelectItem key={f.field} value={f.field}>
+                      {f.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={applyBulkStatus} disabled={!bulkStatus}>
+              <span className="text-xs text-muted-foreground">to</span>
+              {bulkField === "status" ? (
+                <Select value={bulkValue} onValueChange={setBulkValue}>
+                  <SelectTrigger className="h-9 w-40">
+                    <SelectValue placeholder="status…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ITEM_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {ITEM_STATUS_LABELS[s]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : bulkField === "item_category" ? (
+                <Select value={bulkValue} onValueChange={setBulkValue}>
+                  <SelectTrigger className="h-9 w-40">
+                    <SelectValue placeholder="category…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ITEM_CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={bulkValue}
+                  onChange={(e) => setBulkValue(e.target.value)}
+                  placeholder="value…"
+                  className="h-9 w-40"
+                />
+              )}
+              <Button
+                onClick={applyBulkField}
+                disabled={bulkValue.trim() === ""}
+              >
                 Stage
               </Button>
               <Button

@@ -2824,6 +2824,56 @@
       "priority": 153,
       "passes": true,
       "notes": "Completed. Fills the genuine gap where sales previously only existed via CSV import. src/components/flipdesk/mark-listed-dialog.tsx + record-sale-dialog.tsx. Wired into the Listings page as per-row actions on the Drafts and Active tabs. RecordSaleDialog shows a live net-profit preview against cost basis."
+    },
+
+    {
+      "id": "US-154",
+      "title": "Bulk field edit + duplicate/relist",
+      "description": "As a reseller managing volume, I need to bulk-set any field across a selection, duplicate an item when I buy multiples, and relist returned/completed items without re-keying.",
+      "acceptanceCriteria": [
+        "Items-table bulk bar generalized from status-only to any field (container/brand/style/size/category/sourced_by/status) — picker + value + Stage into the pending map",
+        "Duplicate action copies item-level fields (brand/style/size/category/source/cost/measurements/description) to a fresh row at status cataloged",
+        "Relist action sends a returned/completed item back to drafted, keeping photos and measurements",
+        "Duplicate + Relist reachable from the ItemDetailDialog footer (More menu)",
+        "Typecheck + lint pass"
+      ],
+      "priority": 154,
+      "passes": true,
+      "notes": "Completed. Bulk field edit reuses the staged-changes/confirm model. Duplicate/relist in a DropdownMenu in the detail dialog footer; relist only shows for returned/completed items."
+    },
+
+    {
+      "id": "US-155",
+      "title": "Focused prep workspace",
+      "description": "As a reseller post-haul, I need an assembly-line screen to blast through item prep — photos, measurements, comp, price — one item at a time with a next-item chain.",
+      "acceptanceCriteria": [
+        "/dashboard/flipdesk/prep shows one prep-stage item at a time, oldest first",
+        "Inline PhotoUploader + MeasurementForm + CompEditor + target price for the current item",
+        "Step-completion chips (Photos / Measured / Priced) reflect live state",
+        "Save & next persists measurements/comps/price with status auto-advance, then slides to the next item",
+        "Save & draft listing routes straight to the composer",
+        "Empty state when the prep queue is clear",
+        "Typecheck + lint pass"
+      ],
+      "priority": 155,
+      "passes": true,
+      "notes": "Completed. src/pages/flipdesk/prep.tsx — reuses PhotoUploader/MeasurementForm/CompEditor. Queue = items with rank < drafted, oldest first; items drop out of the queue as they advance. Sidebar 'Prep' entry."
+    },
+
+    {
+      "id": "US-156",
+      "title": "Operating-expense tracking",
+      "description": "As a reseller, I need to log business overhead (supplies, mileage, subscriptions) so profit reflects true cost, not just per-item P&L.",
+      "acceptanceCriteria": [
+        "Migration 00019: flipdesk_expenses table + expense_category enum, RLS user-scoped",
+        "/dashboard/flipdesk/expenses page with add/delete + category/amount/date/description",
+        "Monthly overhead summary cards (all-time + recent months)",
+        "Sidebar 'Expenses' entry",
+        "Typecheck + lint pass"
+      ],
+      "priority": 156,
+      "passes": true,
+      "notes": "Completed. Migration 00019. src/pages/flipdesk/expenses.tsx with an add-expense dialog and per-month total cards. Operation-level net (P&L minus overhead) can layer onto the overview/analytics later."
     }
   ]
 }
