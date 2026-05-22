@@ -4,6 +4,7 @@ import { Header } from "@/components/dashboard/header";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
+import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 
 export function DashboardLayout() {
@@ -27,6 +28,7 @@ export function DashboardLayout() {
           className="flex-1 overflow-y-auto bg-background p-6 outline-none"
         >
           <ErrorBoundary>
+            <FlipdeskOnboarding />
             <Outlet />
           </ErrorBoundary>
         </main>

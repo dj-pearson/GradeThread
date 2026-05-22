@@ -45,6 +45,7 @@ import {
 } from "@/lib/constants";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
+import { PhotoManager } from "@/components/flipdesk/photo-manager";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { resolveStatus } from "@/lib/workflow";
@@ -628,6 +629,12 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             the item to GradeThread or listing it.
           </p>
           <PhotoUploader itemId={item.id} currentStatus={item.status} />
+          <div className="pt-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Reorder &amp; retag
+            </p>
+            <PhotoManager itemId={item.id} />
+          </div>
         </div>
 
         <div className="space-y-2">

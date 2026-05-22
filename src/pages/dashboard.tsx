@@ -21,6 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import { GradeCharts } from "@/components/dashboard/grade-charts";
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
+import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
 
 interface RecentSubmission extends SubmissionRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
@@ -220,6 +221,9 @@ export function DashboardPage() {
           </span>
         </Button>
       </div>
+
+      {/* FlipDesk cross-promotion (zero-inventory users only) */}
+      <FlipdeskPromoCard itemCount={inventoryData?.items.length} />
 
       {/* Use-case tailored quick start */}
       {profile?.use_case === "developer" && (

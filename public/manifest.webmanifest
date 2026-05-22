@@ -1,0 +1,27 @@
+{
+  "name": "FlipDesk — GradeThread",
+  "short_name": "FlipDesk",
+  "description": "Source, catalog, grade, photograph, and list reseller inventory — even offline.",
+  "id": "/dashboard/flipdesk",
+  "start_url": "/dashboard/flipdesk",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#1A1A2E",
+  "theme_color": "#0F3460",
+  "categories": ["productivity", "shopping", "business"],
+  "icons": [
+    {
+      "src": "/logo_icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/logo_icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -14,6 +14,9 @@ import {
   Star,
   TrendingDown,
   Clock,
+  Compass,
+  Boxes,
+  Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -267,6 +270,74 @@ export function LandingPage() {
                 </p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Now with FlipDesk */}
+      <section className="border-t bg-card px-6 py-20">
+        <div className="mx-auto max-w-5xl">
+          <div className="flex flex-col items-center text-center">
+            <Badge className="mb-4 bg-brand-red text-white">
+              Now with FlipDesk
+            </Badge>
+            <h2 className="text-3xl font-bold">
+              The full reseller workflow, built in
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
+              FlipDesk turns GradeThread into a complete command center for
+              flippers — source, catalog, grade, list, sell, and reconcile
+              every item without leaving the app.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              {
+                icon: Boxes,
+                title: "Source & catalog",
+                description:
+                  "Log thrift hauls, estate sales, and auction lots, then catalog items in seconds.",
+              },
+              {
+                icon: Award,
+                title: "Grade for trust",
+                description:
+                  "Send items straight to GradeThread and attach verified condition grades.",
+              },
+              {
+                icon: Tag,
+                title: "List anywhere",
+                description:
+                  "Compose eBay-ready titles, descriptions, and item specifics with a live preview.",
+              },
+              {
+                icon: BarChart3,
+                title: "Reconcile profit",
+                description:
+                  "Track payouts, fees, and per-item P&L so you always know your real margins.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red text-white">
+                  <item.icon className="h-6 w-6" />
+                </div>
+                <h3 className="mt-4 text-base font-semibold">{item.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  {item.description}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-10 text-center">
+            <Link to="/signup">
+              <Button
+                size="lg"
+                className="bg-brand-navy text-white hover:bg-brand-navy/90"
+              >
+                <Compass className="mr-2 h-4 w-4" />
+                Try FlipDesk Free
+              </Button>
+            </Link>
           </div>
         </div>
       </section>

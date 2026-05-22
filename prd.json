@@ -1902,8 +1902,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 108,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented. New src/components/flipdesk/photo-manager.tsx — a dnd-kit/sortable grid (installed @dnd-kit/sortable@10) of all item_photos, drag-to-reorder with optimistic update + batched sort_order writes, a per-photo photo_type Select to retag, and a delete button. Delete is disabled with an explanatory title tooltip when the photo's used_for_grading is true AND the item has a pending/processing flipdesk_grading_submissions row (in-flight grade). Rendered in ItemDetailDialog's Photos section as a 'Reorder & retag' block beneath the existing slot uploader; shares the [item_photos,itemId] query cache. Build + typecheck pass."
     },
     {
       "id": "US-109",
@@ -2069,8 +2069,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 118,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-22: preview pane, photo carousel reorder+primary pick, client-side grade-badge composite, persists primary_photo_id+badge_enabled (migration 00027)."
     },
     {
       "id": "US-119",
@@ -2328,8 +2328,8 @@
         "Typecheck + lint pass; lighthouse PWA score >85 on /dashboard/flipdesk"
       ],
       "priority": 134,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-22: manifest.webmanifest, vite-plugin-pwa + workbox runtime caching, SW registers from intake, IndexedDB offline intake queue with reconnect flush, install banner. Lighthouse PWA score is a manual check."
     },
     {
       "id": "US-135",
@@ -2344,8 +2344,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 135,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-22: migration 00028 adds users.flipdesk_onboarded; 3-step checklist welcome card on /dashboard/flipdesk/* that completes on real actions; skippable; replayable from Settings."
     },
     {
       "id": "US-136",
@@ -2359,8 +2359,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 136,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-22: migration 00029 adds users.dismissed_flipdesk_promo; dismissable dashboard callout for zero-inventory users; Now-with-FlipDesk section on landing page."
     },
     {
       "id": "US-137",

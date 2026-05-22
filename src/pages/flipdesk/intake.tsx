@@ -9,6 +9,8 @@ import {
   Boxes,
   Sparkles,
   Camera,
+  WifiOff,
+  CloudUpload,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -34,6 +36,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useSources } from "@/hooks/use-sources";
 import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
+import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
+import { useOfflineIntakeSync } from "@/hooks/use-offline-intake";
+import { enqueueIntake } from "@/lib/offline-queue";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -131,6 +136,7 @@ export function FlipdeskIntakePage() {
   const [params] = useSearchParams();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [saving, setSaving] = useState(false);
+  const offline = useOfflineIntakeSync();
 
   // AI Fill state
   const aiExtract = useAiExtract();
@@ -239,6 +245,13 @@ export function FlipdeskIntakePage() {
       toast.error("Enter a name for the new source.");
       return;
     }
+    // Creating a brand-new source needs the network (a server-side RPC).
+    if (!navigator.onLine && form.source_id === "__new") {
+      toast.error(
+        "You're offline — pick an existing source, or reconnect to add a new one.",
+      );
+      return;
+    }
 
     setSaving(true);
     try {
@@ -298,6 +311,26 @@ export function FlipdeskIntakePage() {
         ai_field_sources: hasAiFields ? aiFieldSources : undefined,
         ai_enriched_at: hasAiFields ? new Date().toISOString() : undefined,
       };
+
+      // Offline: persist to the IndexedDB queue and flush on reconnect.
+      if (!navigator.onLine) {
+        await enqueueIntake(insert);
+        await offline.refresh();
+        toast.success(
+          `Saved "${form.title.trim()}" offline — it'll sync when you reconnect.`,
+        );
+        setForm({
+          ...INITIAL,
+          source_id: form.source_id === "__new" ? "" : form.source_id,
+          container: form.container,
+          sourced_by: form.sourced_by,
+          purchase_date: form.purchase_date,
+        });
+        setAiFields(new Set());
+        setAiMeta({});
+        setAiResult(null);
+        return;
+      }
 
       const { data: row, error } = await supabase
         .from("inventory_items")
@@ -387,6 +420,24 @@ export function FlipdeskIntakePage() {
           </Button>
         </div>
       </div>
+
+      {/* PWA install prompt — surfaces once when the app is installable. */}
+      <PwaInstallBanner />
+
+      {!offline.online && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-400/50 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <WifiOff className="h-4 w-4 flex-shrink-0" />
+          You're offline. New items are saved to a queue and sync
+          automatically when you reconnect.
+        </div>
+      )}
+      {offline.pending > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 text-sm">
+          <CloudUpload className="h-4 w-4 flex-shrink-0 text-brand-navy" />
+          {offline.pending} item{offline.pending === 1 ? "" : "s"} queued
+          offline{offline.online ? " — syncing…" : "."}
+        </div>
+      )}
 
       {/* Auto-suggest banner — nudges AI Fill once there's text to read. */}
       {form.description.trim() && aiFields.size === 0 && (

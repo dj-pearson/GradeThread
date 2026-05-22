@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +17,9 @@ import {
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
 import { PLANS, type PlanKey } from "@/lib/constants";
-import { Loader2, Upload, Download, Sparkles } from "lucide-react";
+import { Loader2, Upload, Download, Sparkles, Compass } from "lucide-react";
 import { toast } from "sonner";
+import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -36,6 +38,13 @@ const CHANNEL_LABELS: Record<string, string> = {
 
 export function SettingsPage() {
   const { user, profile, refreshProfile } = useAuth();
+  const navigate = useNavigate();
+  const openFlipdeskTour = useFlipdeskTourStore((s) => s.open);
+
+  function replayFlipdeskTour() {
+    openFlipdeskTour();
+    navigate("/dashboard/flipdesk");
+  }
 
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
@@ -509,6 +518,32 @@ export function SettingsPage() {
             {savingAi && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save AI Settings
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* FlipDesk Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Compass className="h-5 w-5 text-primary" />
+            FlipDesk
+          </CardTitle>
+          <CardDescription>
+            Preferences for the FlipDesk reseller workspace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Getting-started tour</p>
+              <p className="text-xs text-muted-foreground">
+                Replay the FlipDesk onboarding checklist from the start.
+              </p>
+            </div>
+            <Button variant="outline" onClick={replayFlipdeskTour}>
+              Replay tour
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

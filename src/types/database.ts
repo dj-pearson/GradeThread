@@ -114,6 +114,9 @@ export interface UserRow {
   use_case: UserUseCase | null;
   onboarded_at: string | null;
   suspended: boolean;
+  // FlipDesk user-state flags (migrations 00028, 00029)
+  flipdesk_onboarded: boolean;
+  dismissed_flipdesk_promo: boolean;
   // AI enrichment usage (US-158, US-167)
   ai_actions_used_this_month: number;
   ai_actions_reset_at: string;
@@ -253,6 +256,9 @@ export interface ListingRow {
   listing_status: ListingStatus;
   watchers: number;
   views: number;
+  // Listing-composer picks (migration 00027)
+  primary_photo_id: string | null;
+  badge_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -665,6 +671,8 @@ export interface ListingInsert {
   listing_status?: ListingStatus;
   watchers?: number;
   views?: number;
+  primary_photo_id?: string | null;
+  badge_enabled?: boolean;
 }
 
 export interface SaleInsert {
