@@ -29,6 +29,7 @@ import {
 } from "@/lib/constants";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
+import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import type {
   ItemComp,
   ItemFullRow,
@@ -58,6 +59,7 @@ type EditState = {
   acquired_price: string;
   target_price: string;
   comp_set: ItemComp[];
+  measurements: Record<string, number | string>;
 };
 
 function toState(item: ItemFullRow): EditState {
@@ -78,6 +80,10 @@ function toState(item: ItemFullRow): EditState {
       item.purchase_price == null ? "" : String(item.purchase_price),
     target_price: item.target_price == null ? "" : String(item.target_price),
     comp_set: Array.isArray(item.comps) ? item.comps : [],
+    measurements:
+      item.measurements && typeof item.measurements === "object"
+        ? item.measurements
+        : {},
   };
 }
 
@@ -134,6 +140,10 @@ export function ItemDetailDialog({ item, onClose }: Props) {
         comp_set: state.comp_set.filter(
           (c) => Number.isFinite(c.price) && c.price > 0,
         ),
+        measurements:
+          Object.keys(state.measurements).length > 0
+            ? state.measurements
+            : null,
       };
 
       const { error } = await supabase
@@ -258,6 +268,16 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             value={state.target_price}
             onChange={(v) => patch("target_price", v)}
             type="number"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <Label>Measurements</Label>
+          <MeasurementForm
+            category={item.category}
+            brand={state.brand}
+            values={state.measurements}
+            onChange={(m) => patch("measurements", m)}
           />
         </div>
 

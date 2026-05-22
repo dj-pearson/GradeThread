@@ -1958,8 +1958,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 105,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. src/lib/measurement-templates.ts — templates for top/bottom/dress/outerwear/shoes/watch/generic, each field {key,label,unit,required}; measurementGroupFor() maps any category/garment string to a group. MeasurementForm component renders the right template, in/cm toggle persisted via zustand store (src/stores/measurement-prefs.ts — localStorage, per-device rather than a DB user-settings column). Brand size-guide link is a Google search URL (works for any brand, no per-brand lookup table to maintain). Wired into ItemDetailDialog Measurements section; measurements jsonb saved with the item. Status auto-advance to 'measured' left to the user via the status dropdown (required-count badge shows readiness)."
     },
 
     {
