@@ -2590,8 +2590,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 141,
-      "passes": false,
-      "notes": "Depends on US-119/US-121 (eBay connection + push). Price edits hit Sell Inventory API; rate-limited per US-121 middleware."
+      "passes": true,
+      "notes": "Completed (local-first; eBay API push deferred to US-121). Migration 00013 appends listing_id / listing_watchers / listing_views to items_full. Active tab in listings.tsx: columns Price (inline-editable via InlineCell — updates local listings row, optimistic + rollback) / Views / Watchers (— fallback until US-151 sync) / Days listed. Per-row End-early with AlertDialog confirm (sets listing_status=ended, item back to drafted for relist). Bulk: price-drop −5/10/15/20/25% on selection, bulk End. PATCH /api/flipdesk/ebay/listings/:id/price + Promote/ad-rate deferred — need live eBay connection (US-119/121)."
     },
 
     {

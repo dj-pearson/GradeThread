@@ -16,6 +16,8 @@ import {
   Loader2,
   Truck,
   Star,
+  XCircle,
+  TrendingDown,
 } from "lucide-react";
 import {
   Card,
@@ -43,10 +45,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import { cn } from "@/lib/utils";
 import type {
@@ -271,10 +284,13 @@ export function FlipdeskListingsPage() {
   const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [endTarget, setEndTarget] = useState<ItemFullRow | null>(null);
+  const [bulkDropPct, setBulkDropPct] = useState<string>("10");
 
   const isToList = tab === "to_list";
   const isSold = tab === "sold";
-  const selectable = isToList || isSold;
+  const isActive = tab === "active";
+  const selectable = isToList || isSold || isActive;
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -561,6 +577,140 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  // Inline price edit on the Active tab. Updates the local listings row.
+  // eBay Sell Inventory API push is wired when US-121 lands.
+  async function updateListingPrice(it: ItemFullRow, raw: string) {
+    if (!it.listing_id) {
+      toast.error("No listing record for this item.");
+      return;
+    }
+    const next = Number(raw);
+    if (!Number.isFinite(next) || next < 0) {
+      toast.error("Enter a valid price.");
+      return;
+    }
+    const prev = items;
+    qc.setQueryData<ItemFullRow[]>(["items_full", user?.id], (old) =>
+      (old ?? []).map((i) =>
+        i.id === it.id ? { ...i, list_price: next } : i,
+      ),
+    );
+    try {
+      const { error } = await supabase
+        .from("listings")
+        .update({ listing_price: next } as never)
+        .eq("id", it.listing_id);
+      if (error) throw error;
+    } catch (err) {
+      qc.setQueryData(["items_full", user?.id], prev);
+      toast.error(
+        `Price update failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function endListing(it: ItemFullRow) {
+    if (!it.listing_id) {
+      toast.error("No listing record for this item.");
+      return;
+    }
+    try {
+      const { error: lErr } = await supabase
+        .from("listings")
+        .update({ listing_status: "ended", is_active: false } as never)
+        .eq("id", it.listing_id);
+      if (lErr) throw lErr;
+      // Move the item back to drafted so it can be relisted.
+      const { error: iErr } = await supabase
+        .from("inventory_items")
+        .update({ status: "drafted" } as never)
+        .eq("id", it.id);
+      if (iErr) throw iErr;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("Listing ended.");
+    } catch (err) {
+      toast.error(
+        `End failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  async function bulkPriceDrop() {
+    if (selected.size === 0) return;
+    const pct = Number(bulkDropPct);
+    if (!Number.isFinite(pct) || pct <= 0) return;
+    setBusy(true);
+    const errors: { message: string }[] = [];
+    let done = 0;
+    for (const id of selected) {
+      const it = items.find((i) => i.id === id);
+      if (!it || !it.listing_id || it.list_price == null) continue;
+      const next = Number((it.list_price * (1 - pct / 100)).toFixed(2));
+      try {
+        const { error } = await supabase
+          .from("listings")
+          .update({ listing_price: next } as never)
+          .eq("id", it.listing_id);
+        if (error) throw error;
+        done++;
+      } catch (err) {
+        errors.push({
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    setBusy(false);
+    setSelected(new Set());
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(`Dropped price ${pct}% on ${done} listing${done === 1 ? "" : "s"}.`);
+    } else {
+      toast.warning(
+        `Dropped ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+  }
+
+  async function bulkEndListings() {
+    if (selected.size === 0) return;
+    setBusy(true);
+    const errors: { message: string }[] = [];
+    let done = 0;
+    for (const id of selected) {
+      const it = items.find((i) => i.id === id);
+      if (!it || !it.listing_id) continue;
+      try {
+        const { error: lErr } = await supabase
+          .from("listings")
+          .update({ listing_status: "ended", is_active: false } as never)
+          .eq("id", it.listing_id);
+        if (lErr) throw lErr;
+        const { error: iErr } = await supabase
+          .from("inventory_items")
+          .update({ status: "drafted" } as never)
+          .eq("id", it.id);
+        if (iErr) throw iErr;
+        done++;
+      } catch (err) {
+        errors.push({
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    setBusy(false);
+    setSelected(new Set());
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(`Ended ${done} listing${done === 1 ? "" : "s"}.`);
+    } else {
+      toast.warning(
+        `Ended ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
+        { duration: 12_000 },
+      );
+    }
+  }
+
   return (
     <div className={cn("space-y-6", selectable && selected.size > 0 && "pb-24")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -778,6 +928,21 @@ export function FlipdeskListingsPage() {
                             Score
                           </TableHead>
                         </>
+                      ) : isActive ? (
+                        <>
+                          <TableHead className="w-24 text-right">
+                            Price
+                          </TableHead>
+                          <TableHead className="w-16 text-right">
+                            Views
+                          </TableHead>
+                          <TableHead className="w-16 text-right">
+                            Watchers
+                          </TableHead>
+                          <TableHead className="w-20 text-right">
+                            Days listed
+                          </TableHead>
+                        </>
                       ) : (
                         <>
                           <TableHead className="w-20 text-right">
@@ -793,8 +958,11 @@ export function FlipdeskListingsPage() {
                         </>
                       )}
                       <TableHead className="w-24">Status</TableHead>
-                      {!isSold && (
+                      {!isSold && !isActive && (
                         <TableHead className="w-16 text-right">Age</TableHead>
+                      )}
+                      {isActive && (
+                        <TableHead className="w-10 text-right" />
                       )}
                       <TableHead className="w-8" />
                     </TableRow>
@@ -934,6 +1102,29 @@ export function FlipdeskListingsPage() {
                                 </span>
                               </TableCell>
                             </>
+                          ) : isActive ? (
+                            <>
+                              <TableCell
+                                className="text-right tabular-nums"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <InlineCell
+                                  value={it.list_price}
+                                  type="number"
+                                  align="right"
+                                  onChange={(v) => updateListingPrice(it, v)}
+                                />
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {it.listing_views ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {it.listing_watchers ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {daysSince(it.list_date) ?? "—"}
+                              </TableCell>
+                            </>
                           ) : (
                             <>
                               <TableCell className="text-right tabular-nums">
@@ -967,7 +1158,7 @@ export function FlipdeskListingsPage() {
                               {ITEM_STATUS_LABELS[it.status]}
                             </Badge>
                           </TableCell>
-                          {!isSold && (
+                          {!isSold && !isActive && (
                             <TableCell className="text-right">
                               {age != null && (
                                 <span
@@ -986,6 +1177,23 @@ export function FlipdeskListingsPage() {
                                   {age}d
                                 </span>
                               )}
+                            </TableCell>
+                          )}
+                          {isActive && (
+                            <TableCell
+                              className="text-right"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-destructive"
+                                onClick={() => setEndTarget(it)}
+                                aria-label="End listing early"
+                                title="End listing early"
+                              >
+                                <XCircle className="h-3.5 w-3.5" />
+                              </Button>
                             </TableCell>
                           )}
                           <TableCell onClick={(e) => e.stopPropagation()}>
@@ -1084,6 +1292,41 @@ export function FlipdeskListingsPage() {
                   Create {selected.size} draft
                   {selected.size === 1 ? "" : "s"}
                 </Button>
+              ) : isActive ? (
+                <>
+                  <Select value={bulkDropPct} onValueChange={setBulkDropPct}>
+                    <SelectTrigger className="h-9 w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["5", "10", "15", "20", "25"].map((p) => (
+                        <SelectItem key={p} value={p}>
+                          −{p}%
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    onClick={bulkPriceDrop}
+                    disabled={busy}
+                  >
+                    {busy ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <TrendingDown className="mr-2 h-4 w-4" />
+                    )}
+                    Drop price
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={bulkEndListings}
+                    disabled={busy}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    End {selected.size}
+                  </Button>
+                </>
               ) : (
                 <Button onClick={bulkMarkShipped} disabled={busy}>
                   {busy ? (
@@ -1098,6 +1341,34 @@ export function FlipdeskListingsPage() {
           </div>
         </div>
       )}
+
+      <AlertDialog
+        open={!!endTarget}
+        onOpenChange={(o) => !o && setEndTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>End this listing early?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{endTarget?.item_title}" will be marked ended and the item
+              moved back to Drafts so you can relist it. This doesn't yet end
+              the listing on eBay — that wires in with US-121.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (endTarget) void endListing(endTarget);
+                setEndTarget(null);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              End listing
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
     </div>

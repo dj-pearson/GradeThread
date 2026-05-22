@@ -346,6 +346,10 @@ export interface ItemFullRow {
   sold_at_raw: string | null;
   payout_reference: string | null;
   listing_status: ListingStatus | null;
+  // Trailing columns added in migration 00013
+  listing_id: string | null;
+  listing_watchers: number | null;
+  listing_views: number | null;
 }
 
 export interface FlipdeskGradingSubmissionRow {
