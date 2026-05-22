@@ -8,6 +8,7 @@ import {
   Brain,
   Wrench,
   ScrollText,
+  ShieldAlert,
   ArrowLeft,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -19,6 +20,7 @@ const adminNavItems = [
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
   { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false, superAdminOnly: false },
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
+  { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },

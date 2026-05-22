@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
   Card,
   CardContent,
@@ -225,6 +226,11 @@ export function SubmissionsPage() {
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // Press "n" to start a new submission.
+  useKeyboardShortcuts([
+    { key: "n", handler: () => navigate("/dashboard/submissions/new") },
+  ]);
   const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");

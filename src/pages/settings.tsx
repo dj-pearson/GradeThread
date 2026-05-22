@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import type { UserUpdate, NotificationPreferences } from "@/types/database";
@@ -13,8 +14,11 @@ import {
   NOTIFICATION_TYPES,
   withPreferenceDefaults,
 } from "@/lib/notification-preferences";
-import { Loader2, Upload } from "lucide-react";
+import { buildAccountExport } from "@/lib/account-export";
+import { Loader2, Upload, Download } from "lucide-react";
 import { toast } from "sonner";
+
+const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
@@ -39,6 +43,10 @@ export function SettingsPage() {
     withPreferenceDefaults(profile?.notification_preferences)
   );
   const [savingPrefs, setSavingPrefs] = useState(false);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportStage, setExportStage] = useState("");
+  const [exportPct, setExportPct] = useState(0);
 
   const isOAuthUser = user?.app_metadata?.provider === "google";
 
@@ -194,6 +202,52 @@ export function SettingsPage() {
     }
   }
 
+  async function handleExportData() {
+    if (!user) return;
+    const key = `gt-last-export-${user.id}`;
+    const last = Number(localStorage.getItem(key) ?? 0);
+    const sinceLast = Date.now() - last;
+    if (last && sinceLast < EXPORT_COOLDOWN_MS) {
+      const hours = Math.ceil((EXPORT_COOLDOWN_MS - sinceLast) / 3600000);
+      toast.error(
+        `You can export once per day. Try again in about ${hours} hour${
+          hours === 1 ? "" : "s"
+        }.`
+      );
+      return;
+    }
+
+    setExporting(true);
+    setExportPct(0);
+    setExportStage("Starting…");
+    try {
+      const blob = await buildAccountExport((stage, pct) => {
+        setExportStage(stage);
+        setExportPct(pct);
+      });
+      localStorage.setItem(key, String(Date.now()));
+
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `gradethread-export-${
+        new Date().toISOString().split("T")[0]
+      }.zip`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+
+      toast.success("Your data export has been downloaded.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to export data."
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -326,6 +380,41 @@ export function SettingsPage() {
           <Button onClick={handleSavePreferences} disabled={savingPrefs}>
             {savingPrefs && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Preferences
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Data Export Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Data Export</CardTitle>
+          <CardDescription>
+            Download all of your account data as a ZIP archive.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            The archive contains your submissions, grade reports, inventory,
+            sales, and a financial summary as JSON files. Image URLs are
+            included; image files are not, to keep the download small.
+            Limited to one export per day.
+          </p>
+          {exporting && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{exportStage}</span>
+                <span>{exportPct}%</span>
+              </div>
+              <Progress value={exportPct} />
+            </div>
+          )}
+          <Button onClick={handleExportData} disabled={exporting}>
+            {exporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Export My Data
           </Button>
         </CardContent>
       </Card>

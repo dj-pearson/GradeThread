@@ -14,6 +14,10 @@ import {
   Clock,
   CornerDownLeft,
   FileSearch,
+  LayoutDashboard,
+  FileText,
+  DollarSign,
+  Settings,
 } from "lucide-react";
 import {
   Dialog,
@@ -135,6 +139,55 @@ export function CommandPalette() {
 
   const actions: Entry[] = useMemo(
     () => [
+      {
+        kind: "action",
+        id: "new-submission",
+        label: "New submission",
+        icon: <Plus className="h-4 w-4" />,
+        run: () => go("/dashboard/submissions/new"),
+      },
+      {
+        kind: "action",
+        id: "add-inventory",
+        label: "Add inventory item",
+        icon: <Plus className="h-4 w-4" />,
+        run: () => go("/dashboard/inventory/new"),
+      },
+      {
+        kind: "action",
+        id: "dashboard",
+        label: "Go to Dashboard",
+        icon: <LayoutDashboard className="h-4 w-4" />,
+        run: () => go("/dashboard"),
+      },
+      {
+        kind: "action",
+        id: "submissions",
+        label: "Go to Submissions",
+        icon: <FileText className="h-4 w-4" />,
+        run: () => go("/dashboard/submissions"),
+      },
+      {
+        kind: "action",
+        id: "inventory",
+        label: "Go to Inventory",
+        icon: <Package className="h-4 w-4" />,
+        run: () => go("/dashboard/inventory"),
+      },
+      {
+        kind: "action",
+        id: "finances",
+        label: "Go to Finances",
+        icon: <DollarSign className="h-4 w-4" />,
+        run: () => go("/dashboard/finances"),
+      },
+      {
+        kind: "action",
+        id: "settings",
+        label: "Go to Settings",
+        icon: <Settings className="h-4 w-4" />,
+        run: () => go("/dashboard/settings"),
+      },
       {
         kind: "action",
         id: "intake",

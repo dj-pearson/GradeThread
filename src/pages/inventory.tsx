@@ -36,6 +36,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { GARMENT_TYPES, ITEM_STATUSES } from "@/lib/constants";
 import type { InventoryItemRow, ListingRow, SaleRow } from "@/types/database";
 
@@ -138,6 +139,11 @@ export function InventoryPage() {
   const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+
+  // Press "n" to add a new inventory item.
+  useKeyboardShortcuts([
+    { key: "n", handler: () => navigate("/dashboard/inventory/new") },
+  ]);
   const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("created_at");

@@ -104,12 +104,20 @@ gradeRoutes.post("/submit", async (c) => {
   // Fetch user record to check plan limits
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
-    .select("plan, grades_used_this_month, grade_reset_at")
+    .select("plan, grades_used_this_month, grade_reset_at, suspended")
     .eq("id", userId)
     .single();
 
   if (userError || !user) {
     return c.json({ error: "User not found" }, 404);
+  }
+
+  // Suspended accounts cannot create new submissions.
+  if (user.suspended) {
+    return c.json({
+      error:
+        "Your account has been suspended and cannot create new submissions. Contact support if you believe this is a mistake.",
+    }, 403);
   }
 
   // Check if usage reset is needed (month rolled over)

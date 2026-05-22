@@ -175,9 +175,20 @@ export async function processSubmission(submissionId: string) {
     }
 
     // --- Step 7: Update submission status to 'completed' ---
+    // Flag for moderation if the AI judged the images not to be clothing.
+    const submissionUpdate: Record<string, unknown> = { status: "completed" };
+    if (!compositeResult.image_validity.is_clothing) {
+      submissionUpdate.flagged = true;
+      submissionUpdate.flag_reason =
+        compositeResult.image_validity.reason ||
+        "Submitted images may not depict an item of clothing.";
+      console.warn(
+        `[Pipeline] Submission ${submissionId} FLAGGED for moderation: ${submissionUpdate.flag_reason}`
+      );
+    }
     await supabaseAdmin
       .from("submissions")
-      .update({ status: "completed" })
+      .update(submissionUpdate)
       .eq("id", submissionId);
 
     // --- Step 7b: Sync a linked inventory item, if any ---

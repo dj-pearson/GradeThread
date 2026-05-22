@@ -9,7 +9,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BarChart3, FileText, TrendingUp, Plus, KeyRound } from "lucide-react";
+import {
+  BarChart3,
+  FileText,
+  TrendingUp,
+  Plus,
+  KeyRound,
+  Package,
+  DollarSign,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GradeCharts } from "@/components/dashboard/grade-charts";
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
@@ -165,6 +173,51 @@ export function DashboardPage() {
         <Button onClick={() => navigate("/dashboard/submissions/new")}>
           <Plus className="mr-1 h-4 w-4" />
           New Submission
+        </Button>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Button
+          variant="outline"
+          className="h-auto justify-start gap-3 py-3"
+          onClick={() => navigate("/dashboard/submissions/new")}
+        >
+          <Plus className="h-5 w-5 text-primary" />
+          <span className="text-left">
+            <span className="block text-sm font-medium">New Submission</span>
+            <span className="block text-xs text-muted-foreground">
+              Grade a garment
+            </span>
+          </span>
+        </Button>
+        <Button
+          variant="outline"
+          className="h-auto justify-start gap-3 py-3"
+          onClick={() => navigate("/dashboard/inventory/new")}
+        >
+          <Package className="h-5 w-5 text-primary" />
+          <span className="text-left">
+            <span className="block text-sm font-medium">
+              Add Inventory Item
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Track a new item
+            </span>
+          </span>
+        </Button>
+        <Button
+          variant="outline"
+          className="h-auto justify-start gap-3 py-3"
+          onClick={() => navigate("/dashboard/finances")}
+        >
+          <DollarSign className="h-5 w-5 text-primary" />
+          <span className="text-left">
+            <span className="block text-sm font-medium">View Finances</span>
+            <span className="block text-xs text-muted-foreground">
+              Profit &amp; analytics
+            </span>
+          </span>
         </Button>
       </div>
 

@@ -113,9 +113,12 @@ export interface UserRow {
   notification_preferences: NotificationPreferences;
   use_case: UserUseCase | null;
   onboarded_at: string | null;
+  suspended: boolean;
   created_at: string;
   updated_at: string;
 }
+
+export type ModerationStatus = "approved" | "rejected";
 
 export interface SubmissionRow {
   id: string;
@@ -126,6 +129,9 @@ export interface SubmissionRow {
   title: string;
   description: string | null;
   status: SubmissionStatus;
+  flagged: boolean;
+  flag_reason: string | null;
+  moderation_status: ModerationStatus | null;
   created_at: string;
   updated_at: string;
 }

@@ -43,6 +43,11 @@ export interface DefectFound {
   impact_on_grade: string;
 }
 
+export interface ImageValidity {
+  is_clothing: boolean;
+  reason: string;
+}
+
 export interface CompositeGradeResult {
   overall_score: number;
   grade_tier: string;
@@ -51,6 +56,7 @@ export interface CompositeGradeResult {
   defects_found: DefectFound[];
   confidence_score: number;
   needs_human_review: boolean;
+  image_validity: ImageValidity;
   prompt_version: string;
 }
 
@@ -386,7 +392,11 @@ Respond with a JSON object matching this exact schema:
       "impact_on_grade": "<how this affects the score>"
     }
   ],
-  "confidence_score": <0.0-1.0, your confidence in the accuracy of this grade>
+  "confidence_score": <0.0-1.0, your confidence in the accuracy of this grade>,
+  "image_validity": {
+    "is_clothing": <true if the images clearly show a wearable garment, false otherwise>,
+    "reason": "<brief explanation, especially when is_clothing is false>"
+  }
 }
 
 Rules:
@@ -395,7 +405,8 @@ Rules:
 - factor_scores: synthesize across all images, weighting image types appropriately
 - ai_summary: professional, objective summary suitable for a grade certificate
 - defects_found: consolidate all unique defects from all images (empty array if none)
-- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, or unusual garment`;
+- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, or unusual garment
+- image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)`;
 }
 
 function scoreToGradeTier(score: number): string {
@@ -461,6 +472,7 @@ export async function compositeGrade(
       ai_summary: string;
       defects_found: DefectFound[];
       confidence_score: number;
+      image_validity?: { is_clothing?: boolean; reason?: string };
     };
 
     try {
@@ -527,6 +539,15 @@ export async function compositeGrade(
         )
       : [];
 
+    // Validate image_validity — default to valid if the AI omitted it.
+    const imageValidity: ImageValidity = {
+      is_clothing: parsed.image_validity?.is_clothing !== false,
+      reason:
+        typeof parsed.image_validity?.reason === "string"
+          ? parsed.image_validity.reason
+          : "",
+    };
+
     // Flag for human review if confidence is below threshold
     const needsHumanReview = confidenceScore < 0.75;
 
@@ -545,6 +566,7 @@ export async function compositeGrade(
       defects_found: defectsFound,
       confidence_score: confidenceScore,
       needs_human_review: needsHumanReview,
+      image_validity: imageValidity,
       prompt_version: promptVersion,
     };
   } catch (error) {
