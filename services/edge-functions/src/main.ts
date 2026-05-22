@@ -13,6 +13,7 @@ import { flipdeskWebhookRoutes } from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
+import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
@@ -48,11 +49,13 @@ app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
+app.use("/api/flipdesk/ai/*", authMiddleware);
 
 // Rate limiting — 60 requests per minute for authenticated grade endpoints
 app.use("/api/grade/*", rateLimiter(60, 60_000));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000));
+app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000));
 
 // Public API v1 — API key auth + 100 requests per minute
 app.use("/api/v1/*", apiKeyAuthMiddleware);
@@ -71,6 +74,7 @@ app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
+app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));

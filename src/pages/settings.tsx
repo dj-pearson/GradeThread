@@ -15,10 +15,19 @@ import {
   withPreferenceDefaults,
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
-import { Loader2, Upload, Download } from "lucide-react";
+import { PLANS, type PlanKey } from "@/lib/constants";
+import { Loader2, Upload, Download, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+function nextResetLabel(): string {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1).toLocaleDateString(
+    "en-US",
+    { month: "long", day: "numeric" }
+  );
+}
 
 const CHANNEL_LABELS: Record<string, string> = {
   email: "Email",
@@ -47,6 +56,24 @@ export function SettingsPage() {
   const [exporting, setExporting] = useState(false);
   const [exportStage, setExportStage] = useState("");
   const [exportPct, setExportPct] = useState(0);
+
+  const [aiEnabled, setAiEnabled] = useState(
+    profile?.ai_enrichment_enabled ?? true
+  );
+  const [aiLimit, setAiLimit] = useState(
+    profile?.ai_action_limit != null ? String(profile.ai_action_limit) : ""
+  );
+  const [savingAi, setSavingAi] = useState(false);
+
+  const planKey = (profile?.plan ?? "free") as PlanKey;
+  const planAiLimit = PLANS[planKey].aiActionsPerMonth;
+  const effectiveAiLimit = profile?.ai_action_limit ?? planAiLimit;
+  const aiUsed = profile?.ai_actions_used_this_month ?? 0;
+  const aiUnlimited = effectiveAiLimit < 0;
+  const aiPct =
+    !aiUnlimited && effectiveAiLimit > 0
+      ? Math.min(100, Math.round((aiUsed / effectiveAiLimit) * 100))
+      : 0;
 
   const isOAuthUser = user?.app_metadata?.provider === "google";
 
@@ -199,6 +226,34 @@ export function SettingsPage() {
       );
     } finally {
       setSavingPrefs(false);
+    }
+  }
+
+  async function handleSaveAiSettings() {
+    if (!user) return;
+    setSavingAi(true);
+    try {
+      const trimmed = aiLimit.trim();
+      const limitVal =
+        trimmed === ""
+          ? null
+          : Math.max(0, Number.parseInt(trimmed, 10) || 0);
+      const { error } = await supabase
+        .from("users")
+        .update({
+          ai_enrichment_enabled: aiEnabled,
+          ai_action_limit: limitVal,
+        } as never)
+        .eq("id", user.id);
+      if (error) throw error;
+      await refreshProfile();
+      toast.success("AI assistant settings saved.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save AI settings."
+      );
+    } finally {
+      setSavingAi(false);
     }
   }
 
@@ -380,6 +435,79 @@ export function SettingsPage() {
           <Button onClick={handleSavePreferences} disabled={savingPrefs}>
             {savingPrefs && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Preferences
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* AI Item Assistant Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            AI Item Assistant
+          </CardTitle>
+          <CardDescription>
+            AI-assisted cataloging for FlipDesk — fills item fields and writes
+            listing copy from your descriptions and photos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* Usage meter */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">This month's AI usage</span>
+              <span className="text-muted-foreground">
+                {aiUnlimited
+                  ? `${aiUsed} actions used`
+                  : `${aiUsed} / ${effectiveAiLimit} actions`}
+              </span>
+            </div>
+            {!aiUnlimited && <Progress value={aiPct} />}
+            <p className="text-xs text-muted-foreground">
+              Allowance resets on {nextResetLabel()}.
+              {aiUnlimited && " Your plan includes unlimited AI actions."}
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Enable toggle */}
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Enable AI enrichment</p>
+              <p className="text-xs text-muted-foreground">
+                When off, AI Fill and listing-copy buttons are disabled
+                account-wide.
+              </p>
+            </div>
+            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
+          </div>
+
+          {/* Custom monthly limit */}
+          <div className="space-y-1.5">
+            <Label htmlFor="ai-limit">Monthly action limit</Label>
+            <Input
+              id="ai-limit"
+              type="number"
+              min="0"
+              value={aiLimit}
+              onChange={(e) => setAiLimit(e.target.value)}
+              placeholder={
+                planAiLimit < 0
+                  ? "Unlimited (plan default)"
+                  : `${planAiLimit} (plan default)`
+              }
+              className="max-w-xs"
+            />
+            <p className="text-xs text-muted-foreground">
+              Optional. Set a lower number to cap your own AI spend. Leave
+              blank to use your plan's allowance.
+            </p>
+          </div>
+
+          <Button onClick={handleSaveAiSettings} disabled={savingAi}>
+            {savingAi && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save AI Settings
           </Button>
         </CardContent>
       </Card>

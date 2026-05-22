@@ -114,6 +114,11 @@ export interface UserRow {
   use_case: UserUseCase | null;
   onboarded_at: string | null;
   suspended: boolean;
+  // AI enrichment usage (US-158, US-167)
+  ai_actions_used_this_month: number;
+  ai_actions_reset_at: string;
+  ai_enrichment_enabled: boolean;
+  ai_action_limit: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -219,8 +224,17 @@ export interface InventoryItemRow {
   description: string | null;
   sourced_by: string | null;
   comp_set: ItemComp[];
+  // AI enrichment (US-158)
+  ai_field_sources: Record<string, AiFieldSource>;
+  ai_enriched_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AiFieldSource {
+  source: string; // e.g. "text", "photo:tag", "photo:front"
+  confidence: number; // 0..1
+  accepted: boolean;
 }
 
 export interface ListingRow {
@@ -633,6 +647,8 @@ export interface InventoryItemInsert {
   description?: string | null;
   sourced_by?: string | null;
   comp_set?: ItemComp[];
+  ai_field_sources?: Record<string, AiFieldSource>;
+  ai_enriched_at?: string | null;
 }
 
 export interface ListingInsert {
@@ -771,6 +787,42 @@ export interface NotificationInsert {
   is_read?: boolean;
 }
 
+// ─── AI enrichment log (US-158) ────────────────────────────────────
+
+export type AiInputKind = "text" | "photo" | "both";
+
+export interface AiEnrichmentLogRow {
+  id: string;
+  user_id: string;
+  inventory_item_id: string | null;
+  model: string;
+  input_kind: AiInputKind;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  latency_ms: number;
+  suggested_fields: Record<string, unknown>;
+  accepted_fields: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AiEnrichmentLogInsert {
+  user_id: string;
+  inventory_item_id?: string | null;
+  model: string;
+  input_kind: AiInputKind;
+  tokens_in?: number;
+  tokens_out?: number;
+  cost_usd?: number;
+  latency_ms?: number;
+  suggested_fields?: Record<string, unknown>;
+  accepted_fields?: Record<string, unknown>;
+}
+
+export type AiEnrichmentLogUpdate = Partial<
+  Pick<AiEnrichmentLogRow, "accepted_fields">
+>;
+
 // ─── Update types ──────────────────────────────────────────────────
 
 export type UserUpdate = Partial<Omit<UserRow, "id" | "created_at" | "updated_at">>;
@@ -904,6 +956,11 @@ export interface Database {
         Row: EbayListingRow;
         Insert: EbayListingInsert;
         Update: EbayListingUpdate;
+      };
+      ai_enrichment_log: {
+        Row: AiEnrichmentLogRow;
+        Insert: AiEnrichmentLogInsert;
+        Update: AiEnrichmentLogUpdate;
       };
     };
     Enums: {

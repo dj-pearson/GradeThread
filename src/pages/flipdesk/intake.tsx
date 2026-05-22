@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Loader2, ArrowLeft, Boxes } from "lucide-react";
+import {
+  Plus,
+  Save,
+  Loader2,
+  ArrowLeft,
+  Boxes,
+  Sparkles,
+  Camera,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -25,6 +33,15 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useSources } from "@/hooks/use-sources";
 import { BulkIntake } from "@/components/flipdesk/bulk-intake";
+import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
+import {
+  AiFillPanel,
+  type AcceptedField,
+} from "@/components/flipdesk/ai-fill-panel";
+import {
+  useAiExtract,
+  type AiExtractResponse,
+} from "@/hooks/use-ai-extract";
 import {
   ITEM_CATEGORIES,
   ITEM_STATUSES,
@@ -34,7 +51,25 @@ import type {
   InventoryItemInsert,
   ItemStatus,
   ItemCategory,
+  AiFieldSource,
 } from "@/types/database";
+
+// Form fields the AI extractor can fill.
+const AI_FILLABLE_FIELDS = [
+  "title",
+  "brand",
+  "style",
+  "size",
+  "color",
+  "material",
+  "item_category",
+  "condition_notes",
+] as const;
+
+const AI_FIELD_LABELS: Record<string, string> = {
+  item_category: "Category",
+  condition_notes: "Internal notes",
+};
 
 interface FormState {
   title: string;
@@ -97,12 +132,99 @@ export function FlipdeskIntakePage() {
   const [form, setForm] = useState<FormState>(INITIAL);
   const [saving, setSaving] = useState(false);
 
-  // Bulk haul mode is a separate workspace at ?mode=bulk.
+  // AI Fill state
+  const aiExtract = useAiExtract();
+  const [aiResult, setAiResult] = useState<AiExtractResponse | null>(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiFields, setAiFields] = useState<Set<string>>(new Set());
+  const [aiMeta, setAiMeta] = useState<
+    Record<string, { source: string; confidence: number }>
+  >({});
+
+  // Alternate intake modes are separate workspaces.
   if (params.get("mode") === "bulk") return <BulkIntake />;
+  if (params.get("mode") === "snap") return <SnapCatalog />;
 
   function patch<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((f) => ({ ...f, [k]: v }));
+    // A manual edit clears the AI marker on that field.
+    setAiFields((prev) => {
+      if (!prev.has(k)) return prev;
+      const next = new Set(prev);
+      next.delete(k);
+      return next;
+    });
   }
+
+  async function handleAiFill() {
+    const text = [form.title, form.description, form.condition_notes]
+      .filter((s) => s.trim())
+      .join("\n");
+    if (!text.trim()) {
+      toast.error("Add a title, description, or notes for the AI to read.");
+      return;
+    }
+    const known: Record<string, unknown> = {};
+    for (const k of [
+      "brand",
+      "style",
+      "size",
+      "color",
+      "material",
+      "item_category",
+    ] as const) {
+      if (form[k] && String(form[k]).trim()) known[k] = form[k];
+    }
+    try {
+      const result = await aiExtract.mutateAsync({ text, known_fields: known });
+      setAiResult(result);
+      setAiPanelOpen(true);
+    } catch {
+      /* error toast handled by the hook */
+    }
+  }
+
+  function applyAiFields(accepted: AcceptedField[]) {
+    setForm((f) => {
+      const next = { ...f } as unknown as Record<string, unknown>;
+      for (const a of accepted) {
+        if ((AI_FILLABLE_FIELDS as readonly string[]).includes(a.field)) {
+          next[a.field] = a.value;
+        }
+      }
+      return next as unknown as FormState;
+    });
+    setAiFields((prev) => {
+      const next = new Set(prev);
+      for (const a of accepted) next.add(a.field);
+      return next;
+    });
+    setAiMeta((prev) => {
+      const next = { ...prev };
+      for (const a of accepted) {
+        next[a.field] = { source: a.source, confidence: a.confidence };
+      }
+      return next;
+    });
+    if (accepted.length > 0) {
+      toast.success(
+        `Applied ${accepted.length} AI suggestion${
+          accepted.length === 1 ? "" : "s"
+        }.`
+      );
+    }
+  }
+
+  const aiCurrentValues: Record<string, string> = {
+    title: form.title,
+    brand: form.brand,
+    style: form.style,
+    size: form.size,
+    color: form.color,
+    material: form.material,
+    item_category: form.item_category,
+    condition_notes: form.condition_notes,
+  };
 
   async function save(goBackToList: boolean) {
     if (!user) {
@@ -143,6 +265,18 @@ export function FlipdeskIntakePage() {
         sourceId = form.source_id;
       }
 
+      // Record which fields were AI-filled (and still are) for provenance.
+      const aiFieldSources: Record<string, AiFieldSource> = {};
+      for (const field of aiFields) {
+        const meta = aiMeta[field];
+        aiFieldSources[field] = {
+          source: meta?.source ?? "text",
+          confidence: meta?.confidence ?? 0,
+          accepted: true,
+        };
+      }
+      const hasAiFields = Object.keys(aiFieldSources).length > 0;
+
       const insert: InventoryItemInsert = {
         user_id: user.id,
         title: form.title.trim(),
@@ -161,6 +295,8 @@ export function FlipdeskIntakePage() {
         description: trimOrNull(form.description),
         condition_notes: trimOrNull(form.condition_notes),
         status: form.status,
+        ai_field_sources: hasAiFields ? aiFieldSources : undefined,
+        ai_enriched_at: hasAiFields ? new Date().toISOString() : undefined,
       };
 
       const { data: row, error } = await supabase
@@ -192,6 +328,9 @@ export function FlipdeskIntakePage() {
           sourced_by: form.sourced_by,
           purchase_date: form.purchase_date,
         });
+        setAiFields(new Set());
+        setAiMeta({});
+        setAiResult(null);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -221,13 +360,55 @@ export function FlipdeskIntakePage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" asChild>
-          <Link to="/dashboard/flipdesk/intake?mode=bulk">
-            <Boxes className="mr-2 h-4 w-4" />
-            Bulk haul mode
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleAiFill}
+            disabled={aiExtract.isPending}
+          >
+            {aiExtract.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            AI Fill
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/dashboard/flipdesk/intake?mode=snap">
+              <Camera className="mr-2 h-4 w-4" />
+              Snap &amp; Catalog
+            </Link>
+          </Button>
+          <Button variant="outline" asChild>
+            <Link to="/dashboard/flipdesk/intake?mode=bulk">
+              <Boxes className="mr-2 h-4 w-4" />
+              Bulk haul mode
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {/* Auto-suggest banner — nudges AI Fill once there's text to read. */}
+      {form.description.trim() && aiFields.size === 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+          <p className="flex items-center gap-2 text-sm">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Let AI pull brand, size, color and more from your description.
+          </p>
+          <Button
+            size="sm"
+            onClick={handleAiFill}
+            disabled={aiExtract.isPending}
+          >
+            {aiExtract.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-4 w-4" />
+            )}
+            AI Fill
+          </Button>
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -243,6 +424,7 @@ export function FlipdeskIntakePage() {
               value={form.title}
               onChange={(v) => patch("title", v)}
               placeholder="e.g. Lululemon Align Pant"
+              aiMarked={aiFields.has("title")}
             />
             <Field
               label="SKU / Item #"
@@ -254,25 +436,32 @@ export function FlipdeskIntakePage() {
               label="Brand"
               value={form.brand}
               onChange={(v) => patch("brand", v)}
+              aiMarked={aiFields.has("brand")}
             />
             <Field
               label="Style"
               value={form.style}
               onChange={(v) => patch("style", v)}
               placeholder="e.g. Align Pant 25 inch"
+              aiMarked={aiFields.has("style")}
             />
             <Field
               label="Size"
               value={form.size}
               onChange={(v) => patch("size", v)}
+              aiMarked={aiFields.has("size")}
             />
             <Field
               label="Color"
               value={form.color}
               onChange={(v) => patch("color", v)}
+              aiMarked={aiFields.has("color")}
             />
             <div className="space-y-1">
-              <Label>Category</Label>
+              <Label>
+                Category
+                {aiFields.has("item_category") && <AiMark />}
+              </Label>
               <Select
                 value={form.item_category || "__none"}
                 onValueChange={(v) =>
@@ -300,6 +489,7 @@ export function FlipdeskIntakePage() {
               value={form.material}
               onChange={(v) => patch("material", v)}
               placeholder="e.g. cotton, 90% nylon"
+              aiMarked={aiFields.has("material")}
             />
           </div>
         </CardContent>
@@ -406,7 +596,10 @@ export function FlipdeskIntakePage() {
             />
           </div>
           <div className="space-y-1">
-            <Label>Internal Notes</Label>
+            <Label>
+              Internal Notes
+              {aiFields.has("condition_notes") && <AiMark />}
+            </Label>
             <Textarea
               value={form.condition_notes}
               onChange={(e) => patch("condition_notes", e.target.value)}
@@ -446,7 +639,24 @@ export function FlipdeskIntakePage() {
           Save & View items
         </Button>
       </div>
+
+      <AiFillPanel
+        open={aiPanelOpen}
+        onOpenChange={setAiPanelOpen}
+        result={aiResult}
+        currentValues={aiCurrentValues}
+        fieldLabels={AI_FIELD_LABELS}
+        onApply={applyAiFields}
+      />
     </div>
+  );
+}
+
+function AiMark() {
+  return (
+    <span className="ml-1.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+      AI
+    </span>
   );
 }
 
@@ -456,16 +666,21 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  aiMarked = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: "text" | "date" | "number";
   placeholder?: string;
+  aiMarked?: boolean;
 }) {
   return (
     <div className="space-y-1">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {aiMarked && <AiMark />}
+      </Label>
       <Input
         type={type}
         value={value}

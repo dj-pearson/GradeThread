@@ -87,6 +87,7 @@ export const PLANS = {
   free: {
     name: "Free",
     gradesPerMonth: 5,
+    aiActionsPerMonth: 25,
     priceMonthly: 0,
     features: [
       "5 grades per month",
@@ -97,6 +98,7 @@ export const PLANS = {
   starter: {
     name: "Starter",
     gradesPerMonth: 50,
+    aiActionsPerMonth: 200,
     priceMonthly: 29,
     features: [
       "50 grades per month",
@@ -108,6 +110,7 @@ export const PLANS = {
   professional: {
     name: "Professional",
     gradesPerMonth: 500,
+    aiActionsPerMonth: 1000,
     priceMonthly: 99,
     features: [
       "500 grades per month",
@@ -121,6 +124,7 @@ export const PLANS = {
   enterprise: {
     name: "Enterprise",
     gradesPerMonth: -1, // unlimited
+    aiActionsPerMonth: -1, // unlimited
     priceMonthly: null, // custom pricing
     features: [
       "Unlimited grades",

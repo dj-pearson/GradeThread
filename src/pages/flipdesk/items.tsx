@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -55,6 +56,7 @@ import {
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
+import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
 import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
 import { useSavedViews } from "@/hooks/use-saved-views";
@@ -383,6 +385,7 @@ export function FlipdeskItemsPage() {
   }, [statusFilter]);
   const [preset, setPreset] = useState<Preset>("triage");
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
+  const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
   const [pending, setPending] = useState<Map<string, Patch>>(new Map());
   const [saving, setSaving] = useState(false);
 
@@ -1106,6 +1109,12 @@ export function FlipdeskItemsPage() {
               Import
             </Link>
           </Button>
+          <Button variant="outline" asChild>
+            <Link to="/dashboard/flipdesk/intake?mode=snap">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Snap &amp; Catalog
+            </Link>
+          </Button>
           <Button asChild>
             <Link to="/dashboard/flipdesk/intake">
               <Plus className="mr-2 h-4 w-4" />
@@ -1494,6 +1503,13 @@ export function FlipdeskItemsPage() {
               </Button>
               <Button
                 variant="outline"
+                onClick={() => setAiEnrichOpen(true)}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                AI enrich ({selected.size})
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => setSelected(new Set())}
               >
                 Clear
@@ -1537,6 +1553,19 @@ export function FlipdeskItemsPage() {
       )}
 
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+
+      <BulkAiEnrichDialog
+        open={aiEnrichOpen}
+        onOpenChange={setAiEnrichOpen}
+        itemIds={[...selected]}
+        onReviewItem={(itemId) => {
+          const target = items?.find((it) => it.id === itemId) ?? null;
+          if (target) setDetailItem(target);
+        }}
+        onDone={() => {
+          void qc.invalidateQueries({ queryKey: ["items_full"] });
+        }}
+      />
 
       <SaveViewDialog
         open={saveViewOpen}

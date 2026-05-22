@@ -1,11 +1,14 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type {
   UserRow,
   SubmissionRow,
   GradeReportRow,
   UserPlan,
+  AiEnrichmentLogRow,
 } from "@/types/database";
 import { PLANS } from "@/lib/constants";
+import { supabase } from "@/lib/supabase";
 import {
   Card,
   CardContent,
@@ -235,6 +238,58 @@ export function PlatformAnalytics({
   }, [users, submissions, gradeReports]);
 
   const funnelMax = analytics.funnel[0]?.count || 1;
+
+  // AI enrichment acceptance — suggested vs accepted fields (US-167).
+  const { data: aiLogs } = useQuery({
+    queryKey: ["admin-ai-acceptance"],
+    queryFn: async (): Promise<AiEnrichmentLogRow[]> => {
+      const { data, error } = await supabase
+        .from("ai_enrichment_log")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(2000);
+      if (error) throw error;
+      return (data ?? []) as AiEnrichmentLogRow[];
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const aiAcceptance = useMemo(() => {
+    const logs = aiLogs ?? [];
+    const byField = new Map<string, { suggested: number; accepted: number }>();
+    let totalSuggested = 0;
+    let totalAccepted = 0;
+    for (const log of logs) {
+      const suggested = log.suggested_fields ?? {};
+      const accepted = log.accepted_fields ?? {};
+      for (const field of Object.keys(suggested)) {
+        const row = byField.get(field) ?? { suggested: 0, accepted: 0 };
+        row.suggested += 1;
+        totalSuggested += 1;
+        if (field in accepted) {
+          row.accepted += 1;
+          totalAccepted += 1;
+        }
+        byField.set(field, row);
+      }
+    }
+    const fields = Array.from(byField.entries())
+      .map(([field, v]) => ({
+        field,
+        suggested: v.suggested,
+        accepted: v.accepted,
+        rate: v.suggested > 0 ? (v.accepted / v.suggested) * 100 : 0,
+      }))
+      .sort((a, b) => b.suggested - a.suggested);
+    return {
+      fields,
+      totalSuggested,
+      totalAccepted,
+      overallRate:
+        totalSuggested > 0 ? (totalAccepted / totalSuggested) * 100 : 0,
+      logCount: logs.length,
+    };
+  }, [aiLogs]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -511,6 +566,64 @@ export function PlatformAnalytics({
                           {pct === null ? "" : `${pct.toFixed(0)}%`}
                         </TableCell>
                       ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* AI enrichment acceptance (US-167) */}
+      <Card className="lg:col-span-2">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">
+            AI Enrichment Acceptance
+          </CardTitle>
+          <CardDescription>
+            How often AI field suggestions are kept — the signal for tuning
+            prompts. {aiAcceptance.totalAccepted} of{" "}
+            {aiAcceptance.totalSuggested} suggested fields accepted (
+            {aiAcceptance.overallRate.toFixed(0)}% overall) across{" "}
+            {aiAcceptance.logCount} extraction calls.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {aiAcceptance.fields.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No AI enrichment activity yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Field</TableHead>
+                    <TableHead className="text-right">Suggested</TableHead>
+                    <TableHead className="text-right">Accepted</TableHead>
+                    <TableHead className="text-right">Accept rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {aiAcceptance.fields.map((f) => (
+                    <TableRow key={f.field}>
+                      <TableCell className="font-medium">{f.field}</TableCell>
+                      <TableCell className="text-right">
+                        {f.suggested}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {f.accepted}
+                      </TableCell>
+                      <TableCell
+                        className={
+                          f.rate < 50
+                            ? "text-right text-red-600"
+                            : "text-right text-green-600"
+                        }
+                      >
+                        {f.rate.toFixed(0)}%
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

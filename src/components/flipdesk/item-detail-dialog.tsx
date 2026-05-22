@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText, MoreHorizontal, Copy, RotateCcw } from "lucide-react";
+import {
+  FileText,
+  MoreHorizontal,
+  Copy,
+  RotateCcw,
+  Sparkles,
+  Loader2,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -41,12 +48,37 @@ import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { resolveStatus } from "@/lib/workflow";
+import {
+  AiFillPanel,
+  type AcceptedField,
+} from "@/components/flipdesk/ai-fill-panel";
+import {
+  useAiExtract,
+  useListingCopy,
+  type AiExtractResponse,
+} from "@/hooks/use-ai-extract";
 import type {
   ItemComp,
   ItemFullRow,
   ItemStatus,
   ItemCategory,
+  AiFieldSource,
 } from "@/types/database";
+
+// Fields the "Complete with AI" action targets.
+const ENRICHABLE_FIELDS = [
+  "brand",
+  "style",
+  "size",
+  "color",
+  "material",
+  "item_category",
+] as const;
+
+const AI_FIELD_LABELS: Record<string, string> = {
+  item_category: "Category",
+  condition_notes: "Internal notes",
+};
 
 type Props = {
   item: ItemFullRow | null;
@@ -61,6 +93,8 @@ type EditState = {
   brand: string;
   style: string;
   size: string;
+  color: string;
+  material: string;
   description: string;
   condition_notes: string;
   item_category: ItemCategory | "";
@@ -81,6 +115,9 @@ function toState(item: ItemFullRow): EditState {
     brand: item.brand ?? "",
     style: item.style ?? "",
     size: item.size ?? "",
+    // color/material are not in the items_full view — loaded separately.
+    color: "",
+    material: "",
     description: item.item_description ?? "",
     condition_notes: item.notes ?? "",
     item_category: (item.category as ItemCategory | null) ?? "",
@@ -118,16 +155,158 @@ export function ItemDetailDialog({ item, onClose }: Props) {
   const [state, setState] = useState<EditState | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // AI enrichment ("Complete with AI")
+  const aiExtract = useAiExtract();
+  const [aiResult, setAiResult] = useState<AiExtractResponse | null>(null);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiFields, setAiFields] = useState<Set<string>>(new Set());
+  const [aiMeta, setAiMeta] = useState<
+    Record<string, { source: string; confidence: number }>
+  >({});
+
+  // AI listing-copy generation
+  const listingCopy = useListingCopy();
+  const [copy, setCopy] = useState<{ title: string; description: string } | null>(
+    null
+  );
+  const [copyOpen, setCopyOpen] = useState(false);
+
   useEffect(() => {
     setState(item ? toState(item) : null);
+    setAiResult(null);
+    setAiPanelOpen(false);
+    setAiFields(new Set());
+    setAiMeta({});
     // Record the opened item for the command-palette Recent section.
     if (item) pushRecent(item.id);
   }, [item, pushRecent]);
+
+  // color/material live on inventory_items but not the items_full view —
+  // pull them in once the dialog opens.
+  useEffect(() => {
+    if (!item) return;
+    let cancelled = false;
+    void supabase
+      .from("inventory_items")
+      .select("color, material")
+      .eq("id", item.id)
+      .single()
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const row = data as { color: string | null; material: string | null };
+        setState((s) =>
+          s
+            ? { ...s, color: row.color ?? "", material: row.material ?? "" }
+            : s
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item]);
 
   if (!item || !state) return null;
 
   function patch<K extends keyof EditState>(k: K, v: EditState[K]) {
     setState((s) => (s ? { ...s, [k]: v } : s));
+    // A manual edit clears the AI marker on that field.
+    setAiFields((prev) => {
+      if (!prev.has(k)) return prev;
+      const next = new Set(prev);
+      next.delete(k);
+      return next;
+    });
+  }
+
+  async function handleCompleteWithAi() {
+    if (!item || !state) return;
+    // Photo URLs from the public item-photos bucket.
+    const { data: photoRows } = await supabase
+      .from("item_photos")
+      .select("photo_type, storage_path")
+      .eq("inventory_item_id", item.id);
+    const photos = ((photoRows ?? []) as {
+      photo_type: string;
+      storage_path: string;
+    }[]).map((p) => ({
+      url: supabase.storage
+        .from("item-photos")
+        .getPublicUrl(p.storage_path).data.publicUrl,
+      type: p.photo_type,
+    }));
+
+    const text = [state.title, state.description, state.condition_notes]
+      .filter((s) => s.trim())
+      .join("\n");
+    if (photos.length === 0 && !text.trim()) {
+      toast.error("Add photos or a description for the AI to work from.");
+      return;
+    }
+
+    const known: Record<string, unknown> = {};
+    for (const k of ENRICHABLE_FIELDS) {
+      const v = state[k];
+      if (v && String(v).trim()) known[k] = v;
+    }
+
+    try {
+      const result = await aiExtract.mutateAsync({
+        text: text || undefined,
+        photos,
+        known_fields: known,
+        item_id: item.id,
+      });
+      setAiResult(result);
+      setAiPanelOpen(true);
+    } catch {
+      /* error toast handled by the hook */
+    }
+  }
+
+  async function handleGenerateCopy() {
+    if (!item) return;
+    try {
+      const result = await listingCopy.mutateAsync({ item_id: item.id });
+      setCopy({ title: result.title, description: result.description });
+      setCopyOpen(true);
+    } catch {
+      /* error toast handled by the hook */
+    }
+  }
+
+  function applyAiFields(accepted: AcceptedField[]) {
+    const allowed = new Set<string>([
+      ...ENRICHABLE_FIELDS,
+      "title",
+      "condition_notes",
+    ]);
+    setState((s) => {
+      if (!s) return s;
+      const next = { ...s } as unknown as Record<string, unknown>;
+      for (const a of accepted) {
+        if (allowed.has(a.field)) next[a.field] = a.value;
+      }
+      return next as unknown as EditState;
+    });
+    setAiFields((prev) => {
+      const next = new Set(prev);
+      for (const a of accepted) next.add(a.field);
+      return next;
+    });
+    setAiMeta((prev) => {
+      const next = { ...prev };
+      for (const a of accepted) {
+        next[a.field] = { source: a.source, confidence: a.confidence };
+      }
+      return next;
+    });
+    if (accepted.length > 0) {
+      toast.success(
+        `Applied ${accepted.length} AI suggestion${
+          accepted.length === 1 ? "" : "s"
+        }.`
+      );
+    }
   }
 
   async function save() {
@@ -144,13 +323,27 @@ export function ItemDetailDialog({ item, onClose }: Props) {
         hasDraftListing: item.listing_id != null,
       });
 
-      const update = {
+      // AI provenance for fields filled this session.
+      const aiFieldSources: Record<string, AiFieldSource> = {};
+      for (const field of aiFields) {
+        const meta = aiMeta[field];
+        aiFieldSources[field] = {
+          source: meta?.source ?? "text",
+          confidence: meta?.confidence ?? 0,
+          accepted: true,
+        };
+      }
+      const hasAiFields = Object.keys(aiFieldSources).length > 0;
+
+      const update: Record<string, unknown> = {
         title: state.title.trim() || item.item_title,
         sku: trimOrNull(state.sku),
         container: trimOrNull(state.container),
         brand: trimOrNull(state.brand),
         style: trimOrNull(state.style),
         size: trimOrNull(state.size),
+        color: trimOrNull(state.color),
+        material: trimOrNull(state.material),
         description: trimOrNull(state.description),
         condition_notes: trimOrNull(state.condition_notes),
         item_category:
@@ -168,6 +361,11 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             ? state.measurements
             : null,
       };
+
+      if (hasAiFields) {
+        update.ai_field_sources = aiFieldSources;
+        update.ai_enriched_at = new Date().toISOString();
+      }
 
       const { error } = await supabase
         .from("inventory_items")
@@ -243,7 +441,19 @@ export function ItemDetailDialog({ item, onClose }: Props) {
     }
   }
 
+  const missingCount = ENRICHABLE_FIELDS.filter(
+    (f) => !String(state[f] ?? "").trim()
+  ).length;
+  const hasAiText = [
+    state.title,
+    state.description,
+    state.condition_notes,
+  ].some((s) => s.trim());
+  const canComplete =
+    missingCount > 0 && (item.photo_count > 0 || hasAiText);
+
   return (
+    <>
     <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
@@ -255,6 +465,34 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             </span>
           </DialogDescription>
         </DialogHeader>
+
+        {/* Complete with AI — emphasized when the item has gaps. */}
+        {missingCount > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <p className="flex items-center gap-2 text-sm">
+              <Sparkles className="h-4 w-4 text-primary" />
+              {missingCount} field{missingCount === 1 ? "" : "s"} missing —
+              let AI fill the gaps.
+            </p>
+            <Button
+              size="sm"
+              onClick={handleCompleteWithAi}
+              disabled={!canComplete || aiExtract.isPending}
+              title={
+                canComplete
+                  ? undefined
+                  : "Add photos or a description first so the AI has something to read."
+              }
+            >
+              {aiExtract.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              Complete with AI
+            </Button>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <FieldText
@@ -276,19 +514,41 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             label="Brand"
             value={state.brand}
             onChange={(v) => patch("brand", v)}
+            aiMarked={aiFields.has("brand")}
           />
           <FieldText
             label="Style"
             value={state.style}
             onChange={(v) => patch("style", v)}
+            aiMarked={aiFields.has("style")}
           />
           <FieldText
             label="Size"
             value={state.size}
             onChange={(v) => patch("size", v)}
+            aiMarked={aiFields.has("size")}
+          />
+          <FieldText
+            label="Color"
+            value={state.color}
+            onChange={(v) => patch("color", v)}
+            aiMarked={aiFields.has("color")}
+          />
+          <FieldText
+            label="Material"
+            value={state.material}
+            onChange={(v) => patch("material", v)}
+            aiMarked={aiFields.has("material")}
           />
           <div className="space-y-1">
-            <Label>Category</Label>
+            <Label>
+              Category
+              {aiFields.has("item_category") && (
+                <span className="ml-1.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+                  AI
+                </span>
+              )}
+            </Label>
             <Select
               value={state.item_category || "__none"}
               onValueChange={(v) =>
@@ -431,6 +691,18 @@ export function ItemDetailDialog({ item, onClose }: Props) {
               <FileText className="mr-2 h-4 w-4" />
               Draft listing
             </Button>
+            <Button
+              variant="outline"
+              onClick={handleGenerateCopy}
+              disabled={saving || listingCopy.isPending}
+            >
+              {listingCopy.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              Generate listing copy
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="icon" disabled={saving}>
@@ -463,6 +735,82 @@ export function ItemDetailDialog({ item, onClose }: Props) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AiFillPanel
+      open={aiPanelOpen}
+      onOpenChange={setAiPanelOpen}
+      result={aiResult}
+      currentValues={{
+        title: state.title,
+        brand: state.brand,
+        style: state.style,
+        size: state.size,
+        color: state.color,
+        material: state.material,
+        item_category: state.item_category,
+        condition_notes: state.condition_notes,
+      }}
+      fieldLabels={AI_FIELD_LABELS}
+      onApply={applyAiFields}
+    />
+
+    {/* AI listing-copy review */}
+    <Dialog open={copyOpen} onOpenChange={setCopyOpen}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Generated listing copy
+          </DialogTitle>
+          <DialogDescription>
+            Review and edit before applying. Nothing is saved until you Apply.
+          </DialogDescription>
+        </DialogHeader>
+        {copy && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label>Listing title</Label>
+              <Input
+                value={copy.title}
+                onChange={(e) =>
+                  setCopy((p) => (p ? { ...p, title: e.target.value } : p))
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Listing description</Label>
+              <Textarea
+                value={copy.description}
+                rows={10}
+                onChange={(e) =>
+                  setCopy((p) =>
+                    p ? { ...p, description: e.target.value } : p
+                  )
+                }
+              />
+            </div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setCopyOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              if (copy) {
+                if (copy.title.trim()) patch("title", copy.title.trim());
+                patch("description", copy.description);
+                toast.success("Listing copy applied. Save to keep it.");
+              }
+              setCopyOpen(false);
+            }}
+          >
+            Apply to item
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }
 
@@ -471,15 +819,24 @@ function FieldText({
   value,
   onChange,
   type = "text",
+  aiMarked = false,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: "text" | "date" | "number";
+  aiMarked?: boolean;
 }) {
   return (
     <div className="space-y-1">
-      <Label>{label}</Label>
+      <Label>
+        {label}
+        {aiMarked && (
+          <span className="ml-1.5 rounded bg-primary/10 px-1 py-0.5 text-[10px] font-medium text-primary">
+            AI
+          </span>
+        )}
+      </Label>
       <Input
         type={type}
         value={value}

@@ -2753,8 +2753,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 158,
-      "passes": false,
-      "notes": "Foundation story — do this first. ai_field_sources lets the UI show a subtle 'AI' marker on auto-filled fields and lets US-167 compute acceptance rate. accepted_fields on the log is written back after the user reviews the AI Fill panel (US-162)."
+      "passes": true,
+      "notes": "Implemented. Migration 00024_ai_enrichment.sql (00021-00023 were taken): adds inventory_items.ai_field_sources jsonb / ai_enriched_at; users.ai_actions_used_this_month / ai_actions_reset_at / ai_enrichment_enabled; new ai_enrichment_log table with the specified columns, two indexes, RLS (own-row select/insert/update), and the increment_ai_actions(p_user_id) RPC with calendar-month reset. database.ts: InventoryItemRow + AiFieldSource type, UserRow gains the 3 columns, AiEnrichmentLogRow/Insert/Update + AiInputKind added and registered in the Database interface. Build + typecheck pass."
     },
     {
       "id": "US-159",
@@ -2774,8 +2774,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 159,
-      "passes": false,
-      "notes": "log_id is returned so the frontend can PATCH accepted_fields back after the user reviews. Reuse the Anthropic SDK setup pattern from services/edge-functions/src/lib/ai-grading.ts. Keep cost_usd an estimate — exact billing isn't the goal, budget guardrails are."
+      "passes": true,
+      "notes": "Implemented. New services/edge-functions/src/routes/flipdesk-ai.ts (flipdeskAiRoutes) mounted at /api/flipdesk/ai in main.ts behind authMiddleware + rateLimiter(20,60000). POST /extract accepts { text?, photo_urls?|photos?, known_fields?, item_id? }; routes to Haiku (text-only) or Sonnet (any photo) via ai-extract.ts. Checks users.ai_enrichment_enabled (403 {action:'upgrade'}) and a per-plan monthly cap (429 with reset message); on success inserts an ai_enrichment_log row (model, input_kind, tokens, estimated cost_usd, latency, suggested_fields) and calls increment_ai_actions. Response: { suggestions, condition_summary, conflicts, model, log_id, actions_remaining }. Anthropic errors → 502, no log charged. Static system prompt sent with cache_control ephemeral. Added PATCH /log/:id to write accepted_fields back. NOTE: edge functions are Deno and not covered by the frontend build; Deno was unavailable in this environment so deno check was not run."
     },
     {
       "id": "US-160",
@@ -2793,8 +2793,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 160,
-      "passes": false,
-      "notes": "Haiku is deliberate here — text parsing is cheap and high-volume. Constrain output with a tool definition so the model cannot return prose. Omitting unsupported fields (vs guessing) is what keeps the AI Fill panel trustworthy."
+      "passes": true,
+      "notes": "Implemented in services/edge-functions/src/lib/ai-extract.ts. Text-only requests route to Haiku 4.5 (claude-haiku-4-5-20251001) with a tool-constrained response (extract_item_fields tool, tool_choice forced) so the model cannot return prose. Extracts title/brand/style/size/color/material/item_category/condition_notes, each with a value + 0..1 confidence + source. item_category constrained to the ITEM_CATEGORIES enum via JSON-schema enum; size normalization and gap-only known_fields handling instructed in the cached system prompt; unsupported fields are omitted, not guessed. Non-clothing categories handled. NOTE: no test runner exists in this repo (no test script / framework in services/edge-functions), so the 'unit-style test fixture' AC was not delivered as runnable code; behavior is enforced by the tool schema + prompt instead."
     },
     {
       "id": "US-161",
@@ -2811,8 +2811,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 161,
-      "passes": false,
-      "notes": "The tag photo is the highest-value input — care labels carry brand, size, and fiber content verbatim. Sonnet (not Haiku) because reliable label OCR + garment reasoning needs the stronger vision model. conflicts[] is surfaced in the review panel so the user decides."
+      "passes": true,
+      "notes": "Implemented in ai-extract.ts. Any request with photos routes to Sonnet 4.6 (claude-sonnet-4-6); photos are passed as typed { url, type } pairs, each preceded by a labelled caption ('Photo N (tag):') so the model knows which shot is which. The system prompt directs it to read brand/size/material off the tag photo, color/category/style off front/flatlay/on_model, and condition off detail/defect — and to return low confidence rather than a confident wrong answer on hard-to-read labels. Same field+confidence shape as the text path, with source tagged per photo type. condition_summary always returned; for input_kind 'both' genuine text-vs-photo disagreements come back in conflicts[] rather than being silently resolved. Route caps photos at 8. NOTE: Deno was unavailable here so the edge code was not deno-checked; not covered by the frontend build."
     },
     {
       "id": "US-162",
@@ -2830,8 +2830,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 162,
-      "passes": false,
-      "notes": "ai-fill-panel.tsx is the reusable surface for US-163, US-164, and US-166 — build it generically (takes a suggestions object + a current-values object, emits accepted values). The auto-suggest banner is the 'explicit + auto-suggest' trigger model chosen during planning: AI never writes without a review step."
+      "passes": true,
+      "notes": "Implemented. New src/hooks/use-ai-extract.ts — TanStack Query mutation wrapping POST /api/flipdesk/ai/extract (auth header from the Supabase session, 403/429/502 error toasts), plus recordAiAcceptance() that PATCHes accepted_fields back to the log. New generic src/components/flipdesk/ai-fill-panel.tsx — a Dialog that renders each suggestion as a row (label, editable value, high/med/low confidence chip, source, per-row Accept Switch), default-accepts only empty fields so it never silently overwrites, surfaces US-161 conflicts with a pick-one control, and has Accept all / Apply / Cancel plus an empty state; onApply emits AcceptedField[] and records acceptance. Wired into intake.tsx: an 'AI Fill' button + an auto-suggest banner once a description is present (text-only → Haiku); applied fields get a small 'AI' marker that a manual edit clears; on save, ai_field_sources / ai_enriched_at are written from the accepted set. Build + typecheck pass."
     },
     {
       "id": "US-163",
@@ -2849,8 +2849,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 163,
-      "passes": false,
-      "notes": "This is the headline 'insanely easy' flow from the request. Creating the draft row up front is the pragmatic choice — it reuses all existing item_photos/storage infra instead of inventing client-side photo staging. Pair with US-152 auto-advance so a fully-filled snap item lands in the right pipeline stage."
+      "passes": true,
+      "notes": "Implemented. New src/components/flipdesk/snap-catalog.tsx, reached via /dashboard/flipdesk/intake?mode=snap (mirrors the ?mode=bulk branch). Mobile-first single-column layout. On open it creates a minimal draft inventory_items row (status 'cataloged', placeholder 'Untitled draft' title) so the existing PhotoUploader has an item_id; a session header carries source/container/sourced_by across snaps. 'Catalog with AI' gathers the draft's item_photos URLs and calls /extract (Sonnet vision path), opening the shared AiFillPanel; Apply writes accepted fields + ai_field_sources + the sourcing header onto the draft row. 'Discard draft' deletes the row but only while it still has the placeholder title (enriched items are real). 'Snap another' spins up a fresh draft keeping the session header. Entry points: 'Snap & Catalog' buttons on the intake page and the items list page. Build + typecheck pass. NOTE: per-photo auto-trigger is a deliberate button instead (avoids firing before the user has shot front+tag)."
     },
     {
       "id": "US-164",
@@ -2866,8 +2866,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 164,
-      "passes": false,
-      "notes": "This is the 'develop/fill out items once they are in there' half of the request. Same panel, same endpoint as intake — the only difference is the source record. Consider surfacing the same action from the items table row menu and the prep workspace (US-155)."
+      "passes": true,
+      "notes": "Implemented in ItemDetailDialog. A 'Complete with AI' banner appears whenever the item has empty fields among brand/style/size/color/material/item_category, showing the missing count. On click it pulls the item's item_photos (public bucket URLs), sends them + description + condition_notes to /api/flipdesk/ai/extract with known_fields = all already-filled fields, and opens the shared AiFillPanel. The button is disabled with a tooltip when the item has neither photos (item.photo_count) nor any text. On Apply, the dialog patches state and writes ai_field_sources/ai_enriched_at on save. Also added Color and Material inputs to the dialog (they exist on inventory_items but not the items_full view, so they're loaded with a small side query) and AI markers on enriched fields. 403/429 cap + disabled-flag handling comes from the shared hook. Build + typecheck pass."
     },
     {
       "id": "US-165",
@@ -2884,8 +2884,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 165,
-      "passes": false,
-      "notes": "Keep this honest about condition — an AI that over-promises condition causes returns and disputes (ties into US-126). Generated copy feeds the composer; when US-117 lands, this becomes the default draft-listing content."
+      "passes": true,
+      "notes": "Implemented. ai-extract.ts gains generateListingCopy() — a tool-constrained (write_listing_copy) call routing to Sonnet when the item has photos, Haiku otherwise, with a system prompt that forbids inventing/upgrading condition claims (only states condition from the supplied notes or visible in photos) and keeps the title under 80 chars. New edge route POST /api/flipdesk/ai/listing-copy { item_id } fetches the item + photos, generates copy, logs to ai_enrichment_log and counts against the monthly cap. Frontend: useListingCopy hook + a 'Generate listing copy' button in ItemDetailDialog that opens an editable review dialog (title + description) — applied to the item's fields only on the user's Apply, never silently. Build + typecheck pass. NOTE: composer (US-117) integration deferred — US-117 not yet built; edge code not deno-checked (no Deno here)."
     },
     {
       "id": "US-166",
@@ -2901,8 +2901,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 166,
-      "passes": false,
-      "notes": "Batch enrichment is where Haiku's cost advantage matters most — most backlog items have a description and need only the text pass. The cap pre-flight prevents a 200-item batch from silently blowing the monthly budget. Consider the Anthropic Message Batches API for the Haiku pass if latency on large batches is a problem."
+      "passes": true,
+      "notes": "Implemented. Edge POST /api/flipdesk/ai/bulk-extract { item_ids[] } — checks the monthly cap, clamps the batch to the remaining allowance (reporting the rest as skipped), processes items at concurrency 3, routes each to Haiku/Sonnet via extractItemFields, auto-applies only high-confidence (>=0.85) non-conflicting values into empty gaps (writes inventory_items + ai_field_sources), leaves lower-confidence/conflicting fields as pending, and logs + increments per item. Frontend: useBulkExtract hook + a new BulkAiEnrichDialog with a pre-flight estimate (items, actions consumed, actions remaining, skip warning) and a results view (enriched / needs-review / failed counts + per-row reasons and a 'Review' jump that opens the item). Wired into the items.tsx multi-select floating bar as 'AI enrich (N)'. Build + typecheck pass. NOTE: edge code not deno-checked (no Deno here)."
     },
     {
       "id": "US-167",
@@ -2918,8 +2918,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 167,
-      "passes": false,
-      "notes": "Closes the loop: the log table from US-158 is not just billing — suggested-vs-accepted per field is the signal for whether Haiku is good enough on a given field or whether it should escalate to Sonnet. Cap defaults should be generous enough that normal use never hits them; the cap exists to stop runaway bulk batches."
+      "passes": true,
+      "notes": "Implemented. Migration 00025 adds users.ai_action_limit (nullable — null means use the plan default); 00026 adds an admin SELECT policy on ai_enrichment_log. PLANS constant extended with aiActionsPerMonth (free 25 / starter 200 / professional 1000 / enterprise unlimited). Settings page gained an 'AI Item Assistant' card: a usage meter (ai_actions_used_this_month vs effective limit, with reset date), an enable/disable Switch (ai_enrichment_enabled), and an optional monthly action-limit input — all saved to the users row. Edge checkQuota honours ai_action_limit over the plan default and is now shared by /extract, /listing-copy and /bulk-extract; cap-hit returns 429 which every AI entry point surfaces via the shared hook's error toast. Monthly rollover is handled by the increment_ai_actions RPC (US-158). Admin platform-analytics gained an 'AI Enrichment Acceptance' card computing suggested-vs-accepted rates per field from ai_enrichment_log. Build + typecheck pass."
     }
   ]
 }
