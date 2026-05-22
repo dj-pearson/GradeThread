@@ -3,7 +3,6 @@
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
   "userStories": [
-
     {
       "id": "US-001",
       "title": "Vite + React + TypeScript project scaffold",
@@ -20,7 +19,6 @@
       "passes": true,
       "notes": "Completed in initial foundation build. Vite 7.3, React 19.2, TypeScript strict mode."
     },
-
     {
       "id": "US-002",
       "title": "Tailwind v4 + shadcn/ui design system with brand theme",
@@ -39,7 +37,6 @@
       "passes": true,
       "notes": "Completed. shadcn toast deprecated in v4, using sonner instead. shadcn v4 requires @import 'tailwindcss' in CSS and path alias in root tsconfig.json."
     },
-
     {
       "id": "US-003",
       "title": "TypeScript database types for all tables and enums",
@@ -56,7 +53,6 @@
       "passes": true,
       "notes": "Completed. All types in src/types/database.ts."
     },
-
     {
       "id": "US-004",
       "title": "Supabase client with PKCE auth flow",
@@ -73,7 +69,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-005",
       "title": "Auth functions: signup, signin, Google OAuth, password reset",
@@ -93,7 +88,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-006",
       "title": "Zustand auth store and useAuth hook with session listener",
@@ -112,7 +106,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-007",
       "title": "Protected route guard component",
@@ -128,7 +121,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-008",
       "title": "React Router configuration with all routes",
@@ -145,7 +137,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-009",
       "title": "Root, Auth, and Dashboard layouts",
@@ -161,7 +152,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-010",
       "title": "Dashboard sidebar with nav links and header with user menu",
@@ -179,7 +169,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-011",
       "title": "Landing page with hero, features, and CTA",
@@ -196,7 +185,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-012",
       "title": "Login page with email/password and Google OAuth",
@@ -215,7 +203,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-013",
       "title": "Signup page with email confirmation flow",
@@ -234,7 +221,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-014",
       "title": "Auth callback, password reset, and stub pages",
@@ -251,7 +237,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-015",
       "title": "Dashboard overview with stats cards",
@@ -269,7 +254,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-016",
       "title": "Static assets, index.html, and Cloudflare Pages config",
@@ -286,7 +270,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-017",
       "title": "App entry point with providers",
@@ -303,7 +286,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-018",
       "title": "PRD constants: plans, grade factors, enums",
@@ -321,7 +303,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-019",
       "title": "Database migration SQL with full schema",
@@ -342,7 +323,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-020",
       "title": "Deno/Hono edge functions service scaffold",
@@ -362,7 +342,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-021",
       "title": "Stripe client initialization",
@@ -376,7 +355,6 @@
       "passes": true,
       "notes": "Completed."
     },
-
     {
       "id": "US-022",
       "title": "Database migration: add inventory and financial tracking tables",
@@ -397,7 +375,6 @@
       "passes": true,
       "notes": "Migration created with 2 enums (item_status, listing_platform), 4 tables (inventory_items, listings, sales, shipments), indexes on all FKs and status columns, RLS policies for ownership chain, and updated_at triggers."
     },
-
     {
       "id": "US-023",
       "title": "TypeScript types for inventory and financial tables",
@@ -412,7 +389,6 @@
       "passes": true,
       "notes": "Added ItemStatus and ListingPlatform enums, Row/Insert/Update types for all 4 tables, updated Database interface."
     },
-
     {
       "id": "US-024",
       "title": "Database migration: admin tables and roles",
@@ -432,7 +408,6 @@
       "passes": true,
       "notes": "Migration 00003_admin_tables.sql: user_role enum, role column on users, admin_audit_log/human_reviews/ai_prompt_versions tables with RLS. is_admin() and is_reviewer_or_admin() helper functions. TypeScript types updated in database.ts."
     },
-
     {
       "id": "US-025",
       "title": "TypeScript types for admin tables",
@@ -448,7 +423,6 @@
       "passes": true,
       "notes": "All types were already implemented in US-024. UserRole enum, UserRow.role field, Row/Insert/Update types for admin_audit_log, human_reviews, ai_prompt_versions, and Database interface entries all present and verified."
     },
-
     {
       "id": "US-026",
       "title": "Image upload utility with Supabase Storage",
@@ -467,7 +441,6 @@
       "passes": true,
       "notes": "Created src/lib/storage.ts with uploadSubmissionImage, getImageUrl, deleteSubmissionImage. Validates MIME type (jpeg/png/webp) and size (10MB max) before upload. Uses {userId}/{submissionId}/{imageType}_{timestamp}.{ext} path format. Returns signed URLs with 1-hour expiry."
     },
-
     {
       "id": "US-027",
       "title": "Client-side image compression and validation",
@@ -484,7 +457,6 @@
       "passes": true,
       "notes": "Created src/lib/image-utils.ts with validateImage() and compressImage(). validateImage checks MIME type, file size (10MB max), and resolution (min 1200x1200). compressImage uses canvas API to resize (default maxWidth=2400), compress (default quality=0.85), and correct EXIF orientation. Parses EXIF orientation tag from first 64KB of JPEG files. Outputs WebP for JPEG/WebP inputs, preserves PNG."
     },
-
     {
       "id": "US-028",
       "title": "Edge function: JWT auth middleware",
@@ -501,7 +473,6 @@
       "passes": true,
       "notes": "Created services/edge-functions/src/middleware/auth.ts exporting authMiddleware. Extracts Bearer token, validates via supabase.auth.getUser(), sets user and userId on Hono context. Returns 401 for missing/invalid tokens. Applied to /api/grade/* routes in main.ts; health and webhook routes remain unprotected."
     },
-
     {
       "id": "US-029",
       "title": "Edge function: rate limiting middleware",
@@ -518,7 +489,6 @@
       "passes": true,
       "notes": "Implemented in-memory rate limiter with configurable maxRequests and windowMs. Applied to /api/grade/* routes after auth middleware. Includes periodic cleanup of expired entries and standard rate limit headers."
     },
-
     {
       "id": "US-030",
       "title": "Photo upload UI component with drag-and-drop",
@@ -539,7 +509,6 @@
       "passes": true,
       "notes": "Used Map<string, SlotState> for type-safe state management. Uses existing validateImage and compressImage from image-utils.ts. 8 upload slots with drag-and-drop, click-to-select, preview, remove, and error display."
     },
-
     {
       "id": "US-031",
       "title": "Submission wizard: step 1 - garment info form",
@@ -559,7 +528,6 @@
       "passes": true,
       "notes": "Created garment-info-form.tsx with Select dropdowns for type/category (categories filtered by type via CATEGORY_BY_TYPE map), Input for brand/title, Textarea for description. Added shadcn select and textarea components. Form validation with inline error messages."
     },
-
     {
       "id": "US-032",
       "title": "Submission wizard: multi-step container with progress",
@@ -579,7 +547,6 @@
       "passes": true,
       "notes": "Created new-submission.tsx with 3-step wizard (Garment Info -> Photos -> Review & Pay). StepIndicator shows numbered circles with checkmarks for completed steps. State persisted via useState in parent. GarmentInfoForm and PhotoUpload components integrated. Review step shows garment details summary, photo thumbnails grid, and pricing info. Back/Next navigation between all steps. Route added at /dashboard/submissions/new."
     },
-
     {
       "id": "US-033",
       "title": "Submission creation API endpoint",
@@ -600,7 +567,6 @@
       "passes": true,
       "notes": "Implemented POST /api/grade/submit with multipart form data parsing, garment info validation, image type validation (requires front/back/label + at least 1 detail), plan limit checking with monthly reset logic, Supabase storage upload under {userId}/{submissionId}/{imageType}_{timestamp}.{ext}, submission_image record creation, grades_used_this_month increment via RPC function. Added increment_grades_used Postgres function in migration 00004. Status endpoint also implemented to return submission details scoped to authenticated user."
     },
-
     {
       "id": "US-034",
       "title": "Claude Vision API integration for per-image analysis",
@@ -619,7 +585,6 @@
       "passes": true,
       "notes": "Implemented analyzeImage() in services/edge-functions/src/lib/ai-grading.ts. Uses base64 image source for SDK v0.24.1 compatibility. Exports PerImageAnalysis, DetectedIssue, ConditionSignal, FactorScores types. Image type context prompts for front/back/label/detail/defect. Garment-type-specific criteria for all 6 garment types. Score clamping to 1.0-10.0 range. Comprehensive error handling for timeouts, rate limits, and parse failures. API usage logging with tokens and latency."
     },
-
     {
       "id": "US-035",
       "title": "Claude Vision API: composite grading from all images",
@@ -638,7 +603,6 @@
       "passes": true,
       "notes": "Implemented compositeGrade() in services/edge-functions/src/lib/ai-grading.ts. Exports CompositeGradeResult, GarmentInfo, DefectFound types. Sends per-image analyses as structured JSON to Claude. Includes full grade tier definitions with score ranges and descriptions. Applies factor weights (30/25/20/15/10) and recalculates weighted average server-side for accuracy. Rounds overall_score to nearest 0.5. Derives grade_tier from calculated score. Validates and clamps all factor scores to 1.0-10.0 range, confidence to 0.0-1.0. Flags needs_human_review when confidence < 0.75. Includes prompt_version field referencing ai_prompt_versions concept (composite_v1). Comprehensive error handling for timeouts, rate limits, and parse failures."
     },
-
     {
       "id": "US-036",
       "title": "Grade calculation and report creation pipeline",
@@ -659,7 +623,6 @@
       "passes": true,
       "notes": "Implemented processSubmission() orchestration function. Downloads images from Supabase Storage, converts to base64 data URIs, runs analyzeImage() in parallel via Promise.all, composites with compositeGrade(), creates grade_report with UUID certificate_id, updates submission status. Full try/catch with status='failed' on error."
     },
-
     {
       "id": "US-037",
       "title": "Trigger grading pipeline on submission creation",
@@ -675,7 +638,6 @@
       "passes": true,
       "notes": "Updated POST /submit to set status='processing' after image upload and trigger processSubmission() fire-and-forget with .catch() error handler. Updated GET /status/:id to return {id, status, grade_report, created_at, updated_at} with grade_report populated from grade_reports table when status is 'completed'. Updated processSubmission() to accept both 'pending' and 'processing' statuses."
     },
-
     {
       "id": "US-038",
       "title": "Submission detail page with grade report display",
@@ -697,7 +659,6 @@
       "passes": true,
       "notes": "Implemented full submission detail page with grade report display. Added shadcn skeleton and progress components. Used type assertion for submission_images query due to tsc -b type resolution issue."
     },
-
     {
       "id": "US-039",
       "title": "Submissions list page with filtering and pagination",
@@ -718,7 +679,6 @@
       "passes": true,
       "notes": "Implemented full submissions list page with table, status/garment type filters, sort by date/grade, pagination (20 per page), empty state CTA, loading skeleton. Added shadcn table component. Used type assertion for Supabase query results due to tsc -b issue."
     },
-
     {
       "id": "US-040",
       "title": "Stripe checkout session creation for grade payments",
@@ -736,7 +696,6 @@
       "passes": true,
       "notes": "Created services/edge-functions/src/routes/payments.ts with POST /checkout-session endpoint. Uses Stripe SDK to create checkout sessions with tier-based pricing (standard $2.99, premium $7.99, express $12.99). Sets metadata with submission_id, user_id, and tier. Validates user owns submission via Supabase query. Registered route in main.ts with auth middleware."
     },
-
     {
       "id": "US-041",
       "title": "Stripe webhook handling for payment events",
@@ -754,7 +713,6 @@
       "passes": true,
       "notes": "Implemented full Stripe webhook handler in services/edge-functions/src/routes/webhooks.ts. Verifies webhook signature using STRIPE_WEBHOOK_SECRET. Handles checkout.session.completed (marks submission paid + triggers grading pipeline), customer.subscription.created/updated (maps subscription to plan tier, updates user), customer.subscription.deleted (downgrades to free), and invoice.payment_failed (logs with user context). Returns 200 for all handled events, 400 for signature failures."
     },
-
     {
       "id": "US-042",
       "title": "Subscription management page (billing)",
@@ -773,7 +731,6 @@
       "passes": true,
       "notes": "Implemented full billing page with plan comparison grid (free/starter/professional/enterprise). Shows current plan with feature list, usage bar (grades used / limit), and grade reset date. Upgrade buttons create Stripe Checkout subscription sessions via POST /api/payments/subscribe. Manage Subscription button opens Stripe Customer Portal via POST /api/payments/portal for existing subscribers. Current plan highlighted with border and badge. Enterprise plan links to sales email."
     },
-
     {
       "id": "US-043",
       "title": "Grade certificate public page",
@@ -796,7 +753,6 @@
       "passes": true,
       "notes": "Implemented with qrcode.react. Full public certificate page with branding, score display, photo gallery, factor breakdown bars, AI summary, QR code, OG meta tags, and responsive layout."
     },
-
     {
       "id": "US-044",
       "title": "Dashboard overview: live data integration",
@@ -814,7 +770,6 @@
       "passes": true,
       "notes": "Dashboard fetches real submission count and last 5 submissions via TanStack Query. Recent submissions show title, status badge, grade score, and date. Clicking navigates to detail page. New Submission CTA button added. Grades Used card already uses live profile data."
     },
-
     {
       "id": "US-045",
       "title": "Grade analytics charts on dashboard",
@@ -833,7 +788,6 @@
       "passes": true,
       "notes": "Installed recharts. Created grade-charts.tsx with 3 charts: grade distribution bar chart by tier, average grade over time line chart (4 weekly buckets, last 30 days), and garment type pie chart (donut style). Empty state shown when no completed submissions. Integrated into dashboard.tsx between stats cards and recent submissions. Fixed tsc -b type issues with Record indexing and recharts Tooltip formatter types."
     },
-
     {
       "id": "US-046",
       "title": "Export submissions as CSV",
@@ -850,7 +804,6 @@
       "passes": true,
       "notes": "Added Export CSV button to submissions page. Fetches all submissions + grade reports client-side, generates CSV with all required columns (date, title, brand, garment type, category, status, overall grade, grade tier, 5 factor scores, certificate URL). Uses Blob download. Fixed tsc -b type issue with .slice(0,10) instead of .split('T')[0] and explicit string[] typing."
     },
-
     {
       "id": "US-047",
       "title": "Settings page: profile editing",
@@ -868,7 +821,6 @@
       "passes": true,
       "notes": "Implemented full settings page with editable name, avatar upload with preview (stored in submission-images bucket), read-only email, save profile via Supabase .update(), password change section for email/password users with current password verification. Added refreshProfile to useAuth hook. Used 'as never' cast for tsc -b compatibility."
     },
-
     {
       "id": "US-048",
       "title": "Inventory management: items list page",
@@ -889,7 +841,6 @@
       "passes": true,
       "notes": "Implemented inventory list page with table, status badges, filters (status/garment type/brand), sorting (date/price/status), 25-item pagination, Add Item button, and row click navigation."
     },
-
     {
       "id": "US-049",
       "title": "Inventory management: add item form",
@@ -909,7 +860,6 @@
       "passes": true,
       "notes": "Implemented inventory add form at /dashboard/inventory/new with title, brand, garment type/category, size, color, acquired price, date, source, condition notes. Creates inventory_items record with status 'acquired'. Option to save and submit for grading."
     },
-
     {
       "id": "US-050",
       "title": "Inventory item detail page with lifecycle timeline",
@@ -931,7 +881,6 @@
       "passes": true,
       "notes": "Implemented inventory detail page at /dashboard/inventory/:id with lifecycle timeline, acquisition/grading/listings/sales/shipments cards, profit/loss summary, and status update actions. Used 'as never' cast for supabase .update() to work around tsc -b type resolution issue."
     },
-
     {
       "id": "US-051",
       "title": "Inventory: add listing to item",
@@ -952,7 +901,6 @@
       "passes": true,
       "notes": "Added Add Listing dialog with platform dropdown, price, URL, and platform listing ID inputs. Added active/inactive toggle on each listing. Auto-updates item status to listed. Added LISTING_PLATFORMS constant and formatPlatform helper."
     },
-
     {
       "id": "US-052",
       "title": "Inventory: record sale",
@@ -974,7 +922,6 @@
       "passes": true,
       "notes": "Record Sale dialog added to inventory detail page Sales card. Dropdown of active listings, sale price, platform fees (default 0), sale date (default today), buyer username. On submit: creates sale record, marks ALL active listings inactive (cross-listing cleanup), updates item status to sold."
     },
-
     {
       "id": "US-053",
       "title": "Inventory: record shipment",
@@ -996,7 +943,6 @@
       "passes": true,
       "notes": "Record Shipment dialog added to inventory detail page Shipments card. Visible when status is sold/shipped and sales exist. Carrier dropdown (USPS, UPS, FedEx, DHL, Other), tracking number, shipping cost, label cost, ship date, weight fields. Creates shipment record linked to sale, updates item status to shipped. Mark as Delivered button on undelivered shipments sets delivery_date to today and updates item status to completed."
     },
-
     {
       "id": "US-054",
       "title": "Financial dashboard overview",
@@ -1016,7 +962,6 @@
       "passes": true,
       "notes": "Financial dashboard page at /dashboard/finances with 8 metric cards (Total Revenue, Total Costs, Net Profit, Profit Margin %, Items Sold, Avg Profit/Item, Avg Days to Sell, Inventory Value). Period toggle filters sales data. All calculations from Supabase queries with loading skeletons."
     },
-
     {
       "id": "US-055",
       "title": "Financial reporting: profit/loss per item",
@@ -1034,7 +979,6 @@
       "passes": true,
       "notes": "Created profit-table.tsx with sortable columns (title, brand, all cost/price fields, net profit, margin %), filters (date range, profit/loss, brand, category), color coding (green/red), and totals footer row. Fetches listings data for listed price. Grading cost column included as placeholder (0) since no grading fee field exists in DB yet."
     },
-
     {
       "id": "US-056",
       "title": "Financial reporting: revenue and profit charts",
@@ -1052,7 +996,6 @@
       "passes": true,
       "notes": "Created financial-charts.tsx with 5 charts: revenue/profit over time (line chart with daily/weekly/monthly granularity toggle), cost breakdown (pie chart), top 5 brands by profit (horizontal bar chart), top 5 categories by profit (vertical bar chart). All charts respond to the period filter from the finances page. Uses recharts following existing grade-charts.tsx patterns."
     },
-
     {
       "id": "US-057",
       "title": "Financial reporting: cash flow timeline",
@@ -1070,7 +1013,6 @@
       "passes": true,
       "notes": "Created cash-flow.tsx with dual-view (chart/table). Chart view has bar chart showing inflows (green) and outflows (red) by date plus line chart showing cumulative cash position. Table view lists all transactions chronologically with running balance. Transaction types: acquisitions, sales revenue, platform fees, shipping costs."
     },
-
     {
       "id": "US-058",
       "title": "Financial reporting: tax-ready export",
@@ -1088,7 +1030,6 @@
       "passes": true,
       "notes": "Implemented FinancialExport component with date range selector, CSV export with summary+transactions, and PDF via print dialog. Added to finances page."
     },
-
     {
       "id": "US-059",
       "title": "Analytics: time-on-market tracking",
@@ -1105,7 +1046,6 @@
       "passes": true,
       "notes": "Updated inventory page Days Listed column to use listing dates with yellow/red highlighting. Created TimeOnMarket component with overall avg, by-category/brand breakdowns, distribution histogram, and slow-moving inventory table. Integrated into finances page."
     },
-
     {
       "id": "US-060",
       "title": "Analytics: price suggestion engine",
@@ -1125,7 +1065,6 @@
       "passes": true,
       "notes": "Implemented price suggestion engine in src/lib/price-suggestions.ts with calculateSuggestedPrice. Algorithm considers grade tier multipliers, brand/category matching, average sale prices, and days-on-market thresholds (14d: -7%, 30d: -15%, 60d: -25%). Added callout card on inventory detail page and full suggestions page at /dashboard/analytics/suggestions with summary cards and sortable table."
     },
-
     {
       "id": "US-061",
       "title": "Analytics: listing optimization suggestions",
@@ -1142,7 +1081,6 @@
       "passes": true,
       "notes": "Created src/components/analytics/listing-suggestions.tsx with generateListingSuggestions engine and two display components (ListingSuggestions for dashboard, InventoryItemSuggestions for detail page). Three suggestion types: add_platforms (single-platform items), price_adjustment (14+ days listed), regrade_photos (confidence < 0.75). Dismissible via localStorage. Integrated into dashboard.tsx with separate TanStack Query for inventory data, and into inventory-detail.tsx after price suggestion callout."
     },
-
     {
       "id": "US-062",
       "title": "Dispute submission form and tracking",
@@ -1160,7 +1098,6 @@
       "passes": true,
       "notes": "Added Dispute Grade button on submission detail page (visible for completed grades within 7 days, hidden if dispute already exists). Dialog has reason textarea (min 20 chars) with character counter and optional photo upload for additional evidence. Creates dispute record linked to grade_report and user, updates submission status to 'disputed'. Dispute status card shown on submission detail page with color-coded badge, reason, resolution notes, and pending review message. My Disputes section added to submissions page with table showing submission title, status badge, reason, filed date, and resolution notes."
     },
-
     {
       "id": "US-063",
       "title": "API key management page",
@@ -1179,7 +1116,6 @@
       "passes": true,
       "notes": "Edge function routes for API key CRUD (POST create with SHA-256 hashing, GET list, DELETE revoke) at /api/keys. Frontend page with plan gating (Professional/Enterprise only), TanStack Query for key list, create dialog with name + optional expiry, one-time full key reveal with copy-to-clipboard, revoke confirmation dialog. 10-key limit per user enforced server-side."
     },
-
     {
       "id": "US-064",
       "title": "Edge function: API key generation and validation",
@@ -1198,7 +1134,6 @@
       "passes": true,
       "notes": "Created api-key-auth.ts middleware that validates X-API-Key header by SHA-256 hashing the provided key and matching against stored key_hash. Checks expiration, updates last_used_at (fire-and-forget), and sets user/userId context. Key format validation (gt_sk_ prefix + 64 hex chars). CORS updated to allow X-API-Key header. POST/DELETE routes already existed from US-063."
     },
-
     {
       "id": "US-065",
       "title": "Public REST API: grade submission and retrieval",
@@ -1217,7 +1152,6 @@
       "passes": true,
       "notes": "Created api-v1.ts route file with 3 endpoints: POST /api/v1/grades (JSON body with image URLs or base64, returns 202), GET /api/v1/grades/:id (full grade report), GET /api/v1/grades (paginated list with ?page=&limit=&status= filters). All responses use { data, error, meta } structure. API key auth via apiKeyAuthMiddleware, rate limited at 100 req/min."
     },
-
     {
       "id": "US-066",
       "title": "Webhook delivery system for grade completion",
@@ -1234,7 +1168,6 @@
       "passes": true,
       "notes": "Migration 00005 adds webhook_url to api_keys. webhook-delivery.ts handles HMAC-SHA256 signing with key_hash as secret, 3 retries with exponential backoff (5s/30s/120s), and parallel delivery to all user keys with webhook_url set. PATCH /api/v1/webhook endpoint validates URL format and updates all user's API keys. Grading pipeline calls notifyWebhooks as fire-and-forget after grade completion."
     },
-
     {
       "id": "US-067",
       "title": "Admin layout and role-based access control",
@@ -1252,7 +1185,6 @@
       "passes": true,
       "notes": "AdminRoute guard checks profile.role for admin/super_admin, redirects non-admins to /dashboard with toast. AdminLayout uses brand-night bg with accent red active states. 6 placeholder admin pages created. Admin link in header dropdown only visible for admin users."
     },
-
     {
       "id": "US-068",
       "title": "Admin dashboard with KPI overview",
@@ -1272,7 +1204,6 @@
       "passes": true,
       "notes": "Admin dashboard with 8 KPI cards (Total Users, Active Subscribers, Submissions Today, Revenue This Month, Average Grade, Dispute Rate %, AI Accuracy %, Pending Reviews) and 3 line charts (submission volume, revenue, new users - all 30-day daily). Auto-refreshes every 60s via TanStack Query refetchInterval. Migration 00006 adds admin SELECT policies on users, submissions, grade_reports, disputes, and sales tables."
     },
-
     {
       "id": "US-069",
       "title": "Admin: user management list and detail",
@@ -1293,7 +1224,6 @@
       "passes": true,
       "notes": "Admin user management list page with search (name/email), filter (plan, role, signup date range), paginated table with 7 columns, click-to-detail navigation. User detail page at /admin/users/:id with profile card, usage stats (4 metrics), admin actions (change plan dropdown, change role dropdown, suspend/unsuspend toggle), subscription info card, submission history table (last 20). All admin actions create admin_audit_log entries. AlertDialog confirmation for all destructive actions."
     },
-
     {
       "id": "US-070",
       "title": "Admin: submission queue and monitoring",
@@ -1313,7 +1243,6 @@
       "passes": true,
       "notes": "Implemented admin submission queue with table showing title, user email, status, grade, confidence, date, and processing time. Filters for status, confidence level, and date range. Search by title/email. Sortable by date, confidence, and processing time. Click navigates to submission detail. Admin actions: re-trigger grading (resets to processing), mark as failed (for stuck processing items), view AI raw analysis (full report dialog with scores, summary, detailed notes, metadata). Failed submissions section with dedicated table. 5-minute SLA indicator highlights overdue processing items with red styling and warning banner."
     },
-
     {
       "id": "US-071",
       "title": "Admin: human review queue",
@@ -1334,7 +1263,6 @@
       "passes": true,
       "notes": "Implemented full human review queue with: queue table showing submission title, garment type, AI overall score, confidence %, grade tier, and waiting time. Filters for unreviewed-only vs all, confidence range (high/medium/low). Sortable by waiting time and confidence. Review detail dialog shows submitted photos with signed URLs, AI composite scores for all 5 factors, AI summary text, and confidence. Three reviewer actions: approve as-is, adjust factor scores with notes (creates human_reviews record and updates grade_report), reject and re-grade (resets submission to processing). Score adjustments >1.5 points show visual warning and require super_admin role. All actions create human_reviews records and log to admin_audit_log. Typecheck and build pass."
     },
-
     {
       "id": "US-072",
       "title": "Admin: dispute management",
@@ -1354,7 +1282,6 @@
       "passes": true,
       "notes": "Implemented admin disputes page with full CRUD. Dispute queue table with user, submission title, reason, status, created date. Filter by status (open/under_review/resolved/rejected). Detail dialog shows original grade report, AI summary, submission photos, user's dispute reason. Admin actions: mark as under_review, resolve (with optional grade adjustment via human_review record), reject (with reason). Updates submission status to completed on resolution. Stats cards for each status. Follows existing admin page patterns."
     },
-
     {
       "id": "US-073",
       "title": "Admin: AI model management and prompt versioning",
@@ -1374,7 +1301,6 @@
       "passes": true,
       "notes": "Implemented full AI models admin page. Features: KPI cards (active prompt, avg accuracy, total grades, version count), accuracy trend bar chart, sortable/filterable versions table with pagination, create dialog with edit/preview tabs for prompt text, view/edit dialog with inline editing and markdown preview, side-by-side compare dialog for two versions, activate/deactivate with confirmation (only one active at a time), delete with safety checks (cannot delete active version), test prompt dry-run dialog, audit logging for all actions. Uses existing patterns from reviews.tsx and disputes.tsx admin pages."
     },
-
     {
       "id": "US-074",
       "title": "Admin: system health and traffic monitoring",
@@ -1394,7 +1320,6 @@
       "passes": true,
       "notes": "Implemented system health page with: health indicators (DB latency-based status, storage, API), hourly traffic bar chart (24h), daily unique users line chart (30d), error rate bar chart (7d with failure %), queue metrics (pending/processing/avg time/failed 24h), storage usage (total images + estimated size with progress bar), subscription metrics (MRR, paid users, churn rate, ARPU, plan distribution pie chart). Auto-refreshes every 30 seconds. Manual refresh button with loading state."
     },
-
     {
       "id": "US-075",
       "title": "Admin: AI accuracy feedback loop",
@@ -1412,7 +1337,6 @@
       "passes": true,
       "notes": "Implemented AI accuracy feedback loop with accuracy-tracking.ts module, enhanced AI Models page with accuracy dashboard (ComposedChart, per-factor breakdown, JSONL export, weekly summary, threshold alert)."
     },
-
     {
       "id": "US-076",
       "title": "Email notification system",
@@ -1430,7 +1354,6 @@
       "passes": true,
       "notes": "Created email.ts utility using Resend API with branded HTML templates (navy header, red CTA buttons, branded footer). Three email types: grade_complete (score card, tier badge, report link, cert link), dispute_resolved (outcome display, grade adjustment, reviewer notes), welcome (3-step getting started guide). Grade complete triggered as fire-and-forget in grading-pipeline.ts after grade report creation. Dispute resolved/rejected triggered via POST /api/notifications/dispute-resolved from admin disputes page. Welcome email triggered via POST /api/notifications/welcome from signup page (unauthenticated, IP rate-limited). Unsubscribe link on welcome email linking to /dashboard/settings. .env.example updated with RESEND_API_KEY."
     },
-
     {
       "id": "US-077",
       "title": "In-app notification center",
@@ -1448,7 +1371,6 @@
       "passes": true,
       "notes": "Implemented in-app notification center with: notifications DB table (migration 00007) with type enum (grade_complete, dispute_update, billing, system), RLS policies, and realtime enabled. NotificationCenter component with bell icon, unread count badge, popover dropdown showing last 20 notifications with type-specific icons, time-ago display, mark-as-read on click, and mark-all-read button. Supabase Realtime subscription for instant notification delivery. Integrated into dashboard header. Typecheck and build pass."
     },
-
     {
       "id": "US-078",
       "title": "Dark mode toggle and persistence",
@@ -1466,7 +1388,6 @@
       "passes": true,
       "notes": "Already implemented. Zustand theme store in src/stores/theme-store.ts with localStorage persistence, prefers-color-scheme detection, and .dark class toggling. Sun/Moon toggle button in dashboard header. Applied on load before React renders."
     },
-
     {
       "id": "US-079",
       "title": "Mobile responsive sidebar (sheet/drawer)",
@@ -1484,7 +1405,6 @@
       "passes": true,
       "notes": "Already implemented. MobileNav component in sidebar.tsx uses shadcn Sheet with slide-out drawer containing same nav links as desktop sidebar. Hamburger menu button in header visible below md breakpoint. Sheet closes on navigation via route change detection. Logo at top matching sidebar. Full-width main content on mobile."
     },
-
     {
       "id": "US-080",
       "title": "Loading states and skeleton screens",
@@ -1503,7 +1423,6 @@
       "passes": true,
       "notes": "Already implemented. Skeleton component installed from shadcn/ui. Used in 22 files across the app including dashboard, submissions list, inventory list, submission detail, inventory detail, certificate, finances, and all admin pages. All TanStack Query pages show skeletons during isLoading state."
     },
-
     {
       "id": "US-081",
       "title": "Error boundary and fallback UI",
@@ -1521,7 +1440,6 @@
       "passes": true,
       "notes": "Implemented ErrorBoundary class component with Sentry integration (reports errors when VITE_SENTRY_DSN is set), GradeThread branding, Reload/Try Again/Go Home buttons, and error message display (dev only). RouteErrorFallback component for React Router errorElement. ErrorBoundary wraps RootLayout for global coverage. Route-level errorElement added to router config. Typecheck and build pass."
     },
-
     {
       "id": "US-082",
       "title": "Performance: code splitting and lazy loading",
@@ -1538,7 +1456,6 @@
       "passes": true,
       "notes": "Already implemented. All page components loaded via React.lazy() in routes/index.tsx with SuspenseWrapper and PageLoader fallback. Admin pages in separate chunks. Build produces 70+ separate JS chunks. Main chunk 874KB (270KB gzipped). Typecheck passes."
     },
-
     {
       "id": "US-083",
       "title": "Bulk submission upload",
@@ -1558,7 +1475,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-084",
       "title": "Inventory ROI analytics",
@@ -1577,7 +1493,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-085",
       "title": "Inventory value and aging report",
@@ -1594,7 +1509,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-086",
       "title": "Grade-to-price correlation analysis",
@@ -1612,7 +1526,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-087",
       "title": "Admin: platform-wide analytics dashboard",
@@ -1631,7 +1544,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-088",
       "title": "Admin: audit log viewer",
@@ -1649,7 +1561,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-089",
       "title": "Notification preferences page",
@@ -1666,7 +1577,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-090",
       "title": "SEO: dynamic meta tags and sitemap",
@@ -1683,7 +1593,6 @@
       "passes": true,
       "notes": "Implemented SEO infrastructure: public/robots.txt (allows /, /cert/, blocks /dashboard/ and /admin/), public/sitemap.xml with landing/login/signup pages, react-helmet-async HelmetProvider wrapping app in main.tsx. SEO component (src/components/seo.tsx) for dynamic OG/Twitter meta tags with title, description, ogType, ogImage, canonicalUrl props. Integrated into landing page and certificate page with dynamic grade data in meta tags. Typecheck and build pass."
     },
-
     {
       "id": "US-091",
       "title": "Accessibility audit and fixes",
@@ -1703,7 +1612,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-092",
       "title": "Onboarding flow for new users",
@@ -1721,7 +1629,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-093",
       "title": "Landing page: pricing section",
@@ -1741,7 +1648,6 @@
       "passes": true,
       "notes": "Already implemented. Full pricing section in landing.tsx with all 4 plans (Free/Starter/Professional/Enterprise) in comparison grid. Each plan shows name, price, included grades, feature list, and CTA button. Professional plan highlighted as Most Popular with brand-red border. Enterprise shows Custom pricing. CTAs link to /signup. Responsive grid layout. Uses PLANS constant."
     },
-
     {
       "id": "US-094",
       "title": "Landing page: how it works section",
@@ -1758,7 +1664,6 @@
       "passes": true,
       "notes": "Already implemented. How It Works section in landing.tsx with 4 numbered steps (Upload Photos, AI Grades It, Get Your Grade, Share & Sell) using Camera, Cpu, Award, Share2 icons. Each step has numbered badge, icon, title, and description. Responsive grid layout (2 cols mobile, 4 cols desktop)."
     },
-
     {
       "id": "US-095",
       "title": "Realtime submission status updates",
@@ -1777,7 +1682,6 @@
       "passes": true,
       "notes": "Implemented Supabase Realtime subscriptions for submission status updates. useRealtimeSubmissions() hook in dashboard-layout.tsx subscribes to all user submission changes, invalidates TanStack Query caches, and shows toast notifications on grade completion or failure. useRealtimeSubmission() hook for single-submission detail page. Submission detail page also polls every 5s while status is pending/processing for fallback. Dashboard overview and submissions list auto-update via query invalidation. Typecheck and build pass."
     },
-
     {
       "id": "US-096",
       "title": "Inventory: link grading submission to inventory item",
@@ -1794,7 +1698,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-097",
       "title": "Quick actions and keyboard shortcuts",
@@ -1813,7 +1716,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-098",
       "title": "Data backup and export: full account export",
@@ -1831,7 +1733,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-099",
       "title": "Admin: content moderation and flagging system",
@@ -1849,7 +1750,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-100",
       "title": "Final integration testing and polish",
@@ -1870,7 +1770,6 @@
       "passes": false,
       "notes": "This is the final verification story. Run through every major flow manually."
     },
-
     {
       "id": "US-101",
       "title": "FlipDesk foundation: schema, types, skeleton UI, edge stubs, Coolify deploy",
@@ -1889,7 +1788,6 @@
       "passes": true,
       "notes": "Completed. See migration 00008, src/pages/flipdesk/, services/edge-functions/src/routes/flipdesk-*.ts, COOLIFY.md."
     },
-
     {
       "id": "US-102",
       "title": "Sources CRUD: create, edit, delete, list",
@@ -1907,7 +1805,6 @@
       "passes": true,
       "notes": "Completed. Hook in src/hooks/use-sources.ts; page in src/pages/flipdesk/sources.tsx with create/edit dialog (shadcn Dialog) + delete confirm (AlertDialog) + item count via separate select."
     },
-
     {
       "id": "US-103",
       "title": "Quick intake flow: photo-first item capture with auto-SKU",
@@ -1926,7 +1823,6 @@
       "passes": true,
       "notes": "Completed (form-only — photo capture deferred to US-106). Page at src/pages/flipdesk/intake.tsx. Source picker supports existing + new source (auto-creates via get_or_create_source RPC). Save & Add another keeps source/container/sourced_by/purchase_date so batch entry stays fast. Auto-SKU and unstable_useBlocker not yet implemented."
     },
-
     {
       "id": "US-104",
       "title": "Bulk intake mode for hauls",
@@ -1940,10 +1836,9 @@
         "Typecheck + lint pass"
       ],
       "priority": 104,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. src/components/flipdesk/bulk-intake.tsx, rendered by intake.tsx at ?mode=bulk. Shared source/cost/container header, add-item form that carries size/color/category to the next item, session-items strip, haul total split evenly on End session (single bulk insert at status=cataloged), localStorage persistence so refresh is safe. No photo step (photos live in the prep workspace)."
     },
-
     {
       "id": "US-105",
       "title": "Per-category measurement templates",
@@ -1961,7 +1856,6 @@
       "passes": true,
       "notes": "Completed. src/lib/measurement-templates.ts — templates for top/bottom/dress/outerwear/shoes/watch/generic, each field {key,label,unit,required}; measurementGroupFor() maps any category/garment string to a group. MeasurementForm component renders the right template, in/cm toggle persisted via zustand store (src/stores/measurement-prefs.ts — localStorage, per-device rather than a DB user-settings column). Brand size-guide link is a Google search URL (works for any brand, no per-brand lookup table to maintain). Wired into ItemDetailDialog Measurements section; measurements jsonb saved with the item. Status auto-advance to 'measured' left to the user via the status dropdown (required-count badge shows readiness)."
     },
-
     {
       "id": "US-106",
       "title": "Item photo upload with required-set enforcement",
@@ -1979,7 +1873,6 @@
       "passes": true,
       "notes": "Completed. Migration 00017 creates the item-photos Storage bucket (public read, owner-only write via per-user folder RLS on storage.objects, 10MB limit, image mime allowlist). src/components/flipdesk/photo-uploader.tsx — required slots (front/back/tag/detail) + optional (defect/flatlay/on_model), file input with capture=environment for mobile camera, uploads to {user_id}/{item_id}/{type}_{ts}.{ext}, writes item_photos rows, thumbnail display, delete (removes storage object + row). 'Required set complete' badge. Wired into ItemDetailDialog as a Photos section. Constants REQUIRED_PHOTO_TYPES / PHOTO_TYPE_LABELS added. Drag-drop not implemented (click/camera only); the photographed-status gate is visual in the dialog — Kanban drag validation hook (US-110 pipeline-rules) still TODO."
     },
-
     {
       "id": "US-107",
       "title": "Image processing endpoint (Sharp-compatible)",
@@ -1997,7 +1890,6 @@
       "passes": false,
       "notes": "May need migration to add item_photos.variants jsonb column. Deno-Sharp compatibility is the risk — investigate npm:sharp via Deno 2 compat layer first."
     },
-
     {
       "id": "US-108",
       "title": "Photo reorder and retag UI",
@@ -2013,7 +1905,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-109",
       "title": "Kanban pipeline view (read-only)",
@@ -2031,7 +1922,6 @@
       "passes": true,
       "notes": "Completed. Page at src/pages/flipdesk/pipeline.tsx. Horizontal-scroll columns from FLIPDESK_PIPELINE. Single items_full query (shared cache with overview + items). Cards show title / brand·style·size / target-or-list-or-cost price / grade badge / age in days (red when >14d). Status-specific left-border accent. Filter bar: search + category + brand + source. Card click opens ItemDetailDialog. Per-column 50-item cap with '+N more' link to filtered items view. Thumbnail omitted — wires when US-106 photos land. Personal statuses (keeping/wearing/archived) excluded."
     },
-
     {
       "id": "US-110",
       "title": "Drag-and-drop status transitions with validation",
@@ -2048,7 +1938,6 @@
       "passes": true,
       "notes": "Completed. Installed @dnd-kit/core ^6.3.1. Pointer sensor with 6px activation distance so clicks (open detail) don't accidentally drag. Touch sensor with 200ms hold delay for mobile. Validation in src/lib/pipeline-rules.ts blocks: measured without measurements, listed without target/list price, shipped without sale. DragOverlay shows card preview with brand-navy ring. Optimistic update via qc.setQueryData; rolls back on failure. Photo-required check for 'photographed' deferred until US-106 wires item_photos."
     },
-
     {
       "id": "US-111",
       "title": "Batch operations within Kanban columns",
@@ -2062,10 +1951,9 @@
         "Typecheck + lint pass"
       ],
       "priority": 111,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Pipeline cards gain a hover/selected checkbox; a floating action bar shows selected count with Move-to-next-status (per-item validated, failures listed in a results dialog) and Export CSV. Send-to-GradeThread deferred until US-114."
     },
-
     {
       "id": "US-112",
       "title": "WIP limits + aging indicators",
@@ -2079,10 +1967,9 @@
         "Typecheck + lint pass"
       ],
       "priority": 112,
-      "passes": false,
-      "notes": "Decide: track status changes via trigger to a status_history table, or just trust updated_at as a heuristic. Heuristic is fine for v1."
+      "passes": true,
+      "notes": "Completed. WIP limits per column via a Limits dialog on the pipeline page; column header badge shows count/limit and turns red when over, with a bottleneck note. Aging dot already present (>=14 days, red clock + tooltip). Deviation from AC: limits stored in localStorage via src/stores/flipdesk-settings.ts (Zustand persist) instead of a users.flipdesk_settings jsonb column — avoids another migration and keeps these personal per-device preferences."
     },
-
     {
       "id": "US-113",
       "title": "Send item to GradeThread from FlipDesk",
@@ -2101,7 +1988,6 @@
       "passes": false,
       "notes": "Since both products share the Supabase instance, the bridge is a direct DB insert + queue, not an external API call. GradeThread Public API can come later."
     },
-
     {
       "id": "US-114",
       "title": "GradeThread completion handler updates inventory item",
@@ -2118,7 +2004,6 @@
       "passes": false,
       "notes": "Trigger approach is preferred (atomic with grade insert). Migration 00010 creates the trigger."
     },
-
     {
       "id": "US-115",
       "title": "Item detail page with grade card",
@@ -2136,7 +2021,6 @@
       "passes": true,
       "notes": "Completed as a Dialog (ItemDetailDialog in src/components/flipdesk/item-detail-dialog.tsx) rather than a full route — opens from the pencil button in the items table and from the table's row context. Read-only Sale summary embedded. Grading/Measurements/Photos tabs deferred — wire when US-114/US-105/US-106 land."
     },
-
     {
       "id": "US-116",
       "title": "Price comp workspace",
@@ -2154,7 +2038,6 @@
       "passes": true,
       "notes": "Completed (in-dialog, not separate page). src/components/flipdesk/comp-editor.tsx — per-row price/date/notes/url editing, bulk-paste mode that parses lines like '$25 https://... good cond', stats badges (count/avg/median/range). src/lib/comps.ts exports computeStats() and ebaySoldSearchUrl() (public eBay sold-listings filter URL — no Terapeak dependency). Wired into ItemDetailDialog; comp_set saved as part of Save. 'Use median as target' button populates target_price. Auto-status-advance to comped deferred — user picks status explicitly. Migration 00011 unnecessary — comp_set jsonb already exists in 00009."
     },
-
     {
       "id": "US-117",
       "title": "Listing composer (draft)",
@@ -2173,7 +2056,6 @@
       "passes": true,
       "notes": "Completed. Route /dashboard/flipdesk/items/:id/draft → src/pages/flipdesk/composer.tsx. Title builder: 80-char counter (amber >70, red at cap), brand-first Suggest, append-keyword chips. src/lib/listing-templates.ts: per-group description templates (top/bottom/dress/outerwear/shoes/watch/generic) with {{brand}}/{{title}}/{{size}}/{{color}}/{{material}}/{{condition}}/{{measurements}}/{{grade}} interpolation; measurements jsonb rendered as a block; GradeThread grade + certificate URL auto-embedded when graded. Save upserts the draft listings row (updates existing draft else inserts) + sets item status=drafted, routes to Listings?tab=drafts. Reachable via 'Draft listing' button in ItemDetailDialog footer. Structured item-specifics map deferred — folded into the description for now; eBay Taxonomy mapping is US-121."
     },
-
     {
       "id": "US-118",
       "title": "Listing composer: variants and preview",
@@ -2190,7 +2072,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-119",
       "title": "eBay OAuth: start + callback flow",
@@ -2208,7 +2089,6 @@
       "passes": false,
       "notes": "BLOCKER for Ralph: requires real eBay developer credentials. Story passes on code-level criteria; manual verification against eBay sandbox needed."
     },
-
     {
       "id": "US-120",
       "title": "eBay token refresh worker",
@@ -2225,7 +2105,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-121",
       "title": "eBay listing validate + push",
@@ -2243,7 +2122,6 @@
       "passes": false,
       "notes": "BLOCKER: requires real eBay creds + an active OAuth connection (US-119)."
     },
-
     {
       "id": "US-122",
       "title": "eBay Fulfillment API sync (orders + shipping + payouts)",
@@ -2261,7 +2139,6 @@
       "passes": false,
       "notes": "BLOCKER: requires real eBay creds. Net-profit formula must match the columns added in migration 00008."
     },
-
     {
       "id": "US-123",
       "title": "eBay Notification API: webhook + account-deletion handler",
@@ -2278,7 +2155,6 @@
       "passes": false,
       "notes": "BLOCKER: requires eBay developer account subscription to Notification API."
     },
-
     {
       "id": "US-124",
       "title": "Payout CSV importer",
@@ -2295,7 +2171,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-125",
       "title": "Reconciliation matcher + manual review queue",
@@ -2313,7 +2188,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-126",
       "title": "Per-item P&L view + discrepancy alerts",
@@ -2329,7 +2203,6 @@
       "passes": true,
       "notes": "Completed. src/lib/pnl.ts: computePnl (revenue = sold + shipping_collected; net = revenue − fees − costs − cost_basis; margin %) + detectDiscrepancies (marketplace fees >15% of sale, shipping_cost > collected + $2). PnlPanel component queries the granular sales row (items_full collapses fees) — full line-by-line breakdown ending in Net profit, margin badge, inline discrepancy alerts. Replaces the old read-only Sale summary in ItemDetailDialog. Reconciliation page gained a 'Fee & shipping discrepancies' card listing every flagged sale with the item title. computePnl recomputes live rather than trusting the stored net_profit column."
     },
-
     {
       "id": "US-127",
       "title": "Operational FlipDesk dashboard",
@@ -2345,7 +2218,6 @@
       "passes": true,
       "notes": "Completed. Page at src/pages/flipdesk/overview.tsx — now the landing route for /dashboard/flipdesk. Stat cards (total items / listed 7d / sold 7d / net 7d) + pipeline status grid + aging items (>14d in same status, ranked) + top brands by all-time net profit + recent sales. Widget clicks navigate to /items?status=X (items page now reads URL query param). WIP limits deferred to US-112."
     },
-
     {
       "id": "US-128",
       "title": "Sell-through analytics by category, brand, source",
@@ -2362,7 +2234,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-129",
       "title": "Grading ROI report",
@@ -2378,7 +2249,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-130",
       "title": "Photo archival to Cloudflare R2",
@@ -2395,7 +2265,6 @@
       "passes": false,
       "notes": "BLOCKER: requires R2 bucket and credentials. AWS-SDK v3 for S3-compatible client works against R2."
     },
-
     {
       "id": "US-131",
       "title": "Scheduled job runner",
@@ -2413,7 +2282,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-132",
       "title": "Closed-loop data back to GradeThread (sale outcomes)",
@@ -2429,7 +2297,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-133",
       "title": "Legacy spreadsheet CSV importer",
@@ -2447,7 +2314,6 @@
       "passes": true,
       "notes": "Completed. /dashboard/flipdesk/import supports BOTH file-upload (.csv/.tsv) and paste from Google Sheets. Auto-detects delimiter. Column mapping via guessField fuzzy match (e.g., \"Item #\" → SKU). Pre-flight resolves all unique sources via get_or_create_source RPC, then pre-fetches existing SKUs (chunked .in()) to skip rows already in DB. INSERT 409 fallback also skips. Live progress UI. Imports inventory_items + auto-creates listings/sales when those columns present. Idempotent on SKU."
     },
-
     {
       "id": "US-134",
       "title": "PWA install + offline photo capture queue",
@@ -2465,7 +2331,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-135",
       "title": "FlipDesk onboarding tour",
@@ -2482,7 +2347,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-136",
       "title": "FlipDesk landing + marketing surface inside GradeThread",
@@ -2498,7 +2362,6 @@
       "passes": false,
       "notes": ""
     },
-
     {
       "id": "US-137",
       "title": "FlipDesk end-to-end integration test + dogfood pass",
@@ -2514,7 +2377,6 @@
       "passes": false,
       "notes": "BLOCKER: requires eBay sandbox creds, R2 mocks, and an operator-side baseline measurement. This is the gate before private beta (PRD 11.2)."
     },
-
     {
       "id": "US-138",
       "title": "Unified listings manager with tabbed views (Active, To List, Drafts, Sold, Returned, All)",
@@ -2536,7 +2398,6 @@
       "passes": true,
       "notes": "Completed. Page at src/pages/flipdesk/listings.tsx. shadcn Tabs: All / To List / Drafts / Active / Sold / Shipped / Returned with live count badges (single client-side pass over items_full). URL ?tab= state, deep-linkable. Per-tab default sort (To List + Drafts oldest-first, Active/Sold/Shipped newest-first). Dense table: title / brand·size / cost / target-or-list / sale / net / status / age (red >14d) / listing link. Pagination 50/100/200. Row click opens ItemDetailDialog. Per-tab empty states with relevant CTA. Sidebar 'Listings' entry between Overview and Items. Tabs route on inventory_items.status; listing_status fallback for Drafts/Active deferred to US-117/118. Virtualization deferred — pagination handles current volume."
     },
-
     {
       "id": "US-139",
       "title": "To-Be-Listed queue: priority sort + bulk send-to-draft",
@@ -2555,7 +2416,6 @@
       "passes": true,
       "notes": "Completed. src/lib/listability.ts — pure-TS scorer (graded 25 / has-comps 20 / target-priced 15 / margin up to 25 / age nudge up to 15). To-List tab gets a Score column (color-coded), sort presets (Listability/Oldest/Best ROI/Highest comp), multi-select checkboxes, floating Create-Drafts bar. Bulk-draft runs client-side: inserts listings rows (listing_status=draft, price from target/list) + sets inventory_items.status=drafted; result toast with failure count. Photo-readiness factor + per-category composer templates deferred to US-106/US-117 — drafts currently seed title/description from item fields. items_listability_v SQL view not needed; TS scorer suffices."
     },
-
     {
       "id": "US-140",
       "title": "Sold tab: payout status, ROI, ship-by countdown, repeat-buyer flags",
@@ -2574,7 +2434,6 @@
       "passes": true,
       "notes": "Completed. Migration 00012 appends buyer_id / sold_at_raw / payout_reference / listing_status to items_full. Sold tab in listings.tsx: dedicated columns (sold$ / net / margin% / payout state / ship-by countdown / repeat-buyer star). Payout state inferred without US-125 (payout amount present = cleared; fees >20% of sale = discrepancy). Ship-by from sold_at + 3-day default handling window (red <24h or overdue, amber <48h, green otherwise). Repeat-buyer star when buyer_id has >1 sale. Filter chips: All / Awaiting payout / Discrepancy / 7d / 30d / YTD. Aggregate strip: count / gross / net / avg margin%. Bulk Mark-Shipped (reuses selection infra). 'Print label' eBay deep-link deferred — needs per-order eBay URL from US-122 sync."
     },
-
     {
       "id": "US-141",
       "title": "Active listings tab: inline price edit, watcher counts, end-early, promote",
@@ -2593,7 +2452,6 @@
       "passes": true,
       "notes": "Completed (local-first; eBay API push deferred to US-121). Migration 00013 appends listing_id / listing_watchers / listing_views to items_full. Active tab in listings.tsx: columns Price (inline-editable via InlineCell — updates local listings row, optimistic + rollback) / Views / Watchers (— fallback until US-151 sync) / Days listed. Per-row End-early with AlertDialog confirm (sets listing_status=ended, item back to drafted for relist). Bulk: price-drop −5/10/15/20/25% on selection, bulk End. PATCH /api/flipdesk/ebay/listings/:id/price + Promote/ad-rate deferred — need live eBay connection (US-119/121)."
     },
-
     {
       "id": "US-142",
       "title": "Command palette (Cmd-K) for cross-entity search and jump",
@@ -2614,7 +2472,6 @@
       "passes": true,
       "notes": "Completed. Built without cmdk (no dep added) — Dialog + manual keyboard nav. src/components/flipdesk/command-palette.tsx mounted globally in dashboard-layout. Cmd/Ctrl-K toggles. Sections: Recent / Actions / Items / Sources. Searches the already-cached items_full + sources query data client-side (no extra round-trips, so no debounce needed) — when US-144 FTS lands this can swap to the RPC. Recent = src/stores/recent-store.ts (zustand + localStorage persist, last 10 opened items, pushed from ItemDetailDialog). Keyboard nav up/down/enter/esc, mouse hover updates focus. Item select navigates to /items?focus=<id>; items.tsx opens the detail dialog from that param. Listing/Sale/Buyer/Payout sections folded into Items for now; composer-open deferred to US-117."
     },
-
     {
       "id": "US-143",
       "title": "Advanced filter builder + saved views (per-user)",
@@ -2634,7 +2491,6 @@
       "passes": true,
       "notes": "Completed. Migration 00015: flipdesk_saved_views (RLS user-scoped). src/lib/item-filter.ts: FilterRule/FilterQuery schema + pure-TS evaluator + base64 URL codec. Fields: brand/category/size/source/cost/target_price/status/grade/days_in_status. Operators per type (text vs numeric). filter-builder.tsx: Popover with rule rows + AND/OR combinator. Wired into Items page — evalQuery in the filtered memo, removable filter chips, ?filter=base64 URL sync, ?view=<id> loads a saved view. save-view-dialog.tsx: name + emoji + pin toggle. Sidebar lists pinned views under the FlipDesk group, linking to /items?view=<id>. One-level nested groups not implemented — flat rule list with a single combinator covers the practical cases."
     },
-
     {
       "id": "US-144",
       "title": "Postgres full-text search across items, listings, sales notes",
@@ -2654,7 +2510,6 @@
       "passes": true,
       "notes": "Completed. Migration 00016: weighted tsvector GENERATED columns on inventory_items (title A / brand+sku B / description C / notes D), listings (title A / description C), sales (buyer B) + GIN indexes. RPC flipdesk_search(query, scope, limit) — websearch_to_tsquery + ts_headline <mark> highlight, UNION ALL across the three tables, ranked, SECURITY INVOKER so RLS filters to the caller's rows. Command palette wired: debounced 250ms RPC call adds a 'Full-text matches' section (deduped against the cached client-side Items section). Snippet renderer splits on <mark> and renders non-marked text as escaped React text — no XSS from user content. Field-scoped queries (brand:Nike) not parsed — websearch_to_tsquery handles quoted phrases + OR; field prefixes are a later enhancement. Listings-page wiring skipped — US-143 filter builder already covers that surface."
     },
-
     {
       "id": "US-145",
       "title": "Spreadsheet-grid bulk edit view",
@@ -2674,7 +2529,6 @@
       "passes": true,
       "notes": "Completed. /dashboard/flipdesk/grid (src/pages/flipdesk/grid.tsx). Editable grid of inventory_items: SKU/Title/Brand/Style/Size/Cost/Target/Notes. Every cell is a native input — Tab moves natively; Enter/↑/↓ move between rows (data-attr focus targeting); Esc reverts a cell. Multi-cell paste: TSV from Sheets/Excel fills cells down+right from the focused cell. Dirty cells amber-highlighted; bottom bar shows N cells changed / Save all / Discard. Cmd-Z undo of last staged edit (history stack). Save = parallel per-row supabase updates. Route + sidebar 'Grid edit' entry. Used per-row updates instead of an flipdesk_bulk_update_items RPC — same pattern as items.tsx confirmAll, no migration needed. listing_price + source columns omitted (cross-table); grid edits inventory_items fields only."
     },
-
     {
       "id": "US-146",
       "title": "Google Sheets OAuth + connection setup",
@@ -2693,7 +2547,6 @@
       "passes": false,
       "notes": "BLOCKER: requires Google Cloud project with Sheets + Drive APIs enabled and OAuth consent screen configured. Use drive.file scope (least privilege) so we only touch the sheet we created or were granted."
     },
-
     {
       "id": "US-147",
       "title": "Google Sheets 2-way live sync (push + pull + conflict resolution)",
@@ -2714,7 +2567,6 @@
       "passes": false,
       "notes": "Depends on US-146. The conflict tab is the key UX — silent overwrite either way will burn trust fast. Field allow-list keeps users from corrupting computed fields like net_profit."
     },
-
     {
       "id": "US-148",
       "title": "3-way reconciliation (FlipDesk ↔ eBay ↔ Google Sheets) with conflict UI",
@@ -2734,7 +2586,6 @@
       "passes": false,
       "notes": "Depends on US-122 (eBay sync) + US-147 (Sheets sync). This is the 'never silently corrupt my data' guarantee that makes the sync trustable."
     },
-
     {
       "id": "US-149",
       "title": "Multi-marketplace cross-listing dispatch",
@@ -2753,7 +2604,6 @@
       "passes": false,
       "notes": "Even with non-eBay platforms stubbed, the data model + UI lets us ship eBay-only and add platforms without UI churn. Auto-end requires reliable real-time event handling (US-123 webhooks)."
     },
-
     {
       "id": "US-150",
       "title": "Price-drop and promo scheduler",
@@ -2773,7 +2623,6 @@
       "passes": false,
       "notes": "The margin floor is non-negotiable — automation that loses money silently is worse than no automation. Pair with US-148 conflict detection so a manual eBay-side override doesn't get re-overridden by the rule."
     },
-
     {
       "id": "US-151",
       "title": "Listing-performance sync: views, watchers, impressions per listing",
@@ -2792,7 +2641,6 @@
       "passes": false,
       "notes": "BLOCKER: requires Sell Analytics API access (separate eBay subscription beyond basic OAuth). Document the access requirement in COOLIFY.md / setup docs."
     },
-
     {
       "id": "US-152",
       "title": "Auto-advancing status + per-item next action",
@@ -2809,7 +2657,6 @@
       "passes": true,
       "notes": "Completed. Workflow refinement requested by the operator — status auto-advances forward as prep work is done (measurements→measured, required photos→photographed, target price→comped, draft→drafted); manual picks of side-track/sale statuses still win; never regresses. Migration 00018 adds photo facts to items_full. NextActionBadge shows Add measurements / Add photos / Comp & price / Draft listing / Ready to list / Ship it / etc."
     },
-
     {
       "id": "US-153",
       "title": "Record-sale + mark-listed quick actions",
@@ -2825,7 +2672,6 @@
       "passes": true,
       "notes": "Completed. Fills the genuine gap where sales previously only existed via CSV import. src/components/flipdesk/mark-listed-dialog.tsx + record-sale-dialog.tsx. Wired into the Listings page as per-row actions on the Drafts and Active tabs. RecordSaleDialog shows a live net-profit preview against cost basis."
     },
-
     {
       "id": "US-154",
       "title": "Bulk field edit + duplicate/relist",
@@ -2841,7 +2687,6 @@
       "passes": true,
       "notes": "Completed. Bulk field edit reuses the staged-changes/confirm model. Duplicate/relist in a DropdownMenu in the detail dialog footer; relist only shows for returned/completed items."
     },
-
     {
       "id": "US-155",
       "title": "Focused prep workspace",
@@ -2859,7 +2704,6 @@
       "passes": true,
       "notes": "Completed. src/pages/flipdesk/prep.tsx — reuses PhotoUploader/MeasurementForm/CompEditor. Queue = items with rank < drafted, oldest first; items drop out of the queue as they advance. Sidebar 'Prep' entry."
     },
-
     {
       "id": "US-156",
       "title": "Operating-expense tracking",
@@ -2874,6 +2718,24 @@
       "priority": 156,
       "passes": true,
       "notes": "Completed. Migration 00019. src/pages/flipdesk/expenses.tsx with an add-expense dialog and per-month total cards. Operation-level net (P&L minus overhead) can layer onto the overview/analytics later."
+    },
+    {
+      "id": "US-157",
+      "title": "eBay listing import + SKU reconciliation",
+      "description": "As a reseller, I need to pull my current eBay listings and match each listing's Custom Label (SKU) to my FlipDesk SKU, with a check system that surfaces mismatches on the first pull so the two systems agree.",
+      "acceptanceCriteria": [
+        "Migration 00020: flipdesk_ebay_listings table (custom_label, matched_item_id, match_status) + RLS user-scoped",
+        "eBay Active Listings CSV parser tolerant of banner/footer rows and column-name drift",
+        "Auto-match imported listings to inventory by Custom Label (SKU) == FlipDesk SKU",
+        "Reconciliation > eBay SKU match tab: matched / SKU-mismatch / ignored / listed-not-on-eBay buckets",
+        "Link a mismatched listing to an item, optionally copying the eBay Custom Label into the item SKU",
+        "Marketplaces page documents CSV-now vs OAuth-API-later paths",
+        "Edge /listings/pull stub for the future Sell API path",
+        "Typecheck + lint pass"
+      ],
+      "priority": 157,
+      "passes": true,
+      "notes": "Completed. Migration 00020 (apply alongside 00012-00019). CSV path works with no eBay developer credentials: export Seller Hub Active Listings report and upload. src/lib/ebay-csv.ts, src/lib/ebay-reconcile.ts, src/components/flipdesk/ebay-sku-match.tsx, tabbed into reconciliation.tsx. OAuth API pull (US-119-122) remains credential-blocked."
     }
   ]
 }

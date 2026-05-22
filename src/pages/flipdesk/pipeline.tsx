@@ -21,6 +21,13 @@ import {
   Tag,
   Clock,
   ChevronRight,
+  Settings2,
+  ArrowRight,
+  Download,
+  X,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
@@ -33,6 +40,7 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -41,20 +49,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   FLIPDESK_PIPELINE,
   ITEM_CATEGORIES,
+  ITEM_STATUS_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { validateStatusChange } from "@/lib/pipeline-rules";
+import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import type { ItemFullRow, ItemStatus, ItemCategory } from "@/types/database";
 
 const COLUMN_CAP = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+type BatchResult = { title: string; ok: boolean; detail: string };
 
 function fmtMoney(n: number | null | undefined): string | null {
   if (n == null || isNaN(n)) return null;
@@ -66,6 +86,18 @@ function daysSince(iso: string | null | undefined): number | null {
   const t = new Date(iso).getTime();
   if (isNaN(t)) return null;
   return Math.floor((Date.now() - t) / DAY_MS);
+}
+
+// The pipeline stage immediately after `s`, or null if `s` is last/off-pipeline.
+function nextPipelineStatus(s: ItemStatus): ItemStatus | null {
+  const idx = FLIPDESK_PIPELINE.findIndex((p) => p.status === s);
+  if (idx < 0 || idx >= FLIPDESK_PIPELINE.length - 1) return null;
+  return FLIPDESK_PIPELINE[idx + 1]?.status ?? null;
+}
+
+function csvCell(v: unknown): string {
+  const s = v == null ? "" : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
 const STATUS_ACCENT: Partial<Record<ItemStatus, string>> = {
@@ -88,6 +120,7 @@ const STATUS_ACCENT: Partial<Record<ItemStatus, string>> = {
 export function FlipdeskPipelinePage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  const wipLimits = useFlipdeskSettings((s) => s.wipLimits);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<ItemCategory | "all">(
     "all",
@@ -96,6 +129,10 @@ export function FlipdeskPipelinePage() {
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   const [activeDrag, setActiveDrag] = useState<ItemFullRow | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchResults, setBatchResults] = useState<BatchResult[] | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // dnd-kit sensors — pointer with small activation distance so a click
   // (open detail) doesn't accidentally become a drag.
@@ -169,6 +206,15 @@ export function FlipdeskPipelinePage() {
     return map;
   }, [items, search, categoryFilter, brandFilter, sourceFilter]);
 
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function handleDragStart(e: DragStartEvent) {
     const id = String(e.active.id);
     const item = items.find((i) => i.id === id) ?? null;
@@ -217,6 +263,107 @@ export function FlipdeskPipelinePage() {
     }
   }
 
+  // Advance every selected item one stage, validating each. Failures surface
+  // in a results dialog rather than a stack of toasts.
+  async function batchMoveNext() {
+    const selected = items.filter((i) => selectedIds.has(i.id));
+    if (selected.length === 0) return;
+    setBatchRunning(true);
+    const results: BatchResult[] = [];
+    try {
+      for (const it of selected) {
+        const next = nextPipelineStatus(it.status);
+        if (!next) {
+          results.push({
+            title: it.item_title,
+            ok: false,
+            detail: `No next stage after ${ITEM_STATUS_LABELS[it.status]}`,
+          });
+          continue;
+        }
+        const reason = validateStatusChange(it, next);
+        if (reason) {
+          results.push({ title: it.item_title, ok: false, detail: reason });
+          continue;
+        }
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({ status: next } as never)
+          .eq("id", it.id);
+        if (error) {
+          results.push({
+            title: it.item_title,
+            ok: false,
+            detail: error.message,
+          });
+        } else {
+          results.push({
+            title: it.item_title,
+            ok: true,
+            detail: `→ ${ITEM_STATUS_LABELS[next]}`,
+          });
+        }
+      }
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      setSelectedIds(new Set());
+      setBatchResults(results);
+    } finally {
+      setBatchRunning(false);
+    }
+  }
+
+  function exportSelectedCsv() {
+    const selected = items.filter((i) => selectedIds.has(i.id));
+    if (selected.length === 0) return;
+    const headers = [
+      "SKU",
+      "Title",
+      "Brand",
+      "Style",
+      "Size",
+      "Category",
+      "Status",
+      "Source",
+      "Purchase price",
+      "Target price",
+      "List price",
+      "Grade",
+    ];
+    const lines = [headers.join(",")];
+    for (const it of selected) {
+      lines.push(
+        [
+          it.item_number,
+          it.item_title,
+          it.brand,
+          it.style,
+          it.size,
+          it.category,
+          ITEM_STATUS_LABELS[it.status],
+          it.source_name,
+          it.purchase_price,
+          it.target_price,
+          it.list_price,
+          it.grade_value,
+        ]
+          .map(csvCell)
+          .join(","),
+      );
+    }
+    const blob = new Blob([lines.join("\r\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `flipdesk-items-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(
+      `Exported ${selected.length} item${selected.length === 1 ? "" : "s"}.`,
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -227,12 +374,16 @@ export function FlipdeskPipelinePage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
             <p className="text-sm text-muted-foreground">
-              Drag a card between columns to advance its status. Click for
-              full details.
+              Drag a card to advance its status, or select cards for a batch
+              move. Click a card for full details.
             </p>
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setSettingsOpen(true)}>
+            <Settings2 className="mr-2 h-4 w-4" />
+            Limits
+          </Button>
           <Button variant="outline" asChild>
             <Link to="/dashboard/flipdesk/import">
               <Upload className="mr-2 h-4 w-4" />
@@ -331,6 +482,7 @@ export function FlipdeskPipelinePage() {
                     label={step.label}
                     nextAction={step.nextAction}
                     count={colItems.length}
+                    limit={wipLimits[step.status]}
                   >
                     {colItems.length === 0 ? (
                       <div className="rounded-md border border-dashed py-6 text-center text-xs text-muted-foreground">
@@ -342,6 +494,8 @@ export function FlipdeskPipelinePage() {
                           <DraggableItemCard
                             key={it.id}
                             item={it}
+                            selected={selectedIds.has(it.id)}
+                            onToggleSelect={() => toggleSelect(it.id)}
                             onClick={() => setDetailItem(it)}
                           />
                         ))}
@@ -369,7 +523,50 @@ export function FlipdeskPipelinePage() {
         </DndContext>
       )}
 
+      {/* Batch action bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-card p-2 shadow-lg">
+          <span className="px-2 text-sm font-medium">
+            {selectedIds.size} selected
+          </span>
+          <Button size="sm" onClick={batchMoveNext} disabled={batchRunning}>
+            {batchRunning ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ArrowRight className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Move to next status
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={exportSelectedCsv}
+            disabled={batchRunning}
+          >
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => setSelectedIds(new Set())}
+            disabled={batchRunning}
+            aria-label="Clear selection"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+
       <ItemDetailDialog item={detailItem} onClose={() => setDetailItem(null)} />
+      <PipelineLimitsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
+      <BatchResultsDialog
+        results={batchResults}
+        onClose={() => setBatchResults(null)}
+      />
     </div>
   );
 }
@@ -379,33 +576,47 @@ function DroppableColumn({
   label,
   nextAction,
   count,
+  limit,
   children,
 }: {
   status: ItemStatus;
   label: string;
   nextAction: string;
   count: number;
+  limit: number | undefined;
   children: React.ReactNode;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: status });
+  const overLimit = limit != null && count > limit;
   return (
-    <div className="w-[260px] flex-shrink-0">
+    <div className="group w-[260px] flex-shrink-0">
       <Card
         ref={setNodeRef}
         className={cn(
           "flex h-full flex-col transition-colors",
           isOver && "border-brand-navy bg-brand-navy/5 ring-2 ring-brand-navy",
+          overLimit && !isOver && "border-destructive/50",
         )}
       >
         <CardHeader className="space-y-1 pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm">{label}</CardTitle>
-            <Badge variant="outline" className="font-mono text-xs">
+            <Badge
+              variant={overLimit ? "destructive" : "outline"}
+              className="font-mono text-xs"
+            >
               {count}
+              {limit != null ? `/${limit}` : ""}
             </Badge>
           </div>
           <CardDescription className="text-[10px]">
-            Next: {nextAction}
+            {overLimit ? (
+              <span className="font-medium text-destructive">
+                Over WIP limit — bottleneck
+              </span>
+            ) : (
+              <>Next: {nextAction}</>
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex-1 space-y-2 px-3 pb-3">
@@ -418,26 +629,48 @@ function DroppableColumn({
 
 function DraggableItemCard({
   item,
+  selected,
+  onToggleSelect,
   onClick,
 }: {
   item: ItemFullRow;
+  selected: boolean;
+  onToggleSelect: () => void;
   onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
   });
   return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      onClick={onClick}
-      className={cn(
-        "cursor-grab active:cursor-grabbing",
-        isDragging && "opacity-30",
-      )}
-    >
-      <ItemCardVisual item={item} />
+    <div ref={setNodeRef} className={cn("relative", isDragging && "opacity-30")}>
+      {/* Selection checkbox — pointer events kept off the drag handle. */}
+      <div
+        className="absolute left-1.5 top-1.5 z-10"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label={`Select ${item.item_title}`}
+          className={cn(
+            "h-3.5 w-3.5 cursor-pointer accent-brand-navy transition-opacity",
+            !selected && "opacity-0 group-hover:opacity-100",
+          )}
+        />
+      </div>
+      <div
+        {...listeners}
+        {...attributes}
+        onClick={onClick}
+        className={cn(
+          "cursor-grab rounded-md active:cursor-grabbing",
+          selected && "ring-2 ring-brand-navy",
+        )}
+      >
+        <ItemCardVisual item={item} />
+      </div>
     </div>
   );
 }
@@ -461,7 +694,7 @@ function ItemCardVisual({
   return (
     <div
       className={cn(
-        "rounded-md border border-l-4 bg-card p-2.5 text-left transition-shadow",
+        "rounded-md border border-l-4 bg-card p-2.5 pl-6 text-left transition-shadow",
         accent,
         dragging && "shadow-lg ring-2 ring-brand-navy",
       )}
@@ -498,6 +731,7 @@ function ItemCardVisual({
                 ? "font-medium text-destructive"
                 : "text-muted-foreground/70",
             )}
+            title={aging ? `${age} days in this status` : undefined}
           >
             <Clock className="h-2.5 w-2.5" />
             {age}d
@@ -505,5 +739,118 @@ function ItemCardVisual({
         )}
       </div>
     </div>
+  );
+}
+
+function PipelineLimitsDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+}) {
+  const wipLimits = useFlipdeskSettings((s) => s.wipLimits);
+  const setWipLimit = useFlipdeskSettings((s) => s.setWipLimit);
+  const clearWipLimits = useFlipdeskSettings((s) => s.clearWipLimits);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Pipeline WIP limits</DialogTitle>
+          <DialogDescription>
+            Cap how many items should sit in a stage. A column turns red when it
+            goes over — your cue that work is piling up. Leave blank for no
+            limit. Saved on this device.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+          {FLIPDESK_PIPELINE.map((step) => (
+            <div
+              key={step.status}
+              className="flex items-center justify-between gap-3"
+            >
+              <Label className="text-sm font-normal">{step.label}</Label>
+              <Input
+                type="number"
+                min={1}
+                className="w-24"
+                value={wipLimits[step.status] ?? ""}
+                onChange={(e) =>
+                  setWipLimit(
+                    step.status,
+                    e.target.value === "" ? null : Number(e.target.value),
+                  )
+                }
+                placeholder="—"
+              />
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={clearWipLimits}>
+            Clear all
+          </Button>
+          <Button onClick={() => onOpenChange(false)}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BatchResultsDialog({
+  results,
+  onClose,
+}: {
+  results: BatchResult[] | null;
+  onClose: () => void;
+}) {
+  const okCount = results?.filter((r) => r.ok).length ?? 0;
+  const failCount = (results?.length ?? 0) - okCount;
+
+  return (
+    <Dialog
+      open={results != null}
+      onOpenChange={(o) => {
+        if (!o) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Batch move results</DialogTitle>
+          <DialogDescription>
+            {okCount} moved, {failCount} skipped.
+          </DialogDescription>
+        </DialogHeader>
+        <ul className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+          {(results ?? []).map((r, i) => (
+            <li
+              key={i}
+              className="flex items-start gap-2 rounded-md border p-2 text-sm"
+            >
+              {r.ok ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
+              )}
+              <div className="min-w-0">
+                <div className="truncate font-medium">{r.title}</div>
+                <div
+                  className={cn(
+                    "text-xs",
+                    r.ok ? "text-muted-foreground" : "text-destructive",
+                  )}
+                >
+                  {r.detail}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <DialogFooter>
+          <Button onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

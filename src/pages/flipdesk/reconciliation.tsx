@@ -9,6 +9,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EbaySkuMatch } from "@/components/flipdesk/ebay-sku-match";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { detectDiscrepancies } from "@/lib/pnl";
@@ -93,13 +95,25 @@ export function FlipdeskReconciliationPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Reconciliation</h1>
           <p className="text-sm text-muted-foreground">
-            Close the loop between marketplace payouts and per-item profit.
+            Close the loop between eBay and FlipDesk — SKUs, payouts, and
+            per-item profit.
           </p>
         </div>
       </div>
 
-      {/* Discrepancies */}
-      <Card>
+      <Tabs defaultValue="ebay">
+        <TabsList>
+          <TabsTrigger value="ebay">eBay SKU match</TabsTrigger>
+          <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="ebay" className="mt-6">
+          <EbaySkuMatch />
+        </TabsContent>
+
+        <TabsContent value="payouts" className="mt-6 space-y-6">
+          {/* Discrepancies */}
+          <Card>
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>
@@ -182,7 +196,9 @@ export function FlipdeskReconciliationPage() {
             ))}
           </ol>
         </CardContent>
-      </Card>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

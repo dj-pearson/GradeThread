@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Loader2, ArrowLeft } from "lucide-react";
+import { Plus, Save, Loader2, ArrowLeft, Boxes } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -24,6 +24,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useSources } from "@/hooks/use-sources";
+import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import {
   ITEM_CATEGORIES,
   ITEM_STATUSES,
@@ -92,8 +93,12 @@ export function FlipdeskIntakePage() {
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const { data: sources = [] } = useSources();
+  const [params] = useSearchParams();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [saving, setSaving] = useState(false);
+
+  // Bulk haul mode is a separate workspace at ?mode=bulk.
+  if (params.get("mode") === "bulk") return <BulkIntake />;
 
   function patch<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -198,22 +203,30 @@ export function FlipdeskIntakePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => navigate("/dashboard/flipdesk/items")}
-          aria-label="Back to items"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">New item</h1>
-          <p className="text-sm text-muted-foreground">
-            Quick intake form. Save & Add another to catalog a batch from the
-            same source.
-          </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate("/dashboard/flipdesk/items")}
+            aria-label="Back to items"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">New item</h1>
+            <p className="text-sm text-muted-foreground">
+              Quick intake form. Save & Add another to catalog a batch from the
+              same source.
+            </p>
+          </div>
         </div>
+        <Button variant="outline" asChild>
+          <Link to="/dashboard/flipdesk/intake?mode=bulk">
+            <Boxes className="mr-2 h-4 w-4" />
+            Bulk haul mode
+          </Link>
+        </Button>
       </div>
 
       <Card>

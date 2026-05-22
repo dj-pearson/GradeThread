@@ -24,6 +24,18 @@ flipdeskEbayRoutes.post("/oauth/refresh", (c) => {
   return c.json({ error: "Not implemented" }, 501);
 });
 
+// Pull the seller's active eBay listings via the Sell Inventory / Browse API.
+// Upserts into flipdesk_ebay_listings keyed on (user_id, ebay_item_id), reading
+// each listing's "Custom label (SKU)" into custom_label for SKU reconciliation.
+// Until eBay OAuth is configured, the in-app CSV upload (eBay Active Listings
+// report → Reconciliation → eBay SKU match) covers this same flow.
+flipdeskEbayRoutes.post("/listings/pull", (c) => {
+  if (!Deno.env.get("EBAY_APP_ID")) {
+    return c.json({ error: "eBay not configured" }, 503);
+  }
+  return c.json({ error: "Not implemented" }, 501);
+});
+
 // Push a single drafted item to eBay.
 // Body: { inventory_item_id: string }
 flipdeskEbayRoutes.post("/listings/push", (c) => {

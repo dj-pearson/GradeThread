@@ -411,6 +411,50 @@ export type ExpenseUpdate = Partial<
   Omit<ExpenseRow, "id" | "user_id" | "created_at" | "updated_at">
 >;
 
+// A snapshot of one eBay listing, imported from the eBay Active Listings CSV
+// report. `custom_label` is eBay's "Custom label (SKU)" field. Backed by the
+// flipdesk_ebay_listings table (migration 00020).
+export type EbayMatchStatus = "matched" | "unmatched" | "ignored";
+
+export interface EbayListingRow {
+  id: string;
+  user_id: string;
+  ebay_item_id: string;
+  custom_label: string | null;
+  title: string | null;
+  current_price: number | null;
+  available_quantity: number | null;
+  listing_url: string | null;
+  listing_format: string | null;
+  start_date: string | null;
+  matched_item_id: string | null;
+  match_status: EbayMatchStatus;
+  raw: Record<string, unknown>;
+  imported_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EbayListingInsert {
+  user_id: string;
+  ebay_item_id: string;
+  custom_label?: string | null;
+  title?: string | null;
+  current_price?: number | null;
+  available_quantity?: number | null;
+  listing_url?: string | null;
+  listing_format?: string | null;
+  start_date?: string | null;
+  matched_item_id?: string | null;
+  match_status?: EbayMatchStatus;
+  raw?: Record<string, unknown>;
+  imported_at?: string;
+}
+
+export type EbayListingUpdate = Partial<
+  Omit<EbayListingRow, "id" | "user_id" | "ebay_item_id" | "created_at" | "updated_at">
+>;
+
 export interface FlipdeskGradingSubmissionRow {
   id: string;
   inventory_item_id: string;
@@ -837,6 +881,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      flipdesk_ebay_listings: {
+        Row: EbayListingRow;
+        Insert: EbayListingInsert;
+        Update: EbayListingUpdate;
       };
     };
     Enums: {

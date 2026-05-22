@@ -34,7 +34,8 @@
       "PowerShell(npx tsc -b 2>&1 | Select-Object -Last 30; \"EXIT: $LASTEXITCODE\")",
       "PowerShell(npx tsc -b 2>&1 | Select-String \"error\" | Where-Object { $_ -notmatch \"Helmet\" } | Select-Object -First 5)",
       "PowerShell(npx tsc -b 2>&1 | Select-String \"error\" | Where-Object { $_ -notmatch \"Helmet\" } | Select-Object -First 10)",
-      "PowerShell(npx tsc -b 2>&1 | Select-String \"error\" | Select-Object -First 5; \"EXIT: $LASTEXITCODE\")"
+      "PowerShell(npx tsc -b 2>&1 | Select-String \"error\" | Select-Object -First 5; \"EXIT: $LASTEXITCODE\")",
+      "Bash(npm run *)"
     ]
   },
   "hooks": {
