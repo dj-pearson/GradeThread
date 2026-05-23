@@ -257,7 +257,7 @@ export function BulkSubmissionPage() {
       const edgeUrl = import.meta.env.VITE_SUPABASE_URL
         ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
         : "";
-      const baseUrl = import.meta.env.VITE_EDGE_URL || edgeUrl;
+      const baseUrl = import.meta.env.VITE_EDGE_API_URL || edgeUrl;
 
       for (let i = 0; i < validRows.length; i++) {
         const row = validRows[i]!;

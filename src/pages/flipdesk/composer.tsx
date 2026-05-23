@@ -51,6 +51,7 @@ import {
   templateGroupFor,
 } from "@/lib/listing-templates";
 import { compositeGradeBadge } from "@/lib/grade-badge";
+import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
 import type {
   ItemFullRow,
@@ -320,16 +321,23 @@ export function FlipdeskComposerPage() {
         if (error) throw error;
       }
 
+      // Forward-only: never regress a listed/sold item back to "drafted".
+      const resolvedStatus = resolveStatus(item.status, "drafted", {
+        ...factsOf(item),
+        hasDraftListing: true,
+      });
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update({ status: "drafted" } as never)
+        .update({ status: resolvedStatus } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       toast.success("Draft saved.");
-      navigate("/dashboard/flipdesk/listings?tab=drafts");
+      // Return to the item canvas — the next-action CTA there will offer
+      // "Mark listed" so the workflow continues in one place.
+      navigate(`/dashboard/flipdesk/items/${item.id}`);
     } catch (err) {
       toast.error(
         `Save failed: ${err instanceof Error ? err.message : String(err)}`,

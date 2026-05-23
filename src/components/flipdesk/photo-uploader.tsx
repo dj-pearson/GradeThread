@@ -10,7 +10,7 @@ import {
   OPTIONAL_PHOTO_TYPES,
   PHOTO_TYPE_LABELS,
 } from "@/lib/constants";
-import { rankOf } from "@/lib/workflow";
+import { advanceItemStatus } from "@/lib/status-writer";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -82,16 +82,13 @@ export function PhotoUploader({
       const requiredNowComplete = REQUIRED_PHOTO_TYPES.every((t) =>
         typesAfter.has(t),
       );
-      if (
-        requiredNowComplete &&
-        currentStatus &&
-        rankOf(currentStatus) < rankOf("photographed")
-      ) {
-        await supabase
-          .from("inventory_items")
-          .update({ status: "photographed" } as never)
-          .eq("id", itemId);
-        await qc.invalidateQueries({ queryKey: ["items_full"] });
+      if (requiredNowComplete && currentStatus) {
+        const advanced = await advanceItemStatus(
+          itemId,
+          currentStatus,
+          "photographed",
+        );
+        if (advanced) await qc.invalidateQueries({ queryKey: ["items_full"] });
       }
 
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });

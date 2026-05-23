@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { advanceItemStatus } from "@/lib/status-writer";
 import type { ItemFullRow, SaleInsert } from "@/types/database";
 
 interface SaleForm {
@@ -123,11 +124,7 @@ export function RecordSaleDialog({
         .insert(insert as never);
       if (error) throw error;
 
-      const { error: sErr } = await supabase
-        .from("inventory_items")
-        .update({ status: "sold" } as never)
-        .eq("id", item.id);
-      if (sErr) throw sErr;
+      await advanceItemStatus(item.id, item.status, "sold");
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sale_for_item", item.id] });

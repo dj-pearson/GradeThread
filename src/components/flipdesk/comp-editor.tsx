@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Trash2, ExternalLink, Wand2 } from "lucide-react";
+import { Plus, Trash2, ExternalLink, Wand2, ClipboardPaste } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -85,6 +86,38 @@ export function CompEditor({
       onChange([...comps, ...parsed]);
       setBulkText("");
       setBulkOpen(false);
+    }
+  }
+
+  // Reads the clipboard, runs every line through parseBulkLine, and appends
+  // anything with a price. The same logic as bulk paste, one click.
+  async function pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) {
+        toast.error("Clipboard is empty.");
+        return;
+      }
+      const lines = text.split(/\r?\n/);
+      const parsed: ItemComp[] = [];
+      for (const line of lines) {
+        const c = parseBulkLine(line);
+        if (c) parsed.push(c);
+      }
+      if (parsed.length === 0) {
+        toast.error(
+          "Couldn't find a price in the clipboard. Try pasting like '$24.99 https://… notes'.",
+        );
+        return;
+      }
+      onChange([...comps, ...parsed]);
+      toast.success(
+        `Added ${parsed.length} comp${parsed.length === 1 ? "" : "s"} from clipboard.`,
+      );
+    } catch {
+      toast.error(
+        "Browser blocked clipboard access. Use Bulk paste instead.",
+      );
     }
   }
 
@@ -224,6 +257,14 @@ export function CompEditor({
         <Button variant="outline" size="sm" onClick={add}>
           <Plus className="mr-2 h-3 w-3" />
           Add comp
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void pasteFromClipboard()}
+        >
+          <ClipboardPaste className="mr-2 h-3 w-3" />
+          Paste from clipboard
         </Button>
         <Button
           variant="ghost"

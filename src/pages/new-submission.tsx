@@ -222,7 +222,7 @@ export function NewSubmissionPage() {
         : "";
 
       // Prefer dedicated edge function URL if available, fall back to supabase functions
-      const baseUrl = import.meta.env.VITE_EDGE_URL || edgeUrl;
+      const baseUrl = import.meta.env.VITE_EDGE_API_URL || edgeUrl;
 
       const response = await fetch(`${baseUrl}/api/grade/submit`, {
         method: "POST",

@@ -72,6 +72,10 @@ export function SnapCatalog() {
   const [sourceId, setSourceId] = useState("");
   const [container, setContainer] = useState("");
   const [sourcedBy, setSourcedBy] = useState("");
+  const [cost, setCost] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
 
   const creatingRef = useRef(false);
 
@@ -153,6 +157,11 @@ export function SnapCatalog() {
       if (sourceId) update.source_id = sourceId;
       if (container.trim()) update.container = container.trim();
       if (sourcedBy.trim()) update.sourced_by = sourcedBy.trim();
+      const costNum = Number(cost);
+      if (cost.trim() && Number.isFinite(costNum) && costNum >= 0) {
+        update.acquired_price = costNum;
+      }
+      if (purchaseDate) update.acquired_date = purchaseDate;
       if (Object.keys(aiSources).length > 0) {
         update.ai_field_sources = aiSources;
         update.ai_enriched_at = new Date().toISOString();
@@ -265,7 +274,30 @@ export function SnapCatalog() {
                 onChange={(e) => setSourcedBy(e.target.value)}
               />
             </div>
+            <div className="space-y-1">
+              <Label>Cost per item</Label>
+              <Input
+                type="number"
+                step="0.01"
+                inputMode="decimal"
+                value={cost}
+                onChange={(e) => setCost(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>Purchase date</Label>
+              <Input
+                type="date"
+                value={purchaseDate}
+                onChange={(e) => setPurchaseDate(e.target.value)}
+              />
+            </div>
           </div>
+          <p className="text-[10px] text-muted-foreground">
+            Cost and date apply to each item you snap — change them between
+            snaps if the price varies.
+          </p>
         </CardContent>
       </Card>
 

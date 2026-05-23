@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
+import { advanceItemStatus } from "@/lib/status-writer";
 import type { ItemFullRow, ListingInsert } from "@/types/database";
 
 // Quick "this is live on eBay now" action — the manual bridge until the
@@ -74,11 +75,7 @@ export function MarkListedDialog({
           .insert(payload as never);
         if (error) throw error;
       }
-      const { error: sErr } = await supabase
-        .from("inventory_items")
-        .update({ status: "listed" } as never)
-        .eq("id", item.id);
-      if (sErr) throw sErr;
+      await advanceItemStatus(item.id, item.status, "listed");
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(`"${item.item_title}" marked as listed.`);

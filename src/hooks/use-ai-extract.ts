@@ -38,7 +38,7 @@ function edgeBase(): string {
   const fromSupabase = import.meta.env.VITE_SUPABASE_URL
     ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
     : "";
-  return import.meta.env.VITE_EDGE_URL || fromSupabase;
+  return import.meta.env.VITE_EDGE_API_URL || fromSupabase;
 }
 
 async function authHeader(): Promise<string> {
