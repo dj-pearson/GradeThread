@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { edgeApiUrl } from "@/lib/edge-api";
 
 export interface AiFieldSuggestion {
   value: string;
@@ -34,13 +35,6 @@ interface ApiError extends Error {
   status?: number;
 }
 
-function edgeBase(): string {
-  const fromSupabase = import.meta.env.VITE_SUPABASE_URL
-    ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
-    : "";
-  return import.meta.env.VITE_EDGE_API_URL || fromSupabase;
-}
-
 async function authHeader(): Promise<string> {
   const {
     data: { session },
@@ -58,7 +52,7 @@ export async function recordAiAcceptance(
   acceptedFields: Record<string, unknown>
 ): Promise<void> {
   try {
-    await fetch(`${edgeBase()}/api/flipdesk/ai/log/${logId}`, {
+    await fetch(`${edgeApiUrl()}/api/flipdesk/ai/log/${logId}`, {
       method: "PATCH",
       headers: {
         Authorization: await authHeader(),
@@ -86,7 +80,7 @@ function aiErrorToast(err: ApiError): void {
 }
 
 async function postJson<T>(path: string, input: unknown): Promise<T> {
-  const res = await fetch(`${edgeBase()}${path}`, {
+  const res = await fetch(`${edgeApiUrl()}${path}`, {
     method: "POST",
     headers: {
       Authorization: await authHeader(),

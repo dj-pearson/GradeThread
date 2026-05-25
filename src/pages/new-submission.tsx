@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { edgeApiUrl } from "@/lib/edge-api";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
 import type { InventoryItemRow } from "@/types/database";
@@ -217,14 +218,7 @@ export function NewSubmissionPage() {
         formData.append("image_types", photo.imageType);
       }
 
-      const edgeUrl = import.meta.env.VITE_SUPABASE_URL
-        ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
-        : "";
-
-      // Prefer dedicated edge function URL if available, fall back to supabase functions
-      const baseUrl = import.meta.env.VITE_EDGE_API_URL || edgeUrl;
-
-      const response = await fetch(`${baseUrl}/api/grade/submit`, {
+      const response = await fetch(`${edgeApiUrl()}/api/grade/submit`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${session.access_token}`,

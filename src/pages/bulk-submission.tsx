@@ -23,6 +23,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { edgeApiUrl } from "@/lib/edge-api";
 import {
   Table,
   TableBody,
@@ -254,10 +255,7 @@ export function BulkSubmissionPage() {
         return;
       }
 
-      const edgeUrl = import.meta.env.VITE_SUPABASE_URL
-        ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}/functions/v1`
-        : "";
-      const baseUrl = import.meta.env.VITE_EDGE_API_URL || edgeUrl;
+      const baseUrl = edgeApiUrl();
 
       for (let i = 0; i < validRows.length; i++) {
         const row = validRows[i]!;
