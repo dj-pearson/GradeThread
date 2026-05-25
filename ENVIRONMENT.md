@@ -51,12 +51,27 @@ Notes:
 
 ### 2b. AI — Anthropic (Claude)
 
+These are wired through `services/edge-functions/src/lib/ai-config.ts` and are
+designed to be set once as **Coolify Team Shared Variables** so every Pearson
+Media project flips together when a model or timeout changes.
+
 | Variable | Required | Purpose | Where to get it |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | ✅ Required | Powers AI condition grading (Claude Vision) **and** AI item enrichment / listing copy (Haiku/Sonnet) | [console.anthropic.com](https://console.anthropic.com) → API Keys (`sk-ant-...`) |
+| `ANTHROPIC_API_KEY` | ✅ Required* | Anthropic API key — powers grading + item enrichment + listing copy | [console.anthropic.com](https://console.anthropic.com) → API Keys (`sk-ant-...`) |
+| `CLAUDE_API_KEY` | ⬜ Alias | Fallback name read if `ANTHROPIC_API_KEY` is unset. Set either one. | Same value as above |
+| `DEFAULT_AI_MODEL` | ⬜ Optional | Vision-capable model used for grading + composite + any photo-bearing extract call. Default: `claude-sonnet-4-6` | Anthropic model ID |
+| `LIGHTWEIGHT_AI_MODEL` | ⬜ Optional | Cheap text-only model used for enrichment / listing copy when no photos are attached. Default: `claude-haiku-4-5-20251001` | Anthropic model ID |
+| `AI_TIMEOUT_MS` | ⬜ Optional | SDK request timeout. Default: `120000` (2 min) | — |
+| `AI_MAX_RETRIES` | ⬜ Optional | SDK retry count on transient failures. Default: `2` | — |
+| `AI_TEMPERATURE` | ⬜ Optional | Sampling temperature (0–1). Unset → SDK default | — |
+| `AI_ENABLE_CACHING` | ⬜ Optional | Toggle Anthropic prompt caching on system prompts. Default: `true` | — |
+| `AI_DEFAULT_PROVIDER` | ⬜ Reserved | Provider selector for future multi-provider routing. GradeThread's edge service currently always uses Anthropic. | — |
+| `OPENAI_GLOBAL_API` | ⬜ Reserved | OpenAI key — reserved for future multi-provider routing; not read today | — |
+| `GOOGLE_GLOBAL_API` | ⬜ Reserved | Google AI key — reserved for future multi-provider routing; not read today | — |
 
-Used by `services/edge-functions/src/lib/ai-grading.ts` (grading) and
-`ai-extract.ts` (FlipDesk AI Fill / enrichment). One key covers both.
+\* Required in the sense that *one of* `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`
+must be set. The grading + extract code raises on first AI call if neither is
+present.
 
 ### 2c. Stripe (payments & subscriptions)
 

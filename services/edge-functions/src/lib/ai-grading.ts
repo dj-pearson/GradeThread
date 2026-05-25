@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { getAiTemperature, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 
 // --- Types ---
 
@@ -154,21 +154,6 @@ Rules:
 - Be precise and objective. Do not guess about things not visible in the image.`;
 }
 
-// --- Client ---
-
-let anthropicClient: Anthropic | null = null;
-
-function getClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not set");
-    }
-    anthropicClient = new Anthropic({ apiKey });
-  }
-  return anthropicClient;
-}
-
 // --- Helpers ---
 
 type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -204,14 +189,16 @@ export async function analyzeImage(
   imageType: string,
   garmentType: string
 ): Promise<PerImageAnalysis> {
-  const client = getClient();
+  const client = getAnthropicClient();
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
+  const temperature = getAiTemperature();
 
   try {
     const response = await client.messages.create({
-      model: "claude-sonnet-4-5-20250929",
+      model: getDefaultModel(),
       max_tokens: 1024,
+      ...(temperature !== undefined ? { temperature } : {}),
       system: SYSTEM_PROMPT,
       messages: [
         {
@@ -427,16 +414,18 @@ export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo
 ): Promise<CompositeGradeResult> {
-  const client = getClient();
+  const client = getAnthropicClient();
   const startTime = Date.now();
+  const temperature = getAiTemperature();
 
   // Determine prompt version — references ai_prompt_versions concept
   const promptVersion = "composite_v1";
 
   try {
     const response = await client.messages.create({
-      model: "claude-sonnet-4-5-20250929",
+      model: getDefaultModel(),
       max_tokens: 2048,
+      ...(temperature !== undefined ? { temperature } : {}),
       system: COMPOSITE_SYSTEM_PROMPT,
       messages: [
         {

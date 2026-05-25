@@ -1,16 +1,32 @@
 import Anthropic from "@anthropic-ai/sdk";
+import {
+  getAiTemperature,
+  getAnthropicClient,
+  getDefaultModel,
+  getLightweightModel,
+  isCachingEnabled,
+} from "./ai-config.ts";
 
-// Model routing: text-only requests use the cheap Haiku model; any request
-// that includes a photo uses the vision-capable Sonnet model.
-export const HAIKU_MODEL = "claude-haiku-4-5-20251001";
-export const SONNET_MODEL = "claude-sonnet-4-6";
+// Model routing: text-only requests use the cheap lightweight model; any
+// request that includes a photo uses the vision-capable default model.
+// Both names come from Coolify Team Shared Variables — see ai-config.ts.
+export function getHaikuModel(): string {
+  return getLightweightModel();
+}
+
+export function getSonnetModel(): string {
+  return getDefaultModel();
+}
 
 // Approximate per-million-token pricing (USD). Used only for budget
-// guardrails — exact billing is not the goal.
-const PRICING: Record<string, { in: number; out: number }> = {
-  [HAIKU_MODEL]: { in: 1.0, out: 5.0 },
-  [SONNET_MODEL]: { in: 3.0, out: 15.0 },
-};
+// guardrails — exact billing is not the goal. Keyed by the model family
+// prefix so that pinned date variants still resolve.
+const PRICING: Array<{ match: RegExp; in: number; out: number }> = [
+  { match: /haiku/i, in: 1.0, out: 5.0 },
+  { match: /sonnet/i, in: 3.0, out: 15.0 },
+  { match: /opus/i, in: 15.0, out: 75.0 },
+];
+const FALLBACK_PRICING = { in: 1.0, out: 5.0 };
 
 export const ITEM_CATEGORIES = [
   "clothing",
@@ -70,23 +86,10 @@ export function estimateCost(
   tokensIn: number,
   tokensOut: number
 ): number {
-  const price = PRICING[model] ?? PRICING[HAIKU_MODEL]!;
+  const price = PRICING.find((p) => p.match.test(model)) ?? FALLBACK_PRICING;
   const cost = (tokensIn / 1_000_000) * price.in +
     (tokensOut / 1_000_000) * price.out;
   return Math.round(cost * 100000) / 100000;
-}
-
-let anthropicClient: Anthropic | null = null;
-
-function getClient(): Anthropic {
-  if (!anthropicClient) {
-    const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
-    if (!apiKey) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not set");
-    }
-    anthropicClient = new Anthropic({ apiKey });
-  }
-  return anthropicClient;
 }
 
 // Static — kept in a cache-controlled system block to cut repeat-call cost.
@@ -215,8 +218,9 @@ export async function extractItemFields(
 ): Promise<ExtractionResult> {
   const photos = input.photos ?? [];
   const hasPhotos = photos.length > 0;
-  const model = hasPhotos ? SONNET_MODEL : HAIKU_MODEL;
-  const client = getClient();
+  const model = hasPhotos ? getSonnetModel() : getHaikuModel();
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
 
   const content: Anthropic.ContentBlockParam[] = [];
   // Interleave a labelled caption before each image so the model knows
@@ -230,16 +234,15 @@ export async function extractItemFields(
   });
   content.push({ type: "text", text: buildUserPrompt(input) });
 
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
+    : { type: "text", text: SYSTEM_PROMPT };
+
   const response = await client.messages.create({
     model,
     max_tokens: 1500,
-    system: [
-      {
-        type: "text",
-        text: SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: [systemBlock],
     tools: [EXTRACT_TOOL],
     tool_choice: { type: "tool", name: "extract_item_fields" },
     messages: [{ role: "user", content }],
@@ -369,8 +372,9 @@ export async function generateListingCopy(
 ): Promise<ListingCopyResult> {
   const photos = input.photos ?? [];
   const hasPhotos = photos.length > 0;
-  const model = hasPhotos ? SONNET_MODEL : HAIKU_MODEL;
-  const client = getClient();
+  const model = hasPhotos ? getSonnetModel() : getHaikuModel();
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
 
   const content: Anthropic.ContentBlockParam[] = [];
   photos.forEach((photo, i) => {
@@ -394,16 +398,15 @@ export async function generateListingCopy(
   lines.push("Call write_listing_copy with the finished listing.");
   content.push({ type: "text", text: lines.join("\n\n") });
 
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? { type: "text", text: LISTING_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
+    : { type: "text", text: LISTING_SYSTEM_PROMPT };
+
   const response = await client.messages.create({
     model,
     max_tokens: 1024,
-    system: [
-      {
-        type: "text",
-        text: LISTING_SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: [systemBlock],
     tools: [LISTING_TOOL],
     tool_choice: { type: "tool", name: "write_listing_copy" },
     messages: [{ role: "user", content }],
