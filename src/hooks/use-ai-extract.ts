@@ -19,6 +19,9 @@ export interface AiExtractResponse {
   suggestions: Record<string, AiFieldSuggestion>;
   condition_summary: string | null;
   conflicts: AiFieldConflict[];
+  // Brand-spec flat measurements (inches) the AI inferred from brand+size+
+  // category. null when the AI couldn't identify all three confidently.
+  measurements: Record<string, number> | null;
   model: string;
   log_id: string | null;
   actions_remaining: number;

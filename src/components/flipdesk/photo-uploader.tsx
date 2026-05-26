@@ -216,11 +216,14 @@ function PhotoSlot({
         required && !filled && "border-dashed border-amber-400/60",
       )}
     >
+      {/* No `capture` attribute — that would force the camera on mobile.
+          Without it the OS shows a native chooser with Camera, Photo
+          Library, and Files, so users can take a fresh shot OR pick an
+          existing photo (e.g. one they took on a DSLR and AirDropped). */}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];

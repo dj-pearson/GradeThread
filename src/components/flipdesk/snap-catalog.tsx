@@ -162,6 +162,31 @@ export function SnapCatalog() {
         update.acquired_price = costNum;
       }
       if (purchaseDate) update.acquired_date = purchaseDate;
+
+      // AI-suggested flat measurements from brand sizing. Persist them so
+      // the MeasurementForm pre-fills next time the user opens the item.
+      // These are estimates — the user can override. Each filled key gets
+      // a "measurements.<field>" entry in ai_field_sources so the form can
+      // render an "AI" badge on each one.
+      const suggestedMeasurements = aiResult?.measurements ?? null;
+      if (
+        suggestedMeasurements &&
+        Object.keys(suggestedMeasurements).length > 0
+      ) {
+        update.measurements = suggestedMeasurements;
+        for (const key of Object.keys(suggestedMeasurements)) {
+          aiSources[`measurements.${key}`] = {
+            source: "photo:tag",
+            // Measurements come from brand+size+category identification,
+            // not a direct measurement of the garment — calibrate so users
+            // know to verify before listing.
+            confidence: 0.7,
+            accepted: true,
+          };
+        }
+      }
+
+      // Done populating aiSources — persist it now if anything's in there.
       if (Object.keys(aiSources).length > 0) {
         update.ai_field_sources = aiSources;
         update.ai_enriched_at = new Date().toISOString();
@@ -175,7 +200,14 @@ export function SnapCatalog() {
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       setEnriched(true);
-      toast.success("Item cataloged.");
+      const measureCount = suggestedMeasurements
+        ? Object.keys(suggestedMeasurements).length
+        : 0;
+      toast.success(
+        measureCount > 0
+          ? `Item cataloged with ${measureCount} suggested measurement${measureCount === 1 ? "" : "s"}.`
+          : "Item cataloged.",
+      );
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to save the item."

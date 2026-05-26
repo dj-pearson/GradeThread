@@ -208,6 +208,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     suggestions: result.suggestions,
     condition_summary: result.conditionSummary,
     conflicts: result.conflicts,
+    measurements: result.measurements,
     model: result.model,
     log_id: logRow?.id ?? null,
     actions_remaining: actionsRemaining,

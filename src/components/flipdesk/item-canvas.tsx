@@ -764,6 +764,7 @@ export function ItemCanvas({
             brand={state.brand}
             values={state.measurements}
             onChange={(m) => patch("measurements", m)}
+            aiSources={item.ai_field_sources}
           />
         </div>
 

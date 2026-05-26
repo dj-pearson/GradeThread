@@ -72,10 +72,16 @@ export interface FieldConflict {
   photo_value: string;
 }
 
+// AI-suggested flat measurements (inches) derived from brand + size standards
+// when the tag is readable. Values represent the brand's published spec for
+// that size, NOT a measurement of this specific garment — the user verifies.
+export type MeasurementSuggestions = Record<string, number>;
+
 export interface ExtractionResult {
   suggestions: Record<string, FieldSuggestion>;
   conditionSummary: string | null;
   conflicts: FieldConflict[];
+  measurements: MeasurementSuggestions | null;
   model: string;
   tokensIn: number;
   tokensOut: number;
@@ -118,7 +124,18 @@ When BOTH text and photos are provided:
 - If text and photos genuinely disagree on a field, do NOT silently pick one — add an entry to conflicts with both values.
 
 Fields supplied as already-known are ground truth — do not contradict them; only fill genuine gaps.
-Always also return a short condition_summary describing the item's observed condition.`;
+Always also return a short condition_summary describing the item's observed condition.
+
+Measurement suggestions:
+- ONLY suggest measurements when brand AND size AND item type are clearly identifiable. If any of those are unknown, OMIT measurements entirely.
+- Measurements are the BRAND'S PUBLISHED FLAT-MEASUREMENT SPEC for that size, NOT measured from this specific garment. The user will verify.
+- All values are flat measurements in INCHES, garment laid flat (so a 40" chest top has chest=20).
+- Use only field keys from this list, and only the ones relevant to the item type:
+  - Tops/outerwear: chest, length, shoulder, sleeve
+  - Bottoms: waist, inseam, rise, hip, leg_opening
+  - Dresses: bust, waist, hip, length
+  - Shoes: size_us (the numeric US size; insole length in inches if known)
+- If you DON'T know the brand's published spec for that exact size, OMIT that aspect rather than guessing.`;
 
 function fieldSchema(description: string) {
   return {
@@ -181,6 +198,25 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             photo_value: { type: "string" },
           },
           required: ["field", "text_value", "photo_value"],
+        },
+      },
+      measurements: {
+        type: "object",
+        description:
+          "Brand-spec flat measurements (inches) for the identified brand + size + item type. ONLY fill when all three are clearly identifiable AND you know the brand's published spec. Omit aspects you're unsure of.",
+        properties: {
+          chest: { type: "number", description: "Pit to pit" },
+          length: { type: "number", description: "HPS to hem (tops) or top to hem (bottoms)" },
+          shoulder: { type: "number" },
+          sleeve: { type: "number" },
+          waist: { type: "number" },
+          inseam: { type: "number" },
+          rise: { type: "number", description: "Front rise" },
+          hip: { type: "number" },
+          leg_opening: { type: "number" },
+          bust: { type: "number" },
+          size_us: { type: "number", description: "Numeric US shoe size" },
+          insole: { type: "number" },
         },
       },
     },
@@ -303,10 +339,26 @@ export async function extractItemFields(
         }))
     : [];
 
+  // Measurements — only keep finite numbers; drop strings and zeros (Claude
+  // sometimes returns "0" for "unknown" rather than omitting). Storing 0s
+  // would mislead the user into thinking we measured a zero-width sleeve.
+  const measurements: MeasurementSuggestions = {};
+  if (raw.measurements && typeof raw.measurements === "object") {
+    for (const [key, value] of Object.entries(
+      raw.measurements as Record<string, unknown>,
+    )) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) {
+        measurements[key] = Math.round(n * 100) / 100;
+      }
+    }
+  }
+
   return {
     suggestions,
     conditionSummary,
     conflicts,
+    measurements: Object.keys(measurements).length > 0 ? measurements : null,
     model,
     tokensIn:
       response.usage.input_tokens +

@@ -296,6 +296,7 @@ export function FlipdeskPrepPage() {
             brand={current.brand}
             values={draft.measurements}
             onChange={(m) => setDraft({ ...draft, measurements: m })}
+            aiSources={current.ai_field_sources}
           />
         </CardContent>
       </Card>

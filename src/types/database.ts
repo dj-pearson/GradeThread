@@ -403,6 +403,10 @@ export interface ItemFullRow {
   // Trailing columns added in migration 00018
   photo_count: number;
   has_required_photos: boolean;
+  // Trailing columns added in migration 00033 — AI provenance for fields
+  // and prefixed measurement keys (measurements.<field>).
+  ai_field_sources: Record<string, AiFieldSource> | null;
+  ai_enriched_at: string | null;
 }
 
 export interface SavedViewRow {

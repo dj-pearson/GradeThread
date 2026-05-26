@@ -13,11 +13,22 @@ import {
 
 type MeasurementValues = Record<string, number | string>;
 
+interface AiSourceMeta {
+  source: string;
+  confidence: number;
+  accepted: boolean;
+}
+
 interface Props {
   category: string | null | undefined;
   brand: string | null | undefined;
   values: MeasurementValues;
   onChange: (next: MeasurementValues) => void;
+  /**
+   * Map of ai_field_sources from the item. We look up keys prefixed
+   * `measurements.<field>` and render an "AI" badge on those fields.
+   */
+  aiSources?: Record<string, AiSourceMeta> | null;
 }
 
 function unitSuffix(field: MeasurementField, lengthUnit: "in" | "cm"): string {
@@ -26,7 +37,13 @@ function unitSuffix(field: MeasurementField, lengthUnit: "in" | "cm"): string {
   return "US";
 }
 
-export function MeasurementForm({ category, brand, values, onChange }: Props) {
+export function MeasurementForm({
+  category,
+  brand,
+  values,
+  onChange,
+  aiSources,
+}: Props) {
   const { unit, setUnit } = useMeasurementPrefs();
   const group = measurementGroupFor(category);
   const template = MEASUREMENT_TEMPLATES[group];
@@ -38,11 +55,17 @@ export function MeasurementForm({ category, brand, values, onChange }: Props) {
   const allRequiredFilled =
     requiredKeys.length > 0 && filledRequired === requiredKeys.length;
 
+  // A manual edit clears the AI badge for that field — we drop the source
+  // entry when the user types a different value than the AI suggested.
   function set(key: string, raw: string) {
     const next = { ...values };
     if (raw.trim() === "") delete next[key];
     else next[key] = raw;
     onChange(next);
+  }
+
+  function aiMetaFor(key: string): AiSourceMeta | null {
+    return aiSources?.[`measurements.${key}`] ?? null;
   }
 
   return (
@@ -92,28 +115,41 @@ export function MeasurementForm({ category, brand, values, onChange }: Props) {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {template.map((field) => (
-          <div key={field.key} className="space-y-1">
-            <Label className="text-xs">
-              {field.label}
-              {field.required && (
-                <span className="ml-1 text-destructive">*</span>
-              )}
-            </Label>
-            <div className="relative">
-              <Input
-                type="number"
-                inputMode="decimal"
-                value={values[field.key] ?? ""}
-                onChange={(e) => set(field.key, e.target.value)}
-                className="pr-10"
-              />
-              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-                {unitSuffix(field, unit)}
-              </span>
+        {template.map((field) => {
+          const ai = aiMetaFor(field.key);
+          return (
+            <div key={field.key} className="space-y-1">
+              <Label className="flex items-center gap-1.5 text-xs">
+                {field.label}
+                {field.required && (
+                  <span className="text-destructive">*</span>
+                )}
+                {ai && (
+                  <span
+                    className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary"
+                    title={`AI estimate from brand sizing (${Math.round(
+                      ai.confidence * 100,
+                    )}% confident, ${ai.source}). Verify against the actual garment.`}
+                  >
+                    AI
+                  </span>
+                )}
+              </Label>
+              <div className="relative">
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={values[field.key] ?? ""}
+                  onChange={(e) => set(field.key, e.target.value)}
+                  className="pr-10"
+                />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                  {unitSuffix(field, unit)}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
