@@ -2920,6 +2920,523 @@
       "priority": 167,
       "passes": true,
       "notes": "Implemented. Migration 00025 adds users.ai_action_limit (nullable — null means use the plan default); 00026 adds an admin SELECT policy on ai_enrichment_log. PLANS constant extended with aiActionsPerMonth (free 25 / starter 200 / professional 1000 / enterprise unlimited). Settings page gained an 'AI Item Assistant' card: a usage meter (ai_actions_used_this_month vs effective limit, with reset date), an enable/disable Switch (ai_enrichment_enabled), and an optional monthly action-limit input — all saved to the users row. Edge checkQuota honours ai_action_limit over the plan default and is now shared by /extract, /listing-copy and /bulk-extract; cap-hit returns 429 which every AI entry point surfaces via the shared hook's error toast. Monthly rollover is handled by the increment_ai_actions RPC (US-158). Admin platform-analytics gained an 'AI Enrichment Acceptance' card computing suggested-vs-accepted rates per field from ai_enrichment_log. Build + typecheck pass."
+    },
+    {
+      "id": "US-168",
+      "title": "iOS app: Xcode project scaffold (SwiftUI, Swift 5.9+, iOS 16+)",
+      "description": "As a developer, I need a SwiftUI Xcode project set up so I can build the native iOS companion to the FlipDesk web surface. Stack: SwiftUI for UI, Swift 5.9+, iOS 16+ minimum deployment target, structured concurrency (async/await), modern URLSession. Bundle identifier 'com.pearsonmedia.flipdesk'. Brand colors (Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5) live in an Assets.xcassets color set with light + dark variants. Inter font added as a custom resource. Repo layout: ios/FlipDesk/ at project root, separate from the web src/.",
+      "acceptanceCriteria": [
+        "ios/FlipDesk.xcodeproj exists at the repo root with one app target and one test target",
+        "Deployment target: iOS 16.0; supports iPhone in portrait + landscape, iPad universal",
+        "Assets.xcassets contains 'BrandNavy', 'BrandRed', 'BrandNight', 'BrandGray' color sets with proper light/dark values",
+        "Inter font (Regular/Medium/Bold) added to the bundle and registered in Info.plist 'Fonts provided by application'",
+        "ColorTheme.swift + Typography.swift extensions expose the brand colors and font as SwiftUI tokens (Color.brandNavy, .font(.flipdeskBody), etc.)",
+        "App entry point uses @main App protocol with a single WindowGroup",
+        "xcodebuild -scheme FlipDesk -destination 'platform=iOS Simulator,name=iPhone 15' build succeeds without warnings",
+        "README at ios/README.md documents the build + signing setup"
+      ],
+      "priority": 168,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-169",
+      "title": "iOS app: Supabase Swift SDK + edge API client",
+      "description": "As a developer, I need a single networking layer that talks to the same Supabase project + edge functions the web uses, so the iOS app shares data with the web app instantly without a parallel backend. Use the official supabase-swift SDK for auth + DB + storage, and a thin URLSession wrapper for the Hono edge calls (matches what the web hooks do). Base URLs are configured per build configuration (Debug → sandbox/staging, Release → production).",
+      "acceptanceCriteria": [
+        "Package.swift / SPM declares dependency on supabase-swift (^2.0)",
+        "AppConfig struct reads SUPABASE_URL, SUPABASE_ANON_KEY, EDGE_API_URL from xcconfig + Info.plist (no hardcoded secrets)",
+        "SupabaseClient is a single shared actor exposing auth, database, and storage handles",
+        "EdgeAPI actor wraps URLSession with async functions: getJSON<T>(path), postJSON<T,Req>(path, body), deleteJSON<T>(path); auto-attaches the Supabase access token to every request",
+        "EdgeAPIError enum maps HTTP status codes to typed errors (.unauthorized, .rateLimited, .badRequest(detail), .serverError(detail), .network)",
+        "Error responses with { error, detail } JSON shape parse into structured errors for the UI",
+        "Unit tests cover the edge wrapper against a mock URLProtocol"
+      ],
+      "priority": 169,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-170",
+      "title": "iOS app: Auth (email/password, Sign in with Apple, Google)",
+      "description": "As a user, I want to sign in with my existing GradeThread account or create a new one using Sign in with Apple, so the iOS app shares my web data instantly. Email/password mirrors the web; Sign in with Apple is required by App Store guidelines when other social logins are present. Token persistence via Keychain so the user stays signed in across launches.",
+      "acceptanceCriteria": [
+        "LoginView shows email + password fields, 'Sign in with Apple' button (ASAuthorizationAppleIDButton), and 'Continue with Google' button (ASWebAuthenticationSession against Supabase OAuth)",
+        "Sign-up flow shares the same view with a toggle; email confirmation handled the same as web",
+        "Sign in with Apple uses ASAuthorizationController + supabase-swift's signInWithApple; first-time grant captures the user's full name (only available on first sign-in per Apple)",
+        "Session tokens stored in Keychain (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly); auto-refresh handled by supabase-swift",
+        "ProtectedRouteShell observes auth state and shows LoginView when signed out, MainTabView when signed in",
+        "'Reset password' link opens an in-app web view at https://gradethread.com/auth/reset-password",
+        "Sign out clears the Keychain entry + the in-memory session; analytics + Sentry user context cleared"
+      ],
+      "priority": 170,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-171",
+      "title": "iOS app: Tab bar navigation (Inventory / Add / Sales / Settings)",
+      "description": "As a user, I want a five-tab bottom navigation so the most common actions are one tap from anywhere. Tab structure mirrors how power users describe their flow: triage (Inventory), capture (Add), revenue (Sales), eBay state (Marketplaces), and account (Settings). Add tab opens a sheet rather than navigating — it's a quick-action hub for photo-first vs details-first intake.",
+      "acceptanceCriteria": [
+        "MainTabView shows five tabs with SF Symbols: 'shippingbox' (Inventory), 'plus.circle.fill' (Add — emphasized), 'dollarsign.circle' (Sales), 'antenna.radiowaves.left.and.right' (Marketplaces), 'gear' (Settings)",
+        "Tabs use NavigationStack each — deep navigation per tab doesn't leak between tabs",
+        "Add tab presents an action sheet with two prominent options: 'Photo-first (Snap & Catalog)' and 'Details-first (manual form)'; tapping either dismisses the sheet and pushes the right flow on whichever stack was active",
+        "Tab bar items support haptic feedback (UIImpactFeedbackGenerator.light) on selection change",
+        "Active tab indicator uses Color.brandNavy",
+        "On iPad, NavigationSplitView replaces the tab bar with a sidebar; behavior at compact-width matches the iPhone tab bar"
+      ],
+      "priority": 171,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-172",
+      "title": "iOS app: SwiftData persistence + sync engine",
+      "description": "As a user, I want the app to work offline — viewing items I've already loaded and queueing new captures until I'm online again. Local cache uses SwiftData (iOS 17+) or Core Data fallback for iOS 16. Mirrors the offline IndexedDB queue the web uses for intake. Sync engine pushes queued mutations on reconnect and pulls server-side changes on app foreground.",
+      "acceptanceCriteria": [
+        "SwiftData models for InventoryItem, ItemPhoto, Listing, Sale, Source mirror Supabase row shapes",
+        "SyncEngine actor pulls items_full + sales + listings on app foreground; merges into SwiftData store",
+        "PendingMutation entity stores queued offline writes (intake creates, item edits, photo uploads) with a typed payload and retry count",
+        "NetworkMonitor (NWPathMonitor) observes connectivity; SyncEngine flushes PendingMutations when path becomes satisfied",
+        "Conflict resolution: server wins on price + status fields (eBay-owned); client wins on user-edited fields (notes, target_price, measurements) — same model as web",
+        "UI surfaces a status bar 'Syncing… / N pending / Offline' that disappears when caught up",
+        "Realtime channel (Supabase Realtime) optional — for now, polling on foreground is the MVP"
+      ],
+      "priority": 172,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-173",
+      "title": "iOS app: Native camera capture with 4-slot photo guide",
+      "description": "As a reseller, I want a guided camera screen that walks me through the four required photo types (front, back, tag, detail) so my listings start clean. Uses AVFoundation directly (not the system picker) for a custom UI with type prompts, overlay framing, and instant retake. Each captured shot is full-resolution but compressed before upload (target 2 MB / 2048px on long edge).",
+      "acceptanceCriteria": [
+        "PhotoIntakeView shows a viewfinder taking the full screen, with a strip of 4 slot thumbnails at the bottom: Front, Back, Tag, Detail",
+        "Active slot is highlighted; tapping a slot or swiping switches which slot the next capture lands in",
+        "Capture button is a large circular button with haptic feedback; after capture the shot animates into its slot and the next-unfilled slot auto-advances",
+        "Each slot supports tap → preview → retake; long-press → delete",
+        "Top-left X exits with confirmation if any unsaved shots exist",
+        "Image compression: JPEG quality 0.8, max long edge 2048px, EXIF stripped except orientation",
+        "Optional 'Add detail / defect' button reveals up to 3 extra slots for defect shots",
+        "Works on both iPhone and iPad (iPad gets a larger viewfinder)"
+      ],
+      "priority": 173,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-174",
+      "title": "iOS app: Photo library import alternative + multi-select",
+      "description": "As a reseller, I want to import existing photos from my Photos library (e.g. studio shots taken on a DSLR and AirDropped to my phone) without forcing the camera. Uses PHPickerViewController for privacy-respecting multi-select. After picking, the user assigns each photo to a slot before continuing — same compression pipeline as the camera flow.",
+      "acceptanceCriteria": [
+        "PhotoIntakeView header has a 'Library' button (photo.on.rectangle) that opens PHPickerViewController with selectionLimit=8, filter=.images",
+        "Picked photos go to a staging tray; user taps each → picks a slot (Front/Back/Tag/Detail/Defect 1-3)",
+        "Same JPEG compression pipeline (quality 0.8, 2048px max edge) so library + camera shots end up the same size",
+        "Mixed flow supported: take 2 fresh shots and import 2 existing ones in the same session",
+        "PHPickerViewController used (NOT the deprecated UIImagePickerController) so users don't get prompted for full library access"
+      ],
+      "priority": 174,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-175",
+      "title": "iOS app: Upload photos to Supabase Storage with progress",
+      "description": "As a reseller, I want photos to upload in the background with clear progress and the option to keep editing the form while uploads finish. Multipart upload to the item-photos bucket; storage paths match the web ({userId}/{itemId}/{type}_{timestamp}.jpg). Upload runs on a background URLSession so it survives the app being backgrounded.",
+      "acceptanceCriteria": [
+        "PhotoUploadService uses a background URLSession (configuration .background(withIdentifier:)) so uploads continue if the user switches apps",
+        "Per-photo upload progress shown on the slot thumbnail; failures get a retry tap",
+        "Concurrency: 3 photos at a time max to respect network + Supabase rate limits",
+        "On success the item_photos row is inserted via supabase-swift (matches the web's storage_path + photo_type + sort_order columns)",
+        "Background completion handler wakes the app, finishes any in-flight DB writes, then completes",
+        "If the user signs out mid-upload, queued tasks are cancelled and removed from PendingMutation",
+        "Network failures push the upload into the PendingMutation queue for later retry"
+      ],
+      "priority": 175,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-176",
+      "title": "iOS app: AI extract from photos + review screen",
+      "description": "As a reseller, I want the same AI extract (brand / size / material / style / category / condition + measurements) the web does, called from iOS as soon as photos finish uploading. Reuses POST /api/flipdesk/ai/extract — no new backend. Suggestions land in a review screen where the user can accept all / accept some / dismiss.",
+      "acceptanceCriteria": [
+        "After all photos for an intake session finish uploading, AIExtractView calls EdgeAPI.postJSON('/api/flipdesk/ai/extract', { photos, item_id })",
+        "Loading state: branded spinner + 'AI is reading your photos… ~10s' label; show partial progress dots so it doesn't feel stuck",
+        "Result screen mirrors the web AiFillPanel: each suggested field is a row with the AI value, source ('photo:tag'), confidence (as a 0-100 bar), and a checkbox to accept",
+        "AI-suggested measurements (from US-053 measurement-pre-fill) appear in their own 'Measurements (estimated)' section with the same accept-all toggle",
+        "'Apply selected' button writes accepted fields + measurements onto the inventory_items row + records ai_field_sources with the measurements.{key} prefix (matches the web)",
+        "If extract fails (429 quota / 502 / network), the screen shows a clear error + 'Skip — I'll fill in manually' fallback",
+        "On successful apply, the next screen is the item canvas (US-182) pre-filled and ready to save"
+      ],
+      "priority": 176,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-177",
+      "title": "iOS app: Vision Live Text fallback for the size tag",
+      "description": "As a reseller, when AI extract misses or is offline, I want iOS's built-in Live Text (Vision framework's VNRecognizeTextRequest) to read the size tag photo locally so I still get brand + size pre-filled. No network call. Works on iOS 15.4+ (always available on our 16+ target).",
+      "acceptanceCriteria": [
+        "TagTextRecognizer service wraps VNRecognizeTextRequest at .accurate level; takes a UIImage and returns recognized strings + bounding boxes",
+        "Runs only on the 'tag' slot photo; not on front/back/detail",
+        "On the AI review screen, if Claude's extract returns no brand OR no size, run Live Text as a fallback and merge its results as low-confidence (0.4) suggestions",
+        "OCR runs on-device, no network, no Claude usage — so it works offline too",
+        "If both Claude and Live Text disagree, the conflict gets flagged the same way as photo vs text conflicts (matches the web extractItemFields logic)"
+      ],
+      "priority": 177,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-178",
+      "title": "iOS app: Details-first intake form",
+      "description": "As a reseller listing without photos (or pre-filling first, photographing later), I want the same manual intake form the web offers, optimized for iOS keyboards and pickers. Mirrors src/pages/flipdesk/intake.tsx's field set + source picker. Saves to inventory_items via supabase-swift; status defaults to 'cataloged' (or 'sourced' if marked from a thrift trip).",
+      "acceptanceCriteria": [
+        "DetailsIntakeView shows Title (TextField), SKU, Brand, Style, Size, Color, Material, Category (Picker), Status (Picker), Source (Picker + 'Add new source' sheet)",
+        "Source picker fetches from SourceStore (SwiftData-cached); 'Add new' opens a sheet that calls supabase-swift to insert + auto-selects the new source",
+        "Purchase date defaults to today, picker via DatePicker (.compact, .date only)",
+        "Purchase price uses a decimal keyboard + auto-formatting with the user's locale currency",
+        "Notes field uses TextEditor with autoFocus disabled (so the keyboard doesn't pop unexpectedly)",
+        "'Save & Add another' resets the form but keeps source + container + sourced_by + purchase date — matches the web's batch-cataloging flow",
+        "Offline-aware: when network unavailable, save enqueues a PendingMutation and shows a 'Saved offline — will sync when you reconnect' confirmation"
+      ],
+      "priority": 178,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-179",
+      "title": "iOS app: Voice-to-text + barcode scanner shortcuts",
+      "description": "As a reseller on the go, I want to dictate notes by voice and scan a SKU barcode rather than typing. Uses the Speech framework for dictation and AVCaptureSession + VNDetectBarcodesRequest for the scanner. Both are optional shortcuts on the manual intake form.",
+      "acceptanceCriteria": [
+        "Microphone icon next to the Notes field opens a Speech recognizer that writes into the field live",
+        "Microphone permission requested with a clear NSSpeechRecognitionUsageDescription rationale in Info.plist",
+        "Barcode icon next to the SKU field opens BarcodeScanView (VNDetectBarcodesRequest, EAN/UPC/Code128/QR)",
+        "Successful scan haptic-feedback-confirms, populates the SKU field, and dismisses the scanner",
+        "Camera permission rationale in Info.plist explains the SKU scanner use",
+        "Both features degrade gracefully on the simulator (which has no camera/mic)"
+      ],
+      "priority": 179,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-180",
+      "title": "iOS app: Inventory list with stage tabs + search + sort",
+      "description": "As a reseller, I want the same triage view the web has — items grouped by stage (To list / Drafts / Active / Sold / Shipped / Returned) — but optimized for one-handed iPhone use. Pull-to-refresh, search, sort. Native cell design with the first photo as the leading thumbnail.",
+      "acceptanceCriteria": [
+        "InventoryListView uses a TabView with the same stage tabs as the web (TO_LIST_STATUSES from src/pages/flipdesk/listings.tsx, including sourced/acquired/cataloged/measured/photographed/graded/comped)",
+        "List cells show: thumbnail (item_photos.first by sort_order), title, brand · size, target/list price, status badge",
+        "Pull-to-refresh triggers SyncEngine.pull and shows the standard UIRefreshControl",
+        "Search bar (.searchable) filters by title, brand, style, SKU, container — matches the web filter",
+        "Sort menu (toolbar item) offers: Newest / Oldest / Best ROI / Highest comp / SKU (natural sort like the web)",
+        "Tapping a cell pushes the ItemCanvas detail view onto the stack",
+        "Empty state per tab shows a friendly CTA matching the web (e.g. 'Nothing to list. Add an item to get started.')"
+      ],
+      "priority": 180,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-181",
+      "title": "iOS app: Item detail (canvas) with inline + sectioned editing",
+      "description": "As a reseller, when I open an item I want the same set of capabilities the web's ItemCanvas offers — view + edit fields, manage photos, set measurements, view comps, see the next workflow action — but in a native iOS layout that scales from iPhone to iPad. Built with sectioned Form + custom cards.",
+      "acceptanceCriteria": [
+        "ItemCanvasView opens from the inventory list and shows: Next action card (mirrors src/components/flipdesk/item-canvas.tsx), fields section, measurements section, photos section, comps section, notes section, P&L section (when sold)",
+        "Each field is inline-editable: tap to edit, save on blur or via the keyboard Done button",
+        "MeasurementForm equivalent shows the same category-template fields and the AI-estimated badge (US-057 equivalent) when ai_field_sources has measurements.{key} entries",
+        "Photos section reuses the upload pipeline from US-175; supports drag-to-reorder (DragGesture + onMove)",
+        "Comps section lists existing comps + an 'Add comp' sheet; matches CompEditor functionality",
+        "Status changes route through resolveStatus equivalent so we never regress sold/shipped items",
+        "'Save changes' confirms a dirty form before exit; 'Discard' confirms only if the user has unsaved edits"
+      ],
+      "priority": 181,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-182",
+      "title": "iOS app: Bulk select + bulk actions on the inventory list",
+      "description": "As a reseller, I want to select multiple items on the inventory list and apply bulk actions — create drafts, drop price on Active, end listings, mark shipped — matching the web's bottom-bar floating actions.",
+      "acceptanceCriteria": [
+        "Edit mode toggle (toolbar 'Select') exposes per-row checkboxes; iOS native multi-select gestures (drag two fingers down a list to select) supported",
+        "Bottom action bar appears when 1+ rows selected with stage-appropriate actions: To List → 'Create draft', 'AI enrich'; Active → 'Drop -X%' / 'End listing'; Sold/Shipped → 'Mark shipped'",
+        "Each bulk action shows a confirmation dialog with the count + a destructive-styled button for ends/deletes",
+        "Bulk eBay calls (end listing, price drop) hit the same edge endpoints the web does and surface per-item failures in a summary toast",
+        "Selection cleared after a successful bulk action; toast confirms 'Updated N items'"
+      ],
+      "priority": 182,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-183",
+      "title": "iOS app: eBay account connection via ASWebAuthenticationSession",
+      "description": "As a reseller, I want to connect my eBay seller account from the iOS app — without leaving for Safari and losing my place. Use ASWebAuthenticationSession (the iOS-native OAuth UI) to drive the existing /oauth/start → eBay consent → /oauth/callback flow. Universal Link brings the user back into the app on callback.",
+      "acceptanceCriteria": [
+        "Marketplaces tab shows the connection status card (Connected / Setup required / Reconnect) — same shape as the web",
+        "'Connect eBay account' calls EdgeAPI.getJSON('/api/flipdesk/ebay/oauth/start') to get a consent_url",
+        "Opens ASWebAuthenticationSession with callbackURLScheme matching a registered Universal Link (https://gradethread.com/dashboard/flipdesk/marketplaces)",
+        "Apple-App-Site-Association file at gradethread.com associates the bundle ID + path so the callback URL opens the app instead of Safari",
+        "On return, the URL's ?ebay= query param drives the same toast text the web shows (connected / cancelled / state_expired / etc.)",
+        "Reconnect refreshes the token grant + flips last_synced_at to null (matches the upsertConnection change so the next sync goes back 90 days)"
+      ],
+      "priority": 183,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-184",
+      "title": "iOS app: Sync from eBay (listings + orders + finances)",
+      "description": "As a reseller, I want one button to pull everything from eBay — same /api/flipdesk/ebay/listings/pull endpoint the web uses. Surface a progress + summary modal because the sync can take 30-60s for a large account.",
+      "acceptanceCriteria": [
+        "Marketplaces tab + Inventory list both have a 'Sync from eBay' button",
+        "Tapping shows a modal with three stages: 'Loading listings…', 'Matching SKUs…', 'Pulling orders + fees…' so the user understands the wait",
+        "Calls POST /api/flipdesk/ebay/listings/pull and renders the result summary (listings matched, legacy listings matched, new sales, orphans, errors)",
+        "Orphans summary links into the Reconciliation tab",
+        "After sync completes, SyncEngine pulls items_full + sales locally so the lists refresh without an extra round-trip",
+        "If the call fails partway with structured errors in the response, the modal surfaces them clearly (mirrors the web's toast description)"
+      ],
+      "priority": 184,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-185",
+      "title": "iOS app: Publish to eBay + manage live listings",
+      "description": "As a reseller, I want the same publish + manage actions the web composer + Active tab offer — from inside the iOS app. Validate, push, end, edit price. Same endpoints; native form UI.",
+      "acceptanceCriteria": [
+        "Item canvas has a 'Publish to eBay' button visible when status is comped/drafted with an eBay connection active",
+        "Publish flow: validate dialog (POST /api/flipdesk/ebay/listings/validate) shows blockers; on confirm, POST /api/flipdesk/ebay/listings/push then shows the listing URL + 'View on eBay' (opens via SFSafariViewController)",
+        "On the Active stage view, inline price edit calls POST /api/flipdesk/ebay/listings/:id/price; 409 (no offer id) falls back to local-only save with a 'Local only — connect eBay to push' toast",
+        "End listing action calls DELETE /api/flipdesk/ebay/listings/:id with a confirmation alert",
+        "Both single + bulk variants supported; bulk reuses the action bar from US-182"
+      ],
+      "priority": 185,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-186",
+      "title": "iOS app: Reconciliation (orphan listings: Create / Link / Ignore)",
+      "description": "As a reseller new to FlipDesk with existing eBay listings, I want the same Reconciliation flow the web has — for each orphan listing, choose Create-new-item, Link-existing-item, or Ignore. Plus the bulk 'Create all' shortcut.",
+      "acceptanceCriteria": [
+        "Marketplaces tab → Reconciliation section lists every flipdesk_ebay_listings row with match_status='unmatched'",
+        "Per-row swipe actions on the iOS list: Leading swipe → 'Create item' (matches US-052 behavior); trailing swipe → 'Link' + 'Ignore'",
+        "'Create item' opens a sheet pre-filled with title + SKU from the eBay listing; user can edit then confirm",
+        "'Link' opens a search sheet for matching FlipDesk items (matches the web LinkItemDialog)",
+        "Top-of-screen 'Create all (N)' button runs the bulk create from US-052 with the same per-row error aggregation",
+        "After matching, the list updates in place; the orphan count badge on the tab bar decrements"
+      ],
+      "priority": 186,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-187",
+      "title": "iOS app: Push notifications for sales + payouts + account events",
+      "description": "As a reseller, I want a push when an eBay sale happens, when funds clear, or when my eBay token is about to expire. Notifications come from the existing edge service via APNs (uses an Apple Push Notification Service key configured in Supabase Edge or directly via the edge container's notification routes).",
+      "acceptanceCriteria": [
+        "App requests notification permission on first launch of the Sales tab (not on app launch — feels less aggressive)",
+        "Device token registered with the edge service via POST /api/notifications/register (new endpoint) tied to the user's auth.uid()",
+        "Notification categories: 'sale.created' (item title + sale price), 'payout.cleared' (count + total), 'token.expiring' (eBay token expires in <7 days), 'item.review_needed' (AI confidence below threshold)",
+        "Tapping a notification deep-links into the relevant screen (sale → Sales tab → item detail; token → Marketplaces tab)",
+        "Notification settings page lets the user toggle each category independently; stored in users.notification_preferences (already a column from web)",
+        "Critical alerts (token expired) bypass do-not-disturb when the user opts in"
+      ],
+      "priority": 187,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-188",
+      "title": "iOS app: Background sync on app foreground + Background App Refresh",
+      "description": "As a reseller, I want the app to feel fresh when I open it — without me tapping sync — and stay reasonably up-to-date in the background. Combines a foreground pull on willEnterForeground with a BGAppRefreshTask scheduled for opportunistic background sync.",
+      "acceptanceCriteria": [
+        "App delegate hooks willEnterForeground → SyncEngine.pull() (debounced if pulled in the last 60s)",
+        "Background App Refresh task registered with BGTaskScheduler identifier 'com.pearsonmedia.flipdesk.refresh'",
+        "Background task runs SyncEngine.pull() with a hard 25s budget (BG tasks must finish in 30s) and reschedules itself",
+        "If sync detects new sales since the last pull, posts a local notification 'N new eBay sale(s)' (only when push notifications haven't already delivered the event)",
+        "User-visible setting: 'Refresh in background' toggle that defaults to ON; respects iOS-level Background App Refresh setting (won't override OFF)"
+      ],
+      "priority": 188,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-189",
+      "title": "iOS app: Share Extension — add item from any app",
+      "description": "As a reseller browsing Poshmark / Mercari / a thrift Instagram for inspiration, I want to share an image into FlipDesk to instantly start a new item. Share Extension picks up the image(s), uploads them via the same pipeline as in-app intake, and opens the AI review screen on app launch.",
+      "acceptanceCriteria": [
+        "Share Extension target included in the Xcode project; supports public.image input",
+        "Extension UI mirrors the photo-intake slot picker so the user can assign Front/Back/Tag/Detail before sharing",
+        "Tapping 'Add to FlipDesk' uploads via the same background URLSession the main app uses; user can dismiss the extension immediately",
+        "On next app launch, the staged photos open AIExtractView so the user picks up where they left off",
+        "Extension requires sign-in: shows a 'Sign in to FlipDesk first' state if no Keychain session is present"
+      ],
+      "priority": 189,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-190",
+      "title": "iOS app: Widgets (today's snapshot + payout)",
+      "description": "As a reseller, I want a Home Screen + Lock Screen widget showing today's sales + items pending + next expected payout — at a glance. WidgetKit timeline driven by an App Group container the main app writes into.",
+      "acceptanceCriteria": [
+        "Two widget families: 'Today' (medium size — today sold $, items pending, next payout date) and 'Sales' (large — last 7 days bar chart + total)",
+        "App Group 'group.com.pearsonmedia.flipdesk' shared between app + widget; main app writes daily aggregates after every sync into UserDefaults(suiteName:)",
+        "Widget timeline refresh every 30 minutes; tap deep-links to the relevant tab",
+        "Lock Screen widget (.accessoryCircular + .accessoryRectangular) shows today's sold count",
+        "Empty state ('Connect eBay to see your numbers') links into the Marketplaces tab via deep link",
+        "Widget Configuration intent lets the user pick a different metric (revenue / count / payout countdown)"
+      ],
+      "priority": 190,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-191",
+      "title": "iOS app: Sign in with Apple + Sentry crash reporting + analytics",
+      "description": "As a developer, I need the platform-native account creation flow (App Store requires Sign in with Apple when other social logins are present), and a crash-reporting + product-analytics path so I can debug issues in the wild and learn how users actually use the app.",
+      "acceptanceCriteria": [
+        "Sign in with Apple wired in US-170 — first-time grant captures Apple's pseudonymous email + name, sent to supabase-swift's signInWithApple",
+        "Sentry-Cocoa SDK initialized in the AppDelegate with DSN from xcconfig",
+        "User context (auth.uid only — no PII) attached on sign-in, cleared on sign-out",
+        "Custom breadcrumbs added at sync start/end, AI extract start/end, eBay publish start/end so failures have context",
+        "PostHog-iOS SDK initialized for product analytics; respects the user's existing analytics opt-in (users.analytics_opt_in from web)",
+        "Key events tracked: app_open, intake_completed, ai_extract_used, ebay_synced, listing_published, sale_recorded"
+      ],
+      "priority": 191,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-192",
+      "title": "iOS app: Accessibility (VoiceOver + Dynamic Type + reduced motion)",
+      "description": "As a user with accessibility needs, I expect the same support iOS apps usually offer — VoiceOver labels on every interactive element, Dynamic Type scaling, reduced motion respected. App Store reviewers also look for this; lack of basic accessibility is a common rejection reason.",
+      "acceptanceCriteria": [
+        "Every Button, NavigationLink, Image with a tap target has an .accessibilityLabel; SF Symbols include .accessibilityLabel when they convey meaning",
+        "All text uses Dynamic Type scaling (font(.body), .headline, etc.) — no hardcoded font sizes except for badges/chips",
+        "Brand colors meet WCAG AA contrast at the brand's chosen tint values; alternative high-contrast variants in Assets.xcassets",
+        "Reduced Motion (UIAccessibility.isReduceMotionEnabled) disables non-essential transitions",
+        "Custom controls (camera capture button, stage tabs) tested with VoiceOver and have appropriate .accessibilityTraits",
+        "Smoke-test pass with Accessibility Inspector + VoiceOver runs on the major flows: sign-in, intake, item edit, eBay publish"
+      ],
+      "priority": 192,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-193",
+      "title": "iOS app: iPad adaptive layout + multitasking",
+      "description": "As an iPad user, I want a layout that takes advantage of the larger screen — sidebar navigation instead of a tab bar, side-by-side list + detail, Slide Over + Split View support. Same codebase; SwiftUI handles the responsive part naturally with size classes.",
+      "acceptanceCriteria": [
+        "MainTabView swaps to NavigationSplitView at regular horizontal size class (sidebar with inventory categories on the left, list in middle, detail on the right)",
+        "iPad portrait gets a two-column layout (list + detail); landscape gets three (sidebar + list + detail)",
+        "Slide Over (compact width) reverts to the tab bar layout",
+        "Multi-window supported via UISceneSession — a user can open the inventory in one window and an item detail in another",
+        "Drag + drop from Photos.app onto the inventory list opens the photo intake flow with the dropped images staged"
+      ],
+      "priority": 193,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-194",
+      "title": "iOS app: Settings tab + plan/billing + account deletion",
+      "description": "As a user, I need a Settings tab that mirrors the web — profile, AI enrichment toggle + monthly usage meter, billing (deep link out to Stripe), notification preferences, sign out, delete account. Plan upgrades happen via Stripe (in-app purchases would force Apple's 30% — explicitly out of scope; a 'Manage plan on web' link is fine for now per App Store reader-app rules).",
+      "acceptanceCriteria": [
+        "SettingsView shows: Profile (name, email, avatar), AI Item Assistant (toggle + usage meter + monthly limit), Notification preferences (per category from US-187), Marketplaces shortcut, Plan + billing (status + 'Manage on web' link), Sign out, Delete account",
+        "AI Item Assistant section mirrors US-167 — same toggle, monthly meter, optional limit, plan-tier default — wired to the same users row",
+        "Notification prefs read/write to users.notification_preferences and are reflected in the device's notification subscriptions",
+        "'Manage plan on web' opens SFSafariViewController to https://gradethread.com/dashboard/billing — does NOT use in-app purchase (avoids Apple's 30% cut and keeps reader-app review path)",
+        "Delete account confirms with a typed-in 'delete' prompt; calls supabase-swift's deleteUser RPC; cascades through the existing Postgres on-delete chain",
+        "Sign out clears Keychain, cancels in-flight syncs, returns to LoginView"
+      ],
+      "priority": 194,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-195",
+      "title": "iOS app: Haptics + sound + first-class iOS polish",
+      "description": "As a user, I expect the app to feel native — haptic feedback on key actions, sound on capture, smooth swipe gestures, no jank. Apple's reviewers pattern-match these signals; well-polished apps get faster approval.",
+      "acceptanceCriteria": [
+        "Haptics: light impact on tab change, medium impact on photo capture, success notification on publish/save, error notification on sync failure",
+        "Camera capture plays the standard iOS shutter sound (mandatory in some locales — uses AudioServicesPlaySystemSound(1108))",
+        "Pull-to-refresh + swipe-to-delete + swipe-to-mark are all gesture-driven with appropriate animations",
+        "Keyboard avoidance built-in via SwiftUI; no fields are ever hidden behind the keyboard",
+        "Loading states use the standard ProgressView; long operations show a non-blocking inline progress (sync banner) — full-screen blockers only for critical paths (publish, delete)",
+        "App launch shows a static launch screen matching the brand; no flash of unstyled content"
+      ],
+      "priority": 195,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-196",
+      "title": "iOS app: TestFlight + beta distribution",
+      "description": "As a developer, I need a CI path to TestFlight so betas can be cut on every push to main and shared with internal testers + early adopters without manual builds.",
+      "acceptanceCriteria": [
+        "Xcode Cloud workflow OR GitHub Actions with fastlane configured to: bump build number, archive, upload to App Store Connect TestFlight on every merge to main",
+        "Code signing via App Store Connect API key (stored as a CI secret); no manual provisioning profile management",
+        "Beta testers managed via App Store Connect groups: 'Internal' (Pearson Media team), 'Beta' (external power users)",
+        "Each build's release notes auto-populated from the merge commit message + git log between builds",
+        "TestFlight feedback channel monitored — feedback links into Linear or GitHub Issues",
+        "Crash reports from TestFlight forwarded via Xcode + Sentry"
+      ],
+      "priority": 196,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-197",
+      "title": "iOS app: App Store submission (screenshots, copy, privacy nutrition labels)",
+      "description": "As Pearson Media, I need to ship the app to the App Store. Submission includes screenshots for every required device size, marketing copy, privacy nutrition labels accurately describing what data we collect, and a working demo account for App Review.",
+      "acceptanceCriteria": [
+        "Screenshots for 6.7\" iPhone (15 Pro Max), 6.1\" iPhone (15), 12.9\" iPad Pro — auto-generated via fastlane snapshot from UI tests",
+        "Marketing copy: app name 'FlipDesk by GradeThread', subtitle, promotional text, description (4000 char), keywords, support URL, privacy URL",
+        "Privacy nutrition labels accurate: collects email + name + purchase history (linked to identity) + photos (linked to identity) + diagnostic crash data (not linked)",
+        "Demo account credentials provided in App Review notes; account is pre-populated with sample inventory + a connected sandbox eBay seller",
+        "App Privacy Report: every third-party SDK (Sentry, PostHog, Supabase, eBay OAuth target) lists what it sees",
+        "Age rating: 17+ if the description includes selling (commercial activity); 4+ otherwise — confirm with Apple's questionnaire",
+        "App icon: 1024×1024 with GradeThread/FlipDesk branding; flat design no transparency"
+      ],
+      "priority": 197,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-198",
+      "title": "iOS app: Realtime updates via Supabase Realtime",
+      "description": "As a user with the app open while a sale closes on eBay, I want to see the sale row appear without needing to pull-to-refresh. Phase 2 of US-172's sync — subscribe to Supabase Realtime on the user's items + sales tables so events stream in.",
+      "acceptanceCriteria": [
+        "SyncEngine opens a Supabase Realtime channel scoped to auth.uid() on the inventory_items, sales, and listings tables",
+        "Inserts + updates from the channel merge into the SwiftData store; subscribing views update reactively via @Query or NSFetchedResultsController",
+        "Connection lifecycle: opens on app foreground, pauses on background to save battery, reopens on next foreground",
+        "Heartbeat + automatic reconnect handled by supabase-swift; UI shows a 'reconnecting…' chip when the channel is down",
+        "Same conflict-resolution rules as polled sync (server wins on listing_price/status, client wins on user-edited fields)",
+        "Optional: per-user toggle in Settings to disable Realtime for battery-conscious users"
+      ],
+      "priority": 198,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-199",
+      "title": "iOS app: App Store post-launch — feedback, ratings, analytics-driven iteration",
+      "description": "As Pearson Media, after launch we need a feedback loop. In-app review prompt (Apple's StoreKit-native, not a custom one), an in-app feedback channel that doesn't require leaving the app, and a small analytics dashboard so we know what's working.",
+      "acceptanceCriteria": [
+        "SKStoreReviewController.requestReview() triggered after a meaningful success: user has published 3+ listings AND it's been at least 14 days since install AND we haven't asked in the last 365 days",
+        "Settings → 'Send feedback' opens a sheet that POSTs to a /api/feedback edge endpoint (new) with the user's id + message + device + app version + recent breadcrumbs",
+        "Feedback emails routed to support@pearson-media.com (or similar); critical bugs auto-create Sentry issues",
+        "PostHog dashboards configured for: D1/D7/D30 retention, intake → publish conversion, AI extract acceptance rate, eBay sync success rate, crash-free sessions",
+        "A/B test framework (PostHog feature flags) ready for testing major flow changes (e.g. photos-first vs details-first default)"
+      ],
+      "priority": 199,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
