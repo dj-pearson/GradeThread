@@ -105,6 +105,15 @@ export function apiHost(): string {
     : "https://api.sandbox.ebay.com";
 }
 
+// eBay routes some Sell APIs through a separate "apiz" host. Currently
+// Finances + Analytics — the rest of our calls (Inventory, Fulfillment,
+// Account, Taxonomy, Browse, Trading) all sit on apiHost().
+export function apizHost(): string {
+  return getEbayEnv() === "production"
+    ? "https://apiz.ebay.com"
+    : "https://apiz.sandbox.ebay.com";
+}
+
 function getScopes(): string {
   return (
     readEnv("EBAY_SCOPES") ??
@@ -1060,9 +1069,14 @@ export interface RemoteTransaction {
   bookingEntry: string | null; // "CREDIT" | "DEBIT"
 }
 
-// Filters orders modified since `sinceISO` (or the last 90 days when
+// Filters transactions modified since `sinceISO` (or the last 90 days when
 // omitted). Paginated 200/page; capped at 100 pages so a runaway query
-// can't loop forever.
+// can't loop forever. The Finances API is on apiz.ebay.com (NOT api.ebay.com),
+// so we sidestep fetchAuthed() and roll the request directly.
+//
+// 404 from this endpoint is benign — eBay returns it when the seller has
+// no transactions in the requested window, or when they aren't enrolled in
+// Managed Payments. Treat as empty rather than failing the whole sync.
 export async function listRecentTransactions(
   userId: string,
   sinceISO?: string | null
@@ -1079,8 +1093,33 @@ export async function listRecentTransactions(
     ? `&filter=${encodeURIComponent(filterParts.join(","))}`
     : "";
 
+  const token = await getUserAccessToken(userId);
+  const locale = localeForMarketplace();
+  const baseHost = apizHost();
+
   for (let i = 0; i < 100; i++) {
-    const payload = await fetchAuthed<{
+    const url =
+      `${baseHost}/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+        Accept: "application/json",
+        "Accept-Language": locale,
+      },
+    });
+
+    // 404 = "no transactions in window" or "not enrolled in Managed Payments".
+    // Both are recoverable — just stop paginating and return what we have.
+    if (res.status === 404) break;
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(
+        `eBay GET ${url} failed (${res.status}): ${text.slice(0, 500)}`,
+      );
+    }
+
+    const payload = (await res.json()) as {
       transactions?: Array<{
         transactionId?: string;
         transactionType?: string;
@@ -1092,10 +1131,8 @@ export async function listRecentTransactions(
         bookingEntry?: string;
       }>;
       total?: number;
-    }>(
-      userId,
-      `/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`
-    );
+    };
+
     const batch = payload.transactions ?? [];
     for (const t of batch) {
       if (!t.transactionId) continue;
