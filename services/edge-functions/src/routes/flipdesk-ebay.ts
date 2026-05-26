@@ -17,6 +17,7 @@ import {
   listAllOffers,
   listOffersForSku,
   listRecentOrders,
+  listRecentTransactions,
   publishOffer,
   searchBrowseComps,
   suggestCategories,
@@ -26,6 +27,7 @@ import {
   type PolicySet,
   type RemoteOffer,
   type RemoteOrder,
+  type RemoteTransaction,
 } from "../lib/ebay-client.ts";
 import {
   getAllActiveEbaySelling,
@@ -640,6 +642,152 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     );
   }
 
+  // ── Finances enrichment (fees + payout) ─────────────────────────
+  // For each SALE transaction we find via the Finances API, find the
+  // matching sales row by platform_order_id and write through:
+  //   platform_fees, payout_amount, payout_reference, net_profit
+  // This is what flips the Sold tab badge from "Pending" to "Cleared".
+  let salesEnriched = 0;
+  try {
+    const txns: RemoteTransaction[] = await listRecentTransactions(
+      userId,
+      sinceISO
+    );
+    // Build a quick orderId → aggregate map. SALE transactions carry gross
+    // + fees; SHIPPING_LABEL transactions carry what the SELLER paid for
+    // the eBay shipping label (deducted from the payout). Refunds reduce
+    // gross. We sum each per-order so multi-line orders compose cleanly.
+    interface OrderAgg {
+      gross: number;
+      fees: number;
+      shippingLabelCost: number;
+      payoutId: string | null;
+      currency: string;
+    }
+    const byOrder = new Map<string, OrderAgg>();
+    function upsertAgg(orderId: string): OrderAgg {
+      const existing = byOrder.get(orderId);
+      if (existing) return existing;
+      const fresh: OrderAgg = {
+        gross: 0,
+        fees: 0,
+        shippingLabelCost: 0,
+        payoutId: null,
+        currency: "USD",
+      };
+      byOrder.set(orderId, fresh);
+      return fresh;
+    }
+    for (const t of txns) {
+      if (!t.orderId) continue;
+      const agg = upsertAgg(t.orderId);
+      const amt = t.amount ? Number(t.amount.value) : 0;
+      if (t.amount?.currency) agg.currency = t.amount.currency;
+      if (t.payoutId && !agg.payoutId) agg.payoutId = t.payoutId;
+
+      switch (t.transactionType) {
+        case "SALE":
+          agg.gross += amt;
+          if (t.totalFeeAmount) {
+            agg.fees += Number(t.totalFeeAmount.value);
+          }
+          break;
+        case "SHIPPING_LABEL":
+          // Seller-paid label. amount is positive but it's a DEBIT (deducted
+          // from the payout). Sum the absolute value either way.
+          agg.shippingLabelCost += Math.abs(amt);
+          break;
+        case "REFUND":
+          // Refund issued to buyer — comes out of the seller's payout.
+          // Treat as a negative adjustment to gross.
+          agg.gross -= Math.abs(amt);
+          break;
+        // Other types (DISPUTE, CREDIT, NON_SALE_CHARGE) intentionally
+        // ignored for now — they're rare and would need per-case handling.
+      }
+    }
+
+    // Pull every sale this user has with a matching platform_order_id so we
+    // can update + compute net_profit (needs cost_basis from inventory_items).
+    const orderIds = Array.from(byOrder.keys());
+    if (orderIds.length > 0) {
+      const { data: salesRows } = await supabaseAdmin
+        .from("sales")
+        .select(
+          "id, inventory_item_id, sale_price, shipping_collected, shipping_cost, grading_cost, other_costs, platform_order_id, inventory_items!inner(user_id, acquired_price)"
+        )
+        .in("platform_order_id", orderIds);
+
+      for (const row of (salesRows ?? []) as Array<{
+        id: string;
+        inventory_item_id: string;
+        sale_price: number | null;
+        shipping_collected: number | null;
+        shipping_cost: number | null;
+        grading_cost: number | null;
+        other_costs: number | null;
+        platform_order_id: string | null;
+        inventory_items: { user_id: string; acquired_price: number | null };
+      }>) {
+        if (row.inventory_items.user_id !== userId) continue;
+        const agg = row.platform_order_id
+          ? byOrder.get(row.platform_order_id)
+          : null;
+        if (!agg) continue;
+
+        const fees = agg.fees;
+        // Use eBay's label cost when present, otherwise keep whatever the
+        // user manually entered (a USPS direct label, etc.).
+        const shippingCost = agg.shippingLabelCost > 0
+          ? agg.shippingLabelCost
+          : row.shipping_cost ?? 0;
+        // Payout = what actually hit the seller's bank: gross - fees - labels.
+        // This is the cleared-funds amount, not net profit.
+        const payoutAmount = Math.max(
+          0,
+          agg.gross - fees - agg.shippingLabelCost,
+        );
+
+        const salePrice = row.sale_price ?? 0;
+        const shippingCollected = row.shipping_collected ?? 0;
+        const gradingCost = row.grading_cost ?? 0;
+        const otherCosts = row.other_costs ?? 0;
+        const costBasis = row.inventory_items.acquired_price ?? 0;
+        // Net profit = revenue - fees - your costs.
+        // Revenue: sale_price + shipping_collected (tax flows through to
+        //   government, not seller).
+        // Fees: platform_fees (already in `fees`).
+        // Your costs: cost basis, your shipping cost to send the item,
+        //   grading, other.
+        const netProfit =
+          salePrice +
+          shippingCollected -
+          fees -
+          shippingCost -
+          gradingCost -
+          otherCosts -
+          costBasis;
+
+        await supabaseAdmin
+          .from("sales")
+          .update({
+            platform_fees: fees,
+            shipping_cost: shippingCost,
+            payout_amount: payoutAmount,
+            payout_reference: agg.payoutId,
+            net_profit: Math.round(netProfit * 100) / 100,
+          })
+          .eq("id", row.id);
+        salesEnriched += 1;
+      }
+    }
+  } catch (err) {
+    console.error("[flipdesk-ebay] finances enrichment failed:", err);
+    errors.push(
+      `finances: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
   // Stamp last_synced_at so the UI can show "Synced 2m ago" + the next
   // /listings/pull picks up where this one left off.
   await supabaseAdmin
@@ -659,6 +807,7 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     sales_new: salesNew,
     sales_updated: salesUpdated,
     sales_skipped: salesSkipped,
+    sales_enriched: salesEnriched,
     since: sinceISO,
     errors,
   });

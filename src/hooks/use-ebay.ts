@@ -366,6 +366,7 @@ export interface SyncEbayListingsResponse {
   sales_new: number;
   sales_updated: number;
   sales_skipped: number;
+  sales_enriched: number;
   since: string | null;
   errors: string[];
 }

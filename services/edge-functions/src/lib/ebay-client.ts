@@ -117,6 +117,9 @@ function getScopes(): string {
       // Users connected BEFORE this scope was added must reconnect — old
       // tokens were issued without it and Fulfillment API silently 403s.
       "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
+      // Required by /sell/finances/v1/transaction for fees + payout sync
+      // (lets sales rows flip from "Pending" to "Cleared" with real numbers).
+      "https://api.ebay.com/oauth/api_scope/sell.finances",
     ].join(" ")
   );
 }
@@ -1031,6 +1034,90 @@ export async function listRecentOrders(
             }
           : null,
         lineItems,
+      });
+    }
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
+
+// ── Sell Finances API: fees + payouts (Week 5) ─────────────────────
+//
+// Used by /listings/pull to enrich sales rows with the platform fees +
+// payout amount so each row flips from "Pending" to "Cleared" once the
+// money has actually moved. Fees come from SALE transactions; payouts
+// land via the same orderId once eBay pays out.
+
+export interface RemoteTransaction {
+  transactionId: string;
+  transactionType: string; // "SALE" | "NON_SALE_CHARGE" | "REFUND" | "PAYOUT" | ...
+  transactionDate: string | null;
+  orderId: string | null;
+  amount: { value: string; currency: string } | null;
+  totalFeeAmount: { value: string; currency: string } | null;
+  payoutId: string | null;
+  bookingEntry: string | null; // "CREDIT" | "DEBIT"
+}
+
+// Filters orders modified since `sinceISO` (or the last 90 days when
+// omitted). Paginated 200/page; capped at 100 pages so a runaway query
+// can't loop forever.
+export async function listRecentTransactions(
+  userId: string,
+  sinceISO?: string | null
+): Promise<RemoteTransaction[]> {
+  const all: RemoteTransaction[] = [];
+  const limit = 200;
+  let offset = 0;
+  const filterParts: string[] = [];
+  if (sinceISO) {
+    const iso = new Date(sinceISO).toISOString();
+    filterParts.push(`transactionDate:[${iso}..]`);
+  }
+  const filter = filterParts.length > 0
+    ? `&filter=${encodeURIComponent(filterParts.join(","))}`
+    : "";
+
+  for (let i = 0; i < 100; i++) {
+    const payload = await fetchAuthed<{
+      transactions?: Array<{
+        transactionId?: string;
+        transactionType?: string;
+        transactionDate?: string;
+        orderId?: string;
+        amount?: { value?: string; currency?: string };
+        totalFeeAmount?: { value?: string; currency?: string };
+        payoutId?: string;
+        bookingEntry?: string;
+      }>;
+      total?: number;
+    }>(
+      userId,
+      `/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`
+    );
+    const batch = payload.transactions ?? [];
+    for (const t of batch) {
+      if (!t.transactionId) continue;
+      all.push({
+        transactionId: t.transactionId,
+        transactionType: t.transactionType ?? "",
+        transactionDate: t.transactionDate ?? null,
+        orderId: t.orderId ?? null,
+        amount: t.amount?.value
+          ? {
+              value: String(t.amount.value),
+              currency: t.amount.currency ?? "USD",
+            }
+          : null,
+        totalFeeAmount: t.totalFeeAmount?.value
+          ? {
+              value: String(t.totalFeeAmount.value),
+              currency: t.totalFeeAmount.currency ?? "USD",
+            }
+          : null,
+        payoutId: t.payoutId ?? null,
+        bookingEntry: t.bookingEntry ?? null,
       });
     }
     if (batch.length < limit) break;
