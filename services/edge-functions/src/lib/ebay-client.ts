@@ -14,18 +14,81 @@ import { decryptToken, encryptToken } from "./crypto-aes.ts";
 
 export type EbayEnv = "sandbox" | "production";
 
+// All env reads go through here — they trim whitespace from copy-paste and
+// treat empty strings as "unset". eBay's OAuth host rejects requests with
+// "OAuth client not found" if a single trailing space sneaks into the App ID,
+// so be paranoid.
+function readEnv(name: string): string | undefined {
+  const v = Deno.env.get(name);
+  if (v == null) return undefined;
+  const trimmed = v.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 export function getEbayEnv(): EbayEnv {
-  return (Deno.env.get("EBAY_ENV") as EbayEnv) === "production"
-    ? "production"
-    : "sandbox";
+  const raw = readEnv("EBAY_ENV")?.toLowerCase();
+  return raw === "production" ? "production" : "sandbox";
 }
 
 export function isEbayConfigured(): boolean {
   return !!(
-    Deno.env.get("EBAY_APP_ID") &&
-    Deno.env.get("EBAY_CERT_ID") &&
-    Deno.env.get("EBAY_RU_NAME")
+    readEnv("EBAY_APP_ID") &&
+    readEnv("EBAY_CERT_ID") &&
+    readEnv("EBAY_RU_NAME")
   );
+}
+
+// Sanitized snapshot for the /oauth/debug endpoint. Never returns secrets;
+// shows enough for a human to spot env-var problems (env, host, RuName format).
+export function debugSnapshot(): {
+  configured: boolean;
+  env: EbayEnv;
+  auth_host: string;
+  api_host: string;
+  marketplace_id: string;
+  category_tree_id: string;
+  app_id_present: boolean;
+  app_id_prefix: string | null;
+  cert_id_present: boolean;
+  dev_id_present: boolean;
+  ru_name_present: boolean;
+  ru_name_looks_like_url: boolean;
+  edge_encryption_key_present: boolean;
+  edge_encryption_key_byte_length: number | null;
+} {
+  const appId = readEnv("EBAY_APP_ID");
+  const ruName = readEnv("EBAY_RU_NAME");
+  const encKey = readEnv("EDGE_ENCRYPTION_KEY");
+  let keyBytes: number | null = null;
+  if (encKey) {
+    try {
+      keyBytes = atob(encKey).length;
+    } catch {
+      keyBytes = -1; // signals "not valid base64"
+    }
+  }
+  return {
+    configured: isEbayConfigured(),
+    env: getEbayEnv(),
+    auth_host: authHost(),
+    api_host: apiHost(),
+    marketplace_id: getMarketplaceId(),
+    category_tree_id: getCategoryTreeId(),
+    app_id_present: !!appId,
+    // Just the leading and trailing characters — enough to confirm SBX vs PRD
+    // and spot whitespace, but not enough to leak.
+    app_id_prefix: appId
+      ? `${appId.slice(0, 12)}…${appId.slice(-6)} (len ${appId.length})`
+      : null,
+    cert_id_present: !!readEnv("EBAY_CERT_ID"),
+    dev_id_present: !!readEnv("EBAY_DEV_ID"),
+    ru_name_present: !!ruName,
+    // A common confusion: people paste the redirect URL into EBAY_RU_NAME
+    // instead of the RuName identifier. Flag that explicitly.
+    ru_name_looks_like_url: ruName ? /^https?:\/\//i.test(ruName) : false,
+    edge_encryption_key_present: !!encKey,
+    edge_encryption_key_byte_length: keyBytes,
+  };
 }
 
 // Host resolution. Auth host serves the consent page; API host serves the
@@ -44,7 +107,7 @@ export function apiHost(): string {
 
 function getScopes(): string {
   return (
-    Deno.env.get("EBAY_SCOPES") ??
+    readEnv("EBAY_SCOPES") ??
     [
       "https://api.ebay.com/oauth/api_scope",
       "https://api.ebay.com/oauth/api_scope/sell.inventory",
@@ -55,19 +118,27 @@ function getScopes(): string {
 }
 
 function basicAuthHeader(): string {
-  const appId = Deno.env.get("EBAY_APP_ID")!;
-  const certId = Deno.env.get("EBAY_CERT_ID")!;
+  const appId = readEnv("EBAY_APP_ID");
+  const certId = readEnv("EBAY_CERT_ID");
+  if (!appId || !certId) {
+    throw new Error("EBAY_APP_ID / EBAY_CERT_ID are not set.");
+  }
   return `Basic ${btoa(`${appId}:${certId}`)}`;
 }
 
 // ── User OAuth ──────────────────────────────────────────────────────
 
 export function buildConsentUrl(state: string): string {
+  const appId = readEnv("EBAY_APP_ID");
+  const ruName = readEnv("EBAY_RU_NAME");
+  if (!appId || !ruName) {
+    throw new Error("EBAY_APP_ID / EBAY_RU_NAME are not set.");
+  }
   const params = new URLSearchParams({
-    client_id: Deno.env.get("EBAY_APP_ID")!,
+    client_id: appId,
     response_type: "code",
     // eBay's `redirect_uri` parameter takes the RuName, not the URL itself.
-    redirect_uri: Deno.env.get("EBAY_RU_NAME")!,
+    redirect_uri: ruName,
     scope: getScopes(),
     state,
   });
@@ -85,10 +156,12 @@ export interface EbayUserTokenResponse {
 export async function exchangeCodeForTokens(
   code: string
 ): Promise<EbayUserTokenResponse> {
+  const ruName = readEnv("EBAY_RU_NAME");
+  if (!ruName) throw new Error("EBAY_RU_NAME is not set.");
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
-    redirect_uri: Deno.env.get("EBAY_RU_NAME")!,
+    redirect_uri: ruName,
   });
   const res = await fetch(`${apiHost()}/identity/v1/oauth2/token`, {
     method: "POST",
@@ -268,11 +341,11 @@ export async function getUserAccessToken(userId: string): Promise<string> {
 // ── Taxonomy helpers ────────────────────────────────────────────────
 
 export function getMarketplaceId(): string {
-  return Deno.env.get("EBAY_MARKETPLACE_ID") ?? "EBAY_US";
+  return readEnv("EBAY_MARKETPLACE_ID") ?? "EBAY_US";
 }
 
 export function getCategoryTreeId(): string {
-  return Deno.env.get("EBAY_CATEGORY_TREE_ID") ?? "0";
+  return readEnv("EBAY_CATEGORY_TREE_ID") ?? "0";
 }
 
 export interface CategorySuggestion {

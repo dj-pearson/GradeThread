@@ -5,6 +5,7 @@ import {
   buildConsentUrl,
   createOffer,
   createOrReplaceInventoryItem,
+  debugSnapshot,
   ebayListingUrl,
   exchangeCodeForTokens,
   getCategoryAspects,
@@ -38,6 +39,14 @@ type EbayEnv = { Variables: { userId: string } };
 
 export const flipdeskEbayRoutes = new Hono<EbayEnv>();
 
+// ── Diagnostics ────────────────────────────────────────────────────
+// GET /oauth/debug — returns a sanitized snapshot of how the edge service
+// resolved the eBay env vars. No secrets. Use this to spot sandbox/prod
+// mismatches and whitespace problems without grepping Coolify settings.
+flipdeskEbayRoutes.get("/oauth/debug", (c) => {
+  return c.json(debugSnapshot());
+});
+
 // ── OAuth: start ───────────────────────────────────────────────────
 // Returns { consent_url } for the SPA to window.location to. The state
 // token is persisted server-side so the callback can verify+identify.
@@ -60,7 +69,20 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
     return c.json({ error: "Could not start eBay sign-in." }, 500);
   }
 
-  return c.json({ consent_url: buildConsentUrl(state) });
+  let consentUrl: string;
+  try {
+    consentUrl = buildConsentUrl(state);
+  } catch (err) {
+    console.error("[flipdesk-ebay] could not build consent URL:", err);
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+
+  // Log the (non-secret) host the browser is about to hit — makes
+  // sandbox/production mismatches obvious in Coolify logs.
+  console.log(
+    `[flipdesk-ebay] consent URL built: host=${new URL(consentUrl).host}`
+  );
+  return c.json({ consent_url: consentUrl });
 });
 
 // ── OAuth: callback (PUBLIC) ───────────────────────────────────────
@@ -75,10 +97,24 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
   const ebayError = c.req.query("error");
+  const ebayErrorDesc = c.req.query("error_description");
 
   // eBay sends `error=access_denied` when the user cancels at the consent
-  // screen. Treat that as a graceful return to the app.
-  if (ebayError || !code || !state) {
+  // screen. Other error codes (e.g. unauthorized_client) signal config bugs
+  // — log the description so the operator can see it without having to dig
+  // through eBay's redirect URL.
+  if (ebayError) {
+    console.error(
+      `[flipdesk-ebay] consent error: ${ebayError} — ${ebayErrorDesc ?? "(no description)"}`
+    );
+    const reason = ebayError === "access_denied" ? "cancelled" : ebayError;
+    return c.redirect(
+      appUrl(
+        `/dashboard/flipdesk/marketplaces?ebay=${encodeURIComponent(reason)}`
+      )
+    );
+  }
+  if (!code || !state) {
     return c.redirect(appUrl("/dashboard/flipdesk/marketplaces?ebay=cancelled"));
   }
 
