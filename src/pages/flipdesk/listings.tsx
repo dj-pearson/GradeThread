@@ -19,6 +19,9 @@ import {
   XCircle,
   TrendingDown,
   RefreshCw,
+  Download,
+  Sparkles,
+  X,
 } from "lucide-react";
 import {
   Card,
@@ -64,6 +67,19 @@ import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
+import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
+import { FilterBuilder } from "@/components/flipdesk/filter-builder";
+import { SaveViewDialog } from "@/components/flipdesk/save-view-dialog";
+import { useSavedViews } from "@/hooks/use-saved-views";
+import {
+  EMPTY_QUERY,
+  evalQuery,
+  encodeQuery,
+  decodeQuery,
+  describeRule,
+  type FilterQuery,
+} from "@/lib/item-filter";
+import { downloadItemsCsv } from "@/lib/items-csv";
 import {
   useEbayConnection,
   useEbayEndListing,
@@ -307,6 +323,46 @@ export function FlipdeskListingsPage() {
   const updatePrice = useEbayUpdateListingPrice();
   const endListingApi = useEbayEndListing();
 
+  // Advanced filter — composes ON TOP of the stage tabs. Initialised from
+  // the URL so saved-view links round-trip cleanly.
+  const { data: savedViews = [] } = useSavedViews();
+  const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => {
+    const f = searchParams.get("filter");
+    return (f && decodeQuery(f)) || EMPTY_QUERY;
+  });
+  const [saveViewOpen, setSaveViewOpen] = useState(false);
+  const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
+
+  // Load a saved view when ?view=<id> resolves — applies the saved filter
+  // and strips the param so a reload doesn't re-apply.
+  useEffect(() => {
+    const viewId = searchParams.get("view");
+    if (!viewId || savedViews.length === 0) return;
+    const v = savedViews.find((sv) => sv.id === viewId);
+    if (v) {
+      const q = v.query_json as unknown as FilterQuery;
+      setFilterQuery(
+        q && Array.isArray(q.rules) ? q : EMPTY_QUERY,
+      );
+      const next = new URLSearchParams(searchParams);
+      next.delete("view");
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedViews, searchParams]);
+
+  // Keep ?filter= in the URL synced with the builder so the link survives
+  // copy-paste between teammates.
+  useEffect(() => {
+    const next = new URLSearchParams(searchParams);
+    if (filterQuery.rules.length === 0) next.delete("filter");
+    else next.set("filter", encodeQuery(filterQuery));
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterQuery]);
+
   const isToList = tab === "to_list";
   const isSold = tab === "sold";
   const isActive = tab === "active";
@@ -422,6 +478,10 @@ export function FlipdeskListingsPage() {
         if (soldFilter === "ytd" && (soldT == null || soldT < yearStart))
           return false;
       }
+      // Advanced filter — composes on top of stage tab + search + sold-tab filter.
+      if (filterQuery.rules.length > 0 && !evalQuery(it, filterQuery)) {
+        return false;
+      }
       return true;
     });
 
@@ -471,7 +531,7 @@ export function FlipdeskListingsPage() {
       );
     });
     return rows;
-  }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById]);
+  }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById, filterQuery]);
 
   // Aggregate strip for the Sold tab — over the current filter.
   const soldAgg = useMemo(() => {
@@ -819,6 +879,14 @@ export function FlipdeskListingsPage() {
           <InventoryViewSwitcher current="table" />
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={() => downloadItemsCsv(filtered)}
+            disabled={filtered.length === 0}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
           {ebayConnection && (
             <Button
               variant="outline"
@@ -936,7 +1004,84 @@ export function FlipdeskListingsPage() {
             </SelectContent>
           </Select>
         )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <FilterBuilder query={filterQuery} onChange={setFilterQuery} />
+          {savedViews.length > 0 && (
+            <Select
+              value=""
+              onValueChange={(id) => {
+                const v = savedViews.find((sv) => sv.id === id);
+                if (v) {
+                  const q = v.query_json as unknown as FilterQuery;
+                  setFilterQuery(
+                    q && Array.isArray(q.rules) ? q : EMPTY_QUERY,
+                  );
+                }
+              }}
+            >
+              <SelectTrigger className="h-9 w-44 text-xs">
+                <SelectValue placeholder="Saved views" />
+              </SelectTrigger>
+              <SelectContent>
+                {savedViews.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.emoji ? `${v.emoji} ` : ""}
+                    {v.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          {filterQuery.rules.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSaveViewOpen(true)}
+            >
+              Save view
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Active filter chips — show what the advanced filter is doing
+          so the user can spot stale conditions when stage tab + filter
+          combine to show nothing. */}
+      {filterQuery.rules.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {filterQuery.combinator === "and" ? "All of:" : "Any of:"}
+          </span>
+          {filterQuery.rules.map((rule) => (
+            <span
+              key={rule.id}
+              className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs"
+            >
+              {describeRule(rule)}
+              <button
+                type="button"
+                onClick={() =>
+                  setFilterQuery({
+                    ...filterQuery,
+                    rules: filterQuery.rules.filter((r) => r.id !== rule.id),
+                  })
+                }
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Remove filter"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={() => setFilterQuery(EMPTY_QUERY)}
+            className="text-xs text-brand-red hover:underline"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       {/* Sold-tab filter chips */}
       {isSold && (
@@ -1449,15 +1594,25 @@ export function FlipdeskListingsPage() {
                 Clear
               </Button>
               {isToList ? (
-                <Button onClick={bulkCreateDrafts} disabled={busy}>
-                  {busy ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <FileText className="mr-2 h-4 w-4" />
-                  )}
-                  Create {selected.size} draft
-                  {selected.size === 1 ? "" : "s"}
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => setAiEnrichOpen(true)}
+                    disabled={busy}
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    AI enrich
+                  </Button>
+                  <Button onClick={bulkCreateDrafts} disabled={busy}>
+                    {busy ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <FileText className="mr-2 h-4 w-4" />
+                    )}
+                    Create {selected.size} draft
+                    {selected.size === 1 ? "" : "s"}
+                  </Button>
+                </>
               ) : isActive ? (
                 <>
                   <Select value={bulkDropPct} onValueChange={setBulkDropPct}>
@@ -1545,6 +1700,27 @@ export function FlipdeskListingsPage() {
       <RecordSaleDialog
         item={recordSaleItem}
         onClose={() => setRecordSaleItem(null)}
+      />
+
+      <SaveViewDialog
+        open={saveViewOpen}
+        onOpenChange={setSaveViewOpen}
+        query={filterQuery}
+      />
+
+      <BulkAiEnrichDialog
+        open={aiEnrichOpen}
+        onOpenChange={setAiEnrichOpen}
+        itemIds={Array.from(selected)}
+        onReviewItem={(itemId) => {
+          const it = items.find((i) => i.id === itemId);
+          if (it) setDetailItem(it);
+          setAiEnrichOpen(false);
+        }}
+        onDone={() => {
+          qc.invalidateQueries({ queryKey: ["items_full"] });
+          setSelected(new Set());
+        }}
       />
     </div>
   );

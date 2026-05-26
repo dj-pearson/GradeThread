@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";
 import { AuthLayout } from "@/layouts/auth-layout";
 import { DashboardLayout } from "@/layouts/dashboard-layout";
@@ -35,7 +35,11 @@ const AcceptableUsePage = lazy(() => import("@/pages/legal/acceptable-use").then
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskPipelinePage = lazy(() => import("@/pages/flipdesk/pipeline").then(m => ({ default: m.FlipdeskPipelinePage })));
 const FlipdeskListingsPage = lazy(() => import("@/pages/flipdesk/listings").then(m => ({ default: m.FlipdeskListingsPage })));
-const FlipdeskItemsPage = lazy(() => import("@/pages/flipdesk/items").then(m => ({ default: m.FlipdeskItemsPage })));
+// FlipdeskItemsPage was the legacy power-user table. Its features (saved
+// views, filter builder, CSV export, bulk AI enrich) now live on the
+// canonical Inventory page (FlipdeskListingsPage) — the /items URL is kept
+// as a redirect below so saved-view links from before the consolidation
+// still resolve cleanly.
 const FlipdeskGridPage = lazy(() => import("@/pages/flipdesk/grid").then(m => ({ default: m.FlipdeskGridPage })));
 const FlipdeskComposerPage = lazy(() => import("@/pages/flipdesk/composer").then(m => ({ default: m.FlipdeskComposerPage })));
 const FlipdeskItemPage = lazy(() => import("@/pages/flipdesk/item").then(m => ({ default: m.FlipdeskItemPage })));
@@ -128,7 +132,8 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/inventory/kanban", element: <SuspenseWrapper><FlipdeskPipelinePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/inventory/prep", element: <SuspenseWrapper><FlipdeskPrepPage /></SuspenseWrapper> },
               // Legacy paths — still resolve so links don't break.
-              { path: "/dashboard/flipdesk/items", element: <SuspenseWrapper><FlipdeskItemsPage /></SuspenseWrapper> },
+              // /items now redirects to /inventory (preserving query params).
+              { path: "/dashboard/flipdesk/items", element: <Navigate to="/dashboard/flipdesk/inventory" replace /> },
               { path: "/dashboard/flipdesk/grid", element: <SuspenseWrapper><FlipdeskGridPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/items/:id", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/items/:id/draft", element: <SuspenseWrapper><FlipdeskComposerPage /></SuspenseWrapper> },
