@@ -20,20 +20,58 @@ import { rateLimiter } from "./middleware/rate-limit.ts";
 
 const app = new Hono();
 
+// Allowed CORS origins. Function form is more reliable than the array form
+// across Hono versions and gives clearer logs when a request is rejected.
+const ALLOWED_ORIGINS = new Set<string>([
+  "http://localhost:5173",
+  "https://gradethread.com",
+  "https://www.gradethread.com",
+  "https://flipdesk.com",
+  "https://www.flipdesk.com",
+]);
+
+const ALLOWED_HEADERS = [
+  "Content-Type",
+  "Authorization",
+  "X-API-Key",
+  "X-Internal-Job-Secret",
+];
+
+// Belt-and-suspenders: respond to every OPTIONS preflight FIRST, before any
+// other middleware runs. Hono's cors() should already do this, but a defensive
+// explicit handler here means a Traefik/Coolify edge or an upstream middleware
+// quirk can't strip the headers — we always emit them.
+app.use("*", async (c, next) => {
+  if (c.req.method !== "OPTIONS") {
+    await next();
+    return;
+  }
+  const origin = c.req.header("Origin") ?? "";
+  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : "";
+  if (allowed) {
+    c.header("Access-Control-Allow-Origin", allowed);
+    c.header("Vary", "Origin");
+  }
+  c.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  );
+  c.header(
+    "Access-Control-Allow-Headers",
+    c.req.header("Access-Control-Request-Headers") ?? ALLOWED_HEADERS.join(", "),
+  );
+  c.header("Access-Control-Max-Age", "86400");
+  return c.body(null, 204);
+});
+
 // Middleware
 app.use("*", logger());
 app.use(
   "*",
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://gradethread.com",
-      "https://www.gradethread.com",
-      "https://flipdesk.com",
-      "https://www.flipdesk.com",
-    ],
+    origin: (origin) => (ALLOWED_ORIGINS.has(origin) ? origin : null),
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowHeaders: ["Content-Type", "Authorization", "X-API-Key"],
+    allowHeaders: ALLOWED_HEADERS,
     maxAge: 86400,
   })
 );
