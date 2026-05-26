@@ -11,6 +11,8 @@ import {
   Loader2,
   RotateCcw,
   Trash2,
+  Plus,
+  Sparkles,
 } from "lucide-react";
 import {
   Card,
@@ -119,6 +121,10 @@ export function EbaySkuMatch() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [linkTarget, setLinkTarget] = useState<EbayListingRow | null>(null);
+  const [createTarget, setCreateTarget] = useState<EbayListingRow | null>(
+    null,
+  );
+  const [bulkCreating, setBulkCreating] = useState(false);
 
   const { data: listings = [], isLoading: listingsLoading } = useEbayListings();
   const { data: items = [], isLoading: itemsLoading } = useItemsFull();
@@ -235,6 +241,127 @@ export function EbaySkuMatch() {
     } catch (err) {
       toast.error(
         `Clear failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  // Creates a new inventory_items row pre-populated from the eBay listing,
+  // plus the matching listings row, then marks the orphan matched. The
+  // user can refine title + SKU before confirming via the dialog; this
+  // function is the worker.
+  //
+  // When `customSku` is supplied, it overrides the eBay Custom Label. When
+  // null/undefined the existing custom_label is used (or left null).
+  async function createItemFromListing(
+    listing: EbayListingRow,
+    overrides: { title?: string; sku?: string | null } = {},
+  ): Promise<string | null> {
+    if (!user) {
+      toast.error("You must be signed in.");
+      return null;
+    }
+    const title = (overrides.title ?? listing.title ?? "").trim() ||
+      `eBay item ${listing.ebay_item_id}`;
+    const sku = overrides.sku !== undefined
+      ? overrides.sku?.trim() || null
+      : listing.custom_label;
+
+    // 1. Insert inventory_items pre-listed (since it's already on eBay).
+    const itemInsert: Record<string, unknown> = {
+      user_id: user.id,
+      title,
+      sku,
+      status: "listed",
+      target_price: listing.current_price,
+    };
+    const { data: itemRow, error: itemErr } = await supabase
+      .from("inventory_items")
+      .insert(itemInsert as never)
+      .select("id")
+      .single();
+    if (itemErr || !itemRow) {
+      // Surface unique-violation errors clearly so the user can pick a different SKU.
+      const msg = itemErr?.message ?? "Item create failed.";
+      if (
+        msg.toLowerCase().includes("duplicate") ||
+        msg.toLowerCase().includes("unique")
+      ) {
+        throw new Error(
+          `Another FlipDesk item already uses SKU "${sku}". Pick a different SKU.`,
+        );
+      }
+      throw new Error(msg);
+    }
+    const itemId = (itemRow as { id: string }).id;
+
+    // 2. Insert listings row mirroring the live eBay listing.
+    const listingInsert: Record<string, unknown> = {
+      inventory_item_id: itemId,
+      platform: "ebay",
+      platform_listing_id: listing.ebay_item_id,
+      listing_url: listing.listing_url,
+      listing_price: listing.current_price ?? 0,
+      listing_title: listing.title,
+      listing_status: "active",
+      is_active: true,
+      listed_at: new Date().toISOString(),
+    };
+    const { error: listErr } = await supabase
+      .from("listings")
+      .insert(listingInsert as never);
+    if (listErr) {
+      // Best-effort: leave the inventory_item created so the user can fix
+      // the listing row by hand if needed. Surface the error.
+      throw new Error(`Listing record failed: ${listErr.message}`);
+    }
+
+    // 3. Mark the orphan as matched.
+    const { error: matchErr } = await supabase
+      .from("flipdesk_ebay_listings")
+      .update({
+        match_status: "matched",
+        matched_item_id: itemId,
+      } as never)
+      .eq("id", listing.id);
+    if (matchErr) throw new Error(matchErr.message);
+
+    return itemId;
+  }
+
+  // Bulk: create FlipDesk items for every orphan in one go. Errors per-row
+  // are aggregated so one bad row doesn't sink the rest.
+  async function createAllUnmatched() {
+    if (bulkCreating) return;
+    const orphans = buckets.unmatched.map((u) => u.listing);
+    if (orphans.length === 0) return;
+    setBulkCreating(true);
+    let created = 0;
+    const errors: string[] = [];
+    for (const listing of orphans) {
+      try {
+        await createItemFromListing(listing);
+        created += 1;
+      } catch (err) {
+        errors.push(
+          `${listing.title ?? listing.ebay_item_id}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["ebay_listings"] }),
+      qc.invalidateQueries({ queryKey: ["items_full"] }),
+    ]);
+    setBulkCreating(false);
+    if (errors.length === 0) {
+      toast.success(
+        `Created ${created} FlipDesk item${created === 1 ? "" : "s"} from eBay.`,
+      );
+    } else {
+      toast.warning(
+        `Created ${created}, ${errors.length} failed. First: ${errors[0]}`,
+        { duration: 12_000 },
       );
     }
   }
@@ -369,13 +496,29 @@ export function EbaySkuMatch() {
                     copying the SKU across so future pulls match automatically.
                   </CardDescription>
                 </div>
-                <Badge
-                  variant={
-                    buckets.unmatched.length > 0 ? "destructive" : "outline"
-                  }
-                >
-                  {buckets.unmatched.length}
-                </Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  {buckets.unmatched.length > 0 && (
+                    <Button
+                      size="sm"
+                      onClick={() => void createAllUnmatched()}
+                      disabled={bulkCreating}
+                    >
+                      {bulkCreating ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      Create all ({buckets.unmatched.length})
+                    </Button>
+                  )}
+                  <Badge
+                    variant={
+                      buckets.unmatched.length > 0 ? "destructive" : "outline"
+                    }
+                  >
+                    {buckets.unmatched.length}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -435,7 +578,14 @@ export function EbaySkuMatch() {
                             </div>
                           )}
                         </div>
-                        <div className="flex flex-shrink-0 gap-2">
+                        <div className="flex flex-shrink-0 flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => setCreateTarget(listing)}
+                          >
+                            <Plus className="mr-1.5 h-3.5 w-3.5" />
+                            Create
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"
@@ -571,7 +721,136 @@ export function EbaySkuMatch() {
         items={items}
         onClose={() => setLinkTarget(null)}
       />
+
+      <CreateItemFromListingDialog
+        listing={createTarget}
+        onClose={() => setCreateTarget(null)}
+        onCreate={async (overrides) => {
+          if (!createTarget) return;
+          try {
+            await createItemFromListing(createTarget, overrides);
+            await Promise.all([
+              qc.invalidateQueries({ queryKey: ["ebay_listings"] }),
+              qc.invalidateQueries({ queryKey: ["items_full"] }),
+            ]);
+            toast.success("Item created and linked to the eBay listing.");
+            setCreateTarget(null);
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : String(err),
+            );
+          }
+        }}
+      />
     </div>
+  );
+}
+
+// Pre-fills title + SKU from the eBay listing; user can edit either before
+// confirming. SKU is optional — if blank, the new item has no SKU and the
+// user can set one later.
+function CreateItemFromListingDialog({
+  listing,
+  onClose,
+  onCreate,
+}: {
+  listing: EbayListingRow | null;
+  onClose: () => void;
+  onCreate: (overrides: {
+    title: string;
+    sku: string | null;
+  }) => Promise<void>;
+}) {
+  const [title, setTitle] = useState("");
+  const [sku, setSku] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Re-seed whenever the dialog opens on a different listing.
+  useMemo(() => {
+    if (listing) {
+      setTitle(listing.title ?? "");
+      setSku(listing.custom_label ?? "");
+    }
+  }, [listing]);
+
+  async function handleCreate() {
+    setSaving(true);
+    try {
+      await onCreate({
+        title: title.trim(),
+        sku: sku.trim() || null,
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={!!listing}
+      onOpenChange={(o) => {
+        if (!o && !saving) onClose();
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Create FlipDesk item from eBay listing</DialogTitle>
+          <DialogDescription>
+            We&apos;ll add this to your inventory pre-listed, link it to the
+            live eBay listing, and pre-fill the SKU. Edit either field below
+            before saving.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-xs font-medium">Title</label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Item title"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-medium">
+              SKU{" "}
+              <span className="text-muted-foreground">
+                (optional — copied from eBay&apos;s Custom Label)
+              </span>
+            </label>
+            <Input
+              value={sku}
+              onChange={(e) => setSku(e.target.value)}
+              placeholder="Leave blank to set later"
+              className="font-mono"
+            />
+          </div>
+          {listing?.current_price != null && (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+              Current eBay price{" "}
+              <span className="font-mono text-foreground">
+                ${Number(listing.current_price).toFixed(2)}
+              </span>{" "}
+              will be used as the target price and live listing price.
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleCreate} disabled={saving || !title.trim()}>
+            {saving ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="mr-2 h-4 w-4" />
+            )}
+            Create item
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
