@@ -230,6 +230,9 @@ export interface InventoryItemRow {
   // AI enrichment (US-158)
   ai_field_sources: Record<string, AiFieldSource>;
   ai_enriched_at: string | null;
+  // eBay taxonomy mapping (migration 00030)
+  ebay_category_id: string | null;
+  ebay_aspects: Record<string, string[]> | null;
   created_at: string;
   updated_at: string;
 }
@@ -655,6 +658,8 @@ export interface InventoryItemInsert {
   comp_set?: ItemComp[];
   ai_field_sources?: Record<string, AiFieldSource>;
   ai_enriched_at?: string | null;
+  ebay_category_id?: string | null;
+  ebay_aspects?: Record<string, string[]> | null;
 }
 
 export interface ListingInsert {

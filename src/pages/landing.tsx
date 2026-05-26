@@ -490,23 +490,41 @@ export function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t px-6 py-8">
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 sm:flex-row sm:justify-between">
-          <img src="/logo_primary.svg" alt="GradeThread" className="h-6" />
-          <nav className="flex gap-6 text-sm text-muted-foreground">
-            <a href="#how-it-works" className="hover:text-foreground">
-              How It Works
-            </a>
-            <a href="#pricing" className="hover:text-foreground">
-              Pricing
-            </a>
-            <a href="#faq" className="hover:text-foreground">
-              FAQ
-            </a>
-          </nav>
-          <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} Pearson Media LLC
-          </p>
+      <footer className="border-t px-6 py-10">
+        <div className="mx-auto flex max-w-5xl flex-col gap-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <img src="/logo_primary.svg" alt="GradeThread" className="h-6" />
+            <nav className="flex flex-wrap gap-4 text-sm text-muted-foreground sm:gap-6">
+              <a href="#how-it-works" className="hover:text-foreground">
+                How It Works
+              </a>
+              <a href="#pricing" className="hover:text-foreground">
+                Pricing
+              </a>
+              <a href="#faq" className="hover:text-foreground">
+                FAQ
+              </a>
+            </nav>
+          </div>
+          <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <nav className="flex flex-wrap gap-4 text-xs text-muted-foreground sm:gap-6">
+              <Link to="/privacy" className="hover:text-foreground">
+                Privacy Policy
+              </Link>
+              <Link to="/terms" className="hover:text-foreground">
+                Terms of Service
+              </Link>
+              <Link to="/cookies" className="hover:text-foreground">
+                Cookie Policy
+              </Link>
+              <Link to="/acceptable-use" className="hover:text-foreground">
+                Acceptable Use
+              </Link>
+            </nav>
+            <p className="text-xs text-muted-foreground">
+              &copy; {new Date().getFullYear()} Pearson Media LLC. All rights reserved.
+            </p>
+          </div>
         </div>
       </footer>
     </div>

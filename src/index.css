@@ -144,3 +144,42 @@
     @apply bg-background text-foreground font-sans antialiased;
   }
 }
+
+/* Typography for legal / long-form policy pages */
+.prose-legal {
+  @apply text-sm leading-relaxed text-foreground;
+}
+.prose-legal h2 {
+  @apply mt-10 mb-3 text-xl font-semibold text-brand-navy scroll-mt-20;
+}
+.prose-legal h3 {
+  @apply mt-6 mb-2 text-base font-semibold text-foreground;
+}
+.prose-legal p {
+  @apply mb-4;
+}
+.prose-legal ul {
+  @apply mb-4 ml-5 list-disc space-y-1;
+}
+.prose-legal ol {
+  @apply mb-4 ml-5 list-decimal space-y-1;
+}
+.prose-legal li {
+  @apply pl-1;
+}
+.prose-legal a {
+  @apply text-brand-red underline-offset-2 hover:underline;
+}
+.prose-legal strong {
+  @apply font-semibold text-foreground;
+}
+.prose-legal table {
+  @apply mb-4 w-full border-collapse text-left;
+}
+.prose-legal th,
+.prose-legal td {
+  @apply border border-border px-3 py-2 align-top;
+}
+.prose-legal th {
+  @apply bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground;
+}

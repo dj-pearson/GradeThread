@@ -137,6 +137,18 @@ export function SignupPage() {
           </svg>
           Continue with Google
         </Button>
+
+        <p className="mt-4 text-center text-xs text-muted-foreground">
+          By creating an account, you agree to our{" "}
+          <Link to="/terms" className="underline hover:text-foreground">
+            Terms of Service
+          </Link>{" "}
+          and{" "}
+          <Link to="/privacy" className="underline hover:text-foreground">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </CardContent>
       <CardFooter className="justify-center">
         <p className="text-sm text-muted-foreground">

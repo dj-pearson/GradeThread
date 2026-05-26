@@ -53,6 +53,7 @@ import {
 import { compositeGradeBadge } from "@/lib/grade-badge";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
+import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import type {
   ItemFullRow,
   ItemPhotoRow,
@@ -132,6 +133,29 @@ export function FlipdeskComposerPage() {
         .maybeSingle();
       if (error) throw error;
       return (data ?? null) as ListingRow | null;
+    },
+  });
+
+  // eBay taxonomy mapping lives on inventory_items (added in 00030), which
+  // isn't exposed through the items_full view. Fetch it on the side so the
+  // composer can render the eBay category picker.
+  const { data: ebayMapping = null } = useQuery({
+    queryKey: ["inventory_item_ebay", id],
+    enabled: !!id,
+    queryFn: async (): Promise<{
+      ebay_category_id: string | null;
+      ebay_aspects: Record<string, string[]> | null;
+    } | null> => {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("ebay_category_id, ebay_aspects")
+        .eq("id", id!)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as {
+        ebay_category_id: string | null;
+        ebay_aspects: Record<string, string[]> | null;
+      } | null;
     },
   });
 
@@ -457,6 +481,14 @@ export function FlipdeskComposerPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* eBay category + item specifics */}
+          <EbayCategoryPicker
+            itemId={item.id}
+            initialCategoryId={ebayMapping?.ebay_category_id ?? null}
+            initialAspects={ebayMapping?.ebay_aspects ?? null}
+            seedQuery={item.item_title ?? ""}
+          />
 
           {/* Photos */}
           <Card>

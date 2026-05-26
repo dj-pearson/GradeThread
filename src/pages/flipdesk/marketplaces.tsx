@@ -1,5 +1,13 @@
-import { Link } from "react-router-dom";
-import { Plug, ArrowRight, FileSpreadsheet } from "lucide-react";
+import { useEffect } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  Plug,
+  ArrowRight,
+  FileSpreadsheet,
+  Check,
+  Loader2,
+} from "lucide-react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -10,9 +18,37 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
+import { useEbayConnection, useStartEbayOauth } from "@/hooks/use-ebay";
 
 const PHASE_2 = ["poshmark", "mercari", "shopify"] as const;
 const PHASE_3 = ["depop", "grailed", "whatnot"] as const;
+
+// User-facing copy for the result codes the OAuth callback may add to the URL.
+const CALLBACK_MESSAGES: Record<
+  string,
+  { type: "success" | "info" | "error"; message: string }
+> = {
+  connected: {
+    type: "success",
+    message: "eBay account connected. FlipDesk can now sync listings and push drafts.",
+  },
+  cancelled: {
+    type: "info",
+    message: "eBay sign-in cancelled.",
+  },
+  invalid_state: {
+    type: "error",
+    message: "eBay sign-in expired or was tampered with. Please try again.",
+  },
+  state_expired: {
+    type: "error",
+    message: "eBay sign-in took too long and expired. Please try again.",
+  },
+  exchange_failed: {
+    type: "error",
+    message: "Could not complete eBay sign-in. Please retry, and contact support if it persists.",
+  },
+};
 
 function MarketplaceCard({
   marketplace,
@@ -40,6 +76,26 @@ function MarketplaceCard({
 }
 
 export function FlipdeskMarketplacesPage() {
+  const [params, setParams] = useSearchParams();
+  const { data: connection, isLoading: connLoading } = useEbayConnection();
+  const startOauth = useStartEbayOauth();
+
+  // Surface the OAuth callback result once and strip it from the URL so a
+  // reload doesn't re-toast.
+  useEffect(() => {
+    const code = params.get("ebay");
+    if (!code) return;
+    const entry = CALLBACK_MESSAGES[code];
+    if (entry) {
+      if (entry.type === "success") toast.success(entry.message);
+      else if (entry.type === "info") toast.info(entry.message);
+      else toast.error(entry.message);
+    }
+    const next = new URLSearchParams(params);
+    next.delete("ebay");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
@@ -88,25 +144,60 @@ export function FlipdeskMarketplacesPage() {
             </CardContent>
           </Card>
 
-          {/* Coming later: OAuth API */}
+          {/* OAuth API connection */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle>eBay — API connection</CardTitle>
-                <Badge variant="secondary">Setup required</Badge>
+                {connection ? (
+                  <Badge className="bg-emerald-600 hover:bg-emerald-600">
+                    <Check className="mr-1 h-3 w-3" />
+                    Connected
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">Setup required</Badge>
+                )}
               </div>
               <CardDescription>
-                A direct OAuth connection pulls listings, pushes drafts, and
-                streams payouts automatically — no CSV step. It needs an eBay
-                developer account (App ID, Cert ID, Dev ID) configured in the
-                edge service environment. Once those are set, the connect
-                button activates.
+                {connection
+                  ? `Connected${
+                      connection.account_handle
+                        ? ` as ${connection.account_handle}`
+                        : ""
+                    }. FlipDesk can now sync listings, push drafts, and stream payouts automatically.`
+                  : "A direct OAuth connection pulls listings, pushes drafts, and streams payouts automatically — no CSV step. Needs the edge service to be configured with eBay developer credentials."}
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button disabled className="w-full">
-                Connect eBay account
-              </Button>
+              {connLoading ? (
+                <Button disabled className="w-full">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Checking…
+                </Button>
+              ) : connection ? (
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => startOauth.mutate()}
+                  disabled={startOauth.isPending}
+                >
+                  {startOauth.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Reconnect
+                </Button>
+              ) : (
+                <Button
+                  className="w-full"
+                  onClick={() => startOauth.mutate()}
+                  disabled={startOauth.isPending}
+                >
+                  {startOauth.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : null}
+                  Connect eBay account
+                </Button>
+              )}
             </CardContent>
           </Card>
         </div>

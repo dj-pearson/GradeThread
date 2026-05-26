@@ -28,6 +28,10 @@ const BillingPage = lazy(() => import("@/pages/billing").then(m => ({ default: m
 const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
 const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then(m => ({ default: m.PriceSuggestionsPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
+const PrivacyPage = lazy(() => import("@/pages/legal/privacy").then(m => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import("@/pages/legal/terms").then(m => ({ default: m.TermsPage })));
+const CookiesPage = lazy(() => import("@/pages/legal/cookies").then(m => ({ default: m.CookiesPage })));
+const AcceptableUsePage = lazy(() => import("@/pages/legal/acceptable-use").then(m => ({ default: m.AcceptableUsePage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskPipelinePage = lazy(() => import("@/pages/flipdesk/pipeline").then(m => ({ default: m.FlipdeskPipelinePage })));
 const FlipdeskListingsPage = lazy(() => import("@/pages/flipdesk/listings").then(m => ({ default: m.FlipdeskListingsPage })));
@@ -75,6 +79,12 @@ export const router = createBrowserRouter([
       // Public routes
       { path: "/", element: <SuspenseWrapper><LandingPage /></SuspenseWrapper> },
       { path: "/cert/:id", element: <SuspenseWrapper><CertificatePage /></SuspenseWrapper> },
+
+      // Legal pages (public)
+      { path: "/privacy", element: <SuspenseWrapper><PrivacyPage /></SuspenseWrapper> },
+      { path: "/terms", element: <SuspenseWrapper><TermsPage /></SuspenseWrapper> },
+      { path: "/cookies", element: <SuspenseWrapper><CookiesPage /></SuspenseWrapper> },
+      { path: "/acceptable-use", element: <SuspenseWrapper><AcceptableUsePage /></SuspenseWrapper> },
 
       // Auth routes (guest only)
       {

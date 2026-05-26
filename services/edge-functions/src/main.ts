@@ -44,7 +44,14 @@ app.use("/api/payments/*", authMiddleware);
 app.use("/api/keys/*", authMiddleware);
 app.use("/api/notifications/dispute-resolved", authMiddleware);
 // FlipDesk: everything under /api/flipdesk is authed except inbound webhooks
-app.use("/api/flipdesk/ebay/*", authMiddleware);
+// and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
+// the `state` token from oauth_states identifies the user) + the scheduled
+// /oauth/refresh job (gated by FLIPDESK_INTERNAL_JOB_SECRET header).
+app.use("/api/flipdesk/ebay/oauth/start", authMiddleware);
+app.use("/api/flipdesk/ebay/category/*", authMiddleware);
+app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
+app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
+app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
