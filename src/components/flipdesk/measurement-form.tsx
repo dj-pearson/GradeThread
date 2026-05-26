@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,16 +56,27 @@ export function MeasurementForm({
   const allRequiredFilled =
     requiredKeys.length > 0 && filledRequired === requiredKeys.length;
 
-  // A manual edit clears the AI badge for that field — we drop the source
-  // entry when the user types a different value than the AI suggested.
+  // Keys the user has touched this session. Once a key is here, the AI
+  // badge stops rendering for it — the field now belongs to the user.
+  // (We don't persist the cleared state back to ai_field_sources; the
+  // audit trail stays in the DB even after the badge goes away.)
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+
   function set(key: string, raw: string) {
     const next = { ...values };
     if (raw.trim() === "") delete next[key];
     else next[key] = raw;
     onChange(next);
+    setTouched((prev) => {
+      if (prev.has(key)) return prev;
+      const out = new Set(prev);
+      out.add(key);
+      return out;
+    });
   }
 
   function aiMetaFor(key: string): AiSourceMeta | null {
+    if (touched.has(key)) return null;
     return aiSources?.[`measurements.${key}`] ?? null;
   }
 
