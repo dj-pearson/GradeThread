@@ -485,7 +485,7 @@ export function BulkIntake() {
       {/* Session items strip */}
       <Card>
         <CardHeader>
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <CardTitle>Session items ({itemCount})</CardTitle>
               <CardDescription>

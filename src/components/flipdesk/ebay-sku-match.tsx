@@ -357,7 +357,7 @@ export function EbaySkuMatch() {
           {/* Unmatched — the SKU check */}
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardTitle className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4" />
@@ -391,7 +391,7 @@ export function EbaySkuMatch() {
                       key={listing.id}
                       className="rounded-md border border-destructive/30 bg-destructive/5 p-3"
                     >
-                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="truncate font-medium">

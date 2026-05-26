@@ -375,7 +375,7 @@ export function FlipdeskIntakePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -393,7 +393,7 @@ export function FlipdeskIntakePage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={handleAiFill}
@@ -409,13 +409,15 @@ export function FlipdeskIntakePage() {
           <Button variant="outline" asChild>
             <Link to="/dashboard/flipdesk/intake?mode=snap">
               <Camera className="mr-2 h-4 w-4" />
-              Snap &amp; Catalog
+              <span className="hidden sm:inline">Snap &amp; Catalog</span>
+              <span className="sm:hidden">Snap</span>
             </Link>
           </Button>
           <Button variant="outline" asChild>
             <Link to="/dashboard/flipdesk/intake?mode=bulk">
               <Boxes className="mr-2 h-4 w-4" />
-              Bulk haul mode
+              <span className="hidden sm:inline">Bulk haul mode</span>
+              <span className="sm:hidden">Bulk</span>
             </Link>
           </Button>
         </div>

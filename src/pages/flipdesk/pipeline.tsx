@@ -383,7 +383,7 @@ export function FlipdeskPipelinePage() {
           </div>
           <InventoryViewSwitcher current="kanban" />
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>
             <Settings2 className="mr-2 h-4 w-4" />
             Limits

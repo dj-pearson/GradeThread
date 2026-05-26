@@ -550,7 +550,7 @@ export function FlipdeskComposerPage() {
                 </DndContext>
               )}
 
-              <div className="flex items-start justify-between gap-3 rounded-md border p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border p-3">
                 <div className="space-y-0.5">
                   <Label
                     htmlFor="badge-toggle"
@@ -586,7 +586,7 @@ export function FlipdeskComposerPage() {
           {/* Description */}
           <Card>
             <CardHeader>
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardTitle>Description</CardTitle>
                   <CardDescription>
