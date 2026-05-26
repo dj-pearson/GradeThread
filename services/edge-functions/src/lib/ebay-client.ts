@@ -491,19 +491,48 @@ export interface MissingPolicies {
   };
 }
 
+// Locale that pairs with EBAY_MARKETPLACE_ID. Most callers only care about
+// US, but other marketplaces (EBAY_GB → en-GB, EBAY_DE → de-DE) need the
+// right BCP-47 tag in BOTH Accept-Language and Content-Language headers.
+// eBay error 25709 surfaces when either is missing or invalid.
+function localeForMarketplace(): string {
+  const mp = getMarketplaceId();
+  switch (mp) {
+    case "EBAY_GB":
+      return "en-GB";
+    case "EBAY_DE":
+      return "de-DE";
+    case "EBAY_FR":
+      return "fr-FR";
+    case "EBAY_IT":
+      return "it-IT";
+    case "EBAY_ES":
+      return "es-ES";
+    case "EBAY_AU":
+      return "en-AU";
+    case "EBAY_CA":
+      return "en-CA";
+    default:
+      return "en-US";
+  }
+}
+
 async function fetchAuthed<T>(
   userId: string,
   path: string,
   init?: RequestInit
 ): Promise<T> {
   const token = await getUserAccessToken(userId);
+  const locale = localeForMarketplace();
   const res = await fetch(`${apiHost()}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
       "Content-Type": "application/json",
-      "Content-Language": "en-US",
+      // Sell API requires both. Accept-Language was the missing one (error 25709).
+      "Accept-Language": locale,
+      "Content-Language": locale,
       ...(init?.headers ?? {}),
     },
   });
