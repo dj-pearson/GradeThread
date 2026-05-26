@@ -22,6 +22,9 @@ import {
   Download,
   Sparkles,
   X,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from "lucide-react";
 import {
   Card,
@@ -122,10 +125,18 @@ const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   ytd: "Year to date",
 };
 
+// Every "pre-listed" prep stage shows up in To List so nothing gets
+// stranded mid-pipeline. The Drafts tab covers `drafted`; Active covers
+// `listed`; everything else terminal (sold, shipped, returned, archived)
+// has its own tab.
 const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set([
+  "sourced",
+  "acquired",
+  "cataloged",
+  "measured",
+  "photographed",
   "graded",
   "comped",
-  "photographed",
 ]);
 
 // Default eBay handling window for the ship-by countdown when no explicit
@@ -307,6 +318,22 @@ export function FlipdeskListingsPage() {
   const [pageSize, setPageSize] = useState<number>(100);
   const [detailItem, setDetailItem] = useState<ItemFullRow | null>(null);
   const [sortPreset, setSortPreset] = useState<SortPreset>("listability");
+  // When set, overrides the tab's default sort. Lets the user click a
+  // column header — currently SKU, can extend to others — to take control
+  // without losing the stage tab they're in.
+  const [columnSort, setColumnSort] = useState<{
+    field: keyof ItemFullRow;
+    dir: "asc" | "desc";
+  } | null>(null);
+  function toggleColumnSort(field: keyof ItemFullRow) {
+    setColumnSort((prev) =>
+      prev && prev.field === field
+        ? prev.dir === "asc"
+          ? { field, dir: "desc" }
+          : null // third click clears, revealing the tab's default sort again
+        : { field, dir: "asc" },
+    );
+  }
   const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -485,6 +512,30 @@ export function FlipdeskListingsPage() {
       return true;
     });
 
+    // Column override wins over every default sort — including the To
+    // List preset — so the user always gets the column they clicked.
+    if (columnSort) {
+      const { field, dir: cdir } = columnSort;
+      const sign = cdir === "asc" ? 1 : -1;
+      rows.sort((a, b) => {
+        const av = a[field];
+        const bv = b[field];
+        if (av == null && bv == null) return 0;
+        if (av == null) return 1;
+        if (bv == null) return -1;
+        if (typeof av === "number" && typeof bv === "number") {
+          return (av - bv) * sign;
+        }
+        return (
+          String(av).localeCompare(String(bv), undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }) * sign
+        );
+      });
+      return rows;
+    }
+
     if (isToList) {
       rows.sort((a, b) => {
         switch (sortPreset) {
@@ -531,7 +582,7 @@ export function FlipdeskListingsPage() {
       );
     });
     return rows;
-  }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById, filterQuery]);
+  }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById, filterQuery, columnSort]);
 
   // Aggregate strip for the Sold tab — over the current filter.
   const soldAgg = useMemo(() => {
@@ -1183,6 +1234,24 @@ export function FlipdeskListingsPage() {
                       )}
                       <TableHead className="w-10" />
                       <TableHead className="min-w-[220px]">Title</TableHead>
+                      <TableHead className="w-24">
+                        <button
+                          type="button"
+                          onClick={() => toggleColumnSort("item_number")}
+                          className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+                        >
+                          SKU
+                          {columnSort?.field === "item_number" ? (
+                            columnSort.dir === "asc" ? (
+                              <ChevronUp className="h-3 w-3" />
+                            ) : (
+                              <ChevronDown className="h-3 w-3" />
+                            )
+                          ) : (
+                            <ChevronsUpDown className="h-3 w-3 opacity-50" />
+                          )}
+                        </button>
+                      </TableHead>
                       <TableHead className="w-32">Brand · Size</TableHead>
                       {isSold ? (
                         <>
@@ -1304,6 +1373,9 @@ export function FlipdeskListingsPage() {
                           </TableCell>
                           <TableCell className="max-w-[280px] truncate font-medium">
                             {it.item_title}
+                          </TableCell>
+                          <TableCell className="max-w-[120px] truncate font-mono text-[11px] tabular-nums text-muted-foreground">
+                            {it.item_number ?? ""}
                           </TableCell>
                           <TableCell className="max-w-[140px] truncate text-muted-foreground">
                             {[it.brand, it.size].filter(Boolean).join(" · ")}

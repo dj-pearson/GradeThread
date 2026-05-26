@@ -178,11 +178,14 @@ export function CompEditor({
             <div
               key={i}
               className={cn(
-                "grid grid-cols-12 gap-2 rounded-md border p-2",
+                // Stacks at narrow widths, snaps to 12-col grid at sm+
+                // so the price + date + notes + trash row fits comfortably
+                // inside narrower modals on tablet portraits.
+                "flex flex-col gap-2 rounded-md border p-2 sm:grid sm:grid-cols-12",
                 !c.price && "bg-amber-50/40 dark:bg-amber-950/20",
               )}
             >
-              <div className="col-span-3 space-y-1">
+              <div className="space-y-1 sm:col-span-3">
                 <Label className="text-[10px] uppercase text-muted-foreground">
                   Price
                 </Label>
@@ -197,7 +200,7 @@ export function CompEditor({
                   placeholder="0.00"
                 />
               </div>
-              <div className="col-span-3 space-y-1">
+              <div className="space-y-1 sm:col-span-3">
                 <Label className="text-[10px] uppercase text-muted-foreground">
                   Date
                 </Label>
@@ -210,7 +213,7 @@ export function CompEditor({
                   className="h-8"
                 />
               </div>
-              <div className="col-span-5 space-y-1">
+              <div className="space-y-1 sm:col-span-5">
                 <Label className="text-[10px] uppercase text-muted-foreground">
                   Notes / URL
                 </Label>
@@ -225,7 +228,7 @@ export function CompEditor({
                   placeholder="Condition note or sold-listing URL"
                 />
               </div>
-              <div className="col-span-1 flex items-end justify-end">
+              <div className="flex items-end justify-end sm:col-span-1">
                 <Button
                   variant="ghost"
                   size="icon"

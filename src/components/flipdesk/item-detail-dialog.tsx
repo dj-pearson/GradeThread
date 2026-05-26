@@ -27,17 +27,21 @@ export function ItemDetailDialog({ item, onClose }: Props) {
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-5xl overflow-x-hidden overflow-y-auto">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <DialogTitle className="truncate">
                 {item.item_title || "Untitled item"}
               </DialogTitle>
-              <DialogDescription>
-                SKU {item.item_number ?? "(none)"} · Status{" "}
-                <span className="font-medium">
-                  {ITEM_STATUS_LABELS[item.status]}
+              <DialogDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span>SKU {item.item_number ?? "(none)"}</span>
+                <span className="text-muted-foreground/60">·</span>
+                <span>
+                  Status{" "}
+                  <span className="font-medium">
+                    {ITEM_STATUS_LABELS[item.status]}
+                  </span>
                 </span>
               </DialogDescription>
             </div>
@@ -55,12 +59,14 @@ export function ItemDetailDialog({ item, onClose }: Props) {
             </Button>
           </div>
         </DialogHeader>
-        <ItemCanvas
-          item={item}
-          onAfterSave={onClose}
-          onCancel={onClose}
-          showHeader={false}
-        />
+        <div className="min-w-0">
+          <ItemCanvas
+            item={item}
+            onAfterSave={onClose}
+            onCancel={onClose}
+            showHeader={false}
+          />
+        </div>
       </DialogContent>
     </Dialog>
   );
