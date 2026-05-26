@@ -360,6 +360,9 @@ export interface SyncEbayListingsResponse {
   matched: number;
   unmatched: number;
   skipped: number;
+  legacy_matched: number;
+  legacy_unmatched: number;
+  legacy_duplicates: number;
   sales_new: number;
   sales_updated: number;
   sales_skipped: number;

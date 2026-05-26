@@ -10,7 +10,8 @@
     "hono/": "https://deno.land/x/hono@v4.3.7/",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.43.1",
     "@anthropic-ai/sdk": "https://esm.sh/@anthropic-ai/sdk@0.24.1",
-    "stripe": "https://esm.sh/stripe@15.5.0"
+    "stripe": "https://esm.sh/stripe@15.5.0",
+    "fast-xml-parser": "https://esm.sh/fast-xml-parser@4.5.0"
   },
   "compilerOptions": {
     "strict": true

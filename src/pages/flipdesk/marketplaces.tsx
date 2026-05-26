@@ -203,15 +203,20 @@ export function FlipdeskMarketplacesPage() {
                     onClick={async () => {
                       try {
                         const r = await syncListings.mutateAsync();
+                        const totalMatched = r.matched + r.legacy_matched;
+                        const legacyLine = r.legacy_matched > 0
+                          ? ` (${r.legacy_matched} legacy)`
+                          : "";
                         const salesLine = r.sales_new + r.sales_updated > 0
                           ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
                           : "";
+                        const totalUnmatched = r.unmatched + r.legacy_unmatched;
                         toast.success(
-                          `Synced ${r.matched} listing${r.matched === 1 ? "" : "s"}${salesLine}.`,
+                          `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}.`,
                           {
                             description:
-                              r.unmatched > 0
-                                ? `Open Reconciliation to link the ${r.unmatched} orphan${r.unmatched === 1 ? "" : "s"} to FlipDesk SKUs.`
+                              totalUnmatched > 0
+                                ? `Open Reconciliation to link the ${totalUnmatched} orphan${totalUnmatched === 1 ? "" : "s"} to FlipDesk SKUs.`
                                 : undefined,
                             duration: 8000,
                           },

@@ -815,15 +815,20 @@ export function FlipdeskListingsPage() {
               onClick={async () => {
                 try {
                   const r = await syncEbay.mutateAsync();
+                  const totalMatched = r.matched + r.legacy_matched;
+                  const legacyLine = r.legacy_matched > 0
+                    ? ` (${r.legacy_matched} legacy)`
+                    : "";
                   const salesLine = r.sales_new + r.sales_updated > 0
                     ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
                     : "";
+                  const totalUnmatched = r.unmatched + r.legacy_unmatched;
                   toast.success(
-                    `Synced ${r.matched} listing${r.matched === 1 ? "" : "s"}${salesLine}.`,
+                    `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}.`,
                     {
                       description:
-                        r.unmatched > 0
-                          ? `${r.unmatched} orphan eBay listing${r.unmatched === 1 ? "" : "s"} — open Reconciliation to link them.`
+                        totalUnmatched > 0
+                          ? `${totalUnmatched} orphan eBay listing${totalUnmatched === 1 ? "" : "s"} — open Reconciliation to link them.`
                           : undefined,
                       duration: 8000,
                     },

@@ -27,6 +27,10 @@ import {
   type RemoteOffer,
   type RemoteOrder,
 } from "../lib/ebay-client.ts";
+import {
+  getAllActiveEbaySelling,
+  type LegacyEbayListing,
+} from "../lib/ebay-trading.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -314,6 +318,10 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   let matched = 0;
   let unmatched = 0;
   let skipped = 0;
+  // Tracks every eBay listingId we've already upserted in this pass — used
+  // by the legacy Trading API pass below to skip listings already covered
+  // by the modern Sell Inventory loop.
+  const processedListingIds = new Set<string>();
   const errors: string[] = [];
 
   for (const o of offers) {
@@ -409,10 +417,121 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
           );
         unmatched += 1;
       }
+      processedListingIds.add(o.listingId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       errors.push(msg.slice(0, 200));
     }
+  }
+
+  // ── Legacy listings (Trading API) ───────────────────────────────
+  // Pulls every active listing from GetMyeBaySelling — covers items
+  // created in Seller Hub or via the legacy ListItem call that never
+  // became inventory_items on the new REST surface. We dedupe against
+  // listingIds already processed above so an item that exists on both
+  // surfaces isn't double-counted.
+  let legacyMatched = 0;
+  let legacyUnmatched = 0;
+  let legacyDuplicates = 0;
+  try {
+    const legacy: LegacyEbayListing[] = await getAllActiveEbaySelling(userId);
+    for (const l of legacy) {
+      try {
+        if (processedListingIds.has(l.ebayItemId)) {
+          legacyDuplicates += 1;
+          continue;
+        }
+        const sku = l.sku;
+        const itemId = sku ? skuToItemId.get(sku) ?? null : null;
+
+        if (itemId) {
+          // Same upsert path as the modern flow — but no platform_offer_id
+          // because legacy listings don't have a Sell Inventory offer.
+          const { data: existing } = await supabaseAdmin
+            .from("listings")
+            .select("id")
+            .eq("inventory_item_id", itemId)
+            .eq("platform", "ebay")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const patch: Record<string, unknown> = {
+            platform_listing_id: l.ebayItemId,
+            listing_url: l.listingUrl ?? ebayListingUrl(l.ebayItemId),
+            listing_price: l.currentPrice ?? undefined,
+            listing_status: "active",
+            is_active: true,
+          };
+          if (l.title && l.title.trim()) patch.listing_title = l.title;
+          if (existing) {
+            await supabaseAdmin
+              .from("listings")
+              .update(patch)
+              .eq("id", (existing as { id: string }).id);
+          } else {
+            await supabaseAdmin.from("listings").insert({
+              inventory_item_id: itemId,
+              platform: "ebay",
+              listing_price: l.currentPrice ?? 0,
+              ...patch,
+            });
+          }
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({ status: "listed" })
+            .eq("id", itemId)
+            .in("status", [
+              "sourced",
+              "acquired",
+              "cataloged",
+              "measured",
+              "photographed",
+              "comped",
+              "drafted",
+            ]);
+          legacyMatched += 1;
+        } else {
+          // Orphan: most legacy Seller-Hub listings have no Custom Label.
+          // Snapshot with the title so the Reconciliation page can show it
+          // and let the user link it to a FlipDesk SKU.
+          await supabaseAdmin
+            .from("flipdesk_ebay_listings")
+            .upsert(
+              {
+                user_id: userId,
+                ebay_item_id: l.ebayItemId,
+                custom_label: sku,
+                title: l.title,
+                current_price: l.currentPrice,
+                available_quantity: l.quantityAvailable ?? l.quantity,
+                listing_url: l.listingUrl,
+                listing_format: l.listingType,
+                start_date: l.startTime ? l.startTime.slice(0, 10) : null,
+                raw: {
+                  source: "trading_api",
+                  watchCount: l.watchCount,
+                  endTime: l.endTime,
+                },
+                match_status: "unmatched",
+                imported_at: new Date().toISOString(),
+              },
+              { onConflict: "user_id,ebay_item_id" }
+            );
+          legacyUnmatched += 1;
+        }
+        processedListingIds.add(l.ebayItemId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`legacy ${l.ebayItemId}: ${msg.slice(0, 160)}`);
+      }
+    }
+  } catch (err) {
+    // Trading API failure shouldn't fail the whole pull. Common cause:
+    // legacy seller account that's been migrated to Sell Inventory only.
+    console.error("[flipdesk-ebay] Trading API pass failed:", err);
+    errors.push(
+      `trading api: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   // ── Orders sync (sold-state detection) ──────────────────────────
@@ -534,6 +653,9 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     matched,
     unmatched,
     skipped,
+    legacy_matched: legacyMatched,
+    legacy_unmatched: legacyUnmatched,
+    legacy_duplicates: legacyDuplicates,
     sales_new: salesNew,
     sales_updated: salesUpdated,
     sales_skipped: salesSkipped,
