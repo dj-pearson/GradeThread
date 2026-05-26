@@ -414,6 +414,89 @@ export async function suggestCategories(
   });
 }
 
+// Resolves a category id to its human-readable name + breadcrumb path
+// (e.g. "Clothing › Men › Suits & Blazers › Blazers"). Cached in
+// ebay_category_aspects.category_name so repeated lookups are free.
+//
+// NOTE: this only populates the cache. If the category isn't already in the
+// cache from a prior aspects fetch, this calls get_category_subtree which
+// returns enough metadata to fill in the name + ancestor path.
+export interface CategoryNameInfo {
+  id: string;
+  name: string;
+  path: string; // root → leaf breadcrumb
+}
+
+export async function getCategoryName(
+  categoryId: string
+): Promise<CategoryNameInfo | null> {
+  const marketplaceId = getMarketplaceId();
+  const treeId = getCategoryTreeId();
+
+  // Read-through cache first — most categories the user touches are
+  // already there from the composer's aspects fetch.
+  const { data: cached } = await supabaseAdmin
+    .from("ebay_category_aspects")
+    .select("category_name, aspects")
+    .eq("marketplace_id", marketplaceId)
+    .eq("category_tree_id", treeId)
+    .eq("category_id", categoryId)
+    .maybeSingle();
+
+  if (cached?.category_name) {
+    return {
+      id: categoryId,
+      name: cached.category_name as string,
+      path: cached.category_name as string,
+    };
+  }
+
+  // Fall back to a live Taxonomy lookup. get_category_subtree returns the
+  // node + its descendants — we only need the root of that subtree.
+  try {
+    const token = await getAppAccessToken();
+    const url =
+      `${apiHost()}/commerce/taxonomy/v1/category_tree/${treeId}` +
+      `/get_category_subtree?category_id=${encodeURIComponent(categoryId)}`;
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": marketplaceId,
+        "Accept-Language": "en-US",
+      },
+    });
+    if (!res.ok) return null;
+    const payload = (await res.json()) as {
+      categorySubtreeNode?: {
+        category?: { categoryId?: string; categoryName?: string };
+      };
+    };
+    const name = payload.categorySubtreeNode?.category?.categoryName;
+    if (!name) return null;
+
+    // Cache it for next time. Don't pre-fill aspects (those still need
+    // a separate fetch); we just want the name slot populated.
+    await supabaseAdmin.from("ebay_category_aspects").upsert(
+      {
+        marketplace_id: marketplaceId,
+        category_tree_id: treeId,
+        category_id: categoryId,
+        category_name: name,
+        // Keep aspects null when only fetching the name — the aspects
+        // path overrides this when called.
+        aspects: cached?.aspects ?? {},
+        fetched_at: new Date().toISOString(),
+      },
+      { onConflict: "marketplace_id,category_tree_id,category_id" }
+    );
+
+    return { id: categoryId, name, path: name };
+  } catch (err) {
+    console.error("[ebay-client] getCategoryName failed:", err);
+    return null;
+  }
+}
+
 // Aspect cache TTL: aspects change rarely. Keep entries warm for 30 days.
 const ASPECT_TTL_MS = 30 * 24 * 60 * 60_000;
 
@@ -1110,8 +1193,10 @@ export async function listRecentTransactions(
     });
 
     // 404 = "no transactions in window" or "not enrolled in Managed Payments".
-    // Both are recoverable — just stop paginating and return what we have.
-    if (res.status === 404) break;
+    // 204/empty-body 200 are the same semantic — eBay sometimes returns those
+    // when the window has zero transactions instead of an empty JSON object.
+    // All three are recoverable: stop paginating and return what we have.
+    if (res.status === 404 || res.status === 204) break;
     if (!res.ok) {
       const text = await res.text();
       throw new Error(
@@ -1119,7 +1204,10 @@ export async function listRecentTransactions(
       );
     }
 
-    const payload = (await res.json()) as {
+    const rawBody = await res.text();
+    if (!rawBody.trim()) break;
+
+    let payload: {
       transactions?: Array<{
         transactionId?: string;
         transactionType?: string;
@@ -1132,6 +1220,14 @@ export async function listRecentTransactions(
       }>;
       total?: number;
     };
+    try {
+      payload = JSON.parse(rawBody);
+    } catch {
+      console.warn(
+        `[ebay-client] non-JSON body from Finances API (${res.status}); treating as empty. Body: ${rawBody.slice(0, 200)}`,
+      );
+      break;
+    }
 
     const batch = payload.transactions ?? [];
     for (const t of batch) {

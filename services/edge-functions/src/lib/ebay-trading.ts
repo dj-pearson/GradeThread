@@ -78,6 +78,9 @@ export interface LegacyEbayListing {
   startTime: string | null;
   endTime: string | null;
   watchCount: number | null;
+  // Leaf-category id the listing is filed under. Trading API returns this
+  // as <PrimaryCategory><CategoryID>… for Seller-Hub-created listings.
+  primaryCategoryId: string | null;
 }
 
 interface RawItem {
@@ -100,6 +103,9 @@ interface RawItem {
     ViewItemURL?: unknown;
   };
   WatchCount?: unknown;
+  PrimaryCategory?: {
+    CategoryID?: unknown;
+  };
 }
 
 function asPriceValue(p: unknown): { value: number | null; currency: string } {
@@ -160,6 +166,7 @@ function normalizeItem(raw: RawItem): LegacyEbayListing | null {
     startTime: asString(raw.ListingDetails?.StartTime),
     endTime: asString(raw.ListingDetails?.EndTime),
     watchCount: asNumber(raw.WatchCount),
+    primaryCategoryId: asString(raw.PrimaryCategory?.CategoryID),
   };
 }
 

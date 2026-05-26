@@ -278,6 +278,48 @@ export function useEbayComps(args: EbayCompsArgs) {
   });
 }
 
+// ── Category check (Week 5) ─────────────────────────────────────────
+
+export interface CategoryCheckEntry {
+  id: string;
+  name: string | null;
+  path: string | null;
+}
+
+export interface CategoryCheckResponse {
+  listing_id: string;
+  current: CategoryCheckEntry | null;
+  suggested: CategoryCheckEntry[];
+  match: boolean;
+  query_used: string;
+}
+
+// Compares the eBay category a listing is currently in vs what the
+// Taxonomy API would suggest today. Returns null when the listing has no
+// stored category (e.g. it pre-dates the category-capture migration).
+export function useEbayCategoryCheck() {
+  return useMutation<
+    CategoryCheckResponse,
+    Error,
+    { listingId: string }
+  >({
+    mutationFn: async ({ listingId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(
+          listingId,
+        )}/category-check`,
+        { headers: { Authorization: await authHeader() } },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Category check failed.");
+      }
+      return json as CategoryCheckResponse;
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // ── Manage live listings (Week 4) ───────────────────────────────────
 
 // Updates a published listing's price on eBay via the Sell API. The

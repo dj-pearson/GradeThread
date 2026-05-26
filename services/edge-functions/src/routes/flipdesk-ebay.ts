@@ -9,6 +9,7 @@ import {
   ebayListingUrl,
   exchangeCodeForTokens,
   getCategoryAspects,
+  getCategoryName,
   getDefaultPolicies,
   getMarketplaceId,
   getUserAccessToken,
@@ -362,6 +363,9 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
         if (o.listingDescription && o.listingDescription.trim()) {
           patch.listing_description = o.listingDescription;
         }
+        if (o.categoryId) {
+          patch.platform_category_id = o.categoryId;
+        }
         if (existing) {
           await supabaseAdmin
             .from("listings")
@@ -465,6 +469,7 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
             is_active: true,
           };
           if (l.title && l.title.trim()) patch.listing_title = l.title;
+          if (l.primaryCategoryId) patch.platform_category_id = l.primaryCategoryId;
           if (existing) {
             await supabaseAdmin
               .from("listings")
@@ -882,6 +887,91 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   return c.json({ ok: true, listing_id: listingId, price });
 });
 
+// Compares the current eBay category against what the Taxonomy API would
+// suggest for the listing's title today. Lets the user spot listings that
+// are filed under a suboptimal category (which hurts search visibility).
+//
+// Returns the current category (id + name + breadcrumb) and the top 5
+// suggestions. `match` is true iff the top suggestion equals the current.
+flipdeskEbayRoutes.get("/listings/:id/category-check", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("userId");
+  const listingId = c.req.param("id");
+
+  // Load the listing + its title (from the joined inventory_item or the
+  // listing's own listing_title). Ownership check via the item user_id.
+  const { data: row } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, platform_category_id, platform_listing_id, listing_title, inventory_items!inner(user_id, title, brand, style)"
+    )
+    .eq("id", listingId)
+    .maybeSingle();
+  if (!row) return c.json({ error: "Listing not found" }, 404);
+  const r = row as {
+    id: string;
+    platform_category_id: string | null;
+    platform_listing_id: string | null;
+    listing_title: string | null;
+    inventory_items: {
+      user_id: string;
+      title: string | null;
+      brand: string | null;
+      style: string | null;
+    };
+  };
+  if (r.inventory_items.user_id !== userId) {
+    return c.json({ error: "Listing not found" }, 404);
+  }
+
+  // Title we'll feed into the Taxonomy query — use whatever's most
+  // representative: the listing's actual title beats the item title.
+  const queryParts = [r.listing_title ?? r.inventory_items.title]
+    .filter((s): s is string => !!s && s.trim() !== "");
+  if (queryParts.length === 0) {
+    return c.json(
+      { error: "Listing has no title — can't suggest a category." },
+      400
+    );
+  }
+  const query = queryParts[0]!;
+
+  // Run current-category lookup + suggestions in parallel — independent calls.
+  const [currentInfo, suggestions] = await Promise.all([
+    r.platform_category_id
+      ? getCategoryName(r.platform_category_id).catch(() => null)
+      : Promise.resolve(null),
+    suggestCategories(query).catch((err) => {
+      console.error("[flipdesk-ebay] suggestCategories failed:", err);
+      return [] as Awaited<ReturnType<typeof suggestCategories>>;
+    }),
+  ]);
+
+  const top = suggestions[0] ?? null;
+  const match =
+    !!r.platform_category_id && !!top && top.categoryId === r.platform_category_id;
+
+  return c.json({
+    listing_id: listingId,
+    current: r.platform_category_id
+      ? {
+          id: r.platform_category_id,
+          name: currentInfo?.name ?? null,
+          path: currentInfo?.path ?? null,
+        }
+      : null,
+    suggested: suggestions.slice(0, 5).map((s) => ({
+      id: s.categoryId,
+      name: s.categoryName,
+      path: s.categoryTreePath,
+    })),
+    match,
+    query_used: query,
+  });
+});
+
 flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -1035,6 +1125,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
       platform: "ebay" as const,
       platform_listing_id: listingId,
       platform_offer_id: offerId,
+      platform_category_id: item.ebay_category_id,
       listing_url: url,
       listing_price: Number(ctx.summary.priceValue),
       listing_title: ctx.summary.title,

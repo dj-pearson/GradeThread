@@ -1,8 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="300" height="80" viewBox="0 0 300 80">
   <defs>
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@700&amp;display=swap');
-      .logo-text { font-family: 'Inter', sans-serif; font-weight: bold; font-size: 36px; fill: #FFFFFF; }
+      .logo-text { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-weight: 700; font-size: 36px; fill: #FFFFFF; }
       .accent { fill: #E94560; }
     </style>
   </defs>

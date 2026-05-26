@@ -61,6 +61,7 @@ import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import {
   resolveStatus,
   nextAction,
@@ -782,6 +783,14 @@ export function ItemCanvas({
             <PhotoManager itemId={item.id} />
           </div>
         </div>
+
+        {/* eBay category check — only when the item has an active eBay
+            listing. Useful for catching listings filed under a suboptimal
+            category, which hurts search visibility. */}
+        {item.listing_id &&
+          (item.status === "listed" || item.status === "comped") && (
+            <CategoryCheckCard listingId={item.listing_id} />
+          )}
 
         <div id="canvas-comps" className="space-y-2 scroll-mt-4">
           <Label>Comps</Label>
