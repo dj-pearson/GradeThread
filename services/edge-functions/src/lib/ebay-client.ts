@@ -688,6 +688,119 @@ export async function publishOffer(
   );
 }
 
+// Reads a single offer's full body. Needed before updateOfferPrice because
+// eBay's PUT /offer/{id} replaces the whole body — partial updates aren't
+// supported, so we round-trip the current state and patch only the price.
+export async function getOffer(
+  userId: string,
+  offerId: string
+): Promise<Record<string, unknown>> {
+  return await fetchAuthed<Record<string, unknown>>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`
+  );
+}
+
+export async function updateOfferPrice(
+  userId: string,
+  offerId: string,
+  priceValue: number,
+  currency: string = "USD"
+): Promise<void> {
+  const current = await getOffer(userId, offerId);
+  // Read-modify-write: keep every field eBay returned and overwrite the
+  // price. If pricingSummary is missing we create it; that should not
+  // happen for a previously-published offer but covers brand-new drafts.
+  const pricingSummary =
+    (current.pricingSummary as Record<string, unknown> | undefined) ?? {};
+  pricingSummary.price = {
+    value: priceValue.toFixed(2),
+    currency,
+  };
+  current.pricingSummary = pricingSummary;
+
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+    { method: "PUT", body: JSON.stringify(current) }
+  );
+}
+
+// Withdraws a published offer — ends the live eBay listing. The offer
+// record itself stays, so a future re-publish reuses the same offerId.
+export async function withdrawOffer(
+  userId: string,
+  offerId: string
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/withdraw`,
+    { method: "POST" }
+  );
+}
+
+export interface RemoteOffer {
+  offerId: string;
+  sku: string | null;
+  marketplaceId: string | null;
+  format: string | null;
+  availableQuantity: number | null;
+  status: string | null;
+  categoryId: string | null;
+  price: { value: string; currency: string } | null;
+  listingId: string | null;
+  listingStatus: string | null;
+}
+
+// Pulls every offer for the connected seller, paginating until eBay returns
+// no further results. Limit per page is 100 (Sell Inventory API max).
+export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
+  const all: RemoteOffer[] = [];
+  let offset = 0;
+  const limit = 100;
+  // Hard ceiling so a buggy paginator can't loop forever.
+  for (let i = 0; i < 50; i++) {
+    const payload = await fetchAuthed<{
+      offers?: Array<{
+        offerId?: string;
+        sku?: string;
+        marketplaceId?: string;
+        format?: string;
+        availableQuantity?: number;
+        status?: string;
+        categoryId?: string;
+        pricingSummary?: { price?: { value?: string; currency?: string } };
+        listing?: { listingId?: string; listingStatus?: string };
+      }>;
+      total?: number;
+    }>(userId, `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}`);
+    const batch = payload.offers ?? [];
+    for (const o of batch) {
+      if (!o.offerId) continue;
+      all.push({
+        offerId: o.offerId,
+        sku: o.sku ?? null,
+        marketplaceId: o.marketplaceId ?? null,
+        format: o.format ?? null,
+        availableQuantity: o.availableQuantity ?? null,
+        status: o.status ?? null,
+        categoryId: o.categoryId ?? null,
+        price: o.pricingSummary?.price
+          ? {
+              value: String(o.pricingSummary.price.value ?? "0"),
+              currency: String(o.pricingSummary.price.currency ?? "USD"),
+            }
+          : null,
+        listingId: o.listing?.listingId ?? null,
+        listingStatus: o.listing?.listingStatus ?? null,
+      });
+    }
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
+
 // Best-effort eBay item-URL builder. eBay's documented format is
 // https://www.ebay.com/itm/<listingId>; sandbox uses sandbox.ebay.com.
 export function ebayListingUrl(listingId: string): string {

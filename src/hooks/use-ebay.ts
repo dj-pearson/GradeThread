@@ -278,6 +278,120 @@ export function useEbayComps(args: EbayCompsArgs) {
   });
 }
 
+// ── Manage live listings (Week 4) ───────────────────────────────────
+
+// Updates a published listing's price on eBay via the Sell API. The
+// endpoint also writes-through to local `listings.listing_price` on
+// success so the UI doesn't need a follow-up refetch.
+//
+// 409 — listing has no platform_offer_id (typically a manually-marked
+// "listed" item that never went through Sell API). Callers should fall
+// back to local-only update.
+export function useEbayUpdateListingPrice() {
+  return useMutation<
+    { ok: true; listing_id: string; price: number },
+    Error & { status?: number },
+    { listingId: string; price: number }
+  >({
+    mutationFn: async ({ listingId, price }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(
+          listingId
+        )}/price`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: await authHeader(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ price }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.error || "Price update failed."
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
+
+// Ends a live listing on eBay (Sell API withdrawOffer). Writes through to
+// local state on success: listings.listing_status='ended', inventory_items.
+// status='drafted'. Returns 409 when there's no platform_offer_id.
+export function useEbayEndListing() {
+  return useMutation<
+    { ok: true; listing_id: string },
+    Error & { status?: number },
+    { listingId: string }
+  >({
+    mutationFn: async ({ listingId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(
+          listingId
+        )}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: await authHeader() },
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.error || "End listing failed."
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
+
+// ── Sync from eBay (pull) ──────────────────────────────────────────
+
+export interface SyncEbayListingsResponse {
+  ok: boolean;
+  total: number;
+  matched: number;
+  unmatched: number;
+  skipped: number;
+  errors: string[];
+}
+
+// Pulls every offer from the connected eBay seller account into FlipDesk.
+// Matched (by SKU) → updates the local `listings` row + status.
+// Unmatched → snapshots into `flipdesk_ebay_listings` for reconciliation.
+export function useSyncEbayListings() {
+  const qc = useQueryClient();
+  return useMutation<SyncEbayListingsResponse, Error, void>({
+    mutationFn: async () => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/pull`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: await authHeader(),
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Sync failed.");
+      return json as SyncEbayListingsResponse;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      qc.invalidateQueries({ queryKey: ["ebay_connection"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // ── Publish to eBay (Week 3) ────────────────────────────────────────
 
 export interface PublishSummary {

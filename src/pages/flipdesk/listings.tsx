@@ -18,6 +18,7 @@ import {
   Star,
   XCircle,
   TrendingDown,
+  RefreshCw,
 } from "lucide-react";
 import {
   Card,
@@ -62,6 +63,12 @@ import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import {
+  useEbayConnection,
+  useEbayEndListing,
+  useEbayUpdateListingPrice,
+  useSyncEbayListings,
+} from "@/hooks/use-ebay";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
 import { cn } from "@/lib/utils";
 import type {
@@ -294,6 +301,10 @@ export function FlipdeskListingsPage() {
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(
     null,
   );
+  const { data: ebayConnection } = useEbayConnection();
+  const syncEbay = useSyncEbayListings();
+  const updatePrice = useEbayUpdateListingPrice();
+  const endListingApi = useEbayEndListing();
 
   const isToList = tab === "to_list";
   const isSold = tab === "sold";
@@ -585,8 +596,10 @@ export function FlipdeskListingsPage() {
     }
   }
 
-  // Inline price edit on the Active tab. Updates the local listings row.
-  // eBay Sell Inventory API push is wired when US-121 lands.
+  // Inline price edit on the Active tab. Calls eBay's Sell API when the
+  // listing has a platform_offer_id, then writes through to local state.
+  // Falls back to local-only when no eBay connection or no offer_id is
+  // available (e.g. listings manually marked via MarkListedDialog).
   async function updateListingPrice(it: ItemFullRow, raw: string) {
     if (!it.listing_id) {
       toast.error("No listing record for this item.");
@@ -604,6 +617,20 @@ export function FlipdeskListingsPage() {
       ),
     );
     try {
+      if (ebayConnection) {
+        try {
+          await updatePrice.mutateAsync({
+            listingId: it.listing_id,
+            price: next,
+          });
+          // Server already wrote-through to listings.listing_price.
+          return;
+        } catch (err) {
+          const e = err as Error & { status?: number };
+          // 409 = no platform_offer_id → fall through to local-only update.
+          if (e.status !== 409) throw e;
+        }
+      }
       const { error } = await supabase
         .from("listings")
         .update({ listing_price: next } as never)
@@ -623,6 +650,18 @@ export function FlipdeskListingsPage() {
       return;
     }
     try {
+      if (ebayConnection) {
+        try {
+          await endListingApi.mutateAsync({ listingId: it.listing_id });
+          await qc.invalidateQueries({ queryKey: ["items_full"] });
+          toast.success("Listing ended on eBay.");
+          return;
+        } catch (err) {
+          const e = err as Error & { status?: number };
+          if (e.status !== 409) throw e;
+          // 409 → fall through to local-only end.
+        }
+      }
       const { error: lErr } = await supabase
         .from("listings")
         .update({ listing_status: "ended", is_active: false } as never)
@@ -635,7 +674,7 @@ export function FlipdeskListingsPage() {
         .eq("id", it.id);
       if (iErr) throw iErr;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Listing ended.");
+      toast.success("Listing ended locally.");
     } catch (err) {
       toast.error(
         `End failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -650,16 +689,33 @@ export function FlipdeskListingsPage() {
     setBusy(true);
     const errors: { message: string }[] = [];
     let done = 0;
+    let remoteSkipped = 0;
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
       if (!it || !it.listing_id || it.list_price == null) continue;
       const next = Number((it.list_price * (1 - pct / 100)).toFixed(2));
       try {
-        const { error } = await supabase
-          .from("listings")
-          .update({ listing_price: next } as never)
-          .eq("id", it.listing_id);
-        if (error) throw error;
+        let usedEbay = false;
+        if (ebayConnection) {
+          try {
+            await updatePrice.mutateAsync({
+              listingId: it.listing_id,
+              price: next,
+            });
+            usedEbay = true;
+          } catch (err) {
+            const e = err as Error & { status?: number };
+            if (e.status === 409) remoteSkipped += 1;
+            else throw e;
+          }
+        }
+        if (!usedEbay) {
+          const { error } = await supabase
+            .from("listings")
+            .update({ listing_price: next } as never)
+            .eq("id", it.listing_id);
+          if (error) throw error;
+        }
         done++;
       } catch (err) {
         errors.push({
@@ -671,7 +727,12 @@ export function FlipdeskListingsPage() {
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     if (errors.length === 0) {
-      toast.success(`Dropped price ${pct}% on ${done} listing${done === 1 ? "" : "s"}.`);
+      const localNote = remoteSkipped > 0
+        ? ` (${remoteSkipped} updated locally only)`
+        : "";
+      toast.success(
+        `Dropped price ${pct}% on ${done} listing${done === 1 ? "" : "s"}${localNote}.`,
+      );
     } else {
       toast.warning(
         `Dropped ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
@@ -685,20 +746,34 @@ export function FlipdeskListingsPage() {
     setBusy(true);
     const errors: { message: string }[] = [];
     let done = 0;
+    let remoteSkipped = 0;
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
       if (!it || !it.listing_id) continue;
       try {
-        const { error: lErr } = await supabase
-          .from("listings")
-          .update({ listing_status: "ended", is_active: false } as never)
-          .eq("id", it.listing_id);
-        if (lErr) throw lErr;
-        const { error: iErr } = await supabase
-          .from("inventory_items")
-          .update({ status: "drafted" } as never)
-          .eq("id", it.id);
-        if (iErr) throw iErr;
+        let usedEbay = false;
+        if (ebayConnection) {
+          try {
+            await endListingApi.mutateAsync({ listingId: it.listing_id });
+            usedEbay = true;
+          } catch (err) {
+            const e = err as Error & { status?: number };
+            if (e.status === 409) remoteSkipped += 1;
+            else throw e;
+          }
+        }
+        if (!usedEbay) {
+          const { error: lErr } = await supabase
+            .from("listings")
+            .update({ listing_status: "ended", is_active: false } as never)
+            .eq("id", it.listing_id);
+          if (lErr) throw lErr;
+          const { error: iErr } = await supabase
+            .from("inventory_items")
+            .update({ status: "drafted" } as never)
+            .eq("id", it.id);
+          if (iErr) throw iErr;
+        }
         done++;
       } catch (err) {
         errors.push({
@@ -710,7 +785,12 @@ export function FlipdeskListingsPage() {
     setSelected(new Set());
     await qc.invalidateQueries({ queryKey: ["items_full"] });
     if (errors.length === 0) {
-      toast.success(`Ended ${done} listing${done === 1 ? "" : "s"}.`);
+      const localNote = remoteSkipped > 0
+        ? ` (${remoteSkipped} ended locally only)`
+        : "";
+      toast.success(
+        `Ended ${done} listing${done === 1 ? "" : "s"}${localNote}.`,
+      );
     } else {
       toast.warning(
         `Ended ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
@@ -728,7 +808,37 @@ export function FlipdeskListingsPage() {
             Triage surface — focus on items by their selling stage.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {ebayConnection && (
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  const r = await syncEbay.mutateAsync();
+                  toast.success(
+                    `Synced ${r.matched} matched, ${r.unmatched} orphan${r.unmatched === 1 ? "" : "s"}, ${r.skipped} drafts.`,
+                    {
+                      description:
+                        r.unmatched > 0
+                          ? `${r.unmatched} eBay listing${r.unmatched === 1 ? "" : "s"} couldn't be matched to a FlipDesk SKU — open Reconciliation to link them.`
+                          : undefined,
+                      duration: 8000,
+                    },
+                  );
+                } catch {
+                  /* surfaced by the hook */
+                }
+              }}
+              disabled={syncEbay.isPending}
+            >
+              {syncEbay.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Sync from eBay
+            </Button>
+          )}
           <Button variant="outline" asChild>
             <Link to="/dashboard/flipdesk/import">
               <Upload className="mr-2 h-4 w-4" />
@@ -1388,9 +1498,9 @@ export function FlipdeskListingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>End this listing early?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{endTarget?.item_title}" will be marked ended and the item
-              moved back to Drafts so you can relist it. This doesn't yet end
-              the listing on eBay — that wires in with US-121.
+              "{endTarget?.item_title}" will be withdrawn from eBay (when
+              connected) and moved back to Drafts so you can relist it.
+              Listings without an eBay offer id end locally only.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

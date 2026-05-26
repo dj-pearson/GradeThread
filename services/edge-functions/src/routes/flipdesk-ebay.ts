@@ -14,12 +14,16 @@ import {
   getUserAccessToken,
   isEbayConfigured,
   isOfferAlreadyExistsError,
+  listAllOffers,
   listOffersForSku,
   publishOffer,
   searchBrowseComps,
   suggestCategories,
+  updateOfferPrice,
   upsertConnection,
+  withdrawOffer,
   type PolicySet,
+  type RemoteOffer,
 } from "../lib/ebay-client.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
@@ -247,11 +251,163 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
 
 // ── Still-stubbed handlers (Week 2-3 work) ─────────────────────────
 
-flipdeskEbayRoutes.post("/listings/pull", (c) => {
+// Pulls every offer for the connected seller from the Sell Inventory API.
+// Each offer's SKU is matched to inventory_items.sku for THIS user:
+//   • match → upsert into `listings` (and forward inventory_items.status to 'listed' when active)
+//   • no match → snapshot into `flipdesk_ebay_listings` so the user can see
+//     orphaned eBay listings on the Reconciliation page.
+flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  return c.json({ error: "Not implemented" }, 501);
+  const userId = c.get("userId");
+
+  // Make sure there's an active connection — getUserAccessToken otherwise
+  // returns a confusing "no active connection" error.
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (!conn) {
+    return c.json({ error: "Connect your eBay account first." }, 400);
+  }
+
+  let offers: RemoteOffer[];
+  try {
+    offers = await listAllOffers(userId);
+  } catch (err) {
+    console.error("[flipdesk-ebay] listings/pull fetch failed:", err);
+    return c.json({ error: "Could not load offers from eBay." }, 502);
+  }
+
+  // Pre-load this user's SKU → inventory_item mapping so we can do the
+  // join in memory rather than N+1 queries against Supabase.
+  const { data: itemsBySku } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, sku")
+    .eq("user_id", userId)
+    .not("sku", "is", null);
+  const skuToItemId = new Map<string, string>();
+  for (const r of (itemsBySku ?? []) as Array<{ id: string; sku: string }>) {
+    if (r.sku) skuToItemId.set(r.sku, r.id);
+  }
+
+  let matched = 0;
+  let unmatched = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const o of offers) {
+    try {
+      // Drafts (unpublished offers) have no listingId yet — skip in this pass.
+      if (!o.listingId) {
+        skipped += 1;
+        continue;
+      }
+      const sku = o.sku;
+      const itemId = sku ? skuToItemId.get(sku) ?? null : null;
+      const priceNum = o.price ? Number(o.price.value) : null;
+      const isActive = (o.listingStatus ?? "").toUpperCase() === "ACTIVE";
+
+      if (itemId) {
+        // Upsert into listings (by inventory_item_id + platform).
+        const { data: existing } = await supabaseAdmin
+          .from("listings")
+          .select("id")
+          .eq("inventory_item_id", itemId)
+          .eq("platform", "ebay")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const patch = {
+          platform_listing_id: o.listingId,
+          platform_offer_id: o.offerId,
+          listing_url: ebayListingUrl(o.listingId),
+          listing_price: priceNum ?? undefined,
+          listing_status: isActive ? "active" : "ended",
+          is_active: isActive,
+        };
+        if (existing) {
+          await supabaseAdmin
+            .from("listings")
+            .update(patch)
+            .eq("id", (existing as { id: string }).id);
+        } else {
+          await supabaseAdmin.from("listings").insert({
+            inventory_item_id: itemId,
+            platform: "ebay",
+            listing_price: priceNum ?? 0,
+            ...patch,
+          });
+        }
+        // Forward-only status — don't regress sold/shipped items.
+        if (isActive) {
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({ status: "listed" })
+            .eq("id", itemId)
+            .in("status", [
+              "sourced",
+              "acquired",
+              "cataloged",
+              "measured",
+              "photographed",
+              "comped",
+              "drafted",
+            ]);
+        }
+        matched += 1;
+      } else {
+        // Snapshot orphan eBay listings — surfaced on the Reconciliation page.
+        await supabaseAdmin
+          .from("flipdesk_ebay_listings")
+          .upsert(
+            {
+              user_id: userId,
+              ebay_item_id: o.listingId,
+              custom_label: sku,
+              title: null,
+              current_price: priceNum,
+              available_quantity: o.availableQuantity,
+              listing_url: ebayListingUrl(o.listingId),
+              listing_format: o.format,
+              raw: {
+                offerId: o.offerId,
+                listingStatus: o.listingStatus,
+                categoryId: o.categoryId,
+                price: o.price,
+              },
+              match_status: "unmatched",
+              imported_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id,ebay_item_id" }
+          );
+        unmatched += 1;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(msg.slice(0, 200));
+    }
+  }
+
+  // Stamp last_synced_at so the UI can show "Synced 2m ago".
+  await supabaseAdmin
+    .from("marketplace_connections")
+    .update({ last_synced_at: new Date().toISOString() })
+    .eq("id", (conn as { id: string }).id);
+
+  return c.json({
+    ok: true,
+    total: offers.length,
+    matched,
+    unmatched,
+    skipped,
+    errors,
+  });
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────
@@ -263,6 +419,111 @@ flipdeskEbayRoutes.post("/listings/pull", (c) => {
 //   3. publishOffer                  (POST, returns listingId)
 // On success the listings + inventory_items rows are updated to reflect the
 // live state. createOffer is idempotent on SKU via listOffersForSku fallback.
+
+// ── Manage live listings (Week 4) ──────────────────────────────────
+// Update price (POST .../:id/price body: { price }) and end (DELETE
+// .../:id) — both look up platform_offer_id from the local listings row
+// and call the Sell API. If the local row has no platform_offer_id (e.g.
+// the user manually marked an item "listed" via MarkListedDialog), the
+// route returns 409 and the UI falls back to local-only.
+
+flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("userId");
+  const listingId = c.req.param("id");
+
+  let body: { price?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const price = Number(body.price);
+  if (!Number.isFinite(price) || price <= 0) {
+    return c.json({ error: "price must be a positive number" }, 400);
+  }
+
+  const row = await loadListingOwned(listingId, userId);
+  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.listing.platform_offer_id) {
+    return c.json(
+      {
+        error:
+          "This listing has no eBay offer id. Sync from eBay or republish to enable price updates.",
+      },
+      409
+    );
+  }
+
+  try {
+    await updateOfferPrice(userId, row.listing.platform_offer_id, price);
+  } catch (err) {
+    console.error("[flipdesk-ebay] updateOfferPrice failed:", err);
+    return c.json(
+      {
+        error: "eBay rejected the price update.",
+        detail:
+          err instanceof Error ? err.message.slice(0, 500) : String(err),
+      },
+      502
+    );
+  }
+
+  await supabaseAdmin
+    .from("listings")
+    .update({ listing_price: price })
+    .eq("id", listingId);
+
+  return c.json({ ok: true, listing_id: listingId, price });
+});
+
+flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("userId");
+  const listingId = c.req.param("id");
+
+  const row = await loadListingOwned(listingId, userId);
+  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.listing.platform_offer_id) {
+    return c.json(
+      {
+        error:
+          "This listing has no eBay offer id. Sync from eBay to enable remote end.",
+      },
+      409
+    );
+  }
+
+  try {
+    await withdrawOffer(userId, row.listing.platform_offer_id);
+  } catch (err) {
+    console.error("[flipdesk-ebay] withdrawOffer failed:", err);
+    return c.json(
+      {
+        error: "eBay rejected the end-listing call.",
+        detail:
+          err instanceof Error ? err.message.slice(0, 500) : String(err),
+      },
+      502
+    );
+  }
+
+  await supabaseAdmin
+    .from("listings")
+    .update({ listing_status: "ended", is_active: false })
+    .eq("id", listingId);
+  // Move the item back to drafted so the user can relist if they want.
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({ status: "drafted" })
+    .eq("id", row.listing.inventory_item_id);
+
+  return c.json({ ok: true, listing_id: listingId });
+});
 
 flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   const userId = c.get("userId");
@@ -370,6 +631,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
       inventory_item_id: itemId,
       platform: "ebay" as const,
       platform_listing_id: listingId,
+      platform_offer_id: offerId,
       listing_url: url,
       listing_price: Number(ctx.summary.priceValue),
       listing_title: ctx.summary.title,
@@ -407,10 +669,6 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
       502
     );
   }
-});
-
-flipdeskEbayRoutes.delete("/listings/:listingId", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
 });
 
 flipdeskEbayRoutes.post("/payouts/import-csv", (c) => {
@@ -459,6 +717,52 @@ function generateState(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ── Manage helpers ─────────────────────────────────────────────────
+
+interface ListingRowForManage {
+  id: string;
+  inventory_item_id: string;
+  platform_offer_id: string | null;
+  platform_listing_id: string | null;
+}
+
+type LoadListingResult =
+  | { ok: true; listing: ListingRowForManage }
+  | { ok: false; error: { error: string }; status: 404 | 403 };
+
+// Loads a local listings row by id and verifies the user owns the parent
+// inventory_item (the listings table doesn't have a user_id column).
+async function loadListingOwned(
+  listingId: string,
+  userId: string
+): Promise<LoadListingResult> {
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, platform_offer_id, platform_listing_id, inventory_items!inner(user_id)"
+    )
+    .eq("id", listingId)
+    .maybeSingle();
+  if (!data) {
+    return { ok: false, error: { error: "Listing not found" }, status: 404 };
+  }
+  const row = data as ListingRowForManage & {
+    inventory_items: { user_id: string };
+  };
+  if (row.inventory_items.user_id !== userId) {
+    return { ok: false, error: { error: "Listing not found" }, status: 404 };
+  }
+  return {
+    ok: true,
+    listing: {
+      id: row.id,
+      inventory_item_id: row.inventory_item_id,
+      platform_offer_id: row.platform_offer_id,
+      platform_listing_id: row.platform_listing_id,
+    },
+  };
 }
 
 // ── Publish-flow helpers ───────────────────────────────────────────

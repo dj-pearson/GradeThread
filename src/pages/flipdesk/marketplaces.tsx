@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   Check,
   Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -18,7 +19,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
-import { useEbayConnection, useStartEbayOauth } from "@/hooks/use-ebay";
+import {
+  useEbayConnection,
+  useStartEbayOauth,
+  useSyncEbayListings,
+} from "@/hooks/use-ebay";
 
 const PHASE_2 = ["poshmark", "mercari", "shopify"] as const;
 const PHASE_3 = ["depop", "grailed", "whatnot"] as const;
@@ -50,6 +55,22 @@ const CALLBACK_MESSAGES: Record<
   },
 };
 
+// Human-friendly relative timestamp for the "Last synced …" label. Falls
+// back to a date string if the value is older than a week.
+function formatAgo(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return "recently";
+  const delta = Date.now() - t;
+  const min = Math.floor(delta / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 function MarketplaceCard({
   marketplace,
   phase,
@@ -79,6 +100,7 @@ export function FlipdeskMarketplacesPage() {
   const [params, setParams] = useSearchParams();
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const startOauth = useStartEbayOauth();
+  const syncListings = useSyncEbayListings();
 
   // Surface the OAuth callback result once and strip it from the URL so a
   // reload doesn't re-toast.
@@ -168,24 +190,59 @@ export function FlipdeskMarketplacesPage() {
                   : "A direct OAuth connection pulls listings, pushes drafts, and streams payouts automatically — no CSV step. Needs the edge service to be configured with eBay developer credentials."}
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-2">
               {connLoading ? (
                 <Button disabled className="w-full">
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Checking…
                 </Button>
               ) : connection ? (
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() => startOauth.mutate()}
-                  disabled={startOauth.isPending}
-                >
-                  {startOauth.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Reconnect
-                </Button>
+                <>
+                  <Button
+                    className="w-full"
+                    onClick={async () => {
+                      try {
+                        const r = await syncListings.mutateAsync();
+                        toast.success(
+                          `Synced ${r.matched} matched, ${r.unmatched} orphan${r.unmatched === 1 ? "" : "s"}, ${r.skipped} drafts.`,
+                          {
+                            description:
+                              r.unmatched > 0
+                                ? `Open Reconciliation to link the ${r.unmatched} orphan${r.unmatched === 1 ? "" : "s"} to FlipDesk SKUs.`
+                                : undefined,
+                            duration: 8000,
+                          },
+                        );
+                      } catch {
+                        /* surfaced by the hook */
+                      }
+                    }}
+                    disabled={syncListings.isPending}
+                  >
+                    {syncListings.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                    )}
+                    Sync listings from eBay
+                  </Button>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      {connection.last_synced_at
+                        ? `Last synced ${formatAgo(connection.last_synced_at)}.`
+                        : "Never synced yet."}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => startOauth.mutate()}
+                      disabled={startOauth.isPending}
+                      className="text-xs text-muted-foreground"
+                    >
+                      Reconnect
+                    </Button>
+                  </div>
+                </>
               ) : (
                 <Button
                   className="w-full"
