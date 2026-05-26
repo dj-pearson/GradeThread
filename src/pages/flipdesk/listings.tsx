@@ -815,12 +815,15 @@ export function FlipdeskListingsPage() {
               onClick={async () => {
                 try {
                   const r = await syncEbay.mutateAsync();
+                  const salesLine = r.sales_new + r.sales_updated > 0
+                    ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
+                    : "";
                   toast.success(
-                    `Synced ${r.matched} matched, ${r.unmatched} orphan${r.unmatched === 1 ? "" : "s"}, ${r.skipped} drafts.`,
+                    `Synced ${r.matched} listing${r.matched === 1 ? "" : "s"}${salesLine}.`,
                     {
                       description:
                         r.unmatched > 0
-                          ? `${r.unmatched} eBay listing${r.unmatched === 1 ? "" : "s"} couldn't be matched to a FlipDesk SKU — open Reconciliation to link them.`
+                          ? `${r.unmatched} orphan eBay listing${r.unmatched === 1 ? "" : "s"} — open Reconciliation to link them.`
                           : undefined,
                       duration: 8000,
                     },

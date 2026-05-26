@@ -750,6 +750,9 @@ export interface RemoteOffer {
   price: { value: string; currency: string } | null;
   listingId: string | null;
   listingStatus: string | null;
+  // The HTML listing body. Sync writes this through to listings.listing_description
+  // so eBay-side edits in Seller Hub don't leave FlipDesk's copy stale.
+  listingDescription: string | null;
 }
 
 // Pulls every offer for the connected seller, paginating until eBay returns
@@ -769,6 +772,7 @@ export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
         availableQuantity?: number;
         status?: string;
         categoryId?: string;
+        listingDescription?: string;
         pricingSummary?: { price?: { value?: string; currency?: string } };
         listing?: { listingId?: string; listingStatus?: string };
       }>;
@@ -793,6 +797,7 @@ export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
           : null,
         listingId: o.listing?.listingId ?? null,
         listingStatus: o.listing?.listingStatus ?? null,
+        listingDescription: o.listingDescription ?? null,
       });
     }
     if (batch.length < limit) break;
@@ -808,6 +813,152 @@ export function ebayListingUrl(listingId: string): string {
     ? "https://www.ebay.com"
     : "https://www.sandbox.ebay.com";
   return `${host}/itm/${listingId}`;
+}
+
+// ── Sell Fulfillment API: orders (Week 5) ──────────────────────────
+//
+// Used by /listings/pull to detect sales that happened on eBay while
+// FlipDesk wasn't looking. The Fulfillment API supports a lastmodifieddate
+// filter so we only pull what's changed since last_synced_at.
+
+export interface RemoteOrderLineItem {
+  lineItemId: string | null;
+  sku: string | null;
+  legacyItemId: string | null; // eBay listingId
+  title: string | null;
+  quantity: number;
+  itemCost: { value: string; currency: string } | null;
+  shippingCost: { value: string; currency: string } | null;
+  taxes: { value: string; currency: string } | null;
+}
+
+export interface RemoteOrder {
+  orderId: string;
+  creationDate: string | null;
+  lastModifiedDate: string | null;
+  orderFulfillmentStatus: string | null;
+  orderPaymentStatus: string | null;
+  buyerUsername: string | null;
+  totalAmount: { value: string; currency: string } | null;
+  shippingTotal: { value: string; currency: string } | null;
+  lineItems: RemoteOrderLineItem[];
+}
+
+// Pulls orders modified since `sinceISO` (or all recent ones when omitted).
+// eBay caps the date range; we don't enforce a ceiling here — the caller
+// passes the connection's last_synced_at and falls back to "90 days ago"
+// on first sync.
+export async function listRecentOrders(
+  userId: string,
+  sinceISO?: string | null
+): Promise<RemoteOrder[]> {
+  const all: RemoteOrder[] = [];
+  const limit = 200;
+  let offset = 0;
+  const filterParts: string[] = [];
+  if (sinceISO) {
+    // eBay wants ISO 8601 with milliseconds. Trim sub-second precision noise.
+    const iso = new Date(sinceISO).toISOString();
+    filterParts.push(`lastmodifieddate:[${iso}..]`);
+  }
+  const filter = filterParts.length > 0
+    ? `&filter=${encodeURIComponent(filterParts.join(","))}`
+    : "";
+
+  for (let i = 0; i < 50; i++) {
+    const payload = await fetchAuthed<{
+      orders?: Array<{
+        orderId?: string;
+        creationDate?: string;
+        lastModifiedDate?: string;
+        orderFulfillmentStatus?: string;
+        orderPaymentStatus?: string;
+        buyer?: { username?: string };
+        pricingSummary?: {
+          total?: { value?: string; currency?: string };
+          deliveryCost?: { value?: string; currency?: string };
+        };
+        lineItems?: Array<{
+          lineItemId?: string;
+          sku?: string;
+          legacyItemId?: string;
+          title?: string;
+          quantity?: number;
+          lineItemCost?: { value?: string; currency?: string };
+          deliveryCost?: {
+            shippingCost?: { value?: string; currency?: string };
+          };
+          taxes?: Array<{ amount?: { value?: string; currency?: string } }>;
+        }>;
+      }>;
+      total?: number;
+    }>(
+      userId,
+      `/sell/fulfillment/v1/order?limit=${limit}&offset=${offset}${filter}`
+    );
+
+    const batch = payload.orders ?? [];
+    for (const o of batch) {
+      if (!o.orderId) continue;
+      const lineItems: RemoteOrderLineItem[] = (o.lineItems ?? []).map((li) => {
+        // Taxes can be an array of per-tax-type entries; sum them.
+        const taxesSum = (li.taxes ?? []).reduce(
+          (acc, t) => acc + Number(t.amount?.value ?? 0),
+          0
+        );
+        const currency = li.lineItemCost?.currency ?? "USD";
+        return {
+          lineItemId: li.lineItemId ?? null,
+          sku: li.sku ?? null,
+          legacyItemId: li.legacyItemId ?? null,
+          title: li.title ?? null,
+          quantity: li.quantity ?? 1,
+          itemCost: li.lineItemCost?.value
+            ? {
+                value: String(li.lineItemCost.value),
+                currency,
+              }
+            : null,
+          shippingCost: li.deliveryCost?.shippingCost?.value
+            ? {
+                value: String(li.deliveryCost.shippingCost.value),
+                currency:
+                  li.deliveryCost.shippingCost.currency ?? currency,
+              }
+            : null,
+          taxes: taxesSum > 0
+            ? { value: taxesSum.toFixed(2), currency }
+            : null,
+        };
+      });
+
+      all.push({
+        orderId: o.orderId,
+        creationDate: o.creationDate ?? null,
+        lastModifiedDate: o.lastModifiedDate ?? null,
+        orderFulfillmentStatus: o.orderFulfillmentStatus ?? null,
+        orderPaymentStatus: o.orderPaymentStatus ?? null,
+        buyerUsername: o.buyer?.username ?? null,
+        totalAmount: o.pricingSummary?.total?.value
+          ? {
+              value: String(o.pricingSummary.total.value),
+              currency: o.pricingSummary.total.currency ?? "USD",
+            }
+          : null,
+        shippingTotal: o.pricingSummary?.deliveryCost?.value
+          ? {
+              value: String(o.pricingSummary.deliveryCost.value),
+              currency:
+                o.pricingSummary.deliveryCost.currency ?? "USD",
+            }
+          : null,
+        lineItems,
+      });
+    }
+    if (batch.length < limit) break;
+    offset += limit;
+  }
+  return all;
 }
 
 // ── Browse API: active comps ────────────────────────────────────────

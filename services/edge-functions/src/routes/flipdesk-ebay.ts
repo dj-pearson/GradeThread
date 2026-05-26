@@ -16,6 +16,7 @@ import {
   isOfferAlreadyExistsError,
   listAllOffers,
   listOffersForSku,
+  listRecentOrders,
   publishOffer,
   searchBrowseComps,
   suggestCategories,
@@ -24,6 +25,7 @@ import {
   withdrawOffer,
   type PolicySet,
   type RemoteOffer,
+  type RemoteOrder,
 } from "../lib/ebay-client.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
@@ -263,10 +265,11 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   const userId = c.get("userId");
 
   // Make sure there's an active connection — getUserAccessToken otherwise
-  // returns a confusing "no active connection" error.
+  // returns a confusing "no active connection" error. We also capture
+  // last_synced_at NOW so the orders sync can use it as the lower bound.
   const { data: conn } = await supabaseAdmin
     .from("marketplace_connections")
-    .select("id")
+    .select("id, last_synced_at")
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
@@ -275,13 +278,25 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   if (!conn) {
     return c.json({ error: "Connect your eBay account first." }, 400);
   }
+  const lastSyncedAt =
+    (conn as { last_synced_at: string | null }).last_synced_at ?? null;
 
   let offers: RemoteOffer[];
   try {
     offers = await listAllOffers(userId);
   } catch (err) {
-    console.error("[flipdesk-ebay] listings/pull fetch failed:", err);
-    return c.json({ error: "Could not load offers from eBay." }, 502);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
+    // Pass the eBay error detail through to the client. Sandbox needs this
+    // for debugging — typical failures are missing-scope (reconnect) and
+    // sandbox-seller-not-onboarded errors that name themselves clearly.
+    return c.json(
+      {
+        error: "Could not load offers from eBay.",
+        detail: msg.slice(0, 800),
+      },
+      502
+    );
   }
 
   // Pre-load this user's SKU → inventory_item mapping so we can do the
@@ -323,7 +338,7 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        const patch = {
+        const patch: Record<string, unknown> = {
           platform_listing_id: o.listingId,
           platform_offer_id: o.offerId,
           listing_url: ebayListingUrl(o.listingId),
@@ -331,6 +346,12 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
           listing_status: isActive ? "active" : "ended",
           is_active: isActive,
         };
+        // Pull description back from eBay so manual Seller Hub edits don't
+        // leave FlipDesk's copy stale. Skip empty strings — those usually
+        // mean "API didn't return a body", not "user blanked it".
+        if (o.listingDescription && o.listingDescription.trim()) {
+          patch.listing_description = o.listingDescription;
+        }
         if (existing) {
           await supabaseAdmin
             .from("listings")
@@ -394,7 +415,114 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     }
   }
 
-  // Stamp last_synced_at so the UI can show "Synced 2m ago".
+  // ── Orders sync (sold-state detection) ──────────────────────────
+  // Pulls orders modified since last_synced_at (or 90 days on first sync).
+  // Each line item's SKU is matched to inventory_items.sku; matches turn
+  // into a sales row + flip inventory_items.status='sold'.
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
+  const sinceISO = lastSyncedAt ?? ninetyDaysAgo;
+
+  let salesNew = 0;
+  let salesUpdated = 0;
+  let salesSkipped = 0;
+  try {
+    const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO);
+    for (const order of orders) {
+      // Failed-payment orders shouldn't flip an item to sold.
+      const paid =
+        order.orderPaymentStatus === "PAID" ||
+        order.orderPaymentStatus === "PARTIALLY_REFUNDED" ||
+        order.orderPaymentStatus === "FULLY_REFUNDED";
+      if (!paid) {
+        salesSkipped += order.lineItems.length;
+        continue;
+      }
+
+      for (const li of order.lineItems) {
+        try {
+          const sku = li.sku;
+          const itemId = sku ? skuToItemId.get(sku) ?? null : null;
+          if (!itemId) {
+            salesSkipped += 1;
+            continue;
+          }
+          // Look up the most recent listing row for this item so we can
+          // link the sale (sales.listing_id is nullable but useful).
+          const { data: lst } = await supabaseAdmin
+            .from("listings")
+            .select("id")
+            .eq("inventory_item_id", itemId)
+            .eq("platform", "ebay")
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const listingId = (lst as { id: string } | null)?.id ?? null;
+
+          const itemCost = li.itemCost ? Number(li.itemCost.value) : 0;
+          const shippingCollected = li.shippingCost
+            ? Number(li.shippingCost.value)
+            : 0;
+          const tax = li.taxes ? Number(li.taxes.value) : 0;
+
+          // Dedupe key is (inventory_item_id, platform_order_id). Migration
+          // 00032 adds the unique index that makes this safe under retries.
+          const { data: existing } = await supabaseAdmin
+            .from("sales")
+            .select("id")
+            .eq("inventory_item_id", itemId)
+            .eq("platform_order_id", order.orderId)
+            .limit(1)
+            .maybeSingle();
+
+          const salePayload = {
+            inventory_item_id: itemId,
+            listing_id: listingId,
+            platform_order_id: order.orderId,
+            sale_price: itemCost,
+            sale_date: order.creationDate?.slice(0, 10) ?? null,
+            sold_at: order.creationDate ?? null,
+            buyer_username: order.buyerUsername,
+            buyer_id: order.buyerUsername,
+            shipping_collected: shippingCollected,
+            tax,
+          };
+
+          if (existing) {
+            await supabaseAdmin
+              .from("sales")
+              .update(salePayload)
+              .eq("id", (existing as { id: string }).id);
+            salesUpdated += 1;
+          } else {
+            await supabaseAdmin.from("sales").insert(salePayload);
+            salesNew += 1;
+          }
+
+          // Flip the item to sold. resolveStatus-equivalent: 'sold' is a
+          // terminal non-prep status so it dominates anything we'd have
+          // bumped to via the offer loop above ('listed').
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({ status: "sold" })
+            .eq("id", itemId)
+            .not("status", "in", "(shipped,completed,returned)");
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push(`order ${order.orderId}: ${msg.slice(0, 160)}`);
+        }
+      }
+    }
+  } catch (err) {
+    // Orders sync failure shouldn't fail the whole pull — listings sync
+    // is the more critical of the two. Log + carry on.
+    console.error("[flipdesk-ebay] orders sync failed:", err);
+    errors.push(
+      `orders sync: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  // Stamp last_synced_at so the UI can show "Synced 2m ago" + the next
+  // /listings/pull picks up where this one left off.
   await supabaseAdmin
     .from("marketplace_connections")
     .update({ last_synced_at: new Date().toISOString() })
@@ -406,6 +534,10 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     matched,
     unmatched,
     skipped,
+    sales_new: salesNew,
+    sales_updated: salesUpdated,
+    sales_skipped: salesSkipped,
+    since: sinceISO,
     errors,
   });
 });

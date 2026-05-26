@@ -360,6 +360,10 @@ export interface SyncEbayListingsResponse {
   matched: number;
   unmatched: number;
   skipped: number;
+  sales_new: number;
+  sales_updated: number;
+  sales_skipped: number;
+  since: string | null;
   errors: string[];
 }
 
@@ -380,15 +384,30 @@ export function useSyncEbayListings() {
           },
         }
       );
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Sync failed.");
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        detail?: string;
+      } & Partial<SyncEbayListingsResponse>;
+      if (!res.ok) {
+        // Surface the eBay error detail so the user can diagnose without
+        // digging through edge logs.
+        const top = json.error || "Sync failed.";
+        const err = new Error(json.detail ? `${top}\n${json.detail}` : top);
+        throw err;
+      }
       return json as SyncEbayListingsResponse;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["items_full"] });
       qc.invalidateQueries({ queryKey: ["ebay_connection"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => {
+      const [head, ...rest] = err.message.split("\n");
+      toast.error(head ?? "Sync failed.", {
+        description: rest.length > 0 ? rest.join(" • ") : undefined,
+        duration: 12_000,
+      });
+    },
   });
 }
 

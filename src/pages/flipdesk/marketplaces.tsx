@@ -203,8 +203,11 @@ export function FlipdeskMarketplacesPage() {
                     onClick={async () => {
                       try {
                         const r = await syncListings.mutateAsync();
+                        const salesLine = r.sales_new + r.sales_updated > 0
+                          ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
+                          : "";
                         toast.success(
-                          `Synced ${r.matched} matched, ${r.unmatched} orphan${r.unmatched === 1 ? "" : "s"}, ${r.skipped} drafts.`,
+                          `Synced ${r.matched} listing${r.matched === 1 ? "" : "s"}${salesLine}.`,
                           {
                             description:
                               r.unmatched > 0
