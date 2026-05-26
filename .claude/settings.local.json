@@ -37,7 +37,15 @@
       "PowerShell(npx tsc -b 2>&1 | Select-String \"error\" | Select-Object -First 5; \"EXIT: $LASTEXITCODE\")",
       "Bash(npm run *)",
       "Bash(npx eslint *)",
-      "PowerShell(deno check services/edge-functions/src/main.ts 2>&1 | Select-Object -First 80)"
+      "PowerShell(deno check services/edge-functions/src/main.ts 2>&1 | Select-Object -First 80)",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot",
+      "mcp__plugin_playwright_playwright__browser_resize",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Output '\\\\''server stopped'\\\\''')",
+      "Bash(rm -rf .playwright-mcp)",
+      "Bash(grep -q \"^\\\\.playwright-mcp\" .gitignore)",
+      "Bash(echo \".playwright-mcp/\")"
     ]
   },
   "hooks": {

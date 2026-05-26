@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>GT icon render target</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  svg { width: 100vmin; height: 100vmin; display: block; }
+</style>
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+    <rect width="100" height="100" rx="20" fill="#0F3460" />
+    <text x="50" y="50"
+          font-family="Inter, system-ui, -apple-system, Segoe UI, sans-serif"
+          font-weight="700"
+          font-size="48"
+          text-anchor="middle"
+          dominant-baseline="central"
+          fill="#FFFFFF">G<tspan fill="#E94560">T</tspan></text>
+  </svg>
+  <script>
+    // Signal when fonts are ready so Playwright can poll for it.
+    document.fonts.ready.then(() => {
+      document.title = "READY";
+    });
+  </script>
+</body>
+</html>
