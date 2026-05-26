@@ -689,20 +689,47 @@ export function isOfferAlreadyExistsError(err: unknown): boolean {
   return /already exists/i.test(msg) && /offer/i.test(msg);
 }
 
+// Returns every offer eBay has for this SKU, in the full RemoteOffer shape.
+// (Sell Inventory API's GET /offer endpoint REQUIRES a sku query param —
+// there is no documented "list all" endpoint; you walk inventory_item first.)
 export async function listOffersForSku(
   userId: string,
   sku: string
-): Promise<Array<{ offerId: string; status?: string; listing?: { listingId?: string; listingStatus?: string } }>> {
-  const payload = await fetchAuthed<{ offers?: Array<{ offerId?: string; status?: string; listing?: { listingId?: string; listingStatus?: string } }> }>(
-    userId,
-    `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`
-  );
+): Promise<RemoteOffer[]> {
+  const payload = await fetchAuthed<{
+    offers?: Array<{
+      offerId?: string;
+      sku?: string;
+      marketplaceId?: string;
+      format?: string;
+      availableQuantity?: number;
+      status?: string;
+      categoryId?: string;
+      listingDescription?: string;
+      pricingSummary?: { price?: { value?: string; currency?: string } };
+      listing?: { listingId?: string; listingStatus?: string };
+    }>;
+  }>(userId, `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`);
+
   return (payload.offers ?? [])
     .filter((o): o is { offerId: string } => typeof o.offerId === "string")
     .map((o) => ({
       offerId: o.offerId,
-      status: o.status,
-      listing: o.listing,
+      sku: o.sku ?? sku,
+      marketplaceId: o.marketplaceId ?? null,
+      format: o.format ?? null,
+      availableQuantity: o.availableQuantity ?? null,
+      status: o.status ?? null,
+      categoryId: o.categoryId ?? null,
+      price: o.pricingSummary?.price
+        ? {
+            value: String(o.pricingSummary.price.value ?? "0"),
+            currency: String(o.pricingSummary.price.currency ?? "USD"),
+          }
+        : null,
+      listingId: o.listing?.listingId ?? null,
+      listingStatus: o.listing?.listingStatus ?? null,
+      listingDescription: o.listingDescription ?? null,
     }));
 }
 
@@ -784,53 +811,67 @@ export interface RemoteOffer {
   listingDescription: string | null;
 }
 
-// Pulls every offer for the connected seller, paginating until eBay returns
-// no further results. Limit per page is 100 (Sell Inventory API max).
-export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
-  const all: RemoteOffer[] = [];
-  let offset = 0;
+export interface RemoteInventoryItem {
+  sku: string;
+  title: string | null;
+}
+
+// Lists every inventory_item registered against the seller's account.
+// Paginated 100/page; eBay's max for this endpoint.
+export async function listAllInventoryItems(
+  userId: string
+): Promise<RemoteInventoryItem[]> {
+  const all: RemoteInventoryItem[] = [];
   const limit = 100;
-  // Hard ceiling so a buggy paginator can't loop forever.
+  let offset = 0;
   for (let i = 0; i < 50; i++) {
     const payload = await fetchAuthed<{
-      offers?: Array<{
-        offerId?: string;
+      inventoryItems?: Array<{
         sku?: string;
-        marketplaceId?: string;
-        format?: string;
-        availableQuantity?: number;
-        status?: string;
-        categoryId?: string;
-        listingDescription?: string;
-        pricingSummary?: { price?: { value?: string; currency?: string } };
-        listing?: { listingId?: string; listingStatus?: string };
+        product?: { title?: string };
       }>;
       total?: number;
-    }>(userId, `/sell/inventory/v1/offer?limit=${limit}&offset=${offset}`);
-    const batch = payload.offers ?? [];
-    for (const o of batch) {
-      if (!o.offerId) continue;
-      all.push({
-        offerId: o.offerId,
-        sku: o.sku ?? null,
-        marketplaceId: o.marketplaceId ?? null,
-        format: o.format ?? null,
-        availableQuantity: o.availableQuantity ?? null,
-        status: o.status ?? null,
-        categoryId: o.categoryId ?? null,
-        price: o.pricingSummary?.price
-          ? {
-              value: String(o.pricingSummary.price.value ?? "0"),
-              currency: String(o.pricingSummary.price.currency ?? "USD"),
-            }
-          : null,
-        listingId: o.listing?.listingId ?? null,
-        listingStatus: o.listing?.listingStatus ?? null,
-        listingDescription: o.listingDescription ?? null,
-      });
+    }>(
+      userId,
+      `/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`
+    );
+    const batch = payload.inventoryItems ?? [];
+    for (const it of batch) {
+      if (typeof it.sku === "string" && it.sku) {
+        all.push({ sku: it.sku, title: it.product?.title ?? null });
+      }
     }
     if (batch.length < limit) break;
     offset += limit;
+  }
+  return all;
+}
+
+// Pulls every offer for the connected seller. eBay has no "list all offers"
+// endpoint — you must walk inventory_item, then for each SKU fetch offers.
+// Bounded concurrency keeps us under the Sell API rate limits without
+// dragging too much on accounts with hundreds of items.
+export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
+  const items = await listAllInventoryItems(userId);
+  if (items.length === 0) return [];
+
+  const all: RemoteOffer[] = [];
+  const CONCURRENCY = 5;
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const slice = items.slice(i, i + CONCURRENCY);
+    const results = await Promise.all(
+      slice.map((it) =>
+        listOffersForSku(userId, it.sku).catch((err) => {
+          // One SKU failing shouldn't kill the whole sync. Log + carry on.
+          console.error(
+            `[ebay-client] listOffersForSku(${it.sku}) failed:`,
+            err instanceof Error ? err.message : String(err)
+          );
+          return [] as RemoteOffer[];
+        })
+      )
+    );
+    for (const offers of results) all.push(...offers);
   }
   return all;
 }
