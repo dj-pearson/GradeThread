@@ -952,16 +952,38 @@ export function FlipdeskListingsPage() {
                     ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
                     : "";
                   const totalUnmatched = r.unmatched + r.legacy_unmatched;
-                  toast.success(
-                    `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}.`,
-                    {
-                      description:
-                        totalUnmatched > 0
-                          ? `${totalUnmatched} orphan eBay listing${totalUnmatched === 1 ? "" : "s"} — open Reconciliation to link them.`
-                          : undefined,
-                      duration: 8000,
-                    },
-                  );
+                  // Compose toast description: orphans first, then any
+                  // partial-failure errors (the orders pass may 403 silently
+                  // when the OAuth token is missing the sell.fulfillment
+                  // scope — the user needs to see that, not "0 new sales").
+                  const lines: string[] = [];
+                  if (totalUnmatched > 0) {
+                    lines.push(
+                      `${totalUnmatched} orphan eBay listing${totalUnmatched === 1 ? "" : "s"} — open Reconciliation to link them.`,
+                    );
+                  }
+                  if (r.errors && r.errors.length > 0) {
+                    lines.push(
+                      `Partial failure: ${r.errors[0]}` +
+                        (r.errors.length > 1
+                          ? ` (+${r.errors.length - 1} more)`
+                          : ""),
+                    );
+                  }
+                  const description = lines.length > 0
+                    ? lines.join(" · ")
+                    : undefined;
+                  if (r.errors && r.errors.length > 0) {
+                    toast.warning(
+                      `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}, with errors.`,
+                      { description, duration: 14000 },
+                    );
+                  } else {
+                    toast.success(
+                      `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}.`,
+                      { description, duration: 8000 },
+                    );
+                  }
                 } catch {
                   /* surfaced by the hook */
                 }

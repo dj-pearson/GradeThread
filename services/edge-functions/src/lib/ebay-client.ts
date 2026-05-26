@@ -113,6 +113,10 @@ function getScopes(): string {
       "https://api.ebay.com/oauth/api_scope/sell.inventory",
       "https://api.ebay.com/oauth/api_scope/sell.marketing",
       "https://api.ebay.com/oauth/api_scope/sell.account",
+      // Required by /sell/fulfillment/v1/order for sold-state + sale-row sync.
+      // Users connected BEFORE this scope was added must reconnect — old
+      // tokens were issued without it and Fulfillment API silently 403s.
+      "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
     ].join(" ")
   );
 }
@@ -241,13 +245,17 @@ export async function upsertConnection(args: {
     throw new Error(`Failed to look up eBay connection: ${lookupErr.message}`);
   }
 
+  // Reset last_synced_at to null on every (re)connect so the next sync's
+  // orders pass falls back to the 90-day window. Otherwise reconnecting
+  // after a scope upgrade would still miss historical orders because the
+  // filter floor is "now".
   const patch = {
     access_token_encrypted: access,
     refresh_token_encrypted: refresh,
     token_expires_at: expiresAt,
     scopes: getScopes().split(" "),
     is_active: true,
-    last_synced_at: new Date().toISOString(),
+    last_synced_at: null,
     refresh_error: null,
   };
 
