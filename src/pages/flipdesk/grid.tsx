@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -24,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
+import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import type { ItemFullRow } from "@/types/database";
 
 // Editable grid columns. `field` is the inventory_items DB column to write.
@@ -365,21 +365,21 @@ export function FlipdeskGridPage() {
   return (
     <div className={cn("space-y-4", staged.size > 0 && "pb-24")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <Grid3x3 className="h-5 w-5" />
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+              <Grid3x3 className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+              <p className="text-sm text-muted-foreground">
+                Spreadsheet-style bulk editing. Tab between cells, paste
+                columns from Sheets, Cmd-Z to undo.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Grid edit</h1>
-            <p className="text-sm text-muted-foreground">
-              Spreadsheet-style bulk editing. Tab between cells, paste columns
-              from Sheets, Cmd-Z to undo.
-            </p>
-          </div>
+          <InventoryViewSwitcher current="grid" />
         </div>
-        <Button variant="outline" asChild>
-          <Link to="/dashboard/flipdesk/items">Back to Items</Link>
-        </Button>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">

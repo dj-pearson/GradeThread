@@ -54,6 +54,7 @@ import {
   PERSONAL_STATUSES,
 } from "@/lib/constants";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
+import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
@@ -524,7 +525,14 @@ export function FlipdeskItemsPage() {
       if (typeof av === "number" && typeof bv === "number") {
         return (av - bv) * dir;
       }
-      return String(av).localeCompare(String(bv)) * dir;
+      // Natural sort: "SKU 2" sorts before "SKU 10", not after. Required for
+      // numeric SKUs and item numbers that mix digits + text.
+      return (
+        String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }) * dir
+      );
     });
   }, [filtered, sortField, sortDir]);
 
@@ -1087,12 +1095,15 @@ export function FlipdeskItemsPage() {
   return (
     <div className="space-y-6 pb-24">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Items</h1>
-          <p className="text-sm text-muted-foreground">
-            Click a cell to edit. Changes stage in amber until you{" "}
-            <strong>Confirm</strong> at the bottom of the screen.
-          </p>
+        <div className="space-y-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+            <p className="text-sm text-muted-foreground">
+              Power-user editor. Click a cell to edit; changes stage in amber
+              until you <strong>Confirm</strong> at the bottom of the screen.
+            </p>
+          </div>
+          <InventoryViewSwitcher current="table" />
         </div>
         <div className="flex gap-2">
           <Button

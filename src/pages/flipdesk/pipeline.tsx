@@ -68,6 +68,7 @@ import { cn } from "@/lib/utils";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
+import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import type { ItemFullRow, ItemStatus, ItemCategory } from "@/types/database";
 
@@ -367,17 +368,20 @@ export function FlipdeskPipelinePage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-            <LayoutGrid className="h-5 w-5" />
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+              <LayoutGrid className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+              <p className="text-sm text-muted-foreground">
+                Drag a card to advance its status, or select cards for a batch
+                move. Click a card for full details.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Pipeline</h1>
-            <p className="text-sm text-muted-foreground">
-              Drag a card to advance its status, or select cards for a batch
-              move. Click a card for full details.
-            </p>
-          </div>
+          <InventoryViewSwitcher current="kanban" />
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setSettingsOpen(true)}>

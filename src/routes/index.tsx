@@ -118,6 +118,16 @@ export const router = createBrowserRouter([
               { path: "/dashboard/analytics/suggestions", element: <SuspenseWrapper><PriceSuggestionsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/overview", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
+              // ── Consolidated Inventory surface ──────────────────────────
+              // /inventory is the new canonical home (table view); /grid and
+              // /kanban host the photo-card + pipeline shapes of the same data.
+              // The pre-consolidation URLs (/items, /grid, /pipeline, /listings,
+              // /prep) stay live below so saved views + bookmarks keep working.
+              { path: "/dashboard/flipdesk/inventory", element: <SuspenseWrapper><FlipdeskListingsPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/inventory/grid", element: <SuspenseWrapper><FlipdeskGridPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/inventory/kanban", element: <SuspenseWrapper><FlipdeskPipelinePage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/inventory/prep", element: <SuspenseWrapper><FlipdeskPrepPage /></SuspenseWrapper> },
+              // Legacy paths — still resolve so links don't break.
               { path: "/dashboard/flipdesk/items", element: <SuspenseWrapper><FlipdeskItemsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/grid", element: <SuspenseWrapper><FlipdeskGridPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/items/:id", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },

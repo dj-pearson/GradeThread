@@ -30,6 +30,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
+import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { rankOf, resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemComp } from "@/types/database";
@@ -380,23 +381,27 @@ function PrepHeader({
   index: number;
 }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-        <Hammer className="h-5 w-5" />
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+          <Hammer className="h-5 w-5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+          <p className="text-sm text-muted-foreground">
+            {queueLength > 0
+              ? `Prepping ${queueLength} item${queueLength === 1 ? "" : "s"} — currently on item ${index + 1}.`
+              : "Assembly-line prep for items that need photos, measurements, or pricing."}
+          </p>
+        </div>
+        {queueLength > 0 && (
+          <Badge variant="secondary" className="ml-auto">
+            {queueLength} in queue
+          </Badge>
+        )}
       </div>
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Prep workspace</h1>
-        <p className="text-sm text-muted-foreground">
-          {queueLength > 0
-            ? `Working through ${queueLength} item${queueLength === 1 ? "" : "s"} that need prep — item ${index + 1}.`
-            : "Assembly-line prep for items that need photos, measurements, or pricing."}
-        </p>
-      </div>
-      {queueLength > 0 && (
-        <Badge variant="secondary" className="ml-auto">
-          {queueLength} in queue
-        </Badge>
-      )}
+      <InventoryViewSwitcher current="prep" />
     </div>
   );
 }
+

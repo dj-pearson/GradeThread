@@ -10,18 +10,14 @@ import {
   Key,
   Settings,
   Menu,
-  LayoutGrid,
   MapPin,
   Plug,
   Scale,
-  Table2,
   Upload,
   Gauge,
-  ListChecks,
-  Grid3x3,
-  Hammer,
   Wallet,
   BarChart3,
+  Boxes,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,11 +44,9 @@ const navGroups: NavGroup[] = [
     title: "FlipDesk",
     items: [
       { to: "/dashboard/flipdesk", icon: Gauge, label: "Overview", end: true },
-      { to: "/dashboard/flipdesk/listings", icon: ListChecks, label: "Listings", end: false },
-      { to: "/dashboard/flipdesk/prep", icon: Hammer, label: "Prep", end: false },
-      { to: "/dashboard/flipdesk/items", icon: Table2, label: "Items", end: false },
-      { to: "/dashboard/flipdesk/grid", icon: Grid3x3, label: "Grid edit", end: false },
-      { to: "/dashboard/flipdesk/pipeline", icon: LayoutGrid, label: "Pipeline", end: false },
+      // Inventory is one surface now. Its in-page tabs switch between
+      // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
+      { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
@@ -116,7 +110,7 @@ function PinnedViews({ onNavigate }: { onNavigate?: () => void }) {
       {pinned.map((v) => (
         <NavLink
           key={v.id}
-          to={`/dashboard/flipdesk/items?view=${v.id}`}
+          to={`/dashboard/flipdesk/inventory?view=${v.id}`}
           onClick={onNavigate}
           className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-white/60 transition-colors hover:bg-white/10 hover:text-white"
         >

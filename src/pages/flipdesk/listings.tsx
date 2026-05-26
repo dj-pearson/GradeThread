@@ -63,6 +63,7 @@ import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import {
   useEbayConnection,
   useEbayEndListing,
@@ -461,7 +462,13 @@ export function FlipdeskListingsPage() {
       if (typeof av === "number" && typeof bv === "number") {
         return (av - bv) * dir;
       }
-      return String(av).localeCompare(String(bv)) * dir;
+      // Natural sort so "10" follows "9", not "1".
+      return (
+        String(av).localeCompare(String(bv), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }) * dir
+      );
     });
     return rows;
   }, [items, activeTab, search, isToList, isSold, soldFilter, sortPreset, scoreById]);
@@ -802,11 +809,14 @@ export function FlipdeskListingsPage() {
   return (
     <div className={cn("space-y-6", selectable && selected.size > 0 && "pb-24")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Listings</h1>
-          <p className="text-sm text-muted-foreground">
-            Triage surface — focus on items by their selling stage.
-          </p>
+        <div className="space-y-3">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+            <p className="text-sm text-muted-foreground">
+              Triage surface — focus on items by their selling stage.
+            </p>
+          </div>
+          <InventoryViewSwitcher current="table" />
         </div>
         <div className="flex flex-wrap gap-2">
           {ebayConnection && (
