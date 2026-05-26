@@ -2,10 +2,13 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   estimateCost,
+  extractEbayAspects,
   extractItemFields,
   generateListingCopy,
+  type EbayAspectSpec,
   type ExtractPhoto,
 } from "../lib/ai-extract.ts";
+import { getCategoryAspects } from "../lib/ebay-client.ts";
 
 const MAX_PHOTOS = 8;
 
@@ -208,6 +211,245 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     model: result.model,
     log_id: logRow?.id ?? null,
     actions_remaining: actionsRemaining,
+  });
+});
+
+// ─── eBay aspect-aware extraction (Week 2) ────────────────────────
+//
+// POST /extract-aspects
+// Body: { item_id, category_id, known_aspects?, category_path? }
+//
+// Loads the item + its photos, pulls (or refreshes) the cached aspect spec
+// for the category, asks Claude to fill values constrained to eBay's allowed
+// values, and returns per-aspect suggestions.
+
+const MAX_AI_ASPECTS = 30; // schema bloats fast above this — see ai-extract.ts.
+const MAX_ALLOWED_VALUES_PER_ASPECT = 200;
+
+interface EbayRawAspect {
+  localizedAspectName?: string;
+  aspectConstraint?: {
+    aspectMode?: string;
+    aspectRequired?: boolean;
+    aspectUsage?: string;
+    itemToAspectCardinality?: string;
+  };
+  aspectValues?: Array<{ localizedValue?: string }>;
+}
+
+function toAspectSpecs(rawAspects: unknown): EbayAspectSpec[] {
+  const list = Array.isArray(rawAspects) ? (rawAspects as EbayRawAspect[]) : [];
+  const specs: EbayAspectSpec[] = [];
+  for (const a of list) {
+    const name = typeof a.localizedAspectName === "string"
+      ? a.localizedAspectName.trim()
+      : "";
+    if (!name) continue;
+    const c = a.aspectConstraint ?? {};
+    const mode = (c.aspectMode === "SELECTION_ONLY" ||
+        c.aspectMode === "SUGGESTED" ||
+        c.aspectMode === "FREE_TEXT")
+      ? c.aspectMode
+      : "FREE_TEXT";
+    const cardinality = c.itemToAspectCardinality === "MULTI"
+      ? "MULTI"
+      : "SINGLE";
+    const required = !!c.aspectRequired;
+    const allowedValues = (a.aspectValues ?? [])
+      .map((v) => (typeof v.localizedValue === "string" ? v.localizedValue : ""))
+      .filter((v): v is string => v.length > 0)
+      .slice(0, MAX_ALLOWED_VALUES_PER_ASPECT);
+    specs.push({
+      name,
+      required,
+      cardinality,
+      mode,
+      allowedValues: allowedValues.length > 0 ? allowedValues : undefined,
+    });
+  }
+  return specs;
+}
+
+// Required first, then RECOMMENDED, then drop OPTIONAL — the AI focuses on
+// the aspects that actually matter for an eBay listing.
+function prioritizeAspects(
+  specs: EbayAspectSpec[],
+  rawAspects: unknown
+): EbayAspectSpec[] {
+  const list = Array.isArray(rawAspects) ? (rawAspects as EbayRawAspect[]) : [];
+  const usageByName = new Map<string, string>();
+  for (const a of list) {
+    if (a.localizedAspectName) {
+      usageByName.set(
+        a.localizedAspectName,
+        a.aspectConstraint?.aspectUsage ?? "OPTIONAL"
+      );
+    }
+  }
+  const required = specs.filter((s) => s.required);
+  const recommended = specs.filter(
+    (s) => !s.required && usageByName.get(s.name) === "RECOMMENDED"
+  );
+  const optional = specs.filter(
+    (s) => !s.required && usageByName.get(s.name) !== "RECOMMENDED"
+  );
+  return [...required, ...recommended, ...optional].slice(0, MAX_AI_ASPECTS);
+}
+
+flipdeskAiRoutes.post("/extract-aspects", async (c) => {
+  const userId = c.get("userId");
+  let body: {
+    item_id?: unknown;
+    category_id?: unknown;
+    known_aspects?: unknown;
+    category_path?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : null;
+  const categoryIdBody = typeof body.category_id === "string"
+    ? body.category_id
+    : null;
+  const categoryPath = typeof body.category_path === "string"
+    ? body.category_path
+    : null;
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // Item ownership + fallback category fetch (when caller didn't override).
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, user_id, title, brand, style, size, color, material, condition_notes, ebay_category_id"
+    )
+    .eq("id", itemId)
+    .single();
+  if (!item || item.user_id !== userId) {
+    return c.json({ error: "Item not found" }, 404);
+  }
+
+  const categoryId = categoryIdBody ?? (item.ebay_category_id as string | null);
+  if (!categoryId) {
+    return c.json(
+      {
+        error: "category_id is required (none saved on item, none supplied)",
+      },
+      400
+    );
+  }
+
+  // Pull aspect spec (cached or live from eBay Taxonomy API).
+  let aspectsResponse;
+  try {
+    aspectsResponse = await getCategoryAspects(categoryId);
+  } catch (err) {
+    console.error("[flipdesk-ai] aspect fetch failed:", err);
+    return c.json(
+      {
+        error:
+          "Could not load eBay item-specifics for this category. Try again.",
+      },
+      502
+    );
+  }
+  const rawAspects = (aspectsResponse.aspects as Record<string, unknown>)
+    .aspects;
+  const allSpecs = toAspectSpecs(rawAspects);
+  const aiSpecs = prioritizeAspects(allSpecs, rawAspects);
+  if (aiSpecs.length === 0) {
+    return c.json({
+      category_id: categoryId,
+      suggestions: {},
+      model: null,
+      log_id: null,
+      actions_remaining: quota.limit === -1
+        ? -1
+        : Math.max(0, quota.limit - quota.used),
+    });
+  }
+
+  const photos = await loadItemPhotos(itemId);
+
+  // Free-text context that helps the AI: brand/style/condition_notes go into
+  // the prompt body so it can read e.g. "vintage 1990s" out of notes.
+  const textParts = [
+    item.title,
+    item.brand,
+    item.style,
+    item.size,
+    item.color,
+    item.material,
+    item.condition_notes,
+  ]
+    .filter((t): t is string => !!t && String(t).trim() !== "")
+    .join("\n");
+
+  const knownAspects =
+    body.known_aspects && typeof body.known_aspects === "object"
+      ? (body.known_aspects as Record<string, string[]>)
+      : {};
+
+  const start = Date.now();
+  let result;
+  try {
+    result = await extractEbayAspects({
+      text: textParts || undefined,
+      photos,
+      knownAspects,
+      aspects: aiSpecs,
+      categoryPath,
+    });
+  } catch (err) {
+    console.error(
+      "[flipdesk-ai] aspect extraction failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return c.json(
+      { error: "AI aspect extraction is temporarily unavailable." },
+      502
+    );
+  }
+  const latencyMs = Date.now() - start;
+  const costUsd = estimateCost(result.model, result.tokensIn, result.tokensOut);
+
+  const { data: logRow } = await supabaseAdmin
+    .from("ai_enrichment_log")
+    .insert({
+      user_id: userId,
+      inventory_item_id: itemId,
+      model: result.model,
+      input_kind: photos.length > 0 ? "both" : "text",
+      tokens_in: result.tokensIn,
+      tokens_out: result.tokensOut,
+      cost_usd: costUsd,
+      latency_ms: latencyMs,
+      suggested_fields: {
+        category_id: categoryId,
+        aspect_suggestions: result.suggestions,
+      },
+    })
+    .select("id")
+    .single();
+  await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+
+  const actionsRemaining = quota.limit === -1
+    ? -1
+    : Math.max(0, quota.limit - quota.used - 1);
+
+  return c.json({
+    category_id: categoryId,
+    suggestions: result.suggestions,
+    model: result.model,
+    log_id: logRow?.id ?? null,
+    actions_remaining: actionsRemaining,
+    // Useful telemetry for the UI ("AI considered 27 of 134 aspects").
+    aspects_considered: aiSpecs.length,
+    aspects_available: allSpecs.length,
   });
 });
 

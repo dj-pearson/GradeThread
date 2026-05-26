@@ -6,6 +6,7 @@ import {
   getCategoryAspects,
   getUserAccessToken,
   isEbayConfigured,
+  searchBrowseComps,
   suggestCategories,
   upsertConnection,
 } from "../lib/ebay-client.ts";
@@ -223,8 +224,39 @@ flipdeskEbayRoutes.post("/payouts/import-csv", (c) => {
   return c.json({ error: "Not implemented" }, 501);
 });
 
-flipdeskEbayRoutes.get("/comps", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+// Live active-listing comps for the composer's pricing panel. Uses the
+// Browse API + app token (no seller OAuth needed). Sold-price comps via
+// Marketplace Insights API land in a follow-up once eBay approves the
+// app — this endpoint covers the active comps until then.
+flipdeskEbayRoutes.get("/comps", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const categoryId = c.req.query("category_id")?.trim();
+  if (!categoryId) {
+    return c.json({ error: "category_id is required" }, 400);
+  }
+  const q = c.req.query("q") ?? undefined;
+  const brand = c.req.query("brand") ?? undefined;
+  const size = c.req.query("size") ?? undefined;
+  const conditionId = c.req.query("condition_id") ?? undefined;
+  const limitRaw = c.req.query("limit");
+  const limit = limitRaw ? Number(limitRaw) : undefined;
+
+  try {
+    const result = await searchBrowseComps({
+      categoryId,
+      q,
+      brand,
+      size,
+      conditionId,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    });
+    return c.json(result);
+  } catch (err) {
+    console.error("[flipdesk-ebay] comps search failed:", err);
+    return c.json({ error: "Comps search failed" }, 502);
+  }
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────

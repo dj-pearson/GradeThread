@@ -316,6 +316,251 @@ export async function extractItemFields(
   };
 }
 
+// ─── eBay aspect-aware extraction (Week 2) ────────────────────────
+//
+// eBay's item-specifics differ per leaf category. Rather than asking Claude
+// to free-form fill an open set of fields, we feed it the exact aspect
+// spec for the chosen category — names, allowed values, cardinality — and
+// build a tool schema where the model can only choose from real eBay
+// values. That makes the output directly pasteable into a listing.
+
+export type AspectCardinality = "SINGLE" | "MULTI";
+export type AspectMode =
+  | "FREE_TEXT"
+  | "SELECTION_ONLY"
+  | "SUGGESTED";
+
+export interface EbayAspectSpec {
+  name: string;
+  required: boolean;
+  cardinality: AspectCardinality;
+  mode: AspectMode;
+  // Only present when eBay's getItemAspectsForCategory returned aspectValues.
+  allowedValues?: string[];
+}
+
+export interface AspectValueSuggestion {
+  // Always an array so MULTI fits the same shape; SINGLE uses length 1.
+  values: string[];
+  confidence: number;
+  source: string;
+}
+
+export interface AspectExtractionInput {
+  text?: string;
+  photos?: ExtractPhoto[];
+  knownAspects?: Record<string, string[]>; // already-filled values
+  aspects: EbayAspectSpec[];
+  categoryPath?: string | null;
+}
+
+export interface AspectExtractionResult {
+  suggestions: Record<string, AspectValueSuggestion>;
+  model: string;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+const ASPECT_SYSTEM_PROMPT =
+  `You extract eBay item-specifics for a single second-hand item.
+You will be given a list of aspect specs (name, required-ness, cardinality, mode, and allowed values when eBay provides them) and photos and/or text of the item.
+
+Hard rules:
+- For SELECTION_ONLY aspects with allowed values: pick ONLY from the allowed list. If none of the listed values match what you see, OMIT the aspect entirely.
+- For SUGGESTED aspects with allowed values: prefer a listed value; only return a free-text value if the item clearly matches something outside the list.
+- For FREE_TEXT aspects: return a clean, listing-ready value (Title Case, no marketing language).
+- For MULTI-cardinality aspects: return ALL applicable values as a JSON array. For SINGLE: return one value as a single-element array.
+- Never guess. If the input does not clearly support an aspect, omit it.
+- For every aspect you return, give a 0..1 confidence and a source string ('photo:tag', 'photo:front', 'text', etc.).
+- The 'tag' / care-label photo is the highest-value input for Brand, Size, Material/Fabric, and Country of Manufacture — read it verbatim when present.
+- Already-known aspect values are ground truth. Do not contradict them; only fill gaps.
+
+You will call extract_ebay_aspects with a single object whose properties are the aspect names. Each property's value is { values: string[], confidence: number, source: string }.`;
+
+function buildAspectTool(aspects: EbayAspectSpec[]): Anthropic.Tool {
+  // Build one property per aspect. The shared item shape is values+confidence+source.
+  const properties: Record<string, unknown> = {};
+  for (const a of aspects) {
+    const valuesSchema: Record<string, unknown> = {
+      type: "array",
+      items: { type: "string" },
+      description: a.required ? "(REQUIRED)" : undefined,
+    };
+    // Constrain to eBay's allowed set when one exists and the aspect isn't
+    // pure free-text. SUGGESTED aspects can technically accept new values,
+    // but we lean toward enums for cleanliness; the system prompt covers
+    // the rare "neither matches" escape hatch.
+    if (a.allowedValues && a.allowedValues.length > 0 && a.mode !== "FREE_TEXT") {
+      (valuesSchema.items as Record<string, unknown>) = {
+        type: "string",
+        enum: a.allowedValues,
+      };
+    }
+    if (a.cardinality === "SINGLE") {
+      valuesSchema.maxItems = 1;
+    }
+    properties[a.name] = {
+      type: "object",
+      description: `eBay aspect "${a.name}" — ${a.cardinality}, ${a.mode}${
+        a.required ? ", required" : ""
+      }`,
+      properties: {
+        values: valuesSchema,
+        confidence: { type: "number" },
+        source: { type: "string" },
+      },
+      required: ["values", "confidence"],
+    };
+  }
+  return {
+    name: "extract_ebay_aspects",
+    description:
+      "Return values for each eBay item-specific you can determine from the inputs. Omit aspects you cannot support.",
+    input_schema: {
+      type: "object",
+      properties,
+    },
+  };
+}
+
+function buildAspectUserPrompt(input: AspectExtractionInput): string {
+  const lines: string[] = [];
+  if (input.categoryPath) {
+    lines.push(`EBAY CATEGORY: ${input.categoryPath}`);
+  }
+  if (input.text && input.text.trim()) {
+    lines.push(`ITEM DESCRIPTION / NOTES:\n${input.text.trim()}`);
+  }
+  const known = input.knownAspects ?? {};
+  const knownEntries = Object.entries(known).filter(([, v]) => v.length > 0);
+  if (knownEntries.length > 0) {
+    lines.push(
+      `ALREADY-KNOWN ASPECT VALUES (ground truth — do not contradict):\n` +
+        JSON.stringify(Object.fromEntries(knownEntries), null, 2)
+    );
+  }
+  // Compact aspect-spec brief — the tool schema already encodes the
+  // constraints, but a human-readable summary helps the model reason
+  // about which aspects are highest-priority.
+  const required = input.aspects.filter((a) => a.required).map((a) => a.name);
+  if (required.length > 0) {
+    lines.push(`REQUIRED ASPECTS: ${required.join(", ")}`);
+  }
+  lines.push(
+    "Call extract_ebay_aspects with only the aspects you can confidently determine from the photos and text."
+  );
+  return lines.join("\n\n");
+}
+
+export async function extractEbayAspects(
+  input: AspectExtractionInput
+): Promise<AspectExtractionResult> {
+  if (input.aspects.length === 0) {
+    return {
+      suggestions: {},
+      model: getHaikuModel(),
+      tokensIn: 0,
+      tokensOut: 0,
+    };
+  }
+  const photos = input.photos ?? [];
+  const hasPhotos = photos.length > 0;
+  // Aspect extraction without photos is rarely useful — most aspects can
+  // only be filled from visual evidence — but we still run the model on
+  // text alone if that's all we have.
+  const model = hasPhotos ? getSonnetModel() : getHaikuModel();
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+
+  const content: Anthropic.ContentBlockParam[] = [];
+  photos.forEach((photo, i) => {
+    content.push({
+      type: "text",
+      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
+    });
+    content.push({ type: "image", source: { type: "url", url: photo.url } });
+  });
+  content.push({ type: "text", text: buildAspectUserPrompt(input) });
+
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? {
+        type: "text",
+        text: ASPECT_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      }
+    : { type: "text", text: ASPECT_SYSTEM_PROMPT };
+
+  const tool = buildAspectTool(input.aspects);
+  const response = await client.messages.create({
+    model,
+    max_tokens: 2048,
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: [systemBlock],
+    tools: [tool],
+    tool_choice: { type: "tool", name: "extract_ebay_aspects" },
+    messages: [{ role: "user", content }],
+  });
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("AI did not return structured aspect values");
+  }
+
+  const raw = toolUse.input as Record<string, unknown>;
+  const defaultSource = hasPhotos ? "photo" : "text";
+  const allowedSets = new Map<string, Set<string>>();
+  for (const a of input.aspects) {
+    if (a.allowedValues && a.allowedValues.length > 0 && a.mode !== "FREE_TEXT") {
+      allowedSets.set(a.name, new Set(a.allowedValues));
+    }
+  }
+
+  const suggestions: Record<string, AspectValueSuggestion> = {};
+  for (const a of input.aspects) {
+    const field = raw[a.name];
+    if (!field || typeof field !== "object") continue;
+    const f = field as {
+      values?: unknown;
+      confidence?: unknown;
+      source?: unknown;
+    };
+    if (!Array.isArray(f.values) || f.values.length === 0) continue;
+
+    let values = f.values
+      .map((v) => (typeof v === "string" ? v.trim() : String(v).trim()))
+      .filter((v) => v.length > 0);
+    // Final-pass safety net: drop any model-emitted value that isn't in the
+    // allowed set when one was provided. The enum constraint should already
+    // handle this, but better to silently drop than to surface garbage.
+    const allowed = allowedSets.get(a.name);
+    if (allowed) {
+      values = values.filter((v) => allowed.has(v));
+    }
+    if (a.cardinality === "SINGLE") values = values.slice(0, 1);
+    if (values.length === 0) continue;
+
+    let confidence = Number(f.confidence);
+    if (Number.isNaN(confidence)) confidence = 0.5;
+    confidence = Math.max(0, Math.min(1, confidence));
+    const source =
+      typeof f.source === "string" && f.source.trim() !== ""
+        ? f.source
+        : defaultSource;
+
+    suggestions[a.name] = { values, confidence, source };
+  }
+
+  return {
+    suggestions,
+    model,
+    tokensIn:
+      response.usage.input_tokens +
+      (response.usage.cache_read_input_tokens ?? 0) +
+      (response.usage.cache_creation_input_tokens ?? 0),
+    tokensOut: response.usage.output_tokens,
+  };
+}
+
 // ─── Listing copy generation (US-165) ──────────────────────────────
 
 export interface ListingCopyInput {

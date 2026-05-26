@@ -54,6 +54,7 @@ import { compositeGradeBadge } from "@/lib/grade-badge";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
+import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import type {
   ItemFullRow,
   ItemPhotoRow,
@@ -77,6 +78,11 @@ export function FlipdeskComposerPage() {
   const [badgeBusy, setBadgeBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
+  // Lifted from the category picker so the comps panel reacts to a pick
+  // before the user commits via "Save eBay specifics".
+  const [livePickedCategoryId, setLivePickedCategoryId] = useState<
+    string | null
+  >(null);
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", user?.id],
@@ -488,6 +494,18 @@ export function FlipdeskComposerPage() {
             initialCategoryId={ebayMapping?.ebay_category_id ?? null}
             initialAspects={ebayMapping?.ebay_aspects ?? null}
             seedQuery={item.item_title ?? ""}
+            onCategoryChange={setLivePickedCategoryId}
+          />
+
+          {/* Live comps + price recommendation */}
+          <EbayCompsPanel
+            itemId={item.id}
+            categoryId={
+              livePickedCategoryId ?? ebayMapping?.ebay_category_id ?? null
+            }
+            brand={item.brand ?? null}
+            size={item.size ?? null}
+            q={item.item_title ?? ""}
           />
 
           {/* Photos */}

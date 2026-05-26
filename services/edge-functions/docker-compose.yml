@@ -24,8 +24,10 @@ services:
       start_period: 20s
     labels:
       # Coolify reads these to provision a Traefik route with Let's Encrypt.
+      # The edge service lives on `functions.gradethread.com`; the `api.*` host
+      # is the self-hosted Supabase Kong on a separate container.
       - coolify.managed=true
       - coolify.name=gradethread-edge-functions
-      - coolify.fqdn=${COOLIFY_FQDN:-https://api.gradethread.com}
+      - coolify.fqdn=${COOLIFY_FQDN:-https://functions.gradethread.com}
       - coolify.port=8787
       - coolify.healthcheckPath=/health

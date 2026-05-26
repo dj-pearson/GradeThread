@@ -14,9 +14,11 @@ Coolify (Settings → Environment Variables, for the edge service).
 
 - A regular consumer eBay account (sign in at https://www.ebay.com). The
   developer portal uses it as your login.
-- Your deployed edge service URL — most likely
-  `https://api.gradethread.com/api/flipdesk/ebay/oauth/callback`. eBay redirects
-  the user's browser there after they consent.
+- Your deployed edge service URL —
+  `https://functions.gradethread.com/api/flipdesk/ebay/oauth/callback`. eBay
+  redirects the user's browser there after they consent. (Note: `api.*` is
+  self-hosted Supabase Kong; the Hono edge service lives on `functions.*`.
+  Pointing eBay at the `api.*` host will 404.)
 - 10 minutes for Sandbox keys. Production keys take longer (eBay reviews
   the app before activating them — usually 1-2 business days).
 
@@ -81,11 +83,12 @@ To set it up:
    In (OAuth)** and click **Add eBay Redirect URL**.
 4. Fill in:
    - **Your auth accepted URL** →
-     `https://api.gradethread.com/api/flipdesk/ebay/oauth/callback`
+     `https://functions.gradethread.com/api/flipdesk/ebay/oauth/callback`
+     (the Hono edge service host; `api.gradethread.com` is Supabase Kong and
+     does not serve this path).
    - **Your auth declined URL** → same URL (the route handles the
      "user cancelled" case via the `?error=` query param).
-   - **Your privacy policy URL** → `https://gradethread.com/privacy`
-     (or any reachable URL — eBay just checks it's not empty).
+   - **Your privacy policy URL** → `https://gradethread.com/privacy`.
 5. Save. eBay displays a generated **RuName** string. Copy it.
 
    | eBay label | Goes into `.env`     |
@@ -93,8 +96,8 @@ To set it up:
    | RuName     | `EBAY_RU_NAME`       |
    | Auth Accepted URL | `EBAY_REDIRECT_URI` (informational; the code uses RuName for OAuth itself) |
 
-> **Heads-up:** if the deployed callback URL changes (e.g. you move from
-> `api.gradethread.com` to a different host), come back here and edit the
+> **Heads-up:** if the deployed callback URL changes (e.g. you move the edge
+> service off `functions.gradethread.com`), come back here and edit the
 > Auth Accepted URL. The RuName stays the same.
 
 ---
@@ -141,7 +144,7 @@ EBAY_DEV_ID=...
 
 # From Step 3 (the RuName, NOT the URL)
 EBAY_RU_NAME=PearsonM-FlipDesk-SBX-...
-EBAY_REDIRECT_URI=https://api.gradethread.com/api/flipdesk/ebay/oauth/callback
+EBAY_REDIRECT_URI=https://functions.gradethread.com/api/flipdesk/ebay/oauth/callback
 
 # OAuth scopes — defaults match what the Week 1 / Week 3 code needs.
 # Leave commented to use the defaults baked into ebay-client.ts.

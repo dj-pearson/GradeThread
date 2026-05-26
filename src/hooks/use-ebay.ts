@@ -151,6 +151,133 @@ export function useEbayCategoryAspects(categoryId: string | null) {
   });
 }
 
+// ── AI aspect fill (Week 2) ─────────────────────────────────────────
+
+export interface AiAspectSuggestion {
+  values: string[];
+  confidence: number;
+  source: string;
+}
+
+export interface AiAspectExtractResponse {
+  category_id: string;
+  suggestions: Record<string, AiAspectSuggestion>;
+  model: string | null;
+  log_id: string | null;
+  actions_remaining: number;
+  aspects_considered?: number;
+  aspects_available?: number;
+}
+
+// Mutation hook used by the eBay category picker's "AI fill from photos"
+// button. Returns Claude's per-aspect suggestions constrained to eBay's
+// allowed values.
+export function useAiExtractAspects() {
+  return useMutation<
+    AiAspectExtractResponse,
+    Error,
+    {
+      itemId: string;
+      categoryId: string;
+      categoryPath?: string;
+      knownAspects?: Record<string, string[]>;
+    }
+  >({
+    mutationFn: async ({ itemId, categoryId, categoryPath, knownAspects }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ai/extract-aspects`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: await authHeader(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            item_id: itemId,
+            category_id: categoryId,
+            category_path: categoryPath,
+            known_aspects: knownAspects,
+          }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "AI fill failed.");
+      }
+      return json as AiAspectExtractResponse;
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// ── Comps (Browse API) ──────────────────────────────────────────────
+
+export interface EbayComp {
+  itemId: string;
+  title: string;
+  price: number | null;
+  currency: string;
+  imageUrl: string | null;
+  itemWebUrl: string | null;
+  condition: string | null;
+  buyingOptions: string[];
+}
+
+export interface EbayCompsResponse {
+  items: EbayComp[];
+  total: number;
+  stats: {
+    count: number;
+    currency: string;
+    min: number | null;
+    p25: number | null;
+    median: number | null;
+    p75: number | null;
+    max: number | null;
+  };
+}
+
+export interface EbayCompsArgs {
+  categoryId: string | null;
+  q?: string;
+  brand?: string;
+  size?: string;
+  conditionId?: string;
+  limit?: number;
+}
+
+export function useEbayComps(args: EbayCompsArgs) {
+  return useQuery({
+    queryKey: [
+      "ebay_comps",
+      args.categoryId,
+      args.q ?? null,
+      args.brand ?? null,
+      args.size ?? null,
+      args.conditionId ?? null,
+    ],
+    enabled: !!args.categoryId,
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EbayCompsResponse> => {
+      const params = new URLSearchParams({ category_id: args.categoryId! });
+      if (args.q) params.set("q", args.q);
+      if (args.brand) params.set("brand", args.brand);
+      if (args.size) params.set("size", args.size);
+      if (args.conditionId) params.set("condition_id", args.conditionId);
+      if (args.limit) params.set("limit", String(args.limit));
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/comps?${params.toString()}`,
+        { headers: { Authorization: await authHeader() } }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Comps lookup failed.");
+      }
+      return json as EbayCompsResponse;
+    },
+  });
+}
+
 // ── Persistence ─────────────────────────────────────────────────────
 
 // Saves the chosen eBay category + aspect values on the inventory item.

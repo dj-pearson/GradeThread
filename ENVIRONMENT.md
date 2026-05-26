@@ -10,7 +10,7 @@ There are **two places** env vars live:
 | Target | What runs there | How to set vars |
 |---|---|---|
 | **Frontend build** (Cloudflare Pages) | The React SPA | Build-time env vars in Cloudflare Pages → Settings → Environment variables. Only `VITE_*` vars are exposed to the browser. |
-| **Edge function service** (Coolify) | The Deno/Hono API at `api.gradethread.com` | Service env vars in Coolify → your service → Environment Variables. These are server-side secrets — never prefix with `VITE_`. |
+| **Edge function service** (Coolify) | The Deno/Hono API at `functions.gradethread.com` | Service env vars in Coolify → your service → Environment Variables. These are server-side secrets — never prefix with `VITE_`. |
 
 > Self-hosted Supabase has its own infrastructure `.env` (GoTrue, Postgres,
 > Storage, etc.). That is **not** covered here — this doc is only the
@@ -25,7 +25,7 @@ There are **two places** env vars live:
 | `VITE_SUPABASE_URL` | ✅ Required | Supabase API base URL | Your self-hosted Supabase: `https://api.gradethread.com` |
 | `VITE_SUPABASE_ANON_KEY` | ✅ Required | Public anon key for client-side auth/queries (RLS-protected) | Supabase → Settings → API → `anon` `public` key |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | ✅ Required (for billing) | Stripe.js publishable key | Stripe Dashboard → Developers → API keys → Publishable key (`pk_...`) |
-| `VITE_EDGE_API_URL` | ✅ Required | Base URL of the edge function service | `https://api.gradethread.com` |
+| `VITE_EDGE_API_URL` | ✅ Required | Base URL of the edge function service. **Distinct from `VITE_SUPABASE_URL`** — Supabase Kong runs on `api.*`, the Hono edge service runs on `functions.*`. | `https://functions.gradethread.com` |
 | `VITE_SENTRY_DSN` | ⬜ Optional | Frontend error reporting; disabled if blank | Sentry → Project → Settings → Client Keys (DSN) |
 | `VITE_POSTHOG_KEY` | ⬜ Optional | Product analytics; disabled if blank | PostHog → Project Settings → Project API Key |
 | `VITE_POSTHOG_HOST` | ⬜ Optional | PostHog ingestion host | `https://us.i.posthog.com` (or your region/self-hosted host) |
@@ -82,8 +82,9 @@ present.
 | `STRIPE_PRICE_STARTER_MONTHLY` | ✅ Required (for billing) | Price ID for the Starter plan checkout | Stripe → Products → Starter plan → Pricing → API ID (`price_...`) |
 | `STRIPE_PRICE_PROFESSIONAL_MONTHLY` | ✅ Required (for billing) | Price ID for the Professional plan checkout | Stripe → Products → Professional plan → Pricing → API ID (`price_...`) |
 
-Point the Stripe webhook endpoint at `https://api.gradethread.com/api/webhooks/stripe`
-(confirm the exact path in `services/edge-functions/src/main.ts`).
+Point the Stripe webhook endpoint at `https://functions.gradethread.com/api/webhooks/stripe`
+(the edge service host — `api.*` is Supabase Kong and will 404 this path).
+Confirm the exact path in `services/edge-functions/src/main.ts`.
 
 ### 2d. Email — Resend
 
@@ -106,7 +107,7 @@ until US-119–125 are built. Set these when you build/enable the eBay flow.
 | `EBAY_APP_ID` | When using eBay | OAuth client ID; also gates the eBay endpoints | [developer.ebay.com](https://developer.ebay.com) → My Account → Application Keys → App ID (Client ID) |
 | `EBAY_CERT_ID` | When using eBay | OAuth client secret | eBay developer keyset → Cert ID (Client Secret) |
 | `EBAY_DEV_ID` | When using eBay | eBay developer account ID | eBay developer keyset → Dev ID |
-| `EBAY_REDIRECT_URI` | When using eBay | OAuth callback URL (eBay calls this "RuName" target) | Must match the redirect registered in your eBay app, e.g. `https://api.gradethread.com/api/flipdesk/ebay/oauth/callback` |
+| `EBAY_REDIRECT_URI` | When using eBay | OAuth callback URL (eBay calls this "RuName" target) | Must match the redirect registered in your eBay app, e.g. `https://functions.gradethread.com/api/flipdesk/ebay/oauth/callback` |
 | `EBAY_VERIFICATION_TOKEN` | When using eBay notifications | Shared secret eBay sends with Notification API deliveries (incl. account-deletion) | A random string you generate, then register in eBay's Notification settings |
 
 ### 2f. Cloudflare R2 — FlipDesk photo cold storage
@@ -133,7 +134,7 @@ when that feature lands.
 
 | Variable | Required | Purpose | Where to get it |
 |---|---|---|---|
-| `COOLIFY_FQDN` | ⬜ Optional | FQDN Traefik binds the service to | Defaults to `https://api.gradethread.com`; see `services/edge-functions/COOLIFY.md` |
+| `COOLIFY_FQDN` | ⬜ Optional | FQDN Traefik binds the service to | Defaults to `https://functions.gradethread.com`; see `services/edge-functions/COOLIFY.md` |
 
 ---
 

@@ -396,6 +396,143 @@ export async function getCategoryAspects(
   return { aspects: payload, categoryName: null, cached: false };
 }
 
+// ── Browse API: active comps ────────────────────────────────────────
+
+export interface BrowseComp {
+  itemId: string;
+  title: string;
+  price: number | null;
+  currency: string;
+  imageUrl: string | null;
+  itemWebUrl: string | null;
+  condition: string | null;
+  buyingOptions: string[];
+}
+
+export interface BrowseCompsArgs {
+  categoryId: string;
+  q?: string;
+  brand?: string;
+  size?: string;
+  // Maps to eBay conditionId. Defaults to "3000" (Used) for pre-owned resale.
+  conditionId?: string;
+  limit?: number;
+}
+
+export interface BrowseCompsResult {
+  items: BrowseComp[];
+  total: number;
+  stats: {
+    count: number;
+    currency: string;
+    min: number | null;
+    p25: number | null;
+    median: number | null;
+    p75: number | null;
+    max: number | null;
+  };
+}
+
+function percentile(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  if (sorted.length === 1) return sorted[0]!;
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo]!;
+  const w = idx - lo;
+  return sorted[lo]! * (1 - w) + sorted[hi]! * w;
+}
+
+export async function searchBrowseComps(
+  args: BrowseCompsArgs
+): Promise<BrowseCompsResult> {
+  const token = await getAppAccessToken();
+  const filters: string[] = [];
+  filters.push(`conditionIds:{${args.conditionId ?? "3000"}}`);
+  filters.push(`buyingOptions:{FIXED_PRICE|AUCTION|BEST_OFFER}`);
+
+  // Aspect filter: only the most reliable item-specifics. Brand alone moves
+  // the needle hard for clothing comps. Size is more variable across brands.
+  const aspectFilters: string[] = [];
+  if (args.brand) aspectFilters.push(`Brand:{${args.brand}}`);
+  if (args.size) aspectFilters.push(`Size:{${args.size}}`);
+
+  const params = new URLSearchParams();
+  params.set("category_ids", args.categoryId);
+  if (args.q && args.q.trim()) params.set("q", args.q.trim());
+  params.set("filter", filters.join(","));
+  if (aspectFilters.length > 0) {
+    params.set(
+      "aspect_filter",
+      `categoryId:${args.categoryId},${aspectFilters.join(",")}`
+    );
+  }
+  params.set("limit", String(Math.min(Math.max(args.limit ?? 12, 1), 50)));
+  params.set("sort", "newlyListed");
+
+  const url = `${apiHost()}/buy/browse/v1/item_summary/search?${params.toString()}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `eBay Browse search failed (${res.status}): ${text.slice(0, 300)}`
+    );
+  }
+
+  const payload = (await res.json()) as {
+    itemSummaries?: Array<{
+      itemId?: string;
+      title?: string;
+      price?: { value?: string; currency?: string };
+      image?: { imageUrl?: string };
+      thumbnailImages?: Array<{ imageUrl?: string }>;
+      itemWebUrl?: string;
+      condition?: string;
+      buyingOptions?: string[];
+    }>;
+    total?: number;
+  };
+
+  const summaries = payload.itemSummaries ?? [];
+  const items: BrowseComp[] = summaries.map((s) => ({
+    itemId: s.itemId ?? "",
+    title: s.title ?? "",
+    price: s.price?.value ? Number(s.price.value) : null,
+    currency: s.price?.currency ?? "USD",
+    imageUrl:
+      s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
+    itemWebUrl: s.itemWebUrl ?? null,
+    condition: s.condition ?? null,
+    buyingOptions: s.buyingOptions ?? [],
+  }));
+
+  const prices = items
+    .map((i) => i.price)
+    .filter((p): p is number => p != null && p > 0)
+    .sort((a, b) => a - b);
+  const currency = items[0]?.currency ?? "USD";
+
+  return {
+    items,
+    total: payload.total ?? items.length,
+    stats: {
+      count: prices.length,
+      currency,
+      min: prices[0] ?? null,
+      p25: percentile(prices, 0.25),
+      median: percentile(prices, 0.5),
+      p75: percentile(prices, 0.75),
+      max: prices[prices.length - 1] ?? null,
+    },
+  };
+}
+
 // ── App token (client_credentials) ──────────────────────────────────
 // Used for Taxonomy + Browse — endpoints that don't need a seller context.
 

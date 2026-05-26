@@ -33,15 +33,17 @@ services:
       retries: 3
       start_period: 15s
     labels:
-      # Coolify-managed Traefik routing
+      # Coolify-managed Traefik routing.
+      # The edge service lives on `functions.gradethread.com`; `api.gradethread.com`
+      # is the self-hosted Supabase Kong on a separate container.
       - coolify.managed=true
       - coolify.name=gradethread-edge-functions
-      - coolify.fqdn=${COOLIFY_FQDN:-https://api.gradethread.com}
+      - coolify.fqdn=${COOLIFY_FQDN:-https://functions.gradethread.com}
       - coolify.port=8787
       - coolify.healthcheckPath=/health
       # Direct Traefik labels (fallback if Coolify auto-detection is off)
       - traefik.enable=true
-      - traefik.http.routers.edge-functions.rule=Host(`api.gradethread.com`)
+      - traefik.http.routers.edge-functions.rule=Host(`functions.gradethread.com`)
       - traefik.http.routers.edge-functions.entrypoints=https
       - traefik.http.routers.edge-functions.tls=true
       - traefik.http.routers.edge-functions.tls.certresolver=letsencrypt

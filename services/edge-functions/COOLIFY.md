@@ -9,7 +9,11 @@ container. Deploy it as a single Coolify resource.
 2. Point at this repository.
 3. Set the **Base Directory** to `/services/edge-functions`. Coolify will
    auto-pick `docker-compose.yml` from there (now production-ready).
-4. Set the FQDN to `api.gradethread.com` (or set `COOLIFY_FQDN` env var).
+4. Set the FQDN to `functions.gradethread.com` (or set `COOLIFY_FQDN` env
+   var). **Do not** reuse `api.gradethread.com` — that hostname is the
+   self-hosted Supabase Kong running on a separate container; pointing
+   Traefik at it from this service will collide with Supabase and 404
+   anything under `/api/*`.
 5. Add the env vars from `.env.example` (Supabase, Anthropic, Stripe, eBay, R2).
 6. Save and deploy.
 

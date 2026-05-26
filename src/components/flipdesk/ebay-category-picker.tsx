@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Search, X, Check, AlertCircle } from "lucide-react";
+import { Loader2, Search, X, Check, AlertCircle, Sparkles } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
+  useAiExtractAspects,
   useEbayCategoryAspects,
   useEbayCategorySuggest,
   useSaveEbayCategoryMapping,
@@ -28,6 +29,9 @@ interface Props {
   // When set, the picker uses this as the default query on first mount —
   // typically the item's title so the user lands on a relevant suggestion.
   seedQuery?: string;
+  // Notifies the parent every time the user picks (or clears) a category,
+  // so siblings like the comps panel can react before the save is committed.
+  onCategoryChange?: (categoryId: string | null) => void;
 }
 
 // 250ms debounce — eBay's Taxonomy quota is generous but not free.
@@ -45,6 +49,7 @@ export function EbayCategoryPicker({
   initialCategoryId,
   initialAspects,
   seedQuery,
+  onCategoryChange,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
   const debounced = useDebounced(query.trim(), 250);
@@ -60,9 +65,17 @@ export function EbayCategoryPicker({
     initialAspects ?? {}
   );
 
+  // Aspect names the AI most recently filled — drives the "AI" badge.
+  const [aiFilled, setAiFilled] = useState<Set<string>>(new Set());
+  // Per-aspect confidence for the "AI" badge tooltip / styling.
+  const [aiMeta, setAiMeta] = useState<
+    Record<string, { confidence: number; source: string }>
+  >({});
+
   const suggestQuery = useEbayCategorySuggest(debounced);
   const aspectsQuery = useEbayCategoryAspects(categoryId);
   const save = useSaveEbayCategoryMapping();
+  const aiExtract = useAiExtractAspects();
 
   const initialAspectsRef = useRef(initialAspects);
   // When the user picks a different category, drop any aspect values that no
@@ -125,12 +138,16 @@ export function EbayCategoryPicker({
     setCategoryId(s.categoryId);
     setCategoryPath(s.categoryTreePath);
     setQuery("");
+    onCategoryChange?.(s.categoryId);
   }
 
   function clearCategory() {
     setCategoryId(null);
     setCategoryPath(null);
     setAspectValues({});
+    setAiFilled(new Set());
+    setAiMeta({});
+    onCategoryChange?.(null);
   }
 
   function setAspect(name: string, value: string, cardinality: string) {
@@ -143,6 +160,58 @@ export function EbayCategoryPicker({
       }
       return { ...prev, [name]: value ? [value] : [] };
     });
+    // A manual edit clears the AI marker for that aspect.
+    setAiFilled((prev) => {
+      if (!prev.has(name)) return prev;
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+  }
+
+  async function handleAiFill() {
+    if (!categoryId) {
+      toast.error("Pick an eBay category first.");
+      return;
+    }
+    try {
+      const result = await aiExtract.mutateAsync({
+        itemId,
+        categoryId,
+        categoryPath: categoryPath ?? undefined,
+        knownAspects: aspectValues,
+      });
+      // Merge: AI suggestions only fill empty aspects (or replace AI-filled
+      // ones); never clobber a manual edit. The known_aspects payload tells
+      // the server not to suggest those at all, but we double-check here.
+      let added = 0;
+      const nextValues = { ...aspectValues };
+      const nextAi = new Set(aiFilled);
+      const nextMeta = { ...aiMeta };
+      for (const [name, sug] of Object.entries(result.suggestions)) {
+        const currentlySet = (nextValues[name]?.length ?? 0) > 0;
+        const wasAi = nextAi.has(name);
+        if (currentlySet && !wasAi) continue;
+        nextValues[name] = sug.values;
+        nextAi.add(name);
+        nextMeta[name] = { confidence: sug.confidence, source: sug.source };
+        added += 1;
+      }
+      setAspectValues(nextValues);
+      setAiFilled(nextAi);
+      setAiMeta(nextMeta);
+      if (added === 0) {
+        toast.info(
+          "AI couldn't add anything new — try adding more photos or a tag shot."
+        );
+      } else {
+        toast.success(
+          `AI filled ${added} ${added === 1 ? "specific" : "specifics"} from your photos.`
+        );
+      }
+    } catch {
+      /* hook surfaces the error toast */
+    }
   }
 
   async function handleSave() {
@@ -186,12 +255,29 @@ export function EbayCategoryPicker({
               from the photos.
             </CardDescription>
           </div>
-          {categoryId && (
-            <Button variant="ghost" size="sm" onClick={clearCategory}>
-              <X className="mr-1 h-3 w-3" />
-              Clear
-            </Button>
-          )}
+          <div className="flex items-center gap-1">
+            {categoryId && aspects.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAiFill}
+                disabled={aiExtract.isPending}
+              >
+                {aiExtract.isPending ? (
+                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-1 h-3 w-3" />
+                )}
+                AI fill from photos
+              </Button>
+            )}
+            {categoryId && (
+              <Button variant="ghost" size="sm" onClick={clearCategory}>
+                <X className="mr-1 h-3 w-3" />
+                Clear
+              </Button>
+            )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -277,6 +363,8 @@ export function EbayCategoryPicker({
                 tone="required"
                 aspects={required}
                 values={aspectValues}
+                aiFilled={aiFilled}
+                aiMeta={aiMeta}
                 onChange={setAspect}
               />
             )}
@@ -286,6 +374,8 @@ export function EbayCategoryPicker({
                 tone="recommended"
                 aspects={recommended}
                 values={aspectValues}
+                aiFilled={aiFilled}
+                aiMeta={aiMeta}
                 onChange={setAspect}
               />
             )}
@@ -295,6 +385,8 @@ export function EbayCategoryPicker({
                 tone="optional"
                 aspects={optional}
                 values={aspectValues}
+                aiFilled={aiFilled}
+                aiMeta={aiMeta}
                 onChange={setAspect}
               />
             )}
@@ -332,12 +424,16 @@ function AspectGroup({
   tone,
   aspects,
   values,
+  aiFilled,
+  aiMeta,
   onChange,
 }: {
   title: string;
   tone: "required" | "recommended" | "optional";
   aspects: EbayAspect[];
   values: Record<string, string[]>;
+  aiFilled: Set<string>;
+  aiMeta: Record<string, { confidence: number; source: string }>;
   onChange: (name: string, value: string, cardinality: string) => void;
 }) {
   return (
@@ -358,6 +454,8 @@ function AspectGroup({
             key={a.localizedAspectName}
             aspect={a}
             value={values[a.localizedAspectName] ?? []}
+            aiFilled={aiFilled.has(a.localizedAspectName)}
+            aiMetaItem={aiMeta[a.localizedAspectName]}
             onChange={(v) =>
               onChange(
                 a.localizedAspectName,
@@ -375,10 +473,14 @@ function AspectGroup({
 function AspectField({
   aspect,
   value,
+  aiFilled,
+  aiMetaItem,
   onChange,
 }: {
   aspect: EbayAspect;
   value: string[];
+  aiFilled: boolean;
+  aiMetaItem?: { confidence: number; source: string };
   onChange: (v: string) => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
@@ -390,8 +492,23 @@ function AspectField({
 
   return (
     <div className="space-y-1">
-      <Label htmlFor={fieldId} className="text-xs">
+      <Label
+        htmlFor={fieldId}
+        className="flex items-center gap-1.5 text-xs"
+      >
         {aspect.localizedAspectName}
+        {aiFilled && (
+          <span
+            className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-medium text-primary"
+            title={
+              aiMetaItem
+                ? `AI-filled (${Math.round(aiMetaItem.confidence * 100)}% confident, ${aiMetaItem.source})`
+                : "AI-filled"
+            }
+          >
+            AI
+          </span>
+        )}
       </Label>
       {mode === "SELECTION_ONLY" && allowedValues.length > 0 ? (
         cardinality === "MULTI" ? (
