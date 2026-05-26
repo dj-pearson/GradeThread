@@ -6,6 +6,7 @@ GradeThread is a SaaS platform that provides standardized, AI-powered condition 
 
 **Domain:** gradethread.com
 **Supabase:** Self-hosted at api.gradethread.com
+**Edge service:** Deno/Hono on Coolify at functions.gradethread.com (separate container from Supabase — `/api/*` paths on `api.gradethread.com` are Supabase Kong and will 404 anything outside Supabase's routes; all Hono routes including `/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*` are served from `functions.*`)
 **Repo:** github.com/dj-pearson/GradeThread
 
 ## Tech Stack

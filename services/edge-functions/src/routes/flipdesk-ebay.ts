@@ -1,14 +1,24 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   buildConsentUrl,
+  createOffer,
+  createOrReplaceInventoryItem,
+  ebayListingUrl,
   exchangeCodeForTokens,
   getCategoryAspects,
+  getDefaultPolicies,
+  getMarketplaceId,
   getUserAccessToken,
   isEbayConfigured,
+  isOfferAlreadyExistsError,
+  listOffersForSku,
+  publishOffer,
   searchBrowseComps,
   suggestCategories,
   upsertConnection,
+  type PolicySet,
 } from "../lib/ebay-client.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
@@ -208,12 +218,159 @@ flipdeskEbayRoutes.post("/listings/pull", (c) => {
   return c.json({ error: "Not implemented" }, 501);
 });
 
-flipdeskEbayRoutes.post("/listings/push", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+// ── Publish flow (Week 3) ──────────────────────────────────────────
+//
+// /listings/validate runs every pre-flight check WITHOUT touching eBay.
+// /listings/push runs the same check, then:
+//   1. createOrReplaceInventoryItem  (PUT, idempotent)
+//   2. createOffer                   (POST, returns offerId)
+//   3. publishOffer                  (POST, returns listingId)
+// On success the listings + inventory_items rows are updated to reflect the
+// live state. createOffer is idempotent on SKU via listOffersForSku fallback.
+
+flipdeskEbayRoutes.post("/listings/validate", async (c) => {
+  const userId = c.get("userId");
+  const itemId = await readItemId(c);
+  if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+  const result = await assemblePublishContext(userId, itemId);
+  if (!result.ok) return c.json(result.error, result.status);
+  return c.json({
+    ok: result.blockers.length === 0,
+    blockers: result.blockers,
+    summary: result.summary,
+  });
 });
 
-flipdeskEbayRoutes.post("/listings/validate", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+flipdeskEbayRoutes.post("/listings/push", async (c) => {
+  const userId = c.get("userId");
+  const itemId = await readItemId(c);
+  if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+
+  const ctx = await assemblePublishContext(userId, itemId);
+  if (!ctx.ok) return c.json(ctx.error, ctx.status);
+  if (ctx.blockers.length > 0 || !ctx.policies) {
+    return c.json(
+      {
+        ok: false,
+        blockers: ctx.blockers.length > 0
+          ? ctx.blockers
+          : ["eBay business policies are not configured."],
+      },
+      422
+    );
+  }
+
+  const { item, listing, photos, policies, sku } = ctx;
+
+  // 1. Ensure the SKU is persisted on the item so reconciliation works
+  //    (eBay's "Custom label" maps back to this).
+  if (sku !== item.sku) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ sku })
+      .eq("id", itemId);
+  }
+
+  try {
+    // 2. Push inventory_item (idempotent PUT).
+    await createOrReplaceInventoryItem(userId, sku, {
+      product: {
+        title: ctx.summary.title,
+        description: ctx.summary.description,
+        aspects:
+          (item.ebay_aspects as Record<string, string[]> | null) ?? undefined,
+        imageUrls: photos.map((p) => p.public_url),
+        brand:
+          typeof item.brand === "string" && item.brand.trim()
+            ? item.brand.trim()
+            : undefined,
+      },
+      condition: ctx.summary.condition,
+      conditionDescription:
+        ctx.summary.conditionDescription || undefined,
+      availability: { shipToLocationAvailability: { quantity: 1 } },
+    });
+
+    // 3. Create or reuse an offer for this SKU.
+    let offerId: string;
+    try {
+      const created = await createOffer(userId, {
+        sku,
+        marketplaceId: getMarketplaceId(),
+        format: "FIXED_PRICE",
+        availableQuantity: 1,
+        categoryId: item.ebay_category_id as string,
+        listingDescription: ctx.summary.description,
+        listingPolicies: {
+          fulfillmentPolicyId: policies.fulfillmentPolicyId,
+          paymentPolicyId: policies.paymentPolicyId,
+          returnPolicyId: policies.returnPolicyId,
+        },
+        pricingSummary: {
+          price: {
+            value: ctx.summary.priceValue,
+            currency: ctx.summary.currency,
+          },
+        },
+        merchantLocationKey: policies.merchantLocationKey,
+      });
+      offerId = created.offerId;
+    } catch (err) {
+      if (!isOfferAlreadyExistsError(err)) throw err;
+      const existing = await listOffersForSku(userId, sku);
+      const found = existing.find((o) => !!o.offerId);
+      if (!found) throw err;
+      offerId = found.offerId;
+    }
+
+    // 4. Publish.
+    const published = await publishOffer(userId, offerId);
+    const listingId = published.listingId;
+    const url = ebayListingUrl(listingId);
+
+    // 5. Persist the live state. Upsert the listings row so a re-publish
+    //    of the same item points at the new eBay listingId.
+    const listingPayload = {
+      inventory_item_id: itemId,
+      platform: "ebay" as const,
+      platform_listing_id: listingId,
+      listing_url: url,
+      listing_price: Number(ctx.summary.priceValue),
+      listing_title: ctx.summary.title,
+      listing_description: ctx.summary.description,
+      listing_status: "active" as const,
+      is_active: true,
+      listed_at: new Date().toISOString(),
+    };
+    if (listing?.id) {
+      await supabaseAdmin
+        .from("listings")
+        .update(listingPayload)
+        .eq("id", listing.id);
+    } else {
+      await supabaseAdmin.from("listings").insert(listingPayload);
+    }
+
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: "listed" })
+      .eq("id", itemId);
+
+    return c.json({
+      ok: true,
+      listing_id: listingId,
+      listing_url: url,
+      offer_id: offerId,
+      sku,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[flipdesk-ebay] publish failed:", msg);
+    return c.json(
+      { ok: false, error: "Publish failed", detail: msg.slice(0, 1000) },
+      502
+    );
+  }
 });
 
 flipdeskEbayRoutes.delete("/listings/:listingId", (c) => {
@@ -266,6 +423,267 @@ function generateState(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// ── Publish-flow helpers ───────────────────────────────────────────
+
+async function readItemId(
+  c: Context<EbayEnv>
+): Promise<string | null> {
+  try {
+    const body = (await c.req.json()) as { inventory_item_id?: unknown };
+    return typeof body.inventory_item_id === "string"
+      ? body.inventory_item_id
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+interface PublishPhoto {
+  id: string;
+  public_url: string;
+  sort_order: number;
+}
+
+interface PublishItem {
+  id: string;
+  user_id: string;
+  title: string | null;
+  brand: string | null;
+  sku: string | null;
+  size: string | null;
+  description: string | null;
+  condition_notes: string | null;
+  target_price: number | null;
+  list_price: number | null;
+  grade_value: number | null;
+  grade_label: string | null;
+  ebay_category_id: string | null;
+  ebay_aspects: Record<string, string[]> | null;
+  status: string;
+}
+
+interface PublishListing {
+  id: string;
+  listing_title: string | null;
+  listing_description: string | null;
+  listing_price: number | null;
+}
+
+interface PublishContextOk {
+  ok: true;
+  item: PublishItem;
+  listing: PublishListing | null;
+  photos: PublishPhoto[];
+  // null when blockers includes a missing-policy entry. Push must re-check.
+  policies: PolicySet | null;
+  blockers: string[];
+  sku: string;
+  summary: {
+    title: string;
+    description: string;
+    priceValue: string; // eBay wants string-typed money
+    currency: string;
+    condition: string;
+    conditionDescription: string;
+  };
+}
+
+interface PublishContextErr {
+  ok: false;
+  error: { error: string };
+  status: 400 | 404 | 503;
+}
+
+type PublishContext = PublishContextOk | PublishContextErr;
+
+async function assemblePublishContext(
+  userId: string,
+  itemId: string
+): Promise<PublishContext> {
+  if (!isEbayConfigured()) {
+    return {
+      ok: false,
+      error: { error: "eBay is not configured on this server." },
+      status: 503,
+    };
+  }
+
+  // Verify connection up front so getDefaultPolicies + push share a fail-fast.
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (!conn) {
+    return {
+      ok: false,
+      error: { error: "Connect your eBay account first." },
+      status: 400,
+    };
+  }
+
+  const { data: itemRow } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, list_price, grade_value, grade_label, ebay_category_id, ebay_aspects, status"
+    )
+    .eq("id", itemId)
+    .maybeSingle();
+  if (!itemRow || (itemRow as PublishItem).user_id !== userId) {
+    return { ok: false, error: { error: "Item not found" }, status: 404 };
+  }
+  const item = itemRow as PublishItem;
+
+  // Most recent eBay-platform listing draft for this item (if any).
+  const { data: listingRow } = await supabaseAdmin
+    .from("listings")
+    .select("id, listing_title, listing_description, listing_price")
+    .eq("inventory_item_id", itemId)
+    .eq("platform", "ebay")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const listing = (listingRow as PublishListing | null) ?? null;
+
+  const { data: photoRows } = await supabaseAdmin
+    .from("item_photos")
+    .select("id, storage_path, photo_url, sort_order")
+    .eq("inventory_item_id", itemId)
+    .order("sort_order", { ascending: true });
+
+  const photos: PublishPhoto[] = ((photoRows ?? []) as Array<{
+    id: string;
+    storage_path: string | null;
+    photo_url: string | null;
+    sort_order: number;
+  }>).map((p) => {
+    // Prefer the stored public URL if present (it's set at upload time);
+    // fall back to computing one from the storage_path.
+    let url = p.photo_url ?? null;
+    if (!url && p.storage_path) {
+      url = supabaseAdmin.storage
+        .from("item-photos")
+        .getPublicUrl(p.storage_path).data.publicUrl;
+    }
+    return {
+      id: p.id,
+      public_url: url ?? "",
+      sort_order: p.sort_order,
+    };
+  });
+
+  const blockers: string[] = [];
+  if (!item.ebay_category_id) blockers.push("Pick an eBay category.");
+  const aspectMap = (item.ebay_aspects as Record<string, string[]> | null) ?? {};
+  let requiredMissing: string[] = [];
+  if (item.ebay_category_id) {
+    try {
+      const aspectsResp = await getCategoryAspects(item.ebay_category_id);
+      const raw = (aspectsResp.aspects as Record<string, unknown>).aspects;
+      const list = Array.isArray(raw)
+        ? (raw as Array<{
+            localizedAspectName?: string;
+            aspectConstraint?: { aspectRequired?: boolean };
+          }>)
+        : [];
+      requiredMissing = list
+        .filter((a) => a.aspectConstraint?.aspectRequired)
+        .map((a) => a.localizedAspectName ?? "")
+        .filter((n) => n && (aspectMap[n]?.length ?? 0) === 0);
+      if (requiredMissing.length > 0) {
+        blockers.push(
+          `Fill required eBay specifics: ${requiredMissing.slice(0, 4).join(", ")}${
+            requiredMissing.length > 4 ? "…" : ""
+          }`
+        );
+      }
+    } catch (err) {
+      console.error("[flipdesk-ebay] aspect fetch for validate:", err);
+      blockers.push("Could not load eBay specifics for this category. Try again.");
+    }
+  }
+
+  const photosWithUrl = photos.filter((p) => !!p.public_url);
+  if (photosWithUrl.length === 0) {
+    blockers.push("Add at least one photo.");
+  }
+
+  const priceNumber = item.target_price ?? item.list_price ?? listing?.listing_price ?? null;
+  if (!priceNumber || priceNumber <= 0) {
+    blockers.push("Set a target price.");
+  }
+
+  const title = (listing?.listing_title ?? item.title ?? "").trim();
+  if (!title) blockers.push("Set a title.");
+
+  // Look up policies last — only blocks if everything else is ready, but
+  // surface the missing prereqs as part of `blockers` either way.
+  let policies: PolicySet | null = null;
+  try {
+    const policyResult = await getDefaultPolicies(userId);
+    if ("missing" in policyResult) {
+      blockers.push(
+        `Configure eBay business policies on your seller account: ${policyResult.missing.join(", ")}.`
+      );
+    } else {
+      policies = policyResult;
+    }
+  } catch (err) {
+    console.error("[flipdesk-ebay] policy lookup:", err);
+    blockers.push("Could not load your eBay business policies. Try again.");
+  }
+
+  const description = (listing?.listing_description ?? item.description ?? title).trim() ||
+    title;
+  const sku = item.sku && item.sku.trim() ? item.sku.trim() : `FD-${item.id.slice(0, 8)}`;
+  const condition = mapEbayCondition(item.grade_value, item.grade_label);
+  const conditionDescription = item.condition_notes?.trim() ?? "";
+
+  const summary: PublishContextOk["summary"] = {
+    title,
+    description,
+    priceValue: priceNumber ? priceNumber.toFixed(2) : "0.00",
+    currency: "USD",
+    condition,
+    conditionDescription,
+  };
+
+  return {
+    ok: true,
+    item,
+    listing,
+    photos: photosWithUrl,
+    policies,
+    blockers,
+    sku,
+    summary,
+  };
+}
+
+// Maps GradeThread's 1-10 grade to an eBay clothing condition string. eBay's
+// `condition` enum field on inventory_item PUT accepts these symbolic names;
+// note that not every leaf category accepts every value — categories with
+// stricter taxonomies (vintage, designer) may reject anything but NEW vs
+// USED_EXCELLENT. We default to USED_EXCELLENT for missing grades.
+function mapEbayCondition(
+  grade: number | null,
+  label: string | null
+): string {
+  const isNwt = (label ?? "").toUpperCase().includes("NWT");
+  if (grade != null) {
+    if (grade >= 9.75 || isNwt) return "NEW";
+    if (grade >= 9.0) return "LIKE_NEW";
+    if (grade >= 7.5) return "USED_EXCELLENT";
+    if (grade >= 6.0) return "USED_VERY_GOOD";
+    if (grade >= 4.5) return "USED_GOOD";
+    return "USED_ACCEPTABLE";
+  }
+  return isNwt ? "NEW" : "USED_EXCELLENT";
 }
 
 // Resolves an in-app path against the configured frontend origin. Used for

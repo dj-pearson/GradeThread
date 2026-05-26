@@ -396,6 +396,234 @@ export async function getCategoryAspects(
   return { aspects: payload, categoryName: null, cached: false };
 }
 
+// ── Sell API: business policies + listings (Week 3) ────────────────
+//
+// Publishing a listing requires three business policies (fulfillment,
+// payment, return) and one merchant location to exist on the seller's
+// eBay account. We look these up once at publish-time and use the first
+// of each. Users with multiple policies can configure defaults later via
+// a settings screen.
+
+export interface PolicySet {
+  fulfillmentPolicyId: string;
+  paymentPolicyId: string;
+  returnPolicyId: string;
+  merchantLocationKey: string;
+}
+
+export interface MissingPolicies {
+  missing: string[];
+  details: Partial<PolicySet> & {
+    helpUrl?: string;
+  };
+}
+
+async function fetchAuthed<T>(
+  userId: string,
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  const token = await getUserAccessToken(userId);
+  const res = await fetch(`${apiHost()}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      "Content-Type": "application/json",
+      "Content-Language": "en-US",
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`
+    );
+  }
+  // 204 No Content is valid for publishOffer in some paths.
+  const body = await res.text();
+  return (body ? JSON.parse(body) : {}) as T;
+}
+
+export async function getDefaultPolicies(
+  userId: string
+): Promise<PolicySet | MissingPolicies> {
+  const marketplaceId = getMarketplaceId();
+  const missing: string[] = [];
+  const details: Partial<PolicySet> = {};
+
+  type PolicyList<K extends string> = {
+    [k in K]: Array<Record<string, unknown>>;
+  };
+
+  // Run all four lookups in parallel. The Account API is rate-limited but
+  // these are tiny.
+  const [fulfillment, payment, ret, locs] = await Promise.all([
+    fetchAuthed<PolicyList<"fulfillmentPolicies">>(
+      userId,
+      `/sell/account/v1/fulfillment_policy?marketplace_id=${marketplaceId}`
+    ).catch((e) => {
+      console.error("fulfillment_policy lookup:", e);
+      return null;
+    }),
+    fetchAuthed<PolicyList<"paymentPolicies">>(
+      userId,
+      `/sell/account/v1/payment_policy?marketplace_id=${marketplaceId}`
+    ).catch((e) => {
+      console.error("payment_policy lookup:", e);
+      return null;
+    }),
+    fetchAuthed<PolicyList<"returnPolicies">>(
+      userId,
+      `/sell/account/v1/return_policy?marketplace_id=${marketplaceId}`
+    ).catch((e) => {
+      console.error("return_policy lookup:", e);
+      return null;
+    }),
+    fetchAuthed<{ locations?: Array<{ merchantLocationKey?: string }> }>(
+      userId,
+      `/sell/inventory/v1/location`
+    ).catch((e) => {
+      console.error("location lookup:", e);
+      return null;
+    }),
+  ]);
+
+  const ff = (fulfillment?.fulfillmentPolicies?.[0] as
+    | { fulfillmentPolicyId?: string }
+    | undefined)?.fulfillmentPolicyId;
+  const pp = (payment?.paymentPolicies?.[0] as
+    | { paymentPolicyId?: string }
+    | undefined)?.paymentPolicyId;
+  const rp = (ret?.returnPolicies?.[0] as
+    | { returnPolicyId?: string }
+    | undefined)?.returnPolicyId;
+  const loc = locs?.locations?.[0]?.merchantLocationKey;
+
+  if (ff) details.fulfillmentPolicyId = ff;
+  else missing.push("fulfillment policy");
+  if (pp) details.paymentPolicyId = pp;
+  else missing.push("payment policy");
+  if (rp) details.returnPolicyId = rp;
+  else missing.push("return policy");
+  if (loc) details.merchantLocationKey = loc;
+  else missing.push("merchant location");
+
+  if (missing.length > 0) {
+    return {
+      missing,
+      details: {
+        ...details,
+        helpUrl:
+          "https://www.ebay.com/help/selling/business-policies/business-policies?id=4212",
+      },
+    };
+  }
+  return details as PolicySet;
+}
+
+export interface InventoryItemPayload {
+  product: {
+    title: string;
+    description: string;
+    aspects?: Record<string, string[]>;
+    imageUrls?: string[];
+    brand?: string;
+    mpn?: string;
+  };
+  condition: string;
+  conditionDescription?: string;
+  availability: {
+    shipToLocationAvailability: { quantity: number };
+  };
+}
+
+export async function createOrReplaceInventoryItem(
+  userId: string,
+  sku: string,
+  payload: InventoryItemPayload
+): Promise<void> {
+  // PUT is idempotent; safe to re-run on retries.
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`,
+    { method: "PUT", body: JSON.stringify(payload) }
+  );
+}
+
+export interface OfferPayload {
+  sku: string;
+  marketplaceId: string;
+  format: "FIXED_PRICE" | "AUCTION";
+  availableQuantity: number;
+  categoryId: string;
+  listingDescription: string;
+  listingPolicies: {
+    fulfillmentPolicyId: string;
+    paymentPolicyId: string;
+    returnPolicyId: string;
+  };
+  pricingSummary: {
+    price: { value: string; currency: string };
+  };
+  merchantLocationKey: string;
+}
+
+export async function createOffer(
+  userId: string,
+  payload: OfferPayload
+): Promise<{ offerId: string }> {
+  return await fetchAuthed<{ offerId: string }>(
+    userId,
+    `/sell/inventory/v1/offer`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+// eBay's "offer already exists for this SKU" error doesn't have a clean
+// HTTP code — we detect it via message body. Caller falls back to lookup.
+export function isOfferAlreadyExistsError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /already exists/i.test(msg) && /offer/i.test(msg);
+}
+
+export async function listOffersForSku(
+  userId: string,
+  sku: string
+): Promise<Array<{ offerId: string; status?: string; listing?: { listingId?: string; listingStatus?: string } }>> {
+  const payload = await fetchAuthed<{ offers?: Array<{ offerId?: string; status?: string; listing?: { listingId?: string; listingStatus?: string } }> }>(
+    userId,
+    `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`
+  );
+  return (payload.offers ?? [])
+    .filter((o): o is { offerId: string } => typeof o.offerId === "string")
+    .map((o) => ({
+      offerId: o.offerId,
+      status: o.status,
+      listing: o.listing,
+    }));
+}
+
+export async function publishOffer(
+  userId: string,
+  offerId: string
+): Promise<{ listingId: string }> {
+  return await fetchAuthed<{ listingId: string }>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish_`,
+    { method: "POST" }
+  );
+}
+
+// Best-effort eBay item-URL builder. eBay's documented format is
+// https://www.ebay.com/itm/<listingId>; sandbox uses sandbox.ebay.com.
+export function ebayListingUrl(listingId: string): string {
+  const host = getEbayEnv() === "production"
+    ? "https://www.ebay.com"
+    : "https://www.sandbox.ebay.com";
+  return `${host}/itm/${listingId}`;
+}
+
 // ── Browse API: active comps ────────────────────────────────────────
 
 export interface BrowseComp {

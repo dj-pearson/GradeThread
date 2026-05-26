@@ -278,6 +278,89 @@ export function useEbayComps(args: EbayCompsArgs) {
   });
 }
 
+// ── Publish to eBay (Week 3) ────────────────────────────────────────
+
+export interface PublishSummary {
+  title: string;
+  description: string;
+  priceValue: string;
+  currency: string;
+  condition: string;
+  conditionDescription: string;
+}
+
+export interface ValidatePublishResponse {
+  ok: boolean;
+  blockers: string[];
+  summary?: PublishSummary;
+}
+
+export interface PublishResponse {
+  ok: boolean;
+  listing_id?: string;
+  listing_url?: string;
+  offer_id?: string;
+  sku?: string;
+  blockers?: string[];
+  error?: string;
+  detail?: string;
+}
+
+export function useValidatePublish() {
+  return useMutation<ValidatePublishResponse, Error, { itemId: string }>({
+    mutationFn: async ({ itemId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: await authHeader(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inventory_item_id: itemId }),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Validation failed.");
+      }
+      return json as ValidatePublishResponse;
+    },
+  });
+}
+
+export function usePublishToEbay() {
+  const qc = useQueryClient();
+  return useMutation<PublishResponse, Error, { itemId: string }>({
+    mutationFn: async ({ itemId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/push`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: await authHeader(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inventory_item_id: itemId }),
+        }
+      );
+      const json = (await res.json().catch(() => ({}))) as PublishResponse;
+      if (!res.ok || json.ok === false) {
+        // 422 surfaces blockers; bubble them via the error.
+        const blockerMsg = (json.blockers ?? []).join("\n");
+        const detail = json.detail ?? json.error ?? "Publish failed.";
+        throw new Error(blockerMsg ? `${detail}\n${blockerMsg}` : detail);
+      }
+      return json;
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      qc.invalidateQueries({ queryKey: ["item_photos", vars.itemId] });
+      qc.invalidateQueries({ queryKey: ["inventory_item_ebay", vars.itemId] });
+    },
+  });
+}
+
 // ── Persistence ─────────────────────────────────────────────────────
 
 // Saves the chosen eBay category + aspect values on the inventory item.

@@ -27,6 +27,7 @@ import {
   Star,
   GripVertical,
   ImageOff,
+  Rocket,
 } from "lucide-react";
 import {
   Card,
@@ -55,6 +56,8 @@ import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
+import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
+import { useEbayConnection } from "@/hooks/use-ebay";
 import type {
   ItemFullRow,
   ItemPhotoRow,
@@ -83,6 +86,8 @@ export function FlipdeskComposerPage() {
   const [livePickedCategoryId, setLivePickedCategoryId] = useState<
     string | null
   >(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const { data: ebayConnection } = useEbayConnection();
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", user?.id],
@@ -729,7 +734,11 @@ export function FlipdeskComposerPage() {
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
           Cancel
         </Button>
-        <Button onClick={saveDraft} disabled={saving}>
+        <Button
+          variant="outline"
+          onClick={saveDraft}
+          disabled={saving}
+        >
           {saving ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
@@ -737,7 +746,25 @@ export function FlipdeskComposerPage() {
           )}
           Save draft
         </Button>
+        <Button
+          onClick={() => setPublishOpen(true)}
+          disabled={!ebayConnection || saving}
+          title={
+            !ebayConnection
+              ? "Connect eBay first on the Marketplaces page."
+              : undefined
+          }
+        >
+          <Rocket className="mr-2 h-4 w-4" />
+          Publish to eBay
+        </Button>
       </div>
+
+      <PublishToEbayDialog
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+        itemId={item.id}
+      />
     </div>
   );
 }
