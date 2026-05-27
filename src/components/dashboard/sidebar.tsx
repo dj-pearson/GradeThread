@@ -26,6 +26,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useSavedViews } from "@/hooks/use-saved-views";
+import { SidebarUsageWidget } from "@/components/dashboard/sidebar-usage-widget";
 
 type NavItem = { to: string; icon: typeof LayoutDashboard; label: string; end: boolean };
 type NavGroup = { title?: string; items: NavItem[] };
@@ -130,7 +131,12 @@ export function Sidebar() {
       <div className="flex h-16 items-center px-6">
         <img src="/logo_white.svg" alt="GradeThread" className="h-8" />
       </div>
-      <SidebarNav />
+      <div className="flex flex-1 flex-col overflow-y-auto">
+        <SidebarNav />
+        <div className="mt-auto pt-4">
+          <SidebarUsageWidget />
+        </div>
+      </div>
     </aside>
   );
 }
@@ -164,7 +170,12 @@ export function MobileNav() {
           <div className="flex h-16 items-center px-6">
             <img src="/logo_white.svg" alt="GradeThread" className="h-8" />
           </div>
-          <SidebarNav onNavigate={() => setOpen(false)} />
+          <div className="flex flex-1 flex-col overflow-y-auto">
+            <SidebarNav onNavigate={() => setOpen(false)} />
+            <div className="mt-auto pt-4">
+              <SidebarUsageWidget />
+            </div>
+          </div>
         </SheetContent>
       </Sheet>
     </div>

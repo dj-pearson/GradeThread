@@ -169,8 +169,67 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 3/32 — US-168 scaffolded with XcodeGen + GitHub Actions CI/release pipeline; US-169 wires the supabase-swift SDK + EdgeAPI actor with typed errors and URLProtocol-mock tests; US-170 ships LoginView with email/password + Sign in with Apple + Continue with Google, Keychain-backed session storage, AuthStore observable, ProtectedRouteShell. US-171→US-199 remaining
+- iOS app (US-168 → US-199): 5/32 — US-168 scaffold + CI/CD; US-169 networking + EdgeAPI; US-170 auth (email/password + Apple SIWA + Google); US-171 tab bar polish (Add action sheet + haptics + iPad NavigationSplitView); US-172 SwiftData persistence + SyncEngine + offline mutation queue + sync status bar. US-173→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS persistence + tab polish (US-171, US-172)
+
+### US-171 — tab bar polish
+ContentView.swift's MainShell now adapts: TabView at compact horizontal
+width, NavigationSplitView at regular (iPad full-screen). One AppRouter
+state powers both layouts so selection + per-tab navigation paths survive
+the switch.
+
+The Add tab is special: tapping it never actually selects — a custom
+Binding<AppSection> intercepts the .add value, fires
+UIImpactFeedbackGenerator(.light), shows a confirmationDialog ('Photo-first
+(Snap & Catalog)' / 'Details-first (manual form)'), and returns without
+mutating selection. The picked IntakeRoute is appended to whichever tab's
+NavigationPath was active. Real photo-first/details-first flows land in
+US-173 / US-178; for now both route to a TabPlaceholder.
+
+Haptics fire on every tab change (both compact + regular layouts). iPad
+sidebar has a dedicated 'Add' toolbar button that drives the same dialog.
+
+### US-172 — SwiftData + sync engine
+**Deployment-target bump 16.0 → 17.0.** SwiftData is iOS 17+ and the Core
+Data fallback path the AC suggested isn't worth the maintenance cost
+given current iOS adoption. Documented as a deviation from US-168's
+'iOS 16+' target.
+
+Models in ios/GradeThread/Persistence/Models/: LocalInventoryItem,
+LocalItemPhoto, LocalListing, LocalSale, LocalSource, LocalPendingMutation
+— each @Model class mirrors its Supabase row plus a `hasLocalChanges`
+flag for offline writes and `localBytesPath` on photos for queued
+captures.
+
+Persistence/SyncEngine.swift is an actor:
+- pull() — pulls items_full/listings/sales from Supabase (stubbed at the
+  IO boundary; merge step + conflict policy fully implemented and tested).
+- flushPending() — drains LocalPendingMutation queue. Handlers stub to
+  retryCount++ until US-175 (photo upload) and US-178 (intake form) land.
+- Connectivity-driven loop: NetworkMonitor (NWPathMonitor wrapper)
+  exposes an AsyncStream<Bool> that the engine subscribes to from
+  start(); path-satisfied flushes the queue + pulls.
+
+ConflictPolicy splits fields three ways — server-wins for
+marketplace-owned (price, status, grade), client-wins-if-dirty for
+user-edited (title, brand, notes, target_price, measurements),
+newest-write-wins for neutral fields decided by `updatedAt`.
+
+@MainActor @Observable SyncStatusStore drives SyncStatusBar:
+'Syncing…' / 'N pending' / 'Offline' / hidden. Banner renders atop
+MainShell with an ease-in-out transition.
+
+App.swift wires the ModelContainer (cloudKitDatabase: .none — sync goes
+through Supabase, not iCloud). ContentView starts the SyncEngine the
+moment the user signs in, kicks a pull on every scenePhase → .active.
+
+Tests in SyncTests.swift cover all three ConflictPolicy branches,
+LocalPendingMutation round-trip through an in-memory ModelContainer,
+unknown-kind detection (forward-compat for future mutation types), and
+SyncStatusStore phase transitions including the "don't override
+.syncing while pending updates arrive" edge.
 
 ## Session Notes (2026-05-27) — iOS auth (US-170)
 Email/password + Sign in with Apple + Google. Apple SIWA is App-Store-

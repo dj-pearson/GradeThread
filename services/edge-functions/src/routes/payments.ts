@@ -460,6 +460,92 @@ paymentRoutes.post("/subscribe", async (c) => {
   }
 });
 
+// ── GET /billing-summary ─────────────────────────────────────────
+//
+// Single source of truth for the billing UI (US-211, US-214). Returns:
+//   • subscription state (plan, interval, status, period_end, pause_until,
+//     cancel_at_period_end, trial_ends_at)
+//   • credits balance + included-grades counter
+//   • live usage (active listings, marketplaces connected, AI actions)
+//   • the last 5 ledger entries
+//
+// Single round-trip, all RLS-bypassing reads — frontend gets one cache key.
+paymentRoutes.get("/billing-summary", async (c) => {
+  const userId = c.get("userId");
+
+  const { data: user, error: userError } = await supabaseAdmin
+    .from("users")
+    .select(
+      "flipdesk_plan, flipdesk_interval, subscription_status, " +
+        "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
+        "trial_ends_at, grade_credit_balance, grades_used_this_month, " +
+        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id",
+    )
+    .eq("id", userId)
+    .single();
+
+  if (userError || !user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const [
+    activeListingsResult,
+    marketplacesResult,
+    ledgerResult,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("inventory_items")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("status", "listed"),
+    supabaseAdmin
+      .from("marketplace_connections")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("is_active", true),
+    supabaseAdmin
+      .from("grade_credit_transactions")
+      .select("id, delta, reason, balance_after, submission_id, notes, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(5),
+  ]);
+
+  if (activeListingsResult.error) {
+    console.error("[billing-summary] activeListings query failed:", activeListingsResult.error);
+  }
+  if (marketplacesResult.error) {
+    console.error("[billing-summary] marketplaces query failed:", marketplacesResult.error);
+  }
+  if (ledgerResult.error) {
+    console.error("[billing-summary] ledger query failed:", ledgerResult.error);
+  }
+
+  return c.json({
+    subscription: {
+      plan: user.flipdesk_plan,
+      interval: user.flipdesk_interval,
+      status: user.subscription_status,
+      period_end: user.flipdesk_period_end,
+      pause_until: user.flipdesk_pause_until,
+      cancel_at_period_end: user.flipdesk_cancel_at_period_end,
+      trial_ends_at: user.trial_ends_at,
+      stripe_customer_id: user.stripe_customer_id,
+    },
+    grades: {
+      credit_balance: user.grade_credit_balance,
+      included_used_this_month: user.grades_used_this_month,
+    },
+    usage: {
+      active_listings: activeListingsResult.count ?? 0,
+      marketplaces_connected: marketplacesResult.count ?? 0,
+      ai_actions_used_this_month: user.ai_actions_used_this_month,
+      ai_action_limit: user.ai_action_limit,
+    },
+    recent_ledger: ledgerResult.data ?? [],
+  });
+});
+
 // ── POST /portal ──────────────────────────────────────────────────
 // Stripe Customer Portal for users who want raw access (escape hatch from
 // the in-app billing UI in US-211).
