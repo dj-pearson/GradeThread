@@ -407,11 +407,7 @@ private struct IntakePlaceholder: View {
         case .photoFirst:
             PhotoIntakeView()
         case .detailsFirst:
-            TabPlaceholder(
-                title: "New item",
-                subtitle: "Details-first form lands in US-178.",
-                systemImage: "square.and.pencil"
-            )
+            DetailsIntakeView()
         }
     }
 }

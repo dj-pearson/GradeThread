@@ -169,8 +169,58 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 10/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background URLSession photo uploads; US-176 AI extract review; US-177 Vision Live Text on-device fallback for brand+size when AI misses. US-178→US-199 remaining
+- iOS app (US-168 → US-199): 11/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background photo uploads; US-176 AI extract review; US-177 Live Text fallback; US-178 details-first manual intake form with offline save + 'Save & Add another' batch flow. US-179→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS details-first intake (US-178)
+Manual form for thrift-trip cataloging — reached from the Add tab →
+'Details-first (manual form)'. Mirrors src/pages/flipdesk/intake.tsx
+in iOS-native form chrome, with offline-aware save so patchy signal
+doesn't block the flow.
+
+What landed in ios/GradeThread/DetailsIntake/:
+- FlipdeskConstants.swift — Swift enums mirroring the wire enums
+  (FlipdeskCategory / IntakeStatus / FlipdeskSourceType) with
+  raw-value strings matching the snake_case server values verbatim.
+- CurrencyFormatter.swift — locale-aware NumberFormatter wrapper.
+  Parses bare numbers, grouping separators, en_US '$1,234.56' and
+  de_DE '1.234,56', strips currency symbols from input. Display path
+  uses the locale's currency style.
+- IntakeFormState.swift — @MainActor @Observable holding every
+  field. resetForBatchAddAnother() clears item identity + notes but
+  explicitly preserves source_id + container + sourced_by +
+  purchase_date so the next item in a haul keeps its context.
+- SourceStore.swift — refreshes sources from PostgREST + upserts into
+  the existing LocalSource SwiftData cache; addSource() inserts via
+  supabase-swift and returns the new id for picker auto-select.
+- AddSourceSheet.swift — modal form (name + type picker + notes)
+  surfaced from the source picker's 'Add new source…' sentinel value.
+- DetailsIntakeView.swift — SwiftUI Form with three sections
+  (Item / Sourcing / Notes) + action section. Notes uses multi-line
+  TextField with autoFocus disabled per the AC. Source picker uses
+  an '__add_new__' sentinel + onChange watcher to drive AddSourceSheet
+  without breaking the Picker UX.
+
+Save flow:
+- Builds ItemInsertPayload that nilifies empty strings (preserves
+  Postgres NULL semantics over empty-string columns).
+- Online: supabase-swift insert → 'Saved' banner → dismiss or reset
+  for batch.
+- Network failure (URLError or 'offline'/'timed out' string match):
+  enqueues a LocalPendingMutation(kind: .createInventoryItem) so the
+  SyncEngine replays on reconnect; banner reads 'Saved offline —
+  will sync when you reconnect'.
+- Application-level failures (RLS, enum mismatch) surface as-is so
+  the user can correct and retry.
+
+ContentView IntakePlaceholder(.detailsFirst) → DetailsIntakeView is
+wired in.
+
+Tests in DetailsIntakeTests.swift cover IntakeFormState reset
+semantics (preserve vs. clear), CurrencyFormatter happy paths +
+de_DE / en_US locale fidelity + symbol stripping + garbage
+rejection, and FlipdeskConstants raw-value wire fidelity for every
+snake_case enum.
 
 ## Session Notes (2026-05-27) — iOS Live Text fallback (US-177)
 On-device OCR fills brand + size when Claude can't read the tag (low
