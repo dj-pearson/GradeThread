@@ -23,6 +23,13 @@ configs:
   Debug: debug
   Release: release
 
+packages:
+  # Official Supabase SDK — auth + realtime DB + storage. Pinned to 2.x; we
+  # bump intentionally rather than chasing minor releases automatically.
+  Supabase:
+    url: https://github.com/supabase-community/supabase-swift
+    from: 2.0.0
+
 targets:
   GradeThread:
     type: application
@@ -31,6 +38,12 @@ targets:
       - path: GradeThread
     resources:
       - path: GradeThread/Assets.xcassets
+    configFiles:
+      Debug: GradeThread/Config/Debug.xcconfig
+      Release: GradeThread/Config/Release.xcconfig
+    dependencies:
+      - package: Supabase
+        product: Supabase
     info:
       path: GradeThread/Info.plist
       properties:
@@ -51,6 +64,9 @@ targets:
         NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading."
         NSPhotoLibraryUsageDescription: "GradeThread imports photos from your library so you can grade existing garment shots."
         ITSAppUsesNonExemptEncryption: false
+        # SUPABASE_URL, SUPABASE_ANON_KEY, EDGE_API_URL are surfaced from the
+        # active xcconfig directly via Info.plist (see GradeThread/Info.plist)
+        # — single source of truth there avoids accidental drift.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app

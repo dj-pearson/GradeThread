@@ -16,5 +16,14 @@
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- Surfaced from the active .xcconfig so AppConfig can read them at
+         runtime. The xcconfig escapes // in URLs as /$()/ — the build
+         system resolves that to a valid https:// URL before we see it. -->
+    <key>SUPABASE_URL</key>
+    <string>$(SUPABASE_URL)</string>
+    <key>SUPABASE_ANON_KEY</key>
+    <string>$(SUPABASE_ANON_KEY)</string>
+    <key>EDGE_API_URL</key>
+    <string>$(EDGE_API_URL)</string>
 </dict>
 </plist>

@@ -100,3 +100,41 @@ don't count against rate limits.
 After saving, click **Run Now** on each scheduled task. Successful runs
 return HTTP 200 with a JSON body; failures show up in the Coolify task log
 and the container's stdout.
+
+## Stripe pricing setup (US-203)
+
+The full price catalog (FlipDesk subscriptions + GradeThread per-grade +
+credit packs — 14 prices total) is provisioned by an idempotent script.
+
+### First run
+
+```bash
+# Test mode (default)
+STRIPE_SECRET_KEY=sk_test_... npm run setup:stripe
+
+# Live mode (requires the --live flag as a safety check)
+STRIPE_SECRET_KEY=sk_live_... npm run setup:stripe --live
+```
+
+The script:
+
+- Creates Products with `metadata.gradethread_sku = '<sku>'` so it can find
+  them again on re-run instead of duplicating.
+- Creates monthly + yearly Prices for each FlipDesk plan, one-time Prices
+  for each grade tier and credit pack.
+- Sets `tax_behavior=exclusive` on every Price so Stripe Tax (US-223)
+  applies automatically.
+- Prints a `VITE_STRIPE_PRICE_*` env block at the end — paste it into both
+  Cloudflare Pages (frontend) and this Coolify resource (edge needs the
+  non-`VITE_`-prefixed aliases also printed).
+
+### Updating prices
+
+Stripe Prices are immutable on amount + interval. To change a price:
+
+1. Edit the amount in `src/lib/constants.ts` (and `scripts/setup-stripe-pricing.mjs`).
+2. Re-run `npm run setup:stripe` — it creates a new Price for the changed
+   amount and prints its new ID.
+3. Replace the env var with the new Price ID and redeploy.
+4. Manually archive the old Price in the Stripe dashboard (the script
+   intentionally does not auto-archive, to avoid breaking active subscriptions).

@@ -1,0 +1,8 @@
+// Release build configuration (TestFlight + App Store).
+//
+// Substitution syntax in URLs needs the // escaped so the build setting
+// parser doesn't see it as a comment delimiter.
+
+SUPABASE_URL = https:/$()/api.gradethread.com
+SUPABASE_ANON_KEY = REPLACE_ME_WITH_REAL_SUPABASE_ANON_KEY
+EDGE_API_URL = https:/$()/functions.gradethread.com

@@ -169,8 +169,40 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 1/32 — US-168 scaffolded with XcodeGen + GitHub Actions CI/release pipeline. US-169→US-199 remaining (each ships in a focused session)
+- iOS app (US-168 → US-199): 2/32 — US-168 scaffolded with XcodeGen + GitHub Actions CI/release pipeline; US-169 wires the supabase-swift SDK + an EdgeAPI actor with typed errors and URLProtocol-mock tests. US-170→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS networking layer (US-169)
+Wired the iOS app to the same Supabase project + Hono edge service the web
+uses. No parallel backend.
+
+What landed:
+- ios/project.yml — Supabase SPM package pinned to 2.x; xcconfig references
+  for Debug + Release.
+- ios/GradeThread/Config/{Debug,Release}.xcconfig — SUPABASE_URL,
+  SUPABASE_ANON_KEY, EDGE_API_URL with placeholder values. The // in URLs
+  is escaped as /$()/ so xcconfig's comment parser doesn't choke on it.
+- ios/GradeThread/Info.plist — surfaces those three keys via $(VAR)
+  substitution.
+- ios/GradeThread/Networking/AppConfig.swift — runtime accessor; fatalError
+  on missing/placeholder values so a misconfigured build crashes loudly at
+  startup instead of silently sending requests nowhere.
+- ios/GradeThread/Networking/SupabaseShared.swift — one shared SupabaseClient
+  + currentAccessToken() that returns nil instead of throwing when no
+  session exists.
+- ios/GradeThread/Networking/EdgeAPI.swift — actor wrapping URLSession.
+  getJSON / postJSON / deleteJSON; auto-attaches Bearer token; snake_case
+  + ISO8601 to match the edge service.
+- ios/GradeThread/Networking/EdgeAPIError.swift — typed error enum;
+  parses the edge service's { error, detail } JSON into structured cases.
+- ios/GradeThreadTests/EdgeAPITests.swift — hermetic tests with a custom
+  URLProtocol mock. Covers: auth-header attachment, body encoding,
+  nil-token-omits-header, 401→.unauthorized, 429→.rateLimited, 400→
+  .badRequest(detail), 500→.serverError(detail), network failure→
+  .network. No real HTTP.
+
+Compilation runs in CI on macOS — local Windows shell can't verify Swift
+syntax, so first CI run after merge is the real check.
 
 ## Session Notes (2026-05-27) — iOS foundation (US-168)
 Scaffolded the iOS app and the GitHub Actions pipeline that will compile,

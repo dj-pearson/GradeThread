@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 
@@ -8,22 +9,263 @@ type PaymentsEnv = {
   };
 };
 
-const TIER_PRICES: Record<string, number> = {
-  standard: 299, // $2.99 in cents
-  premium: 799, // $7.99 in cents
-  express: 1299, // $12.99 in cents
+export const paymentRoutes = new Hono<PaymentsEnv>();
+
+// ── Catalog (mirrors src/lib/constants.ts US-202 / scripts/setup-stripe-pricing.mjs US-203) ──
+
+const FLIPDESK_PRICE_IDS: Record<
+  "starter" | "pro" | "business",
+  Record<"monthly" | "yearly", string>
+> = {
+  starter: {
+    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_STARTER_MONTHLY") || "",
+    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_STARTER_YEARLY")  || "",
+  },
+  pro: {
+    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_PRO_MONTHLY") || "",
+    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_PRO_YEARLY")  || "",
+  },
+  business: {
+    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_BUSINESS_MONTHLY") || "",
+    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_BUSINESS_YEARLY")  || "",
+  },
 };
 
-const TIER_NAMES: Record<string, string> = {
+const GRADE_PRICE_IDS: Record<"standard" | "premium" | "express", string> = {
+  standard: Deno.env.get("STRIPE_PRICE_GRADE_STANDARD") || "",
+  premium:  Deno.env.get("STRIPE_PRICE_GRADE_PREMIUM")  || "",
+  express:  Deno.env.get("STRIPE_PRICE_GRADE_EXPRESS")  || "",
+};
+
+const CREDIT_PACK_PRICE_IDS: Record<"10" | "25" | "50" | "100", string> = {
+  10:  Deno.env.get("STRIPE_PRICE_CREDITS_10")  || "",
+  25:  Deno.env.get("STRIPE_PRICE_CREDITS_25")  || "",
+  50:  Deno.env.get("STRIPE_PRICE_CREDITS_50")  || "",
+  100: Deno.env.get("STRIPE_PRICE_CREDITS_100") || "",
+} as Record<"10" | "25" | "50" | "100", string>;
+
+// Credit-equivalent costs by tier (1 credit = 1 Standard grade).
+const TIER_CREDIT_COST: Record<"standard" | "premium" | "express", number> = {
+  standard: 1,
+  premium: 3,
+  express: 5,
+};
+
+// Legacy per-grade unit prices kept for /checkout-session backward-compat.
+const LEGACY_TIER_PRICES: Record<string, number> = {
+  standard: 299,
+  premium: 799,
+  express: 1299,
+};
+
+const LEGACY_TIER_NAMES: Record<string, string> = {
   standard: "Standard Grade",
   premium: "Premium Grade",
   express: "Express Grade",
 };
 
-export const paymentRoutes = new Hono<PaymentsEnv>();
+// ── Helpers ──────────────────────────────────────────────────────
 
-// Create Stripe Checkout Session for a grade payment
-paymentRoutes.post("/checkout-session", async (c) => {
+type Ctx = Context<PaymentsEnv>;
+
+function getStripe(): Stripe | null {
+  const key = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!key) {
+    console.error("STRIPE_SECRET_KEY not configured");
+    return null;
+  }
+  return new Stripe(key, { apiVersion: "2024-04-10" });
+}
+
+function siteUrl(): string {
+  return Deno.env.get("SITE_URL") || "https://gradethread.com";
+}
+
+async function loadUser(userId: string) {
+  return supabaseAdmin
+    .from("users")
+    .select(
+      "id, email, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
+    )
+    .eq("id", userId)
+    .single();
+}
+
+// ── POST /flipdesk/subscribe (US-204) ────────────────────────────
+//
+// Body: { plan: 'starter'|'pro'|'business', interval: 'monthly'|'yearly' }
+// Creates a Stripe Checkout Session for the matching recurring price.
+// If the user has trial_ends_at in the future and never used it, carries
+// the remaining trial forward via subscription_data.trial_end (US-219).
+paymentRoutes.post("/flipdesk/subscribe", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { plan?: string; interval?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const plan = body.plan;
+  const interval = body.interval ?? "monthly";
+
+  if (plan !== "starter" && plan !== "pro" && plan !== "business") {
+    return c.json({
+      error: "plan must be one of: starter, pro, business",
+    }, 400);
+  }
+  if (interval !== "monthly" && interval !== "yearly") {
+    return c.json({ error: "interval must be 'monthly' or 'yearly'" }, 400);
+  }
+
+  const priceId = FLIPDESK_PRICE_IDS[plan][interval];
+  if (!priceId) {
+    console.error(`Missing Stripe price ID for ${plan} ${interval}`);
+    return c.json({ error: "Pricing not configured" }, 503);
+  }
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  // Carry trial forward if the user still has time left and hasn't used a
+  // paid subscription yet. flipdesk_subscription_id present = trial was
+  // already converted, so we don't grant a second trial.
+  let trialEndUnix: number | undefined;
+  if (
+    user.trial_ends_at &&
+    !user.flipdesk_subscription_id &&
+    new Date(user.trial_ends_at).getTime() > Date.now()
+  ) {
+    trialEndUnix = Math.floor(new Date(user.trial_ends_at).getTime() / 1000);
+  }
+
+  try {
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "subscription",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      metadata: {
+        user_id: userId,
+        product: "flipdesk",
+        plan,
+        interval,
+      },
+      subscription_data: {
+        metadata: {
+          user_id: userId,
+          product: "flipdesk",
+          plan,
+          interval,
+        },
+        ...(trialEndUnix ? { trial_end: trialEndUnix } : {}),
+      },
+      success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=flipdesk`,
+      cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
+      automatic_tax: { enabled: true },
+      allow_promotion_codes: true,
+      tax_id_collection: { enabled: true },
+    };
+
+    if (user.stripe_customer_id) {
+      sessionParams.customer = user.stripe_customer_id;
+      sessionParams.customer_update = { name: "auto", address: "auto" };
+    } else {
+      sessionParams.customer_email = user.email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+    return c.json({ sessionId: session.id, url: session.url });
+  } catch (err) {
+    console.error("FlipDesk subscribe checkout failed:", err);
+    return c.json({ error: "Failed to create subscription checkout" }, 500);
+  }
+});
+
+// ── POST /gradethread/credit-pack (US-205) ───────────────────────
+//
+// Body: { packSize: 10|25|50|100 }
+// One-time Checkout that, on success, the webhook (US-206) calls
+// grant_grade_credits to add to the user's wallet.
+paymentRoutes.post("/gradethread/credit-pack", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { packSize?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const packSize = String(body.packSize ?? "") as "10" | "25" | "50" | "100";
+  if (!CREDIT_PACK_PRICE_IDS[packSize]) {
+    return c.json({
+      error: "packSize must be one of: 10, 25, 50, 100",
+    }, 400);
+  }
+
+  const priceId = CREDIT_PACK_PRICE_IDS[packSize];
+  if (!priceId) {
+    console.error(`Missing Stripe price ID for credit pack ${packSize}`);
+    return c.json({ error: "Pricing not configured" }, 503);
+  }
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      mode: "payment",
+      payment_method_types: ["card"],
+      line_items: [{ price: priceId, quantity: 1 }],
+      metadata: {
+        user_id: userId,
+        product: "credit_pack",
+        credits: packSize,
+      },
+      payment_intent_data: {
+        metadata: {
+          user_id: userId,
+          product: "credit_pack",
+          credits: packSize,
+        },
+      },
+      success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=credit_pack&credits=${packSize}`,
+      cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
+      automatic_tax: { enabled: true },
+      allow_promotion_codes: true,
+    };
+
+    if (user.stripe_customer_id) {
+      sessionParams.customer = user.stripe_customer_id;
+      sessionParams.customer_update = { name: "auto", address: "auto" };
+    } else {
+      sessionParams.customer_email = user.email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+    return c.json({ sessionId: session.id, url: session.url });
+  } catch (err) {
+    console.error("Credit pack checkout failed:", err);
+    return c.json({ error: "Failed to create credit pack checkout" }, 500);
+  }
+});
+
+// ── POST /gradethread/per-grade (US-205) ─────────────────────────
+//
+// Body: { submissionId, tier: 'standard'|'premium'|'express' }
+// One-time Checkout that, on success, unlocks just this submission.
+async function perGradeCheckout(c: Ctx) {
   const userId = c.get("userId");
 
   let body: { submissionId?: string; tier?: string };
@@ -34,22 +276,26 @@ paymentRoutes.post("/checkout-session", async (c) => {
   }
 
   const { submissionId, tier } = body;
-
-  // Validate required fields
   if (!submissionId || typeof submissionId !== "string") {
     return c.json({ error: "submissionId is required" }, 400);
   }
-
-  if (!tier || !TIER_PRICES[tier]) {
+  if (tier !== "standard" && tier !== "premium" && tier !== "express") {
     return c.json({
-      error: `tier must be one of: ${Object.keys(TIER_PRICES).join(", ")}`,
+      error: "tier must be one of: standard, premium, express",
     }, 400);
   }
 
-  // Validate user owns the submission
+  const priceId = GRADE_PRICE_IDS[tier];
+  if (!priceId) {
+    // Pre-Stripe-setup fallback: build a one-off price_data line so
+    // local/dev environments without configured price IDs still work.
+    console.warn(`Missing Stripe price ID for grade tier ${tier}; using inline price_data`);
+  }
+
+  // Verify the submission belongs to this user and isn't already paid.
   const { data: submission, error: submissionError } = await supabaseAdmin
     .from("submissions")
-    .select("id, user_id")
+    .select("id, user_id, status")
     .eq("id", submissionId)
     .eq("user_id", userId)
     .single();
@@ -57,66 +303,81 @@ paymentRoutes.post("/checkout-session", async (c) => {
   if (submissionError || !submission) {
     return c.json({ error: "Submission not found or access denied" }, 404);
   }
-
-  // Create Stripe Checkout Session
-  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-  if (!stripeSecretKey) {
-    console.error("STRIPE_SECRET_KEY not configured");
-    return c.json({ error: "Payment service unavailable" }, 503);
+  if (submission.status !== "pending") {
+    return c.json({ error: "Submission already paid or processing" }, 409);
   }
 
-  const stripe = new Stripe(stripeSecretKey, {
-    apiVersion: "2024-04-10",
-  });
+  const { data: user } = await loadUser(userId);
+  if (!user) return c.json({ error: "User not found" }, 404);
 
-  const siteUrl = Deno.env.get("SITE_URL") || "https://gradethread.com";
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
-    const session = await stripe.checkout.sessions.create({
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
       payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            unit_amount: TIER_PRICES[tier],
-            product_data: {
-              name: TIER_NAMES[tier],
-              description: `GradeThread ${TIER_NAMES[tier]} for submission`,
+      line_items: priceId
+        ? [{ price: priceId, quantity: 1 }]
+        : [{
+            price_data: {
+              currency: "usd",
+              unit_amount: LEGACY_TIER_PRICES[tier],
+              product_data: {
+                name: LEGACY_TIER_NAMES[tier],
+                description: `GradeThread ${LEGACY_TIER_NAMES[tier]}`,
+              },
             },
-          },
-          quantity: 1,
-        },
-      ],
+            quantity: 1,
+          }],
       metadata: {
-        submission_id: submissionId,
         user_id: userId,
+        product: "per_grade",
+        submission_id: submissionId,
         tier,
+        credits_equivalent: String(TIER_CREDIT_COST[tier]),
       },
-      success_url: `${siteUrl}/dashboard/submissions/${submissionId}?payment=success`,
-      cancel_url: `${siteUrl}/dashboard/submissions?payment=cancelled`,
-    });
+      payment_intent_data: {
+        metadata: {
+          user_id: userId,
+          product: "per_grade",
+          submission_id: submissionId,
+          tier,
+        },
+      },
+      success_url: `${siteUrl()}/dashboard/submissions/${submissionId}?payment=success`,
+      cancel_url: `${siteUrl()}/dashboard/submissions?payment=cancelled`,
+      automatic_tax: priceId ? { enabled: true } : undefined,
+      allow_promotion_codes: true,
+    };
 
-    return c.json({
-      sessionId: session.id,
-      url: session.url,
-    });
+    if (user.stripe_customer_id) {
+      sessionParams.customer = user.stripe_customer_id;
+      sessionParams.customer_update = { name: "auto", address: "auto" };
+    } else {
+      sessionParams.customer_email = user.email;
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+    return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
-    console.error("Stripe checkout session creation failed:", err);
+    console.error("Per-grade checkout failed:", err);
     return c.json({ error: "Failed to create checkout session" }, 500);
   }
-});
+}
 
-// Stripe price IDs for subscription plans (must match Stripe dashboard)
-const SUBSCRIPTION_PRICE_IDS: Record<string, string> = {
-  starter: Deno.env.get("STRIPE_PRICE_STARTER_MONTHLY") || "price_starter_monthly_placeholder",
-  professional: Deno.env.get("STRIPE_PRICE_PROFESSIONAL_MONTHLY") || "price_professional_monthly_placeholder",
-};
+paymentRoutes.post("/gradethread/per-grade", perGradeCheckout);
 
-// Create Stripe Checkout Session for a subscription upgrade
+// ── Legacy compat aliases ────────────────────────────────────────
+// Old frontend code may still POST /api/payments/checkout-session and
+// /api/payments/subscribe. Keep them working for one release window.
+
+// Old: POST /checkout-session { submissionId, tier } → identical to /gradethread/per-grade.
+paymentRoutes.post("/checkout-session", perGradeCheckout);
+
+// Old: POST /subscribe { plan: 'starter'|'professional' } → maps to the new
+// FlipDesk subscribe (professional → pro), monthly interval.
 paymentRoutes.post("/subscribe", async (c) => {
-  const userId = c.get("userId");
-
   let body: { plan?: string };
   try {
     body = await c.req.json();
@@ -124,114 +385,107 @@ paymentRoutes.post("/subscribe", async (c) => {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const { plan } = body;
+  const legacy = body.plan;
+  const mapped: "starter" | "pro" | "business" | undefined =
+    legacy === "professional"
+      ? "pro"
+      : legacy === "enterprise"
+        ? "business"
+        : legacy === "starter" || legacy === "pro" || legacy === "business"
+          ? legacy
+          : undefined;
 
-  if (!plan || !SUBSCRIPTION_PRICE_IDS[plan]) {
+  if (!mapped) {
     return c.json({
-      error: `plan must be one of: ${Object.keys(SUBSCRIPTION_PRICE_IDS).join(", ")}`,
+      error: "plan must be one of: starter, professional, enterprise",
     }, 400);
   }
 
-  // Fetch user to get stripe_customer_id and email
-  const { data: user, error: userError } = await supabaseAdmin
-    .from("users")
-    .select("id, email, stripe_customer_id, plan")
-    .eq("id", userId)
-    .single();
+  const userId = c.get("userId");
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
 
-  if (userError || !user) {
-    return c.json({ error: "User not found" }, 404);
+  const priceId = FLIPDESK_PRICE_IDS[mapped]?.monthly;
+  if (!priceId) {
+    console.error(`Missing Stripe price ID for ${mapped} monthly`);
+    return c.json({ error: "Pricing not configured" }, 503);
   }
 
-  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-  if (!stripeSecretKey) {
-    console.error("STRIPE_SECRET_KEY not configured");
-    return c.json({ error: "Payment service unavailable" }, 503);
-  }
-
-  const stripe = new Stripe(stripeSecretKey, {
-    apiVersion: "2024-04-10",
-  });
-
-  const siteUrl = Deno.env.get("SITE_URL") || "https://gradethread.com";
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
+    let trialEndUnix: number | undefined;
+    if (
+      user.trial_ends_at &&
+      !user.flipdesk_subscription_id &&
+      new Date(user.trial_ends_at).getTime() > Date.now()
+    ) {
+      trialEndUnix = Math.floor(new Date(user.trial_ends_at).getTime() / 1000);
+    }
+
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
       payment_method_types: ["card"],
-      line_items: [
-        {
-          price: SUBSCRIPTION_PRICE_IDS[plan],
-          quantity: 1,
-        },
-      ],
+      line_items: [{ price: priceId, quantity: 1 }],
       metadata: {
         user_id: userId,
-        plan,
+        product: "flipdesk",
+        plan: mapped,
+        interval: "monthly",
+        legacy_alias: "true",
       },
-      success_url: `${siteUrl}/dashboard/billing?checkout=success`,
-      cancel_url: `${siteUrl}/dashboard/billing?checkout=cancelled`,
+      subscription_data: {
+        metadata: { user_id: userId, product: "flipdesk", plan: mapped, interval: "monthly" },
+        ...(trialEndUnix ? { trial_end: trialEndUnix } : {}),
+      },
+      success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=flipdesk`,
+      cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
+      automatic_tax: { enabled: true },
+      allow_promotion_codes: true,
     };
 
-    // Attach existing Stripe customer or pre-fill email
     if (user.stripe_customer_id) {
       sessionParams.customer = user.stripe_customer_id;
+      sessionParams.customer_update = { name: "auto", address: "auto" };
     } else {
       sessionParams.customer_email = user.email;
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
-
-    return c.json({
-      sessionId: session.id,
-      url: session.url,
-    });
+    return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
-    console.error("Stripe subscription checkout failed:", err);
+    console.error("Legacy subscribe checkout failed:", err);
     return c.json({ error: "Failed to create subscription checkout" }, 500);
   }
 });
 
-// Create Stripe Customer Portal session for managing subscription
+// ── POST /portal ──────────────────────────────────────────────────
+// Stripe Customer Portal for users who want raw access (escape hatch from
+// the in-app billing UI in US-211).
 paymentRoutes.post("/portal", async (c) => {
   const userId = c.get("userId");
 
-  // Fetch user to get stripe_customer_id
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select("id, stripe_customer_id")
     .eq("id", userId)
     .single();
 
-  if (userError || !user) {
-    return c.json({ error: "User not found" }, 404);
-  }
-
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
   if (!user.stripe_customer_id) {
     return c.json({ error: "No active subscription found" }, 400);
   }
 
-  const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
-  if (!stripeSecretKey) {
-    console.error("STRIPE_SECRET_KEY not configured");
-    return c.json({ error: "Payment service unavailable" }, 503);
-  }
-
-  const stripe = new Stripe(stripeSecretKey, {
-    apiVersion: "2024-04-10",
-  });
-
-  const siteUrl = Deno.env.get("SITE_URL") || "https://gradethread.com";
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
-      return_url: `${siteUrl}/dashboard/billing`,
+      return_url: `${siteUrl()}/dashboard/billing`,
     });
-
-    return c.json({
-      url: portalSession.url,
-    });
+    return c.json({ url: portalSession.url });
   } catch (err) {
     console.error("Stripe portal session creation failed:", err);
     return c.json({ error: "Failed to create billing portal session" }, 500);

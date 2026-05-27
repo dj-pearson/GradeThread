@@ -2953,8 +2953,8 @@
         "Unit tests cover the edge wrapper against a mock URLProtocol"
       ],
       "priority": 169,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-27. SPM dependency on supabase-community/supabase-swift pinned to 2.x declared in ios/project.yml. ios/GradeThread/Config/{Debug,Release}.xcconfig hold SUPABASE_URL / SUPABASE_ANON_KEY / EDGE_API_URL (placeholders — set real values before shipping or override in CI). Info.plist surfaces them via $(VAR) substitution. ios/GradeThread/Networking/AppConfig.swift reads them at runtime, fatalError-ing if a key is missing or still the placeholder. SupabaseShared.swift exposes a single shared SupabaseClient + a safe currentAccessToken() that returns nil when no session. EdgeAPI.swift is an actor wrapping URLSession with getJSON / postJSON / deleteJSON; auto-attaches the Supabase access token to every request, encodes/decodes via snake_case + ISO8601 to match the edge service. EdgeAPIError enum maps HTTP statuses + parses the edge service's { error, detail } shape into typed cases. Hermetic tests in EdgeAPITests.swift exercise happy path (auth header, body encoding, nil-token-omits-header) + every error mapping (401/429/400/500/network) via a custom URLProtocol mock — no real network calls. Compilation verified in CI (xcodebuild test on macOS runner)."
     },
     {
       "id": "US-170",

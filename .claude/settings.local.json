@@ -60,7 +60,9 @@
       "WebFetch(domain:listperfectly.com)",
       "WebFetch(domain:www.photoroom.com)",
       "WebFetch(domain:www.primelister.com)",
-      "WebFetch(domain:flyp.space)"
+      "WebFetch(domain:flyp.space)",
+      "Bash(git -C C:/Users/dpearson/Documents/GradeThread show --stat c69d074)",
+      "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff services/edge-functions/COOLIFY.md)"
     ]
   },
   "hooks": {
