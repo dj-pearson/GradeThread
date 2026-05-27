@@ -368,11 +368,7 @@ private struct SalesPlaceholder: View {
 
 private struct MarketplacesPlaceholder: View {
     var body: some View {
-        TabPlaceholder(
-            title: "Marketplaces",
-            subtitle: "eBay connection + reconciliation in US-183 / US-186.",
-            systemImage: "antenna.radiowaves.left.and.right"
-        )
+        MarketplacesView()
     }
 }
 

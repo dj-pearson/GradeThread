@@ -19,7 +19,18 @@ struct ItemCanvasView: View {
     @Query private var allPhotos: [LocalItemPhoto]
     @State private var state: ItemCanvasState?
     @State private var showingDiscardConfirmation = false
+    @State private var showingPublishDialog = false
     private let currencyFormatter = CurrencyFormatter()
+
+    /// Statuses where "Publish to eBay" makes sense — anything pre-list
+    /// where the item could reasonably go live. Mirrors the web canvas
+    /// predicate.
+    private static let publishableStatuses: Set<String> = [
+        "photographed", "graded", "comped", "drafted", "measured",
+    ]
+    private var canPublish: Bool {
+        Self.publishableStatuses.contains(item.status)
+    }
 
     init(item: LocalInventoryItem) {
         self.item = item
@@ -107,6 +118,9 @@ struct ItemCanvasView: View {
             compsSection
             notesSection(state: state)
             statusSection(state: state)
+            if canPublish {
+                publishSection
+            }
             if case let .failed(message) = state.savePhase {
                 Section {
                     Label(message, systemImage: "exclamationmark.triangle")
@@ -114,6 +128,41 @@ struct ItemCanvasView: View {
                         .foregroundStyle(.red)
                 }
             }
+        }
+        .sheet(isPresented: $showingPublishDialog) {
+            PublishDialog(inventoryItemId: item.id) { response in
+                // Optimistic local apply so the row flips to listed
+                // before the next sync pull lands.
+                item.status = "listed"
+                item.updatedAt = .now
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                _ = response  // listing_id + url are tracked server-side
+            }
+        }
+    }
+
+    private var publishSection: some View {
+        Section {
+            Button {
+                AppRouter.haptic()
+                showingPublishDialog = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "tag.fill")
+                    Text("Publish to eBay")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.brandNavy)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .listRowBackground(Color.clear)
+            .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
+        } footer: {
+            Text("Validates against eBay's metadata rules first; you'll see any blockers before the push.")
+                .font(.caption)
         }
     }
 

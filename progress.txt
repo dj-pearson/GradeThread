@@ -169,8 +169,133 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 15/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk select + stage-appropriate bulk actions. US-183→US-199 remaining
+- iOS app (US-168 → US-199): 18/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage (validate, push, price, end) wired single + bulk. US-186→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS eBay publish + manage (US-185)
+The full publish flow now works from the iOS canvas — validate, push,
+view live listing in-app. Bulk price-drop + end-listing are no longer
+stubbed.
+
+What landed in ios/GradeThread/Marketplaces/Publish/:
+- EbayPublishTypes.swift — Codable wire shapes (ValidateResponse,
+  PublishSummary, PushResponse, PushBlockersResponse,
+  PriceUpdateResponse, EndListingResponse, EdgeErrorBody). The typed
+  PublishOutcome enum carries the .blockers / .noOfferId / .failed
+  branches so callers switch on cases instead of HTTP codes.
+- EbayPublishService.swift — rolls its own URLSession to capture
+  status + body simultaneously. validate / push / updatePrice /
+  endListing each return PublishOutcome. 409 → .noOfferId
+  (local-only fallback signal); 422 → .blockers; 5xx → .failed.
+- PublishDialog.swift — state machine sheet: validating → readyToPush
+  (summary card with title / condition / price / description preview)
+  OR blocked (bulleted blockers + Close) → pushing → succeeded
+  (green checkmark + listing id + 'View on eBay' opening SafariView
+  + Done) OR failed (retry + close).
+
+ItemCanvasView:
+- Renders 'Publish to eBay' section button when item.status ∈
+  {photographed, graded, comped, drafted, measured}.
+- On success, optimistically flips item.status to 'listed' and
+  posts .inventoryPullRequested so the list rebuckets immediately.
+
+BulkActionExecutor:
+- endListings + dropPrices stubs replaced with real flows. Batched
+  supabase fetch for active eBay listings keyed by inventory_item_id;
+  EbayPublishService.endListing / updatePrice per item; failures
+  aggregated. dropPrice computes newPrice = max(1.0, current ×
+  (1 - percent/100)) — $1 hard floor. .noOfferId surfaces per-item
+  as 'Listing isn't linked to an eBay offer' matching the AC's
+  local-only fallback signal.
+
+Tests in EbayPublishTests cover all six wire decodings, EdgeErrorBody
+message precedence (detail beats error, fallback, nil), and the
+PublishOutcome equality smoke test.
+
+## Session Notes (2026-05-27) — iOS eBay sync (US-184)
+One-tap "Sync now" that pulls listings + orders + finances from eBay.
+The edge endpoint returns 202 immediately and runs detached — iOS
+mirrors the web pattern of polling marketplace_connections.last_synced_at
+for completion detection.
+
+What landed in ios/GradeThread/Marketplaces/:
+- EbaySyncTypes.swift — ListingsPullStarted (202 wire shape),
+  EbaySyncBaseline (pre-sync snapshot), EbaySyncSummary (post-sync
+  counts + ±deltas), EbaySyncCompletion enum
+  (.completed / .timedOut / .connectionFlagged / .failed).
+- EbaySyncService.swift — snapshot() reads local LocalListing +
+  LocalSale counts and the connection's last_synced_at. sync()
+  posts /api/flipdesk/ebay/listings/pull, polls every 3s up to 90s
+  for last_synced_at to advance via didAdvance (handles first-ever
+  sync nil-baseline, equal-timestamp no-advance, mixed-precision
+  ISO strings). Mid-poll refresh_error detection routes to
+  .connectionFlagged. On completion, posts .inventoryPullRequested
+  so SyncEngine.sync() refreshes local rows, waits 1.2s, then
+  computes the summary with deltas.
+- EbaySyncStore.swift — @MainActor @Observable phase machine plus
+  a cycling stage-label timer (5s rotation through 'Loading
+  listings…' / 'Matching SKUs…' / 'Pulling orders + fees…').
+- EbaySyncModal.swift — sheet rendering per-phase: ProgressView
+  + rotating stage label while syncing; green checkmark + summary
+  card with ±delta pills on completion; orange clock for timeout
+  with 'check back in a minute' copy; orange triangle +
+  refresh_error message on connection-flagged; red octagon + raw
+  error on failure. interactiveDismissDisabled while syncing.
+
+Sync entrypoints:
+- MarketplacesView's connected card has a 'Sync now' button next
+  to Reconnect/Disconnect.
+- InventoryListView's toolbar gets an arrow.triangle.2.circlepath
+  trailing button that opens the same modal.
+
+Tests in EbaySyncTests cover ListingsPullStarted decode with and
+without the optional message, didAdvance for first-ever-sync, nil
+current, equal timestamps, strictly newer, mixed-precision strings,
+EbaySyncStore beginSync → syncing(0), apply for each completion
+case, reset, stageLabel nil outside syncing.
+
+## Session Notes (2026-05-27) — iOS eBay OAuth (US-183)
+Marketplaces tab is no longer a placeholder — real eBay connect /
+disconnect / reconnect flow running through ASWebAuthenticationSession.
+Backend was already wired (US-119); iOS just drives it.
+
+What landed in ios/GradeThread/Marketplaces/:
+- EbayConnectionTypes.swift — Codable wire shapes.
+  ConsentResponse for /oauth/start; RemoteMarketplaceConnection for
+  the marketplace_connections row (token columns never decoded
+  client-side). EbayConnectResult parses the callback URL's ?ebay=
+  param into .cancelled / .stateExpired / .connected / .error.
+- EbayConnectionService.swift — @MainActor service. connect()
+  fetches the consent URL from EdgeAPI, opens
+  ASWebAuthenticationSession with callbackURLScheme='com.gradethread.app'
+  (reusing the URL scheme registered in US-170), polls
+  marketplace_connections 3× × 600ms after the session dismisses to
+  absorb any token-exchange write delay. Universal Link upgrade
+  (Callback.https at gradethread.com/...) is iOS 17.4+ + AASA
+  provisioning, documented as a polish pass. disconnect() updates
+  is_active=false and scrubs encrypted token columns via direct
+  supabase-swift update. prefersEphemeralWebBrowserSession=false so
+  reconnects are one tap.
+- MarketplaceConnectionStore.swift — @MainActor @Observable state
+  machine: .loading / .disconnected / .connected(row) /
+  .reconnectRequired(row, message) / .failed(message). The
+  reconnect-required branch fires when fetchActiveConnection returns
+  nil but fetchLatestConnection has a row with refresh_error, mirroring
+  the web's stale-grant card.
+- MarketplacesView.swift — scrollable card layout with status pill
+  in the corner. Disconnected → Connect button; Connected → account
+  handle + relative last-sync time + Reconnect + Disconnect;
+  ReconnectRequired → orange exclamation + Reconnect; Failed →
+  Try again.
+
+ContentView's MarketplacesPlaceholder now points at MarketplacesView.
+
+Tests in EbayConnectionTests cover ConsentResponse snake-to-camel
+decoding, RemoteMarketplaceConnection decoding for full + null
+rows, EbayConnectResult.from(callbackURL:) for every documented
+outcome including no-known-params returning nil, store initial
+phase. Service-layer integration land on first TestFlight build
+with real eBay sandbox creds.
 
 ## Session Notes (2026-05-27) — iOS bulk actions (US-182)
 Multi-select + stage-appropriate bulk actions on the inventory list,

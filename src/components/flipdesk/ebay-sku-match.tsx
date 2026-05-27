@@ -125,6 +125,7 @@ export function EbaySkuMatch() {
     null,
   );
   const [bulkCreating, setBulkCreating] = useState(false);
+  const [quickLinkBusyId, setQuickLinkBusyId] = useState<string | null>(null);
 
   const { data: listings = [], isLoading: listingsLoading } = useEbayListings();
   const { data: items = [], isLoading: itemsLoading } = useItemsFull();
@@ -366,6 +367,36 @@ export function EbaySkuMatch() {
     }
   }
 
+  // One-click link: accept the title-suggested item without opening the
+  // search dialog. Sets matched_item_id + match_status but intentionally
+  // does NOT touch the FlipDesk item's SKU — use the regular "Link" dialog
+  // when you also want to copy the eBay Custom Label across.
+  async function quickLink(listing: EbayListingRow, suggestionId: string) {
+    if (quickLinkBusyId) return;
+    setQuickLinkBusyId(listing.id);
+    try {
+      const { error } = await supabase
+        .from("flipdesk_ebay_listings")
+        .update({
+          matched_item_id: suggestionId,
+          match_status: "matched",
+        } as never)
+        .eq("id", listing.id);
+      if (error) throw error;
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["ebay_listings"] }),
+        qc.invalidateQueries({ queryKey: ["items_full"] }),
+      ]);
+      toast.success("Listing linked to suggested item.");
+    } catch (err) {
+      toast.error(
+        `Link failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setQuickLinkBusyId(null);
+    }
+  }
+
   async function ignore(listing: EbayListingRow) {
     try {
       const { error } = await supabase
@@ -569,12 +600,30 @@ export function EbaySkuMatch() {
                             )}
                           </div>
                           {suggestion && (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              Possible match by title:{" "}
-                              <span className="font-medium text-foreground">
-                                {suggestion.item_title}
-                              </span>{" "}
-                              (SKU {suggestion.item_number ?? "—"})
+                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span>
+                                Possible match by title:{" "}
+                                <span className="font-medium text-foreground">
+                                  {suggestion.item_title}
+                                </span>{" "}
+                                (SKU {suggestion.item_number ?? "—"})
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[10px]"
+                                onClick={() =>
+                                  void quickLink(listing, suggestion.id)
+                                }
+                                disabled={quickLinkBusyId === listing.id}
+                              >
+                                {quickLinkBusyId === listing.id ? (
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Link2 className="mr-1 h-3 w-3" />
+                                )}
+                                Link to this
+                              </Button>
                             </div>
                           )}
                         </div>

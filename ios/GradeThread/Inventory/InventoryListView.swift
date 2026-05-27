@@ -26,6 +26,11 @@ struct InventoryListView: View {
     @State private var actionResult: BulkActionResult?
     private let executor = BulkActionExecutor()
 
+    // US-184 sync
+    @State private var syncStore = EbaySyncStore()
+    @State private var showingSyncModal = false
+    @Environment(\.modelContext) private var modelContext
+
     var body: some View {
         VStack(spacing: 0) {
             tabRow
@@ -36,6 +41,10 @@ struct InventoryListView: View {
         .toolbar {
             sortToolbarItem
             selectToolbarItem
+            syncToolbarItem
+        }
+        .sheet(isPresented: $showingSyncModal) {
+            EbaySyncModal(store: syncStore, onDismiss: { syncStore.reset() })
         }
         .searchable(
             text: $searchQuery,
@@ -172,6 +181,32 @@ struct InventoryListView: View {
     }
 
     // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var syncToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                AppRouter.haptic()
+                Task { await runEbaySync() }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .accessibilityLabel("Sync from eBay")
+            }
+        }
+    }
+
+    private func runEbaySync() async {
+        guard case let .signedIn(user) = authStore.phase else { return }
+        let userId = user.id.uuidString
+
+        syncStore.beginSync()
+        showingSyncModal = true
+
+        let service = EbaySyncService(container: modelContext.container)
+        let baseline = await service.snapshot(userId: userId)
+        let completion = await service.sync(userId: userId, baseline: baseline)
+        syncStore.apply(completion)
+    }
 
     @ToolbarContentBuilder
     private var selectToolbarItem: some ToolbarContent {
