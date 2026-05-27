@@ -119,6 +119,98 @@ export function useBuyCreditPack() {
   });
 }
 
+// ── Pause / Resume / Cancel mutations (US-215 + US-216) ─────────
+
+export function usePauseSubscription() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true; resumesAt: string }, Error, { months: 1 | 2 | 3 }>({
+    mutationFn: async ({ months }) => {
+      const res = await edgeFetch("/api/payments/flipdesk/pause", {
+        method: "POST",
+        json: { months },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to pause subscription.");
+      return json;
+    },
+    onSuccess: (data) => {
+      const resumes = new Date(data.resumesAt).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+      toast.success(`Subscription paused — resumes ${resumes}.`);
+      qc.invalidateQueries({ queryKey: ["billing_summary"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useResumeSubscription() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/payments/flipdesk/resume", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to resume subscription.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Subscription resumed.");
+      qc.invalidateQueries({ queryKey: ["billing_summary"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useCancelSubscription() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: true; ends_at: string | null },
+    Error,
+    { reason?: string }
+  >({
+    mutationFn: async ({ reason }) => {
+      const res = await edgeFetch("/api/payments/flipdesk/cancel", {
+        method: "POST",
+        json: { reason },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to cancel subscription.");
+      return json;
+    },
+    onSuccess: (data) => {
+      const ends = data.ends_at
+        ? new Date(data.ends_at).toLocaleDateString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "the end of the period";
+      toast.success(`Cancellation scheduled — your plan ends ${ends}.`);
+      qc.invalidateQueries({ queryKey: ["billing_summary"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useUncancelSubscription() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/payments/flipdesk/uncancel", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to undo cancellation.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Cancellation undone — your plan continues.");
+      qc.invalidateQueries({ queryKey: ["billing_summary"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 export function useBillingPortal() {
   return useMutation<{ url: string }, Error, void>({
     mutationFn: async () => {

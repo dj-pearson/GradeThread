@@ -169,8 +169,82 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 5/32 — US-168 scaffold + CI/CD; US-169 networking + EdgeAPI; US-170 auth (email/password + Apple SIWA + Google); US-171 tab bar polish (Add action sheet + haptics + iPad NavigationSplitView); US-172 SwiftData persistence + SyncEngine + offline mutation queue + sync status bar. US-173→US-199 remaining
+- iOS app (US-168 → US-199): 7/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library import with staging tray. US-175→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS library import (US-174)
+Same compression pipeline as the camera flow, just a different source.
+Mixed-flow works because the camera session never closes during a pick.
+
+What landed:
+- ios/GradeThread/Capture/PhotoLibraryPicker.swift — UIViewControllerRepresentable
+  around PHPickerViewController (selectionLimit=8, filter=.images,
+  preferredAssetRepresentationMode=.current). PHPicker runs
+  out-of-process, so no 'Allow access to all photos?' prompt — privacy
+  win + faster grant flow.
+- ios/GradeThread/Capture/PhotoStagingTray.swift — sheet shown after
+  picker dismisses. Per-photo Menu lists visible empty slots + the next
+  hidden defect slot so a defect-only library import can park without
+  bouncing back to the camera. Discard removes the photo entirely.
+  Auto-dismisses when the tray empties.
+- ios/GradeThread/Capture/PhotoIntakeView.swift extended: circular
+  'photo.on.rectangle' Library button on the left of the shutter row
+  (haptic on tap, ProgressView during ingest, disabled while loading).
+  Picks run through PhotoCompressor (same 2048px / JPEG 0.8 pipeline as
+  the camera path) so library + camera shots are indistinguishable on
+  the wire. Reveals defect slots automatically when the user assigns a
+  staged photo to a not-yet-visible defect slot.
+- Tests added to PhotoIntakeTests.swift cover setPhoto(for:) at every
+  angle the staging tray hits — direct slot targeting without cursor
+  advance, mixed-source ordering independence, reveal-then-set for
+  defect slots.
+
+## Session Notes (2026-05-27) — iOS camera capture (US-173)
+Custom AVFoundation camera with a 4-slot guided flow (front/back/tag/detail)
+plus up to 3 optional defect slots. Custom UI throughout — no
+UIImagePickerController, no system photo picker (that comes in US-174).
+
+What landed in ios/GradeThread/Capture/:
+- PhotoSlotType.swift — enum of 7 positions with label / hint /
+  SF Symbol / serverPhotoType mapping (defects collapse to the wire enum
+  'defect'; slot order preserved separately via sort_order on
+  item_photos).
+- PhotoCapture.swift — Identifiable struct holding the compressed JPEG +
+  thumbnail UIImage + capturedAt + source (camera / library).
+- PhotoCompressor.swift — aspect-preserving resize to 2048px max long
+  edge, JPEG 0.8, 160px thumbnail; stripExifPreservingOrientation()
+  whitelists only the orientation tag for the library-import path.
+- PhotoIntakeStore.swift — @MainActor @Observable; photos dict by slot,
+  activeSlot cursor, defectSlotsVisible (0–3), recordCapture auto-
+  advances to nextEmptySlot.
+- CameraSession.swift — @MainActor wrapper around AVCaptureSession + back
+  camera input + AVCapturePhotoOutput. Configuration runs on a private
+  serial queue (per Apple guidance — touching session config from main
+  can stutter startup). Permission flow handles every
+  AVAuthorizationStatus branch and surfaces a clear "open Settings"
+  screen on denial.
+- CameraPreview.swift — UIViewRepresentable; the hosted UIView's
+  layerClass IS AVCaptureVideoPreviewLayer (cheaper than a sublayer +
+  frame tracking).
+- SlotThumbnail.swift — thumbnail / empty-state / active-ring / checkmark
+  badge. Accessibility labels reflect captured / active / empty.
+- PhotoPreview.swift — fullScreenCover with retake / delete buttons.
+- PhotoIntakeView.swift — full-bleed preview, exit-confirmation dialog
+  when hasUnsavedShots, active-slot hint, horizontal scroll strip with
+  tap-to-focus + long-press-to-delete, plus tile to reveal one more
+  defect slot, large shutter button with haptic + ProgressView during
+  capture.
+
+Wired into the Add tab via IntakePlaceholder(.photoFirst) → PhotoIntakeView.
+The "Library" button position is reserved in the capture row layout for
+US-174's PHPickerViewController landing.
+
+Tests in PhotoIntakeTests.swift cover PhotoCompressor resize math + small-
+image short-circuit + size budget; PhotoIntakeStore cursor advance,
+defect reveal cap + hidden-slot guard, clearPhoto re-focus; PhotoSlotType
+required set + defect-collapse to wire enum. CameraSession itself isn't
+unit-tested — it owns hardware resources that need a real device; CI
+just verifies it compiles.
 
 ## Session Notes (2026-05-27) — iOS persistence + tab polish (US-171, US-172)
 

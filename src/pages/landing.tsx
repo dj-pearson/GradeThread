@@ -22,8 +22,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SEO } from "@/components/seo";
-import { PLANS } from "@/lib/constants";
-import type { PlanKey } from "@/lib/constants";
+import {
+  CREDIT_PACKS,
+  FLIPDESK_PLANS,
+  GRADETHREAD_TIERS,
+} from "@/lib/constants";
+import type { FlipdeskPlan as FlipdeskPlanKey, BillingInterval } from "@/types/database";
 
 const features = [
   {
@@ -116,7 +120,19 @@ const faqs = [
   },
   {
     q: "Can I use GradeThread for free?",
-    a: "Yes! The Free plan includes 5 grades per month with basic grade reports and email support. No credit card required to get started.",
+    a: "Yes. The Free plan includes 3 Standard grades per month at no cost, plus a 14-day free trial of Pro on signup (no card required). After that you can stay on Free, pay per grade, or subscribe to a paid tier.",
+  },
+  {
+    q: "Do credits expire?",
+    a: "No. Once you buy a credit pack, the credits stay in your account until you use them. There's no monthly minimum, no auto-debit, and no expiry date.",
+  },
+  {
+    q: "Can I pause my subscription?",
+    a: "Yes — for up to 3 months. While paused you keep all your data and credits, your caps fall back to Free, and we don't charge you. Resume any time.",
+  },
+  {
+    q: "What happens to my listings if I downgrade?",
+    a: "Your data stays intact. If you have more active listings than your new plan allows, the extras are hidden from active sync until you list them, end them, or upgrade again. Sub-accounts and API keys disable at period end.",
   },
   {
     q: "What types of clothing can I grade?",
@@ -128,11 +144,259 @@ const faqs = [
   },
   {
     q: "Do you offer an API?",
-    a: "Yes, the Professional and Enterprise plans include API access. You can integrate GradeThread grading directly into your own applications, inventory management systems, or listing tools.",
+    a: "Yes, the Business plan includes programmatic API access. You can integrate GradeThread grading directly into your own applications, inventory management systems, or listing tools.",
   },
 ];
 
-const planKeys: PlanKey[] = ["free", "starter", "professional", "enterprise"];
+const FLIPDESK_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];
+
+function dollars(cents: number): string {
+  if (cents === 0) return "$0";
+  return `$${(cents / 100).toFixed(0)}`;
+}
+
+function annualSavingsPct(plan: typeof FLIPDESK_PLANS.free): number | null {
+  if (plan.priceMonthlyCents === 0) return null;
+  const fullYear = plan.priceMonthlyCents * 12;
+  return ((fullYear - plan.priceYearlyCents) / fullYear) * 100;
+}
+
+// ── FlipDesk subscription block ─────────────────────────────────
+
+function FlipdeskPricingBlock() {
+  const [interval, setInterval] = useState<BillingInterval>("monthly");
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2 text-center">
+        <h3 className="text-2xl font-semibold">
+          FlipDesk — your reseller workflow
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Catalog, photograph, draft, list, sell, ship — all in one tool.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-center gap-3 text-sm">
+        <button
+          onClick={() => setInterval("monthly")}
+          className={`rounded-md px-3 py-1.5 transition-colors ${
+            interval === "monthly"
+              ? "bg-brand-navy text-white"
+              : "text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          Monthly
+        </button>
+        <button
+          onClick={() => setInterval("yearly")}
+          className={`flex items-center gap-2 rounded-md px-3 py-1.5 transition-colors ${
+            interval === "yearly"
+              ? "bg-brand-navy text-white"
+              : "text-muted-foreground hover:bg-muted"
+          }`}
+        >
+          Annual
+          <Badge
+            variant="secondary"
+            className={
+              interval === "yearly" ? "bg-white/20 text-white" : ""
+            }
+          >
+            Save ~17%
+          </Badge>
+        </button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {FLIPDESK_ORDER.map((key) => {
+          const plan = FLIPDESK_PLANS[key];
+          const isPopular = key === "pro";
+          const priceCents =
+            interval === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+          const displayPrice =
+            priceCents === 0
+              ? "$0"
+              : interval === "yearly"
+                ? `$${(priceCents / 12 / 100).toFixed(0)}`
+                : dollars(priceCents);
+          const savings = annualSavingsPct(plan);
+
+          return (
+            <Card
+              key={key}
+              className={`relative flex flex-col ${
+                isPopular ? "border-brand-red shadow-lg" : ""
+              }`}
+            >
+              {isPopular && (
+                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-red text-white">
+                  Most Popular
+                </Badge>
+              )}
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg">{plan.name}</CardTitle>
+                <div className="mt-2">
+                  <span className="text-3xl font-bold">{displayPrice}</span>
+                  {priceCents > 0 && (
+                    <span className="text-sm text-muted-foreground">/mo</span>
+                  )}
+                  {interval === "yearly" && savings != null && (
+                    <div className="mt-0.5 text-xs text-emerald-700">
+                      {dollars(plan.priceYearlyCents)} billed yearly
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-1 flex-col">
+                <ul className="space-y-2 text-sm">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2">
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link to="/signup" className="mt-6 block">
+                  <Button
+                    className={`w-full ${
+                      isPopular
+                        ? "bg-brand-red text-white hover:bg-brand-red/90"
+                        : ""
+                    }`}
+                    variant={isPopular ? "default" : "outline"}
+                  >
+                    {key === "free" ? "Start free" : "Start 14-day trial"}
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── GradeThread per-grade block ─────────────────────────────────
+
+function GradeThreadPricingBlock() {
+  const bestPack = CREDIT_PACKS[CREDIT_PACKS.length - 1]; // 100-pack
+  const bestPerCredit = bestPack.priceCents / bestPack.credits;
+  const list = GRADETHREAD_TIERS.standard.priceCents;
+  const bestSavings = ((list - bestPerCredit) / list) * 100;
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2 text-center">
+        <h3 className="text-2xl font-semibold">
+          GradeThread — pay only when you grade
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          No monthly fee. Submit a garment, pay for that grade. Buy in packs
+          to save up to {bestSavings.toFixed(0)}%.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {(["standard", "premium", "express"] as const).map((tierKey) => {
+          const tier = GRADETHREAD_TIERS[tierKey];
+          return (
+            <Card key={tierKey}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">{tier.label}</CardTitle>
+                <div className="mt-1">
+                  <span className="text-3xl font-bold">
+                    ${(tier.priceCents / 100).toFixed(2)}
+                  </span>
+                  <span className="text-sm text-muted-foreground"> / grade</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {tier.slaHours}-hour SLA · {tier.creditCost} credit
+                  {tier.creditCost === 1 ? "" : "s"}
+                </p>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  {tierKey === "standard"
+                    ? "Standard turnaround for the everyday flip."
+                    : tierKey === "premium"
+                      ? "12-hour turnaround when you need to list today."
+                      : "1-hour turnaround for time-sensitive auctions."}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      <div className="rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-lg font-semibold">
+              Buy in packs and save up to {bestSavings.toFixed(0)}%
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Credits never expire. Use one for Standard, three for Premium,
+              five for Express. Mix and match.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {CREDIT_PACKS.map((pack) => (
+              <div
+                key={pack.credits}
+                className="rounded-md border border-border bg-background p-2 text-center"
+              >
+                <div className="text-lg font-bold tabular-nums">
+                  {pack.credits}
+                </div>
+                <div className="text-xs text-muted-foreground">credits</div>
+                <div className="mt-0.5 text-sm font-semibold">
+                  ${(pack.priceCents / 100).toFixed(0)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bundled grades explainer ────────────────────────────────────
+
+function IncludedGradesTable() {
+  return (
+    <div className="rounded-lg border border-border bg-card p-6">
+      <h4 className="font-semibold">Included with FlipDesk</h4>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Every FlipDesk plan includes Standard grades each month. Overage uses
+        credits or pay-per-grade.
+      </p>
+      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {FLIPDESK_ORDER.map((key) => {
+          const plan = FLIPDESK_PLANS[key];
+          return (
+            <div
+              key={key}
+              className="rounded-md border border-border bg-background p-3 text-center"
+            >
+              <div className="text-xs uppercase text-muted-foreground">
+                {plan.name}
+              </div>
+              <div className="mt-1 text-2xl font-bold tabular-nums">
+                {plan.includedStandardGradesPerMonth}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Standard grades / mo
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function FAQItem({ q, a }: { q: string; a: string }) {
   const [open, setOpen] = useState(false);
@@ -379,79 +643,24 @@ export function LandingPage() {
 
       {/* Pricing */}
       <section id="pricing" className="px-6 py-20">
-        <div className="mx-auto max-w-5xl">
-          <h2 className="text-center text-3xl font-bold">
-            Simple, Transparent Pricing
-          </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
-            Start free. Upgrade as you grow. No hidden fees.
-          </p>
-          <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {planKeys.map((key) => {
-              const plan = PLANS[key];
-              const isPopular = key === "professional";
-              return (
-                <Card
-                  key={key}
-                  className={`relative ${isPopular ? "border-brand-red shadow-lg" : ""}`}
-                >
-                  {isPopular && (
-                    <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-red text-white">
-                      Most Popular
-                    </Badge>
-                  )}
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">{plan.name}</CardTitle>
-                    <div className="mt-2">
-                      {plan.priceMonthly === 0 ? (
-                        <span className="text-3xl font-bold">$0</span>
-                      ) : plan.priceMonthly === null ? (
-                        <span className="text-3xl font-bold">Custom</span>
-                      ) : (
-                        <>
-                          <span className="text-3xl font-bold">
-                            ${plan.priceMonthly}
-                          </span>
-                          <span className="text-sm text-muted-foreground">
-                            /mo
-                          </span>
-                        </>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {plan.gradesPerMonth === -1
-                        ? "Unlimited grades"
-                        : `${plan.gradesPerMonth} grades/month`}
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-2">
-                      {plan.features.map((f) => (
-                        <li key={f} className="flex items-start gap-2 text-sm">
-                          <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                    <Link to="/signup" className="mt-6 block">
-                      <Button
-                        className={`w-full ${
-                          isPopular
-                            ? "bg-brand-red text-white hover:bg-brand-red/90"
-                            : ""
-                        }`}
-                        variant={isPopular ? "default" : "outline"}
-                      >
-                        {plan.priceMonthly === null
-                          ? "Contact Sales"
-                          : "Get Started"}
-                      </Button>
-                    </Link>
-                  </CardContent>
-                </Card>
-              );
-            })}
+        <div className="mx-auto max-w-6xl space-y-16">
+          <div className="space-y-3 text-center">
+            <h2 className="text-3xl font-bold">Simple, transparent pricing</h2>
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              GradeThread is two products on one bill: a workflow tool you
+              subscribe to, and a grading service you pay per item. Use only
+              what you need.
+            </p>
           </div>
+
+          {/* FlipDesk subscription */}
+          <FlipdeskPricingBlock />
+
+          {/* GradeThread per-grade + credit packs */}
+          <GradeThreadPricingBlock />
+
+          {/* Bundled grades explainer */}
+          <IncludedGradesTable />
         </div>
       </section>
 

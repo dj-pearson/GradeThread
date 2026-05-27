@@ -27,6 +27,12 @@ import {
 import { UsageMeter, UsageMeters } from "@/components/billing/usage-meter";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
+import { PauseSubscriptionDialog } from "@/components/billing/pause-subscription-dialog";
+import { CancelSubscriptionDialog } from "@/components/billing/cancel-subscription-dialog";
+import {
+  useResumeSubscription,
+  useUncancelSubscription,
+} from "@/hooks/use-billing-summary";
 import {
   AlertCircle,
   Calendar,
@@ -35,9 +41,11 @@ import {
   Info,
   MoreVertical,
   Pause,
+  Play,
   ShoppingCart,
   Sparkles,
   TrendingUp,
+  X,
 } from "lucide-react";
 
 function dollars(cents: number): string {
@@ -56,9 +64,13 @@ function dateLabel(iso: string | null): string {
 export function BillingPage() {
   const { data: summary, isLoading } = useBillingSummary();
   const portal = useBillingPortal();
+  const resume = useResumeSubscription();
+  const uncancel = useUncancelSubscription();
 
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
   const [creditPackOpen, setCreditPackOpen] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [highlightPlan, setHighlightPlan] = useState<FlipdeskPlanKey | undefined>(
     undefined,
   );
@@ -167,6 +179,15 @@ export function BillingPage() {
               temporarily at the Free tier; your credits and data are untouched.
             </p>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => resume.mutate()}
+            disabled={resume.isPending}
+          >
+            <Play className="mr-2 h-4 w-4" />
+            Resume now
+          </Button>
         </div>
       )}
       {canceling && !pastDue && (
@@ -182,8 +203,8 @@ export function BillingPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => portal.mutate()}
-            disabled={portal.isPending}
+            onClick={() => uncancel.mutate()}
+            disabled={uncancel.isPending}
           >
             Undo cancel
           </Button>
@@ -262,14 +283,20 @@ export function BillingPage() {
                 <TrendingUp className="mr-2 h-4 w-4" />
                 Change plan
               </Button>
-              {subscription.stripe_customer_id && !canceling && (
+              {subscription.plan !== "free" && !paused && !canceling && (
+                <Button variant="outline" onClick={() => setPauseOpen(true)}>
+                  <Pause className="mr-2 h-4 w-4" />
+                  Pause
+                </Button>
+              )}
+              {subscription.plan !== "free" && !canceling && (
                 <Button
-                  variant="outline"
-                  onClick={() => portal.mutate()}
-                  disabled={portal.isPending}
+                  variant="ghost"
+                  className="text-red-700 hover:bg-red-50 hover:text-red-800"
+                  onClick={() => setCancelOpen(true)}
                 >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Manage in Stripe
+                  <X className="mr-2 h-4 w-4" />
+                  Cancel
                 </Button>
               )}
             </div>
@@ -397,6 +424,12 @@ export function BillingPage() {
         open={planPickerOpen}
         onOpenChange={setPlanPickerOpen}
         highlightPlan={highlightPlan}
+      />
+      <PauseSubscriptionDialog open={pauseOpen} onOpenChange={setPauseOpen} />
+      <CancelSubscriptionDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        periodEnd={subscription.period_end}
       />
     </div>
   );

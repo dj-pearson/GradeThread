@@ -16,7 +16,7 @@ import {
   withPreferenceDefaults,
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
-import { PLANS, type PlanKey } from "@/lib/constants";
+import { FLIPDESK_PLANS, PLANS, type PlanKey } from "@/lib/constants";
 import { Loader2, Upload, Download, Sparkles, Compass, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
@@ -80,8 +80,13 @@ export function SettingsPage() {
   );
   const [savingShareOutcomes, setSavingShareOutcomes] = useState(false);
 
-  const planKey = (profile?.plan ?? "free") as PlanKey;
-  const planAiLimit = PLANS[planKey].aiActionsPerMonth;
+  // FlipDesk plan drives the AI allowance (US-202). Fall back to the legacy
+  // PLANS shim for users that haven't been backfilled yet — the shim derives
+  // the same numbers from FLIPDESK_PLANS so values match.
+  const flipdeskPlan = profile?.flipdesk_plan ?? null;
+  const planAiLimit = flipdeskPlan
+    ? FLIPDESK_PLANS[flipdeskPlan].aiActionsPerMonth
+    : PLANS[(profile?.plan ?? "free") as PlanKey].aiActionsPerMonth;
   const effectiveAiLimit = profile?.ai_action_limit ?? planAiLimit;
   const aiUsed = profile?.ai_actions_used_this_month ?? 0;
   const aiUnlimited = effectiveAiLimit < 0;

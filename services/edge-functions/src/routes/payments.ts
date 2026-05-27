@@ -546,6 +546,151 @@ paymentRoutes.get("/billing-summary", async (c) => {
   });
 });
 
+// ── POST /flipdesk/pause (US-215) ────────────────────────────────
+//
+// Body: { months: 1 | 2 | 3 }
+// Pauses the user's active subscription for N months via Stripe's
+// pause_collection. While paused, the user keeps their data + credits but
+// their plan-gate caps fall back to Free (handled in services/edge-functions/src/lib/plan-gate.ts).
+paymentRoutes.post("/flipdesk/pause", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { months?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const months = Number(body.months);
+  if (![1, 2, 3].includes(months)) {
+    return c.json({ error: "months must be 1, 2, or 3" }, 400);
+  }
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.flipdesk_subscription_id) {
+    return c.json({ error: "No active subscription to pause" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  const resumesAt = new Date();
+  resumesAt.setMonth(resumesAt.getMonth() + months);
+  const resumesAtUnix = Math.floor(resumesAt.getTime() / 1000);
+
+  try {
+    await stripe.subscriptions.update(user.flipdesk_subscription_id, {
+      pause_collection: {
+        behavior: "mark_uncollectible",
+        resumes_at: resumesAtUnix,
+      },
+    });
+    // Webhook (customer.subscription.updated → paused status) will set the
+    // DB columns. We return early; frontend invalidates billing_summary.
+    return c.json({ ok: true, resumesAt: resumesAt.toISOString() });
+  } catch (err) {
+    console.error("Subscription pause failed:", err);
+    return c.json({ error: "Failed to pause subscription" }, 500);
+  }
+});
+
+// ── POST /flipdesk/resume (US-215) ───────────────────────────────
+paymentRoutes.post("/flipdesk/resume", async (c) => {
+  const userId = c.get("userId");
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.flipdesk_subscription_id) {
+    return c.json({ error: "No subscription to resume" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    // Passing pause_collection: '' to subscriptions.update clears the pause.
+    // The Stripe Node SDK requires an empty string here (not null/undefined).
+    await stripe.subscriptions.update(user.flipdesk_subscription_id, {
+      pause_collection: "",
+    });
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("Subscription resume failed:", err);
+    return c.json({ error: "Failed to resume subscription" }, 500);
+  }
+});
+
+// ── POST /flipdesk/cancel (US-216) ───────────────────────────────
+//
+// Body: { reason?: string }
+// Schedules the subscription to cancel at the end of the current period.
+// Until then, the user keeps full access. The customer.subscription.deleted
+// webhook drops them to Free when the period ends.
+paymentRoutes.post("/flipdesk/cancel", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { reason?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const reason = typeof body.reason === "string" ? body.reason.slice(0, 200) : null;
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.flipdesk_subscription_id) {
+    return c.json({ error: "No subscription to cancel" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const sub = await stripe.subscriptions.update(user.flipdesk_subscription_id, {
+      cancel_at_period_end: true,
+      ...(reason
+        ? { metadata: { cancellation_reason: reason } }
+        : {}),
+    });
+    // Webhook will reflect cancel_at_period_end=true on the user row.
+    return c.json({
+      ok: true,
+      ends_at: sub.current_period_end
+        ? new Date(sub.current_period_end * 1000).toISOString()
+        : null,
+    });
+  } catch (err) {
+    console.error("Subscription cancel failed:", err);
+    return c.json({ error: "Failed to cancel subscription" }, 500);
+  }
+});
+
+// ── POST /flipdesk/uncancel (US-216) ─────────────────────────────
+paymentRoutes.post("/flipdesk/uncancel", async (c) => {
+  const userId = c.get("userId");
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.flipdesk_subscription_id) {
+    return c.json({ error: "No subscription to undo" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    await stripe.subscriptions.update(user.flipdesk_subscription_id, {
+      cancel_at_period_end: false,
+    });
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("Subscription undo-cancel failed:", err);
+    return c.json({ error: "Failed to undo cancellation" }, 500);
+  }
+});
+
 // ── POST /portal ──────────────────────────────────────────────────
 // Stripe Customer Portal for users who want raw access (escape hatch from
 // the in-app billing UI in US-211).

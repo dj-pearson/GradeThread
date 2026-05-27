@@ -398,13 +398,16 @@ private struct IntakePlaceholder: View {
     let route: IntakeRoute
 
     var body: some View {
-        TabPlaceholder(
-            title: route == .photoFirst ? "Snap & Catalog" : "New item",
-            subtitle: route == .photoFirst
-                ? "Photo-first capture flow lands in US-173 / US-176."
-                : "Details-first form lands in US-178.",
-            systemImage: route == .photoFirst ? "camera" : "square.and.pencil"
-        )
+        switch route {
+        case .photoFirst:
+            PhotoIntakeView()
+        case .detailsFirst:
+            TabPlaceholder(
+                title: "New item",
+                subtitle: "Details-first form lands in US-178.",
+                systemImage: "square.and.pencil"
+            )
+        }
     }
 }
 

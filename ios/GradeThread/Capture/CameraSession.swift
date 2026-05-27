@@ -1,0 +1,206 @@
+import AVFoundation
+import Foundation
+import UIKit
+
+/// AVFoundation camera wrapper. Lives on `@MainActor` so the SwiftUI view
+/// hosting the preview can drive lifecycle calls directly. The underlying
+/// AVCaptureSession configuration runs on a private serial queue to honour
+/// Apple's API guidance — they explicitly say not to touch session config
+/// from the main thread (it can block UI for a noticeable beat on startup).
+@MainActor
+public final class CameraSession: NSObject {
+
+    public enum CameraError: LocalizedError {
+        case permissionDenied
+        case noVideoDevice
+        case configurationFailed
+        case captureFailed(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case .permissionDenied:
+                return "Camera access is off. Enable it in Settings to capture photos."
+            case .noVideoDevice:
+                return "No back camera available on this device."
+            case .configurationFailed:
+                return "Couldn't initialize the camera."
+            case .captureFailed(let detail):
+                return "Photo capture failed: \(detail)"
+            }
+        }
+    }
+
+    public let session = AVCaptureSession()
+    public private(set) var isRunning: Bool = false
+
+    private let sessionQueue = DispatchQueue(label: "com.gradethread.camera-session")
+    private let output = AVCapturePhotoOutput()
+    private var didConfigure = false
+    private var pendingCompletion: ((Result<UIImage, Error>) -> Void)?
+
+    public override init() {
+        super.init()
+    }
+
+    // MARK: - Permission
+
+    public static func authorizationStatus() -> AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .video)
+    }
+
+    @discardableResult
+    public static func requestPermission() async -> Bool {
+        await AVCaptureDevice.requestAccess(for: .video)
+    }
+
+    // MARK: - Lifecycle
+
+    public func start() async throws {
+        let status = Self.authorizationStatus()
+        switch status {
+        case .authorized:
+            break
+        case .notDetermined:
+            guard await Self.requestPermission() else {
+                throw CameraError.permissionDenied
+            }
+        case .denied, .restricted:
+            throw CameraError.permissionDenied
+        @unknown default:
+            throw CameraError.permissionDenied
+        }
+
+        try await configureIfNeeded()
+        // session.startRunning() is blocking; push it off-main.
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            sessionQueue.async { [session] in
+                if !session.isRunning { session.startRunning() }
+                cont.resume()
+            }
+        }
+        isRunning = true
+    }
+
+    public func stop() {
+        let session = self.session
+        sessionQueue.async {
+            if session.isRunning { session.stopRunning() }
+        }
+        isRunning = false
+    }
+
+    // MARK: - Capture
+
+    /// Snaps a photo. Returns the *raw* UIImage — orientation already
+    /// baked in by AVFoundation — so the caller can hand it to
+    /// ``PhotoCompressor`` for resize + JPEG encode.
+    public func capturePhoto() async throws -> UIImage {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<UIImage, Error>) in
+            // Guard against overlapping shutter taps.
+            guard pendingCompletion == nil else {
+                cont.resume(throwing: CameraError.captureFailed("capture in progress"))
+                return
+            }
+            pendingCompletion = { result in
+                switch result {
+                case .success(let image): cont.resume(returning: image)
+                case .failure(let error): cont.resume(throwing: error)
+                }
+            }
+
+            let settings = AVCapturePhotoSettings(format: [
+                AVVideoCodecKey: AVVideoCodecType.jpeg
+            ])
+            // Auto-correct red-eye on devices that support it; quiet flash
+            // policy so the camera doesn't surprise the user in a quiet
+            // shop. We never request flash explicitly — outdoor / indoor
+            // sourcing is fine on a modern back camera.
+            settings.flashMode = .off
+
+            output.capturePhoto(with: settings, delegate: self)
+        }
+    }
+
+    // MARK: - Configuration
+
+    private func configureIfNeeded() async throws {
+        guard !didConfigure else { return }
+
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            sessionQueue.async { [session, output] in
+                session.beginConfiguration()
+                session.sessionPreset = .photo
+
+                guard let device = AVCaptureDevice.default(
+                    .builtInWideAngleCamera,
+                    for: .video,
+                    position: .back
+                ) else {
+                    session.commitConfiguration()
+                    cont.resume(throwing: CameraError.noVideoDevice)
+                    return
+                }
+
+                do {
+                    let input = try AVCaptureDeviceInput(device: device)
+                    guard session.canAddInput(input) else {
+                        session.commitConfiguration()
+                        cont.resume(throwing: CameraError.configurationFailed)
+                        return
+                    }
+                    session.addInput(input)
+                } catch {
+                    session.commitConfiguration()
+                    cont.resume(throwing: error)
+                    return
+                }
+
+                guard session.canAddOutput(output) else {
+                    session.commitConfiguration()
+                    cont.resume(throwing: CameraError.configurationFailed)
+                    return
+                }
+                session.addOutput(output)
+                output.maxPhotoQualityPrioritization = .quality
+
+                session.commitConfiguration()
+                cont.resume()
+            }
+        }
+        didConfigure = true
+    }
+}
+
+// MARK: - AVCapturePhotoCaptureDelegate
+
+extension CameraSession: AVCapturePhotoCaptureDelegate {
+    public nonisolated func photoOutput(
+        _ output: AVCapturePhotoOutput,
+        didFinishProcessingPhoto photo: AVCapturePhoto,
+        error: Error?
+    ) {
+        // Bounce back to the main actor so we can touch
+        // `pendingCompletion` without isolation warnings.
+        Task { @MainActor in
+            self.deliver(photo: photo, error: error)
+        }
+    }
+
+    private func deliver(photo: AVCapturePhoto, error: Error?) {
+        let completion = pendingCompletion
+        pendingCompletion = nil
+
+        if let error {
+            completion?(.failure(error))
+            return
+        }
+        guard
+            let data = photo.fileDataRepresentation(),
+            let image = UIImage(data: data)
+        else {
+            completion?(.failure(CameraError.captureFailed("no image data")))
+            return
+        }
+        completion?(.success(image))
+    }
+}
