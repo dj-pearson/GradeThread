@@ -114,8 +114,20 @@ actor SyncEngine {
 
     private struct PullPayload {
         let items: [RemoteInventoryItem]
+        /// Every photo for every item in `items`, sorted by sort_order
+        /// ascending. Merged into `LocalItemPhoto` so the item canvas
+        /// can render the full strip; the inventory list's primary
+        /// thumbnail derives from the first entry per item.
+        let photos: [RemoteItemPhoto]
+
         /// Map of inventoryItemId → first photo (sort_order ascending).
-        let primaryPhotos: [String: RemoteItemPhoto]
+        var primaryPhotos: [String: RemoteItemPhoto] {
+            var out: [String: RemoteItemPhoto] = [:]
+            for photo in photos where out[photo.inventory_item_id] == nil {
+                out[photo.inventory_item_id] = photo
+            }
+            return out
+        }
     }
 
     /// Wire-shape `inventory_items` row. Subset of columns the iOS app
@@ -166,7 +178,7 @@ actor SyncEngine {
             // Without items we don't need the photo fetch — short circuit
             // so a brand-new account doesn't spend a round trip.
             guard !items.isEmpty else {
-                return .success(PullPayload(items: [], primaryPhotos: [:]))
+                return .success(PullPayload(items: [], photos: []))
             }
             let itemIds = items.map(\.id)
             let photos: [RemoteItemPhoto] = try await SupabaseShared.client
@@ -176,15 +188,7 @@ actor SyncEngine {
                 .order("sort_order", ascending: true)
                 .execute()
                 .value
-
-            // Keep just the first photo per item — "primary" by sort_order.
-            // Iterating in the sorted order means the first occurrence
-            // wins and later ones get dropped.
-            var primary: [String: RemoteItemPhoto] = [:]
-            for photo in photos where primary[photo.inventory_item_id] == nil {
-                primary[photo.inventory_item_id] = photo
-            }
-            return .success(PullPayload(items: items, primaryPhotos: primary))
+            return .success(PullPayload(items: items, photos: photos))
         } catch {
             return .failure(error)
         }
@@ -216,12 +220,12 @@ actor SyncEngine {
                 isoFull.date(from: s) ?? isoPlain.date(from: s) ?? .now
             }
 
+            let primaryPhotos = payload.primaryPhotos
             for remote in payload.items {
                 let createdAt = parseDate(remote.created_at)
                 let updatedAt = parseDate(remote.updated_at)
-                let primaryURL = payload.primaryPhotos[remote.id]?
-                    .thumbnail_url
-                    ?? payload.primaryPhotos[remote.id]?.photo_url
+                let primary = primaryPhotos[remote.id]
+                let primaryURL = primary?.thumbnail_url ?? primary?.photo_url
 
                 if let local = existingById[remote.id] {
                     self.applyServerWins(to: local, remote: remote)
@@ -246,7 +250,54 @@ actor SyncEngine {
                 }
             }
 
+            self.mergePhotos(payload.photos, context: context, parseDate: parseDate)
             try? context.save()
+        }
+    }
+
+    /// Upserts every fetched item_photo into the local cache and prunes
+    /// any local rows whose server-side photo disappeared. The list view
+    /// uses primaryPhotoURL on LocalInventoryItem (cached above) while
+    /// the canvas displays the full strip from this collection.
+    private nonisolated func mergePhotos(
+        _ remotePhotos: [RemoteItemPhoto],
+        context: ModelContext,
+        parseDate: (String) -> Date
+    ) {
+        let descriptor = FetchDescriptor<LocalItemPhoto>()
+        let existing = (try? context.fetch(descriptor)) ?? []
+        var existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        let remoteIds = Set(remotePhotos.map(\.id))
+
+        for remote in remotePhotos {
+            if let local = existingById[remote.id] {
+                local.photoType = remote.photo_type
+                local.photoURL = remote.photo_url
+                local.thumbnailURL = remote.thumbnail_url
+                local.storagePath = remote.storage_path
+                local.sortOrder = remote.sort_order
+                local.bytes = remote.bytes
+            } else {
+                let local = LocalItemPhoto(
+                    id: remote.id,
+                    inventoryItemId: remote.inventory_item_id,
+                    photoType: remote.photo_type,
+                    photoURL: remote.photo_url,
+                    sortOrder: remote.sort_order,
+                    createdAt: parseDate(remote.created_at)
+                )
+                local.thumbnailURL = remote.thumbnail_url
+                local.storagePath = remote.storage_path
+                local.bytes = remote.bytes
+                context.insert(local)
+                existingById[remote.id] = local
+            }
+        }
+
+        // Drop locals whose server row has disappeared — keeps the strip
+        // accurate after the user deletes a photo on the web.
+        for stale in existing where !remoteIds.contains(stale.id) {
+            context.delete(stale)
         }
     }
 

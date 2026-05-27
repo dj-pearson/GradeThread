@@ -93,7 +93,7 @@ struct InventoryListView: View {
         } else {
             List(filtered) { item in
                 NavigationLink {
-                    ItemCanvasPlaceholder(item: item)
+                    ItemCanvasView(item: item)
                 } label: {
                     InventoryRow(item: item)
                 }
@@ -181,36 +181,5 @@ extension Notification.Name {
     static let inventoryPullRequested = Notification.Name("com.gradethread.inventoryPullRequested")
 }
 
-// MARK: - Placeholder detail
-
-/// Stub destination until US-181's real item canvas lands. Shows the
-/// item's basic fields so the navigation push is at least informative.
-struct ItemCanvasPlaceholder: View {
-    let item: LocalInventoryItem
-
-    var body: some View {
-        Form {
-            Section("Item") {
-                LabeledContent("Title", value: item.title)
-                if let brand = item.brand { LabeledContent("Brand", value: brand) }
-                if let size = item.size { LabeledContent("Size", value: size) }
-                if let color = item.color { LabeledContent("Color", value: color) }
-                if let material = item.material { LabeledContent("Material", value: material) }
-                LabeledContent("Status", value: item.status.capitalized)
-            }
-            if let grade = item.gradeValue {
-                Section("Grade") {
-                    LabeledContent("Score", value: String(format: "%.1f", grade))
-                    if let label = item.gradeLabel { LabeledContent("Tier", value: label) }
-                }
-            }
-            Section {
-                Text("Full item canvas + inline editing lands in US-181.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle(item.title)
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
+// (ItemCanvasPlaceholder removed — US-181 ItemCanvasView is now the
+// real destination.)

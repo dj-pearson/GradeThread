@@ -169,8 +169,60 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 13/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list with stage tabs + search + sort + real SyncEngine.pull. US-181→US-199 remaining
+- iOS app (US-168 → US-199): 14/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas with inline edit + status guard + photo strip + dirty-aware close. US-182→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS item canvas (US-181)
+Real edit surface for inventory rows. Replaces ItemCanvasPlaceholder
+from US-180. Inline editing across every column the iOS app pulls
+today, with dirty-aware navigation and status-regression guard.
+
+What landed in ios/GradeThread/Inventory/ItemCanvas/:
+- ItemDraft.swift — Equatable value-type snapshot of editable
+  inventory_items columns. init(from:) boxes prices as strings so
+  the user can type freely. StatusGuard enforces the web's
+  resolveStatus equivalent: terminal states (sold / shipped /
+  completed / returned / archived) can only flow to other terminal
+  states, blocking accidental regress-to-cataloged.
+- ItemCanvasState.swift — @MainActor @Observable. Holds the
+  original snapshot + the live draft + the SavePhase enum
+  (.idle / .saving / .failed). isDirty compares draft to original;
+  isSavable requires a non-whitespace title; acceptDraftAsOriginal
+  re-snapshots after a successful save so subsequent edits compute
+  dirty against the new baseline.
+- ItemCanvasView.swift — SwiftUI Form with sections for Item
+  identity, Pricing (decimal keypads with currency-symbol prefix),
+  Photos (read-only thumbnail strip from a per-item @Query against
+  LocalItemPhoto, sort_order ascending, photo_type chip overlay),
+  Measurements (parses measurementsJSON), Comps placeholder, Notes
+  (multi-line TextField), Status picker with a regress warning
+  footer. Save toolbar action posts a .update().eq('id', value:)
+  with a Codable subset payload that nilifies empty strings to
+  preserve Postgres NULL semantics, then writes the same changes
+  optimistically into the LocalInventoryItem so the list reflects
+  the edit before the next sync. Failures flip savePhase to
+  .failed(message) and surface the message inline.
+- Dirty-aware close: .interactiveDismissDisabled while isDirty +
+  custom Back button that triggers a 'Discard your changes?'
+  confirmationDialog when needed.
+
+SyncEngine extended:
+- pullRemote now returns every photo (was: only the primary lookup
+  map).
+- merge() upserts each photo into LocalItemPhoto and prunes stale
+  rows whose server-side photo disappeared — keeps the canvas's
+  strip in sync after web-side edits.
+
+InventoryListView's NavigationLink now pushes the real
+ItemCanvasView; the placeholder struct was removed.
+
+Tests in ItemCanvasTests cover ItemDraft.init(from:) field-by-field,
+Equatable detecting changes on title / targetPrice / multiple
+fields, StatusGuard forward / regression / same-state /
+terminal-to-terminal, ItemCanvasState initial-not-dirty,
+whitespace title blocks save, acceptDraftAsOriginal resets dirty,
+discardChanges restores draft, canTransition routes through guard,
+parsedPrices nil-on-empty.
 
 ## Session Notes (2026-05-27) — iOS inventory list (US-180)
 First real read surface on top of the SwiftData store — Inventory tab
