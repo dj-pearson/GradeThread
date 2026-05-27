@@ -62,7 +62,11 @@
       "WebFetch(domain:www.primelister.com)",
       "WebFetch(domain:flyp.space)",
       "Bash(git -C C:/Users/dpearson/Documents/GradeThread show --stat c69d074)",
-      "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff services/edge-functions/COOLIFY.md)"
+      "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff services/edge-functions/COOLIFY.md)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(git -C C:/Users/dpearson/Documents/GradeThread status --short)",
+      "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff --stat HEAD)"
     ]
   },
   "hooks": {

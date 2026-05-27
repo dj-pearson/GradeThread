@@ -456,9 +456,13 @@ async function handlePerGradePurchase(
 
   const { error: updateError } = await supabaseAdmin
     .from("submissions")
-    .update({ payment_status: "paid" })
+    .update({
+      payment_status: "paid_stripe",
+      paid_at: new Date().toISOString(),
+    })
     .eq("id", submissionId)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
 
   if (updateError) {
     console.error(`[Webhook] Failed to mark submission ${submissionId} paid:`, updateError);

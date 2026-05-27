@@ -169,8 +169,56 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 2/32 — US-168 scaffolded with XcodeGen + GitHub Actions CI/release pipeline; US-169 wires the supabase-swift SDK + an EdgeAPI actor with typed errors and URLProtocol-mock tests. US-170→US-199 remaining
+- iOS app (US-168 → US-199): 3/32 — US-168 scaffolded with XcodeGen + GitHub Actions CI/release pipeline; US-169 wires the supabase-swift SDK + EdgeAPI actor with typed errors and URLProtocol-mock tests; US-170 ships LoginView with email/password + Sign in with Apple + Continue with Google, Keychain-backed session storage, AuthStore observable, ProtectedRouteShell. US-171→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS auth (US-170)
+Email/password + Sign in with Apple + Google. Apple SIWA is App-Store-
+mandatory whenever any third-party login is offered, so this story was the
+gate before TestFlight.
+
+What landed:
+- ios/GradeThread/GradeThread.entitlements — `com.apple.developer.applesignin`
+  capability; project.yml wires CODE_SIGN_ENTITLEMENTS.
+- ios/GradeThread/Info.plist — CFBundleURLTypes registers
+  `com.gradethread.app://` so the Supabase OAuth redirect lands back in the
+  app (Google flow).
+- ios/GradeThread/Networking/SupabaseShared.swift — extended to pass
+  SupabaseClientOptions: KeychainLocalStorage, PKCE flow, redirectToURL.
+- ios/GradeThread/Auth/KeychainLocalStorage.swift — conforms to
+  AuthLocalStorage with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`.
+  Upsert (update-then-add) pattern, plus removeAll() for sign-out cleanup.
+- ios/GradeThread/Auth/AuthStore.swift — `@MainActor @Observable` store
+  tailing `supabase.auth.authStateChanges`. Phase enum `.loading /
+  .signedOut / .signedIn(User)` drives the route gate.
+- ios/GradeThread/Auth/SignInWithAppleCoordinator.swift — generates a
+  random nonce, SHA-256-hashes it for the Apple request, calls
+  `signInWithIdToken(provider:.apple, idToken:, nonce:)`. First-grant
+  fullName flushed to `user_metadata.full_name`.
+- ios/GradeThread/Auth/LoginView.swift — SwiftUI form with Sign in / Sign
+  up toggle, email + password (+ name field on sign-up), Apple SIWA via
+  system button intercepted to drive our coordinator, Continue with Google
+  via `supabase.auth.signInWithOAuth(.google, ...)`, Forgot-password sheet
+  hosting SFSafariViewController at gradethread.com/auth/reset-password.
+- ios/GradeThread/Auth/SafariView.swift — `UIViewControllerRepresentable`
+  wrapping SFSafariViewController with brand-navy tint.
+- ios/GradeThread/ContentView.swift — rewritten. Owns AuthStore for the
+  app lifetime, hosts ProtectedRouteShell which swaps between LoginView /
+  MainTabView (5-tab shell: Inventory / Add / Sales / Marketplaces /
+  Settings). Settings tab placeholder includes the sign-out button.
+- ios/GradeThreadTests/SignInWithAppleTests.swift — nonce hashing verified
+  against the SHA-256("abc") known vector + charset / length / uniqueness
+  checks on `randomNonce`.
+
+Token auto-refresh is handled by supabase-swift — no extra code needed.
+Sign-out clears keychain via the SDK and `KeychainLocalStorage.removeAll()`
+as belt-and-suspenders cleanup.
+
+Note: US-171 (tab bar) is partially satisfied by MainTabView — the 5-tab
+shell with NavigationStack per tab and brand-navy tint are in. Still
+missing for full US-171 sign-off: the Add-tab action sheet with photo-
+first vs details-first options, haptic feedback on tab change, and iPad
+NavigationSplitView. Leaving US-171 open until a focused session.
 
 ## Session Notes (2026-05-27) — iOS networking layer (US-169)
 Wired the iOS app to the same Supabase project + Hono edge service the web

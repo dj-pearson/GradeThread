@@ -25,5 +25,21 @@
     <string>$(SUPABASE_ANON_KEY)</string>
     <key>EDGE_API_URL</key>
     <string>$(EDGE_API_URL)</string>
+    <!-- Custom URL scheme so Supabase OAuth redirects (Google + the eventual
+         magic-link flow) come back to the app instead of staying in Safari.
+         Matches supabaseRedirectURL in AppConfig. -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>CFBundleURLName</key>
+            <string>com.gradethread.app.oauth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>com.gradethread.app</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>
