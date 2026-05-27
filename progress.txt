@@ -169,8 +169,49 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 14/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas with inline edit + status guard + photo strip + dirty-aware close. US-182→US-199 remaining
+- iOS app (US-168 → US-199): 15/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk select + stage-appropriate bulk actions. US-183→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS bulk actions (US-182)
+Multi-select + stage-appropriate bulk actions on the inventory list,
+matching the web's listings.tsx bottom-bar surface.
+
+What landed in ios/GradeThread/Inventory/:
+- BulkSelectionStore.swift — @MainActor @Observable holding
+  isEditing + selected: Set<String>. toggleEditing wipes selection
+  on disable so a stray long-press doesn't leak between sessions.
+- BulkAction.swift — enum covering createDraft / markShipped /
+  endListing / dropPrice(percent:) / aiEnrich / exportCSV with
+  label, systemImage, isDestructive, confirmationTitle(count:) for
+  singular/plural copy. BulkAction.actions(for:) returns the
+  stage-appropriate set: To list → createDraft+aiEnrich+exportCSV;
+  Active → dropPrice+endListing+exportCSV; Sold → markShipped+
+  exportCSV; All → exportCSV only (mixed-status selection guard).
+- BulkActionExecutor.swift — supabase-swift .update().in('id',
+  values:) for createDraft + markShipped with optimistic local
+  apply; endListing / dropPrice / aiEnrich return honest 'Wires up
+  in US-183/185 (eBay)' or 'Wires up in a focused AI-batch pass'
+  failure summary so the surface doesn't lie about what works.
+  BulkActionResult.summary handles all-succeeded / all-failed /
+  partial-success grammar.
+- BulkActionBar.swift — floating bottom bar with selected count
+  badge + horizontal scroll of action chips (destructive ones in
+  brand-red) + cancel X. Brand-navy background with drop shadow.
+
+InventoryListView wiring:
+- 'Select' / 'Done' toolbar button toggles editing.
+- List(selection:) binding feeds BulkSelectionStore.selected;
+  .environment(\\.editMode, ...) drives the iOS-native checkbox
+  column + drag-two-fingers multi-select gesture.
+- .safeAreaInset(.bottom) hosts BulkActionBar when count > 0.
+- Tap on a chip → confirmationDialog → executor.execute → alert
+  with result summary → selection cleared + .inventoryPullRequested
+  posted to pick up items_full ripple effects.
+
+Tests in BulkActionTests cover the stage→actions mapping for every
+tab, isDestructive, confirmationTitle singular/plural + percent
+interpolation, BulkActionResult.summary across all-succeeded /
+all-failed / partial paths, BulkSelectionStore lifecycle.
 
 ## Session Notes (2026-05-27) — iOS item canvas (US-181)
 Real edit surface for inventory rows. Replaces ItemCanvasPlaceholder

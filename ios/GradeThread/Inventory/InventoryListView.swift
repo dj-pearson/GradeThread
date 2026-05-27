@@ -20,6 +20,12 @@ struct InventoryListView: View {
     @State private var searchQuery: String = ""
     @State private var sortOption: SortOption = .newest
 
+    // US-182 multi-select
+    @State private var selection = BulkSelectionStore()
+    @State private var pendingAction: BulkAction?
+    @State private var actionResult: BulkActionResult?
+    private let executor = BulkActionExecutor()
+
     var body: some View {
         VStack(spacing: 0) {
             tabRow
@@ -27,12 +33,53 @@ struct InventoryListView: View {
         }
         .navigationTitle("Inventory")
         .navigationBarTitleDisplayMode(.large)
-        .toolbar { sortToolbarItem }
+        .toolbar {
+            sortToolbarItem
+            selectToolbarItem
+        }
         .searchable(
             text: $searchQuery,
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Search title, brand, SKU"
         )
+        .environment(\.editMode, .constant(selection.isEditing ? .active : .inactive))
+        .safeAreaInset(edge: .bottom) {
+            if selection.isEditing, selection.count > 0 {
+                BulkActionBar(
+                    stage: selectedStage,
+                    selectedCount: selection.count,
+                    onAction: { action in pendingAction = action },
+                    onCancel: { selection.toggleEditing() }
+                )
+            }
+        }
+        .confirmationDialog(
+            pendingAction?.confirmationTitle(count: selection.count) ?? "",
+            isPresented: Binding(
+                get: { pendingAction != nil },
+                set: { if !$0 { pendingAction = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let action = pendingAction {
+                Button(
+                    action.label,
+                    role: action.isDestructive ? .destructive : nil
+                ) {
+                    Task { await runAction(action) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert(
+            actionResult?.summary ?? "",
+            isPresented: Binding(
+                get: { actionResult != nil },
+                set: { if !$0 { actionResult = nil } }
+            )
+        ) {
+            Button("OK") {}
+        }
         .refreshable {
             // Triggered by the user pulling the list down. SyncEngine
             // pulls fresh rows from Supabase and merges; the local
@@ -91,12 +138,17 @@ struct InventoryListView: View {
         if filtered.isEmpty {
             emptyState
         } else {
-            List(filtered) { item in
+            // List(selection:) renders the iOS-native checkbox column
+            // when editMode == .active; in non-edit mode the binding is
+            // ignored and tapping a row pushes the canvas via the
+            // NavigationLink as before.
+            List(filtered, selection: $selection.selected) { item in
                 NavigationLink {
                     ItemCanvasView(item: item)
                 } label: {
                     InventoryRow(item: item)
                 }
+                .tag(item.id)
             }
             .listStyle(.plain)
         }
@@ -120,6 +172,17 @@ struct InventoryListView: View {
     }
 
     // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var selectToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button(selection.isEditing ? "Done" : "Select") {
+                AppRouter.haptic()
+                selection.toggleEditing()
+            }
+            .font(.subheadline.weight(.semibold))
+        }
+    }
 
     @ToolbarContentBuilder
     private var sortToolbarItem: some ToolbarContent {
@@ -170,6 +233,24 @@ struct InventoryListView: View {
         // Give the engine a beat to start so the spinner stays visible
         // until the first batch lands.
         try? await Task.sleep(nanoseconds: 700_000_000)
+    }
+
+    // MARK: - Bulk actions (US-182)
+
+    private func runAction(_ action: BulkAction) async {
+        let targets = allItems.filter { selection.selected.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        AppRouter.haptic()
+        let result = await executor.execute(action, items: targets)
+        actionResult = result
+        if result.succeeded > 0 {
+            // Clear selection + exit edit mode on at least partial
+            // success — matches the AC "Selection cleared after a
+            // successful bulk action". Sync to pick up server-side
+            // ripple effects (e.g. items_full recomputing).
+            selection.toggleEditing()
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        }
     }
 }
 
