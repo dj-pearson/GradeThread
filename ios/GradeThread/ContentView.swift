@@ -192,7 +192,15 @@ struct ProtectedRouteShell: View {
 /// state survive the layout switch.
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.scenePhase) private var scenePhase
     @State private var router = AppRouter()
+
+    /// US-189: PhotoIntakeView seeded from a Share Extension batch. Set
+    /// when MainShell drains an inbox batch, cleared on dismiss. Using a
+    /// fullScreenCover at the shell level so the present survives a
+    /// tab switch + lands the user on the same intake surface the Add
+    /// sheet would.
+    @State private var sharedIntakeBatch: ShareInboxConsumer.DrainedBatch?
 
     var body: some View {
         // Shadowing-binding pattern: `@State` owns the Observable, then a
@@ -232,6 +240,39 @@ struct MainShell: View {
                     as? DeepLinkRoute else { return }
             apply(route: route, router: router)
         }
+        .task { drainSharedInboxIfNeeded() }
+        .onChange(of: scenePhase) { _, newValue in
+            if newValue == .active { drainSharedInboxIfNeeded() }
+        }
+        .fullScreenCover(item: $sharedIntakeBatch) { drained in
+            NavigationStack {
+                PhotoIntakeView(initialPhotos: drained.slotPhotos)
+            }
+            .onDisappear {
+                ShareInboxConsumer.finish(drained)
+                // Tail-recursively drain the next pending batch (if any)
+                // so a multi-share session walks the user through each
+                // batch one at a time.
+                drainSharedInboxIfNeeded()
+            }
+        }
+    }
+
+    /// Pulls the next Share Extension batch off the inbox + presents the
+    /// PhotoIntakeView pre-staged with its photos. No-op when nothing's
+    /// pending, the user's signed out, or we're mid-present (the
+    /// fullScreenCover guard).
+    private func drainSharedInboxIfNeeded() {
+        guard sharedIntakeBatch == nil else { return }
+        guard let drained = ShareInboxConsumer.popNext() else { return }
+        // Empty drain (every photo failed to decode) — finish + recurse.
+        guard !drained.slotPhotos.isEmpty else {
+            ShareInboxConsumer.finish(drained)
+            drainSharedInboxIfNeeded()
+            return
+        }
+        Telemetry.event("share_extension_intake_opened")
+        sharedIntakeBatch = drained
     }
 
     /// Translates a DeepLinkRoute into AppRouter mutations. Best-effort —
@@ -265,6 +306,9 @@ private struct TabBarShell: View {
             NavigationStack(path: $router.inventoryPath) {
                 InventoryPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
+                    .navigationDestination(for: LocalInventoryItem.self) { item in
+                        ItemCanvasView(item: item)
+                    }
             }
             .tabItem { Label("Inventory", systemImage: "shippingbox") }
             .tag(AppSection.inventory)
@@ -310,62 +354,140 @@ private struct TabBarShell: View {
 
 // MARK: - iPad / regular layout
 
+/// Three-column NavigationSplitView for iPad at regular horizontal
+/// width. Sidebar carries the section nav; content shows the active
+/// section's list; detail hosts a NavigationStack that the content's
+/// value-based NavigationLinks push onto.
+///
+/// SwiftUI's three-column splitter automatically collapses to two
+/// columns on iPad portrait + Slide Over — same view, different
+/// presentation. iPhone compact width still uses TabBarShell via
+/// MainShell.
 private struct SidebarSplitView: View {
     @Bindable var router: AppRouter
 
     var body: some View {
         NavigationSplitView {
-            List(selection: router.sidebarSelectionBinding) {
-                Section("Workspace") {
-                    Label("Inventory", systemImage: "shippingbox").tag(AppSection.inventory)
-                    Label("Sales", systemImage: "dollarsign.circle").tag(AppSection.sales)
-                    Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right").tag(AppSection.marketplaces)
-                }
-                Section("Account") {
-                    Label("Settings", systemImage: "gear").tag(AppSection.settings)
-                }
-            }
-            .navigationTitle("GradeThread")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        AppRouter.haptic()
-                        router.showingAddSheet = true
-                    } label: {
-                        Label("Add", systemImage: "plus.circle.fill")
-                    }
-                }
-            }
+            sidebar
+        } content: {
+            contentColumn
         } detail: {
             detailColumn
         }
     }
 
+    private var sidebar: some View {
+        List(selection: router.sidebarSelectionBinding) {
+            Section("Workspace") {
+                Label("Inventory", systemImage: "shippingbox").tag(AppSection.inventory)
+                Label("Sales", systemImage: "dollarsign.circle").tag(AppSection.sales)
+                Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right").tag(AppSection.marketplaces)
+            }
+            Section("Account") {
+                Label("Settings", systemImage: "gear").tag(AppSection.settings)
+            }
+        }
+        .navigationTitle("GradeThread")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    AppRouter.haptic()
+                    router.showingAddSheet = true
+                } label: {
+                    Label("Add", systemImage: "plus.circle.fill")
+                }
+            }
+        }
+    }
+
+    /// Middle column — the list for the active section. Inventory uses
+    /// the real list view; the other sections render their own
+    /// content. The detail column resolves value-based pushes from
+    /// these lists.
     @ViewBuilder
-    private var detailColumn: some View {
+    private var contentColumn: some View {
         switch router.selection {
         case .inventory:
-            NavigationStack(path: $router.inventoryPath) {
-                InventoryPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self) { IntakePlaceholder(route: $0) }
-            }
+            InventoryListView()
         case .sales:
-            NavigationStack(path: $router.salesPath) {
-                SalesPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self) { IntakePlaceholder(route: $0) }
-            }
+            SalesPlaceholder()
         case .marketplaces:
-            NavigationStack(path: $router.marketplacesPath) {
-                MarketplacesPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self) { IntakePlaceholder(route: $0) }
-            }
+            MarketplacesPlaceholder()
         case .settings:
-            NavigationStack(path: $router.settingsPath) {
-                SettingsPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self) { IntakePlaceholder(route: $0) }
-            }
+            SettingsPlaceholder()
         case .add:
-            EmptyView() // Never the resting selection — see AppRouter.
+            EmptyView()
+        }
+    }
+
+    /// Right column. Acts as a host for value-based NavigationLink
+    /// pushes from the content column — wires up navigationDestination
+    /// for the row types we know about (LocalInventoryItem, IntakeRoute).
+    /// Empty initial state prompts the user to pick something.
+    private var detailColumn: some View {
+        NavigationStack(path: detailPathBinding) {
+            detailLanding
+                .navigationDestination(for: LocalInventoryItem.self) { item in
+                    ItemCanvasView(item: item)
+                }
+                .navigationDestination(for: IntakeRoute.self) { route in
+                    IntakePlaceholder(route: route)
+                }
+        }
+    }
+
+    /// Per-section NavigationPath so deep navigation in the detail
+    /// column survives a sidebar switch. Inventory is the canonical
+    /// case; others share the same default path.
+    private var detailPathBinding: Binding<NavigationPath> {
+        switch router.selection {
+        case .inventory:    return $router.inventoryPath
+        case .sales:        return $router.salesPath
+        case .marketplaces: return $router.marketplacesPath
+        case .settings:     return $router.settingsPath
+        case .add:          return $router.inventoryPath
+        }
+    }
+
+    @ViewBuilder
+    private var detailLanding: some View {
+        VStack(spacing: 14) {
+            Image(systemName: detailLandingIcon)
+                .font(.system(size: 56, weight: .light))
+                .foregroundStyle(Color.brandNavy)
+            Text(detailLandingTitle)
+                .font(.title3.weight(.semibold))
+            Text(detailLandingSubtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private var detailLandingIcon: String {
+        switch router.selection {
+        case .inventory:    return "shippingbox"
+        case .sales:        return "dollarsign.circle"
+        case .marketplaces: return "antenna.radiowaves.left.and.right"
+        case .settings:     return "gear"
+        case .add:          return "plus.circle"
+        }
+    }
+
+    private var detailLandingTitle: String {
+        router.selection == .inventory ? "Pick an item" : "Make a selection"
+    }
+
+    private var detailLandingSubtitle: String {
+        switch router.selection {
+        case .inventory:    return "Tap an item from the list to see its canvas here."
+        case .sales:        return "Sales detail view lands when a row is selected."
+        case .marketplaces: return "Marketplace setup + sync controls live on the left."
+        case .settings:     return "Account + preferences are on the left."
+        case .add:          return ""
         }
     }
 }

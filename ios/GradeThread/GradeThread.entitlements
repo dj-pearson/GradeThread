@@ -14,5 +14,12 @@
          gateway. Don't flip this file manually — let the workflow do it. -->
     <key>aps-environment</key>
     <string>development</string>
+    <!-- US-189: Share Extension writes intake-staging files to this
+         App Group container; the main app reads them on next launch.
+         Both targets must declare the same group string. -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.gradethread.app</string>
+    </array>
 </dict>
 </plist>

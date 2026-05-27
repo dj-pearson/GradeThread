@@ -31,6 +31,11 @@ struct InventoryListView: View {
     @State private var showingSyncModal = false
     @Environment(\.modelContext) private var modelContext
 
+    // US-193 drag-drop from Photos.app — captures live here until the
+    // PhotoIntakeView mounts and seeds its own store from them.
+    @State private var droppedCaptures: [PhotoSlotType: PhotoCapture] = [:]
+    @State private var showingDroppedIntake = false
+
     var body: some View {
         VStack(spacing: 0) {
             tabRow
@@ -45,6 +50,11 @@ struct InventoryListView: View {
         }
         .sheet(isPresented: $showingSyncModal) {
             EbaySyncModal(store: syncStore, onDismiss: { syncStore.reset() })
+        }
+        .fullScreenCover(isPresented: $showingDroppedIntake, onDismiss: {
+            droppedCaptures.removeAll()
+        }) {
+            PhotoIntakeView(initialPhotos: droppedCaptures)
         }
         .searchable(
             text: $searchQuery,
@@ -151,16 +161,43 @@ struct InventoryListView: View {
             // when editMode == .active; in non-edit mode the binding is
             // ignored and tapping a row pushes the canvas via the
             // NavigationLink as before.
+            //
+            // Value-based NavigationLink (US-193): pushes the
+            // LocalInventoryItem onto whichever stack is hosting us. In
+            // compact mode that's the per-tab NavigationStack from
+            // TabBarShell; in iPad three-column it's the detail
+            // column's NavigationStack — SwiftUI routes the push to
+            // the right place automatically.
             List(filtered, selection: $selection.selected) { item in
-                NavigationLink {
-                    ItemCanvasView(item: item)
-                } label: {
+                NavigationLink(value: item) {
                     InventoryRow(item: item)
                 }
                 .tag(item.id)
             }
             .listStyle(.plain)
+            // US-193: drag images from Photos.app onto the list to
+            // start a new item with them pre-staged. Multi-image drops
+            // all flow into the same intake session.
+            .acceptsImageDrops { images in
+                handleDroppedImages(images)
+            }
         }
+    }
+
+    private func handleDroppedImages(_ images: [UIImage]) {
+        let captures = PhotosDropHandler.process(images)
+        guard !captures.isEmpty else { return }
+        AppRouter.haptic()
+        // Map each capture onto the next available required slot in
+        // declaration order (front, back, tag, detail). Extras spill
+        // into defect slots if the user keeps dragging.
+        let slots = PhotoSlotType.required + PhotoSlotType.defects
+        var mapping: [PhotoSlotType: PhotoCapture] = [:]
+        for (idx, capture) in captures.prefix(slots.count).enumerated() {
+            mapping[slots[idx]] = capture
+        }
+        droppedCaptures = mapping
+        showingDroppedIntake = true
     }
 
     private var emptyState: some View {

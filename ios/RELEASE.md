@@ -111,43 +111,112 @@ After Phase 3 you have:
 
 ---
 
-## Phase 4 · Distribution certificate + provisioning profile (Mac required)
+## Phase 4 · Distribution certificate + provisioning profile (Windows / OpenSSL)
 
-### 4a. Create the Certificate Signing Request (CSR) — on a Mac
+No Mac needed. Apple's developer portal accepts any PEM-encoded CSR — Keychain Access is just a UI wrapper around the same OpenSSL primitives we'll use directly.
 
-1. Open **Keychain Access** → menu **Keychain Access → Certificate Assistant → Request a Certificate from a Certificate Authority…**
-2. Email: your Apple ID email · Common Name: `GradeThread Distribution` · CA Email: leave blank · select **Saved to disk**
-3. Save as `CertificateSigningRequest.certSigningRequest`
+### 4a. Make sure OpenSSL is available
 
-### 4b. Generate the iOS Distribution certificate
+OpenSSL ships with **Git for Windows** at `C:\Program Files\Git\usr\bin\openssl.exe`. If `git` works in your terminal, OpenSSL is already there.
+
+Confirm in PowerShell:
+
+```powershell
+& "C:\Program Files\Git\usr\bin\openssl.exe" version
+# → OpenSSL 3.x.x ...
+```
+
+If you want to call it as just `openssl`, add it to your PATH for this session:
+
+```powershell
+$env:PATH = "C:\Program Files\Git\usr\bin;$env:PATH"
+openssl version
+```
+
+(Permanent PATH add via System Properties is fine too, but this guide uses the session approach so nothing is permanently changed.)
+
+If you don't have Git for Windows, install it from https://git-scm.com/download/win or grab a standalone OpenSSL build from `winget install ShiningLight.OpenSSL.Light`.
+
+### 4b. Generate the private key + CSR
+
+Pick a working folder (e.g. `C:\GradeThread-Signing\`) and run:
+
+```powershell
+# 2048-bit RSA private key — keep this file FOREVER and treat it like
+# a master password. Re-generating means you have to redo Phase 4 in
+# full and re-sign every existing build.
+openssl genrsa -out gradethread-private.key 2048
+
+# Certificate signing request. Fill in your real email + state.
+openssl req -new -key gradethread-private.key -out gradethread.csr `
+  -subj "/CN=GradeThread Distribution/O=Pearson Media LLC/C=US/emailAddress=PEARSONPERFORMANCE@gmail.com"
+```
+
+You now have two files:
+- `gradethread-private.key` — the secret half. Never upload it anywhere; back it up to a password manager or encrypted USB.
+- `gradethread.csr` — the public half. This is what Apple signs.
+
+### 4c. Submit the CSR to Apple → download the .cer
 
 1. https://developer.apple.com/account/resources/certificates/list
 2. **+** → **Apple Distribution** → **Continue**
-3. Upload the CSR from 4a → **Continue** → **Download** the `.cer` file
-4. **Double-click the `.cer`** — Keychain Access installs it and pairs it with the private key from your CSR
+3. **Choose File** → upload `gradethread.csr` → **Continue**
+4. **Download** the resulting `distribution.cer` (DER-encoded binary)
 
-### 4c. Export the .p12 (cert + private key bundle)
+### 4d. Bundle the .cer + private key into a .p12
 
-In Keychain Access, **login** keychain:
-1. Filter to **My Certificates** (must be this view — "Certificates" alone hides the private-key bundle)
-2. Find **Apple Distribution: \<your team name\>** — there should be an expand arrow showing the private key inside
-3. Right-click → **Export "Apple Distribution: …"** → save as `gradethread-distribution.p12`
-4. **Set a strong password** — this becomes the `P12_PASSWORD` GitHub secret. Save it in 1Password / Bitwarden; losing it means redoing Phase 4.
+Apple ships the `.cer` in DER format. Convert to PEM, then merge with the private key into a single password-protected `.p12`:
 
-### 4d. Create the App Store provisioning profile
+```powershell
+# 1. Convert Apple's .cer (DER binary) to PEM text
+openssl x509 -inform DER -in distribution.cer -out distribution.pem
+
+# 2. Bundle cert + private key. Use -legacy so Apple's altool (which
+#    uses an older PKCS#12 reader) accepts the file without
+#    "MAC verification failed" errors. The -legacy flag exists in
+#    OpenSSL 3.x and is a no-op on older versions.
+openssl pkcs12 -export -legacy `
+  -inkey gradethread-private.key `
+  -in distribution.pem `
+  -out gradethread-distribution.p12 `
+  -name "Apple Distribution"
+```
+
+When prompted **"Enter Export Password"**, type a strong password (16+ chars). **This becomes the `P12_PASSWORD` GitHub secret** — save it in 1Password / Bitwarden immediately. Losing it means redoing Phase 4 in full.
+
+Confirm the .p12 is well-formed:
+
+```powershell
+openssl pkcs12 -info -in gradethread-distribution.p12 -nokeys -passin pass:YOUR_P12_PASSWORD
+# → should print "subject=CN = Apple Distribution: <your team> ..."
+```
+
+If you see an error like `Mac verify error: invalid password?`, the password didn't match what you typed during export — re-run step 2 with a fresh password.
+
+### 4e. Create the App Store provisioning profile
 
 1. https://developer.apple.com/account/resources/profiles/list
 2. **+** → **App Store** (under Distribution) → **Continue**
 3. **App ID:** select `com.gradethread.app` → **Continue**
-4. **Certificates:** select the Distribution cert from 4b → **Continue**
+4. **Certificates:** select the Distribution cert from 4c (its CN will start with `Apple Distribution: <team name>`) → **Continue**
 5. **Provisioning Profile Name:** `GradeThread App Store` → **Generate** → **Download**
 
 You now have `GradeThread_App_Store.mobileprovision`.
 
-**Copy all three files back to your Windows machine** (any folder — we'll base64-encode them next):
-- `gradethread-distribution.p12`
-- `GradeThread_App_Store.mobileprovision`
-- `AuthKey_<ASC_KEY_ID>.p8` (the App Store Connect API key from 3b)
+### 4f. Files you should have on disk
+
+In your `C:\GradeThread-Signing\` folder (or wherever you worked):
+
+| File | Keep where? | Used for |
+|---|---|---|
+| `gradethread-private.key` | password manager / encrypted backup | regenerating future certs if Apple revokes; never goes to CI |
+| `gradethread.csr` | can delete after Phase 4c | one-shot upload to Apple |
+| `distribution.cer` / `.pem` | can delete after Phase 4d | one-shot intermediate |
+| `gradethread-distribution.p12` | encode → GitHub secret, then can delete local copy | `BUILD_CERTIFICATE_BASE64` |
+| `GradeThread_App_Store.mobileprovision` | encode → GitHub secret, then can delete local copy | `PROVISIONING_PROFILE_BASE64` |
+| `AuthKey_<ASC_KEY_ID>.p8` (from 3b) | encode → GitHub secret, then can delete local copy | `APP_STORE_CONNECT_API_KEY_BASE64` |
+
+> **Alternative: Keychain Access on macOS.** If you ever do get Mac access, the Keychain Access UI does the same thing — CSR via *Certificate Assistant → Request a Certificate*, double-click the downloaded `.cer` to install, then **My Certificates** → right-click → **Export as .p12**. The output `.p12` is byte-compatible with what OpenSSL produces here.
 
 ---
 
@@ -369,9 +438,10 @@ The actual `submit_to_app_store` workflow step currently exits 0 with a checkpoi
 
 | Symptom in CI logs | Cause | Fix |
 |---|---|---|
-| `No identity found` during Archive | `.p12` didn't include the private key | Re-export from Keychain Access → **My Certificates** view (not "Certificates") |
-| `Provisioning profile doesn't include signing certificate` | Profile in 4d was created before the cert in 4b | Regenerate the profile after the cert exists |
-| `Invalid Provisioning Profile` after upload | Profile's bundle ID doesn't match `com.gradethread.app` | Recheck Phase 2a + 4d |
+| `No identity found` during Archive | `.p12` didn't include the private key | Re-run Phase 4d step 2 — the `-inkey` flag must point at `gradethread-private.key` |
+| `MAC verify error` when CI imports the .p12 | OpenSSL 3.x exported with the modern PKCS#12 algorithm Apple's tooling can't read | Re-export in 4d with the `-legacy` flag (you'll get a fresh `.p12` — re-base64 it + update the GitHub secret) |
+| `Provisioning profile doesn't include signing certificate` | Profile in 4e was created before the cert in 4c | Regenerate the profile after the cert exists |
+| `Invalid Provisioning Profile` after upload | Profile's bundle ID doesn't match `com.gradethread.app` | Recheck Phase 2a + 4e |
 | `Could not find altool` | macOS runner image bump deprecated it | Workflow already pins `Xcode_15.4.app` — no action needed unless the pin is removed |
 | `The bundle does not support the minimum OS Version` | `IPHONEOS_DEPLOYMENT_TARGET` mismatch | Already `17.0` in `project.yml` — no action |
 | TestFlight build "Missing Compliance" | Forgot `ITSAppUsesNonExemptEncryption` | Already `false` in `project.yml` — no action |

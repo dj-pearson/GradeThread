@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- US-189: must match the main app's App Group so the inbox files
+         the extension drops are readable by the main app. -->
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.com.gradethread.app</string>
+    </array>
+</dict>
+</plist>

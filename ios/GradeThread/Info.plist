@@ -16,6 +16,18 @@
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- US-193: enable multi-window on iPad via UISceneSession.
+         UIApplicationSupportsMultipleScenes=YES lets users open the
+         inventory in one window and an item detail in another via
+         the App Switcher. SwiftUI's WindowGroup handles the rest;
+         no SceneDelegate needed. -->
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <true/>
+        <key>UISceneConfigurations</key>
+        <dict/>
+    </dict>
     <!-- US-188: opportunistic background sync via BGAppRefreshTask. The
          identifier must match the one BGTaskScheduler registers at launch;
          iOS rejects schedule requests for identifiers not declared here. -->

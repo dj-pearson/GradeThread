@@ -45,6 +45,7 @@ targets:
     platform: iOS
     sources:
       - path: GradeThread
+      - path: Shared            # IntakeInbox + future cross-target helpers (US-189)
     resources:
       - path: GradeThread/Assets.xcassets
     configFiles:
@@ -57,6 +58,8 @@ targets:
         product: Sentry
       - package: PostHog
         product: PostHog
+      - target: ShareExtension
+        embed: true             # Bundle the extension in the host app (US-189)
     info:
       path: GradeThread/Info.plist
       properties:
@@ -101,6 +104,7 @@ targets:
     platform: iOS
     sources:
       - path: GradeThreadTests
+      - path: Shared            # Inbox unit tests run against the shared module (US-189)
     dependencies:
       - target: GradeThread
     settings:
@@ -111,3 +115,33 @@ targets:
         CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
+
+  # Share Extension (US-189). Lets users send 1-8 images from Photos.app /
+  # any share sheet straight into a FlipDesk intake. Communicates with the
+  # main app via App Group container `group.com.gradethread.app`; the main
+  # app drains the inbox on next foreground.
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: Shared            # Same IntakeInbox the main app uses
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Add to FlipDesk
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.share-extension
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
+        INFOPLIST_KEY_NSExtensionPointIdentifier: com.apple.share-services
+        # Extension UIs are size-constrained — explicit so XcodeGen
+        # doesn't auto-add device-family quirks.
+        TARGETED_DEVICE_FAMILY: "1,2"

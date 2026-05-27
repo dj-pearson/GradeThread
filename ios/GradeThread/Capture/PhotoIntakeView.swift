@@ -14,13 +14,30 @@ struct PhotoIntakeView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @State private var store = PhotoIntakeStore()
+    @State private var store: PhotoIntakeStore
     @State private var camera = CameraSession()
     @State private var permissionState: PermissionState = .unknown
     @State private var isCapturing = false
     @State private var startupError: String?
     @State private var slotForPreview: PhotoSlotType?
     @State private var showingExitConfirmation = false
+
+    /// Default initializer (camera-first flow with empty slots).
+    init() {
+        _store = State(initialValue: PhotoIntakeStore())
+    }
+
+    /// Pre-stage initializer (US-193) — accepts already-captured
+    /// photos keyed by slot and seeds the intake store with them.
+    /// Used by the drag-drop-from-Photos.app path on the inventory
+    /// list.
+    init(initialPhotos: [PhotoSlotType: PhotoCapture]) {
+        let preloaded = PhotoIntakeStore()
+        for (slot, photo) in initialPhotos {
+            preloaded.setPhoto(photo, for: slot)
+        }
+        _store = State(initialValue: preloaded)
+    }
 
     /// Inventory item id created when the user hits Done. Anchors every
     /// upload for this intake session AND the subsequent AI-extract review
