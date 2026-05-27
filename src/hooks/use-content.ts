@@ -592,6 +592,51 @@ export function useSchedulerTick() {
   });
 }
 
+export interface ContentStats {
+  bank: Record<string, number>;
+  published_7d: {
+    blog: Record<string, number>;
+    social: Record<string, number>;
+  };
+  published_30d: {
+    blog: Record<string, number>;
+    social: Record<string, number>;
+  };
+  webhooks: {
+    success_rate_last_100: number | null;
+    total_last_100: number;
+    failed_last_7d: number;
+  };
+  ai_usage_30d: { input_tokens: number; output_tokens: number };
+  recent: {
+    blog: Array<{
+      id: string;
+      slug: string;
+      title: string;
+      product_focus: string;
+      published_at: string;
+    }>;
+    social: Array<{
+      id: string;
+      short_body: string;
+      long_body: string;
+      product_focus: string;
+      published_at: string;
+    }>;
+  };
+}
+
+export function useContentStats() {
+  return useQuery({
+    queryKey: ["content_stats"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const data = await jfetch<ContentStats>(`/api/content/settings/stats`);
+      return data;
+    },
+  });
+}
+
 export interface WebhookDelivery {
   id: string;
   event: string;

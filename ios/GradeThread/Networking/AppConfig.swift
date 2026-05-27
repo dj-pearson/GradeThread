@@ -36,10 +36,39 @@ enum AppConfig {
         return url
     }()
 
+    /// Sentry DSN (US-191). Empty string in xcconfig disables Sentry
+    /// silently — analytics + crash reporting are opt-in best-effort,
+    /// not load-bearing on app launch.
+    static var sentryDSN: String? {
+        nonEmptyString(forInfoKey: "SENTRY_DSN")
+    }
+
+    /// PostHog project API key (US-191). Empty → analytics disabled.
+    static var postHogAPIKey: String? {
+        nonEmptyString(forInfoKey: "POSTHOG_API_KEY")
+    }
+
+    /// PostHog instance host. Defaults to the US cloud; xcconfig can
+    /// override for EU/self-hosted.
+    static var postHogHost: URL {
+        url(forInfoKey: "POSTHOG_HOST")
+            ?? URL(string: "https://us.i.posthog.com")!
+    }
+
     // MARK: - Internals
 
     private static func string(forInfoKey key: String) -> String? {
         Bundle.main.object(forInfoDictionaryKey: key) as? String
+    }
+
+    /// String accessor that treats whitespace-only values as nil.
+    /// Sentry / PostHog placeholders in xcconfig come through as empty
+    /// strings when the operator hasn't filled them in; this catches
+    /// that case so the call site doesn't have to recheck.
+    private static func nonEmptyString(forInfoKey key: String) -> String? {
+        guard let raw = string(forInfoKey: key) else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private static func url(forInfoKey key: String) -> URL? {

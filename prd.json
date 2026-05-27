@@ -3308,8 +3308,8 @@
         "Key events tracked: app_open, intake_completed, ai_extract_used, ebay_synced, listing_published, sale_recorded"
       ],
       "priority": 191,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-27. ios/GradeThread/Telemetry/Telemetry.swift is the facade everything routes through. Sentry + PostHog SPM packages added to project.yml; xcconfig + Info.plist surface SENTRY_DSN / POSTHOG_API_KEY / POSTHOG_HOST (defaulting to us.i.posthog.com). AppConfig grew sentryDSN / postHogAPIKey / postHogHost accessors — empty xcconfig values come through as nil so the SDK init paths bail out silently rather than crashing on a missing DSN. Telemetry.bootstrap() at AppDelegate launch is idempotent — Sentry.start with tracesSampleRate=0.2 + environment matching the build config (DEBUG → 'development', RELEASE → 'production', same string PushService uses for APNs); PostHog.setup with captureApplicationLifecycleEvents + captureScreenViews so we don't have to instrument every screen push manually. Three rules baked into the facade: Sentry is always on when DSN is configured (crashes are errors, not analytics), PostHog respects the opt-in toggle (every event/identify call no-ops when Telemetry.isAnalyticsEnabled is false), missing DSN/key disables silently. setUser stamps Sentry user.userId = auth.uid (no email per the AC's 'no PII' clause) and PostHog.identify when analytics-enabled. clearUser fires from AuthStore on every sign-out so the next user's funnel doesn't blend with the previous one's. Key events wired: app_open from ContentView.task; intake_completed from DetailsIntakeView (online + offline variants both fire with an 'online' bool prop); ai_extract_used from AIExtractView.applySelected with fields_accepted / measurements_accepted / live_text_fallback counts; ebay_synced from EbaySyncService with listings_total / sales_total / listings_delta / sales_delta; listing_published from PublishDialog.runPush success with listing_id; sale_recorded from BackgroundRefreshService.detectNewSalesAndNotify when the persisted lastSaleSeenId delta is positive. Breadcrumbs added at eBay sync start/fail and publish start/success so post-mortem Sentry views carry the context the AC asks for. SettingsPlaceholder gains an 'Analytics' Section with the opt-in Toggle and an explicit footer that crashes still report when analytics is off. TelemetryTests in PushNotificationTests' sibling file verify the opt-in toggle defaults ON, persists to UserDefaults, round-trips across reads, every TelemetryEvent string is pinned to the AC value (rename = PostHog dashboard data split), and the event/breadcrumb/clearUser paths no-op cleanly when the SDK never initialized. Sign in with Apple was wired in US-170 — this story is the crash-reporting + analytics piece the AC bundled alongside."
     },
     {
       "id": "US-192",
@@ -3420,8 +3420,8 @@
         "Optional: per-user toggle in Settings to disable Realtime for battery-conscious users"
       ],
       "priority": 198,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-27. Phase 2 of US-172 — sale + listing edits now stream into the SwiftData cache as they happen instead of waiting for the next pull. ios/GradeThread/Persistence/RealtimeService.swift owns a per-user Postgres-change channel on inventory_items (filter .eq('user_id', userId)), routed through supabase-swift's channel.postgresChange(AnyAction.self, ...) AsyncStream. Each insert/update yields the row dict back through JSONEncoder so SyncEngine can decode against its existing RemoteInventoryItem shape — single source of truth for the wire schema between polled pulls (US-180) and realtime upserts. Deletes carry only the primary key in oldRecord; the service extracts the id string and forwards to SyncEngine.applyRealtimeInventoryDelete. SyncEngine grew applyRealtimeInventoryUpsert(record: Data) and applyRealtimeInventoryDelete(id:) — both reuse the @MainActor ModelContext pattern + ConflictPolicy (server wins on listing_price/status/grade, client wins on user-edited fields when hasLocalChanges is set). RemoteInventoryItem + RemoteItemPhoto promoted from private to internal so the realtime path can reach them. Garbage payloads log + drop instead of crashing the listen loop. ContentView lifecycle: opens the channel on .signedIn AND scenePhase → .active (covers cold start + app foreground); pauses on .background to save battery + cellular data; tears down on .signedOut so the next user's channel doesn't inherit the previous one's subscription. RealtimeService.isEnabled is UserDefaults-backed (com.gradethread.app.realtime.enabled, defaults ON); flipping off immediately calls stop() so the channel drops. supabase-swift handles the heartbeat + automatic reconnect — channel.statusChange surfaces .subscribing / .subscribed / .unsubscribed / @unknown which RealtimeService maps to a UI-friendly Phase enum (.idle / .subscribing / .subscribed / .reconnecting / .disabled). ContentView.applyRealtimeStatusToBanner mirrors .reconnecting into SyncStatusStore.Phase.reconnecting so the existing SyncStatusBar renders the chip ('Reconnecting…' with an orange ProgressView) — same banner, no second status surface. The banner only flips into .reconnecting from .idle; an active sync / pending / offline banner wins because those signals are more user-actionable. SettingsPlaceholder gains a 'Live updates' section (RealtimeToggleSection) with the toggle + a footer explaining the battery trade-off. Tests in RealtimeTests cover SyncStatusStore.Phase.reconnecting pin, applyRealtimeInventoryUpsert insert path, update path with title + status flipping through ConflictPolicy, applyRealtimeInventoryDelete row removal, and garbage-JSON resilience (no crash, no orphan row). The supabase-swift channel + status streams aren't hermetically testable without spinning up a real Realtime socket — first TestFlight build is the live verification."
     },
     {
       "id": "US-199",
@@ -3890,7 +3890,7 @@
         "Singleton content_settings row pre-inserted with default model IDs (Sonnet 4.6 for generation, Haiku 4.5 for research) and cadence (1 blog/day, 2 social/day)"
       ],
       "priority": 226,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3905,7 +3905,7 @@
         "Mounted at /api/content/blog in main.ts behind authMiddleware + adminAuthMiddleware"
       ],
       "priority": 227,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3919,7 +3919,7 @@
         "Mounted at /api/content/social in main.ts"
       ],
       "priority": 228,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3934,7 +3934,7 @@
         "Mounted at /api/content/topics in main.ts"
       ],
       "priority": 229,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3947,7 +3947,7 @@
         "Mounted at /api/content/knowledge in main.ts"
       ],
       "priority": 230,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3961,7 +3961,7 @@
         "appendToHistoryIndex is best-effort: failures log but never throw, so a webhook hiccup can't roll back a successful publish"
       ],
       "priority": 231,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3976,7 +3976,7 @@
         "POST /api/content/blog/:id/generate wires the generator end-to-end, streams chunks via SSE for in-editor regeneration"
       ],
       "priority": 232,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -3990,7 +3990,7 @@
         "POST /api/content/social/:id/generate wires the generator end-to-end"
       ],
       "priority": 233,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4005,7 +4005,7 @@
         "POST /api/content/images/inline returns a signed upload URL the editor can use for manual uploads"
       ],
       "priority": 234,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4021,7 +4021,7 @@
         "blog_posts.publish and social_posts.publish call this helper; failures don't roll back the publish"
       ],
       "priority": 235,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4037,7 +4037,7 @@
         "Returns { skipped, surface, product_focus, post_id?, status }"
       ],
       "priority": 236,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4052,7 +4052,7 @@
         "Tiptap deps added to package.json (@tiptap/react, @tiptap/starter-kit, @tiptap/extension-{link,image,table,placeholder,typography})"
       ],
       "priority": 237,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4067,7 +4067,7 @@
         "use-content-posts.ts hook backs both pages with TanStack Query (queryKey: ['blog_posts', filters])"
       ],
       "priority": 238,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4081,7 +4081,7 @@
         "use-content-posts.ts handles both blog and social via TanStack Query"
       ],
       "priority": 239,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4096,7 +4096,7 @@
         "Optimistic updates on reject/promote via TanStack Query setQueryData"
       ],
       "priority": 240,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4110,7 +4110,7 @@
         "Cannot delete the six seeded keys (UI disables delete for those)"
       ],
       "priority": 241,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4123,7 +4123,7 @@
         "Form persists via PATCH on a new GET/PATCH /api/content/settings route (singleton row id=1)"
       ],
       "priority": 242,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4137,7 +4137,7 @@
         "Database types appended to src/types/database.ts for blog_posts / social_posts / content_topics / content_knowledge / content_settings"
       ],
       "priority": 243,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4153,7 +4153,7 @@
         "All responses include Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
       ],
       "priority": 244,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4167,7 +4167,7 @@
         "Sanitized HTML is what gets stored in blog_posts.body_html"
       ],
       "priority": 245,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4180,7 +4180,7 @@
         "Failures log but don't block the publish"
       ],
       "priority": 246,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4195,7 +4195,7 @@
         "Webhook URLs configured in content_settings via the dashboard settings page"
       ],
       "priority": 247,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4208,7 +4208,7 @@
         "Manual 'Generate next' button on dashboard hits the same endpoint with admin JWT"
       ],
       "priority": 248,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4221,7 +4221,7 @@
         "Validates clean in Google's Rich Results Test"
       ],
       "priority": 249,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4234,7 +4234,7 @@
         "AI social generator (US-233) uses the same helper"
       ],
       "priority": 250,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4273,7 +4273,7 @@
         "Editor appends suggestions to the chip input (deduped)"
       ],
       "priority": 253,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4311,7 +4311,7 @@
         "Validates clean against W3C feed validator"
       ],
       "priority": 256,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4324,7 +4324,7 @@
         "Preview pages get noindex,nofollow"
       ],
       "priority": 257,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4336,7 +4336,7 @@
         "Pulls from content_webhook_log, content_history_index, content_topics/counts, and the GA4 reporting API"
       ],
       "priority": 258,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4349,7 +4349,7 @@
         "Optional: daily admin email summarizing failed deliveries from the last 24h"
       ],
       "priority": 259,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -4363,6 +4363,36 @@
       ],
       "priority": 260,
       "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-261",
+      "title": "Scheduled-post processor + cache purge on edits",
+      "description": "As an admin, I need scheduled posts to publish themselves when due, and the Cloudflare cache to purge when I edit a published post so readers see changes immediately.",
+      "acceptanceCriteria": [
+        "Scheduler tick publishes blog and social posts where status=scheduled AND scheduled_for <= now at the top of every tick",
+        "Concurrency-safe: WHERE status=scheduled on the UPDATE means a second concurrent tick will not double-publish",
+        "Each promoted post fires the publish-time webhook + history-index append + (blog only) Cloudflare cache purge",
+        "Tick response includes published_scheduled count",
+        "PATCH /api/content/blog/:id purges /blog/<slug> + /sitemap.xml + /rss.xml when the post is currently status=published",
+        "Slug renames purge BOTH the old and new slug"
+      ],
+      "priority": 261,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-262",
+      "title": "Self-contained content analytics dashboard",
+      "description": "As an admin, I need a single page summarizing content health using only data already in our DB - no external analytics dependency.",
+      "acceptanceCriteria": [
+        "GET /api/content/settings/stats returns composite response: bank levels, published-7d and -30d per surface/product, webhook success rate over last 100, failed-7d count, AI token totals 30d, 10 most recent published per surface",
+        "src/pages/content/analytics.tsx renders 4 KPI cards + topic bank table (low-bank badged red) + per-product published breakdown + interleaved recent-activity feed",
+        "Lazy route at /dashboard/content/analytics under AdminRoute",
+        "Sidebar entry added (Activity icon)"
+      ],
+      "priority": 262,
+      "passes": true,
       "notes": ""
     }
   ]

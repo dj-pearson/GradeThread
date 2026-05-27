@@ -15,6 +15,10 @@ struct ContentView: View {
     @State private var networkMonitor = NetworkMonitor()
     @State private var syncStatus = SyncStatusStore()
     @State private var syncEngine: SyncEngine?
+    /// US-198: Supabase Realtime channel for inventory_items. Same
+    /// lifecycle as SyncEngine — created on sign-in, paused in
+    /// background, torn down on sign-out.
+    @State private var realtimeService: RealtimeService?
     /// Last time a foreground sync fired. US-188 60s debounce so rapid
     /// app switches don't hammer the server.
     @State private var lastForegroundPullAt: Date?
@@ -29,17 +33,21 @@ struct ContentView: View {
                 authStore.start()
                 networkMonitor.start()
                 startSyncEngineIfNeeded()
+                Telemetry.event(TelemetryEvent.appOpen)
             }
             .onChange(of: authStore.phase) { _, newPhase in
                 // Boot the sync engine the moment the user signs in;
                 // pause it when they sign out so the offline queue doesn't
                 // try to push the previous user's mutations.
                 switch newPhase {
-                case .signedIn:
+                case .signedIn(let user):
                     startSyncEngineIfNeeded()
+                    startRealtimeIfNeeded(userId: user.id.uuidString)
                 case .signedOut:
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
+                    Task { await realtimeService?.stop() }
+                    realtimeService = nil
                     // Cancel any in-flight uploads + wipe the store so
                     // the next user doesn't see ghost progress bars
                     // (US-175 AC).
@@ -51,6 +59,14 @@ struct ContentView: View {
             .onChange(of: scenePhase) { _, newValue in
                 if newValue == .active {
                     runForegroundPullIfNeeded()
+                    // US-198: re-open the Realtime channel on foreground.
+                    if case let .signedIn(user) = authStore.phase {
+                        startRealtimeIfNeeded(userId: user.id.uuidString)
+                    }
+                } else if newValue == .background {
+                    // Pause the channel to save battery + data while
+                    // the user's away. Re-opens on next .active above.
+                    Task { await realtimeService?.pause() }
                 }
             }
             .onReceive(
@@ -91,6 +107,40 @@ struct ContentView: View {
         }
         lastForegroundPullAt = .now
         Task { await syncEngine?.sync() }
+    }
+
+    private func startRealtimeIfNeeded(userId: String) {
+        // Lazy-init the service the first time we have a sync engine
+        // and a signed-in user. Re-entrancy guard inside the service
+        // makes start(userId:) safe to call on every foreground.
+        guard let engine = syncEngine else { return }
+        if realtimeService == nil {
+            realtimeService = RealtimeService(syncEngine: engine)
+        }
+        Task { @MainActor in
+            await realtimeService?.start(userId: userId)
+            // Mirror the channel status into the existing sync banner
+            // so the user sees a 'Reconnecting…' chip without us
+            // adding a second status surface.
+            if let phase = realtimeService?.phase {
+                applyRealtimeStatusToBanner(phase)
+            }
+        }
+    }
+
+    private func applyRealtimeStatusToBanner(_ phase: RealtimeService.Phase) {
+        switch phase {
+        case .reconnecting:
+            syncStatus.set(.reconnecting)
+        case .subscribed, .subscribing, .idle, .disabled:
+            // Don't override an active sync / pending / offline banner;
+            // only switch *into* reconnecting when the channel reports
+            // it. The channel re-subscribing flips this back to .idle
+            // implicitly through other code paths.
+            if syncStatus.phase == .reconnecting {
+                syncStatus.set(.idle)
+            }
+        }
     }
 
     private func startSyncEngineIfNeeded() {
@@ -478,7 +528,9 @@ private struct SettingsPlaceholder: View {
                 Text("Pulls listings + sales while the app is in the background, when iOS allows. Respects the system Background App Refresh setting — turning that off in Settings overrides this toggle.")
                     .font(.footnote)
             }
+            realtimeSection
             notificationPreferencesSection
+            analyticsSection
             Section {
                 Text("Full settings UI ships in US-194.")
                     .font(.footnote)
@@ -486,6 +538,19 @@ private struct SettingsPlaceholder: View {
             }
         }
         .navigationTitle("Settings")
+    }
+
+    /// US-191 analytics opt-in. PostHog events route through
+    /// `Telemetry.isAnalyticsEnabled`; flipping this off stops every
+    /// product-analytics call. Sentry crash reporting stays on because
+    /// crashes are errors, not analytics.
+    private var analyticsSection: some View {
+        AnalyticsToggleSection()
+    }
+
+    /// US-198 Realtime opt-in. Drives RealtimeService.isEnabled.
+    private var realtimeSection: some View {
+        RealtimeToggleSection()
     }
 
     /// Per-category toggles for US-187 notifications. Backed by
@@ -501,6 +566,57 @@ private struct SettingsPlaceholder: View {
             Text("Push notifications")
         } footer: {
             Text("First time you open the Sales tab we'll ask permission. Critical alerts (eBay token expiring) can interrupt Focus modes — you control that in iOS Settings → Notifications → GradeThread.")
+                .font(.footnote)
+        }
+    }
+}
+
+/// Battery-conscious users can disable the live Postgres-change channel
+/// here. UserDefaults-backed, default ON. RealtimeService.isEnabled
+/// observes the same key + flips the channel up/down on change.
+private struct RealtimeToggleSection: View {
+    private static let key = "com.gradethread.app.realtime.enabled"
+    @State private var isEnabled: Bool
+
+    init() {
+        let initial = UserDefaults.standard.object(forKey: Self.key) as? Bool ?? true
+        _isEnabled = State(initialValue: initial)
+    }
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $isEnabled) {
+                Label("Live updates", systemImage: "bolt.horizontal")
+            }
+            .onChange(of: isEnabled) { _, newValue in
+                UserDefaults.standard.set(newValue, forKey: Self.key)
+            }
+        } footer: {
+            Text("Streams sale + listing edits as they happen on the server. Turn off to save battery if you prefer pulling-to-refresh.")
+                .font(.footnote)
+        }
+    }
+}
+
+/// Analytics opt-in section. Reads + writes Telemetry.isAnalyticsEnabled.
+/// Footer is explicit that crashes are still reported — they're errors,
+/// not analytics, and users typically expect crash reports to keep
+/// flowing even with analytics off.
+private struct AnalyticsToggleSection: View {
+    @State private var isEnabled: Bool = Telemetry.isAnalyticsEnabled
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $isEnabled) {
+                Label("Share product analytics", systemImage: "chart.bar.xaxis")
+            }
+            .onChange(of: isEnabled) { _, newValue in
+                Telemetry.isAnalyticsEnabled = newValue
+            }
+        } header: {
+            Text("Analytics")
+        } footer: {
+            Text("Anonymous usage stats help us see which flows work and which need polish. Turning this off stops product analytics; crash reports still go through so we can fix bugs in your build.")
                 .font(.footnote)
         }
     }

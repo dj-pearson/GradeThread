@@ -51,6 +51,17 @@ struct SyncStatusBar: View {
                 background: Color.secondary.opacity(0.15),
                 foreground: .secondary
             )
+        case .reconnecting:
+            return Descriptor(
+                label: "Reconnecting…",
+                icon: AnyView(
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.orange)
+                ),
+                background: Color.orange.opacity(0.15),
+                foreground: .orange
+            )
         }
     }
 

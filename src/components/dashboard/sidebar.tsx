@@ -22,6 +22,7 @@ import {
   MessageCircle,
   BookOpen,
   SlidersHorizontal,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -69,6 +70,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/content/social", icon: MessageCircle, label: "Social", end: false },
       { to: "/dashboard/content/topics", icon: Lightbulb, label: "Topic Bank", end: false },
       { to: "/dashboard/content/knowledge", icon: BookOpen, label: "Knowledge", end: false },
+      { to: "/dashboard/content/analytics", icon: Activity, label: "Analytics", end: false },
       { to: "/dashboard/content/settings", icon: SlidersHorizontal, label: "Content Settings", end: false },
     ],
   },

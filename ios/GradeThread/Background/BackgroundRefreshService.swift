@@ -156,6 +156,10 @@ public final class BackgroundRefreshService {
         UserDefaults.standard.set(mostRecent.id, forKey: Self.lastSaleSeenIdKey)
 
         if newCount > 0 {
+            Telemetry.event(TelemetryEvent.saleRecorded, props: [
+                "count": newCount,
+                "source": "background_refresh",
+            ])
             await notifier.notifyNewSales(count: newCount, latest: mostRecent)
         }
     }

@@ -355,6 +355,10 @@ struct DetailsIntakeView: View {
 
     private func handleSavedSuccessfully(outcome: SaveOutcome) {
         bannerMessage = BannerMessage(kind: .success, text: "Saved.")
+        Telemetry.event(TelemetryEvent.intakeCompleted, props: [
+            "source": "details_first",
+            "online": true,
+        ])
         switch outcome {
         case .dismiss:
             dismiss()
@@ -369,6 +373,10 @@ struct DetailsIntakeView: View {
             kind: .offline,
             text: "Saved offline — will sync when you reconnect."
         )
+        Telemetry.event(TelemetryEvent.intakeCompleted, props: [
+            "source": "details_first",
+            "online": false,
+        ])
         switch outcome {
         case .dismiss:
             dismiss()

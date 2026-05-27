@@ -62,6 +62,7 @@ const SocialEditorPage = lazy(() => import("@/pages/content/social-editor").then
 const TopicBankPage = lazy(() => import("@/pages/content/topic-bank").then(m => ({ default: m.TopicBankPage })));
 const KnowledgePage = lazy(() => import("@/pages/content/knowledge").then(m => ({ default: m.KnowledgePage })));
 const ContentSettingsPage = lazy(() => import("@/pages/content/content-settings").then(m => ({ default: m.ContentSettingsPage })));
+const ContentAnalyticsPage = lazy(() => import("@/pages/content/analytics").then(m => ({ default: m.ContentAnalyticsPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/dashboard").then(m => ({ default: m.AdminDashboardPage })));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ default: m.AdminUsersPage })));
@@ -175,6 +176,7 @@ export const router = createBrowserRouter([
                   { path: "/dashboard/content/social/editor/:id", element: <SuspenseWrapper><SocialEditorPage /></SuspenseWrapper> },
                   { path: "/dashboard/content/topics", element: <SuspenseWrapper><TopicBankPage /></SuspenseWrapper> },
                   { path: "/dashboard/content/knowledge", element: <SuspenseWrapper><KnowledgePage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/analytics", element: <SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper> },
                   { path: "/dashboard/content/settings", element: <SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper> },
                 ],
               },

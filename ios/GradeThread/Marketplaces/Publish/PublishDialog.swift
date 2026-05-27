@@ -268,10 +268,18 @@ struct PublishDialog: View {
 
     private func runPush() async {
         phase = .pushing
+        Telemetry.breadcrumb("Publishing to eBay", category: "publish")
         let outcome = await service.push(inventoryItemId: inventoryItemId)
         switch outcome {
         case .pushed(let response):
             phase = .succeeded(response)
+            Telemetry.breadcrumb(
+                "Publish succeeded \(response.listingId)",
+                category: "publish"
+            )
+            Telemetry.event(TelemetryEvent.listingPublished, props: [
+                "listing_id": response.listingId,
+            ])
         case .blockers(let blockers):
             phase = .blocked(blockers)
         case .noOfferId:

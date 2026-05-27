@@ -29,6 +29,15 @@ packages:
   Supabase:
     url: https://github.com/supabase-community/supabase-swift
     from: 2.0.0
+  # Crash reporting + breadcrumbs (US-191). DSN comes from xcconfig.
+  Sentry:
+    url: https://github.com/getsentry/sentry-cocoa
+    from: 8.0.0
+  # Product analytics (US-191). Opt-in via UserDefaults; calls no-op
+  # when the toggle is off.
+  PostHog:
+    url: https://github.com/PostHog/posthog-ios
+    from: 3.0.0
 
 targets:
   GradeThread:
@@ -44,6 +53,10 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+      - package: Sentry
+        product: Sentry
+      - package: PostHog
+        product: PostHog
     info:
       path: GradeThread/Info.plist
       properties:

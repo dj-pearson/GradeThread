@@ -417,6 +417,11 @@ struct AIExtractView: View {
 
         do {
             try await writeAccepted(result: result)
+            Telemetry.event(TelemetryEvent.aiExtractUsed, props: [
+                "fields_accepted": store.acceptedFields.count,
+                "measurements_accepted": store.acceptMeasurements ? result.measurements.count : 0,
+                "live_text_fallback": store.liveTextFallbackUsed,
+            ])
             onComplete()
             dismiss()
         } catch {

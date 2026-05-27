@@ -46,6 +46,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // ContentView already listens for.
         backgroundRefresh.register()
 
+        // US-191 telemetry. Idempotent — Sentry + PostHog start once
+        // per process. Missing DSN/key disables silently.
+        Telemetry.bootstrap()
+
         // Hook the push delegate + register notification categories.
         // We don't request notification *permission* here per the AC —
         // that's deferred until first Sales tab visit.

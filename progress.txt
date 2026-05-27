@@ -169,8 +169,95 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 21/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage; US-186 reconciliation; US-187 APNs receive side + deep-link router + category settings; US-188 BG refresh. US-189→US-199 remaining
+- iOS app (US-168 → US-199): 23/32 — through US-188, plus US-191 telemetry, plus US-198 Supabase Realtime channel on inventory_items with reconnecting status chip + 'Live updates' settings toggle. US-189 + US-190 + US-192→US-197 + US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS Realtime channel (US-198)
+Phase 2 of US-172's sync layer — sale + listing edits now stream into
+the SwiftData cache the moment they hit the server. Pull-to-refresh
+still works as a fallback; this just removes the wait when the app's
+already open.
+
+What landed:
+- ios/GradeThread/Persistence/RealtimeService.swift — owns a per-user
+  inventory_items channel via supabase-swift's channel.postgresChange
+  AsyncStream. Filter scoped to .eq('user_id', userId) so other
+  users' rows never reach the client. Status observation via
+  channel.statusChange maps SDK states (.subscribed / .subscribing /
+  .unsubscribed / @unknown) to a UI-friendly Phase enum (.idle /
+  .subscribing / .subscribed / .reconnecting / .disabled).
+- SyncEngine grew applyRealtimeInventoryUpsert(record:Data) and
+  applyRealtimeInventoryDelete(id:) — reuse the same
+  RemoteInventoryItem wire shape the polled pull decodes against,
+  same @MainActor ModelContext, same ConflictPolicy. Garbage payloads
+  log + drop instead of crashing the listen loop.
+- RemoteInventoryItem / RemoteItemPhoto promoted from private to
+  internal so the realtime service can reach them.
+- SyncStatusStore.Phase gains .reconnecting. SyncStatusBar renders
+  an orange 'Reconnecting…' chip with a small ProgressView. The
+  banner only flips into reconnecting from .idle so an active sync
+  / pending / offline banner wins.
+
+Lifecycle:
+- ContentView opens the channel on .signedIn + on scenePhase →
+  .active (covers cold start + foreground).
+- Pauses on .background to save battery + cellular data.
+- Tears down on .signedOut so the next user's session starts clean.
+- RealtimeService.isEnabled UserDefaults-backed (default ON).
+  Flipping false in Settings immediately calls stop() and tears the
+  channel down.
+
+Settings:
+- New 'Live updates' Toggle in SettingsPlaceholder
+  (RealtimeToggleSection). UserDefaults-backed, default ON, footer
+  explains the battery trade-off.
+
+Tests in RealtimeTests cover SyncStatusStore.Phase.reconnecting,
+applyRealtimeInventoryUpsert insert + update paths (title + status
+flipping through ConflictPolicy), applyRealtimeInventoryDelete row
+removal, and garbage-JSON resilience. Actual channel + statusChange
+streams aren't hermetically testable without a real Realtime socket
+— first TestFlight build is the live verification.
+
+## Session Notes (2026-05-27) — iOS telemetry (US-191)
+Crash reports + product analytics now flow when the operator fills in
+xcconfig values. Empty values disable each SDK silently so dev builds
+without keys still launch cleanly.
+
+What landed:
+- ios/GradeThread/Telemetry/Telemetry.swift — facade with three rules:
+  Sentry always on when DSN configured (crashes are errors, not
+  analytics, so they don't respect the opt-in toggle); PostHog respects
+  Telemetry.isAnalyticsEnabled (every event/identify no-ops when off);
+  missing DSN/key disables silently.
+- Sentry-Cocoa + PostHog-iOS added as SPM packages in project.yml,
+  attached to the GradeThread target.
+- xcconfig + Info.plist surface SENTRY_DSN / POSTHOG_API_KEY /
+  POSTHOG_HOST. Empty values default to nil at the AppConfig layer.
+- AppDelegate.didFinishLaunchingWithOptions calls Telemetry.bootstrap()
+  before push registration so any launch-time crashes route to Sentry.
+- AuthStore.apply(event:session:) stamps Telemetry.setUser on
+  .signedIn / clearUser on .signedOut — auth.uid only, no email per
+  the AC.
+- Key events tracked at the matching call sites:
+  - app_open from ContentView.task
+  - intake_completed from DetailsIntakeView (both online + offline)
+  - ai_extract_used from AIExtractView.applySelected with field +
+    measurement counts + live_text_fallback flag
+  - ebay_synced from EbaySyncService completion with delta counts
+  - listing_published from PublishDialog.runPush success
+  - sale_recorded from BackgroundRefreshService when lastSaleSeenId
+    delta is positive
+- Breadcrumbs at eBay sync start/fail + publish start/success so
+  Sentry crashes carry context.
+- SettingsPlaceholder grew an Analytics section with the opt-in
+  Toggle and a footer that explicitly states crashes still report
+  when analytics is off.
+
+Tests in TelemetryTests cover the opt-in default-ON, UserDefaults
+round-trip, every TelemetryEvent string pinned to the AC value
+(rename = PostHog dashboard data split), and the
+event/breadcrumb/clearUser no-op paths when no SDK initialized.
 
 ## Session Notes (2026-05-27) — iOS push receive (US-187)
 APNs receive side is in place: permission prompt deferred to first

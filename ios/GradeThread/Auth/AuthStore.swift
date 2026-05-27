@@ -138,11 +138,15 @@ public final class AuthStore {
         case .initialSession, .signedIn, .tokenRefreshed, .userUpdated:
             if let user = session?.user {
                 phase = .signedIn(user)
+                // US-191 — stamp Sentry + PostHog user context.
+                Telemetry.setUser(id: user.id.uuidString, email: user.email)
             } else {
                 phase = .signedOut
+                Telemetry.clearUser()
             }
         case .signedOut:
             phase = .signedOut
+            Telemetry.clearUser()
         case .passwordRecovery:
             // Recovery flows pop the user back to LoginView; let the next
             // event drive the actual phase change.

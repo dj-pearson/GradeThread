@@ -83,6 +83,122 @@ contentSettingsRoutes.patch("/", async (c) => {
   return c.json({ settings: data });
 });
 
+// ── Dashboard stats ──────────────────────────────────────
+// Aggregates everything the analytics page needs in one round-trip so
+// the page renders in a single fetch. Fast (just COUNT queries) and
+// safe to call frequently.
+contentSettingsRoutes.get("/stats", async (c) => {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const since7 = new Date(now - 7 * day).toISOString();
+  const since30 = new Date(now - 30 * day).toISOString();
+
+  // Topic bank levels per (surface, product_focus, status). One SELECT,
+  // bucketed in JS — cheap because the topics table stays small.
+  const { data: topicRows } = await supabaseAdmin
+    .from("content_topics")
+    .select("surface, product_focus, status");
+  const bank: Record<string, number> = {};
+  for (const r of topicRows ?? []) {
+    const k = `${r.surface}:${r.product_focus}:${r.status}`;
+    bank[k] = (bank[k] ?? 0) + 1;
+  }
+
+  // Posts published, last 7d + last 30d, per (surface, product_focus).
+  async function countPublished(table: "blog_posts" | "social_posts", since: string) {
+    const { data } = await supabaseAdmin
+      .from(table)
+      .select("product_focus")
+      .eq("status", "published")
+      .gte("published_at", since);
+    const out: Record<string, number> = {};
+    for (const r of data ?? []) {
+      out[r.product_focus as string] = (out[r.product_focus as string] ?? 0) + 1;
+    }
+    return out;
+  }
+  const [blog7, blog30, social7, social30] = await Promise.all([
+    countPublished("blog_posts", since7),
+    countPublished("blog_posts", since30),
+    countPublished("social_posts", since7),
+    countPublished("social_posts", since30),
+  ]);
+
+  // Webhook health: success rate over the last 100 attempts, plus the
+  // raw failed-count over the last 7 days (drives a "needs attention" badge).
+  const { data: recentDeliveries } = await supabaseAdmin
+    .from("content_webhook_log")
+    .select("succeeded, created_at")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  const succeeded = (recentDeliveries ?? []).filter((r) => r.succeeded).length;
+  const totalRecent = recentDeliveries?.length ?? 0;
+  const successRate = totalRecent > 0 ? succeeded / totalRecent : null;
+  const { count: failed7Count } = await supabaseAdmin
+    .from("content_webhook_log")
+    .select("id", { count: "exact", head: true })
+    .eq("succeeded", false)
+    .gte("created_at", since7);
+
+  // AI token usage. Sum prompt_tokens + completion_tokens across blog +
+  // social posts created in the last 30 days. Coarse but useful for
+  // ballparking API spend.
+  const [{ data: blogTokens }, { data: socialTokens }] = await Promise.all([
+    supabaseAdmin
+      .from("blog_posts")
+      .select("prompt_tokens, completion_tokens")
+      .gte("created_at", since30),
+    supabaseAdmin
+      .from("social_posts")
+      .select("prompt_tokens, completion_tokens")
+      .gte("created_at", since30),
+  ]);
+  let inputTokens = 0,
+    outputTokens = 0;
+  for (const r of blogTokens ?? []) {
+    inputTokens += (r.prompt_tokens as number | null) ?? 0;
+    outputTokens += (r.completion_tokens as number | null) ?? 0;
+  }
+  for (const r of socialTokens ?? []) {
+    inputTokens += (r.prompt_tokens as number | null) ?? 0;
+    outputTokens += (r.completion_tokens as number | null) ?? 0;
+  }
+
+  // Recent activity feed — 10 most recent published items across both
+  // surfaces, oldest to newest. The dashboard sorts client-side so the
+  // shape stays simple.
+  const [{ data: recentBlog }, { data: recentSocial }] = await Promise.all([
+    supabaseAdmin
+      .from("blog_posts")
+      .select("id, slug, title, product_focus, published_at")
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(10),
+    supabaseAdmin
+      .from("social_posts")
+      .select("id, short_body, long_body, product_focus, published_at")
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(10),
+  ]);
+
+  return c.json({
+    bank,
+    published_7d: { blog: blog7, social: social7 },
+    published_30d: { blog: blog30, social: social30 },
+    webhooks: {
+      success_rate_last_100: successRate,
+      total_last_100: totalRecent,
+      failed_last_7d: failed7Count ?? 0,
+    },
+    ai_usage_30d: { input_tokens: inputTokens, output_tokens: outputTokens },
+    recent: {
+      blog: recentBlog ?? [],
+      social: recentSocial ?? [],
+    },
+  });
+});
+
 // ── Recent webhook deliveries ────────────────────────────
 // Used by the dashboard settings panel to surface failures and offer
 // a one-click retry. Returns the most recent 50 attempts.

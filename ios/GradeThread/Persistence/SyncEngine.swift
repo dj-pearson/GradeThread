@@ -132,8 +132,10 @@ actor SyncEngine {
 
     /// Wire-shape `inventory_items` row. Subset of columns the iOS app
     /// reads today — extend cautiously, every column is an extra byte
-    /// per row over the wire.
-    private struct RemoteInventoryItem: Decodable {
+    /// per row over the wire. Non-private so US-198's RealtimeService can
+    /// feed it back through `applyServerWins` when a postgres-change
+    /// notification arrives.
+    struct RemoteInventoryItem: Decodable {
         let id: String
         let user_id: String
         let title: String
@@ -154,7 +156,7 @@ actor SyncEngine {
         let updated_at: String
     }
 
-    private struct RemoteItemPhoto: Decodable {
+    struct RemoteItemPhoto: Decodable {
         let id: String
         let inventory_item_id: String
         let photo_type: String
@@ -371,6 +373,81 @@ actor SyncEngine {
             ?? fallback
     }
 
+    // MARK: - Realtime (US-198)
+
+    /// Applies one Postgres-change row from the Realtime channel. The
+    /// JSON shape Supabase ships in the record matches the polled fetch
+    /// shape (`RemoteInventoryItem`), so we re-decode through a single
+    /// path and reuse `applyServerWins` + the ConflictPolicy.
+    public func applyRealtimeInventoryUpsert(record: Data) async {
+        do {
+            let decoder = JSONDecoder()
+            let remote = try decoder.decode(RemoteInventoryItem.self, from: record)
+            await mergeSingle(remote: remote)
+        } catch {
+            // Realtime payloads occasionally carry shapes we don't know
+            // (new columns introduced server-side). Logging keeps the
+            // signal but doesn't block subsequent rows.
+            print("[Realtime] inventory upsert decode failed: \(error)")
+        }
+    }
+
+    /// Applies a single inventory row, creating or updating as needed.
+    /// Pulls existing photo URL from the cache so the cached
+    /// primaryPhotoURL doesn't get clobbered by the upsert.
+    private func mergeSingle(remote: RemoteInventoryItem) async {
+        await MainActor.run {
+            let context = ModelContext(self.container)
+            let id = remote.id
+            let descriptor = FetchDescriptor<LocalInventoryItem>(
+                predicate: #Predicate { $0.id == id }
+            )
+            let existing = (try? context.fetch(descriptor).first)
+
+            let isoFull = ISO8601DateFormatter()
+            isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            func parseDate(_ s: String) -> Date {
+                isoFull.date(from: s) ?? ISO8601DateFormatter().date(from: s) ?? .now
+            }
+            let createdAt = parseDate(remote.created_at)
+            let updatedAt = parseDate(remote.updated_at)
+
+            if let local = existing {
+                self.applyServerWins(to: local, remote: remote)
+                local.updatedAt = updatedAt
+            } else {
+                let local = LocalInventoryItem(
+                    id: remote.id,
+                    userId: remote.user_id,
+                    title: remote.title,
+                    status: remote.status,
+                    createdAt: createdAt,
+                    updatedAt: updatedAt,
+                    hasLocalChanges: false
+                )
+                self.applyServerWins(to: local, remote: remote)
+                context.insert(local)
+            }
+            try? context.save()
+        }
+    }
+
+    /// Delete handler for Realtime DELETE events on inventory_items.
+    /// We pass the row id rather than the full record because Supabase's
+    /// delete payload only carries the primary-key columns.
+    public func applyRealtimeInventoryDelete(id: String) async {
+        await MainActor.run {
+            let context = ModelContext(self.container)
+            let descriptor = FetchDescriptor<LocalInventoryItem>(
+                predicate: #Predicate { $0.id == id }
+            )
+            if let row = try? context.fetch(descriptor).first {
+                context.delete(row)
+                try? context.save()
+            }
+        }
+    }
+
     // MARK: - Flush
 
     func flushPending() async {
@@ -472,6 +549,11 @@ final class SyncStatusStore {
         case syncing
         case pending
         case offline
+        /// US-198: Supabase Realtime channel is reconnecting after a
+        /// network hiccup. Surfaces a chip so the user knows live
+        /// updates are temporarily paused; switches back to .idle on
+        /// re-subscribe.
+        case reconnecting
     }
 
     var phase: Phase = .idle

@@ -59,6 +59,8 @@ public final class EbaySyncService {
     ///     populated `refresh_error` mid-sync
     ///   - `.failed(message:)` for HTTP / network failure
     public func sync(userId: String, baseline: EbaySyncBaseline) async -> EbaySyncCompletion {
+        Telemetry.breadcrumb("eBay sync started", category: "ebay")
+
         // 1. Fire the request. We don't carry the 202 body anywhere —
         //    the wire shape only confirms the schema.
         do {
@@ -68,6 +70,10 @@ public final class EbaySyncService {
                 body: EmptyBody()
             )
         } catch let error as EdgeAPIError {
+            Telemetry.breadcrumb(
+                "eBay sync failed to start: \(error.errorDescription ?? "unknown")",
+                category: "ebay"
+            )
             return .failed(message: error.errorDescription ?? "Couldn't start sync.")
         } catch {
             return .failed(message: error.localizedDescription)
@@ -87,7 +93,15 @@ public final class EbaySyncService {
                     return .connectionFlagged(message: error)
                 }
                 if didAdvance(baseline: baseline, current: snapshot?.last_synced_at) {
-                    return .completed(await buildSummary(baseline: baseline))
+                    let summary = await buildSummary(baseline: baseline)
+                    Telemetry.breadcrumb("eBay sync completed", category: "ebay")
+                    Telemetry.event(TelemetryEvent.ebaySynced, props: [
+                        "listings_total": summary.listingsCount,
+                        "sales_total": summary.salesCount,
+                        "listings_delta": summary.listingsDelta,
+                        "sales_delta": summary.salesDelta,
+                    ])
+                    return .completed(summary)
                 }
             } catch {
                 // Transient poll failure — keep going until the deadline.

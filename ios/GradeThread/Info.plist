@@ -41,6 +41,14 @@
     <string>$(SUPABASE_ANON_KEY)</string>
     <key>EDGE_API_URL</key>
     <string>$(EDGE_API_URL)</string>
+    <!-- US-191 telemetry. Empty strings disable each SDK silently —
+         both are opt-in best-effort. -->
+    <key>SENTRY_DSN</key>
+    <string>$(SENTRY_DSN)</string>
+    <key>POSTHOG_API_KEY</key>
+    <string>$(POSTHOG_API_KEY)</string>
+    <key>POSTHOG_HOST</key>
+    <string>$(POSTHOG_HOST)</string>
     <!-- Voice dictation in the manual intake form (US-179). -->
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>GradeThread uses speech recognition so you can dictate notes hands-free while sourcing items.</string>
