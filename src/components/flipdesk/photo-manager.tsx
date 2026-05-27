@@ -15,7 +15,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Trash2, Pencil } from "lucide-react";
+import { GripVertical, Trash2, Pencil, Wand2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -27,6 +27,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
+import { useRemoveBackground } from "@/hooks/use-remove-bg";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -42,6 +43,20 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
   const qc = useQueryClient();
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
+  const [removingBgId, setRemovingBgId] = useState<string | null>(null);
+  const removeBg = useRemoveBackground();
+
+  async function doRemoveBg(photo: ItemPhotoRow) {
+    setRemovingBgId(photo.id);
+    try {
+      await removeBg.mutateAsync({ itemPhotoId: photo.id, itemId });
+      toast.success("Background-removed flatlay saved.");
+    } catch {
+      /* surfaced by hook's onError */
+    } finally {
+      setRemovingBgId(null);
+    }
+  }
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ["item_photos", itemId],
@@ -183,6 +198,8 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
                 onRetag={retag}
                 onRemove={remove}
                 onEdit={setEditingPhoto}
+                onRemoveBg={doRemoveBg}
+                removingBg={removingBgId === photo.id}
               />
             ))}
           </div>
@@ -196,6 +213,10 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
         onSave={async (blob) => {
           if (!editingPhoto) return;
           const path = editingPhoto.storage_path;
+          if (!path) {
+            toast.error("This photo has no storage path; can't save edits.");
+            return;
+          }
           const { error: upErr } = await supabase.storage
             .from("item-photos")
             .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
@@ -220,12 +241,16 @@ function SortablePhoto({
   onRetag,
   onRemove,
   onEdit,
+  onRemoveBg,
+  removingBg,
 }: {
   photo: ItemPhotoRow;
   gradingInFlight: boolean;
   onRetag: (photo: ItemPhotoRow, t: FlipdeskPhotoType) => void;
   onRemove: (photo: ItemPhotoRow) => void;
   onEdit: (photo: ItemPhotoRow) => void;
+  onRemoveBg: (photo: ItemPhotoRow) => void;
+  removingBg: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: photo.id });
@@ -259,14 +284,32 @@ function SortablePhoto({
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
-        <button
-          type="button"
-          onClick={() => onEdit(photo)}
-          className="absolute right-1 top-1 rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground"
-          aria-label="Edit photo"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
+        <div className="absolute right-1 top-1 flex gap-1">
+          {photo.photo_type !== "flatlay" && (
+            <button
+              type="button"
+              onClick={() => onRemoveBg(photo)}
+              disabled={removingBg}
+              className="rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground disabled:opacity-50"
+              aria-label="Remove background"
+              title="Remove background (saves a new flatlay variant — uses 1 remove.bg credit)"
+            >
+              {removingBg ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onEdit(photo)}
+            className="rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground"
+            aria-label="Edit photo"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <div className="flex items-center gap-1 p-1">
         <Select

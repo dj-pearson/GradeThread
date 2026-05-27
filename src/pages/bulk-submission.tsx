@@ -235,7 +235,7 @@ export function BulkSubmissionPage() {
       type: mimeForName(name),
     });
     const compressed = await compressImage(raw);
-    return new File([compressed], name, { type: compressed.type });
+    return new File([compressed.blob], name, { type: compressed.blob.type });
   }
 
   async function handleSubmit() {

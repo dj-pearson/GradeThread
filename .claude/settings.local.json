@@ -45,7 +45,10 @@
       "Bash(powershell -Command 'Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Write-Output '\\\\''server stopped'\\\\''')",
       "Bash(rm -rf .playwright-mcp)",
       "Bash(grep -q \"^\\\\.playwright-mcp\" .gitignore)",
-      "Bash(echo \".playwright-mcp/\")"
+      "Bash(echo \".playwright-mcp/\")",
+      "Bash(xargs ls -la)",
+      "Bash(xargs grep -l \"Deno.env.get\")",
+      "Bash(grep -E \"^\\\\s*$|\\\\.tsx\")"
     ]
   },
   "hooks": {

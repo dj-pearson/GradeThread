@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Plug,
@@ -9,6 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -98,9 +99,34 @@ function MarketplaceCard({
 
 export function FlipdeskMarketplacesPage() {
   const [params, setParams] = useSearchParams();
-  const { data: connection, isLoading: connLoading } = useEbayConnection();
+  const qc = useQueryClient();
+
+  // When a background sync is running we poll last_synced_at every 5s.
+  // syncSince holds the ISO timestamp right before we fired the sync so we
+  // can detect when last_synced_at advances past it.
+  const [syncSince, setSyncSince] = useState<string | null>(null);
+  const syncToastId = useRef<string | number | null>(null);
+
+  const pollingInterval = syncSince != null ? 5_000 : undefined;
+  const { data: connection, isLoading: connLoading } = useEbayConnection(pollingInterval);
   const startOauth = useStartEbayOauth();
   const syncListings = useSyncEbayListings();
+
+  // Detect completion: last_synced_at has moved past the moment we fired the sync.
+  useEffect(() => {
+    if (!syncSince || !connection?.last_synced_at) return;
+    const syncedAt = new Date(connection.last_synced_at).getTime();
+    const firedAt = new Date(syncSince).getTime();
+    if (syncedAt > firedAt) {
+      setSyncSince(null);
+      if (syncToastId.current != null) {
+        toast.dismiss(syncToastId.current);
+        syncToastId.current = null;
+      }
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success("eBay sync complete. Listings updated.");
+    }
+  }, [connection?.last_synced_at, syncSince, qc]);
 
   // Surface the OAuth callback result once and strip it from the URL so a
   // reload doesn't re-toast.
@@ -202,15 +228,34 @@ export function FlipdeskMarketplacesPage() {
                     className="w-full"
                     onClick={async () => {
                       try {
+                        const firedAt = new Date().toISOString();
                         const r = await syncListings.mutateAsync();
-                        const totalMatched = r.matched + r.legacy_matched;
-                        const legacyLine = r.legacy_matched > 0
+
+                        if (r.started) {
+                          // 202 — sync is running in the background.
+                          // Start polling; show a persistent toast until done.
+                          setSyncSince(firedAt);
+                          syncToastId.current = toast.loading(
+                            "eBay sync running in background…",
+                            {
+                              description:
+                                "Listings and sales will update automatically when done.",
+                              duration: Infinity,
+                            },
+                          );
+                          return;
+                        }
+
+                        // 200 — sync completed synchronously (shouldn't happen
+                        // after the 202 change, but handle gracefully).
+                        const totalMatched = (r.matched ?? 0) + (r.legacy_matched ?? 0);
+                        const legacyLine = (r.legacy_matched ?? 0) > 0
                           ? ` (${r.legacy_matched} legacy)`
                           : "";
-                        const salesLine = r.sales_new + r.sales_updated > 0
-                          ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
+                        const salesLine = (r.sales_new ?? 0) + (r.sales_updated ?? 0) > 0
+                          ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${(r.sales_updated ?? 0) > 0 ? `, ${r.sales_updated} updated` : ""}`
                           : "";
-                        const totalUnmatched = r.unmatched + r.legacy_unmatched;
+                        const totalUnmatched = (r.unmatched ?? 0) + (r.legacy_unmatched ?? 0);
                         const lines: string[] = [];
                         if (totalUnmatched > 0) {
                           lines.push(
@@ -243,14 +288,14 @@ export function FlipdeskMarketplacesPage() {
                         /* surfaced by the hook */
                       }
                     }}
-                    disabled={syncListings.isPending}
+                    disabled={syncListings.isPending || syncSince != null}
                   >
-                    {syncListings.isPending ? (
+                    {syncListings.isPending || syncSince != null ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
                     )}
-                    Sync listings from eBay
+                    {syncSince != null ? "Syncing…" : "Sync listings from eBay"}
                   </Button>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[11px] text-muted-foreground">

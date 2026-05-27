@@ -1,3 +1,7 @@
+// shadcn pattern: component + its cva variants share a file. The
+// fast-refresh rule's "components only" constraint doesn't apply to
+// these utility primitives.
+/* eslint-disable react-refresh/only-export-components */
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"

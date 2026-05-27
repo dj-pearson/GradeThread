@@ -1,25 +1,652 @@
 import { Hono } from "hono";
+import { supabaseAdmin } from "../lib/supabase.ts";
+import { processSubmission } from "../lib/grading-pipeline.ts";
+import {
+  isGradingTier,
+  planLimit,
+  tierCost,
+  type GradingTier,
+} from "../lib/grading-pricing.ts";
 
 // FlipDesk → GradeThread bridge.
 // Submits inventory items to GradeThread for grading and receives webhook callbacks.
 // Until the GradeThread Public API ships (Phase 2 of GradeThread roadmap), this
 // can take a direct DB shortcut since both products share a Supabase instance.
 
-export const flipdeskGradingRoutes = new Hono();
+type GradingEnv = { Variables: { userId: string } };
+
+export const flipdeskGradingRoutes = new Hono<GradingEnv>();
+
+interface SubmitItemInput {
+  inventory_item_id: string;
+  tier: GradingTier;
+}
+
+interface ValidatedItem {
+  inventory_item_id: string;
+  tier: GradingTier;
+  cost: number;
+  ready: boolean;
+  blockers: string[];
+  // Echoed for the UI to render — picked from inventory_items.
+  title: string | null;
+  garment_type: string | null;
+  garment_category: string | null;
+  required_photo_types_missing: string[];
+}
+
+interface ValidationResult {
+  user: {
+    plan: string;
+    grades_used_this_month: number;
+    plan_limit: number; // -1 = unlimited
+    grades_remaining: number; // Infinity for unlimited
+  };
+  items: ValidatedItem[];
+  total_cost: number;
+  can_submit: boolean; // every item.ready === true AND plan limit OK
+  limit_exceeded: boolean;
+}
+
+// FlipDesk photo types required for a grading submission. `tag` maps to
+// the GradeThread `label` image_type — these are the price/care tag shots
+// that drive brand/material/size signal extraction during AI grading.
+const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back", "tag"] as const;
+
+// Pulls the user record + all items + photo coverage in one round-trip set,
+// then computes per-item readiness. Used by both /validate (just returns the
+// result) and /submit (in G2; refuses to proceed if can_submit is false).
+async function buildValidation(
+  userId: string,
+  inputs: SubmitItemInput[],
+): Promise<
+  | { ok: true; result: ValidationResult }
+  | { ok: false; status: number; error: string; details?: unknown }
+> {
+  if (inputs.length === 0) {
+    return { ok: false, status: 400, error: "items must be a non-empty array" };
+  }
+
+  const { data: userRow, error: userErr } = await supabaseAdmin
+    .from("users")
+    .select("plan, grades_used_this_month, grade_reset_at, suspended")
+    .eq("id", userId)
+    .maybeSingle();
+  if (userErr || !userRow) {
+    return { ok: false, status: 404, error: "User not found" };
+  }
+  const user = userRow as {
+    plan: string;
+    grades_used_this_month: number;
+    grade_reset_at: string;
+    suspended: boolean;
+  };
+  if (user.suspended) {
+    return {
+      ok: false,
+      status: 403,
+      error:
+        "Your account is suspended and cannot submit for grading. Contact support.",
+    };
+  }
+
+  // Auto-reset counter if the month rolled over. We just compute "as if"
+  // here — the actual write happens on /submit (G2).
+  const resetAt = new Date(user.grade_reset_at).getTime();
+  const usedThisMonth = resetAt <= Date.now() ? 0 : user.grades_used_this_month;
+  const limit = planLimit(user.plan);
+  const remaining =
+    limit === -1 ? Number.POSITIVE_INFINITY : Math.max(0, limit - usedThisMonth);
+
+  const itemIds = Array.from(
+    new Set(inputs.map((i) => i.inventory_item_id)),
+  );
+
+  const { data: itemsRaw, error: itemsErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, title, garment_type, garment_category, brand, description")
+    .in("id", itemIds);
+  if (itemsErr) {
+    return {
+      ok: false,
+      status: 500,
+      error: "Failed to load items",
+      details: itemsErr.message,
+    };
+  }
+  const itemMap = new Map<
+    string,
+    {
+      id: string;
+      user_id: string;
+      title: string | null;
+      garment_type: string | null;
+      garment_category: string | null;
+      brand: string | null;
+      description: string | null;
+    }
+  >();
+  for (const row of (itemsRaw ?? []) as Array<{
+    id: string;
+    user_id: string;
+    title: string | null;
+    garment_type: string | null;
+    garment_category: string | null;
+    brand: string | null;
+    description: string | null;
+  }>) {
+    itemMap.set(row.id, row);
+  }
+
+  // Photo coverage — one query covering all items.
+  const { data: photosRaw } = await supabaseAdmin
+    .from("item_photos")
+    .select("inventory_item_id, photo_type")
+    .in("inventory_item_id", itemIds);
+  const photoTypesByItem = new Map<string, Set<string>>();
+  for (const p of (photosRaw ?? []) as Array<{
+    inventory_item_id: string;
+    photo_type: string;
+  }>) {
+    let s = photoTypesByItem.get(p.inventory_item_id);
+    if (!s) {
+      s = new Set();
+      photoTypesByItem.set(p.inventory_item_id, s);
+    }
+    s.add(p.photo_type);
+  }
+
+  const items: ValidatedItem[] = inputs.map((input) => {
+    const item = itemMap.get(input.inventory_item_id);
+    const blockers: string[] = [];
+    const missingPhotos: string[] = [];
+
+    if (!item) {
+      blockers.push("Item not found");
+    } else if (item.user_id !== userId) {
+      blockers.push("Item not found");
+    } else {
+      if (!item.garment_type) blockers.push("Missing garment_type");
+      if (!item.garment_category) blockers.push("Missing garment_category");
+      if (!item.title || !item.title.trim()) blockers.push("Missing title");
+
+      const have = photoTypesByItem.get(input.inventory_item_id) ?? new Set();
+      for (const t of REQUIRED_GRADING_PHOTO_TYPES) {
+        if (!have.has(t)) missingPhotos.push(t);
+      }
+      if (missingPhotos.length > 0) {
+        blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
+      }
+    }
+
+    return {
+      inventory_item_id: input.inventory_item_id,
+      tier: input.tier,
+      cost: tierCost(input.tier),
+      ready: blockers.length === 0,
+      blockers,
+      title: item?.title ?? null,
+      garment_type: item?.garment_type ?? null,
+      garment_category: item?.garment_category ?? null,
+      required_photo_types_missing: missingPhotos,
+    };
+  });
+
+  const totalCost = items.reduce((acc, i) => acc + i.cost, 0);
+  const limitExceeded = remaining !== Number.POSITIVE_INFINITY && items.length > remaining;
+  const canSubmit = items.every((i) => i.ready) && !limitExceeded;
+
+  return {
+    ok: true,
+    result: {
+      user: {
+        plan: user.plan,
+        grades_used_this_month: usedThisMonth,
+        plan_limit: limit,
+        grades_remaining: remaining,
+      },
+      items,
+      total_cost: Number(totalCost.toFixed(2)),
+      can_submit: canSubmit,
+      limit_exceeded: limitExceeded,
+    },
+  };
+}
+
+function parseSubmitBody(
+  raw: unknown,
+):
+  | { ok: true; items: SubmitItemInput[] }
+  | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "Body must be JSON object" };
+  }
+  const items = (raw as { items?: unknown }).items;
+  if (!Array.isArray(items)) {
+    return { ok: false, error: "items must be an array" };
+  }
+  const parsed: SubmitItemInput[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it || typeof it !== "object") {
+      return { ok: false, error: `items[${i}] must be an object` };
+    }
+    const id = (it as { inventory_item_id?: unknown }).inventory_item_id;
+    const tier = (it as { tier?: unknown }).tier;
+    if (typeof id !== "string" || !id) {
+      return {
+        ok: false,
+        error: `items[${i}].inventory_item_id must be a non-empty string`,
+      };
+    }
+    if (!isGradingTier(tier)) {
+      return {
+        ok: false,
+        error: `items[${i}].tier must be one of: standard, premium, express`,
+      };
+    }
+    parsed.push({ inventory_item_id: id, tier });
+  }
+  return { ok: true, items: parsed };
+}
+
+// Pre-flight validation. Returns per-item readiness + total cost + plan
+// remaining without creating any records. UI calls this before /submit so
+// it can grey-out unready items and warn about plan limits.
+flipdeskGradingRoutes.post("/validate", async (c) => {
+  const userId = c.get("userId");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = parseSubmitBody(body);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, 400);
+  }
+  const result = await buildValidation(userId, parsed.items);
+  if (!result.ok) {
+    return c.json(
+      { error: result.error, details: result.details },
+      result.status as 400,
+    );
+  }
+  return c.json(result.result);
+});
+
+// Maps a FlipDesk photo type to the GradeThread submission_images image_type.
+// Returns null for photos that aren't useful for grading (interior/flatlay/on_model).
+function mapPhotoTypeForGrading(t: string): string | null {
+  if (t === "front") return "front";
+  if (t === "back") return "back";
+  if (t === "tag") return "label";
+  if (t === "detail" || t === "detail_2" || t === "detail_3") return "detail";
+  if (t === "defect") return "defect";
+  return null;
+}
 
 // Submit one or many inventory items for grading.
 // Body: { items: Array<{ inventory_item_id: string; tier: "standard" | "premium" | "express" }> }
-flipdeskGradingRoutes.post("/submit", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+//
+// For each item:
+//   1. Create a `submissions` row with metadata copied from inventory_items
+//   2. Copy eligible item_photos → submission-images bucket (new path)
+//   3. Insert `submission_images` rows
+//   4. Insert `flipdesk_grading_submissions` linking the two
+//   5. Increment user grade counter
+//   6. Fire processSubmission() async (status flips pending → processing → completed)
+//
+// Returns a per-item result: success rows include submission_id + cost;
+// failed rows include the blocker. Partial success is normal — failing
+// items don't block successful ones.
+flipdeskGradingRoutes.post("/submit", async (c) => {
+  const userId = c.get("userId");
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const parsed = parseSubmitBody(body);
+  if (!parsed.ok) {
+    return c.json({ error: parsed.error }, 400);
+  }
+
+  const validation = await buildValidation(userId, parsed.items);
+  if (!validation.ok) {
+    return c.json(
+      { error: validation.error, details: validation.details },
+      validation.status as 400,
+    );
+  }
+  if (!validation.result.can_submit) {
+    return c.json(
+      {
+        error: validation.result.limit_exceeded
+          ? "Monthly grade limit would be exceeded. Upgrade your plan or wait for the next reset."
+          : "One or more items are not ready for grading. Call /validate for per-item blockers.",
+        validation: validation.result,
+      },
+      422,
+    );
+  }
+
+  type SubmitResult =
+    | {
+        ok: true;
+        inventory_item_id: string;
+        submission_id: string;
+        flipdesk_grading_submission_id: string;
+        tier: GradingTier;
+        cost: number;
+      }
+    | {
+        ok: false;
+        inventory_item_id: string;
+        error: string;
+      };
+
+  const results: SubmitResult[] = [];
+  let successfullySubmitted = 0;
+
+  for (const item of validation.result.items) {
+    const tier = item.tier;
+    const cost = item.cost;
+    try {
+      // Re-load full item row so we have brand/description for the
+      // submission insert. buildValidation only selected the fields it
+      // needed for readiness checks.
+      const { data: itemRow, error: itemErr } = await supabaseAdmin
+        .from("inventory_items")
+        .select(
+          "id, user_id, title, brand, description, garment_type, garment_category",
+        )
+        .eq("id", item.inventory_item_id)
+        .maybeSingle();
+      if (itemErr || !itemRow) {
+        throw new Error("Item lookup failed");
+      }
+      const it = itemRow as {
+        id: string;
+        user_id: string;
+        title: string | null;
+        brand: string | null;
+        description: string | null;
+        garment_type: string;
+        garment_category: string;
+      };
+      if (it.user_id !== userId) throw new Error("Item ownership mismatch");
+
+      // 1. Create submissions row
+      const { data: subInsert, error: subErr } = await supabaseAdmin
+        .from("submissions")
+        .insert({
+          user_id: userId,
+          garment_type: it.garment_type,
+          garment_category: it.garment_category,
+          title: (it.title ?? "").trim() || "Untitled item",
+          brand: it.brand,
+          description: it.description,
+          status: "pending",
+        })
+        .select("id")
+        .single();
+      if (subErr || !subInsert) {
+        throw new Error(`Submission create failed: ${subErr?.message}`);
+      }
+      const submissionId = (subInsert as { id: string }).id;
+
+      // 2. Load item photos eligible for grading (sort_order ascending so
+      //    detail_1/2/3 land in a sensible order in the submission too).
+      const { data: photos } = await supabaseAdmin
+        .from("item_photos")
+        .select("photo_type, storage_path, sort_order")
+        .eq("inventory_item_id", it.id)
+        .not("storage_path", "is", null)
+        .order("sort_order", { ascending: true });
+
+      const eligible = ((photos ?? []) as Array<{
+        photo_type: string;
+        storage_path: string;
+        sort_order: number;
+      }>)
+        .map((p) => ({
+          ...p,
+          submission_image_type: mapPhotoTypeForGrading(p.photo_type),
+        }))
+        .filter(
+          (p): p is typeof p & { submission_image_type: string } =>
+            p.submission_image_type !== null,
+        );
+
+      // 3. Copy each eligible photo into submission-images
+      const imageRecords: Array<{
+        submission_id: string;
+        image_type: string;
+        storage_path: string;
+        display_order: number;
+      }> = [];
+      for (let i = 0; i < eligible.length; i++) {
+        const photo = eligible[i]!;
+        const { data: blob, error: dlErr } = await supabaseAdmin.storage
+          .from("item-photos")
+          .download(photo.storage_path);
+        if (dlErr || !blob) {
+          throw new Error(
+            `Failed to copy photo for grading: ${dlErr?.message ?? "no body"}`,
+          );
+        }
+        const arrayBuf = await blob.arrayBuffer();
+        const ext =
+          photo.storage_path.split(".").pop()?.toLowerCase() || "webp";
+        const newPath = `${userId}/${submissionId}/${photo.submission_image_type}_${i}.${ext}`;
+        const { error: upErr } = await supabaseAdmin.storage
+          .from("submission-images")
+          .upload(newPath, new Uint8Array(arrayBuf), {
+            upsert: false,
+            contentType: blob.type || "image/webp",
+          });
+        if (upErr) {
+          throw new Error(
+            `Failed to upload photo to submission bucket: ${upErr.message}`,
+          );
+        }
+        imageRecords.push({
+          submission_id: submissionId,
+          image_type: photo.submission_image_type,
+          storage_path: newPath,
+          display_order: i,
+        });
+      }
+
+      const { error: imgInsertErr } = await supabaseAdmin
+        .from("submission_images")
+        .insert(imageRecords);
+      if (imgInsertErr) {
+        throw new Error(
+          `Failed to record submission images: ${imgInsertErr.message}`,
+        );
+      }
+
+      // 4. Link via flipdesk_grading_submissions
+      const { data: fdInsert, error: fdErr } = await supabaseAdmin
+        .from("flipdesk_grading_submissions")
+        .insert({
+          inventory_item_id: it.id,
+          submission_id: submissionId,
+          tier,
+          status: "pending",
+          cost,
+          submitted_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+      if (fdErr || !fdInsert) {
+        throw new Error(`Link create failed: ${fdErr?.message}`);
+      }
+      const fdId = (fdInsert as { id: string }).id;
+
+      // 5. Mark the item as in-grading + link it to the submission so the
+      //    grading-pipeline's inventory_items sync (see grading-pipeline.ts
+      //    step 7b) writes back grade_value/grade_label/grade_report_id
+      //    when the AI completes.
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ status: "grading", submission_id: submissionId })
+        .eq("id", it.id);
+
+      // 6. Flip submission to processing and fire-and-forget pipeline.
+      await supabaseAdmin
+        .from("submissions")
+        .update({ status: "processing" })
+        .eq("id", submissionId);
+      processSubmission(submissionId).catch((err) => {
+        console.error(
+          `[flipdesk-grading] pipeline failed for ${submissionId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+
+      successfullySubmitted++;
+      results.push({
+        ok: true,
+        inventory_item_id: it.id,
+        submission_id: submissionId,
+        flipdesk_grading_submission_id: fdId,
+        tier,
+        cost,
+      });
+    } catch (err) {
+      results.push({
+        ok: false,
+        inventory_item_id: item.inventory_item_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Bump the user's monthly counter by the number of successful submissions.
+  if (successfullySubmitted > 0) {
+    const limit = validation.result.user.plan_limit;
+    const next =
+      validation.result.user.grades_used_this_month + successfullySubmitted;
+    // Reset the window if it expired before now — mirrors grade.ts behavior.
+    const nextResetAt = new Date();
+    nextResetAt.setMonth(nextResetAt.getMonth() + 1);
+    nextResetAt.setDate(1);
+    await supabaseAdmin
+      .from("users")
+      .update({
+        grades_used_this_month: next,
+        ...(limit !== -1 ? { grade_reset_at: nextResetAt.toISOString() } : {}),
+      })
+      .eq("id", userId);
+  }
+
+  return c.json({
+    submitted: successfullySubmitted,
+    failed: results.length - successfullySubmitted,
+    results,
+  });
 });
 
 // Inbound webhook from GradeThread when a grade completes.
-// Public endpoint — must verify HMAC signature.
+//
+// In the consolidated build (FlipDesk + GradeThread share one Supabase),
+// we sync directly from the grading-pipeline — see grading-pipeline.ts
+// step 7c. This webhook receiver is reserved for Phase 2 when FlipDesk
+// runs as a separate service consuming the GradeThread Public API.
 flipdeskGradingRoutes.post("/webhook", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+  return c.json(
+    {
+      error:
+        "Webhook receiver disabled — using same-process DB sync via grading-pipeline. Enable when GradeThread Public API ships (Phase 2).",
+    },
+    501,
+  );
 });
 
-// Status lookup — used as polling fallback if webhook is missed.
-flipdeskGradingRoutes.get("/submissions/:id", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+// Status lookup — used as polling fallback for the UI in case the
+// pipeline write didn't reach the cache. Returns full state + the linked
+// grade_report payload when the grade is complete.
+flipdeskGradingRoutes.get("/submissions/:id", async (c) => {
+  const userId = c.get("userId");
+  const id = c.req.param("id");
+
+  // Load the flipdesk_grading_submissions row + ownership-check via the
+  // joined inventory_item.
+  const { data: row, error } = await supabaseAdmin
+    .from("flipdesk_grading_submissions")
+    .select(
+      "id, inventory_item_id, submission_id, tier, status, cost, submitted_at, graded_at, webhook_received_at, error, inventory_items!inner(user_id, title, grade_value, grade_label, grade_report_id, certificate_url)",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) {
+    return c.json({ error: "Lookup failed", detail: error.message }, 500);
+  }
+  if (!row) {
+    return c.json({ error: "Submission not found" }, 404);
+  }
+  const r = row as {
+    id: string;
+    inventory_item_id: string;
+    submission_id: string | null;
+    tier: string;
+    status: string;
+    cost: number;
+    submitted_at: string | null;
+    graded_at: string | null;
+    webhook_received_at: string | null;
+    error: string | null;
+    inventory_items: {
+      user_id: string;
+      title: string | null;
+      grade_value: number | null;
+      grade_label: string | null;
+      grade_report_id: string | null;
+      certificate_url: string | null;
+    };
+  };
+  if (r.inventory_items.user_id !== userId) {
+    return c.json({ error: "Submission not found" }, 404);
+  }
+
+  // Fetch the grade report on demand so a polling-only UI can render
+  // results without a second round-trip.
+  let gradeReport: Record<string, unknown> | null = null;
+  if (r.status === "completed" && r.inventory_items.grade_report_id) {
+    const { data: gr } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, ai_summary, confidence_score, certificate_id, created_at",
+      )
+      .eq("id", r.inventory_items.grade_report_id)
+      .maybeSingle();
+    if (gr) {
+      gradeReport = gr as unknown as Record<string, unknown>;
+    }
+  }
+
+  return c.json({
+    id: r.id,
+    inventory_item_id: r.inventory_item_id,
+    submission_id: r.submission_id,
+    tier: r.tier,
+    status: r.status,
+    cost: r.cost,
+    submitted_at: r.submitted_at,
+    graded_at: r.graded_at,
+    webhook_received_at: r.webhook_received_at,
+    error: r.error,
+    item: {
+      title: r.inventory_items.title,
+      grade_value: r.inventory_items.grade_value,
+      grade_label: r.inventory_items.grade_label,
+      certificate_url: r.inventory_items.certificate_url,
+    },
+    grade_report: gradeReport,
+  });
 });

@@ -17,9 +17,10 @@ import {
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
 import { PLANS, type PlanKey } from "@/lib/constants";
-import { Loader2, Upload, Download, Sparkles, Compass } from "lucide-react";
+import { Loader2, Upload, Download, Sparkles, Compass, Archive } from "lucide-react";
 import { toast } from "sonner";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
+import { useArchivePhotos } from "@/hooks/use-image-archive";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -635,6 +636,60 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       )}
+
+      <PhotoArchiveCard />
     </div>
+  );
+}
+
+function PhotoArchiveCard() {
+  const archive = useArchivePhotos();
+
+  async function run() {
+    try {
+      const r = await archive.mutateAsync();
+      const freedMB = (r.freed_bytes / (1024 * 1024)).toFixed(1);
+      if (r.archived === 0) {
+        toast.info("No photos eligible for archival yet.");
+      } else if (r.errors.length === 0) {
+        toast.success(
+          `Archived ${r.archived} photo${r.archived === 1 ? "" : "s"} · freed ${freedMB} MB.`,
+        );
+      } else {
+        toast.warning(
+          `Archived ${r.archived}, ${r.errors.length} failed. First: ${r.errors[0]?.message}`,
+          { duration: 14_000 },
+        );
+      }
+    } catch {
+      /* surfaced by hook */
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Archive className="h-4 w-4" />
+          Storage
+        </CardTitle>
+        <CardDescription>
+          Photos for items in a terminal state (sold, shipped, returned,
+          completed) older than 30 days can be moved off Supabase to
+          cold-storage on Cloudflare R2. Photos stay viewable — the URL
+          just points elsewhere.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button onClick={run} disabled={archive.isPending}>
+          {archive.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Archive className="mr-2 h-4 w-4" />
+          )}
+          Archive eligible photos
+        </Button>
+      </CardContent>
+    </Card>
   );
 }

@@ -6,7 +6,6 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
-import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import {
   REQUIRED_PHOTO_TYPES,
   OPTIONAL_PHOTO_TYPES,
@@ -43,7 +42,6 @@ export function PhotoUploader({
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
-  const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
 
   const { data: photos = [], isLoading } = useQuery({
@@ -225,6 +223,10 @@ export function PhotoUploader({
   async function saveEdit(blob: Blob) {
     if (!editingPhoto) return;
     const path = editingPhoto.storage_path;
+    if (!path) {
+      toast.error("This photo has no storage path; can't save edits.");
+      return;
+    }
     const { error: upErr } = await supabase.storage
       .from("item-photos")
       .upload(path, blob, { upsert: true, contentType: "image/jpeg" });

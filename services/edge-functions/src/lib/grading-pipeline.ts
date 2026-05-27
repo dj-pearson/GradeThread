@@ -221,6 +221,34 @@ export async function processSubmission(submissionId: string) {
       );
     }
 
+    // --- Step 7c: Sync linked flipdesk_grading_submissions, if any ---
+    // Same-process shortcut for the FlipDesk bridge — no need for the HMAC
+    // webhook dance since we share the DB. Tracks completion time + status
+    // so the FlipDesk UI can show "graded" without re-fetching the report.
+    try {
+      const nowIso = new Date().toISOString();
+      const { data: fdLink } = await supabaseAdmin
+        .from("flipdesk_grading_submissions")
+        .select("id")
+        .eq("submission_id", submissionId)
+        .maybeSingle();
+      if (fdLink) {
+        await supabaseAdmin
+          .from("flipdesk_grading_submissions")
+          .update({
+            status: "completed",
+            graded_at: nowIso,
+            webhook_received_at: nowIso,
+          })
+          .eq("id", (fdLink as { id: string }).id);
+      }
+    } catch (fdErr) {
+      console.error(
+        `[Pipeline] FlipDesk grading sync error for submission ${submissionId}:`,
+        fdErr instanceof Error ? fdErr.message : String(fdErr)
+      );
+    }
+
     const totalMs = Date.now() - startTime;
     console.log(
       `[Pipeline] Grading pipeline COMPLETE for submission ${submissionId} | ` +
@@ -289,6 +317,23 @@ export async function processSubmission(submissionId: string) {
       console.error(
         `[Pipeline] Failed to update submission status to 'failed':`,
         updateError
+      );
+    }
+
+    // Mirror failure into the FlipDesk link so the bridge UI doesn't
+    // hang at "processing" forever.
+    try {
+      await supabaseAdmin
+        .from("flipdesk_grading_submissions")
+        .update({
+          status: "failed",
+          error: errorMessage.slice(0, 500),
+        })
+        .eq("submission_id", submissionId);
+    } catch (fdErr) {
+      console.error(
+        `[Pipeline] FlipDesk failure-sync error for submission ${submissionId}:`,
+        fdErr instanceof Error ? fdErr.message : String(fdErr)
       );
     }
 

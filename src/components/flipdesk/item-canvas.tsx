@@ -62,6 +62,7 @@ import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
+import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
 import {
   resolveStatus,
   nextAction,
@@ -782,6 +783,10 @@ export function ItemCanvas({
             </p>
             <PhotoManager itemId={item.id} />
           </div>
+        </div>
+
+        <div id="canvas-grading" className="scroll-mt-4">
+          <GradeThisItemCard item={item} />
         </div>
 
         {/* eBay category check — only when the item has an active eBay

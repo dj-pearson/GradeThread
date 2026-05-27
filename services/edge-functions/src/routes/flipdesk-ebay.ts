@@ -36,6 +36,7 @@ import {
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
+import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -267,45 +268,26 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
 //   • match → upsert into `listings` (and forward inventory_items.status to 'listed' when active)
 //   • no match → snapshot into `flipdesk_ebay_listings` so the user can see
 //     orphaned eBay listings on the Reconciliation page.
-flipdeskEbayRoutes.post("/listings/pull", async (c) => {
-  if (!isEbayConfigured()) {
-    return c.json({ error: "eBay is not configured on this server." }, 503);
-  }
-  const userId = c.get("userId");
-
-  // Make sure there's an active connection — getUserAccessToken otherwise
-  // returns a confusing "no active connection" error. We also capture
-  // last_synced_at NOW so the orders sync can use it as the lower bound.
-  const { data: conn } = await supabaseAdmin
-    .from("marketplace_connections")
-    .select("id, last_synced_at")
-    .eq("user_id", userId)
-    .eq("marketplace", "ebay")
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle();
-  if (!conn) {
-    return c.json({ error: "Connect your eBay account first." }, 400);
-  }
-  const lastSyncedAt =
-    (conn as { last_synced_at: string | null }).last_synced_at ?? null;
-
+// ── Background sync helper ─────────────────────────────────────────
+// Extracted from the /listings/pull handler so we can fire it as a
+// detached promise and return 202 immediately.  The sync typically takes
+// 60-120s (N eBay API calls + Supabase writes) which exceeds Cloudflare's
+// 100s proxy timeout.  Returning 202 prevents the 524 → CORS-error cycle
+// the browser would otherwise see.
+async function doListingsPull(
+  userId: string,
+  connId: string,
+  lastSyncedAt: string | null,
+): Promise<void> {
   let offers: RemoteOffer[];
   try {
     offers = await listAllOffers(userId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
-    // Pass the eBay error detail through to the client. Sandbox needs this
-    // for debugging — typical failures are missing-scope (reconnect) and
-    // sandbox-seller-not-onboarded errors that name themselves clearly.
-    return c.json(
-      {
-        error: "Could not load offers from eBay.",
-        detail: msg.slice(0, 800),
-      },
-      502
-    );
+    // Can't surface this to the client (we already returned 202), but
+    // log it clearly so it shows up in Coolify's container logs.
+    return;
   }
 
   // Pre-load this user's SKU → inventory_item mapping so we can do the
@@ -800,24 +782,52 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   await supabaseAdmin
     .from("marketplace_connections")
     .update({ last_synced_at: new Date().toISOString() })
-    .eq("id", (conn as { id: string }).id);
+    .eq("id", connId);
 
-  return c.json({
-    ok: true,
-    total: offers.length,
-    matched,
-    unmatched,
-    skipped,
-    legacy_matched: legacyMatched,
-    legacy_unmatched: legacyUnmatched,
-    legacy_duplicates: legacyDuplicates,
-    sales_new: salesNew,
-    sales_updated: salesUpdated,
-    sales_skipped: salesSkipped,
-    sales_enriched: salesEnriched,
-    since: sinceISO,
-    errors,
-  });
+  console.log(
+    `[flipdesk-ebay] pull complete: matched=${matched} unmatched=${unmatched} ` +
+      `skipped=${skipped} legacy_matched=${legacyMatched} ` +
+      `legacy_unmatched=${legacyUnmatched} legacy_duplicates=${legacyDuplicates} ` +
+      `sales_new=${salesNew} sales_updated=${salesUpdated} ` +
+      `sales_skipped=${salesSkipped} sales_enriched=${salesEnriched} ` +
+      `errors=${errors.length}`,
+  );
+}
+
+// /listings/pull — validates the connection then fires the heavy sync as a
+// detached background task, returning 202 immediately.  The actual work is
+// done by doListingsPull() above; the frontend polls last_synced_at to know
+// when it is done.
+flipdeskEbayRoutes.post("/listings/pull", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("userId");
+
+  // Validate that the user has an active connection before firing the job.
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id, last_synced_at")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (!conn) {
+    return c.json({ error: "Connect your eBay account first." }, 400);
+  }
+  const connId = (conn as { id: string; last_synced_at: string | null }).id;
+  const lastSyncedAt =
+    (conn as { id: string; last_synced_at: string | null }).last_synced_at ?? null;
+
+  // Fire-and-forget — do NOT await this. Returning 202 before the work starts
+  // means the HTTP connection closes immediately, safely below Cloudflare's
+  // 100s proxy timeout. The frontend polls last_synced_at to detect completion.
+  void doListingsPull(userId, connId, lastSyncedAt).catch((err) =>
+    console.error("[flipdesk-ebay] background sync crashed:", err),
+  );
+
+  return c.json({ ok: true, message: "Sync started in background." }, 202);
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────
@@ -1397,67 +1407,18 @@ flipdeskEbayRoutes.post("/payouts/import-csv", async (c) => {
     return c.json({ imported: 0, skipped, duplicates: 0 });
   }
 
-  // Pre-fetch existing payout IDs for this user so we can dedupe in-memory
-  // rather than relying on a unique constraint that doesn't exist yet.
-  const candidateIds = Array.from(new Set(payouts.map((p) => p.payoutId)));
-  const { data: existing } = await supabaseAdmin
-    .from("payout_imports")
-    .select("raw_payload, payout_date, amount")
-    .eq("user_id", userId)
-    .eq("marketplace", "ebay")
-    .in(
-      "raw_payload->>payoutid" as never,
-      candidateIds as never,
+  try {
+    const { inserted, duplicates } = await ingestPayoutsForUser(
+      userId,
+      payouts,
+      "csv_upload",
     );
-
-  const seen = new Set<string>();
-  for (const row of (existing ?? []) as Array<{
-    raw_payload: Record<string, unknown>;
-    payout_date: string | null;
-    amount: number | null;
-  }>) {
-    const id = String(row.raw_payload?.payoutid ?? "");
-    if (id) seen.add(`${id}|${row.payout_date}|${row.amount}`);
+    return c.json({ imported: inserted, skipped, duplicates });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[flipdesk-ebay] payouts import failed:", msg);
+    return c.json({ error: "Failed to write payouts.", detail: msg }, 502);
   }
-
-  const toInsert = payouts
-    .filter((p) => !seen.has(`${p.payoutId}|${p.payoutDate}|${p.amount}`))
-    .map((p) => ({
-      user_id: userId,
-      marketplace: "ebay" as const,
-      import_method: "csv_upload" as const,
-      raw_payload: {
-        payoutid: p.payoutId,
-        currency: p.currency,
-        status: p.status,
-        ...p.raw,
-      },
-      payout_date: p.payoutDate,
-      amount: p.amount,
-      reconciled: false,
-    }));
-  const duplicates = payouts.length - toInsert.length;
-
-  if (toInsert.length === 0) {
-    return c.json({ imported: 0, skipped, duplicates });
-  }
-
-  const { error } = await supabaseAdmin
-    .from("payout_imports")
-    .insert(toInsert);
-  if (error) {
-    console.error("[flipdesk-ebay] payouts import failed:", error);
-    return c.json(
-      { error: "Failed to write payouts.", detail: error.message },
-      502,
-    );
-  }
-
-  return c.json({
-    imported: toInsert.length,
-    skipped,
-    duplicates,
-  });
 });
 
 // Live active-listing comps for the composer's pricing panel. Uses the

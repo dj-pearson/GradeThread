@@ -55,7 +55,7 @@ function getDaysListed(listing: ListingRow): number {
   );
 }
 
-export function generateListingSuggestions(
+function generateListingSuggestions(
   items: InventoryItemRow[],
   listings: ListingRow[],
   gradeReports: GradeReportRow[]

@@ -1005,14 +1005,29 @@ export function FlipdeskListingsPage() {
               onClick={async () => {
                 try {
                   const r = await syncEbay.mutateAsync();
-                  const totalMatched = r.matched + r.legacy_matched;
-                  const legacyLine = r.legacy_matched > 0
-                    ? ` (${r.legacy_matched} legacy)`
+                  // Background-sync path — server returned 202, counts will
+                  // land in container logs instead of this response. Show a
+                  // running-in-background toast and bail.
+                  if (r.started) {
+                    toast.success(
+                      "Sync started — listings + sales will refresh in a minute.",
+                    );
+                    return;
+                  }
+                  const matched = r.matched ?? 0;
+                  const legacyMatched = r.legacy_matched ?? 0;
+                  const salesNew = r.sales_new ?? 0;
+                  const salesUpdated = r.sales_updated ?? 0;
+                  const unmatched = r.unmatched ?? 0;
+                  const legacyUnmatched = r.legacy_unmatched ?? 0;
+                  const totalMatched = matched + legacyMatched;
+                  const legacyLine = legacyMatched > 0
+                    ? ` (${legacyMatched} legacy)`
                     : "";
-                  const salesLine = r.sales_new + r.sales_updated > 0
-                    ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${r.sales_updated > 0 ? `, ${r.sales_updated} updated` : ""}`
+                  const salesLine = salesNew + salesUpdated > 0
+                    ? ` • ${salesNew} new sale${salesNew === 1 ? "" : "s"}${salesUpdated > 0 ? `, ${salesUpdated} updated` : ""}`
                     : "";
-                  const totalUnmatched = r.unmatched + r.legacy_unmatched;
+                  const totalUnmatched = unmatched + legacyUnmatched;
                   // Compose toast description: orphans first, then any
                   // partial-failure errors (the orders pass may 403 silently
                   // when the OAuth token is missing the sell.fulfillment

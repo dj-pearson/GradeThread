@@ -263,7 +263,7 @@ export function AdminReviewsPage() {
     staleTime: 30 * 1000,
   });
 
-  const items = data ?? [];
+  const items = useMemo(() => data ?? [], [data]);
 
   // ─── Filtering ────────────────────────────────────────────────────
 

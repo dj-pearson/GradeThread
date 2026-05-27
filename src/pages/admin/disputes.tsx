@@ -286,7 +286,7 @@ export function AdminDisputesPage() {
     staleTime: 30 * 1000,
   });
 
-  const items = data ?? [];
+  const items = useMemo(() => data ?? [], [data]);
 
   // ─── Filtering ────────────────────────────────────────────────────
 

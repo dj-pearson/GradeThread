@@ -1,3 +1,7 @@
+// This file is a router definition module — every lazy() page binding the
+// rule treats as a component declaration, but they're consumed only by the
+// router config below. Fast-refresh constraints don't apply here.
+/* eslint-disable react-refresh/only-export-components */
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";

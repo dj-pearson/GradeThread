@@ -127,10 +127,17 @@ export function CommandPalette() {
     return () => clearTimeout(handle);
   }, [query]);
 
-  // Read whatever the app already cached — no extra round-trips.
-  const items =
-    qc.getQueryData<ItemFullRow[]>(["items_full", user?.id]) ?? [];
-  const sources = qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? [];
+  // Read whatever the app already cached — no extra round-trips. Wrapped
+  // in useMemo so the references are stable for the downstream useMemo
+  // that builds the entries list (otherwise it re-runs every render).
+  const items = useMemo(
+    () => qc.getQueryData<ItemFullRow[]>(["items_full", user?.id]) ?? [],
+    [qc, user?.id],
+  );
+  const sources = useMemo(
+    () => qc.getQueryData<SourceRow[]>(["sources", user?.id]) ?? [],
+    [qc, user?.id],
+  );
 
   const go = (to: string) => {
     setOpen(false);

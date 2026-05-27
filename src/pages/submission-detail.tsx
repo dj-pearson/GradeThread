@@ -146,13 +146,20 @@ export function SubmissionDetailPage() {
     if (reportData) setGradeReport(reportData);
   }, [id]);
 
-  // Re-fetch when submission status changes via realtime
+  // Re-fetch when submission status changes via realtime. We only care
+  // about `.status` here — read it into a local so the deps array is
+  // honest and we don't re-run on unrelated submission-row updates.
+  const submissionStatus = submission?.status;
   useEffect(() => {
-    if (!submission || submission.status === "processing" || submission.status === "pending") {
+    if (
+      !submissionStatus ||
+      submissionStatus === "processing" ||
+      submissionStatus === "pending"
+    ) {
       const interval = setInterval(refetchData, 5000);
       return () => clearInterval(interval);
     }
-  }, [submission?.status, refetchData]);
+  }, [submissionStatus, refetchData]);
 
   useEffect(() => {
     if (!id) return;

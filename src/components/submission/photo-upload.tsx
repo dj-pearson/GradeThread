@@ -168,10 +168,10 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
 
       try {
         const compressed = await compressImage(file);
-        const compressedFile = new File([compressed], file.name, {
-          type: compressed.type,
+        const compressedFile = new File([compressed.blob], file.name, {
+          type: compressed.blob.type,
         });
-        const preview = URL.createObjectURL(compressed);
+        const preview = URL.createObjectURL(compressed.blob);
 
         setSlots((prev) => {
           const current = getSlot(prev, slotKey);

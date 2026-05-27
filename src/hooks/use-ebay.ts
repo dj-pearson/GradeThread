@@ -17,12 +17,14 @@ export interface EbayConnection {
 // Reads marketplace_connections directly via supabase-js so we don't need a
 // dedicated edge endpoint just to answer "is this user connected?". RLS keeps
 // it scoped to the current user.
-export function useEbayConnection() {
+// Pass `pollingInterval` (ms) to fast-poll while a background sync is running.
+export function useEbayConnection(pollingInterval?: number) {
   const user = useAuthStore((s) => s.user);
   return useQuery({
     queryKey: ["ebay_connection", user?.id],
     enabled: !!user,
-    staleTime: 60_000,
+    staleTime: pollingInterval ? 0 : 60_000,
+    refetchInterval: pollingInterval ?? false,
     queryFn: async (): Promise<EbayConnection | null> => {
       const { data, error } = await supabase
         .from("marketplace_connections")
@@ -448,24 +450,32 @@ export function useEbayEndListing() {
 
 export interface SyncEbayListingsResponse {
   ok: boolean;
-  total: number;
-  matched: number;
-  unmatched: number;
-  skipped: number;
-  legacy_matched: number;
-  legacy_unmatched: number;
-  legacy_duplicates: number;
-  sales_new: number;
-  sales_updated: number;
-  sales_skipped: number;
-  sales_enriched: number;
-  since: string | null;
-  errors: string[];
+  /** True when the server accepted the request and is running the sync in
+   *  the background (HTTP 202). The frontend should poll last_synced_at. */
+  started?: boolean;
+  total?: number;
+  matched?: number;
+  unmatched?: number;
+  skipped?: number;
+  legacy_matched?: number;
+  legacy_unmatched?: number;
+  legacy_duplicates?: number;
+  sales_new?: number;
+  sales_updated?: number;
+  sales_skipped?: number;
+  sales_enriched?: number;
+  since?: string | null;
+  errors?: string[];
 }
 
 // Pulls every offer from the connected eBay seller account into FlipDesk.
 // Matched (by SKU) → updates the local `listings` row + status.
 // Unmatched → snapshots into `flipdesk_ebay_listings` for reconciliation.
+//
+// The server returns 202 immediately and runs the actual work in the
+// background, so `started: true` means "accepted" not "completed".
+// The marketplaces page polls `useEbayConnection` until `last_synced_at`
+// advances to detect completion.
 export function useSyncEbayListings() {
   const qc = useQueryClient();
   return useMutation<SyncEbayListingsResponse, Error, void>({
@@ -491,11 +501,20 @@ export function useSyncEbayListings() {
         const err = new Error(json.detail ? `${top}\n${json.detail}` : top);
         throw err;
       }
+      // 202 = accepted, running in background
+      if (res.status === 202) {
+        return { ok: true, started: true };
+      }
       return json as SyncEbayListingsResponse;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["items_full"] });
-      qc.invalidateQueries({ queryKey: ["ebay_connection"] });
+    onSuccess: (data) => {
+      // If the sync completed synchronously (200), invalidate immediately.
+      // If it's still running (202), the marketplaces page will poll and
+      // call these invalidations when last_synced_at changes.
+      if (!data.started) {
+        qc.invalidateQueries({ queryKey: ["items_full"] });
+        qc.invalidateQueries({ queryKey: ["ebay_connection"] });
+      }
     },
     onError: (err) => {
       const [head, ...rest] = err.message.split("\n");

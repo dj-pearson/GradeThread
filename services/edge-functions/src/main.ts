@@ -91,6 +91,7 @@ app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
+app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
