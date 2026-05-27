@@ -12,12 +12,19 @@ struct MarketplacesView: View {
     @State private var syncStore = EbaySyncStore()
     @State private var showingSyncModal = false
 
+    // US-186 reconciliation count badge — refreshed alongside connection
+    // state so the link only shows up when there's actually orphan work.
+    @State private var orphanCount: Int = 0
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 headerCard
                 if let userId = currentUserId() {
                     connectionCard(userId: userId)
+                    if orphanCount > 0 {
+                        reconciliationCard
+                    }
                 }
                 Spacer(minLength: 0)
             }
@@ -30,11 +37,13 @@ struct MarketplacesView: View {
         .task {
             if let userId = currentUserId() {
                 await store.refresh(userId: userId)
+                await refreshOrphanCount(userId: userId)
             }
         }
         .refreshable {
             if let userId = currentUserId() {
                 await store.refresh(userId: userId)
+                await refreshOrphanCount(userId: userId)
             }
         }
         .sheet(isPresented: $showingSyncModal) {
@@ -42,6 +51,55 @@ struct MarketplacesView: View {
                 store: syncStore,
                 onDismiss: { syncStore.reset() }
             )
+        }
+    }
+
+    private var reconciliationCard: some View {
+        NavigationLink {
+            ReconciliationView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.left.arrow.right")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.orange)
+                    .frame(width: 40, height: 40)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reconciliation")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("\(orphanCount) unmatched eBay listing\(orphanCount == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func refreshOrphanCount(userId: String) async {
+        // Lightweight count query — we only need the badge number here;
+        // the full list loads when the user opens ReconciliationView.
+        struct Row: Decodable { let id: String }
+        do {
+            let rows: [Row] = try await SupabaseShared.client
+                .from("flipdesk_ebay_listings")
+                .select("id")
+                .eq("user_id", value: userId)
+                .eq("match_status", value: "unmatched")
+                .execute()
+                .value
+            orphanCount = rows.count
+        } catch {
+            orphanCount = 0
         }
     }
 

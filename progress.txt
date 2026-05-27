@@ -169,8 +169,52 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 18/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage (validate, push, price, end) wired single + bulk. US-186→US-199 remaining
+- iOS app (US-168 → US-199): 19/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage; US-186 reconciliation queue with Create / Link / Ignore swipe actions + bulk Create all. US-187→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS reconciliation queue (US-186)
+Closes the eBay loop. New users connecting an account with existing
+listings now get a Create / Link / Ignore triage queue + bulk
+'Create all' shortcut.
+
+What landed in ios/GradeThread/Marketplaces/Reconciliation/:
+- ReconciliationTypes.swift — OrphanEbayListing (Codable mirror of
+  flipdesk_ebay_listings with displayTitle/suggestedTitle fallbacks),
+  ReconciliationOutcome + .isSuccess, ReconciliationBulkResult with
+  all-succeeded / singular / all-failed / partial summary grammar.
+- ReconciliationService.swift — fetchOrphans, createItem (insert
+  inventory_items + markMatched), link (markMatched only), ignore
+  (match_status=ignored), createAll (per-row failure aggregation).
+- ReconciliationStore.swift — phase machine (loading / ready /
+  failed) + lastBulkResult for the toast. runAction performs
+  optimistic removal and restores the row on .failed so retries
+  work cleanly.
+- ReconciliationView.swift — main list. Top bar with 'Create all (N)'
+  brand-navy button, .swipeActions on every row (leading → Create
+  item per AC; trailing → Ignore destructive + Link blue),
+  confirmationDialog for bulk, alert for the result summary. Empty
+  + failure surfaces.
+- CreateItemFromListingSheet.swift — pre-filled title + SKU +
+  target price from the orphan, user-editable, Create button.
+  Posts .inventoryPullRequested on success.
+- LinkItemSheet.swift — @Query LocalInventoryItem with .searchable
+  + tap-to-link rows. Reuses InventoryFilter.filter from US-180 so
+  search rules stay identical to the inventory list.
+
+MarketplacesView gets a NavigationLink card 'Reconciliation' with
+the orphan count, surfaced only when count > 0. Count refreshed
+via a lightweight id-only query on appear + pull-to-refresh.
+
+Tests in ReconciliationTests cover OrphanEbayListing decoding with
+all snake-case fields + every nullable, displayTitle fallback for
+nil and empty-string titles, ReconciliationOutcome.isSuccess for
+all cases, ReconciliationBulkResult.summary for every grammar
+branch, ReconciliationStore initial-loading + runAction
+removes-on-success + restores-on-failure with surfaced message.
+
+Tab-bar badge on the Marketplaces tab is deferred — the in-view
+card badge covers the AC's count signal without restructuring
+MainShell's tab item builders.
 
 ## Session Notes (2026-05-27) — iOS eBay publish + manage (US-185)
 The full publish flow now works from the iOS canvas — validate, push,
