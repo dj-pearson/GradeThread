@@ -885,6 +885,37 @@ export async function updateOfferPrice(
   );
 }
 
+// Read-modify-write of arbitrary offer fields. eBay's PUT /offer/{id}
+// replaces the whole body, so we round-trip the current state and merge
+// only the supplied patch. Use this for any offer revision beyond price.
+export async function updateOfferFields(
+  userId: string,
+  offerId: string,
+  patch: { price?: number; currency?: string; listingDescription?: string }
+): Promise<void> {
+  const current = await getOffer(userId, offerId);
+
+  if (patch.price !== undefined) {
+    const pricingSummary =
+      (current.pricingSummary as Record<string, unknown> | undefined) ?? {};
+    pricingSummary.price = {
+      value: patch.price.toFixed(2),
+      currency: patch.currency ?? "USD",
+    };
+    current.pricingSummary = pricingSummary;
+  }
+
+  if (patch.listingDescription !== undefined) {
+    current.listingDescription = patch.listingDescription;
+  }
+
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+    { method: "PUT", body: JSON.stringify(current) }
+  );
+}
+
 // Withdraws a published offer — ends the live eBay listing. The offer
 // record itself stays, so a future re-publish reuses the same offerId.
 export async function withdrawOffer(

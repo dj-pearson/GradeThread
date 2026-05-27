@@ -22,6 +22,7 @@ import {
   publishOffer,
   searchBrowseComps,
   suggestCategories,
+  updateOfferFields,
   updateOfferPrice,
   upsertConnection,
   withdrawOffer,
@@ -885,6 +886,198 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
     .eq("id", listingId);
 
   return c.json({ ok: true, listing_id: listingId, price });
+});
+
+// Revises a live listing — title / description / price. Photos and aspects
+// flow through implicitly via the inventory_item PUT (which is sourced from
+// current local state), so editing a photo via the photo manager and then
+// hitting revise will sync the new image set to eBay.
+flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("userId");
+  const listingId = c.req.param("id");
+
+  let body: {
+    title?: unknown;
+    description?: unknown;
+    listing_price?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const nextTitle =
+    typeof body.title === "string" ? body.title.trim() : undefined;
+  const nextDesc =
+    typeof body.description === "string" ? body.description.trim() : undefined;
+  const nextPrice =
+    body.listing_price !== undefined && body.listing_price !== null
+      ? Number(body.listing_price)
+      : undefined;
+
+  const hasTitle = nextTitle !== undefined;
+  const hasDesc = nextDesc !== undefined;
+  const hasPrice = nextPrice !== undefined;
+
+  if (!hasTitle && !hasDesc && !hasPrice) {
+    return c.json(
+      { error: "Provide at least one of: title, description, listing_price" },
+      400
+    );
+  }
+  if (hasTitle && !nextTitle) {
+    return c.json({ error: "title cannot be empty" }, 400);
+  }
+  if (
+    hasPrice &&
+    (!Number.isFinite(nextPrice) || (nextPrice as number) <= 0)
+  ) {
+    return c.json({ error: "listing_price must be a positive number" }, 400);
+  }
+
+  const row = await loadListingOwned(listingId, userId);
+  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.listing.platform_offer_id) {
+    return c.json(
+      {
+        error:
+          "This listing has no eBay offer id. Sync from eBay or republish to enable edits.",
+      },
+      409
+    );
+  }
+  const offerId = row.listing.platform_offer_id;
+  const itemId = row.listing.inventory_item_id;
+
+  // Update local state first so the inventory_item PUT below reads the
+  // canonical (post-edit) values. Any eBay error rolls back via the
+  // user re-syncing; we keep local as the source of truth.
+  const localUpdates: Record<string, unknown> = {};
+  if (hasTitle) localUpdates.listing_title = nextTitle;
+  if (hasDesc) localUpdates.listing_description = nextDesc;
+  if (hasPrice) localUpdates.listing_price = nextPrice;
+  await supabaseAdmin
+    .from("listings")
+    .update(localUpdates)
+    .eq("id", listingId);
+
+  // Re-PUT the inventory_item when product fields changed (title / desc).
+  // We send full state — photos, aspects, brand — so any drift from the
+  // photo manager / category picker also syncs here.
+  if (hasTitle || hasDesc) {
+    const { data: itemRow } = await supabaseAdmin
+      .from("inventory_items")
+      .select(
+        "id, user_id, title, brand, sku, description, condition_notes, grade_value, grade_label, ebay_aspects"
+      )
+      .eq("id", itemId)
+      .maybeSingle();
+    if (!itemRow || (itemRow as { user_id: string }).user_id !== userId) {
+      return c.json({ error: "Item not found" }, 404);
+    }
+    const item = itemRow as {
+      id: string;
+      user_id: string;
+      title: string | null;
+      brand: string | null;
+      sku: string | null;
+      description: string | null;
+      condition_notes: string | null;
+      grade_value: number | null;
+      grade_label: string | null;
+      ebay_aspects: Record<string, string[]> | null;
+    };
+    const sku =
+      item.sku && item.sku.trim()
+        ? item.sku.trim()
+        : `FD-${item.id.slice(0, 8)}`;
+
+    const { data: photoRows } = await supabaseAdmin
+      .from("item_photos")
+      .select("storage_path, photo_url, sort_order")
+      .eq("inventory_item_id", itemId)
+      .order("sort_order", { ascending: true });
+    const imageUrls = (
+      (photoRows ?? []) as Array<{
+        storage_path: string | null;
+        photo_url: string | null;
+      }>
+    )
+      .map((p) => {
+        if (p.photo_url) return p.photo_url;
+        if (p.storage_path) {
+          return supabaseAdmin.storage
+            .from("item-photos")
+            .getPublicUrl(p.storage_path).data.publicUrl;
+        }
+        return null;
+      })
+      .filter((u): u is string => !!u);
+
+    const finalTitle = hasTitle ? (nextTitle as string) : (item.title ?? "").trim();
+    const finalDesc = hasDesc
+      ? (nextDesc as string)
+      : (item.description ?? finalTitle).trim() || finalTitle;
+
+    try {
+      await createOrReplaceInventoryItem(userId, sku, {
+        product: {
+          title: finalTitle,
+          description: finalDesc,
+          aspects: item.ebay_aspects ?? undefined,
+          imageUrls,
+          brand:
+            typeof item.brand === "string" && item.brand.trim()
+              ? item.brand.trim()
+              : undefined,
+        },
+        condition: mapEbayCondition(item.grade_value, item.grade_label),
+        conditionDescription: item.condition_notes?.trim() || undefined,
+        availability: { shipToLocationAvailability: { quantity: 1 } },
+      });
+    } catch (err) {
+      console.error("[flipdesk-ebay] revise inventory_item failed:", err);
+      return c.json(
+        {
+          error: "eBay rejected the revision.",
+          detail:
+            err instanceof Error ? err.message.slice(0, 500) : String(err),
+        },
+        502
+      );
+    }
+  }
+
+  // Offer side handles price + listing description (offer.listingDescription
+  // overrides product.description on the live listing). Batched into one PUT.
+  if (hasPrice || hasDesc) {
+    try {
+      await updateOfferFields(userId, offerId, {
+        price: hasPrice ? (nextPrice as number) : undefined,
+        listingDescription: hasDesc ? (nextDesc as string) : undefined,
+      });
+    } catch (err) {
+      console.error("[flipdesk-ebay] revise offer failed:", err);
+      return c.json(
+        {
+          error: "eBay rejected the offer revision.",
+          detail:
+            err instanceof Error ? err.message.slice(0, 500) : String(err),
+        },
+        502
+      );
+    }
+  }
+
+  return c.json({
+    ok: true,
+    listing_id: listingId,
+    updated: localUpdates,
+  });
 });
 
 // Compares the current eBay category against what the Taxonomy API would

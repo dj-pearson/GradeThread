@@ -362,6 +362,56 @@ export function useEbayUpdateListingPrice() {
   });
 }
 
+// Revises a live listing — title / description / price all optional.
+// Server PUTs the inventory_item and offer as needed. 409 → no offer_id
+// (caller should treat the listing as not-yet-on-eBay and edit locally).
+export interface ReviseListingPatch {
+  title?: string;
+  description?: string;
+  listing_price?: number;
+}
+
+export function useEbayReviseListing() {
+  return useMutation<
+    {
+      ok: true;
+      listing_id: string;
+      updated: Partial<{
+        listing_title: string;
+        listing_description: string;
+        listing_price: number;
+      }>;
+    },
+    Error & { status?: number },
+    { listingId: string; patch: ReviseListingPatch }
+  >({
+    mutationFn: async ({ listingId, patch }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(
+          listingId
+        )}/revise`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: await authHeader(),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(patch),
+        }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err: Error & { status?: number } = new Error(
+          json.detail || json.error || "Listing revision failed."
+        );
+        err.status = res.status;
+        throw err;
+      }
+      return json;
+    },
+  });
+}
+
 // Ends a live listing on eBay (Sell API withdrawOffer). Writes through to
 // local state on success: listings.listing_status='ended', inventory_items.
 // status='drafted'. Returns 409 when there's no platform_offer_id.

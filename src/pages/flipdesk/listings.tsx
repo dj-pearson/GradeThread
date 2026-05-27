@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import {
   Download,
   Sparkles,
   Rocket,
+  RotateCcw,
   X,
   ChevronUp,
   ChevronDown,
@@ -70,6 +71,7 @@ import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
+import { ReviseListingDialog } from "@/components/flipdesk/revise-listing-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
@@ -89,6 +91,7 @@ import {
   useEbayConnection,
   useEbayEndListing,
   useEbayUpdateListingPrice,
+  usePublishToEbay,
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
@@ -345,6 +348,7 @@ export function FlipdeskListingsPage() {
     null,
   );
   const [publishItem, setPublishItem] = useState<ItemFullRow | null>(null);
+  const [reviseItem, setReviseItem] = useState<ItemFullRow | null>(null);
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(
     null,
   );
@@ -352,6 +356,11 @@ export function FlipdeskListingsPage() {
   const syncEbay = useSyncEbayListings();
   const updatePrice = useEbayUpdateListingPrice();
   const endListingApi = useEbayEndListing();
+  const publishApi = usePublishToEbay();
+  const [bulkPublishProgress, setBulkPublishProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   // Advanced filter — composes ON TOP of the stage tabs. Initialised from
   // the URL so saved-view links round-trip cleanly.
@@ -396,7 +405,8 @@ export function FlipdeskListingsPage() {
   const isToList = tab === "to_list";
   const isSold = tab === "sold";
   const isActive = tab === "active";
-  const selectable = isToList || isSold || isActive;
+  const isDrafts = tab === "drafts";
+  const selectable = isToList || isSold || isActive || isDrafts;
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
@@ -862,6 +872,54 @@ export function FlipdeskListingsPage() {
     }
   }
 
+  // Sequential publish so we don't hammer eBay's rate limits and so
+  // partial failures surface in a deterministic order. Each publish hits
+  // the validate-then-push pipeline server-side, so blockers come back as
+  // structured errors (the same the dialog surfaces single-item).
+  async function bulkPublishToEbay() {
+    if (selected.size === 0 || !ebayConnection) return;
+    const ids = Array.from(selected);
+    setBusy(true);
+    setBulkPublishProgress({ done: 0, total: ids.length });
+    const errors: { title: string; message: string }[] = [];
+    let published = 0;
+    for (let i = 0; i < ids.length; i++) {
+      const id = ids[i]!;
+      const it = items.find((x) => x.id === id);
+      if (!it) {
+        setBulkPublishProgress({ done: i + 1, total: ids.length });
+        continue;
+      }
+      try {
+        await publishApi.mutateAsync({ itemId: id });
+        published++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push({ title: it.item_title, message: msg.split("\n")[0] ?? msg });
+      }
+      setBulkPublishProgress({ done: i + 1, total: ids.length });
+    }
+    setBusy(false);
+    setBulkPublishProgress(null);
+    setSelected(new Set());
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    if (errors.length === 0) {
+      toast.success(
+        `Published ${published} listing${published === 1 ? "" : "s"} to eBay.`,
+      );
+    } else if (published === 0) {
+      toast.error(
+        `Publish failed for all ${errors.length}. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+        { duration: 14_000 },
+      );
+    } else {
+      toast.warning(
+        `Published ${published}, ${errors.length} failed. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+        { duration: 14_000 },
+      );
+    }
+  }
+
   async function bulkEndListings() {
     if (selected.size === 0) return;
     setBusy(true);
@@ -1190,9 +1248,13 @@ export function FlipdeskListingsPage() {
                 ". Select rows to bulk-create drafts."
               : isSold
                 ? "Most recent sale first. Select rows to bulk mark shipped."
-                : activeTab.sortDir === "asc"
-                  ? "Oldest first. Click a row for full details."
-                  : "Most recent first. Click a row for full details."}
+                : isDrafts
+                  ? ebayConnection
+                    ? "Oldest first. Select rows to bulk-publish to eBay."
+                    : "Oldest first. Click a row to publish, or connect eBay for bulk-publish."
+                  : activeTab.sortDir === "asc"
+                    ? "Oldest first. Click a row for full details."
+                    : "Most recent first. Click a row for full details."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -1306,16 +1368,44 @@ export function FlipdeskListingsPage() {
                       ) : isActive ? (
                         <>
                           <TableHead className="w-24 text-right">
-                            Price
+                            <SortHeader
+                              field="list_price"
+                              align="right"
+                              columnSort={columnSort}
+                              onToggle={toggleColumnSort}
+                            >
+                              Price
+                            </SortHeader>
                           </TableHead>
                           <TableHead className="w-16 text-right">
-                            Views
+                            <SortHeader
+                              field="listing_views"
+                              align="right"
+                              columnSort={columnSort}
+                              onToggle={toggleColumnSort}
+                            >
+                              Views
+                            </SortHeader>
                           </TableHead>
                           <TableHead className="w-16 text-right">
-                            Watchers
+                            <SortHeader
+                              field="listing_watchers"
+                              align="right"
+                              columnSort={columnSort}
+                              onToggle={toggleColumnSort}
+                            >
+                              Watchers
+                            </SortHeader>
                           </TableHead>
                           <TableHead className="w-20 text-right">
-                            Days listed
+                            <SortHeader
+                              field="list_date"
+                              align="right"
+                              columnSort={columnSort}
+                              onToggle={toggleColumnSort}
+                            >
+                              Days listed
+                            </SortHeader>
                           </TableHead>
                         </>
                       ) : (
@@ -1337,7 +1427,7 @@ export function FlipdeskListingsPage() {
                         <TableHead className="w-16 text-right">Age</TableHead>
                       )}
                       {isActive && (
-                        <TableHead className="w-24 text-right">
+                        <TableHead className="w-32 text-right">
                           Actions
                         </TableHead>
                       )}
@@ -1568,6 +1658,18 @@ export function FlipdeskListingsPage() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="flex items-center justify-end gap-1">
+                                {ebayConnection && it.listing_id && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setReviseItem(it)}
+                                    aria-label="Edit listing on eBay"
+                                    title="Edit title/description/price on eBay"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1595,36 +1697,51 @@ export function FlipdeskListingsPage() {
                               onClick={(e) => e.stopPropagation()}
                             >
                               <div className="flex items-center justify-end gap-1">
-                                {ebayConnection ? (
-                                  <>
-                                    <Button
-                                      size="sm"
-                                      className="h-6 px-2 text-[10px]"
-                                      onClick={() => setPublishItem(it)}
-                                    >
-                                      <Rocket className="mr-1 h-3 w-3" />
-                                      Publish
-                                    </Button>
+                                {(() => {
+                                  const isRelist = it.listing_status === "ended";
+                                  if (ebayConnection) {
+                                    return (
+                                      <>
+                                        <Button
+                                          size="sm"
+                                          className="h-6 px-2 text-[10px]"
+                                          onClick={() => setPublishItem(it)}
+                                          title={
+                                            isRelist
+                                              ? "Republish to eBay (same SKU, new listing)"
+                                              : undefined
+                                          }
+                                        >
+                                          {isRelist ? (
+                                            <RotateCcw className="mr-1 h-3 w-3" />
+                                          ) : (
+                                            <Rocket className="mr-1 h-3 w-3" />
+                                          )}
+                                          {isRelist ? "Relist" : "Publish"}
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-6 px-2 text-[10px]"
+                                          onClick={() => setMarkListedItem(it)}
+                                          title="Skip eBay API — just record that it's live"
+                                        >
+                                          Mark
+                                        </Button>
+                                      </>
+                                    );
+                                  }
+                                  return (
                                     <Button
                                       variant="outline"
                                       size="sm"
                                       className="h-6 px-2 text-[10px]"
                                       onClick={() => setMarkListedItem(it)}
-                                      title="Skip eBay API — just record that it's live"
                                     >
-                                      Mark
+                                      {isRelist ? "Relist" : "List it"}
                                     </Button>
-                                  </>
-                                ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-6 px-2 text-[10px]"
-                                    onClick={() => setMarkListedItem(it)}
-                                  >
-                                    List it
-                                  </Button>
-                                )}
+                                  );
+                                })()}
                               </div>
                             </TableCell>
                           )}
@@ -1769,6 +1886,23 @@ export function FlipdeskListingsPage() {
                     End {selected.size}
                   </Button>
                 </>
+              ) : isDrafts ? (
+                ebayConnection ? (
+                  <Button onClick={bulkPublishToEbay} disabled={busy}>
+                    {busy ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Rocket className="mr-2 h-4 w-4" />
+                    )}
+                    {bulkPublishProgress
+                      ? `Publishing ${bulkPublishProgress.done}/${bulkPublishProgress.total}…`
+                      : `Publish ${selected.size} to eBay`}
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    Connect eBay to bulk-publish
+                  </span>
+                )
               ) : (
                 <Button onClick={bulkMarkShipped} disabled={busy}>
                   {busy ? (
@@ -1826,6 +1960,11 @@ export function FlipdeskListingsPage() {
           itemId={publishItem.id}
         />
       )}
+
+      <ReviseListingDialog
+        item={reviseItem}
+        onClose={() => setReviseItem(null)}
+      />
       <RecordSaleDialog
         item={recordSaleItem}
         onClose={() => setRecordSaleItem(null)}
@@ -1852,6 +1991,43 @@ export function FlipdeskListingsPage() {
         }}
       />
     </div>
+  );
+}
+
+function SortHeader({
+  field,
+  children,
+  align = "left",
+  columnSort,
+  onToggle,
+}: {
+  field: keyof ItemFullRow;
+  children: ReactNode;
+  align?: "left" | "right";
+  columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
+  onToggle: (field: keyof ItemFullRow) => void;
+}) {
+  const isActive = columnSort?.field === field;
+  return (
+    <button
+      type="button"
+      onClick={() => onToggle(field)}
+      className={cn(
+        "inline-flex items-center gap-1 font-medium hover:text-foreground",
+        align === "right" && "ml-auto",
+      )}
+    >
+      {children}
+      {isActive ? (
+        columnSort!.dir === "asc" ? (
+          <ChevronUp className="h-3 w-3" />
+        ) : (
+          <ChevronDown className="h-3 w-3" />
+        )
+      ) : (
+        <ChevronsUpDown className="h-3 w-3 opacity-50" />
+      )}
+    </button>
   );
 }
 
