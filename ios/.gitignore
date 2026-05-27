@@ -1,0 +1,33 @@
+# XcodeGen-generated project — regenerate from project.yml
+GradeThread.xcodeproj/
+GradeThread.xcworkspace/
+
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods (not used today, but reserve)
+Pods/
+
+# Swift Package Manager
+.swiftpm/
+Package.resolved
+
+# Fastlane (if added later)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Signing
+*.mobileprovision
+*.p12
+*.cer
+*.p8
+AuthKey_*.p8

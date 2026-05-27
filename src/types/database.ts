@@ -1,4 +1,24 @@
+// Legacy single-plan enum (US-225 migrates these to FlipdeskPlan). Kept until
+// the legacy users.plan column is dropped.
 export type UserPlan = "free" | "starter" | "professional" | "enterprise";
+
+// Pricing model split (US-200/US-201): FlipDesk subscription tier + Stripe lifecycle.
+export type FlipdeskPlan = "free" | "starter" | "pro" | "business";
+export type SubscriptionStatus =
+  | "none"
+  | "trialing"
+  | "active"
+  | "past_due"
+  | "paused"
+  | "canceled";
+export type BillingInterval = "monthly" | "yearly";
+export type GradeCreditReason =
+  | "pack_purchase"
+  | "grade_debit"
+  | "included_grant"
+  | "admin_grant"
+  | "refund"
+  | "expiration";
 export type GarmentType = "tops" | "bottoms" | "outerwear" | "dresses" | "footwear" | "accessories";
 export type GarmentCategory =
   | "t-shirt" | "shirt" | "blouse" | "sweater" | "hoodie"
@@ -108,9 +128,12 @@ export interface UserRow {
   email: string;
   full_name: string | null;
   avatar_url: string | null;
+  /** @deprecated legacy single-plan enum; use flipdesk_plan + grade_credit_balance (US-201/US-225). */
   plan: UserPlan;
   role: UserRole;
   stripe_customer_id: string | null;
+  // REPURPOSED (US-201): now counts INCLUDED Standard grades used this billing cycle
+  // against the FlipDesk tier's monthly bundle (Free 3, Starter 10, Pro 30, Business 75).
   grades_used_this_month: number;
   grade_reset_at: string;
   notification_preferences: NotificationPreferences;
@@ -125,6 +148,20 @@ export interface UserRow {
   ai_actions_reset_at: string;
   ai_enrichment_enabled: boolean;
   ai_action_limit: number | null;
+  // Closed-loop sale-outcome opt-in (US-132)
+  share_sale_outcomes: boolean;
+  // Pricing split (US-201): FlipDesk subscription state
+  flipdesk_plan: FlipdeskPlan;
+  flipdesk_interval: BillingInterval | null;
+  subscription_status: SubscriptionStatus;
+  flipdesk_subscription_id: string | null;
+  flipdesk_period_end: string | null;
+  flipdesk_pause_until: string | null;
+  flipdesk_cancel_at_period_end: boolean;
+  // GradeThread credit wallet (US-201)
+  grade_credit_balance: number;
+  // 14-day Pro trial bookkeeping (US-219). One trial per user, ever.
+  trial_ends_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -587,9 +624,19 @@ export interface UserInsert {
   email: string;
   full_name?: string | null;
   avatar_url?: string | null;
+  /** @deprecated kept for legacy compatibility; new code should not set this. */
   plan?: UserPlan;
   role?: UserRole;
   stripe_customer_id?: string | null;
+  flipdesk_plan?: FlipdeskPlan;
+  flipdesk_interval?: BillingInterval | null;
+  subscription_status?: SubscriptionStatus;
+  flipdesk_subscription_id?: string | null;
+  flipdesk_period_end?: string | null;
+  flipdesk_pause_until?: string | null;
+  flipdesk_cancel_at_period_end?: boolean;
+  grade_credit_balance?: number;
+  trial_ends_at?: string | null;
 }
 
 export interface SubmissionInsert {
@@ -849,6 +896,58 @@ export type AiEnrichmentLogUpdate = Partial<
   Pick<AiEnrichmentLogRow, "accepted_fields">
 >;
 
+// Grade credit ledger (US-201). Append-only — inserted only by the
+// debit_grade_credits / grant_grade_credits SECURITY DEFINER functions.
+export interface GradeCreditTransactionRow {
+  id: string;
+  user_id: string;
+  delta: number;
+  reason: GradeCreditReason;
+  balance_after: number;
+  submission_id: string | null;
+  stripe_payment_intent_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+// FlipDesk subscription event log (US-201). Idempotency + audit trail for
+// Stripe webhooks. Service-role writes only.
+export interface FlipdeskSubscriptionEventRow {
+  id: string;
+  user_id: string;
+  stripe_event_id: string | null;
+  event_type: string;
+  from_plan: FlipdeskPlan | null;
+  to_plan: FlipdeskPlan | null;
+  raw_payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface FlipdeskSubscriptionEventInsert {
+  user_id: string;
+  stripe_event_id?: string | null;
+  event_type: string;
+  from_plan?: FlipdeskPlan | null;
+  to_plan?: FlipdeskPlan | null;
+  raw_payload?: Record<string, unknown> | null;
+}
+
+// Closed-loop sale-outcome feedback (US-132). Written via SECURITY DEFINER
+// triggers on sales + disputes — never inserted from app code.
+export interface GradeOutcomeRow {
+  id: string;
+  grade_report_id: string;
+  inventory_item_id: string | null;
+  sale_id: string | null;
+  listing_price: number | null;
+  sold_price: number | null;
+  sold_at: string | null;
+  dispute_reported: boolean;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Update types ──────────────────────────────────────────────────
 
 export type UserUpdate = Partial<Omit<UserRow, "id" | "created_at" | "updated_at">>;
@@ -988,9 +1087,28 @@ export interface Database {
         Insert: AiEnrichmentLogInsert;
         Update: AiEnrichmentLogUpdate;
       };
+      grade_outcomes: {
+        Row: GradeOutcomeRow;
+        Insert: Partial<Omit<GradeOutcomeRow, "id" | "created_at" | "updated_at">>;
+        Update: Partial<Omit<GradeOutcomeRow, "id" | "created_at" | "updated_at">>;
+      };
+      grade_credit_transactions: {
+        Row: GradeCreditTransactionRow;
+        // Service-role only — clients should call debit_grade_credits /
+        // grant_grade_credits RPCs, not insert directly.
+        Insert: Partial<Omit<GradeCreditTransactionRow, "id" | "created_at">>;
+        Update: never;
+      };
+      flipdesk_subscription_events: {
+        Row: FlipdeskSubscriptionEventRow;
+        Insert: FlipdeskSubscriptionEventInsert;
+        Update: never;
+      };
     };
     Enums: {
       user_plan: UserPlan;
+      flipdesk_plan: FlipdeskPlan;
+      subscription_status: SubscriptionStatus;
       garment_type: GarmentType;
       garment_category: GarmentCategory;
       submission_status: SubmissionStatus;

@@ -1,0 +1,192 @@
+name: iOS Release
+
+# Fires when:
+#   - a tag matching ios-v* is pushed (e.g. ios-v0.2.0)
+#   - someone clicks "Run workflow" from the Actions tab
+#
+# Two outputs:
+#   - Always uploads .ipa to TestFlight
+#   - When submit_to_app_store is true, also submits the build for review
+
+on:
+  push:
+    tags:
+      - "ios-v*"
+  workflow_dispatch:
+    inputs:
+      submit_to_app_store:
+        description: "Submit to App Store after upload?"
+        type: boolean
+        default: false
+      release_notes:
+        description: "TestFlight release notes (optional)"
+        type: string
+        default: "New build from CI"
+
+concurrency:
+  # Don't queue concurrent releases — they fight over the keychain.
+  group: ios-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Archive + TestFlight upload
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    env:
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+      APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Install XcodeGen + xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Import signing certificate
+        # Build an ephemeral keychain so nothing leaks between runs. The
+        # keychain is destroyed in the "Clean up" step regardless of outcome.
+        run: |
+          set -euo pipefail
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
+
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$P12_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+
+          # Save for later steps.
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Install provisioning profile
+        run: |
+          set -euo pipefail
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PROFILE_PATH"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          # Xcode looks up profiles by UUID; copy with a stable name and let
+          # Xcode rediscover from there.
+          UUID=$(security cms -D -i "$PROFILE_PATH" | plutil -extract UUID raw -)
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          echo "Installed profile $UUID"
+
+      - name: Install App Store Connect API key
+        # altool reads the key from this exact directory by Key ID.
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$APP_STORE_CONNECT_API_KEY_BASE64" \
+            | base64 --decode \
+            > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+
+      - name: Resolve build number
+        id: build_number
+        # Use the GitHub run number so each build is monotonic across the
+        # repo lifetime — App Store Connect rejects re-used build numbers.
+        run: echo "value=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Archive
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project GradeThread.xcodeproj \
+            -scheme GradeThread \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/GradeThread.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CURRENT_PROJECT_VERSION=${{ steps.build_number.outputs.value }} \
+            archive | xcbeautify --renderer github-actions
+
+      - name: Export .ipa
+        working-directory: ios
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>teamID</key>
+              <string>$APPLE_TEAM_ID</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>uploadSymbols</key>
+              <true/>
+              <key>destination</key>
+              <string>export</string>
+          </dict>
+          </plist>
+          EOF
+
+          set -o pipefail
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$RUNNER_TEMP/GradeThread.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" | xcbeautify --renderer github-actions
+
+      - name: Upload to TestFlight
+        run: |
+          IPA=$(ls "$RUNNER_TEMP/export"/*.ipa | head -n1)
+          echo "Uploading $IPA"
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+
+      - name: Submit for App Store review
+        # Only when manually triggered with submit_to_app_store=true. Tag
+        # pushes default to TestFlight-only so accidental tags don't kick a
+        # build into App Review.
+        if: github.event_name == 'workflow_dispatch' && inputs.submit_to_app_store == true
+        run: |
+          echo "App Store submission requires fastlane deliver or App Store"
+          echo "Connect API submission flow. Wiring of metadata + screenshots"
+          echo "lands in US-197. For now, this step is a checkpoint reminder."
+          exit 0
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa-build-${{ steps.build_number.outputs.value }}
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ] && [ -f "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8" || true

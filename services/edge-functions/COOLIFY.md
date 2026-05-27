@@ -61,12 +61,42 @@ unhealthy after 3 consecutive failures (90 s window, 15 s startup grace).
 Pushing to the tracked branch triggers a Coolify rebuild + rolling restart.
 The compose file does not pin a tag — the build uses the current Dockerfile.
 
-## Scheduled jobs (future)
+## Scheduled jobs
 
-`ebay-token-refresh`, `photo-archiver`, and `reconciliation-matcher` are
-intended to run on a schedule. Two options:
+Chosen approach: **Coolify scheduled tasks** hitting the existing internal
+endpoints with `FLIPDESK_INTERNAL_JOB_SECRET` as a bearer token. No second
+container — keeps deployment surface minimal and routes through the same
+healthcheck + restart policy.
 
-1. **Coolify scheduled tasks** — add cron-style entries that hit the
-   corresponding `POST /api/flipdesk/...` endpoint with a shared secret.
-2. **A second container** — add a sibling service that runs a Deno cron loop
-   and calls the same endpoints. Add to this compose file when implemented.
+### Required env var
+
+```
+FLIPDESK_INTERNAL_JOB_SECRET=<long random>
+```
+
+Generate with `openssl rand -hex 32`. Set on the edge-functions resource;
+each scheduled task injects the same value into its `Authorization` header.
+
+### Cron entries
+
+Configure these as **Scheduled Tasks** on the edge-functions resource in
+Coolify (Settings → Scheduled Tasks → New). The container field is the
+edge-functions service; the command runs *inside* the container so
+`functions.gradethread.com` resolves over the internal network.
+
+| Name                    | Schedule (UTC)         | Command                                                                                                                                              |
+| ----------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ebay-token-refresh      | `0 * * * *` (hourly)   | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/oauth/refresh`                    |
+| photo-archive           | `0 4 * * *` (04:00)    | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/images/archive`                       |
+| reconciliation-sweep    | `0 5 * * *` (05:00)    | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/reconciliation/run`                   |
+| ebay-orders-sync        | `*/30 * * * *` (30min) | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/listings/pull`                   |
+
+Use `http://localhost:8787` from inside the container (not the public FQDN)
+so scheduled jobs don't take the round-trip through Traefik + WAF and
+don't count against rate limits.
+
+### Verification
+
+After saving, click **Run Now** on each scheduled task. Successful runs
+return HTTP 200 with a JSON body; failures show up in the Coolify task log
+and the container's stdout.

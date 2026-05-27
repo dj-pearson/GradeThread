@@ -75,6 +75,11 @@ export function SettingsPage() {
   );
   const [savingAi, setSavingAi] = useState(false);
 
+  const [shareOutcomes, setShareOutcomes] = useState(
+    profile?.share_sale_outcomes ?? false
+  );
+  const [savingShareOutcomes, setSavingShareOutcomes] = useState(false);
+
   const planKey = (profile?.plan ?? "free") as PlanKey;
   const planAiLimit = PLANS[planKey].aiActionsPerMonth;
   const effectiveAiLimit = profile?.ai_action_limit ?? planAiLimit;
@@ -236,6 +241,35 @@ export function SettingsPage() {
       );
     } finally {
       setSavingPrefs(false);
+    }
+  }
+
+  async function handleSaveShareOutcomes(next: boolean) {
+    if (!user) return;
+    setSavingShareOutcomes(true);
+    setShareOutcomes(next);
+    try {
+      const { error } = await supabase
+        .from("users")
+        .update({ share_sale_outcomes: next } as never)
+        .eq("id", user.id);
+      if (error) throw error;
+      await refreshProfile();
+      toast.success(
+        next
+          ? "Thanks — your sale outcomes will help improve AI grading."
+          : "Sale-outcome sharing turned off."
+      );
+    } catch (err) {
+      // Revert the optimistic flip if the save fails.
+      setShareOutcomes(!next);
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to update sale-outcome sharing."
+      );
+    } finally {
+      setSavingShareOutcomes(false);
     }
   }
 
@@ -533,7 +567,7 @@ export function SettingsPage() {
             Preferences for the FlipDesk reseller workspace.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
               <p className="text-sm font-medium">Getting-started tour</p>
@@ -544,6 +578,27 @@ export function SettingsPage() {
             <Button variant="outline" onClick={replayFlipdeskTour}>
               Replay tour
             </Button>
+          </div>
+
+          <Separator />
+
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">
+                Share sale outcomes with GradeThread
+              </p>
+              <p className="text-xs text-muted-foreground">
+                When a graded item sells, share the sold price (no buyer
+                info) so the AI grading model can learn how grades correlate
+                with real resale values. Opt-in, off by default.
+              </p>
+            </div>
+            <Switch
+              checked={shareOutcomes}
+              onCheckedChange={handleSaveShareOutcomes}
+              disabled={savingShareOutcomes}
+              aria-label="Share sale outcomes"
+            />
           </div>
         </CardContent>
       </Card>

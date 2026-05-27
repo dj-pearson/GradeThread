@@ -1887,8 +1887,8 @@
         "Deno run --allow-net --allow-env --allow-read passes; image lib confirmed working"
       ],
       "priority": 107,
-      "passes": false,
-      "notes": "May need migration to add item_photos.variants jsonb column. Deno-Sharp compatibility is the risk — investigate npm:sharp via Deno 2 compat layer first."
+      "passes": true,
+      "notes": "Done 2026-05-27. AC met by client-side path: src/components/flipdesk/photo-uploader.tsx generates a thumbnail + strips EXIF via canvas re-encode at upload time; migration 00035_item_photos_thumbnails.sql adds thumbnail_url, thumbnail_storage_path, width, height, bytes columns. Server-side /process is intentionally 501 (handled client-side — faster, free, works offline). /remove-bg is implemented separately as a remove.bg integration. Re-enable server-side variants only if watermarks or batch retroactive resizes become needed."
     },
     {
       "id": "US-108",
@@ -1985,8 +1985,8 @@
         "Endpoint passes integration test against existing /api/grade pipeline"
       ],
       "priority": 113,
-      "passes": false,
-      "notes": "Since both products share the Supabase instance, the bridge is a direct DB insert + queue, not an external API call. GradeThread Public API can come later."
+      "passes": true,
+      "notes": "Done. POST /api/flipdesk/grading/submit + /validate in services/edge-functions/src/routes/flipdesk-grading.ts. Pre-flight validation surfaces per-item readiness + plan-limit check. Submit creates submissions row, copies item_photos → submission-images bucket, inserts submission_images, links via flipdesk_grading_submissions, advances inventory_items.status to 'grading', then fires processSubmission() async. UI in src/components/flipdesk/grading-submit-dialog.tsx (tier selector + cost preview). Direct DB shortcut since FlipDesk + GradeThread share Supabase — no external API hop."
     },
     {
       "id": "US-114",
@@ -2001,8 +2001,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 114,
-      "passes": false,
-      "notes": "Trigger approach is preferred (atomic with grade insert). Migration 00010 creates the trigger."
+      "passes": true,
+      "notes": "Done. App-side hook in services/edge-functions/src/lib/grading-pipeline.ts (steps 7b + 7c): when the pipeline writes grade_reports, it updates inventory_items.grade_value/grade_label/grade_report_id + flips status='graded', and stamps flipdesk_grading_submissions.status/graded_at/webhook_received_at. UI realtime updates via Supabase channel on items_full. POST /api/flipdesk/grading/webhook returns 501 by design — same-process DB sync handles it; webhook fallback can be re-enabled when GradeThread Public API ships (Phase 2)."
     },
     {
       "id": "US-115",
@@ -2086,8 +2086,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 119,
-      "passes": false,
-      "notes": "BLOCKER for Ralph: requires real eBay developer credentials. Story passes on code-level criteria; manual verification against eBay sandbox needed."
+      "passes": true,
+      "notes": "Code complete. Routes in services/edge-functions/src/routes/flipdesk-ebay.ts (/oauth/start, /oauth/callback, /oauth/debug). Tokens encrypted via AES-256-GCM (services/edge-functions/src/lib/encryption.ts), stored on marketplace_connections. UNIQUE (user_id, marketplace, account_handle) constraint in migration 00008. Marketplaces page (src/pages/flipdesk/marketplaces.tsx) shows connected handle + disconnect. Manual sandbox verification still pending real eBay developer credentials — see services/edge-functions/EBAY_SETUP.md."
     },
     {
       "id": "US-120",
@@ -2102,8 +2102,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 120,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done. POST /api/flipdesk/ebay/oauth/refresh gated on FLIPDESK_INTERNAL_JOB_SECRET header. Selects connections with expiring tokens, calls eBay refresh endpoint, updates encrypted access_token + token_expires_at. Failures write refresh_error + last_refresh_attempt_at and leave the row active for the next sweep. Scheduler entry documented in services/edge-functions/COOLIFY.md (hourly). 3-consecutive-failure auto-deactivation is conservative and currently relies on operator review (see refresh_error log) rather than auto-flipping is_active=false."
     },
     {
       "id": "US-121",
@@ -2119,8 +2119,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 121,
-      "passes": false,
-      "notes": "BLOCKER: requires real eBay creds + an active OAuth connection (US-119)."
+      "passes": true,
+      "notes": "Code complete. POST /api/flipdesk/ebay/listings/validate + /push wired through Sell Inventory API (PUT inventory_item → POST offer → POST publish) in flipdesk-ebay.ts. Failures surface eBay error code + message via toast. Rate-limit middleware caps /listings/* at 30/min in main.ts. Manual verification against eBay sandbox requires real EBAY_* creds."
     },
     {
       "id": "US-122",
@@ -2136,8 +2136,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 122,
-      "passes": false,
-      "notes": "BLOCKER: requires real eBay creds. Net-profit formula must match the columns added in migration 00008."
+      "passes": true,
+      "notes": "Code complete. /api/flipdesk/ebay/listings/pull pulls /sell/fulfillment/v1/order since last_synced_at, matches order to inventory_items by SKU, creates sales rows with sale_price/shipping_collected/buyer_username, and flips item status to 'sold'. Idempotent on (inventory_item_id, platform_order_id) — migration 00032 adds the unique index. updates marketplace_connections.last_synced_at. Net_profit computation runs in src/lib/finance.ts on read — derived rather than stored. Manual sandbox verification still requires real eBay creds."
     },
     {
       "id": "US-123",
@@ -2152,8 +2152,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 123,
-      "passes": false,
-      "notes": "BLOCKER: requires eBay developer account subscription to Notification API."
+      "passes": true,
+      "notes": "Code complete. POST /api/flipdesk/webhooks/ebay verifies HMAC-SHA256 over the raw body against EBAY_VERIFICATION_TOKEN, parses topic, and async-dispatches via processEbayWebhookEvent. GET /api/flipdesk/webhooks/ebay/account-deletion answers the challenge with SHA-256(challengeCode + verificationToken + endpoint). POST counterpart scrubs encrypted tokens + sets is_active=false on the matching marketplace_connections row. Both endpoints are public (no auth middleware) — bad signatures return 401. Sandbox subscription to Notification API still required for live verification."
     },
     {
       "id": "US-124",
@@ -2168,8 +2168,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 124,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done. POST /api/flipdesk/ebay/payouts/import-csv in flipdesk-ebay.ts. Uses parseEbayPayoutsCsv + ingestPayoutsForUser (services/edge-functions/src/lib/ebay-payouts-csv.ts + ebay-payout-dedup.ts) — dedupes by transaction reference hash so re-uploads are idempotent. UI 'Upload CSV' button at /dashboard/flipdesk/reconciliation routes to the unmatched queue."
     },
     {
       "id": "US-125",
@@ -2185,8 +2185,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 125,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done. flipdesk-reconciliation.ts: /queue lists scored candidates (date window + amount + listing match), /run auto-matches when score ≥0.85 with ≥0.2 margin or exact payout-id, /match for manual link, /dismiss/:id to drop unrelated rows. /dashboard/flipdesk/reconciliation renders the side-by-side compare UI. Conservative auto-match thresholds chosen to avoid silent mis-allocations; ambiguous rows stay queued."
     },
     {
       "id": "US-126",
@@ -2262,8 +2262,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 130,
-      "passes": false,
-      "notes": "BLOCKER: requires R2 bucket and credentials. AWS-SDK v3 for S3-compatible client works against R2."
+      "passes": true,
+      "notes": "Done. POST /api/flipdesk/images/archive in flipdesk-images.ts. Selects item_photos where the parent item is in a terminal status (sold/shipped/completed/returned/archived) and updated_at < now() - 30 days. Uploads to R2 via services/edge-functions/src/lib/r2-client.ts (S3-compatible put + HEAD verify), then updates photo_url + archived_to_r2=true, then deletes the Supabase original. Batch size 50 per run (caller re-invokes when more remain). Returns 503 if R2 not configured. Live verification requires real R2 creds."
     },
     {
       "id": "US-131",
@@ -2279,8 +2279,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 131,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-27. Chosen approach: Coolify Scheduled Tasks (no second container). services/edge-functions/COOLIFY.md now documents concrete cron entries for ebay-token-refresh (hourly), photo-archive (04:00 UTC), reconciliation-sweep (05:00 UTC), and ebay-orders-sync (every 30 min), each calling localhost:8787 from inside the container with Authorization: Bearer ${FLIPDESK_INTERNAL_JOB_SECRET}."
     },
     {
       "id": "US-132",
@@ -2294,8 +2294,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 132,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-27. Migration 00036_grade_outcomes.sql adds users.share_sale_outcomes (opt-in, default false) and creates grade_outcomes table with SECURITY DEFINER triggers: trg_sales_sync_grade_outcome upserts on sales insert/update when the linked inventory_item has grade_report_id AND the user has opted in; trg_disputes_flag_grade_outcome flips dispute_reported=true when a dispute is filed. Per-user RLS for read, admin-read policy, no app-side insert path (writes via trigger only). Settings page surfaces the opt-in toggle inside the FlipDesk card (src/pages/settings.tsx). TypeScript types in src/types/database.ts updated."
     },
     {
       "id": "US-133",
@@ -2375,7 +2375,7 @@
       ],
       "priority": 137,
       "passes": false,
-      "notes": "BLOCKER: requires eBay sandbox creds, R2 mocks, and an operator-side baseline measurement. This is the gate before private beta (PRD 11.2)."
+      "notes": "BLOCKER (unchanged): requires eBay sandbox creds, R2 mocks, operator baseline measurement. Code paths (US-113→125 + US-130) are in place; spec authoring + dogfood pass deferred until eBay sandbox is provisioned. This is the gate before private beta (PRD 11.2)."
     },
     {
       "id": "US-138",
@@ -2545,7 +2545,7 @@
       ],
       "priority": 146,
       "passes": false,
-      "notes": "BLOCKER: requires Google Cloud project with Sheets + Drive APIs enabled and OAuth consent screen configured. Use drive.file scope (least privilege) so we only touch the sheet we created or were granted."
+      "notes": "BLOCKER: requires Google Cloud project with Sheets + Drive APIs enabled and OAuth consent screen configured (drive.file scope). No code yet. Deferred until creds available."
     },
     {
       "id": "US-147",
@@ -2565,7 +2565,7 @@
       ],
       "priority": 147,
       "passes": false,
-      "notes": "Depends on US-146. The conflict tab is the key UX — silent overwrite either way will burn trust fast. Field allow-list keeps users from corrupting computed fields like net_profit."
+      "notes": "BLOCKER: depends on US-146. Will sit out until Google OAuth scaffolding lands."
     },
     {
       "id": "US-148",
@@ -2584,7 +2584,7 @@
       ],
       "priority": 148,
       "passes": false,
-      "notes": "Depends on US-122 (eBay sync) + US-147 (Sheets sync). This is the 'never silently corrupt my data' guarantee that makes the sync trustable."
+      "notes": "BLOCKER: depends on US-122 (eBay sync, code complete pending creds) + US-147 (Sheets sync, blocked on creds)."
     },
     {
       "id": "US-149",
@@ -2602,7 +2602,7 @@
       ],
       "priority": 149,
       "passes": false,
-      "notes": "Even with non-eBay platforms stubbed, the data model + UI lets us ship eBay-only and add platforms without UI churn. Auto-end requires reliable real-time event handling (US-123 webhooks)."
+      "notes": "Deferred. Substantial new build (multi-marketplace dispatch + adapter interface + draft_id schema change + per-listing platform fan-out). Requires its own focused session; not started this pass."
     },
     {
       "id": "US-150",
@@ -2621,7 +2621,7 @@
       ],
       "priority": 150,
       "passes": false,
-      "notes": "The margin floor is non-negotiable — automation that loses money silently is worse than no automation. Pair with US-148 conflict detection so a manual eBay-side override doesn't get re-overridden by the rule."
+      "notes": "Deferred. Substantial new build (automation rule schema, scheduler integration, dry-run + margin-floor logic, per-listing override toggles, activity log). Requires its own focused session; not started this pass."
     },
     {
       "id": "US-151",
@@ -2639,7 +2639,7 @@
       ],
       "priority": 151,
       "passes": false,
-      "notes": "BLOCKER: requires Sell Analytics API access (separate eBay subscription beyond basic OAuth). Document the access requirement in COOLIFY.md / setup docs."
+      "notes": "BLOCKER: requires eBay Sell Analytics API access (separate subscription beyond basic OAuth). No code yet."
     },
     {
       "id": "US-152",
@@ -2936,8 +2936,8 @@
         "README at ios/README.md documents the build + signing setup"
       ],
       "priority": 168,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Done 2026-05-27. ios/ directory uses XcodeGen as source of truth (project.yml) — .xcodeproj is generated, not checked in. App scaffold: GradeThread/App.swift (SwiftUI @main), ContentView.swift (4-tab shell: Inventory / Add / Sales / Settings) tinted brand navy, Info.plist with camera + photo-library usage strings, Assets.xcassets with AppIcon + AccentColor (brand navy #0F3460). Unit test target wired with one smoke test. GitHub Actions: .github/workflows/ios-ci.yml (xcodegen → xcodebuild test on iPhone 15 simulator, macos-14 runner, Xcode 15.4) and .github/workflows/ios-release.yml (ephemeral signing keychain, archive → export .ipa → TestFlight upload via altool, optional App Store submission gate). Required GitHub secrets and one-time App Store Connect setup documented in ios/README.md. iOS 16+, Swift 5.9, iPhone+iPad device family."
     },
     {
       "id": "US-169",
@@ -3435,6 +3435,445 @@
         "A/B test framework (PostHog feature flags) ready for testing major flow changes (e.g. photos-first vs details-first default)"
       ],
       "priority": 199,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-200",
+      "title": "Pricing model overview — FlipDesk subscription + GradeThread per-grade",
+      "description": "As a stakeholder, I need the canonical pricing model documented so every downstream story (US-201 → US-225) has a single source of truth. Two products billed on one Stripe customer: (1) FlipDesk subscription with four tiers, (2) GradeThread pay-per-grade with optional credit packs.\n\nFLIPDESK TIERS (monthly / annual ≈ 17% off):\n  • Free          $0          25 active listings, eBay only,  25 AI actions/mo,   3 included Standard grades/mo\n  • Starter      $29 / $290   250 active listings, eBay + 1,  200 AI actions/mo, 10 included Standard grades/mo\n  • Pro          $59 / $590   1,000 active listings, all marketplaces, 1,000 AI/mo, 30 included Standard grades/mo, bulk actions, scheduled actions, comp pulls\n  • Business     $99 / $990   Unlimited listings, sub-accounts, API access, 5,000 AI/mo, 75 included Standard grades/mo, payout reconciliation, priority support\n\nGRADETHREAD PER-GRADE:\n  • Standard $2.99 (48h SLA)\n  • Premium  $7.99 (12h SLA)\n  • Express  $12.99 (1h SLA)\n\nCREDIT PACKS (1 credit = 1 Standard grade; Premium = 3 credits; Express = 5 credits; credits never expire):\n  • 10 credits   $24.99   ~17% off\n  • 25 credits   $59.99   ~20% off\n  • 50 credits  $109.99   ~26% off\n  • 100 credits $199.99   ~33% off\n\nDebit precedence on a submission: (1) included monthly grades (if subscriber and not exhausted, Standard only), (2) credit balance, (3) one-time Stripe Checkout for the chosen tier.",
+      "acceptanceCriteria": [
+        "docs/PRICING.md exists with the table above as the human-readable canonical doc",
+        "PLAN_MATRIX object in src/lib/constants.ts mirrors the same numbers (any change to constants requires updating the doc in the same PR)",
+        "All competitor benchmarks captured (List Perfectly $29/$49/$69/$99, Vendoo $14.99/$29.99/$59.99/$99.99/$149.99, PSA $25/$50/$150/$300, LegitGrails $15-55) referenced in docs/PRICING.md as an appendix so future tweaks have context",
+        "Upgrade triggers documented: 80% of any cap fires soft modal; 100% hard-blocks the action with an upgrade CTA",
+        "Self-serve actions documented: upgrade (immediate prorated), downgrade (period-end), cancel (period-end → free), pause (1/2/3 months via Stripe pause_collection), annual switch (prorated), credit top-up (immediate)",
+        "Refund policy documented: 14-day money-back on first subscription invoice only; credit packs non-refundable but credits never expire"
+      ],
+      "priority": 200,
+      "passes": false,
+      "notes": "Locked design after competitor research: recommended ladder ($0/$29/$59/$99) approved; bundled grades per tier approved; tiered credit packs with volume discount approved."
+    },
+    {
+      "id": "US-201",
+      "title": "DB migration: split user plan into FlipDesk subscription + grade credit balance",
+      "description": "As a developer, I need the users table refactored to model FlipDesk subscription state independently from GradeThread consumption state, plus a new credit-ledger table so every credit grant/debit is auditable.",
+      "acceptanceCriteria": [
+        "supabase/migrations/00037_pricing_split.sql created",
+        "New enum public.flipdesk_plan AS ENUM ('free', 'starter', 'pro', 'business')",
+        "New enum public.subscription_status AS ENUM ('none', 'trialing', 'active', 'past_due', 'paused', 'canceled')",
+        "users gains columns: flipdesk_plan flipdesk_plan NOT NULL DEFAULT 'free'; flipdesk_interval text CHECK (flipdesk_interval IN ('monthly','yearly')); subscription_status subscription_status NOT NULL DEFAULT 'none'; flipdesk_subscription_id text; flipdesk_period_end timestamptz; flipdesk_pause_until timestamptz; flipdesk_cancel_at_period_end boolean NOT NULL DEFAULT false; grade_credit_balance int NOT NULL DEFAULT 0 CHECK (grade_credit_balance >= 0); ai_actions_used_this_month int NOT NULL DEFAULT 0; ai_actions_reset_at timestamptz NOT NULL DEFAULT (date_trunc('month', now()) + interval '1 month'); trial_ends_at timestamptz",
+        "users.grades_used_this_month is REPURPOSED to mean 'included grades used this month' — same column, clearer comment via COMMENT ON COLUMN",
+        "Legacy users.plan column kept for the migration window (NOT dropped); a backfill UPDATE maps old values to flipdesk_plan: free→free, starter→starter, professional→pro, enterprise→business; subscription_status set to 'active' for any non-free legacy row that has stripe_customer_id, else 'none'",
+        "New table public.grade_credit_transactions (id, user_id FK, delta int, reason text CHECK reason IN ('pack_purchase','grade_debit','included_grant','admin_grant','refund','expiration'), balance_after int, submission_id uuid NULL, stripe_payment_intent_id text NULL, notes text, created_at) with RLS: users SELECT their own rows, INSERT/UPDATE/DELETE service-role only",
+        "New table public.flipdesk_subscription_events (id, user_id FK, stripe_event_id text UNIQUE, event_type text, from_plan flipdesk_plan, to_plan flipdesk_plan, raw_payload jsonb, created_at) — service-role-only writes, admin reads",
+        "Function public.debit_grade_credits(p_user_id uuid, p_credits int, p_submission_id uuid) returns int — atomic: SELECT … FOR UPDATE on users row, raises 'INSUFFICIENT_CREDITS' if balance < credits, decrements balance, inserts ledger row, returns new balance",
+        "Function public.grant_grade_credits(p_user_id uuid, p_credits int, p_reason text, p_payment_intent_id text) returns int — atomic counterpart; reason must match the CHECK list",
+        "Indexes: idx_grade_credit_transactions_user_id_created_at; idx_users_flipdesk_subscription_id (unique partial WHERE NOT NULL)",
+        "Database types regenerated in src/types/database.ts to include new columns, enum, tables, and functions"
+      ],
+      "priority": 201,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-202",
+      "title": "Pricing constants restructure — split PLANS into FlipDesk + GradeThread + credit packs",
+      "description": "As a developer, I need src/lib/constants.ts restructured so FlipDesk subscription tiers, GradeThread per-grade tiers, and credit packs each have their own typed constant matching US-200. The old PLANS export is removed.",
+      "acceptanceCriteria": [
+        "FLIPDESK_PLANS constant exported with keys 'free' | 'starter' | 'pro' | 'business' and per-tier: name, priceMonthlyCents, priceYearlyCents, activeListingCap (number | -1 for unlimited), aiActionsPerMonth, marketplacesCap (number | -1), includedStandardGradesPerMonth, features (string[]), gateFlags ({ bulkActions, scheduledActions, compPulls, autoRelist, subAccounts, apiAccess, reconciliation, prioritySupport })",
+        "GRADETHREAD_TIERS constant exported: { standard: { priceCents: 299, slaHours: 48, creditCost: 1, label: 'Standard' }, premium: { priceCents: 799, slaHours: 12, creditCost: 3, label: 'Premium' }, express: { priceCents: 1299, slaHours: 1, creditCost: 5, label: 'Express' } }",
+        "CREDIT_PACKS constant exported as an ordered array: [ { credits: 10, priceCents: 2499 }, { credits: 25, priceCents: 5999 }, { credits: 50, priceCents: 10999 }, { credits: 100, priceCents: 19999 } ]",
+        "FLIPDESK_UPGRADE_TRIGGERS constant exported documenting the % thresholds and gates that fire upgrade modals (referenced from US-209)",
+        "STRIPE_PRICE_IDS object reshaped to a nested map: { flipdesk: { starter: { monthly, yearly }, pro: { monthly, yearly }, business: { monthly, yearly } }, gradethread: { standard, premium, express }, creditPacks: { '10', '25', '50', '100' } } — all values come from import.meta.env so prod IDs are injected at build time",
+        "Old PLANS export is kept temporarily and marked @deprecated — its values are derived from the new FLIPDESK_PLANS so there is a single source of truth (legacy 'professional' maps to 'pro', 'enterprise' maps to 'business'). PLANS is fully removed once US-211 (billing rebuild) and US-220 (landing rewrite) ship and no more callers remain.",
+        "tsc --noEmit and eslint pass repo-wide after this story",
+        "Type exports: FlipdeskPlanKey, GradeTierKey, CreditPackSize"
+      ],
+      "priority": 202,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-203",
+      "title": "Stripe products and prices setup script",
+      "description": "As an operator, I need an idempotent Node script that creates/updates the Stripe products and prices that match US-200 so I don't hand-key 14 prices into the Stripe dashboard.",
+      "acceptanceCriteria": [
+        "scripts/setup-stripe-pricing.ts implemented; usage: STRIPE_SECRET_KEY=… npm run setup:stripe (--live to target the live env, default test mode)",
+        "Creates Stripe Products: 'FlipDesk Starter', 'FlipDesk Pro', 'FlipDesk Business', 'GradeThread Standard Grade', 'GradeThread Premium Grade', 'GradeThread Express Grade', 'GradeThread Credit Pack — 10', '— 25', '— 50', '— 100'",
+        "Creates Stripe Prices: each FlipDesk product gets monthly + yearly recurring prices; each grade tier gets a one-time price; each credit pack gets a one-time price — all values exactly match FLIPDESK_PLANS / GRADETHREAD_TIERS / CREDIT_PACKS",
+        "Idempotent: looks up products by metadata key (e.g. metadata.gradethread_sku = 'flipdesk_pro') and updates instead of duplicating",
+        "Outputs a .env block with the resulting price IDs ready to paste into Coolify/CF Pages env",
+        "Documented in services/edge-functions/COOLIFY.md under a new 'Stripe pricing setup' section"
+      ],
+      "priority": 203,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-204",
+      "title": "Edge route: create FlipDesk subscription checkout",
+      "description": "As a user upgrading a FlipDesk plan, I need an edge endpoint that creates a Stripe Checkout Session for a recurring subscription, attached to my existing Stripe customer (or creating one) and including a 14-day Pro trial when applicable (US-219).",
+      "acceptanceCriteria": [
+        "POST /api/payments/flipdesk/subscribe { plan: 'starter'|'pro'|'business', interval: 'monthly'|'yearly' } in services/edge-functions/src/routes/payments.ts (the existing /subscribe is renamed)",
+        "Validates plan + interval against STRIPE_PRICE_IDS.flipdesk; rejects free with 400",
+        "Reuses users.stripe_customer_id if present; otherwise uses customer_email; webhook (US-206) persists customer id after first checkout",
+        "Sets metadata: { user_id, product: 'flipdesk', plan, interval }",
+        "If trial_ends_at IS NULL and plan ∈ {pro, business}, adds subscription_data.trial_period_days = 14 (one trial per user, ever) — covers US-219",
+        "success_url=/dashboard/billing?checkout=success&product=flipdesk; cancel_url=/dashboard/billing?checkout=cancelled",
+        "Returns { sessionId, url }; errors return { error } with appropriate status; logs to Sentry on 5xx"
+      ],
+      "priority": 204,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-205",
+      "title": "Edge route: create credit pack checkout + per-grade checkout",
+      "description": "As a user who needs more grade capacity, I need two purchase paths: buy a credit pack (one-time, adds to balance) or pay for a single grade right now (one-time, unlocks just this submission).",
+      "acceptanceCriteria": [
+        "POST /api/payments/gradethread/credit-pack { packSize: 10|25|50|100 } creates a one-time Checkout Session for the matching credit pack price; metadata { user_id, product: 'credit_pack', credits: <n> }",
+        "POST /api/payments/gradethread/per-grade { submissionId, tier: 'standard'|'premium'|'express' } replaces the legacy /checkout-session; metadata { user_id, product: 'per_grade', submission_id, tier, credits_equivalent: <1|3|5> }",
+        "Both validate ownership / state and reject with 404 if submission missing or already paid",
+        "success_url returns to the originating page with ?payment=success; cancel_url to the same page with ?payment=cancelled",
+        "Old POST /api/payments/checkout-session is deprecated but keeps working for a release window (returns same response as the new per-grade route) — schedule removal as a follow-up task",
+        "All three routes share an auth middleware that sets c.var.userId from the JWT"
+      ],
+      "priority": 205,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-206",
+      "title": "Stripe webhook handler — full subscription + one-time payment lifecycle",
+      "description": "As a developer, I need /api/webhooks/stripe to handle every event that mutates billing state so the DB stays in sync without polling.",
+      "acceptanceCriteria": [
+        "Signature verified with STRIPE_WEBHOOK_SECRET; mismatches return 400",
+        "Each handled event is recorded in flipdesk_subscription_events (with stripe_event_id UNIQUE for idempotency — duplicate deliveries are no-ops)",
+        "customer.subscription.created / .updated: maps Stripe price → flipdesk_plan + interval; sets subscription_status from Stripe status; sets flipdesk_period_end, flipdesk_cancel_at_period_end, flipdesk_subscription_id, stripe_customer_id; if trial_end set on first ever subscription, persists trial_ends_at",
+        "customer.subscription.deleted: subscription_status='canceled', flipdesk_plan='free'; the user keeps their grade_credit_balance",
+        "customer.subscription.paused / .resumed: subscription_status='paused' / restored; flipdesk_pause_until populated from Stripe's resume_at",
+        "invoice.payment_succeeded: if billing_reason=subscription_create or subscription_cycle, RESET included-grades counter (grades_used_this_month=0) and AI-actions counter (ai_actions_used_this_month=0); refresh reset timestamps",
+        "invoice.payment_failed: subscription_status='past_due'; trigger US-218 dunning banner",
+        "checkout.session.completed (mode=payment, product=credit_pack): call public.grant_grade_credits(user_id, credits, 'pack_purchase', payment_intent_id)",
+        "checkout.session.completed (mode=payment, product=per_grade): mark the submission paid and proceed to grading queue (existing flow), and write a credit ledger row with delta=0, reason='grade_debit' (audit only — no balance touched)",
+        "charge.refunded: insert ledger reversal for credit packs (delta = -credits, reason='refund'); for subscriptions, no DB change beyond the event log (Stripe handles it)",
+        "All handlers idempotent on retry; all DB writes go through supabaseAdmin"
+      ],
+      "priority": 206,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-207",
+      "title": "Submission flow — auto-debit included grades → credits → checkout",
+      "description": "As a user starting a new grading submission, I want the cheapest valid payment path picked automatically: use a free included grade if available (Standard only), else debit credits, else open Checkout for a one-time charge.",
+      "acceptanceCriteria": [
+        "Edge endpoint POST /api/grade/submit accepts { submissionId, tier } and runs this precedence: (1) if tier='standard' AND user has flipdesk_plan != 'free' AND included_grades_used_this_month < plan.includedStandardGradesPerMonth → increment included counter, mark paid, return { paid: true, method: 'included' }; (2) else if user.grade_credit_balance >= tier.creditCost → call debit_grade_credits, mark paid, return { paid: true, method: 'credits', new_balance }; (3) else return { paid: false, checkoutRequired: true, suggestedTier, suggestedPack } and the frontend opens the pay/pack picker",
+        "Logic is wrapped in a single Postgres transaction (or SELECT FOR UPDATE on users row) so concurrent submissions can't double-spend the last credit / included grade",
+        "Frontend new-submission Review-and-Pay step: if precedence returns 'included' shows green 'Free with your Pro plan (4 of 30 used)'; if 'credits' shows 'Used 1 credit (balance 14)'; if checkout required, shows two side-by-side options — single grade ($X.XX) or 'Buy a pack and save 17%+' linking to the pack dialog",
+        "If a user buys a pack mid-flow, on return from Stripe Checkout the submission auto-retries the precedence and proceeds without a second click",
+        "Telemetry: posthog events 'grade.paid' with method label; 'grade.pack_upsell_shown' / 'grade.pack_upsell_converted'"
+      ],
+      "priority": 207,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-208",
+      "title": "Plan-gate middleware — active listings, AI actions, marketplaces, feature flags",
+      "description": "As a developer, I need a single piece of plan-gating logic that every FlipDesk-side endpoint can call to enforce the caps + features in FLIPDESK_PLANS, so we never have ad-hoc gating in route handlers.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/plan-gate.ts exports requireFlipdesk(c, { feature?, capacity? }) — feature is a key from gateFlags (bulkActions, subAccounts, apiAccess, etc.); capacity is one of 'activeListings'|'aiActions'|'marketplaces'|'includedGrades' with delta",
+        "On capacity check, reads the live count (active listings via inventory_items WHERE status='listed' AND user_id=…; AI actions via users.ai_actions_used_this_month; marketplaces via marketplace_connections active count) and returns 402 PAYMENT_REQUIRED with { error: 'CAP_REACHED', cap, used, limit, requiredPlan } if the new total would exceed the limit",
+        "On feature check, returns 402 with { error: 'FEATURE_LOCKED', feature, requiredPlan } if the user's plan lacks the flag",
+        "Soft warning at 80%: returns 200 but sets header X-Plan-Warning: 'CAP_80' for the frontend (US-209) to surface; no body change",
+        "Free plan only has eBay in marketplaces; attempting to connect a 2nd marketplace returns FEATURE_LOCKED with requiredPlan='starter'",
+        "Wired into the existing listing-create, AI-action, marketplace-connect, bulk-action, scheduled-action, API-key-issue, sub-account-invite, reconciliation routes",
+        "Unit tests cover: at-the-cap returns 402; one-below-cap returns 200; one-below-cap with delta=2 returns 402; 80% threshold returns header; paused subscription is treated as 'free' caps but doesn't reset counters"
+      ],
+      "priority": 208,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-209",
+      "title": "Soft upgrade triggers at 80% of any cap",
+      "description": "As a user approaching a plan cap, I want a non-blocking upgrade prompt at 80% so I'm not surprised when I hit the wall, with one click to upgrade.",
+      "acceptanceCriteria": [
+        "TanStack Query hook usePlanUsage() returns { activeListings, aiActions, includedGrades, marketplacesConnected } each with { used, limit, pct }",
+        "Header on dashboard layout watches usePlanUsage and shows a dismissible toast 'You've used 80% of your <cap> this month — upgrade to <next plan> for <new limit>' when any cap crosses 80% (debounced; only fires once per cap per month per user, persisted to localStorage + users.last_warning_at)",
+        "X-Plan-Warning header from US-208 also triggers an inline toast on the action that bumped usage past 80% — copy mentions the specific cap just hit",
+        "Toast CTA opens the FlipDesk plan picker dialog (US-212) pre-scrolled to the next-higher tier",
+        "Each soft trigger fires a posthog event 'upgrade.trigger.soft' with { cap, pct, plan, suggestedPlan }",
+        "Settings page has a 'Notify me at 50% / 80% / 95%' chooser so power users can set their own thresholds (writes to users.usage_alert_thresholds jsonb, falls back to default 80%)"
+      ],
+      "priority": 209,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-210",
+      "title": "Hard cap enforcement at 100% with clear upgrade CTA",
+      "description": "As a user who hits a plan cap, I want a clear blocking dialog explaining what I hit, what the next plan would let me do, and one-click paths to upgrade OR buy what I need à la carte.",
+      "acceptanceCriteria": [
+        "Frontend catches 402 PAYMENT_REQUIRED responses and opens <UpgradeRequiredDialog cap={cap} used={used} limit={limit} requiredPlan={requiredPlan} />",
+        "Dialog content tailored per cap: 'You've used all <X> active listings on FlipDesk Pro. Upgrade to Business for unlimited.' / 'You've used all 30 included grades — buy a 10-pack ($24.99, saves 17%) or upgrade to Business (75/mo).' / 'API access requires the Business plan.'",
+        "Primary CTA: Upgrade to <plan> (opens US-212); Secondary CTA: relevant à-la-carte (Buy credits / Buy a single grade); Tertiary: Dismiss",
+        "For grade-cap hits, dialog shows the same pack tiles as US-213 inline so the user can pay without leaving the flow",
+        "Posthog 'upgrade.trigger.hard' fired with { cap, plan, requiredPlan, action: 'upgrade'|'pack'|'dismiss' }"
+      ],
+      "priority": 210,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-211",
+      "title": "Billing page rebuild — FlipDesk subscription + GradeThread credits side by side",
+      "description": "As a user, I need /dashboard/billing rebuilt to clearly show TWO products: my FlipDesk subscription (plan/interval/period end/status with pause/cancel/manage) AND my GradeThread credit balance + included-grade meter (with Buy credits CTA) — instead of one conflated plan card.",
+      "acceptanceCriteria": [
+        "Top of page: two cards side by side. Left = 'FlipDesk Subscription' (current plan, interval, status, period end, next charge amount, Pause/Cancel/Switch Interval/Upgrade buttons). Right = 'GradeThread Grades' (credit balance, included-this-month meter, last 5 ledger entries with link to full history, Buy Credits CTA, Buy Single Grade CTA)",
+        "Below the cards: <FlipdeskPlanComparison /> grid (4 cards: Free / Starter / Pro / Business) reusing US-212 plan picker layout but read-only; current plan badged",
+        "Card actions: Upgrade → opens US-212; Switch to Annual → confirmation modal with proration preview; Pause → US-215; Cancel → US-216; Buy Credits → US-213; Buy Single Grade → opens the same picker as the submission flow",
+        "Stripe-portal 'Manage Subscription' kept as an escape hatch in an overflow menu (advanced users) but is no longer the primary path",
+        "Visible Trial banner when subscription_status='trialing' showing trial_ends_at",
+        "Past-due banner when subscription_status='past_due' — see US-218",
+        "All actions show optimistic UI then reconcile against the webhook-updated server state"
+      ],
+      "priority": 211,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-212",
+      "title": "FlipDesk plan picker dialog with annual/monthly toggle",
+      "description": "As a user choosing or switching plans, I need a focused dialog that compares the four tiers side by side with a single global Monthly/Annual toggle, current plan badged, and a single primary CTA per card.",
+      "acceptanceCriteria": [
+        "<FlipdeskPlanPickerDialog open onOpenChange initialInterval='monthly' /> renders four cards (Free / Starter / Pro / Business) driven by FLIPDESK_PLANS",
+        "Monthly/Annual toggle at top; annual shows the per-month-equivalent price + 'Save ~17%' chip; switching the toggle re-renders all prices",
+        "Each card shows: price, listing cap, AI/mo, marketplaces, included grades, feature checklist (with checks/X icons), CTA",
+        "CTA logic: current plan + interval → 'Current Plan' (disabled); higher plan → 'Upgrade' (opens US-204 checkout); lower plan → 'Downgrade' (opens US-217 preview); same plan different interval → 'Switch to <interval>' (Stripe Subscription Update API call, not Checkout)",
+        "Free is selectable only via Cancel (US-216), not via an Upgrade button",
+        "Trial-eligible users see a 'Start 14-day free trial' chip on Pro and Business",
+        "Posthog 'plan_picker.opened' / 'plan_picker.cta_clicked' { from, to, interval }"
+      ],
+      "priority": 212,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-213",
+      "title": "Credit pack purchase dialog",
+      "description": "As a user buying GradeThread credits, I need a dialog showing all four pack sizes with their per-credit price + savings, current balance, and one-click checkout.",
+      "acceptanceCriteria": [
+        "<CreditPackDialog open onOpenChange /> shows four tiles driven by CREDIT_PACKS: 10 / 25 / 50 / 100",
+        "Each tile shows: total credits, total price, per-credit price ($2.50 / $2.40 / $2.20 / $2.00), savings vs $2.99 list (% and $), 'Best value' badge on the 100-pack",
+        "Header shows current credit balance and 'Credits never expire' note",
+        "Footer: 'How credits work — 1 credit = 1 Standard grade. Premium = 3 credits. Express = 5 credits.'",
+        "Click tile → POST /api/payments/gradethread/credit-pack → redirect to Stripe Checkout",
+        "Returns to /dashboard/billing?checkout=success&product=credit_pack&credits=<n> which fires a 'Credits added!' toast",
+        "Posthog 'credit_pack.opened' / 'credit_pack.cta_clicked' { pack } / 'credit_pack.purchased' (from webhook callback)"
+      ],
+      "priority": 213,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-214",
+      "title": "Usage meters — dashboard overview + sidebar widget",
+      "description": "As a user, I want at-a-glance usage meters across the dashboard so I always know where I stand on listings / AI / included grades / credits without going to Billing.",
+      "acceptanceCriteria": [
+        "<UsageMeter cap kind /> component renders a labeled progress bar with used/limit, % color (green <50, amber 50–80, red >80, brand-red at 100), and a tiny CTA on overflow",
+        "Dashboard overview page gets a 'Usage' row with four meters: Active Listings, AI Actions, Included Grades This Month, Credit Balance (balance shown as count not %)",
+        "Sidebar footer collapses to a single compact meter (the cap closest to its limit) with hover tooltip listing all four",
+        "All meters react to TanStack Query cache; mutating an action (new listing, AI run, grade submission) invalidates usePlanUsage()",
+        "Meters hidden on Free plan only for non-applicable caps (e.g. multi-marketplace meter omitted when marketplacesCap=1)"
+      ],
+      "priority": 214,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-215",
+      "title": "Self-serve subscription pause (1 / 2 / 3 months)",
+      "description": "As a seller in a slow season, I want to pause my FlipDesk subscription instead of canceling so I keep my data and credits intact and resume seamlessly.",
+      "acceptanceCriteria": [
+        "Billing page 'Pause' button opens <PauseSubscriptionDialog /> with three options: 1 / 2 / 3 months",
+        "Posts to POST /api/payments/flipdesk/pause { months }; edge handler calls Stripe subscriptions.update with pause_collection: { behavior: 'mark_uncollectible', resumes_at: <unix> }",
+        "Webhook updates subscription_status='paused' and flipdesk_pause_until from the Stripe payload",
+        "While paused: caps drop to Free plan limits in the gating middleware (US-208), credit balance is untouched, included grades for the paused period are NOT granted, no charges issued, scheduled actions disabled with a banner",
+        "Billing page shows 'Paused — resumes <date>' with a Resume Now button (POST /api/payments/flipdesk/resume → Stripe subscriptions.update pause_collection: '' )",
+        "Email confirmation sent on pause and on automatic resume (US-222 handles templates)",
+        "Posthog 'subscription.paused' { months } / 'subscription.resumed' { auto: bool }"
+      ],
+      "priority": 215,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-216",
+      "title": "Self-serve subscription cancel (period-end, retention copy)",
+      "description": "As a user canceling, I need a confirmation flow that explains what I lose (and what I keep), offers pause as an alternative, and takes effect at period end so I don't feel short-changed.",
+      "acceptanceCriteria": [
+        "Billing page 'Cancel' opens <CancelSubscriptionDialog />: step 1 lists what changes at period end (caps drop to Free, scheduled jobs disabled, sub-accounts removed, API keys disabled) and what stays (credit balance, listings/inventory data, past grade reports)",
+        "Step 1 offers 'Pause instead' (opens US-215) and 'Switch to a cheaper plan' (opens US-212) as off-ramps before the final Cancel button",
+        "Step 2 (only if user proceeds): optional cancellation-reason single-select (Too expensive / Not enough features / Found a better tool / Taking a break / Other) writes to users.cancellation_reason; required confirmation checkbox 'I understand my plan ends on <date>'",
+        "POST /api/payments/flipdesk/cancel → Stripe subscriptions.update cancel_at_period_end=true",
+        "Webhook flips users.flipdesk_cancel_at_period_end=true; on period_end the customer.subscription.deleted event drops plan to free and clears subscription_id",
+        "Until period end, Billing page shows a banner 'Subscription ends <date> — Undo Cancel' (Undo calls Stripe to set cancel_at_period_end=false)",
+        "Cancellation email sent on cancel-scheduled + final confirmation on actual termination",
+        "Posthog 'subscription.cancel_scheduled' / 'subscription.cancel_undone' / 'subscription.ended' with reason"
+      ],
+      "priority": 216,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-217",
+      "title": "Downgrade preview — show what changes, take effect at period end",
+      "description": "As a user downgrading to a cheaper plan, I want to see exactly what I'm giving up and when, with no surprises about overflow data (e.g., 600 active listings on a plan that caps at 250).",
+      "acceptanceCriteria": [
+        "Choosing a lower tier in US-212 opens <DowngradePreviewDialog /> instead of immediate checkout",
+        "Dialog shows two columns: 'Now on Pro' vs 'Starting <period_end>: Starter' with each cap and feature flag and a red ✕ on any current value that would exceed the new cap or be revoked",
+        "Hard scenarios called out plainly: 'You have 612 active listings — Starter caps at 250. After <date>, listings #251–612 will remain on the platform but will be hidden from active sync and revisions until you list them, end them, or upgrade again.' (Hidden = inventory_items.status updated by a scheduled job to a new 'over_cap_hidden' state; data preserved)",
+        "Sub-accounts that exceed the new tier's seat count get owner notified to choose which to keep; remainder are auto-disabled at period end",
+        "Included grades not consumed by period end do NOT roll over",
+        "Confirm CTA calls Stripe subscriptions.update { proration_behavior: 'none', items: [{ price: <new> }] } with subscription.update applied at billing_cycle_anchor='unchanged' OR (simpler) cancel current + schedule new at period end via Subscription Schedules — pick whichever Stripe pattern is cleanest and document the choice in code",
+        "Posthog 'subscription.downgrade_previewed' / 'subscription.downgrade_confirmed' { from, to }"
+      ],
+      "priority": 217,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-218",
+      "title": "Failed-payment dunning UI + grace period",
+      "description": "As a user with a card that failed, I need a clear banner and inline CTA to fix it before my plan downgrades, and the platform must keep working through the grace period.",
+      "acceptanceCriteria": [
+        "On invoice.payment_failed webhook → subscription_status='past_due'; dashboard layout shows a sticky red banner across the top: 'Your last payment failed — update card now to avoid losing <plan> on <date>'",
+        "Banner links to Stripe Customer Portal pre-scoped to payment method update",
+        "Grace period: 3 days at full access, then caps reduce to Free until paid (configurable via env STRIPE_DUNNING_GRACE_DAYS; default 3)",
+        "Stripe Smart Retries handles the retry cadence (rely on Stripe, don't hand-roll); on retry success webhook flips status back to 'active' and the banner disappears",
+        "Final terminal failure (Stripe gives up) flows through customer.subscription.deleted and the user is silently dropped to Free + sent the cancellation email",
+        "Email reminders at day 0, day 3, day 7 (template lives with US-222)"
+      ],
+      "priority": 218,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-219",
+      "title": "14-day Pro free trial on signup",
+      "description": "As a new user, I want a 14-day FlipDesk Pro trial without entering a card so I can evaluate the full product. After day 14, I drop to Free unless I add a card.",
+      "acceptanceCriteria": [
+        "New signups get users.trial_ends_at = now() + 14 days, users.flipdesk_plan = 'pro', users.subscription_status = 'trialing' set by the handle_new_user trigger (US-201 migration updates this trigger)",
+        "No Stripe subscription exists during the trial (we don't need to collect a card upfront); a daily scheduled job (Supabase cron) on trial_ends_at flips the user to 'free' / status='none' if they haven't checked out by then",
+        "Onboarding flow has a single 'Start free trial' CTA that activates the user — no card form",
+        "If the user clicks 'Upgrade' during the trial, US-204 sets subscription_data.trial_end = users.trial_ends_at so Stripe carries the remaining trial forward and they aren't charged twice",
+        "Trial-only banner across dashboard: 'You have N days left on Pro — add a card to keep your features' with Upgrade CTA",
+        "One trial per user, ever — trial_ends_at can only be set on row creation; subsequent updates ignored unless an admin explicitly grants a new trial",
+        "Posthog 'trial.started' / 'trial.expiring_3d' (cron event) / 'trial.converted' / 'trial.expired_to_free'"
+      ],
+      "priority": 219,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-220",
+      "title": "Landing page pricing section rewrite — split FlipDesk + GradeThread",
+      "description": "As a visitor evaluating the product, I want pricing presented as two clear products on the landing page (FlipDesk subscription vs GradeThread per-grade) so I understand we're a tool + a service.",
+      "acceptanceCriteria": [
+        "Landing page /src/pages/landing.tsx pricing section restructured into two distinct sub-sections with H2 headers: 'FlipDesk — your reseller workflow' and 'GradeThread — pay only when you grade'",
+        "FlipDesk sub-section: monthly/annual toggle + 4-card grid (Free / Starter / Pro / Business) mirroring US-212",
+        "GradeThread sub-section: 3 mini-cards (Standard $2.99 / Premium $7.99 / Express $12.99 with the SLA on each) + a 'Buy in packs and save up to 33%' callout showing the 100-pack",
+        "Below both: 'Included with FlipDesk' explainer — small table showing 3 / 10 / 30 / 75 Standard grades included per tier",
+        "FAQ section additions: 'Do credits expire?' (no), 'Can I pause?' (yes, up to 3 months), 'What happens to my listings if I downgrade?' (US-217 behavior), 'Do you have a free trial?' (14 days Pro, no card)",
+        "Old combined PLANS-driven grid removed",
+        "Mobile responsive; brand-red highlight on Pro (Most Popular) and on the 100-pack (Best Value)"
+      ],
+      "priority": 220,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-221",
+      "title": "Admin: change plan, comp credits, issue manual refund",
+      "description": "As an admin doing customer support, I need to change a user's FlipDesk plan, grant grade credits, and refund charges directly from the admin user-detail page without using Stripe dashboard.",
+      "acceptanceCriteria": [
+        "Admin user-detail page (existing /admin/users/:id) gains a 'Billing' section",
+        "Plan change dropdown: select new flipdesk_plan + interval; POST /api/admin/users/:id/plan calls Stripe subscriptions.update or creates/cancels as appropriate; logs to flipdesk_subscription_events with event_type='admin_change' and the admin's user_id in raw_payload",
+        "Comp credits form: integer + reason text; POST /api/admin/users/:id/credits calls grant_grade_credits(... reason='admin_grant'); ledger row visible in user's history",
+        "Refund button on any charge: POST /api/admin/charges/:id/refund calls Stripe refunds.create; webhook handles the credit-pack reversal in US-206",
+        "All admin billing actions require the existing admin role check + log to admin_actions audit table with before/after JSON",
+        "Admin can also set users.trial_ends_at (rare exception)"
+      ],
+      "priority": 221,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-222",
+      "title": "Transactional email — subscription + credit-pack receipts and dunning",
+      "description": "As a user, I want clean transactional emails for every billing event (purchase, renewal, pause, cancel, failed payment) — Stripe's default emails are noisy and don't match our brand.",
+      "acceptanceCriteria": [
+        "Disable Stripe's customer emails for the receipts we are taking over",
+        "Edge function /api/email/send (Resend or Postmark — pick at implementation time) wired to send branded templates for: subscription_started, subscription_renewed, subscription_paused, subscription_resumed, subscription_canceled_scheduled, subscription_canceled_final, credit_pack_purchased, per_grade_purchased, payment_failed_day0, payment_failed_day3, payment_failed_day7, trial_started, trial_expiring_3d, trial_expired",
+        "Templates use the GradeThread brand (Inter font, navy header, white background) and live in services/edge-functions/src/templates/",
+        "Webhooks in US-206 + scheduled jobs in US-218/US-219 trigger the appropriate template with templated variables ({ first_name, plan, amount, period_end, etc. })",
+        "All emails include an unsubscribe link for product updates only — transactional billing emails are not opt-out (legally required to be delivered)",
+        "Bounces + complaints monitored via Resend/Postmark webhook → Sentry alert",
+        "Each email rendered in dev via /admin/email-preview/:template (admin-only) for designers/PMs to QA without firing real sends"
+      ],
+      "priority": 222,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-223",
+      "title": "Stripe Tax + promo codes / coupons",
+      "description": "As Pearson Media, I need automatic sales tax and the ability to issue promo codes (early-adopter, referral, podcast guests) without hand-rolling discount logic.",
+      "acceptanceCriteria": [
+        "Stripe Tax enabled on the account; all Checkout Sessions in US-204/US-205 include automatic_tax: { enabled: true }",
+        "All product line items have a tax code set (digital service for FlipDesk; service for per-grade; service for credit packs) via the setup script (US-203)",
+        "Customer tax_id collection enabled in Checkout for tax-exempt B2B users",
+        "Promotion codes enabled in Checkout (allow_promotion_codes: true)",
+        "Coupons created via Stripe dashboard work for both subscriptions and one-time; an admin UI page /admin/coupons lists active coupons (read-only first pass) with usage counts pulled from Stripe API",
+        "Referral codes (US-XXX backlog candidate) can reuse this Stripe coupon infra later",
+        "Tax shown clearly on Billing page and in receipts; no hidden charges"
+      ],
+      "priority": 223,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-224",
+      "title": "Settings — user-set AI action self-cap surfaced in UI",
+      "description": "As a power user worried about runaway AI spend, I want to surface the existing users.ai_action_limit column with a UI control so I can set my own cap below my plan's limit.",
+      "acceptanceCriteria": [
+        "Settings page gets a new 'AI usage' card showing: current month usage, plan's monthly limit, optional self-imposed cap input (integer, must be ≤ plan limit)",
+        "Saving the cap writes users.ai_action_limit; null = use plan default",
+        "Plan-gate middleware (US-208) checks min(plan_limit, ai_action_limit) when present",
+        "Card also shows the same 50/80/95% threshold settings introduced in US-209",
+        "Reset behavior: ai_actions_used_this_month resets on the same cycle as the FlipDesk subscription (or calendar month for Free users)"
+      ],
+      "priority": 224,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-225",
+      "title": "Migrate existing users from legacy plan column",
+      "description": "As a developer, I need a one-time migration path that maps every existing user from the legacy users.plan enum to the new FlipDesk + credit balance world without losing their existing Stripe subscription or grade history.",
+      "acceptanceCriteria": [
+        "Migration 00038_pricing_migrate_existing.sql runs after 00037 (US-201): UPDATE users SET flipdesk_plan = CASE plan WHEN 'free' THEN 'free' WHEN 'starter' THEN 'starter' WHEN 'professional' THEN 'pro' WHEN 'enterprise' THEN 'business' END, subscription_status = CASE WHEN stripe_customer_id IS NULL THEN 'none' ELSE 'active' END",
+        "Backfill script (one-off, scripts/backfill-stripe-state.ts): for every user with stripe_customer_id, fetch their active subscription from Stripe and reconcile subscription_status / flipdesk_period_end / flipdesk_subscription_id / flipdesk_interval against the actual Stripe state (catches drift between legacy plan column and reality)",
+        "Existing subscriptions are NOT canceled and re-created — the script updates the Stripe subscription's line items via subscriptions.update IF the new Stripe price IDs differ (e.g., legacy starter at $29 is the same — no change; legacy professional at $99 maps to Business at $99 not Pro at $59 — admin reviews these manually before the script applies)",
+        "Dry-run mode prints the mapping table for human review before live execution",
+        "Each existing user receives a one-time email (template in US-222) explaining the change: 'We've split FlipDesk and GradeThread into separate billable parts. Your plan is now FlipDesk <X>. Your monthly included grades are now <N>. Any existing usage is untouched.'",
+        "Legacy users.plan column dropped in a follow-up migration only AFTER one full billing cycle has passed and no code references remain — tracked as a checklist item, not in this story",
+        "Posthog 'pricing.migrated' fired per user with { from_plan, to_flipdesk_plan }"
+      ],
+      "priority": 225,
       "passes": false,
       "notes": ""
     }

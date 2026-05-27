@@ -48,7 +48,19 @@
       "Bash(echo \".playwright-mcp/\")",
       "Bash(xargs ls -la)",
       "Bash(xargs grep -l \"Deno.env.get\")",
-      "Bash(grep -E \"^\\\\s*$|\\\\.tsx\")"
+      "Bash(grep -E \"^\\\\s*$|\\\\.tsx\")",
+      "WebSearch",
+      "WebFetch(domain:www.accelerlist.com)",
+      "WebFetch(domain:www.skugrid.com)",
+      "WebFetch(domain:sellbery.com)",
+      "WebFetch(domain:primelister.com)",
+      "WebFetch(domain:flyp.shop)",
+      "WebFetch(domain:crosslist.com)",
+      "WebFetch(domain:vendoo.co)",
+      "WebFetch(domain:listperfectly.com)",
+      "WebFetch(domain:www.photoroom.com)",
+      "WebFetch(domain:www.primelister.com)",
+      "WebFetch(domain:flyp.space)"
     ]
   },
   "hooks": {

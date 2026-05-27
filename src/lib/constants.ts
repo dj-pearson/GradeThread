@@ -82,64 +82,250 @@ export const DISPUTE_STATUSES = [
   "rejected",
 ] as const;
 
-// Subscription plans
-export const PLANS = {
+// ─── Pricing model (US-200) ──────────────────────────────────────
+//
+// Two products billed on one Stripe customer:
+//   1. FlipDesk subscription (FLIPDESK_PLANS) — recurring tiers
+//   2. GradeThread per-grade (GRADETHREAD_TIERS + CREDIT_PACKS) — consumption
+//
+// Debit precedence per submission: included monthly grades (Standard only)
+// → credit balance → one-time Stripe checkout. See US-207.
+
+export interface FlipdeskGateFlags {
+  /** Multi-select / bulk actions across listings. */
+  bulkActions: boolean;
+  /** Scheduled relist/end/promotion actions. */
+  scheduledActions: boolean;
+  /** AI-driven comp pulls (sold-listing analysis). */
+  compPulls: boolean;
+  /** Automatic relist after end-without-sale. */
+  autoRelist: boolean;
+  /** Invite additional seats / sub-accounts. */
+  subAccounts: boolean;
+  /** Programmatic API key access. */
+  apiAccess: boolean;
+  /** Payout-import reconciliation (CSV + API). */
+  reconciliation: boolean;
+  /** Priority support SLA. */
+  prioritySupport: boolean;
+}
+
+export interface FlipdeskPlanConfig {
+  name: string;
+  priceMonthlyCents: number;
+  priceYearlyCents: number;
+  /** -1 = unlimited (soft-capped). */
+  activeListingCap: number;
+  aiActionsPerMonth: number;
+  /** -1 = all marketplaces. */
+  marketplacesCap: number;
+  includedStandardGradesPerMonth: number;
+  features: string[];
+  gateFlags: FlipdeskGateFlags;
+}
+
+export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
   free: {
     name: "Free",
-    gradesPerMonth: 5,
+    priceMonthlyCents: 0,
+    priceYearlyCents: 0,
+    activeListingCap: 25,
     aiActionsPerMonth: 25,
-    priceMonthly: 0,
+    marketplacesCap: 1,
+    includedStandardGradesPerMonth: 3,
     features: [
-      "5 grades per month",
-      "Basic grade reports",
-      "Email support",
+      "25 active listings",
+      "eBay only",
+      "25 AI actions / month",
+      "3 free Standard grades / month",
     ],
+    gateFlags: {
+      bulkActions: false,
+      scheduledActions: false,
+      compPulls: false,
+      autoRelist: false,
+      subAccounts: false,
+      apiAccess: false,
+      reconciliation: false,
+      prioritySupport: false,
+    },
   },
   starter: {
     name: "Starter",
-    gradesPerMonth: 50,
+    priceMonthlyCents: 2900,
+    priceYearlyCents: 29000,
+    activeListingCap: 250,
     aiActionsPerMonth: 200,
-    priceMonthly: 29,
+    marketplacesCap: 2,
+    includedStandardGradesPerMonth: 10,
     features: [
-      "50 grades per month",
-      "Detailed grade reports",
-      "Certificate links",
-      "Priority support",
+      "250 active listings",
+      "eBay + 1 additional marketplace",
+      "200 AI actions / month",
+      "10 Standard grades included / month",
+      "Auto-import payouts",
     ],
+    gateFlags: {
+      bulkActions: false,
+      scheduledActions: false,
+      compPulls: false,
+      autoRelist: false,
+      subAccounts: false,
+      apiAccess: false,
+      reconciliation: false,
+      prioritySupport: false,
+    },
   },
-  professional: {
-    name: "Professional",
-    gradesPerMonth: 500,
+  pro: {
+    name: "Pro",
+    priceMonthlyCents: 5900,
+    priceYearlyCents: 59000,
+    activeListingCap: 1000,
     aiActionsPerMonth: 1000,
-    priceMonthly: 99,
+    marketplacesCap: -1,
+    includedStandardGradesPerMonth: 30,
     features: [
-      "500 grades per month",
-      "Full grade reports with AI analysis",
-      "Certificate links & embeds",
-      "API access",
-      "Bulk uploads",
+      "1,000 active listings",
+      "All marketplaces",
+      "1,000 AI actions / month",
+      "30 Standard grades included / month",
+      "Bulk actions + scheduled actions",
+      "AI comp pulls",
+      "Auto-relist",
+    ],
+    gateFlags: {
+      bulkActions: true,
+      scheduledActions: true,
+      compPulls: true,
+      autoRelist: true,
+      subAccounts: false,
+      apiAccess: false,
+      reconciliation: false,
+      prioritySupport: false,
+    },
+  },
+  business: {
+    name: "Business",
+    priceMonthlyCents: 9900,
+    priceYearlyCents: 99000,
+    activeListingCap: -1,
+    aiActionsPerMonth: 5000,
+    marketplacesCap: -1,
+    includedStandardGradesPerMonth: 75,
+    features: [
+      "Unlimited active listings",
+      "All marketplaces",
+      "5,000 AI actions / month",
+      "75 Standard grades included / month",
+      "Sub-accounts (team seats)",
+      "Programmatic API access",
+      "Payout reconciliation",
       "Priority support",
     ],
-  },
-  enterprise: {
-    name: "Enterprise",
-    gradesPerMonth: -1, // unlimited
-    aiActionsPerMonth: -1, // unlimited
-    priceMonthly: null, // custom pricing
-    features: [
-      "Unlimited grades",
-      "Full grade reports with AI analysis",
-      "Certificate links & embeds",
-      "Full API access",
-      "Bulk uploads",
-      "White-label options",
-      "Dedicated support",
-      "Custom integrations",
-    ],
+    gateFlags: {
+      bulkActions: true,
+      scheduledActions: true,
+      compPulls: true,
+      autoRelist: true,
+      subAccounts: true,
+      apiAccess: true,
+      reconciliation: true,
+      prioritySupport: true,
+    },
   },
 } as const;
 
-export type PlanKey = keyof typeof PLANS;
+export type FlipdeskPlanKey = "free" | "starter" | "pro" | "business";
+
+export interface GradeTierConfig {
+  label: string;
+  priceCents: number;
+  slaHours: number;
+  /** How many credits one purchase at this tier consumes. */
+  creditCost: number;
+}
+
+export const GRADETHREAD_TIERS = {
+  standard: { label: "Standard", priceCents: 299, slaHours: 48, creditCost: 1 },
+  premium:  { label: "Premium",  priceCents: 799, slaHours: 12, creditCost: 3 },
+  express:  { label: "Express",  priceCents: 1299, slaHours: 1, creditCost: 5 },
+} as const satisfies Record<GradeTierKey, GradeTierConfig>;
+
+export type GradeTierKey = "standard" | "premium" | "express";
+
+export interface CreditPackConfig {
+  credits: number;
+  priceCents: number;
+}
+
+// Ordered smallest → largest. 1 credit = 1 Standard grade. Credits never expire.
+export const CREDIT_PACKS: readonly CreditPackConfig[] = [
+  { credits: 10,  priceCents: 2499 },
+  { credits: 25,  priceCents: 5999 },
+  { credits: 50,  priceCents: 10999 },
+  { credits: 100, priceCents: 19999 },
+] as const;
+
+export type CreditPackSize = (typeof CREDIT_PACKS)[number]["credits"];
+
+// Thresholds at which the frontend fires upgrade modals. Tweakable per-user
+// via users.usage_alert_thresholds in US-209.
+export const FLIPDESK_UPGRADE_TRIGGERS = {
+  /** Soft toast at this fraction of any cap (default). */
+  softWarnPct: 0.8,
+  /** Hard 402 block at this fraction. */
+  hardBlockPct: 1.0,
+  /** User-configurable threshold options (US-209 settings). */
+  userOptions: [0.5, 0.8, 0.95] as const,
+} as const;
+
+// ─── Legacy PLANS (DEPRECATED — see US-202) ──────────────────────
+//
+// Kept for now so existing UI (billing, landing, admin, dashboard, etc.)
+// keeps compiling. New code MUST NOT add callers. Values are derived from
+// FLIPDESK_PLANS so changes propagate without drift. Legacy keys map:
+//   free → flipdesk.free, starter → flipdesk.starter,
+//   professional → flipdesk.pro, enterprise → flipdesk.business.
+// Removed when US-211 (billing rebuild) + US-220 (landing rewrite) land.
+
+const LEGACY_MAP: Record<PlanKey, FlipdeskPlanKey> = {
+  free: "free",
+  starter: "starter",
+  professional: "pro",
+  enterprise: "business",
+};
+
+interface LegacyPlanShape {
+  name: string;
+  gradesPerMonth: number;
+  aiActionsPerMonth: number;
+  priceMonthly: number | null;
+  features: readonly string[];
+}
+
+function deriveLegacyPlan(key: PlanKey): LegacyPlanShape {
+  const flip = FLIPDESK_PLANS[LEGACY_MAP[key]];
+  return {
+    name: flip.name,
+    // Old "gradesPerMonth" → bundled grades. Old enterprise was unlimited,
+    // but the new Business tier is 75 — surface that as the legacy value too.
+    gradesPerMonth: flip.includedStandardGradesPerMonth,
+    aiActionsPerMonth: flip.aiActionsPerMonth,
+    priceMonthly: flip.priceMonthlyCents === 0 ? 0 : flip.priceMonthlyCents / 100,
+    features: flip.features,
+  };
+}
+
+/** @deprecated Use FLIPDESK_PLANS + GRADETHREAD_TIERS + CREDIT_PACKS instead (US-202). */
+export const PLANS: Record<PlanKey, LegacyPlanShape> = {
+  free: deriveLegacyPlan("free"),
+  starter: deriveLegacyPlan("starter"),
+  professional: deriveLegacyPlan("professional"),
+  enterprise: deriveLegacyPlan("enterprise"),
+};
+
+/** @deprecated Use FlipdeskPlanKey instead (US-202). */
+export type PlanKey = "free" | "starter" | "professional" | "enterprise";
 
 // Grade factors with weights (must sum to 1.0)
 export const GRADE_FACTORS = {
@@ -364,10 +550,39 @@ export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], stri
   other: "Other",
 };
 
-// Stripe price IDs (replace with actual IDs)
+// Stripe price IDs (US-202) — populated from import.meta.env at build time
+// by the setup script in US-203. Placeholders for local dev; production
+// IDs ship through VITE_STRIPE_PRICE_* env vars.
+//
+// Note: edge-function (Deno/Hono) code reads these from Deno.env directly
+// so this constant is frontend-only.
+const env = (key: string, fallback: string): string =>
+  (import.meta.env?.[key] as string | undefined) ?? fallback;
+
 export const STRIPE_PRICE_IDS = {
-  starter_monthly: "price_starter_monthly_placeholder",
-  starter_yearly: "price_starter_yearly_placeholder",
-  professional_monthly: "price_professional_monthly_placeholder",
-  professional_yearly: "price_professional_yearly_placeholder",
+  flipdesk: {
+    starter: {
+      monthly: env("VITE_STRIPE_PRICE_FLIPDESK_STARTER_MONTHLY", "price_flipdesk_starter_monthly_placeholder"),
+      yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_STARTER_YEARLY",  "price_flipdesk_starter_yearly_placeholder"),
+    },
+    pro: {
+      monthly: env("VITE_STRIPE_PRICE_FLIPDESK_PRO_MONTHLY", "price_flipdesk_pro_monthly_placeholder"),
+      yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_PRO_YEARLY",  "price_flipdesk_pro_yearly_placeholder"),
+    },
+    business: {
+      monthly: env("VITE_STRIPE_PRICE_FLIPDESK_BUSINESS_MONTHLY", "price_flipdesk_business_monthly_placeholder"),
+      yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_BUSINESS_YEARLY",  "price_flipdesk_business_yearly_placeholder"),
+    },
+  },
+  gradethread: {
+    standard: env("VITE_STRIPE_PRICE_GRADE_STANDARD", "price_grade_standard_placeholder"),
+    premium:  env("VITE_STRIPE_PRICE_GRADE_PREMIUM",  "price_grade_premium_placeholder"),
+    express:  env("VITE_STRIPE_PRICE_GRADE_EXPRESS",  "price_grade_express_placeholder"),
+  },
+  creditPacks: {
+    10:  env("VITE_STRIPE_PRICE_CREDITS_10",  "price_credits_10_placeholder"),
+    25:  env("VITE_STRIPE_PRICE_CREDITS_25",  "price_credits_25_placeholder"),
+    50:  env("VITE_STRIPE_PRICE_CREDITS_50",  "price_credits_50_placeholder"),
+    100: env("VITE_STRIPE_PRICE_CREDITS_100", "price_credits_100_placeholder"),
+  },
 } as const;

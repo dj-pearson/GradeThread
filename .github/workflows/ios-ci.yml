@@ -1,0 +1,68 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-ci.yml"
+  pull_request:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build + test
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        # Pinned because Apple ships new Xcodes on macos-14 frequently and an
+        # unannounced bump breaks the build cache. Update intentionally.
+        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen + xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Build + test
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project GradeThread.xcodeproj \
+            -scheme GradeThread \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -enableCodeCoverage YES \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean test | xcbeautify --renderer github-actions
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            ios/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

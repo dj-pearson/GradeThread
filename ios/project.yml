@@ -1,0 +1,83 @@
+name: GradeThread
+options:
+  bundleIdPrefix: com.gradethread
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: en
+  groupSortPosition: top
+  generateEmptyDirectories: true
+  xcodeVersion: "15.4"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1,2"   # iPhone + iPad (US-193)
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_EMIT_LOC_STRINGS: YES
+    DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}   # set in env or .xcconfig; placeholder for CI
+
+# Apps are built unsigned in CI for tests; the release workflow injects a
+# code-signing identity via App Store Connect API key + manual provisioning.
+configs:
+  Debug: debug
+  Release: release
+
+targets:
+  GradeThread:
+    type: application
+    platform: iOS
+    sources:
+      - path: GradeThread
+    resources:
+      - path: GradeThread/Assets.xcassets
+    info:
+      path: GradeThread/Info.plist
+      properties:
+        CFBundleDisplayName: GradeThread
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading."
+        NSPhotoLibraryUsageDescription: "GradeThread imports photos from your library so you can grade existing garment shots."
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+    scheme:
+      testTargets:
+        - GradeThreadTests
+      gatherCoverageData: true
+
+  GradeThreadTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: GradeThreadTests
+    dependencies:
+      - target: GradeThread
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO

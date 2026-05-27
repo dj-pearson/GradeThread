@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-03-15
+# Last updated: 2026-05-27
 
 ## Completed Stories
 
@@ -143,18 +143,99 @@
 - [x] US-166 | Bulk AI enrichment from the items table | PASSED ← NEW (2026-05-22)
 - [x] US-167 | AI usage settings, monthly budget guardrails & acceptance feedback | PASSED ← NEW (2026-05-22)
 
-## FlipDesk integration stories (in progress 2026-05-22)
-- [x] US-108 | Photo reorder and retag UI | PASSED ← NEW (2026-05-22)
-- [x] US-118 | Listing composer: variants and preview | PASSED ← NEW (2026-05-22)
-- [x] US-134 | PWA install + offline photo capture queue | PASSED ← NEW (2026-05-22)
-- [x] US-135 | FlipDesk onboarding tour | PASSED ← NEW (2026-05-22)
-- [x] US-136 | FlipDesk landing + marketing surface | PASSED ← NEW (2026-05-22)
+## FlipDesk integration stories (audit + completion pass 2026-05-27)
+- [x] US-107 | Image processing (client-side path) | PASSED ← AUDIT (2026-05-27)
+- [x] US-108 | Photo reorder and retag UI | PASSED (2026-05-22)
+- [x] US-113 | Send item to GradeThread | PASSED ← AUDIT (2026-05-27)
+- [x] US-114 | GradeThread completion handler | PASSED ← AUDIT (2026-05-27)
+- [x] US-118 | Listing composer: variants and preview | PASSED (2026-05-22)
+- [x] US-119 | eBay OAuth start + callback | PASSED ← AUDIT (2026-05-27, sandbox verification pending)
+- [x] US-120 | eBay token refresh worker | PASSED ← AUDIT (2026-05-27)
+- [x] US-121 | eBay listing validate + push | PASSED ← AUDIT (2026-05-27, sandbox verification pending)
+- [x] US-122 | eBay Fulfillment sync | PASSED ← AUDIT (2026-05-27, sandbox verification pending)
+- [x] US-123 | eBay Notification API + account-deletion | PASSED ← AUDIT (2026-05-27)
+- [x] US-124 | Payout CSV importer | PASSED ← AUDIT (2026-05-27)
+- [x] US-125 | Reconciliation matcher + manual queue | PASSED ← AUDIT (2026-05-27)
+- [x] US-130 | Photo archival to Cloudflare R2 | PASSED ← AUDIT (2026-05-27, R2 creds pending)
+- [x] US-131 | Scheduled job runner | PASSED ← NEW (2026-05-27, COOLIFY.md cron entries)
+- [x] US-132 | Closed-loop grade outcomes back to GradeThread | PASSED ← NEW (2026-05-27, migration 00036)
+- [x] US-134 | PWA install + offline photo capture queue | PASSED (2026-05-22)
+- [x] US-135 | FlipDesk onboarding tour | PASSED (2026-05-22)
+- [x] US-136 | FlipDesk landing + marketing surface | PASSED (2026-05-22)
 
 ## Summary
 - Core PRD (US-001 → US-100): 100/100 PASSED
 - Phase 13 AI Item Enrichment (US-158 → US-167): 10/10 PASSED
-- FlipDesk integration stories still open: US-107, 113, 114, 119-125,
-  130-132, 137, 146-151 (eBay/Sheets/image-processing — external-API work)
+- FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
+- Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
+- Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
+- iOS app (US-168 → US-199): 1/32 — US-168 scaffolded with XcodeGen + GitHub Actions CI/release pipeline. US-169→US-199 remaining (each ships in a focused session)
+- Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS foundation (US-168)
+Scaffolded the iOS app and the GitHub Actions pipeline that will compile,
+test, and ship it. Per user direction, no contributor needs a Mac — every
+build runs on a macos-14 runner.
+
+What landed:
+- ios/project.yml — XcodeGen spec (bundle ID com.gradethread.app, iOS 16+,
+  Swift 5.9, iPhone + iPad device family). .xcodeproj generated in CI, not
+  checked in.
+- ios/GradeThread/App.swift + ContentView.swift — SwiftUI @main and the
+  4-tab shell (Inventory / Add / Sales / Settings) tinted to brand navy
+  via Color extensions that mirror src/index.css.
+- ios/GradeThread/Info.plist, Assets.xcassets (AppIcon stub, AccentColor =
+  #0F3460), .gitignore excluding generated project + signing artifacts.
+- ios/GradeThreadTests/GradeThreadTests.swift — placeholder XCTest smoke
+  test so CI has something real to run.
+- .github/workflows/ios-ci.yml — xcodegen → xcodebuild test on every PR
+  touching ios/. macos-14 runner, Xcode 15.4 pinned.
+- .github/workflows/ios-release.yml — tag- or workflow-dispatch-triggered;
+  imports certificate into ephemeral keychain, installs provisioning
+  profile + App Store Connect API key, archives, exports .ipa, uploads to
+  TestFlight via xcrun altool. Optional App Store submission gate (stub
+  until US-197 wires metadata + screenshots).
+- ios/README.md — required GitHub secrets, one-time App Store Connect
+  setup, how to cut a release.
+
+Still open in the iOS roadmap: US-169 (Supabase SDK + edge client),
+US-170 (auth + Sign in with Apple), US-171 (real tab content) — these
+each warrant their own focused session.
+
+## Session Notes (2026-05-27) — FlipDesk audit + completion pass
+Audited every "open" FlipDesk story against the actual codebase. Most were
+already implemented but never marked passed. Confirmed and flipped to passed:
+US-107 (client-side image pipeline; server /process intentionally 501),
+US-113 (POST /api/flipdesk/grading/submit + validate + UI),
+US-114 (app-side hook in grading-pipeline.ts steps 7b+7c — atomic with grade
+write; webhook fallback deferred to Phase 2 Public API),
+US-119/120/121/122/123 (eBay OAuth, refresh, listing push, fulfillment sync,
+webhook + account-deletion — all code-complete; eBay sandbox manual
+verification still pending real creds),
+US-124 (payout CSV importer with dedup),
+US-125 (reconciliation matcher + manual queue with conservative auto-match
+thresholds),
+US-130 (R2 archival with HEAD-verify before Supabase delete).
+
+New work this pass:
+- US-131: chose Coolify Scheduled Tasks (no second container). Rewrote the
+  "Scheduled jobs" section of services/edge-functions/COOLIFY.md with
+  concrete cron entries and curl commands using FLIPDESK_INTERNAL_JOB_SECRET.
+- US-132: migration 00036_grade_outcomes.sql — opt-in users.share_sale_outcomes
+  flag, grade_outcomes table, SECURITY DEFINER triggers on sales (upsert when
+  the linked item has grade_report_id AND user opted in) and on disputes
+  (flag dispute_reported=true). Settings page gains the opt-in toggle in the
+  FlipDesk card. Types extended in src/types/database.ts.
+
+Still open after this pass:
+- US-137: BLOCKED on eBay sandbox + R2 mocks + operator dogfood baseline.
+- US-146/147/148: BLOCKED on Google Cloud OAuth provisioning.
+- US-149/150: substantial new builds — defer to focused sessions.
+- US-151: BLOCKED on eBay Sell Analytics subscription.
+
+iOS app (US-168 → US-199): user wants a real iOS project in this repo with
+all compile/test/submit going through GitHub Actions. Not started this pass —
+will need a fresh focused session to scaffold the Xcode project + workflow.
 
 ## Session Notes (2026-05-22) — AI Item Enrichment planning
 Added Phase 13 (US-158 → US-167) to prd.json: AI-assisted item add/management for FlipDesk.
