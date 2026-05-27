@@ -20,6 +20,11 @@ struct DetailsIntakeView: View {
     @State private var bannerMessage: BannerMessage?
     private let currencyFormatter = CurrencyFormatter()
 
+    // Voice + barcode shortcuts (US-179)
+    @State private var dictation = SpeechDictation()
+    @State private var notesAnchorBeforeDictation: String = ""
+    @State private var showingBarcodeScanner = false
+
     /// Bottom toast — surfaced both for online success and the offline
     /// fallback. Auto-clears after a beat so the screen returns to a
     /// neutral state for the next "Add another" iteration.
@@ -66,6 +71,41 @@ struct DetailsIntakeView: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $showingBarcodeScanner) {
+            BarcodeScanView { code in
+                form.sku = code
+            }
+        }
+        .onDisappear {
+            // Don't leave the audio engine running if the user swipes the
+            // intake away mid-dictation.
+            if dictation.isRecording { dictation.stop() }
+        }
+        // Live-stream recognized text into the bound notes field. We
+        // append to the snapshot we took when dictation started rather
+        // than replacing the whole notes value — so if the user already
+        // had typed text, dictation extends it instead of overwriting.
+        .onChange(of: dictation.recognizedText) { _, newText in
+            guard dictation.isRecording else { return }
+            if notesAnchorBeforeDictation.isEmpty {
+                form.notes = newText
+            } else {
+                let separator = notesAnchorBeforeDictation.hasSuffix(" ") ? "" : " "
+                form.notes = notesAnchorBeforeDictation + separator + newText
+            }
+        }
+    }
+
+    // MARK: - Dictation control
+
+    private func toggleDictation() async {
+        if dictation.isRecording {
+            dictation.stop()
+            return
+        }
+        notesAnchorBeforeDictation = form.notes
+        AppRouter.haptic()
+        await dictation.start()
     }
 
     // MARK: - Sections
@@ -75,9 +115,21 @@ struct DetailsIntakeView: View {
             TextField("Title", text: $form.title)
                 .textInputAutocapitalization(.words)
 
-            TextField("SKU", text: $form.sku)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            HStack {
+                TextField("SKU", text: $form.sku)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Button {
+                    AppRouter.haptic()
+                    showingBarcodeScanner = true
+                } label: {
+                    Image(systemName: "barcode.viewfinder")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color.brandNavy)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Scan barcode for SKU")
+            }
 
             TextField("Brand", text: $form.brand)
                 .textInputAutocapitalization(.words)
@@ -157,13 +209,41 @@ struct DetailsIntakeView: View {
     }
 
     private var notesSection: some View {
-        Section("Notes") {
+        Section {
             // autoFocus disabled — the user almost never opens this
             // screen wanting to start with the notes field, and the
             // keyboard popping unexpectedly was a frequent web-side
             // friction point that we don't repeat here.
-            TextField("Notes", text: $form.notes, axis: .vertical)
-                .lineLimit(3...6)
+            HStack(alignment: .top) {
+                TextField("Notes", text: $form.notes, axis: .vertical)
+                    .lineLimit(3...6)
+                if dictation.isAvailable {
+                    Button {
+                        Task { await toggleDictation() }
+                    } label: {
+                        Image(systemName: dictation.isRecording
+                              ? "stop.circle.fill"
+                              : "mic.fill")
+                            .font(.system(size: 22))
+                            .foregroundStyle(dictation.isRecording ? Color.brandRed : Color.brandNavy)
+                            .symbolEffect(.pulse, isActive: dictation.isRecording)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel(dictation.isRecording ? "Stop dictation" : "Start dictation")
+                }
+            }
+        } header: {
+            Text("Notes")
+        } footer: {
+            if let error = dictation.lastError {
+                Text(error.localizedDescription)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            } else if dictation.isRecording {
+                Text("Listening — tap the mic to stop.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

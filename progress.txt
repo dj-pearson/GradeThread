@@ -169,8 +169,53 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 11/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background photo uploads; US-176 AI extract review; US-177 Live Text fallback; US-178 details-first manual intake form with offline save + 'Save & Add another' batch flow. US-179→US-199 remaining
+- iOS app (US-168 → US-199): 12/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background photo uploads; US-176 AI extract review; US-177 Live Text fallback; US-178 details-first manual intake; US-179 voice dictation + barcode scanner shortcuts. US-180→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS voice + barcode shortcuts (US-179)
+Two on-form shortcuts that turn a thrift trip from typing-heavy into
+mostly touch-free: dictate notes into the Notes field, scan a SKU
+sticker into the SKU field.
+
+What landed:
+- ios/GradeThread/Speech/SpeechDictation.swift — SFSpeechRecognizer
+  + AVAudioEngine, @MainActor @Observable. Partial results stream
+  into recognizedText. Permission flow covers speech +
+  microphone (iOS 17 AVAudioApplication API). .record /
+  .measurement audio session disables AGC for clearer consonants.
+- ios/GradeThread/Capture/BarcodeScanner.swift — AVCaptureSession +
+  AVCaptureVideoDataOutput feeding a VNDetectBarcodesRequest (per AC,
+  Vision path rather than the simpler AVCaptureMetadataOutput).
+  Symbologies: ean13 / ean8 / upce / code128 / qr. Detections via
+  AsyncStream<String> with a 1s dedupe window so single-shot consumers
+  don't fire twice.
+- ios/GradeThread/Capture/BarcodeScanView.swift — modal scanner.
+  Back-camera preview + centered viewfinder rectangle, success haptic
+  via UINotificationFeedbackGenerator.notificationOccurred(.success)
+  on first detected code.
+
+DetailsIntakeView wiring:
+- SKU row gets a barcode.viewfinder button that fullScreenCovers
+  BarcodeScanView; on detection the SKU TextField is populated and
+  the scanner dismisses.
+- Notes row gets a mic.fill button (only rendered when
+  dictation.isAvailable). Toggle starts/stops; recognized text streams
+  into form.notes via onChange. notesAnchorBeforeDictation captures
+  the text the user already typed so dictation extends rather than
+  overwrites. .symbolEffect(.pulse) animates the mic while recording.
+- View .onDisappear stops dictation so swiping away mid-record
+  doesn't leak the audio engine.
+
+Info.plist:
+- NSSpeechRecognitionUsageDescription + NSMicrophoneUsageDescription
+  added.
+- NSCameraUsageDescription updated to mention barcode scanning so a
+  single prompt covers both photo intake (US-173) and SKU scanning.
+
+Graceful simulator degradation: dictation.isAvailable returns false
+on simulators without recognizer support (mic button hidden);
+BarcodeScanView falls through to a clear 'Camera access is off'
+state with a Settings deep-link.
 
 ## Session Notes (2026-05-27) — iOS details-first intake (US-178)
 Manual form for thrift-trip cataloging — reached from the Add tab →

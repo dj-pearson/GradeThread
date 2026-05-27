@@ -61,7 +61,7 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading."
+        NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading and to scan SKU barcodes when cataloging items."
         NSPhotoLibraryUsageDescription: "GradeThread imports photos from your library so you can grade existing garment shots."
         ITSAppUsesNonExemptEncryption: false
         # SUPABASE_URL, SUPABASE_ANON_KEY, EDGE_API_URL are surfaced from the

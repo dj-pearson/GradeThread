@@ -16,6 +16,10 @@
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- Camera covers two capture surfaces: garment photos for grading
+         (US-173) and SKU barcode scanning on the manual intake form
+         (US-179). Single string covers both because iOS only shows the
+         first prompt. -->
     <!-- Surfaced from the active .xcconfig so AppConfig can read them at
          runtime. The xcconfig escapes // in URLs as /$()/ — the build
          system resolves that to a valid https:// URL before we see it. -->
@@ -25,6 +29,11 @@
     <string>$(SUPABASE_ANON_KEY)</string>
     <key>EDGE_API_URL</key>
     <string>$(EDGE_API_URL)</string>
+    <!-- Voice dictation in the manual intake form (US-179). -->
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>GradeThread uses speech recognition so you can dictate notes hands-free while sourcing items.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>GradeThread needs the microphone to capture your voice for dictation.</string>
     <!-- Custom URL scheme so Supabase OAuth redirects (Google + the eventual
          magic-link flow) come back to the app instead of staying in Safari.
          Matches supabaseRedirectURL in AppConfig. -->
