@@ -15,6 +15,10 @@ import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
+import { contentBlogRoutes } from "./routes/content-blog.ts";
+import { contentSocialRoutes } from "./routes/content-social.ts";
+import { contentTopicsRoutes } from "./routes/content-topics.ts";
+import { contentKnowledgeRoutes } from "./routes/content-knowledge.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
@@ -102,6 +106,12 @@ app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/admin/*", authMiddleware);
 app.use("/api/admin/*", adminAuthMiddleware);
 
+// Content module (blog + social): admin-only.
+// Public read paths and the Make.com scheduler tick land in Phase B/E
+// with their own carve-outs — Phase A only ships the admin CRUD surface.
+app.use("/api/content/*", authMiddleware);
+app.use("/api/content/*", adminAuthMiddleware);
+
 // Rate limiting — 60 requests per minute for authenticated grade endpoints
 app.use("/api/grade/*", rateLimiter(60, 60_000));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000));
@@ -127,6 +137,10 @@ app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/admin", adminBillingRoutes);
+app.route("/api/content/blog", contentBlogRoutes);
+app.route("/api/content/social", contentSocialRoutes);
+app.route("/api/content/topics", contentTopicsRoutes);
+app.route("/api/content/knowledge", contentKnowledgeRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));
