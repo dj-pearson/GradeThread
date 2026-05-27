@@ -193,7 +193,7 @@ export async function generateBlogArticle(
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripCodeFence(textBlock.text));
-  } catch (e) {
+  } catch {
     console.error("[content-ai-blog] JSON parse failed:", textBlock.text.slice(0, 300));
     throw new Error("AI returned invalid JSON for blog article");
   }

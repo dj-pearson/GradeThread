@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { Editor } from "@tiptap/react";
+import type { Editor as TiptapEditorInstance } from "@tiptap/react";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -113,7 +113,7 @@ function Editor({
   const [tags, setTags] = useState((initial.tags ?? []).join(", "));
 
   const [body, setBody] = useState(initial.body_html);
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const [editor, setEditor] = useState<TiptapEditorInstance | null>(null);
   const lastSavedRef = useRef<string>(initial.body_html);
   const [saving, setSaving] = useState(false);
 

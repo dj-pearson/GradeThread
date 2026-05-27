@@ -43,8 +43,10 @@ const TABS: Array<{
   { key: "soc-fd", surface: "social", product: "flipdesk", label: "Social · FlipDesk" },
 ];
 
+const DEFAULT_TAB = TABS[0]!.key;
+
 export function TopicBankPage() {
-  const [tab, setTab] = useState(TABS[0].key);
+  const [tab, setTab] = useState(DEFAULT_TAB);
 
   return (
     <div className="space-y-4">

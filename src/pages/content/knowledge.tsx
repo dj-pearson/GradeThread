@@ -23,7 +23,10 @@ export function KnowledgePage() {
 
   // Default to first doc on first load.
   useEffect(() => {
-    if (!activeKey && docs && docs.length > 0) setActiveKey(docs[0].key);
+    if (!activeKey && docs && docs.length > 0) {
+      const first = docs[0];
+      if (first) setActiveKey(first.key);
+    }
   }, [docs, activeKey]);
 
   return (

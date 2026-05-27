@@ -66,7 +66,9 @@
       "mcp__plugin_context7_context7__resolve-library-id",
       "mcp__plugin_context7_context7__query-docs",
       "Bash(git -C C:/Users/dpearson/Documents/GradeThread status --short)",
-      "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff --stat HEAD)"
+      "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff --stat HEAD)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)"
     ]
   },
   "hooks": {

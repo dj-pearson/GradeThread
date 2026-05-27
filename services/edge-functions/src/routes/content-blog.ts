@@ -170,7 +170,8 @@ contentBlogRoutes.patch("/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as UpdateInput;
   const tags = body.tags;
-  const { tags: _t, ...patch } = body;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { tags: _ignored, ...patch } = body;
 
   if (patch.slug) patch.slug = slugify(patch.slug);
 

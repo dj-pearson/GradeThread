@@ -55,6 +55,13 @@ const FlipdeskImportPage = lazy(() => import("@/pages/flipdesk/import").then(m =
 const FlipdeskMarketplacesPage = lazy(() => import("@/pages/flipdesk/marketplaces").then(m => ({ default: m.FlipdeskMarketplacesPage })));
 const FlipdeskReconciliationPage = lazy(() => import("@/pages/flipdesk/reconciliation").then(m => ({ default: m.FlipdeskReconciliationPage })));
 const FlipdeskSourcesPage = lazy(() => import("@/pages/flipdesk/sources").then(m => ({ default: m.FlipdeskSourcesPage })));
+const BlogListPage = lazy(() => import("@/pages/content/blog-list").then(m => ({ default: m.BlogListPage })));
+const BlogEditorPage = lazy(() => import("@/pages/content/blog-editor").then(m => ({ default: m.BlogEditorPage })));
+const SocialListPage = lazy(() => import("@/pages/content/social-list").then(m => ({ default: m.SocialListPage })));
+const SocialEditorPage = lazy(() => import("@/pages/content/social-editor").then(m => ({ default: m.SocialEditorPage })));
+const TopicBankPage = lazy(() => import("@/pages/content/topic-bank").then(m => ({ default: m.TopicBankPage })));
+const KnowledgePage = lazy(() => import("@/pages/content/knowledge").then(m => ({ default: m.KnowledgePage })));
+const ContentSettingsPage = lazy(() => import("@/pages/content/content-settings").then(m => ({ default: m.ContentSettingsPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/dashboard").then(m => ({ default: m.AdminDashboardPage })));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ default: m.AdminUsersPage })));
@@ -156,6 +163,21 @@ export const router = createBrowserRouter([
               { path: "/dashboard/settings", element: <SuspenseWrapper><SettingsPage /></SuspenseWrapper> },
               { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
+              // Content module (admin-only). The AdminRoute guard
+              // wraps the content children so non-admins land back at
+              // /dashboard with the standard "Access denied" toast.
+              {
+                element: <AdminRoute />,
+                children: [
+                  { path: "/dashboard/content/blog", element: <SuspenseWrapper><BlogListPage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/blog/editor/:id", element: <SuspenseWrapper><BlogEditorPage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/social", element: <SuspenseWrapper><SocialListPage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/social/editor/:id", element: <SuspenseWrapper><SocialEditorPage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/topics", element: <SuspenseWrapper><TopicBankPage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/knowledge", element: <SuspenseWrapper><KnowledgePage /></SuspenseWrapper> },
+                  { path: "/dashboard/content/settings", element: <SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper> },
+                ],
+              },
             ],
           },
         ],

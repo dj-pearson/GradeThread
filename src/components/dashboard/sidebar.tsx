@@ -18,6 +18,10 @@ import {
   Wallet,
   BarChart3,
   Boxes,
+  Newspaper,
+  MessageCircle,
+  BookOpen,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,9 +31,10 @@ import {
 } from "@/components/ui/sheet";
 import { useSavedViews } from "@/hooks/use-saved-views";
 import { SidebarUsageWidget } from "@/components/dashboard/sidebar-usage-widget";
+import { useAuthStore } from "@/stores/auth-store";
 
 type NavItem = { to: string; icon: typeof LayoutDashboard; label: string; end: boolean };
-type NavGroup = { title?: string; items: NavItem[] };
+type NavGroup = { title?: string; items: NavItem[]; adminOnly?: boolean };
 
 const navGroups: NavGroup[] = [
   {
@@ -57,6 +62,17 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: "Content",
+    adminOnly: true,
+    items: [
+      { to: "/dashboard/content/blog", icon: Newspaper, label: "Blog", end: false },
+      { to: "/dashboard/content/social", icon: MessageCircle, label: "Social", end: false },
+      { to: "/dashboard/content/topics", icon: Lightbulb, label: "Topic Bank", end: false },
+      { to: "/dashboard/content/knowledge", icon: BookOpen, label: "Knowledge", end: false },
+      { to: "/dashboard/content/settings", icon: SlidersHorizontal, label: "Content Settings", end: false },
+    ],
+  },
+  {
     items: [
       { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false },
       { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false },
@@ -66,9 +82,14 @@ const navGroups: NavGroup[] = [
 ];
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const profile = useAuthStore((s) => s.profile);
+  const isAdmin =
+    profile?.role === "admin" || profile?.role === "super_admin";
   return (
     <nav className="mt-2 flex-1 space-y-4 px-3">
-      {navGroups.map((group, gi) => (
+      {navGroups
+        .filter((g) => !g.adminOnly || isAdmin)
+        .map((group, gi) => (
         <div key={gi} className="space-y-1">
           {group.title && (
             <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">
