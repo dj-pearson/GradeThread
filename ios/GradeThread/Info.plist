@@ -16,6 +16,18 @@
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
+    <!-- US-188: opportunistic background sync via BGAppRefreshTask. The
+         identifier must match the one BGTaskScheduler registers at launch;
+         iOS rejects schedule requests for identifiers not declared here. -->
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.gradethread.app.refresh</string>
+    </array>
     <!-- Camera covers two capture surfaces: garment photos for grading
          (US-173) and SKU barcode scanning on the manual intake form
          (US-179). Single string covers both because iOS only shows the

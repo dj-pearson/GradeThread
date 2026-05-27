@@ -15,6 +15,10 @@ struct ContentView: View {
     @State private var networkMonitor = NetworkMonitor()
     @State private var syncStatus = SyncStatusStore()
     @State private var syncEngine: SyncEngine?
+    /// Last time a foreground sync fired. US-188 60s debounce so rapid
+    /// app switches don't hammer the server.
+    @State private var lastForegroundPullAt: Date?
+    private static let foregroundDebounceSeconds: TimeInterval = 60
 
     var body: some View {
         ProtectedRouteShell()
@@ -46,7 +50,7 @@ struct ContentView: View {
             }
             .onChange(of: scenePhase) { _, newValue in
                 if newValue == .active {
-                    Task { await syncEngine?.sync() }
+                    runForegroundPullIfNeeded()
                 }
             }
             .onReceive(
@@ -55,6 +59,17 @@ struct ContentView: View {
                 // Inventory list pulled-to-refresh — route to the engine.
                 Task { await syncEngine?.sync() }
             }
+    }
+
+    private func runForegroundPullIfNeeded() {
+        // Skip if we synced within the debounce window. Otherwise tap-
+        // tap-tapping between apps triggers a pull on every wake.
+        if let last = lastForegroundPullAt,
+           Date.now.timeIntervalSince(last) < Self.foregroundDebounceSeconds {
+            return
+        }
+        lastForegroundPullAt = .now
+        Task { await syncEngine?.sync() }
     }
 
     private func startSyncEngineIfNeeded() {
@@ -374,6 +389,9 @@ private struct MarketplacesPlaceholder: View {
 
 private struct SettingsPlaceholder: View {
     @Environment(AuthStore.self) private var authStore
+    /// Mirrors BackgroundRefreshService.isEnabled — kept in @State so the
+    /// toggle binds correctly, written through on change.
+    @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
 
     var body: some View {
         List {
@@ -386,6 +404,21 @@ private struct SettingsPlaceholder: View {
                 } label: {
                     Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
+            }
+            Section {
+                Toggle(isOn: $bgRefreshEnabled) {
+                    Label("Refresh in background", systemImage: "arrow.clockwise.icloud")
+                }
+                .onChange(of: bgRefreshEnabled) { _, newValue in
+                    // Persist + schedule (or cancel) the next BG slot.
+                    var service = BackgroundRefreshService()
+                    service.isEnabled = newValue
+                }
+            } header: {
+                Text("Sync")
+            } footer: {
+                Text("Pulls listings + sales while the app is in the background, when iOS allows. Respects the system Background App Refresh setting — turning that off in Settings overrides this toggle.")
+                    .font(.footnote)
             }
             Section {
                 Text("Full settings UI ships in US-194.")

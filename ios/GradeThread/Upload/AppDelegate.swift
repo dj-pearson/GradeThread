@@ -20,6 +20,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     let photoUploadStore = PhotoUploadStore()
     lazy var photoUploadService = PhotoUploadService(store: photoUploadStore)
 
+    /// Background App Refresh (US-188). Initialized lazily so the
+    /// ModelContainer the service uses can be injected after the App
+    /// scene constructs it.
+    let backgroundRefresh = BackgroundRefreshService()
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -29,7 +34,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // completion events before any view code has created the session,
         // and we'd lose them.
         _ = photoUploadService
+
+        // Register the BG refresh task at launch — iOS rejects late
+        // registration with a console warning. The handler runs through
+        // SyncEngine.sync() via the .inventoryPullRequested notification
+        // ContentView already listens for.
+        backgroundRefresh.register()
         return true
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        // Schedule the next BG refresh whenever the user backgrounds the
+        // app. The system uses this as a hint; real cadence is up to
+        // iOS heuristics.
+        backgroundRefresh.scheduleNext()
     }
 
     /// iOS calls this when the app is woken to finish processing a

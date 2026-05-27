@@ -169,8 +169,51 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 19/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage; US-186 reconciliation queue with Create / Link / Ignore swipe actions + bulk Create all. US-187→US-199 remaining
+- iOS app (US-168 → US-199): 20/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage; US-186 reconciliation; US-188 BGAppRefreshTask + foreground debounce + new-sale local notification + settings toggle. US-187+US-189→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS background refresh (US-188)
+App now stays opportunistically fresh in the background and debounces
+foreground pulls so rapid app switches don't hammer the server.
+
+What landed:
+- Info.plist — UIBackgroundModes ['fetch', 'processing'] +
+  BGTaskSchedulerPermittedIdentifiers ['com.gradethread.app.refresh'].
+  iOS rejects any identifier not pre-declared here.
+- ios/GradeThread/Background/BackgroundRefreshService.swift —
+  @MainActor BGAppRefreshTask owner. register() at launch (must be
+  synchronous), scheduleNext() submits with
+  earliestBeginDate = now + 30min, handler re-queues before working
+  so a crash mid-run doesn't lose the slot, expirationHandler
+  cancels in-flight work cleanly. Posts .inventoryPullRequested to
+  route through ContentView → SyncEngine.sync() (existing wiring),
+  sleeps ~8s, then runs detectNewSalesAndNotify.
+- ios/GradeThread/Background/NewSaleNotifier.swift — UNUserNotification
+  wrapper. Lazy permission request. Body copy distinguishes single
+  ('$42.50 just landed.') from multi ('Latest at $X, plus N more.').
+  categoryIdentifier='sale.created' so US-187's deep-link handler
+  can route taps.
+- 'Refresh in background' toggle UserDefaults-backed (defaults ON
+  per AC). false → cancel pending task; true → re-schedule.
+  Respects iOS-level Background App Refresh: when disabled
+  system-side, BGTaskScheduler.submit silently fails (logged).
+- AppDelegate registers at launch and schedules on
+  applicationDidEnterBackground.
+- ContentView gains a 60s debounce on scenePhase → .active so
+  rapid Settings ↔ Inventory ↔ Settings switches don't trigger
+  three syncs.
+- SettingsPlaceholder gains the toggle with an explanatory footer
+  about respecting the iOS system setting.
+
+detectNewSalesAndNotify pattern: persisted lastSaleSeenId in
+UserDefaults; first-ever run records the most recent id without
+notifying (avoid 'N new sales' blast on the initial sync);
+subsequent runs count rows since lastSeen and fire the local
+notification.
+
+Tests in BackgroundRefreshTests cover isEnabled default-ON, UserDefaults
+round-trip, cross-instance state sharing (Settings + AppDelegate
+share via UserDefaults), and refreshIdentifier-matches-plist pin.
 
 ## Session Notes (2026-05-27) — iOS reconciliation queue (US-186)
 Closes the eBay loop. New users connecting an account with existing
