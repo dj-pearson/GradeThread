@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -19,8 +19,10 @@ const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
   : "";
 
 export function SignupPage() {
+  const [params] = useSearchParams();
+  const invitedEmail = params.get("email") ?? "";
   const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(invitedEmail);
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmation, setIsConfirmation] = useState(false);

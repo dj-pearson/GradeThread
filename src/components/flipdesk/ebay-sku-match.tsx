@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { parseEbayListingsCsv, normalizeSku } from "@/lib/ebay-csv";
 import { reconcile, autoMatch } from "@/lib/ebay-reconcile";
 import type {
@@ -117,6 +118,7 @@ function StatTile({
 
 export function EbaySkuMatch() {
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
@@ -180,7 +182,7 @@ export function EbaySkuMatch() {
           match_status = am.match_status;
         }
         return {
-          user_id: user.id,
+          user_id: workspaceOwnerId ?? user.id,
           ebay_item_id: l.ebayItemId,
           custom_label: l.customLabel,
           title: l.title || null,
@@ -235,7 +237,7 @@ export function EbaySkuMatch() {
       const { error } = await supabase
         .from("flipdesk_ebay_listings")
         .delete()
-        .eq("user_id", user.id);
+        .eq("user_id", workspaceOwnerId ?? user.id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
       toast.success("Cleared imported eBay listings.");
@@ -269,7 +271,7 @@ export function EbaySkuMatch() {
 
     // 1. Insert inventory_items pre-listed (since it's already on eBay).
     const itemInsert: Record<string, unknown> = {
-      user_id: user.id,
+      user_id: workspaceOwnerId ?? user.id,
       title,
       sku,
       status: "listed",

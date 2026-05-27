@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABELS,
@@ -229,6 +230,7 @@ function AddExpenseDialog({
   onOpenChange: (o: boolean) => void;
 }) {
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId, can } = useWorkspace();
   const qc = useQueryClient();
   const [category, setCategory] = useState<ExpenseCategory>(
     "shipping_supplies",
@@ -239,7 +241,11 @@ function AddExpenseDialog({
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!user) return;
+    if (!user || !workspaceOwnerId) return;
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to log expenses in this workspace.");
+      return;
+    }
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) {
       toast.error("Enter a valid amount.");
@@ -248,7 +254,7 @@ function AddExpenseDialog({
     setSaving(true);
     try {
       const insert: ExpenseInsert = {
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         category,
         amount: amt,
         description: description.trim() || null,

@@ -49,6 +49,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useRecentStore } from "@/stores/recent-store";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import {
   ITEM_STATUSES,
   ITEM_STATUS_LABELS,
@@ -190,6 +191,7 @@ export function ItemCanvas({
   const navigate = useNavigate();
   const pushRecent = useRecentStore((s) => s.pushRecent);
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
   const [state, setState] = useState<EditState>(() => toState(item));
   const [saving, setSaving] = useState(false);
   const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(null);
@@ -413,7 +415,7 @@ export function ItemCanvas({
   }
 
   async function duplicate() {
-    if (!user) return;
+    if (!user || !workspaceOwnerId) return;
     try {
       const category = (ITEM_CATEGORIES as readonly string[]).includes(
         item.category ?? "",
@@ -421,7 +423,7 @@ export function ItemCanvas({
         ? (item.category as ItemCategory)
         : null;
       const { error } = await supabase.from("inventory_items").insert({
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         title: item.item_title,
         brand: item.brand,
         style: item.style,

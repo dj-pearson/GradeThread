@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import type { FilterQuery } from "@/lib/item-filter";
 import type { SavedViewInsert } from "@/types/database";
 
@@ -27,6 +28,7 @@ export function SaveViewDialog({
   query: FilterQuery;
 }) {
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId, can } = useWorkspace();
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("");
@@ -34,7 +36,11 @@ export function SaveViewDialog({
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!user) return;
+    if (!user || !workspaceOwnerId) return;
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to save views in this workspace.");
+      return;
+    }
     if (!name.trim()) {
       toast.error("Give the view a name.");
       return;
@@ -42,7 +48,7 @@ export function SaveViewDialog({
     setSaving(true);
     try {
       const insert: SavedViewInsert = {
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         name: name.trim(),
         emoji: emoji.trim() || null,
         query_json: query as unknown as Record<string, unknown>,

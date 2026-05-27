@@ -68,6 +68,17 @@ export type ListingPlatform =
   | "whatnot"
   | "other";
 export type UserRole = "user" | "reviewer" | "admin" | "super_admin";
+
+// ─── Workspace (team) roles ────────────────────────────────────────
+// Single workspace per "owner user". Members can hold these roles in OTHER
+// users' workspaces (the owner themself is implicit — no row in
+// workspace_members; their effective role is always 'owner').
+export type WorkspaceRole =
+  | "viewer"
+  | "member"
+  | "listing_manager"
+  | "admin"
+  | "owner";
 export type NotificationType = "grade_complete" | "dispute_update" | "billing" | "system";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
@@ -167,8 +178,83 @@ export interface UserRow {
   pending_flipdesk_interval: BillingInterval | null;
   pending_schedule_id: string | null;
   pending_effective_at: string | null;
+  // Multi-user (US-Team): the workspace this user is currently acting
+  // inside. NULL = personal workspace (workspace_owner_id = id).
+  active_workspace_owner_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// ─── Workspace membership / invitations ────────────────────────────
+
+export interface WorkspaceMemberRow {
+  id: string;
+  owner_id: string;
+  member_id: string;
+  role: WorkspaceRole;
+  invited_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMemberInsert {
+  owner_id: string;
+  member_id: string;
+  role?: WorkspaceRole;
+  invited_by?: string | null;
+}
+
+export type WorkspaceMemberUpdate = Partial<
+  Pick<WorkspaceMemberRow, "role">
+>;
+
+export interface WorkspaceInvitationRow {
+  id: string;
+  owner_id: string;
+  email: string;
+  role: WorkspaceRole;
+  token: string;
+  invited_by: string | null;
+  expires_at: string;
+  accepted_at: string | null;
+  accepted_by: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceInvitationInsert {
+  owner_id: string;
+  email: string;
+  role: WorkspaceRole;
+  token: string;
+  invited_by?: string | null;
+  expires_at?: string;
+}
+
+export type WorkspaceInvitationUpdate = Partial<
+  Pick<WorkspaceInvitationRow, "role" | "revoked_at">
+>;
+
+// Returned by peek_workspace_invitation RPC.
+export interface WorkspaceInvitationPeek {
+  email: string;
+  role: WorkspaceRole;
+  owner_email: string;
+  owner_full_name: string | null;
+  expires_at: string;
+  status: "pending" | "accepted" | "revoked" | "expired";
+}
+
+// Shape used in the auth store to describe a workspace the user can
+// switch into (either their own personal workspace, or one they're a
+// member of).
+export interface WorkspaceSummary {
+  ownerId: string;
+  ownerEmail: string;
+  ownerName: string | null;
+  role: WorkspaceRole;
+  isPersonal: boolean;
 }
 
 export type ModerationStatus = "approved" | "rejected";
@@ -1325,6 +1411,16 @@ export interface Database {
         Insert: Partial<ContentSettingsRow> & { id: number };
         Update: Partial<Omit<ContentSettingsRow, "id" | "created_at" | "updated_at">>;
       };
+      workspace_members: {
+        Row: WorkspaceMemberRow;
+        Insert: WorkspaceMemberInsert;
+        Update: WorkspaceMemberUpdate;
+      };
+      workspace_invitations: {
+        Row: WorkspaceInvitationRow;
+        Insert: WorkspaceInvitationInsert;
+        Update: WorkspaceInvitationUpdate;
+      };
     };
     Enums: {
       user_plan: UserPlan;
@@ -1352,6 +1448,7 @@ export interface Database {
       topic_status: TopicStatus;
       content_generated_by: ContentGeneratedBy;
       content_topic_source: ContentTopicSource;
+      workspace_role: WorkspaceRole;
     };
   };
 }

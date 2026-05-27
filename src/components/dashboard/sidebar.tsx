@@ -23,6 +23,7 @@ import {
   BookOpen,
   SlidersHorizontal,
   Activity,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,8 +34,18 @@ import {
 import { useSavedViews } from "@/hooks/use-saved-views";
 import { SidebarUsageWidget } from "@/components/dashboard/sidebar-usage-widget";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
+import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 
-type NavItem = { to: string; icon: typeof LayoutDashboard; label: string; end: boolean };
+type NavItem = {
+  to: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  end: boolean;
+  // Optional capability gate. If set, only render this item when the
+  // current user can perform this action in the active workspace.
+  requires?: WorkspaceCapability;
+};
 type NavGroup = { title?: string; items: NavItem[]; adminOnly?: boolean };
 
 const navGroups: NavGroup[] = [
@@ -76,8 +87,9 @@ const navGroups: NavGroup[] = [
   },
   {
     items: [
-      { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false },
-      { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false },
+      { to: "/dashboard/team", icon: Users, label: "Team", end: false },
+      { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false, requires: "manage_billing" },
+      { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false, requires: "manage_api_keys" },
       { to: "/dashboard/settings", icon: Settings, label: "Settings", end: false },
     ],
   },
@@ -87,18 +99,24 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const profile = useAuthStore((s) => s.profile);
   const isAdmin =
     profile?.role === "admin" || profile?.role === "super_admin";
+  const { can } = useWorkspace();
   return (
     <nav className="mt-2 flex-1 space-y-4 px-3">
       {navGroups
         .filter((g) => !g.adminOnly || isAdmin)
-        .map((group, gi) => (
+        .map((group, gi) => {
+        const visibleItems = group.items.filter(
+          (item) => !item.requires || can(item.requires),
+        );
+        if (visibleItems.length === 0) return null;
+        return (
         <div key={gi} className="space-y-1">
           {group.title && (
             <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">
               {group.title}
             </div>
           )}
-          {group.items.map((item) => (
+          {visibleItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -120,7 +138,8 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           {/* Pinned saved views render below the FlipDesk group */}
           {group.title === "FlipDesk" && <PinnedViews onNavigate={onNavigate} />}
         </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }

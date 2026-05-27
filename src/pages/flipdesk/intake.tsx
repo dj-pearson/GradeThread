@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
 import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
@@ -132,6 +133,7 @@ export function FlipdeskIntakePage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId, can } = useWorkspace();
   const { data: sources = [] } = useSources();
   const [params] = useSearchParams();
   const [form, setForm] = useState<FormState>(INITIAL);
@@ -233,8 +235,12 @@ export function FlipdeskIntakePage() {
   };
 
   async function save(goBackToList: boolean) {
-    if (!user) {
+    if (!user || !workspaceOwnerId) {
       toast.error("You must be signed in.");
+      return;
+    }
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to add inventory in this workspace.");
       return;
     }
     if (!form.title.trim()) {
@@ -267,7 +273,7 @@ export function FlipdeskIntakePage() {
         const { data, error } = await supabaseAny.rpc(
           "get_or_create_source",
           {
-            p_user_id: user.id,
+            p_user_id: workspaceOwnerId,
             p_name: form.source_new.trim(),
             p_source_type: "other",
           },
@@ -291,7 +297,7 @@ export function FlipdeskIntakePage() {
       const hasAiFields = Object.keys(aiFieldSources).length > 0;
 
       const insert: InventoryItemInsert = {
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         title: form.title.trim(),
         sku: trimOrNull(form.sku),
         container: trimOrNull(form.container),

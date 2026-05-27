@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
 import {
   FLIPDESK_SOURCE_TYPES,
@@ -74,6 +75,7 @@ const EMPTY: FormState = {
 
 export function FlipdeskSourcesPage() {
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId, can } = useWorkspace();
   const qc = useQueryClient();
   const { data: sources = [], isLoading, error } = useSources();
   const [editing, setEditing] = useState<FormState | null>(null);
@@ -103,7 +105,11 @@ export function FlipdeskSourcesPage() {
   }, [itemRows]);
 
   async function save() {
-    if (!user || !editing) return;
+    if (!user || !workspaceOwnerId || !editing) return;
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to manage sources in this workspace.");
+      return;
+    }
     const name = editing.name.trim();
     if (!name) {
       toast.error("Name is required.");
@@ -112,7 +118,7 @@ export function FlipdeskSourcesPage() {
     setSaving(true);
     try {
       const payload = {
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         name,
         source_type: editing.source_type,
         location: editing.location.trim() || null,

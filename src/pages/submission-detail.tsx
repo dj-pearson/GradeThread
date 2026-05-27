@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
 import type {
   SubmissionRow,
@@ -113,6 +114,7 @@ function LoadingSkeleton() {
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { workspaceOwnerId } = useWorkspace();
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
@@ -271,11 +273,13 @@ export function SubmissionDetailPage() {
     setSubmittingDispute(true);
 
     try {
-      // Upload dispute evidence photos if any
+      // Upload dispute evidence photos if any. Use the workspace owner's
+      // folder so workspace members can read it later.
+      const folderUserId = workspaceOwnerId ?? user.id;
       if (disputePhotos.length > 0 && submission) {
         for (const photo of disputePhotos) {
           const ext = photo.name.split(".").pop() ?? "jpg";
-          const path = `${user.id}/${submission.id}/dispute_${Date.now()}.${ext}`;
+          const path = `${folderUserId}/${submission.id}/dispute_${Date.now()}.${ext}`;
           await supabase.storage
             .from("submission-images")
             .upload(path, photo);
@@ -286,7 +290,7 @@ export function SubmissionDetailPage() {
         .from("disputes")
         .insert({
           grade_report_id: gradeReport.id,
-          user_id: user.id,
+          user_id: workspaceOwnerId ?? user.id,
           reason: disputeReason.trim(),
         } as never)
         .select()

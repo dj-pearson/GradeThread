@@ -44,6 +44,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import {
   DESCRIPTION_TEMPLATES,
   interpolateDescription,
@@ -72,6 +73,7 @@ export function FlipdeskComposerPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -283,7 +285,7 @@ export function FlipdeskComposerPage() {
         item.grade_value,
         item.grade_label,
       );
-      const path = `${user.id}/${item.id}/badged_${Date.now()}.jpg`;
+      const path = `${workspaceOwnerId ?? user.id}/${item.id}/badged_${Date.now()}.jpg`;
       const { error: upErr } = await supabase.storage
         .from("item-photos")
         .upload(path, blob, { upsert: false, contentType: "image/jpeg" });
