@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
+import { generateSocialPost } from "../lib/content-ai-social.ts";
+import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 
 // Social posts CRUD + lifecycle. One row carries BOTH long and short
 // variants so the editorial pairing stays atomic. Publish fires one
@@ -154,7 +156,46 @@ contentSocialRoutes.post("/:id/publish", async (c) => {
     published_at: now,
   }).catch((e) => console.error("[content-social] history append failed:", e));
 
-  // TODO Phase E: dispatch one webhook per non-empty format.
+  // Fire one webhook per non-empty format. We do this concurrently
+  // because LI/FB and X/Threads have separate Make.com scenarios.
+  // Best-effort: errors are logged in content_webhook_log; publish
+  // succeeds even if both webhooks fail.
+  const fires: Promise<unknown>[] = [];
+  if (updated.long_body?.trim()) {
+    fires.push(
+      dispatchContentWebhook({
+        event: "social.published",
+        format: "long",
+        timestamp: now,
+        data: {
+          id: updated.id,
+          body: updated.long_body,
+          hashtags: updated.hashtags ?? [],
+          cta_url: updated.cta_url ?? null,
+          product_focus: updated.product_focus,
+        },
+      }),
+    );
+  }
+  if (updated.short_body?.trim()) {
+    fires.push(
+      dispatchContentWebhook({
+        event: "social.published",
+        format: "short",
+        timestamp: now,
+        data: {
+          id: updated.id,
+          body: updated.short_body,
+          hashtags: updated.hashtags ?? [],
+          cta_url: updated.cta_url ?? null,
+          product_focus: updated.product_focus,
+        },
+      }),
+    );
+  }
+  Promise.all(fires).catch((e) =>
+    console.error("[content-social] webhook dispatch failed:", e),
+  );
 
   return c.json({ post: updated });
 });
@@ -179,10 +220,93 @@ contentSocialRoutes.post("/:id/schedule", async (c) => {
   return c.json({ post: data });
 });
 
-// ── AI GENERATE (stub — Phase D) ─────────────────────────
-contentSocialRoutes.post("/:id/generate", (c) =>
-  c.json(
-    { error: "Not implemented yet — social generator lands in Phase D" },
-    501,
-  ),
-);
+// ── AI GENERATE ───────────────────────────────────────────
+// Body (all optional — uses the linked topic + post fields as fallback):
+//   { topic?: { title, angle?, primary_keyword, product_focus? }, model?, utm_campaign? }
+contentSocialRoutes.post("/:id/generate", async (c) => {
+  const id = c.req.param("id");
+  const overrideBody = (await c.req.json().catch(() => ({}))) as {
+    topic?: {
+      title?: string;
+      angle?: string;
+      primary_keyword?: string;
+      product_focus?: "gradethread" | "flipdesk" | "both";
+    };
+    model?: string;
+    utm_campaign?: string;
+  };
+
+  const { data: post, error: loadErr } = await supabaseAdmin
+    .from("social_posts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  // Resolve the topic. Priority: explicit override → linked content_topic
+  // → derive from existing post.long_body title-line (last resort).
+  let topicTitle = overrideBody.topic?.title;
+  let topicAngle: string | null = overrideBody.topic?.angle ?? null;
+  let primaryKw = overrideBody.topic?.primary_keyword;
+  const productFocus = overrideBody.topic?.product_focus ?? post.product_focus;
+
+  if ((!topicTitle || !primaryKw || !topicAngle) && post.topic_id) {
+    const { data: topic } = await supabaseAdmin
+      .from("content_topics")
+      .select("title, angle, primary_keyword")
+      .eq("id", post.topic_id)
+      .maybeSingle();
+    if (topic) {
+      topicTitle = topicTitle ?? topic.title;
+      topicAngle = topicAngle ?? topic.angle ?? null;
+      primaryKw = primaryKw ?? topic.primary_keyword;
+    }
+  }
+
+  if (!topicTitle || !primaryKw) {
+    return c.json(
+      {
+        error:
+          "topic title + primary_keyword required (link a topic_id or pass topic in the body)",
+      },
+      400,
+    );
+  }
+
+  try {
+    const result = await generateSocialPost({
+      topic: {
+        title: topicTitle,
+        angle: topicAngle,
+        primary_keyword: primaryKw,
+        product_focus: productFocus,
+      },
+      model: overrideBody.model,
+      utmCampaign: overrideBody.utm_campaign,
+    });
+
+    const { data: updated, error: upErr } = await supabaseAdmin
+      .from("social_posts")
+      .update({
+        long_body: result.post.long_body,
+        short_body: result.post.short_body,
+        hashtags: result.post.hashtags,
+        cta_url: result.ctaUrl,
+        generated_by: "ai" as const,
+        model_used: result.meta.model_used,
+        prompt_tokens: result.meta.prompt_tokens,
+        completion_tokens: result.meta.completion_tokens,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (upErr) return c.json({ error: upErr.message }, 500);
+
+    return c.json({ post: updated, meta: result.meta });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[content-social] generate failed:", msg);
+    return c.json({ error: msg }, 500);
+  }
+});

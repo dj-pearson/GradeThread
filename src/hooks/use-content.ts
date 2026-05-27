@@ -251,6 +251,31 @@ export function useUpdateSocialPost(id: string) {
   });
 }
 
+export function useGenerateSocialPost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input?: {
+      topic?: Record<string, unknown>;
+      utm_campaign?: string;
+    }) => {
+      const data = await jfetch<{
+        post: SocialPostRow;
+        meta: Record<string, unknown>;
+      }>(`/api/content/social/${id}/generate`, {
+        method: "POST",
+        json: input ?? {},
+      });
+      return data;
+    },
+    onSuccess: ({ post }) => {
+      qc.setQueryData(["social_post", id], post);
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+      toast.success("Generated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 export function usePublishSocialPost(id: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -490,6 +515,48 @@ export function useUpdateContentSettings() {
     onSuccess: (settings) => {
       qc.setQueryData(["content_settings"], settings);
       toast.success("Settings saved.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// SCHEDULER
+// ───────────────────────────────────────────────────────────────────
+
+export function useSchedulerTick() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input?: {
+      force_surface?: ContentSurface;
+      force_product?: "gradethread" | "flipdesk";
+    }) => {
+      const data = await jfetch<{
+        skipped?: boolean;
+        reason?: string;
+        surface?: string;
+        product_focus?: string;
+        post_id?: string;
+        status?: "draft" | "published";
+        refilled_topics?: number;
+      }>(`/api/content/scheduler/tick`, {
+        method: "POST",
+        json: input ?? {},
+      });
+      return data;
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["blog_posts"] });
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+      qc.invalidateQueries({ queryKey: ["content_topics"] });
+      qc.invalidateQueries({ queryKey: ["content_topic_counts"] });
+      if (r.skipped) {
+        toast.info(r.reason ?? "Nothing to generate.");
+      } else {
+        toast.success(
+          `Generated ${r.surface} post (${r.product_focus}) — status: ${r.status}.`,
+        );
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });

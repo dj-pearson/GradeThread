@@ -3,6 +3,11 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { generateBlogArticle } from "../lib/content-ai-blog.ts";
 import { sanitizeHtml } from "../lib/content-sanitize.ts";
+import {
+  buildBlogPurgeFiles,
+  purgeCloudflareCache,
+} from "../lib/cloudflare-purge.ts";
+import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 
 // Blog posts CRUD + lifecycle endpoints.
 //
@@ -250,11 +255,50 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
     published_at: now,
   }).catch((e) => console.error("[content-blog] history append failed:", e));
 
-  // TODO Phase E: dispatchContentWebhook('blog.published', { ... }).
-  // TODO Phase C: Cloudflare cache purge for /blog/<slug>, /sitemap.xml, /rss.xml.
+  // Cloudflare cache purge — best-effort, doesn't block the response.
+  // The SSR pages serve with s-maxage=3600; without this, readers would
+  // see stale HTML for up to an hour after a publish.
+  buildBlogPurgeFiles(updated.slug)
+    .then((files) => purgeCloudflareCache({ files }))
+    .catch((e) => console.error("[content-blog] cache purge failed:", e));
+
+  // Resolve tags then fire the Make.com webhook. Best-effort; failures
+  // log and surface in content_webhook_log but never roll back publish.
+  (async () => {
+    const tags = await fetchTags(updated.id);
+    const siteUrl = await loadSiteUrl();
+    await dispatchContentWebhook({
+      event: "blog.published",
+      timestamp: now,
+      data: {
+        id: updated.id,
+        url: `${siteUrl}/blog/${updated.slug}`,
+        title: updated.title,
+        excerpt: updated.excerpt ?? null,
+        hero_image_url: updated.hero_image_url ?? null,
+        primary_keyword: updated.primary_keyword ?? null,
+        tags,
+        product_focus: updated.product_focus,
+      },
+    });
+  })().catch((e) => console.error("[content-blog] webhook dispatch failed:", e));
 
   return c.json({ post: updated });
 });
+
+// Reads public_site_url from content_settings. Shared with the social
+// publish path; minimal cache via process-local memoization could be
+// added later but a single SELECT per publish is fine.
+async function loadSiteUrl(): Promise<string> {
+  const { data } = await supabaseAdmin
+    .from("content_settings")
+    .select("public_site_url")
+    .eq("id", 1)
+    .maybeSingle();
+  const fromDb = (data?.public_site_url as string | undefined)?.trim();
+  if (fromDb) return fromDb.replace(/\/$/, "");
+  return "https://gradethread.com";
+}
 
 // ──────────────────────────────────────────────────────────
 // SCHEDULE
@@ -291,6 +335,13 @@ contentBlogRoutes.post("/:id/archive", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!data) return c.json({ error: "Not found" }, 404);
+
+  // Archiving a previously-published post needs a purge too — the SSR
+  // worker should start returning 404 for the slug.
+  buildBlogPurgeFiles(data.slug)
+    .then((files) => purgeCloudflareCache({ files }))
+    .catch((e) => console.error("[content-blog] archive purge failed:", e));
+
   return c.json({ post: data });
 });
 

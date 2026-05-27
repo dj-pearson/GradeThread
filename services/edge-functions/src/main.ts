@@ -21,6 +21,8 @@ import { contentTopicsRoutes } from "./routes/content-topics.ts";
 import { contentKnowledgeRoutes } from "./routes/content-knowledge.ts";
 import { contentImagesRoutes } from "./routes/content-images.ts";
 import { contentSettingsRoutes } from "./routes/content-settings.ts";
+import { contentPublicRoutes } from "./routes/content-public.ts";
+import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
@@ -108,11 +110,23 @@ app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/admin/*", authMiddleware);
 app.use("/api/admin/*", adminAuthMiddleware);
 
-// Content module (blog + social): admin-only.
-// Public read paths and the Make.com scheduler tick land in Phase B/E
-// with their own carve-outs — Phase A only ships the admin CRUD surface.
-app.use("/api/content/*", authMiddleware);
-app.use("/api/content/*", adminAuthMiddleware);
+// Content module (blog + social): admin-only EXCEPT /api/content/public/*
+// which is anonymous (powers the SSR worker for /blog). We carve the
+// public surface out by listing the protected sub-paths explicitly
+// instead of slapping middleware on /api/content/*. This mirrors the
+// FlipDesk wiring above.
+app.use("/api/content/blog/*", authMiddleware);
+app.use("/api/content/blog/*", adminAuthMiddleware);
+app.use("/api/content/social/*", authMiddleware);
+app.use("/api/content/social/*", adminAuthMiddleware);
+app.use("/api/content/topics/*", authMiddleware);
+app.use("/api/content/topics/*", adminAuthMiddleware);
+app.use("/api/content/knowledge/*", authMiddleware);
+app.use("/api/content/knowledge/*", adminAuthMiddleware);
+app.use("/api/content/images/*", authMiddleware);
+app.use("/api/content/images/*", adminAuthMiddleware);
+app.use("/api/content/settings/*", authMiddleware);
+app.use("/api/content/settings/*", adminAuthMiddleware);
 
 // Rate limiting — 60 requests per minute for authenticated grade endpoints
 app.use("/api/grade/*", rateLimiter(60, 60_000));
@@ -124,6 +138,7 @@ app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000));
 // call is expensive (multi-thousand-token Claude responses or OpenAI
 // gpt-image-1). Cap at 20/min/user across these paths.
 app.use("/api/content/blog/*/generate", rateLimiter(20, 60_000));
+app.use("/api/content/social/*/generate", rateLimiter(20, 60_000));
 app.use("/api/content/topics/research", rateLimiter(20, 60_000));
 app.use("/api/content/images/*", rateLimiter(20, 60_000));
 
@@ -152,6 +167,11 @@ app.route("/api/content/topics", contentTopicsRoutes);
 app.route("/api/content/knowledge", contentKnowledgeRoutes);
 app.route("/api/content/images", contentImagesRoutes);
 app.route("/api/content/settings", contentSettingsRoutes);
+app.route("/api/content/public", contentPublicRoutes);
+// /api/content/scheduler/* has its own auth middleware baked in (the
+// route module short-circuits on X-Internal-Job-Secret OR falls back
+// to admin JWT). Don't add /scheduler/* to the use() lines above.
+app.route("/api/content/scheduler", contentSchedulerRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));

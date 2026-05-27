@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Save, Send } from "lucide-react";
+import { ArrowLeft, Save, Send, Sparkles } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUS_LABELS,
@@ -23,6 +23,7 @@ import {
   SOCIAL_SHORT_LIMIT,
 } from "@/lib/constants";
 import {
+  useGenerateSocialPost,
   usePublishSocialPost,
   useSocialPost,
   useUpdateSocialPost,
@@ -77,6 +78,7 @@ function SocialEditorInner({
 }) {
   const update = useUpdateSocialPost(postId);
   const publish = usePublishSocialPost(postId);
+  const generate = useGenerateSocialPost(postId);
 
   const [productFocus, setProductFocus] = useState<ContentProduct>(
     initial.product_focus,
@@ -124,6 +126,17 @@ function SocialEditorInner({
     await publish.mutateAsync();
   };
 
+  const runGenerate = async () => {
+    const result = await generate.mutateAsync({});
+    if (result?.post) {
+      setLongBody(result.post.long_body);
+      setShortBody(result.post.short_body);
+      setHashtags((result.post.hashtags ?? []).join(", "));
+      setCtaUrl(result.post.cta_url ?? "");
+      setDirty(false);
+    }
+  };
+
   const shortOver = shortBody.length > SOCIAL_SHORT_LIMIT;
   const longOver = longBody.length > SOCIAL_LONG_LIMIT;
 
@@ -147,6 +160,15 @@ function SocialEditorInner({
           <span className="text-xs text-muted-foreground">
             {saving ? "Saving…" : "Saved"}
           </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={runGenerate}
+            disabled={generate.isPending}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            {generate.isPending ? "Generating…" : "Generate"}
+          </Button>
           <Button
             size="sm"
             onClick={runPublish}

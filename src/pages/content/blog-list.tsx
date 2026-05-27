@@ -22,6 +22,7 @@ import {
   useBlogPosts,
   useCreateBlogPost,
   useDeleteBlogPost,
+  useSchedulerTick,
 } from "@/hooks/use-content";
 import type { ContentProduct } from "@/types/database";
 
@@ -34,6 +35,7 @@ export function BlogListPage() {
   });
   const create = useCreateBlogPost();
   const del = useDeleteBlogPost();
+  const tick = useSchedulerTick();
   const navigate = useNavigate();
 
   const newPost = async () => {
@@ -58,8 +60,13 @@ export function BlogListPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" disabled>
-            <Sparkles className="mr-2 h-4 w-4" /> Generate next
+          <Button
+            variant="outline"
+            disabled={tick.isPending}
+            onClick={() => tick.mutate({ force_surface: "blog" })}
+          >
+            <Sparkles className="mr-2 h-4 w-4" />
+            {tick.isPending ? "Generating…" : "Generate next"}
           </Button>
           <Button onClick={newPost} disabled={create.isPending}>
             <Plus className="mr-2 h-4 w-4" /> New post

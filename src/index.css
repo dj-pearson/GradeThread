@@ -4,14 +4,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Inter font */
-@font-face {
-  font-family: "Inter";
-  font-style: normal;
-  font-weight: 100 900;
-  font-display: swap;
-  src: url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap");
-}
+/* Inter is loaded via <link rel="stylesheet"> in index.html. A previous
+   @font-face block here pointed `src:` at the Google Fonts CSS endpoint
+   (a stylesheet, not a font binary), which the browser tried to parse as
+   OpenType — producing repeated "OTS parsing error: invalid sfntVersion:
+   791289955" (= ASCII "/* c", the start of the CSS comment Google returns).
+   Don't reintroduce. */
 
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,

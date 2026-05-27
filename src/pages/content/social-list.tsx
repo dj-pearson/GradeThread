@@ -11,13 +11,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Sparkles } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUSES,
   CONTENT_STATUS_LABELS,
   PRODUCT_LABELS,
 } from "@/lib/constants";
-import { useSocialPosts } from "@/hooks/use-content";
+import { useSchedulerTick, useSocialPosts } from "@/hooks/use-content";
 
 export function SocialListPage() {
   const [status, setStatus] = useState<string>("");
@@ -26,15 +27,26 @@ export function SocialListPage() {
     status: status || undefined,
     product_focus: product || undefined,
   });
+  const tick = useSchedulerTick();
 
   return (
     <div className="space-y-4">
       <SEO title="Social" />
-      <div>
-        <h1 className="text-2xl font-bold">Social</h1>
-        <p className="text-sm text-muted-foreground">
-          Paired long-format + short-format posts. CTAs drive back to the site.
-        </p>
+      <div className="flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Social</h1>
+          <p className="text-sm text-muted-foreground">
+            Paired long-format + short-format posts. CTAs drive back to the site.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          disabled={tick.isPending}
+          onClick={() => tick.mutate({ force_surface: "social" })}
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          {tick.isPending ? "Generating…" : "Generate next"}
+        </Button>
       </div>
 
       <div className="flex gap-2">
