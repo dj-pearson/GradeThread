@@ -1,0 +1,262 @@
+// Prompt templates for the content module's AI calls. Keep them in one
+// place so a voice change is a single edit. Each export is a pure
+// function: in → string. The generator libs assemble system prompts
+// from knowledge docs + history context and then call these.
+//
+// Versioning: the `_v1` suffix is recorded with each generation in
+// case we want to A/B prompts later. Bump the suffix on material changes.
+
+import type { ContentProduct, ContentSurface } from "./content-history.ts";
+
+interface ResearchCandidate {
+  title: string;
+  angle: string;
+  primary_keyword: string;
+  secondary_keywords: string[];
+  search_intent: string;
+}
+
+// ──────────────────────────────────────────────────────────
+// SYSTEM PROMPT BUILDER (shared)
+// ──────────────────────────────────────────────────────────
+// Assembles a system message from the curated knowledge docs +
+// the distilled history context. Keeps the per-call user prompts
+// small (just the topic) and keeps voice rules in one durable place.
+
+export function buildSystemPrompt(input: {
+  brandVoice: string;
+  surfaceStyle: string;
+  pillarMap: string;
+  historyContext: string;
+  task:
+    | "write-blog-article"
+    | "write-social-post"
+    | "research-topics"
+    | "regenerate-section";
+}): string {
+  const taskHeader =
+    {
+      "write-blog-article":
+        "Your task is to write a single, SEO-targeted blog article.",
+      "write-social-post":
+        "Your task is to write a paired long-format and short-format social post for one topic.",
+      "research-topics":
+        "Your task is to propose a batch of fresh topic candidates that do NOT overlap with anything in the history index.",
+      "regenerate-section":
+        "Your task is to regenerate or rewrite a specific passage of an existing article.",
+    }[input.task];
+
+  return [
+    "# Role",
+    "You write content for GradeThread (AI clothing condition grading) and FlipDesk (reseller management for thrifters/eBay sellers). " +
+      taskHeader,
+    "",
+    "# Brand voice",
+    input.brandVoice,
+    "",
+    "# Surface style",
+    input.surfaceStyle,
+    "",
+    "# SEO pillar map (territory we cover)",
+    input.pillarMap,
+    "",
+    "# What we have already covered (do not duplicate)",
+    input.historyContext || "(no prior posts)",
+    "",
+    "# Output rules",
+    "- Respond with ONLY valid JSON matching the schema in the user message.",
+    "- No markdown fences, no preamble, no explanation outside the JSON.",
+    "- If a field is optional and you have nothing to say, return an empty string or empty array — never omit the key.",
+  ].join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
+// BLOG ARTICLE GENERATION (v1)
+// ──────────────────────────────────────────────────────────
+
+export const BLOG_ARTICLE_PROMPT_VERSION = "blog_article_v1";
+
+export interface BlogTopicInput {
+  title: string;
+  angle: string | null;
+  primary_keyword: string;
+  secondary_keywords: string[];
+  search_intent: string | null;
+  product_focus: ContentProduct;
+}
+
+export function buildBlogArticleUserPrompt(topic: BlogTopicInput): string {
+  return [
+    "Write a single blog article for the following topic.",
+    "",
+    `Title (working): ${topic.title}`,
+    topic.angle ? `Angle: ${topic.angle}` : "",
+    `Primary keyword: ${topic.primary_keyword}`,
+    topic.secondary_keywords.length > 0
+      ? `Secondary keywords: ${topic.secondary_keywords.join(", ")}`
+      : "",
+    topic.search_intent ? `Search intent: ${topic.search_intent}` : "",
+    `Product focus: ${topic.product_focus}`,
+    "",
+    "Length: 1500–2200 words. One H1 (= final title). 4–7 H2 sections, use H3 sparingly.",
+    "Include at least one numbered list OR comparison table.",
+    "Open with a specific scenario (no 'in this article we will explore'). Close with a clear, low-pressure CTA.",
+    "",
+    "Return JSON matching exactly this schema:",
+    "{",
+    '  "title": "<final title — may differ from working title>",',
+    '  "slug": "<lowercase-kebab-slug, ≤80 chars>",',
+    '  "excerpt": "<140–180 char hook for OG description and feed snippets>",',
+    '  "body_html": "<the article as semantic HTML: <h1>…</h1><p>…</p><h2>…</h2><ul><li>…</li></ul><table>…</table>. No <script>, no inline style, no onclick handlers.>",',
+    '  "seo_title": "<≤60 chars, includes primary keyword>",',
+    '  "seo_description": "<≤155 chars, includes primary keyword, ends with a clear value prop>",',
+    '  "primary_keyword": "<echo the input primary_keyword, lowercase>",',
+    '  "secondary_keywords": ["<3–5 long-tail keywords actually used in the body>"],',
+    '  "tags": ["<3–6 high-level topic tags suitable for /blog/tag/[tag] pages>"],',
+    '  "reading_time_min": <integer>,',
+    '  "hero_prompt": "<a 1–2 sentence image prompt for a hero photo that matches this article — no text in the image, photographic realism preferred>",',
+    '  "summary_one_line": "<single sentence, ≤140 chars, for the history index>"',
+    "}",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
+// SOCIAL POST GENERATION (v1)
+// ──────────────────────────────────────────────────────────
+
+export const SOCIAL_POST_PROMPT_VERSION = "social_post_v1";
+
+export interface SocialTopicInput {
+  title: string;
+  angle: string | null;
+  primary_keyword: string;
+  product_focus: ContentProduct;
+  cta_url: string; // already includes utm_*
+}
+
+export function buildSocialPostUserPrompt(topic: SocialTopicInput): string {
+  return [
+    "Write a paired long-format and short-format social post for this topic.",
+    "",
+    `Topic: ${topic.title}`,
+    topic.angle ? `Angle: ${topic.angle}` : "",
+    `Primary keyword (for tone, not stuffing): ${topic.primary_keyword}`,
+    `Product focus: ${topic.product_focus}`,
+    `CTA URL (include in long_body and short_body): ${topic.cta_url}`,
+    "",
+    "Long body: 800–1500 characters. Hook line on its own. One blank line between paragraphs. End with the CTA URL on its own line.",
+    "Short body: ≤280 characters TOTAL including the URL. One thought, sharp insight, link.",
+    "Hashtags: 3–5 lowercase, no spaces, no '#' prefix in the array values.",
+    "",
+    "Return JSON matching exactly this schema:",
+    "{",
+    '  "long_body": "<see rules above>",',
+    '  "short_body": "<see rules above, ≤280 chars>",',
+    '  "hashtags": ["reselling","thrifting"]',
+    "}",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
+// TOPIC RESEARCH (v1)
+// ──────────────────────────────────────────────────────────
+
+export const TOPIC_RESEARCH_PROMPT_VERSION = "topic_research_v1";
+
+export function buildResearchUserPrompt(input: {
+  surface: ContentSurface;
+  productFocus: ContentProduct;
+  count: number;
+}): string {
+  const surfaceHint =
+    input.surface === "blog"
+      ? "long-form blog articles (1500–2200 words, evergreen, search-traffic targets)"
+      : "social posts (short opinionated takes that link back to the site)";
+
+  return [
+    `Propose ${input.count} fresh topic candidates for ${surfaceHint} on the ${input.productFocus} side.`,
+    "",
+    "Constraints:",
+    "- Each topic must ladder up to a pillar from the SEO pillar map in the system prompt.",
+    "- Each primary_keyword MUST be a long-tail buyer-intent phrase (4+ words), not a head term.",
+    "- Do NOT propose any topic whose primary_keyword overlaps semantically with anything in the history index.",
+    "- Spread across pillars — don't return 10 variants of the same idea.",
+    "",
+    "Return JSON: { \"candidates\": [ { \"title\": \"...\", \"angle\": \"...\", \"primary_keyword\": \"...\", \"secondary_keywords\": [\"...\"], \"search_intent\": \"informational|commercial|transactional\" } ] }",
+  ].join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
+// SECTION REGENERATION (v1)
+// ──────────────────────────────────────────────────────────
+
+export const SECTION_REGEN_PROMPT_VERSION = "section_regen_v1";
+
+export function buildSectionRegenUserPrompt(input: {
+  mode: "regenerate" | "expand" | "rewrite-for-keyword";
+  selection_html: string;
+  primary_keyword?: string;
+  surrounding_context?: string;
+}): string {
+  const modeHint = {
+    regenerate:
+      "Regenerate the selection. Same intent, fresher phrasing, same approximate length.",
+    expand:
+      "Expand the selection. Add concrete examples or a short list. ~2× length.",
+    "rewrite-for-keyword":
+      `Rewrite the selection to naturally target the keyword "${
+        input.primary_keyword ?? ""
+      }" without keyword stuffing.`,
+  }[input.mode];
+
+  return [
+    modeHint,
+    "",
+    input.surrounding_context
+      ? `Surrounding context (do not return this — for awareness only):\n${input.surrounding_context}\n`
+      : "",
+    "Selection HTML:",
+    input.selection_html,
+    "",
+    'Return JSON: { "replacement_html": "<the new HTML, no <script>, no inline event handlers>" }',
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
+// TYPED OUTPUT SHAPES (what the generator libs validate against)
+// ──────────────────────────────────────────────────────────
+
+export interface BlogArticleOutput {
+  title: string;
+  slug: string;
+  excerpt: string;
+  body_html: string;
+  seo_title: string;
+  seo_description: string;
+  primary_keyword: string;
+  secondary_keywords: string[];
+  tags: string[];
+  reading_time_min: number;
+  hero_prompt: string;
+  summary_one_line: string;
+}
+
+export interface SocialPostOutput {
+  long_body: string;
+  short_body: string;
+  hashtags: string[];
+}
+
+export interface TopicResearchOutput {
+  candidates: ResearchCandidate[];
+}
+
+export interface SectionRegenOutput {
+  replacement_html: string;
+}

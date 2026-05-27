@@ -209,11 +209,13 @@ function processSystemData(
 
   const totalPaid = users.filter((u) => u.plan !== "free").length;
 
-  // MRR = sum of monthly prices for all paid users
+  // MRR = sum of monthly prices for all paid users. Legacy PLANS records
+  // priceMonthly as `number | null` (null = "Custom"); fall back to 0
+  // defensively even though the guard above already excludes the null cases.
   let mrr = 0;
   for (const u of users) {
     if (u.plan !== "free" && u.plan !== "enterprise") {
-      mrr += PLANS[u.plan].priceMonthly;
+      mrr += PLANS[u.plan].priceMonthly ?? 0;
     }
   }
   // Enterprise: estimate $499/mo

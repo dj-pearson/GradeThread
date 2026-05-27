@@ -976,6 +976,191 @@ export type MarketplaceConnectionUpdate = Partial<Omit<MarketplaceConnectionRow,
 export type PayoutImportUpdate = Partial<Omit<PayoutImportRow, "id" | "user_id" | "created_at" | "updated_at">>;
 export type FlipdeskGradingSubmissionUpdate = Partial<Omit<FlipdeskGradingSubmissionRow, "id" | "inventory_item_id" | "created_at" | "updated_at">>;
 
+// ─── Content module (Blog + Social) ────────────────────────────────
+// Mirrors the Phase A migration (00041_content_module.sql).
+
+export type ContentSurface = "blog" | "social";
+export type ContentProduct = "gradethread" | "flipdesk" | "both";
+export type ContentStatus =
+  | "draft"
+  | "scheduled"
+  | "published"
+  | "archived"
+  | "failed";
+export type TopicStatus = "queued" | "assigned" | "used" | "rejected";
+export type ContentGeneratedBy = "ai" | "human";
+export type ContentTopicSource = "research" | "manual" | "history_derived";
+
+export interface ContentTopicRow {
+  id: string;
+  surface: ContentSurface;
+  product_focus: ContentProduct;
+  title: string;
+  angle: string | null;
+  primary_keyword: string;
+  secondary_keywords: string[];
+  search_intent: string | null;
+  status: TopicStatus;
+  used_by_post_id: string | null;
+  generated_by: ContentGeneratedBy;
+  source: ContentTopicSource;
+  notes: string | null;
+  created_at: string;
+  used_at: string | null;
+  updated_at: string;
+}
+export interface ContentTopicInsert {
+  surface: ContentSurface;
+  product_focus: ContentProduct;
+  title: string;
+  primary_keyword: string;
+  angle?: string | null;
+  secondary_keywords?: string[];
+  search_intent?: string | null;
+  status?: TopicStatus;
+  generated_by?: ContentGeneratedBy;
+  source?: ContentTopicSource;
+  notes?: string | null;
+}
+export type ContentTopicUpdate = Partial<
+  Omit<ContentTopicRow, "id" | "created_at" | "updated_at">
+>;
+
+export interface BlogPostRow {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  body_html: string;
+  body_json: Record<string, unknown>;
+  product_focus: ContentProduct;
+  status: ContentStatus;
+  hero_image_url: string | null;
+  hero_image_path: string | null;
+  hero_prompt: string | null;
+  seo_title: string | null;
+  seo_description: string | null;
+  primary_keyword: string | null;
+  secondary_keywords: string[];
+  jsonld: Record<string, unknown> | null;
+  reading_time_min: number | null;
+  scheduled_for: string | null;
+  published_at: string | null;
+  topic_id: string | null;
+  generated_by: ContentGeneratedBy;
+  model_used: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface BlogPostInsert {
+  title: string;
+  slug: string;
+  product_focus?: ContentProduct;
+  status?: ContentStatus;
+  excerpt?: string | null;
+  body_html?: string;
+  body_json?: Record<string, unknown>;
+  hero_image_url?: string | null;
+  primary_keyword?: string | null;
+  secondary_keywords?: string[];
+  topic_id?: string | null;
+  generated_by?: ContentGeneratedBy;
+}
+export type BlogPostUpdate = Partial<
+  Omit<BlogPostRow, "id" | "created_at" | "updated_at">
+>;
+
+// Convenience row returned by GET /api/content/blog (list) — tags appended client-side.
+export interface BlogPostListRow {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  product_focus: ContentProduct;
+  status: ContentStatus;
+  hero_image_url: string | null;
+  primary_keyword: string | null;
+  published_at: string | null;
+  scheduled_for: string | null;
+  generated_by: ContentGeneratedBy;
+  model_used: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SocialPostRow {
+  id: string;
+  product_focus: ContentProduct;
+  status: ContentStatus;
+  long_body: string;
+  short_body: string;
+  hashtags: string[];
+  cta_url: string | null;
+  scheduled_for: string | null;
+  published_at: string | null;
+  topic_id: string | null;
+  asset_image_url: string | null;
+  asset_image_path: string | null;
+  generated_by: ContentGeneratedBy;
+  model_used: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface SocialPostInsert {
+  product_focus?: ContentProduct;
+  status?: ContentStatus;
+  long_body?: string;
+  short_body?: string;
+  hashtags?: string[];
+  cta_url?: string | null;
+  topic_id?: string | null;
+  generated_by?: ContentGeneratedBy;
+}
+export type SocialPostUpdate = Partial<
+  Omit<SocialPostRow, "id" | "created_at" | "updated_at">
+>;
+
+export interface ContentKnowledgeRow {
+  id: string;
+  key: string;
+  title: string;
+  body_md: string;
+  token_count_est: number;
+  created_at: string;
+  updated_at: string;
+}
+export interface ContentKnowledgeListRow {
+  id: string;
+  key: string;
+  title: string;
+  token_count_est: number;
+  updated_at: string;
+}
+
+export interface ContentSettingsRow {
+  id: number;
+  make_webhook_blog: string | null;
+  make_webhook_social_long: string | null;
+  make_webhook_social_short: string | null;
+  auto_publish_blog: boolean;
+  auto_publish_social: boolean;
+  default_blog_model: string;
+  default_social_model: string;
+  default_research_model: string;
+  default_image_model: string;
+  min_topics_in_bank: number;
+  topics_refill_batch: number;
+  post_cadence_per_day_blog: number;
+  post_cadence_per_day_social: number;
+  public_site_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Database schema type (for Supabase client) ────────────────────
 
 export interface Database {
@@ -1113,6 +1298,33 @@ export interface Database {
         Insert: FlipdeskSubscriptionEventInsert;
         Update: never;
       };
+      content_topics: {
+        Row: ContentTopicRow;
+        Insert: ContentTopicInsert;
+        Update: ContentTopicUpdate;
+      };
+      blog_posts: {
+        Row: BlogPostRow;
+        Insert: BlogPostInsert;
+        Update: BlogPostUpdate;
+      };
+      social_posts: {
+        Row: SocialPostRow;
+        Insert: SocialPostInsert;
+        Update: SocialPostUpdate;
+      };
+      content_knowledge: {
+        Row: ContentKnowledgeRow;
+        Insert: Pick<ContentKnowledgeRow, "key" | "title" | "body_md"> & {
+          token_count_est?: number;
+        };
+        Update: Partial<Pick<ContentKnowledgeRow, "title" | "body_md" | "token_count_est">>;
+      };
+      content_settings: {
+        Row: ContentSettingsRow;
+        Insert: Partial<ContentSettingsRow> & { id: number };
+        Update: Partial<Omit<ContentSettingsRow, "id" | "created_at" | "updated_at">>;
+      };
     };
     Enums: {
       user_plan: UserPlan;
@@ -1134,6 +1346,12 @@ export interface Database {
       listing_status: ListingStatus;
       grading_submission_tier: GradingSubmissionTier;
       payout_import_method: PayoutImportMethod;
+      content_surface: ContentSurface;
+      content_product: ContentProduct;
+      content_status: ContentStatus;
+      topic_status: TopicStatus;
+      content_generated_by: ContentGeneratedBy;
+      content_topic_source: ContentTopicSource;
     };
   };
 }

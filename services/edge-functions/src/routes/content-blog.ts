@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
+import { generateBlogArticle } from "../lib/content-ai-blog.ts";
+import { sanitizeHtml } from "../lib/content-sanitize.ts";
 
 // Blog posts CRUD + lifecycle endpoints.
 //
@@ -214,10 +216,15 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
     return c.json({ error: "title and body required to publish" }, 400);
   }
 
+  // Sanitize body_html server-side before exposing publicly. The Tiptap
+  // editor already outputs structured HTML; this strips any unsafe
+  // tags/attrs that slipped through (script, on*, javascript:, etc.).
+  const cleanHtml = sanitizeHtml(post.body_html);
+
   const now = new Date().toISOString();
   const { data: updated, error: upErr } = await supabaseAdmin
     .from("blog_posts")
-    .update({ status: "published", published_at: now })
+    .update({ status: "published", published_at: now, body_html: cleanHtml })
     .eq("id", id)
     .select("*")
     .single();
@@ -287,18 +294,121 @@ contentBlogRoutes.post("/:id/archive", async (c) => {
 });
 
 // ──────────────────────────────────────────────────────────
-// AI GENERATE (stub — Phase B)
+// AI GENERATE — fills a draft from its topic context
 // ──────────────────────────────────────────────────────────
-contentBlogRoutes.post("/:id/generate", (c) =>
-  c.json(
-    { error: "Not implemented yet — blog AI generator lands in Phase B" },
-    501,
-  ),
-);
+// Body:
+//   { topic?: { title, angle?, primary_keyword, secondary_keywords?, search_intent?, product_focus? } }
+// If `topic` is omitted, we read the linked content_topic row.
+contentBlogRoutes.post("/:id/generate", async (c) => {
+  const id = c.req.param("id");
+  const overrideBody = (await c.req.json().catch(() => ({}))) as {
+    topic?: {
+      title?: string;
+      angle?: string;
+      primary_keyword?: string;
+      secondary_keywords?: string[];
+      search_intent?: string;
+      product_focus?: "gradethread" | "flipdesk" | "both";
+    };
+    model?: string;
+  };
+
+  const { data: post, error: loadErr } = await supabaseAdmin
+    .from("blog_posts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  // Build the topic input. Priority: explicit override → linked topic → post fields.
+  let topicTitle = overrideBody.topic?.title ?? post.title;
+  let topicAngle: string | null = overrideBody.topic?.angle ?? null;
+  let primaryKw = overrideBody.topic?.primary_keyword ?? post.primary_keyword ?? "";
+  let secondaryKw =
+    overrideBody.topic?.secondary_keywords ?? post.secondary_keywords ?? [];
+  let intent: string | null = overrideBody.topic?.search_intent ?? null;
+  const productFocus = overrideBody.topic?.product_focus ?? post.product_focus;
+
+  if (
+    (!primaryKw || !topicAngle || !intent) &&
+    post.topic_id
+  ) {
+    const { data: topic } = await supabaseAdmin
+      .from("content_topics")
+      .select("title, angle, primary_keyword, secondary_keywords, search_intent")
+      .eq("id", post.topic_id)
+      .maybeSingle();
+    if (topic) {
+      topicTitle = overrideBody.topic?.title ?? topic.title;
+      topicAngle = topicAngle ?? topic.angle ?? null;
+      primaryKw = primaryKw || topic.primary_keyword;
+      secondaryKw = secondaryKw.length > 0 ? secondaryKw : topic.secondary_keywords ?? [];
+      intent = intent ?? topic.search_intent ?? null;
+    }
+  }
+
+  if (!topicTitle || !primaryKw) {
+    return c.json(
+      { error: "title and primary_keyword required to generate" },
+      400,
+    );
+  }
+
+  try {
+    const { article, meta } = await generateBlogArticle({
+      topic: {
+        title: topicTitle,
+        angle: topicAngle,
+        primary_keyword: primaryKw,
+        secondary_keywords: secondaryKw,
+        search_intent: intent,
+        product_focus: productFocus,
+      },
+      model: overrideBody.model,
+    });
+
+    // Persist the generated draft. Status stays 'draft' — the user
+    // reviews and clicks Publish themselves.
+    const cleanHtml = sanitizeHtml(article.body_html);
+    const { data: updated, error: upErr } = await supabaseAdmin
+      .from("blog_posts")
+      .update({
+        title: article.title,
+        slug: article.slug,
+        excerpt: article.excerpt,
+        body_html: cleanHtml,
+        seo_title: article.seo_title,
+        seo_description: article.seo_description,
+        primary_keyword: article.primary_keyword,
+        secondary_keywords: article.secondary_keywords,
+        hero_prompt: article.hero_prompt,
+        reading_time_min: article.reading_time_min,
+        generated_by: "ai" as const,
+        model_used: meta.model_used,
+        prompt_tokens: meta.prompt_tokens,
+        completion_tokens: meta.completion_tokens,
+      })
+      .eq("id", id)
+      .select("*")
+      .single();
+    if (upErr) return c.json({ error: upErr.message }, 500);
+
+    if (Array.isArray(article.tags) && article.tags.length > 0) {
+      await replaceTags(id, article.tags);
+    }
+
+    return c.json({ post: updated, meta });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[content-blog] generate failed:", msg);
+    return c.json({ error: msg }, 500);
+  }
+});
 
 contentBlogRoutes.post("/:id/regenerate-section", (c) =>
   c.json(
-    { error: "Not implemented yet — section regenerator lands in Phase B" },
+    { error: "Not implemented yet — section regenerator lands in Phase F" },
     501,
   ),
 );

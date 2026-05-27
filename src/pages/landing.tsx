@@ -281,7 +281,9 @@ function FlipdeskPricingBlock() {
 // ── GradeThread per-grade block ─────────────────────────────────
 
 function GradeThreadPricingBlock() {
-  const bestPack = CREDIT_PACKS[CREDIT_PACKS.length - 1]; // 100-pack
+  // CREDIT_PACKS is a hardcoded non-empty constant in lib/constants.ts —
+  // the non-null assertion is safe and silences noUncheckedIndexedAccess.
+  const bestPack = CREDIT_PACKS[CREDIT_PACKS.length - 1]!;
   const bestPerCredit = bestPack.priceCents / bestPack.credits;
   const list = GRADETHREAD_TIERS.standard.priceCents;
   const bestSavings = ((list - bestPerCredit) / list) * 100;

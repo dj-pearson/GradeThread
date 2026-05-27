@@ -6,6 +6,7 @@ import {
   type ContentProduct,
   type ContentSurface,
 } from "../lib/content-history.ts";
+import { researchTopics } from "../lib/content-ai-research.ts";
 
 // Topic bank: queued titles partitioned by (surface, product_focus).
 // The bank is filled by /research (AI-driven, stub here in Phase A) or
@@ -237,13 +238,66 @@ contentTopicsRoutes.post("/check-keyword", async (c) => {
   return c.json({ duplicate: isDup });
 });
 
-// ── RESEARCH (stub — Phase B/D) ──────────────────────────
-contentTopicsRoutes.post("/research", (c) =>
-  c.json(
-    {
-      error:
-        "Not implemented yet — topic research lands in Phase B (blog) / Phase D (social)",
-    },
-    501,
-  ),
-);
+// ── RESEARCH ─────────────────────────────────────────────
+// Generates fresh topic candidates via the lightweight model, dedup-
+// filters against history + bank, and inserts the survivors as 'queued'.
+// Response includes counts so the UI can show "Added 7 (3 dupes rejected)".
+contentTopicsRoutes.post("/research", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    surface: ContentSurface;
+    product_focus: ContentProduct;
+    count?: number;
+    model?: string;
+  };
+  if (!body.surface || !body.product_focus) {
+    return c.json({ error: "surface and product_focus are required" }, 400);
+  }
+
+  try {
+    const result = await researchTopics({
+      surface: body.surface,
+      productFocus: body.product_focus,
+      count: body.count,
+      model: body.model,
+    });
+
+    if (result.candidates.length === 0) {
+      return c.json({
+        inserted: 0,
+        rejected_duplicates: result.rejected_duplicates,
+        topics: [],
+        meta: result.meta,
+      });
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("content_topics")
+      .insert(
+        result.candidates.map((c) => ({
+          surface: body.surface,
+          product_focus: body.product_focus,
+          title: c.title,
+          angle: c.angle,
+          primary_keyword: c.primary_keyword,
+          secondary_keywords: c.secondary_keywords,
+          search_intent: c.search_intent,
+          status: "queued" as const,
+          generated_by: "ai" as const,
+          source: "research" as const,
+        })),
+      )
+      .select("*");
+    if (error) return c.json({ error: error.message }, 500);
+
+    return c.json({
+      inserted: data?.length ?? 0,
+      rejected_duplicates: result.rejected_duplicates,
+      topics: data ?? [],
+      meta: result.meta,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[content-topics] research failed:", msg);
+    return c.json({ error: msg }, 500);
+  }
+});

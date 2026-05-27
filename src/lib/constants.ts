@@ -586,3 +586,70 @@ export const STRIPE_PRICE_IDS = {
     100: env("VITE_STRIPE_PRICE_CREDITS_100", "price_credits_100_placeholder"),
   },
 } as const;
+
+// ─── Content module (Blog + Social) ────────────────────────────────
+
+export const CONTENT_SURFACES = ["blog", "social"] as const;
+export const CONTENT_PRODUCTS = ["gradethread", "flipdesk", "both"] as const;
+export const CONTENT_STATUSES = [
+  "draft",
+  "scheduled",
+  "published",
+  "archived",
+  "failed",
+] as const;
+export const TOPIC_STATUSES = [
+  "queued",
+  "assigned",
+  "used",
+  "rejected",
+] as const;
+
+export const SURFACE_LABELS: Record<(typeof CONTENT_SURFACES)[number], string> = {
+  blog: "Blog",
+  social: "Social",
+};
+
+export const PRODUCT_LABELS: Record<(typeof CONTENT_PRODUCTS)[number], string> = {
+  gradethread: "GradeThread",
+  flipdesk: "FlipDesk",
+  both: "Both",
+};
+
+export const CONTENT_STATUS_LABELS: Record<
+  (typeof CONTENT_STATUSES)[number],
+  string
+> = {
+  draft: "Draft",
+  scheduled: "Scheduled",
+  published: "Published",
+  archived: "Archived",
+  failed: "Failed",
+};
+
+export const TOPIC_STATUS_LABELS: Record<
+  (typeof TOPIC_STATUSES)[number],
+  string
+> = {
+  queued: "Queued",
+  assigned: "Assigned",
+  used: "Used",
+  rejected: "Rejected",
+};
+
+// Hard caps surfaced in the social editor as live char counters.
+// LinkedIn allows 3000, Facebook ~63k. We standardize on 3000 for the
+// long format since LI is the binding constraint. X is 280, Threads
+// 500 — we display X's lower bound to keep cross-posting safe.
+export const SOCIAL_LONG_LIMIT = 3000;
+export const SOCIAL_SHORT_LIMIT = 280;
+
+// Seed knowledge doc keys (cannot be deleted via the dashboard).
+export const SEED_KNOWLEDGE_KEYS = [
+  "brand.voice",
+  "blog.gradethread.style",
+  "blog.flipdesk.style",
+  "social.long.style",
+  "social.short.style",
+  "seo.pillars",
+] as const;

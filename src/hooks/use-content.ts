@@ -1,0 +1,514 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
+import { edgeApiUrl } from "@/lib/edge-api";
+import type {
+  BlogPostListRow,
+  BlogPostRow,
+  ContentKnowledgeListRow,
+  ContentKnowledgeRow,
+  ContentProduct,
+  ContentSettingsRow,
+  ContentSurface,
+  ContentTopicRow,
+  SocialPostRow,
+  TopicStatus,
+} from "@/types/database";
+
+// All content hooks share this auth header. Admin-only routes are gated
+// on the edge by adminAuthMiddleware; a non-admin session will 403.
+async function authHeader(): Promise<string> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error("You must be signed in.");
+  return `Bearer ${session.access_token}`;
+}
+
+async function jfetch<T>(
+  path: string,
+  init?: RequestInit & { json?: unknown },
+): Promise<T> {
+  const headers: Record<string, string> = {
+    Authorization: await authHeader(),
+    "Content-Type": "application/json",
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
+  const res = await fetch(`${edgeApiUrl()}${path}`, {
+    ...init,
+    headers,
+    body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(
+      (data as { error?: string }).error || `${res.status} ${res.statusText}`,
+    );
+  }
+  return data as T;
+}
+
+// ───────────────────────────────────────────────────────────────────
+// BLOG POSTS
+// ───────────────────────────────────────────────────────────────────
+
+interface BlogListFilters {
+  status?: string;
+  product_focus?: string;
+}
+
+export function useBlogPosts(filters: BlogListFilters = {}) {
+  return useQuery({
+    queryKey: ["blog_posts", filters],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.status) params.set("status", filters.status);
+      if (filters.product_focus)
+        params.set("product_focus", filters.product_focus);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const data = await jfetch<{ posts: BlogPostListRow[] }>(
+        `/api/content/blog${qs}`,
+      );
+      return data.posts;
+    },
+  });
+}
+
+export function useBlogPost(id: string | null) {
+  return useQuery({
+    queryKey: ["blog_post", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const data = await jfetch<{ post: BlogPostRow & { tags: string[] } }>(
+        `/api/content/blog/${id}`,
+      );
+      return data.post;
+    },
+  });
+}
+
+export function useCreateBlogPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      title: string;
+      product_focus?: ContentProduct;
+      topic_id?: string | null;
+    }) => {
+      const data = await jfetch<{ post: BlogPostRow }>(`/api/content/blog`, {
+        method: "POST",
+        json: input,
+      });
+      return data.post;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["blog_posts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useUpdateBlogPost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: Partial<BlogPostRow> & { tags?: string[] }) => {
+      const data = await jfetch<{ post: BlogPostRow }>(
+        `/api/content/blog/${id}`,
+        { method: "PATCH", json: patch },
+      );
+      return data.post;
+    },
+    onSuccess: (post) => {
+      qc.setQueryData(["blog_post", id], post);
+      qc.invalidateQueries({ queryKey: ["blog_posts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useDeleteBlogPost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await jfetch<{ ok: true }>(`/api/content/blog/${id}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["blog_posts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function usePublishBlogPost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const data = await jfetch<{ post: BlogPostRow }>(
+        `/api/content/blog/${id}/publish`,
+        { method: "POST", json: {} },
+      );
+      return data.post;
+    },
+    onSuccess: (post) => {
+      qc.setQueryData(["blog_post", id], post);
+      qc.invalidateQueries({ queryKey: ["blog_posts"] });
+      toast.success("Published.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useGenerateBlogPost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input?: { topic?: Record<string, unknown> }) => {
+      const data = await jfetch<{ post: BlogPostRow; meta: Record<string, unknown> }>(
+        `/api/content/blog/${id}/generate`,
+        { method: "POST", json: input ?? {} },
+      );
+      return data;
+    },
+    onSuccess: ({ post }) => {
+      qc.setQueryData(["blog_post", id], post);
+      qc.invalidateQueries({ queryKey: ["blog_posts"] });
+      toast.success("Draft generated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useGenerateHero(postId: string, surface: "blog" | "social" = "blog") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input?: { prompt?: string }) => {
+      const data = await jfetch<{ url: string; path: string }>(
+        `/api/content/images/hero`,
+        { method: "POST", json: { post_id: postId, surface, ...input } },
+      );
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["blog_post", postId] });
+      toast.success("Hero generated.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// SOCIAL POSTS
+// ───────────────────────────────────────────────────────────────────
+
+export function useSocialPosts(filters: BlogListFilters = {}) {
+  return useQuery({
+    queryKey: ["social_posts", filters],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.status) params.set("status", filters.status);
+      if (filters.product_focus)
+        params.set("product_focus", filters.product_focus);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const data = await jfetch<{ posts: SocialPostRow[] }>(
+        `/api/content/social${qs}`,
+      );
+      return data.posts;
+    },
+  });
+}
+
+export function useSocialPost(id: string | null) {
+  return useQuery({
+    queryKey: ["social_post", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const data = await jfetch<{ post: SocialPostRow }>(
+        `/api/content/social/${id}`,
+      );
+      return data.post;
+    },
+  });
+}
+
+export function useUpdateSocialPost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: Partial<SocialPostRow>) => {
+      const data = await jfetch<{ post: SocialPostRow }>(
+        `/api/content/social/${id}`,
+        { method: "PATCH", json: patch },
+      );
+      return data.post;
+    },
+    onSuccess: (post) => {
+      qc.setQueryData(["social_post", id], post);
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function usePublishSocialPost(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const data = await jfetch<{ post: SocialPostRow }>(
+        `/api/content/social/${id}/publish`,
+        { method: "POST", json: {} },
+      );
+      return data.post;
+    },
+    onSuccess: (post) => {
+      qc.setQueryData(["social_post", id], post);
+      qc.invalidateQueries({ queryKey: ["social_posts"] });
+      toast.success("Published.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// TOPIC BANK
+// ───────────────────────────────────────────────────────────────────
+
+interface TopicFilters {
+  surface?: ContentSurface;
+  product_focus?: ContentProduct;
+  status?: TopicStatus;
+}
+
+export function useContentTopics(filters: TopicFilters = {}) {
+  return useQuery({
+    queryKey: ["content_topics", filters],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.surface) params.set("surface", filters.surface);
+      if (filters.product_focus)
+        params.set("product_focus", filters.product_focus);
+      if (filters.status) params.set("status", filters.status);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const data = await jfetch<{ topics: ContentTopicRow[] }>(
+        `/api/content/topics${qs}`,
+      );
+      return data.topics;
+    },
+  });
+}
+
+export function useTopicCounts() {
+  return useQuery({
+    queryKey: ["content_topic_counts"],
+    staleTime: 30_000,
+    queryFn: async () => {
+      const data = await jfetch<{ counts: Record<string, number> }>(
+        `/api/content/topics/counts`,
+      );
+      return data.counts;
+    },
+  });
+}
+
+export function useResearchTopics() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      surface: ContentSurface;
+      product_focus: ContentProduct;
+      count?: number;
+    }) => {
+      const data = await jfetch<{
+        inserted: number;
+        rejected_duplicates: number;
+      }>(`/api/content/topics/research`, { method: "POST", json: input });
+      return data;
+    },
+    onSuccess: ({ inserted, rejected_duplicates }) => {
+      qc.invalidateQueries({ queryKey: ["content_topics"] });
+      qc.invalidateQueries({ queryKey: ["content_topic_counts"] });
+      toast.success(
+        `Added ${inserted} topic${inserted === 1 ? "" : "s"}${
+          rejected_duplicates ? ` (${rejected_duplicates} dupes rejected)` : ""
+        }.`,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useRejectTopic() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await jfetch<{ topic: ContentTopicRow }>(
+        `/api/content/topics/${id}/reject`,
+        { method: "POST", json: {} },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["content_topics"] });
+      qc.invalidateQueries({ queryKey: ["content_topic_counts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function usePromoteTopic() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const data = await jfetch<{
+        post: BlogPostRow | SocialPostRow;
+        surface: "blog" | "social";
+      }>(`/api/content/topics/${id}/promote`, { method: "POST", json: {} });
+      return data;
+    },
+    onSuccess: ({ surface }) => {
+      qc.invalidateQueries({ queryKey: ["content_topics"] });
+      qc.invalidateQueries({
+        queryKey: surface === "blog" ? ["blog_posts"] : ["social_posts"],
+      });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useAddTopics() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      surface: ContentSurface;
+      product_focus: ContentProduct;
+      candidates: Array<{
+        title: string;
+        angle?: string;
+        primary_keyword: string;
+        secondary_keywords?: string[];
+        search_intent?: string;
+      }>;
+    }) => {
+      const data = await jfetch<{ inserted: number; rejected: number }>(
+        `/api/content/topics/bulk`,
+        { method: "POST", json: input },
+      );
+      return data;
+    },
+    onSuccess: ({ inserted, rejected }) => {
+      qc.invalidateQueries({ queryKey: ["content_topics"] });
+      qc.invalidateQueries({ queryKey: ["content_topic_counts"] });
+      toast.success(
+        `Added ${inserted}${rejected ? ` (${rejected} dupes rejected)` : ""}.`,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// KNOWLEDGE DOCS
+// ───────────────────────────────────────────────────────────────────
+
+export function useKnowledgeDocs() {
+  return useQuery({
+    queryKey: ["content_knowledge"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const data = await jfetch<{ docs: ContentKnowledgeListRow[] }>(
+        `/api/content/knowledge`,
+      );
+      return data.docs;
+    },
+  });
+}
+
+export function useKnowledgeDoc(key: string | null) {
+  return useQuery({
+    queryKey: ["content_knowledge", key],
+    enabled: !!key,
+    queryFn: async () => {
+      const data = await jfetch<{ doc: ContentKnowledgeRow }>(
+        `/api/content/knowledge/${key}`,
+      );
+      return data.doc;
+    },
+  });
+}
+
+export function useSaveKnowledgeDoc() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      key: string;
+      title?: string;
+      body_md: string;
+    }) => {
+      const data = await jfetch<{ doc: ContentKnowledgeRow }>(
+        `/api/content/knowledge/${input.key}`,
+        { method: "PUT", json: { title: input.title, body_md: input.body_md } },
+      );
+      return data.doc;
+    },
+    onSuccess: (doc) => {
+      qc.setQueryData(["content_knowledge", doc.key], doc);
+      qc.invalidateQueries({ queryKey: ["content_knowledge"] });
+      toast.success("Saved.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// SETTINGS
+// ───────────────────────────────────────────────────────────────────
+
+export function useContentSettings() {
+  return useQuery({
+    queryKey: ["content_settings"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const data = await jfetch<{ settings: ContentSettingsRow }>(
+        `/api/content/settings`,
+      );
+      return data.settings;
+    },
+  });
+}
+
+export function useUpdateContentSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (patch: Partial<ContentSettingsRow>) => {
+      const data = await jfetch<{ settings: ContentSettingsRow }>(
+        `/api/content/settings`,
+        { method: "PATCH", json: patch },
+      );
+      return data.settings;
+    },
+    onSuccess: (settings) => {
+      qc.setQueryData(["content_settings"], settings);
+      toast.success("Settings saved.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useTestWebhook() {
+  return useMutation({
+    mutationFn: async (target: "blog" | "social_long" | "social_short") => {
+      const data = await jfetch<{
+        succeeded: boolean;
+        http_status: number;
+        latency_ms: number;
+        error: string | null;
+      }>(`/api/content/settings/webhooks/test`, {
+        method: "POST",
+        json: { target },
+      });
+      return data;
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}

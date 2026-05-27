@@ -19,6 +19,8 @@ import { contentBlogRoutes } from "./routes/content-blog.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
 import { contentTopicsRoutes } from "./routes/content-topics.ts";
 import { contentKnowledgeRoutes } from "./routes/content-knowledge.ts";
+import { contentImagesRoutes } from "./routes/content-images.ts";
+import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
@@ -118,6 +120,13 @@ app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000));
 app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000));
 
+// Content AI endpoints — generation, research, image creation. Each
+// call is expensive (multi-thousand-token Claude responses or OpenAI
+// gpt-image-1). Cap at 20/min/user across these paths.
+app.use("/api/content/blog/*/generate", rateLimiter(20, 60_000));
+app.use("/api/content/topics/research", rateLimiter(20, 60_000));
+app.use("/api/content/images/*", rateLimiter(20, 60_000));
+
 // Public API v1 — API key auth + 100 requests per minute
 app.use("/api/v1/*", apiKeyAuthMiddleware);
 app.use("/api/v1/*", rateLimiter(100, 60_000));
@@ -141,6 +150,8 @@ app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/social", contentSocialRoutes);
 app.route("/api/content/topics", contentTopicsRoutes);
 app.route("/api/content/knowledge", contentKnowledgeRoutes);
+app.route("/api/content/images", contentImagesRoutes);
+app.route("/api/content/settings", contentSettingsRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));
