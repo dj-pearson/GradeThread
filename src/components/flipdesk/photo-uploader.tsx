@@ -1,16 +1,19 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Upload, Trash2, Loader2, Check, Camera } from "lucide-react";
+import { Upload, Trash2, Loader2, Check, Camera, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
+import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import {
   REQUIRED_PHOTO_TYPES,
   OPTIONAL_PHOTO_TYPES,
   PHOTO_TYPE_LABELS,
 } from "@/lib/constants";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { compressImage } from "@/lib/image-utils";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -23,6 +26,13 @@ function extOf(file: File): string {
   return m ? m[1]!.toLowerCase() : "jpg";
 }
 
+function extForBlobType(mimeType: string, fallback: string): string {
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/png") return "png";
+  if (mimeType === "image/jpeg") return "jpg";
+  return fallback;
+}
+
 export function PhotoUploader({
   itemId,
   currentStatus,
@@ -33,6 +43,8 @@ export function PhotoUploader({
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
+  const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
+  const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ["item_photos", itemId],
@@ -54,15 +66,86 @@ export function PhotoUploader({
     if (!user) return;
     setUploading(photoType);
     try {
-      const path = `${user.id}/${itemId}/${photoType}_${Date.now()}.${extOf(file)}`;
+      // Compress + strip EXIF client-side via canvas re-encode. Falls back
+      // to the original file if decode fails (e.g. HEIC in Chrome), so
+      // iOS users who pick a HEIC photo still upload successfully — iOS
+      // Safari does this conversion natively at the file-input layer in
+      // most cases anyway.
+      const originalSize = file.size;
+      let body: Blob = file;
+      let bodyType = file.type;
+      let ext = extOf(file);
+      let width: number | null = null;
+      let height: number | null = null;
+      let thumbBlob: Blob | null = null;
+      let thumbType = "image/webp";
+      try {
+        const main = await compressImage(file, 2400, 0.85);
+        if (main.blob.size > 0 && main.blob.size < originalSize) {
+          body = main.blob;
+          bodyType = main.blob.type || "image/webp";
+          ext = extForBlobType(bodyType, ext);
+        }
+        width = main.width;
+        height = main.height;
+
+        // Thumbnail — 320w is the sweet spot for grid views and avatar-sized
+        // previews. Quality 0.7 because perceptual quality at that size is
+        // already saturated. Same canvas pipeline = same EXIF-stripped result.
+        try {
+          const thumb = await compressImage(file, 320, 0.7);
+          if (thumb.blob.size > 0) {
+            thumbBlob = thumb.blob;
+            thumbType = thumb.blob.type || "image/webp";
+          }
+        } catch (thumbErr) {
+          console.warn("[photo-uploader] thumbnail gen failed:", thumbErr);
+        }
+      } catch (compressErr) {
+        console.warn(
+          "[photo-uploader] compress failed, uploading original:",
+          compressErr,
+        );
+      }
+
+      const ts = Date.now();
+      const path = `${user.id}/${itemId}/${photoType}_${ts}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("item-photos")
-        .upload(path, file, { upsert: false });
+        .upload(path, body, {
+          upsert: false,
+          contentType: bodyType || undefined,
+        });
       if (upErr) throw upErr;
 
       const { data: pub } = supabase.storage
         .from("item-photos")
         .getPublicUrl(path);
+
+      // Best-effort thumbnail upload. If it fails, we still have the full
+      // image — frontend falls back to photo_url via `thumbnail_url ?? photo_url`.
+      let thumbnailUrl: string | null = null;
+      let thumbnailPath: string | null = null;
+      if (thumbBlob) {
+        thumbnailPath = `${user.id}/${itemId}/thumbs/${photoType}_${ts}.${extForBlobType(thumbType, "webp")}`;
+        const { error: thumbUpErr } = await supabase.storage
+          .from("item-photos")
+          .upload(thumbnailPath, thumbBlob, {
+            upsert: false,
+            contentType: thumbType,
+          });
+        if (thumbUpErr) {
+          console.warn(
+            "[photo-uploader] thumbnail upload failed:",
+            thumbUpErr.message,
+          );
+          thumbnailPath = null;
+        } else {
+          thumbnailUrl = supabase.storage
+            .from("item-photos")
+            .getPublicUrl(thumbnailPath).data.publicUrl;
+        }
+      }
 
       const { error: insErr } = await supabase
         .from("item_photos")
@@ -72,6 +155,11 @@ export function PhotoUploader({
           storage_path: path,
           photo_type: photoType,
           sort_order: photos.length,
+          thumbnail_url: thumbnailUrl,
+          thumbnail_storage_path: thumbnailPath,
+          width,
+          height,
+          bytes: body.size,
         } as never);
       if (insErr) throw insErr;
 
@@ -92,7 +180,14 @@ export function PhotoUploader({
       }
 
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
-      toast.success(`${PHOTO_TYPE_LABELS[photoType]} photo uploaded.`);
+      const savedPct = ((1 - body.size / originalSize) * 100).toFixed(0);
+      const sizeNote =
+        body.size < originalSize && originalSize > 100 * 1024
+          ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(body.size / 1024 / 1024).toFixed(1)}MB)`
+          : "";
+      toast.success(
+        `${PHOTO_TYPE_LABELS[photoType]} photo uploaded${sizeNote}.`,
+      );
     } catch (err) {
       toast.error(
         `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -104,10 +199,11 @@ export function PhotoUploader({
 
   async function remove(photo: ItemPhotoRow) {
     try {
-      if (photo.storage_path) {
-        await supabase.storage
-          .from("item-photos")
-          .remove([photo.storage_path]);
+      const paths = [photo.storage_path, photo.thumbnail_storage_path].filter(
+        (p): p is string => !!p,
+      );
+      if (paths.length > 0) {
+        await supabase.storage.from("item-photos").remove(paths);
       }
       const { error } = await supabase
         .from("item_photos")
@@ -125,6 +221,24 @@ export function PhotoUploader({
   const requiredFilled = REQUIRED_PHOTO_TYPES.every(
     (t) => byType(t).length > 0,
   );
+
+  async function saveEdit(blob: Blob) {
+    if (!editingPhoto) return;
+    const path = editingPhoto.storage_path;
+    const { error: upErr } = await supabase.storage
+      .from("item-photos")
+      .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+    if (upErr) throw upErr;
+    const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
+    const { error: dbErr } = await supabase
+      .from("item_photos")
+      .update({ photo_url: `${pub.publicUrl}?v=${Date.now()}` } as never)
+      .eq("id", editingPhoto.id);
+    if (dbErr) throw dbErr;
+    await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+    toast.success("Photo updated.");
+    setEditingPhoto(null);
+  }
 
   if (isLoading) {
     return (
@@ -163,6 +277,7 @@ export function PhotoUploader({
               uploading={uploading === t}
               onUpload={(f) => upload(f, t)}
               onRemove={remove}
+              onEdit={setEditingPhoto}
               required
             />
           ))}
@@ -182,10 +297,18 @@ export function PhotoUploader({
               uploading={uploading === t}
               onUpload={(f) => upload(f, t)}
               onRemove={remove}
+              onEdit={setEditingPhoto}
             />
           ))}
         </div>
       </div>
+
+      <PhotoEditorDialog
+        open={editingPhoto != null}
+        src={editingPhoto?.photo_url ?? ""}
+        onClose={() => setEditingPhoto(null)}
+        onSave={saveEdit}
+      />
     </div>
   );
 }
@@ -196,6 +319,7 @@ function PhotoSlot({
   uploading,
   onUpload,
   onRemove,
+  onEdit,
   required = false,
 }: {
   photoType: FlipdeskPhotoType;
@@ -203,6 +327,7 @@ function PhotoSlot({
   uploading: boolean;
   onUpload: (file: File) => void;
   onRemove: (photo: ItemPhotoRow) => void;
+  onEdit: (photo: ItemPhotoRow) => void;
   required?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -233,11 +358,23 @@ function PhotoSlot({
       />
       <div className="aspect-square bg-muted/40">
         {filled && first ? (
-          <img
-            src={first.photo_url}
-            alt={PHOTO_TYPE_LABELS[photoType]}
-            className="h-full w-full object-cover"
-          />
+          <div className="group relative h-full w-full">
+            <img
+              src={first.thumbnail_url ?? first.photo_url}
+              alt={PHOTO_TYPE_LABELS[photoType]}
+              loading="lazy"
+              className="h-full w-full object-cover"
+            />
+            {/* Edit overlay — visible on hover (desktop) or always (mobile) */}
+            <button
+              type="button"
+              onClick={() => onEdit(first)}
+              className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/40 sm:opacity-0 sm:group-hover:opacity-100"
+              aria-label="Edit photo"
+            >
+              <Pencil className="h-5 w-5 text-white opacity-0 drop-shadow group-hover:opacity-100" />
+            </button>
+          </div>
         ) : (
           <button
             type="button"

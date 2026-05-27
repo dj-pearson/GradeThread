@@ -665,8 +665,9 @@ export function FlipdeskComposerPage() {
                   {order.map((photo) => (
                     <img
                       key={photo.id}
-                      src={photo.photo_url}
+                      src={photo.thumbnail_url ?? photo.photo_url}
                       alt=""
+                      loading="lazy"
                       className={cn(
                         "h-12 w-12 flex-shrink-0 rounded border object-cover",
                         photo.id === primaryPhoto?.id &&
@@ -795,8 +796,9 @@ function ComposerPhoto({
       )}
     >
       <img
-        src={photo.photo_url}
+        src={photo.thumbnail_url ?? photo.photo_url}
         alt=""
+        loading="lazy"
         className="h-full w-full object-cover"
       />
       <button

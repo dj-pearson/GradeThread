@@ -73,6 +73,9 @@ export type FlipdeskPhotoType =
   | "back"
   | "tag"
   | "detail"
+  | "detail_2"
+  | "detail_3"
+  | "interior"
   | "defect"
   | "flatlay"
   | "on_model";
@@ -316,6 +319,12 @@ export interface ItemPhotoRow {
   ebay_uploaded: boolean;
   archived_to_r2: boolean;
   created_at: string;
+  // 00035 — thumbnails generated client-side at upload time.
+  thumbnail_url: string | null;
+  thumbnail_storage_path: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
 }
 
 export interface MarketplaceConnectionRow {

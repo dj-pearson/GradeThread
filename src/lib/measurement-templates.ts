@@ -71,13 +71,14 @@ export function measurementGroupFor(
 ): MeasurementGroup {
   const c = (category ?? "").toLowerCase();
   if (!c) return "generic";
-  if (/(shoe|sneaker|boot|sandal|footwear)/.test(c)) return "shoes";
+  if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";
   if (/watch/.test(c)) return "watch";
-  if (/(dress)/.test(c)) return "dress";
-  if (/(jacket|coat|outerwear|blazer|parka)/.test(c)) return "outerwear";
-  if (/(pant|jean|short|skirt|trouser|bottom|legging)/.test(c))
+  if (/(dress|romper|jumpsuit|maxi|mini|midi)/.test(c)) return "dress";
+  if (/(jacket|coat|outerwear|blazer|parka|windbreaker|overcoat|anorak|bomber|vest|gilet|fleece|cardigan)/.test(c))
+    return "outerwear";
+  if (/(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo)/.test(c))
     return "bottom";
-  if (/(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank)/.test(c))
+  if (/(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank|polo|jersey|henley|pullover|crewneck|longsleeve|long.sleeve|rugby|button.down|button.up|oxford|flannel|thermal)/.test(c))
     return "top";
   return "generic";
 }

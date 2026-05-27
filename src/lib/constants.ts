@@ -275,6 +275,9 @@ export const FLIPDESK_PHOTO_TYPES = [
   "back",
   "tag",
   "detail",
+  "detail_2",
+  "detail_3",
+  "interior",
   "defect",
   "flatlay",
   "on_model",
@@ -282,7 +285,14 @@ export const FLIPDESK_PHOTO_TYPES = [
 
 // Photos a clothing item should have before it can advance to "photographed".
 export const REQUIRED_PHOTO_TYPES = ["front", "back", "tag", "detail"] as const;
-export const OPTIONAL_PHOTO_TYPES = ["defect", "flatlay", "on_model"] as const;
+export const OPTIONAL_PHOTO_TYPES = [
+  "detail_2",
+  "detail_3",
+  "interior",
+  "defect",
+  "flatlay",
+  "on_model",
+] as const;
 
 export const PHOTO_TYPE_LABELS: Record<
   (typeof FLIPDESK_PHOTO_TYPES)[number],
@@ -290,8 +300,11 @@ export const PHOTO_TYPE_LABELS: Record<
 > = {
   front: "Front",
   back: "Back",
-  tag: "Tag / Label",
-  detail: "Detail",
+  tag: "Garment Tag",
+  detail: "Detail 1",
+  detail_2: "Detail 2",
+  detail_3: "Detail 3",
+  interior: "Interior / Lining",
   defect: "Defect",
   flatlay: "Flat lay",
   on_model: "On model",

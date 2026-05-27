@@ -148,11 +148,17 @@ export async function validateImage(
   return { valid: errors.length === 0, errors };
 }
 
+export interface CompressResult {
+  blob: Blob;
+  width: number;
+  height: number;
+}
+
 export async function compressImage(
   file: File,
   maxWidth = 2400,
   quality = 0.85
-): Promise<Blob> {
+): Promise<CompressResult> {
   const img = await loadImage(file);
   const orientation = await getExifOrientation(file);
 
@@ -226,5 +232,5 @@ export async function compressImage(
     );
   });
 
-  return blob;
+  return { blob, width: canvas.width, height: canvas.height };
 }

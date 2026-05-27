@@ -15,7 +15,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, Trash2 } from "lucide-react";
+import { GripVertical, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import {
   Select,
@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
+import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { cn } from "@/lib/utils";
 import type {
   ItemPhotoRow,
@@ -40,6 +41,7 @@ interface PhotoManagerProps {
 export function PhotoManager({ itemId }: PhotoManagerProps) {
   const qc = useQueryClient();
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
+  const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ["item_photos", itemId],
@@ -180,11 +182,34 @@ export function PhotoManager({ itemId }: PhotoManagerProps) {
                 gradingInFlight={gradingInFlight}
                 onRetag={retag}
                 onRemove={remove}
+                onEdit={setEditingPhoto}
               />
             ))}
           </div>
         </SortableContext>
       </DndContext>
+
+      <PhotoEditorDialog
+        open={editingPhoto != null}
+        src={editingPhoto?.photo_url ?? ""}
+        onClose={() => setEditingPhoto(null)}
+        onSave={async (blob) => {
+          if (!editingPhoto) return;
+          const path = editingPhoto.storage_path;
+          const { error: upErr } = await supabase.storage
+            .from("item-photos")
+            .upload(path, blob, { upsert: true, contentType: "image/jpeg" });
+          if (upErr) throw upErr;
+          const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
+          await supabase
+            .from("item_photos")
+            .update({ photo_url: `${pub.publicUrl}?v=${Date.now()}` } as never)
+            .eq("id", editingPhoto.id);
+          await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+          toast.success("Photo updated.");
+          setEditingPhoto(null);
+        }}
+      />
     </div>
   );
 }
@@ -194,11 +219,13 @@ function SortablePhoto({
   gradingInFlight,
   onRetag,
   onRemove,
+  onEdit,
 }: {
   photo: ItemPhotoRow;
   gradingInFlight: boolean;
   onRetag: (photo: ItemPhotoRow, t: FlipdeskPhotoType) => void;
   onRemove: (photo: ItemPhotoRow) => void;
+  onEdit: (photo: ItemPhotoRow) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: photo.id });
@@ -218,8 +245,9 @@ function SortablePhoto({
     >
       <div className="relative aspect-square bg-muted/40">
         <img
-          src={photo.photo_url}
+          src={photo.thumbnail_url ?? photo.photo_url}
           alt={PHOTO_TYPE_LABELS[photo.photo_type]}
+          loading="lazy"
           className="h-full w-full object-cover"
         />
         <button
@@ -230,6 +258,14 @@ function SortablePhoto({
           aria-label="Drag to reorder"
         >
           <GripVertical className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => onEdit(photo)}
+          className="absolute right-1 top-1 rounded bg-background/80 p-1 text-muted-foreground hover:text-foreground"
+          aria-label="Edit photo"
+        >
+          <Pencil className="h-3.5 w-3.5" />
         </button>
       </div>
       <div className="flex items-center gap-1 p-1">
