@@ -3,6 +3,8 @@ import SwiftUI
 
 @main
 struct GradeThreadApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     /// SwiftData store backing the offline cache. Created eagerly at app
     /// launch so views can synchronously query the cache before the first
     /// sync pass finishes.
@@ -37,6 +39,28 @@ struct GradeThreadApp: App {
         WindowGroup {
             ContentView()
                 .modelContainer(container)
+                .environment(appDelegate.photoUploadStore)
+                .environment(\.photoUploadService, appDelegate.photoUploadService)
         }
+    }
+}
+
+// MARK: - Environment key
+
+private struct PhotoUploadServiceKey: EnvironmentKey {
+    // nil-default is trivially Sendable; the actual reference (set in
+    // ContentView's environment) is @MainActor and only ever read from
+    // MainActor-isolated views, so the cross-actor concern is moot.
+    static let defaultValue: PhotoUploadService? = nil
+}
+
+extension EnvironmentValues {
+    /// Injected via the AppDelegate so the same service instance is
+    /// available everywhere without a global singleton. nil during
+    /// previews — the calling view should branch on availability rather
+    /// than force-unwrapping.
+    var photoUploadService: PhotoUploadService? {
+        get { self[PhotoUploadServiceKey.self] }
+        set { self[PhotoUploadServiceKey.self] = newValue }
     }
 }

@@ -35,6 +35,10 @@ export interface BillingSummary {
     cancel_at_period_end: boolean;
     trial_ends_at: string | null;
     stripe_customer_id: string | null;
+    // Scheduled downgrade (US-217). Null when no downgrade is pending.
+    pending_plan: FlipdeskPlan | null;
+    pending_interval: BillingInterval | null;
+    pending_effective_at: string | null;
   };
   grades: {
     credit_balance: number;
@@ -188,6 +192,64 @@ export function useCancelSubscription() {
           })
         : "the end of the period";
       toast.success(`Cancellation scheduled — your plan ends ${ends}.`);
+      qc.invalidateQueries({ queryKey: ["billing_summary"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// ── Downgrade scheduling (US-217) ───────────────────────────────
+
+export function useScheduleDowngrade() {
+  const qc = useQueryClient();
+  return useMutation<
+    {
+      ok: true;
+      schedule_id: string;
+      effective_at: string | null;
+      target_plan: FlipdeskPlanKey;
+      target_interval: BillingInterval;
+    },
+    Error,
+    { plan: Exclude<FlipdeskPlanKey, "free">; interval: BillingInterval }
+  >({
+    mutationFn: async ({ plan, interval }) => {
+      const res = await edgeFetch("/api/payments/flipdesk/downgrade", {
+        method: "POST",
+        json: { plan, interval },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to schedule downgrade.");
+      return json;
+    },
+    onSuccess: (data) => {
+      const date = data.effective_at
+        ? new Date(data.effective_at).toLocaleDateString("en-US", {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          })
+        : "the end of the period";
+      toast.success(`Downgrade scheduled — takes effect ${date}.`);
+      qc.invalidateQueries({ queryKey: ["billing_summary"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+export function useUndoDowngrade() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/payments/flipdesk/undowngrade", {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to undo downgrade.");
+      return json;
+    },
+    onSuccess: () => {
+      toast.success("Downgrade canceled — your plan continues.");
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
     onError: (err) => toast.error(err.message),

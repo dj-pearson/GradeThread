@@ -90,6 +90,7 @@ edge-functions service; the command runs *inside* the container so
 | photo-archive           | `0 4 * * *` (04:00)    | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/images/archive`                       |
 | reconciliation-sweep    | `0 5 * * *` (05:00)    | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/reconciliation/run`                   |
 | ebay-orders-sync        | `*/30 * * * *` (30min) | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/listings/pull`                   |
+| trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                     |
 
 Use `http://localhost:8787` from inside the container (not the public FQDN)
 so scheduled jobs don't take the round-trip through Traefik + WAF and

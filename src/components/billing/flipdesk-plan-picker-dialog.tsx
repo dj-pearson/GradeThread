@@ -19,6 +19,7 @@ import {
   useFlipdeskSubscribe,
   useBillingPortal,
 } from "@/hooks/use-billing-summary";
+import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
 import { cn } from "@/lib/utils";
 import { Check, X, Crown, Loader2, Sparkles } from "lucide-react";
 
@@ -81,6 +82,9 @@ export function FlipdeskPlanPickerDialog({
     summary?.subscription.interval ?? "monthly";
 
   const [interval, setInterval] = useState<BillingInterval>(currentInterval);
+  const [downgradeTarget, setDowngradeTarget] = useState<
+    Exclude<FlipdeskPlanKey, "free"> | null
+  >(null);
 
   // Show trial CTAs only when the user hasn't used their one-trial-ever yet.
   const trialEligible =
@@ -129,6 +133,19 @@ export function FlipdeskPlanPickerDialog({
           </Badge>
         </div>
 
+        {downgradeTarget && (
+          <DowngradePreviewDialog
+            open={!!downgradeTarget}
+            onOpenChange={(v) => {
+              if (!v) {
+                setDowngradeTarget(null);
+                onOpenChange(false);
+              }
+            }}
+            targetPlan={downgradeTarget}
+            targetInterval={interval}
+          />
+        )}
         <div className="grid gap-4 lg:grid-cols-4">
           {PLAN_ORDER.map((planKey) => {
             const plan = FLIPDESK_PLANS[planKey];
@@ -264,6 +281,10 @@ export function FlipdeskPlanPickerDialog({
                       if (planKey === "free") return;
                       subscribe.mutate({ plan: planKey, interval });
                     },
+                    onDowngrade: () => {
+                      if (planKey === "free") return;
+                      setDowngradeTarget(planKey);
+                    },
                     onOpenPortal: () => portal.mutate(),
                   })}
                 </CardFooter>
@@ -294,9 +315,10 @@ function renderCta(args: {
   isCancelToFree: boolean;
   isLoading: boolean;
   onSubscribe: () => void;
+  onDowngrade: () => void;
   onOpenPortal: () => void;
 }) {
-  const { isCurrent, sameTierDiffInterval, isUpgrade, isDowngrade, isCancelToFree, isLoading, planKey, onSubscribe, onOpenPortal } = args;
+  const { isCurrent, sameTierDiffInterval, isUpgrade, isDowngrade, isCancelToFree, isLoading, planKey, onSubscribe, onDowngrade, onOpenPortal } = args;
 
   if (isCurrent) {
     return (
@@ -330,12 +352,11 @@ function renderCta(args: {
   }
 
   if (isDowngrade) {
-    // Downgrade goes through the Stripe portal until US-217's preview dialog ships.
     return (
       <Button
         variant="outline"
         className="w-full"
-        onClick={onOpenPortal}
+        onClick={onDowngrade}
         disabled={isLoading}
       >
         {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

@@ -56,6 +56,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BillingActionsCard } from "@/components/admin/billing-actions-card";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
@@ -588,6 +589,9 @@ export function AdminUserDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Billing actions (US-221) */}
+      <BillingActionsCard userId={targetUser.id} />
 
       {/* Submission History */}
       <Card>

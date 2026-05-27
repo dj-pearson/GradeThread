@@ -343,7 +343,7 @@ export async function sendWelcomeEmail(
     </table>
 
     <p style="margin: 0 0 8px; color: #666; font-size: 14px; line-height: 1.5; text-align: center;">
-      Your free plan includes 5 grades per month. Upgrade anytime for more.
+      You're on a 14-day Pro trial — no card required. Stay on Free or upgrade any time.
     </p>
 
     ${ctaButton("Go to Dashboard", `${SITE_URL}/dashboard`)}
@@ -353,6 +353,241 @@ export async function sendWelcomeEmail(
     to,
     subject: "Welcome to GradeThread — Start Grading with AI",
     html: emailLayout(content, true),
+  });
+}
+
+// ─── Billing emails (US-222) ────────────────────────────────────────
+
+interface SubscriptionStartedData {
+  userName: string;
+  plan: string;
+  interval: "monthly" | "yearly";
+  priceCents: number;
+  periodEnd: string;
+}
+
+interface SubscriptionCanceledData {
+  userName: string;
+  plan: string;
+  endsAt: string;
+}
+
+interface CreditPackPurchasedData {
+  userName: string;
+  credits: number;
+  amountCents: number;
+  newBalance: number;
+}
+
+interface PaymentFailedData {
+  userName: string;
+  plan: string;
+  amountCents: number;
+  attemptCount: number;
+  retryAt: string | null;
+}
+
+interface TrialExpiringData {
+  userName: string;
+  daysLeft: number;
+  trialEndsAt: string;
+}
+
+function dollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+export async function sendSubscriptionStartedEmail(
+  to: string,
+  data: SubscriptionStartedData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Welcome to FlipDesk ${escapeHtml(data.plan)}!
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your subscription is active. Thanks for going pro.
+    </p>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Plan</span><br><strong>FlipDesk ${escapeHtml(data.plan)}</strong></td>
+        <td style="padding: 12px; border-left: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Billed</span><br><strong>${dollars(data.priceCents)} / ${data.interval === "yearly" ? "year" : "month"}</strong></td>
+      </tr>
+      <tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Next charge</span><br><strong>${formatDate(data.periodEnd)}</strong></td></tr>
+    </table>
+
+    ${ctaButton("Go to Billing", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return sendEmail({
+    to,
+    subject: `FlipDesk ${data.plan} active — welcome aboard`,
+    html: emailLayout(content),
+  });
+}
+
+export async function sendSubscriptionCanceledEmail(
+  to: string,
+  data: SubscriptionCanceledData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Cancellation scheduled
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> subscription will end on <strong>${formatDate(data.endsAt)}</strong>. Until then you keep full access.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      Your inventory, listings, past grade reports, and grade credits all stay safe. Changed your mind? You can undo the cancellation any time before ${formatDate(data.endsAt)}.
+    </p>
+    ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return sendEmail({
+    to,
+    subject: `Your FlipDesk ${data.plan} plan ends ${formatDate(data.endsAt)}`,
+    html: emailLayout(content),
+  });
+}
+
+interface SubscriptionPausedData {
+  userName: string;
+  plan: string;
+  resumesAt: string;
+}
+
+interface SubscriptionResumedData {
+  userName: string;
+  plan: string;
+  auto: boolean;
+}
+
+export async function sendSubscriptionPausedEmail(
+  to: string,
+  data: SubscriptionPausedData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your subscription is paused
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> subscription is paused. We'll automatically resume it on <strong>${formatDate(data.resumesAt)}</strong>.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      While paused, your caps fall back to Free and we don't charge you. Your data and grade credits stay safe. You can resume early from the billing page any time.
+    </p>
+    ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return sendEmail({
+    to,
+    subject: `FlipDesk ${data.plan} paused — resumes ${formatDate(data.resumesAt)}`,
+    html: emailLayout(content),
+  });
+}
+
+export async function sendSubscriptionResumedEmail(
+  to: string,
+  data: SubscriptionResumedData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Welcome back to FlipDesk ${escapeHtml(data.plan)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your subscription is active again. ${data.auto ? "Your pause window ended on schedule." : "Glad you're back ahead of schedule."}
+    </p>
+    ${ctaButton("Go to dashboard", `${SITE_URL}/dashboard`)}
+  `;
+  return sendEmail({
+    to,
+    subject: `FlipDesk ${data.plan} is active again`,
+    html: emailLayout(content),
+  });
+}
+
+export async function sendCreditPackPurchasedEmail(
+  to: string,
+  data: CreditPackPurchasedData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${data.credits} credits added
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your purchase is complete. ${data.credits} credits just landed in your GradeThread wallet.
+    </p>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Pack</span><br><strong>${data.credits} credits</strong></td>
+        <td style="padding: 12px; border-left: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Total</span><br><strong>${dollars(data.amountCents)}</strong></td>
+      </tr>
+      <tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">New balance</span><br><strong style="font-size: 18px; color: ${BRAND_NAVY};">${data.newBalance} credits</strong></td></tr>
+    </table>
+
+    <p style="margin: 0 0 8px; color: #999; font-size: 13px; text-align: center;">
+      1 credit = 1 Standard grade · Premium = 3 · Express = 5 · Never expire
+    </p>
+
+    ${ctaButton("Submit a grade", `${SITE_URL}/dashboard/submissions/new`)}
+  `;
+  return sendEmail({
+    to,
+    subject: `Receipt: ${data.credits} GradeThread credits — ${dollars(data.amountCents)}`,
+    html: emailLayout(content),
+  });
+}
+
+export async function sendPaymentFailedEmail(
+  to: string,
+  data: PaymentFailedData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your payment didn't go through
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, we couldn't charge your card for your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> renewal (${dollars(data.amountCents)}). This was attempt ${data.attemptCount}.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      Update your card now to keep your plan active. ${data.retryAt ? `We'll automatically retry on <strong>${formatDate(data.retryAt)}</strong>.` : ""} After several failed attempts your plan will drop to Free.
+    </p>
+    ${ctaButton("Update card", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return sendEmail({
+    to,
+    subject: "Action needed: update your card to keep FlipDesk active",
+    html: emailLayout(content),
+  });
+}
+
+export async function sendTrialExpiringEmail(
+  to: string,
+  data: TrialExpiringData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"} left on your Pro trial
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your 14-day FlipDesk Pro trial ends on <strong>${formatDate(data.trialEndsAt)}</strong>. Add a card now to keep your Pro features without interruption.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      If you don't subscribe, you'll automatically drop to the Free plan — you'll keep your data, but caps will tighten.
+    </p>
+    ${ctaButton("Add card", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return sendEmail({
+    to,
+    subject: `${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"} left on your FlipDesk Pro trial`,
+    html: emailLayout(content),
   });
 }
 

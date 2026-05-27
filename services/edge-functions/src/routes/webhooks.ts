@@ -2,6 +2,27 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import {
+  sendCreditPackPurchasedEmail,
+  sendPaymentFailedEmail,
+  sendSubscriptionCanceledEmail,
+  sendSubscriptionPausedEmail,
+  sendSubscriptionResumedEmail,
+  sendSubscriptionStartedEmail,
+} from "../lib/email.ts";
+
+// Fire-and-forget email helper — webhook MUST NOT fail if email fails.
+function safeSendEmail(promise: Promise<boolean>, label: string) {
+  promise.catch((err) => {
+    console.error(`[Webhook] ${label} email send failed:`, err instanceof Error ? err.message : err);
+  });
+}
+
+function userDisplayName(email: string | null | undefined, fullName: string | null | undefined): string {
+  if (fullName && fullName.trim()) return fullName.trim().split(/\s+/)[0]!;
+  if (email) return email.split("@")[0]!;
+  return "there";
+}
 
 export const webhookRoutes = new Hono();
 
@@ -121,10 +142,13 @@ async function recordEvent(
   return true;
 }
 
+const USER_SELECT =
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end";
+
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("id, flipdesk_plan, trial_ends_at, flipdesk_subscription_id")
+    .select(USER_SELECT)
     .eq("stripe_customer_id", customerId)
     .single();
   if (error || !data) {
@@ -137,7 +161,7 @@ async function loadUserByCustomerId(customerId: string) {
 async function loadUserById(userId: string) {
   const { data, error } = await supabaseAdmin
     .from("users")
-    .select("id, flipdesk_plan, stripe_customer_id, trial_ends_at")
+    .select(USER_SELECT)
     .eq("id", userId)
     .single();
   if (error || !data) {
@@ -186,6 +210,11 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       ? new Date(sub.trial_end * 1000).toISOString()
       : undefined;
 
+  // Clear any pending downgrade if the new plan now matches what was pending
+  // (the Subscription Schedule transition fired — US-217).
+  const pendingCleared =
+    sub.metadata?.product === "flipdesk" && sub.metadata?.plan === plan;
+
   const { error } = await supabaseAdmin
     .from("users")
     .update({
@@ -198,6 +227,14 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,
       stripe_customer_id: customerId,
       ...(trialEndsAtUpdate ? { trial_ends_at: trialEndsAtUpdate } : {}),
+      ...(pendingCleared
+        ? {
+            pending_flipdesk_plan: null,
+            pending_flipdesk_interval: null,
+            pending_schedule_id: null,
+            pending_effective_at: null,
+          }
+        : {}),
     })
     .eq("id", user.id);
 
@@ -209,6 +246,72 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   console.log(
     `[Webhook] User ${user.id} → plan=${plan} interval=${interval} status=${status}`,
   );
+
+  // Emails (best-effort, never fail the webhook).
+  if (user.email) {
+    const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
+    const name = userDisplayName(user.email, user.full_name);
+
+    // First-time subscription → welcome-to-paid email.
+    if (event.type === "customer.subscription.created" && status !== "trialing") {
+      const priceCents = sub.items?.data?.[0]?.price?.unit_amount ?? 0;
+      safeSendEmail(
+        sendSubscriptionStartedEmail(user.email, {
+          userName: name,
+          plan: planLabel,
+          interval,
+          priceCents,
+          periodEnd: periodEnd ?? new Date().toISOString(),
+        }),
+        "subscription_started",
+      );
+    }
+
+    // Cancel just got scheduled (transition false → true on an update).
+    if (
+      event.type === "customer.subscription.updated" &&
+      sub.cancel_at_period_end &&
+      !user.flipdesk_cancel_at_period_end
+    ) {
+      safeSendEmail(
+        sendSubscriptionCanceledEmail(user.email, {
+          userName: name,
+          plan: planLabel,
+          endsAt: periodEnd ?? new Date().toISOString(),
+        }),
+        "subscription_canceled_scheduled",
+      );
+    }
+
+    // Paused / resumed (Stripe fires its own dedicated event types).
+    if (event.type === "customer.subscription.paused" && pauseUntil) {
+      safeSendEmail(
+        sendSubscriptionPausedEmail(user.email, {
+          userName: name,
+          plan: planLabel,
+          resumesAt: pauseUntil,
+        }),
+        "subscription_paused",
+      );
+    }
+    if (event.type === "customer.subscription.resumed") {
+      // If the resume happened on the originally-scheduled date, treat it as
+      // automatic; if the resume happened earlier (user clicked Resume now),
+      // mark it as manual. Stripe doesn't distinguish — we approximate by
+      // whether the prior pause_until was in the past.
+      const auto = !user.flipdesk_pause_until
+        ? false
+        : new Date(user.flipdesk_pause_until).getTime() <= Date.now() + 60_000;
+      safeSendEmail(
+        sendSubscriptionResumedEmail(user.email, {
+          userName: name,
+          plan: planLabel,
+          auto,
+        }),
+        "subscription_resumed",
+      );
+    }
+  }
 }
 
 async function handleSubscriptionDeleted(event: Stripe.Event) {
@@ -338,7 +441,25 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
   console.log(
     `[Webhook] User ${user.id} → past_due (invoice ${invoice.id}, attempt ${invoice.attempt_count})`,
   );
-  // TODO US-218 + US-222: kick off dunning email cadence.
+
+  // Dunning email (US-218 + US-222). Stripe's Smart Retries drive the cadence;
+  // we send on each failed attempt and rely on Stripe to schedule retries.
+  if (user.email) {
+    const planLabel = user.flipdesk_plan.charAt(0).toUpperCase() + user.flipdesk_plan.slice(1);
+    const retryAt = invoice.next_payment_attempt
+      ? new Date(invoice.next_payment_attempt * 1000).toISOString()
+      : null;
+    safeSendEmail(
+      sendPaymentFailedEmail(user.email, {
+        userName: userDisplayName(user.email, user.full_name),
+        plan: planLabel,
+        amountCents: invoice.amount_due ?? 0,
+        attemptCount: invoice.attempt_count ?? 1,
+        retryAt,
+      }),
+      "payment_failed",
+    );
+  }
 }
 
 // ── Checkout completion handlers ─────────────────────────────────
@@ -428,7 +549,23 @@ async function handleCreditPackPurchase(
     console.error(`[Webhook] grant_grade_credits failed for user ${userId}:`, error);
     return;
   }
-  console.log(`[Webhook] Granted ${credits} credits to user ${userId}, new balance=${data}`);
+  const newBalance = typeof data === "number" ? data : credits;
+  console.log(`[Webhook] Granted ${credits} credits to user ${userId}, new balance=${newBalance}`);
+
+  // Receipt email (US-222). Look up the user lazily so the happy path isn't
+  // slowed by an extra round trip when emails are disabled.
+  const user = await loadUserById(userId);
+  if (user?.email) {
+    safeSendEmail(
+      sendCreditPackPurchasedEmail(user.email, {
+        userName: userDisplayName(user.email, user.full_name),
+        credits,
+        amountCents: session.amount_total ?? 0,
+        newBalance,
+      }),
+      "credit_pack_purchased",
+    );
+  }
 }
 
 async function handlePerGradePurchase(

@@ -9,6 +9,7 @@ import UIKit
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.photoUploadService) private var photoUploadService
 
     @State private var authStore = AuthStore()
     @State private var networkMonitor = NetworkMonitor()
@@ -35,6 +36,10 @@ struct ContentView: View {
                 case .signedOut:
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
+                    // Cancel any in-flight uploads + wipe the store so
+                    // the next user doesn't see ghost progress bars
+                    // (US-175 AC).
+                    photoUploadService?.cancelAll()
                 case .loading:
                     break
                 }

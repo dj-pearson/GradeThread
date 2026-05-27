@@ -162,6 +162,11 @@ export interface UserRow {
   grade_credit_balance: number;
   // 14-day Pro trial bookkeeping (US-219). One trial per user, ever.
   trial_ends_at: string | null;
+  // Scheduled downgrade target (US-217). NULL when no downgrade is pending.
+  pending_flipdesk_plan: FlipdeskPlan | null;
+  pending_flipdesk_interval: BillingInterval | null;
+  pending_schedule_id: string | null;
+  pending_effective_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -637,6 +642,10 @@ export interface UserInsert {
   flipdesk_cancel_at_period_end?: boolean;
   grade_credit_balance?: number;
   trial_ends_at?: string | null;
+  pending_flipdesk_plan?: FlipdeskPlan | null;
+  pending_flipdesk_interval?: BillingInterval | null;
+  pending_schedule_id?: string | null;
+  pending_effective_at?: string | null;
 }
 
 export interface SubmissionInsert {

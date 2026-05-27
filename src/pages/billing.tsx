@@ -32,9 +32,11 @@ import { CancelSubscriptionDialog } from "@/components/billing/cancel-subscripti
 import {
   useResumeSubscription,
   useUncancelSubscription,
+  useUndoDowngrade,
 } from "@/hooks/use-billing-summary";
 import {
   AlertCircle,
+  ArrowDown,
   Calendar,
   CreditCard,
   ExternalLink,
@@ -66,6 +68,7 @@ export function BillingPage() {
   const portal = useBillingPortal();
   const resume = useResumeSubscription();
   const uncancel = useUncancelSubscription();
+  const undoDowngrade = useUndoDowngrade();
 
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
   const [creditPackOpen, setCreditPackOpen] = useState(false);
@@ -187,6 +190,28 @@ export function BillingPage() {
           >
             <Play className="mr-2 h-4 w-4" />
             Resume now
+          </Button>
+        </div>
+      )}
+      {subscription.pending_plan && !canceling && !pastDue && (
+        <div className="flex items-start gap-3 rounded-md border border-purple-200 bg-purple-50 p-4 dark:border-purple-900 dark:bg-purple-950/40">
+          <ArrowDown className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+          <div className="flex-1 text-sm">
+            <p className="font-semibold">Downgrade scheduled</p>
+            <p className="text-muted-foreground">
+              Your plan switches to{" "}
+              <strong>{planLabel(subscription.pending_plan)}</strong> on{" "}
+              {dateLabel(subscription.pending_effective_at)}. Until then you
+              keep {planLabel(subscription.plan)} features.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => undoDowngrade.mutate()}
+            disabled={undoDowngrade.isPending}
+          >
+            Undo downgrade
           </Button>
         </div>
       )}

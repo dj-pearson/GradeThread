@@ -479,7 +479,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
       "flipdesk_plan, flipdesk_interval, subscription_status, " +
         "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
         "trial_ends_at, grade_credit_balance, grades_used_this_month, " +
-        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id",
+        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, " +
+        "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at",
     )
     .eq("id", userId)
     .single();
@@ -531,6 +532,9 @@ paymentRoutes.get("/billing-summary", async (c) => {
       cancel_at_period_end: user.flipdesk_cancel_at_period_end,
       trial_ends_at: user.trial_ends_at,
       stripe_customer_id: user.stripe_customer_id,
+      pending_plan: user.pending_flipdesk_plan,
+      pending_interval: user.pending_flipdesk_interval,
+      pending_effective_at: user.pending_effective_at,
     },
     grades: {
       credit_balance: user.grade_credit_balance,
@@ -664,6 +668,168 @@ paymentRoutes.post("/flipdesk/cancel", async (c) => {
   } catch (err) {
     console.error("Subscription cancel failed:", err);
     return c.json({ error: "Failed to cancel subscription" }, 500);
+  }
+});
+
+// ── POST /flipdesk/downgrade (US-217) ────────────────────────────
+//
+// Body: { plan: 'starter'|'pro'|'business', interval: 'monthly'|'yearly' }
+//
+// Creates a Stripe Subscription Schedule with two phases:
+//   Phase 1: current plan, ends at current_period_end (preserves what
+//            the user already paid for).
+//   Phase 2: new (cheaper) plan, starts at current_period_end and runs
+//            indefinitely.
+//
+// The customer.subscription.updated webhook fires when phase 2 activates
+// — that's when our DB column flipdesk_plan flips to the new value and
+// pending_* columns get cleared.
+paymentRoutes.post("/flipdesk/downgrade", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { plan?: unknown; interval?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const plan = body.plan as string | undefined;
+  const interval = (body.interval as string | undefined) ?? "monthly";
+
+  if (plan !== "starter" && plan !== "pro" && plan !== "business") {
+    return c.json({ error: "plan must be one of: starter, pro, business" }, 400);
+  }
+  if (interval !== "monthly" && interval !== "yearly") {
+    return c.json({ error: "interval must be 'monthly' or 'yearly'" }, 400);
+  }
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.flipdesk_subscription_id) {
+    return c.json({ error: "No subscription to downgrade" }, 400);
+  }
+
+  const newPriceId = FLIPDESK_PRICE_IDS[plan][interval];
+  if (!newPriceId) {
+    return c.json({ error: "Pricing not configured" }, 503);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    // Create a schedule that wraps the current subscription. This copies
+    // the current price into phase 1 with a 1-cycle end date (current
+    // period end) so we don't have to compute it ourselves.
+    const schedule = await stripe.subscriptionSchedules.create({
+      from_subscription: user.flipdesk_subscription_id,
+    });
+
+    const existingPhase = schedule.phases[0];
+    if (!existingPhase) {
+      return c.json({ error: "Stripe schedule has no initial phase" }, 500);
+    }
+
+    // Append a second phase starting where the first one ends.
+    const updated = await stripe.subscriptionSchedules.update(schedule.id, {
+      end_behavior: "release",
+      phases: [
+        {
+          items: existingPhase.items.map((it) => ({
+            // SDK union: item.price can be string | Price; normalize.
+            price: typeof it.price === "string" ? it.price : it.price.id,
+            quantity: it.quantity ?? 1,
+          })),
+          start_date: existingPhase.start_date,
+          end_date: existingPhase.end_date ?? undefined,
+        },
+        {
+          items: [{ price: newPriceId, quantity: 1 }],
+          // start_date defaults to previous phase end (proration_behavior=none).
+          proration_behavior: "none",
+          metadata: {
+            user_id: userId,
+            product: "flipdesk",
+            plan,
+            interval,
+          },
+        },
+      ],
+      metadata: {
+        user_id: userId,
+        downgrade_target_plan: plan,
+        downgrade_target_interval: interval,
+      },
+    });
+
+    const effectiveAt = existingPhase.end_date
+      ? new Date(existingPhase.end_date * 1000).toISOString()
+      : null;
+
+    // Mirror to DB so billing UI can show "Downgrades to <plan> on <date>"
+    // without re-querying Stripe on every render.
+    await supabaseAdmin
+      .from("users")
+      .update({
+        pending_flipdesk_plan: plan,
+        pending_flipdesk_interval: interval,
+        pending_schedule_id: updated.id,
+        pending_effective_at: effectiveAt,
+      })
+      .eq("id", userId);
+
+    return c.json({
+      ok: true,
+      schedule_id: updated.id,
+      effective_at: effectiveAt,
+      target_plan: plan,
+      target_interval: interval,
+    });
+  } catch (err) {
+    console.error("Subscription downgrade failed:", err);
+    return c.json({ error: "Failed to schedule downgrade" }, 500);
+  }
+});
+
+// ── POST /flipdesk/undowngrade (US-217) ──────────────────────────
+//
+// Releases the schedule so the current subscription continues without
+// the phase 2 swap. Stripe lets us release the schedule cleanly.
+paymentRoutes.post("/flipdesk/undowngrade", async (c) => {
+  const userId = c.get("userId");
+
+  const { data: user, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("id, pending_schedule_id")
+    .eq("id", userId)
+    .single();
+
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+  if (!user.pending_schedule_id) {
+    return c.json({ error: "No pending downgrade to undo" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    await stripe.subscriptionSchedules.release(user.pending_schedule_id);
+
+    await supabaseAdmin
+      .from("users")
+      .update({
+        pending_flipdesk_plan: null,
+        pending_flipdesk_interval: null,
+        pending_schedule_id: null,
+        pending_effective_at: null,
+      })
+      .eq("id", userId);
+
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error("Subscription undowngrade failed:", err);
+    return c.json({ error: "Failed to undo downgrade" }, 500);
   }
 });
 

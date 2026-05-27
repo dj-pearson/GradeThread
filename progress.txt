@@ -169,8 +169,111 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 7/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library import with staging tray. US-175→US-199 remaining
+- iOS app (US-168 → US-199): 9/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background URLSession photo uploads; US-176 AI extract review screen + inventory_items row creation closing the snap→catalog loop. US-177→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS AI extract review (US-176)
+Closes the "snap → catalog" loop: captured photos upload, AI extracts
+fields + measurements, user reviews + accepts, accepted values write
+onto the freshly-created inventory_items row.
+
+What landed in ios/GradeThread/AIExtract/:
+- AIExtractTypes.swift — Codable mirror of the edge wire shape:
+  AIExtractRequest (snake_case CodingKeys for item_id / known_fields),
+  AIExtractResponse (snake_case CodingKeys for top-level fields),
+  FieldSuggestion, FieldConflict, ExtractPhoto, KnownFieldValue
+  (single-value enum so the field can carry string / number / bool).
+- AIExtractService.swift — bypasses generic EdgeAPI for this one call
+  because the response's suggestions dict has field-name keys
+  ('brand', 'garment_category', 'garment_type') that we need to
+  preserve verbatim. EdgeAPI's shared decoder applies
+  convertFromSnakeCase to every key in scope, which would mangle them.
+  Auth attachment + EdgeAPIError mapping reused.
+- AIExtractStore.swift — @MainActor @Observable; phase machine
+  (waitingForUploads(complete:total:) / extracting / ready(Result) /
+  failed). Auto-accepts ≥0.8 confidence rows; measurements default to
+  on when present per the AC. acceptAll / acceptNone / toggle /
+  acceptedCount helpers.
+- FieldSuggestionRow.swift — per-field UI: checkbox + display label +
+  value + humanised source ('From tag photo') + colored confidence
+  badge & bar (navy ≥0.8 / orange 0.5–0.8 / red <0.5).
+- AIExtractView.swift — orchestrates the flow. Polls
+  PhotoUploadStore.tasks(inventoryItemId:) until every upload reaches
+  a terminal state (60s timeout, doesn't gate on success), collects
+  uploaded publicURLs, calls the service, renders three cards
+  (condition summary, detected fields with accept-all button,
+  estimated measurements with single accept-all toggle). Apply writes
+  accepted fields onto inventory_items via supabase-swift; ai_field_sources
+  entries match the web convention (direct keys for columns,
+  'measurements.{key}' prefix for measurements, source='photo:tag' +
+  confidence 0.7 stamped on measurement entries to mirror
+  snap-catalog.tsx). Skip / Close routes also fire onComplete to
+  unwind back to the originating navigation stack.
+
+Wire-up in Capture/PhotoIntakeView.swift:
+- Done button now creates the inventory_items row FIRST (resolves
+  US-175's FK gap — item_photos inserts no longer reference a missing
+  parent), enqueues uploads against the new id, then presents
+  AIExtractView as a fullScreenCover. Camera dismisses on
+  onComplete.
+
+Tests in AIExtractTests.swift cover the snake_case-preserving
+response decoding (the exact bug AIExtractService avoids — verified
+with a 'garment_category' suggestion key surviving the round-trip),
+empty / null measurement decoding, conflict decoding, request
+encoding with item_id snake-case, AIExtractStore default
+high-confidence auto-acceptance, toggle / acceptAll / acceptNone,
+acceptedCount math including measurements, display label
+title-casing, and source label humanisation.
+
+## Session Notes (2026-05-27) — iOS background photo upload (US-175)
+Uploads survive app backgrounding via a background URLSession bound to
+the identifier `com.gradethread.app.photo-uploads`. Cap of 3 concurrent
+transfers; everything else queued.
+
+What landed in ios/GradeThread/Upload/:
+- PhotoUploadTask.swift — per-photo state value type (phase:
+  queued / uploading(progress) / uploaded(publicURL) / failed(error) /
+  cancelled). progress, isActive, isTerminal computeds for clean view
+  reads.
+- PhotoUploadStore.swift — @MainActor @Observable. Lookup by
+  (slot, inventoryItemId); pendingTasks / activeCount / per-task
+  phase + retry mutators.
+- PhotoUploadService.swift — @MainActor class owning the background
+  URLSession. enqueueAll(...) writes each JPEG to a temp file
+  (background sessions need file-based bodies), schedules an upload
+  task with Authorization+apikey+x-upsert headers, promotes queued
+  tasks as in-flight ones finish. Delegate is a stateless NSObject
+  that bounces every callback to MainActor and looks up the upload
+  UUID via a service-owned dict (no shared mutable state on the
+  delegate). On success, second-phase insert of an item_photos row
+  via supabase-swift with photo_type/storage_path/sort_order matching
+  the web. Failures push a LocalPendingMutation(kind=.uploadPhoto)
+  carrying enough metadata for SyncEngine to retry on
+  connectivity-restored. cancelAll() drops in-flight tasks + clears
+  store + sweeps temp files.
+- AppDelegate.swift — UIApplicationDelegateAdaptor. The
+  `application(_:handleEventsForBackgroundURLSession:completionHandler:)`
+  callback is held in the service and invoked from
+  `urlSessionDidFinishEvents`, completing the wake-app-to-finish round
+  trip the OS expects.
+
+UI wiring:
+- App.swift: @UIApplicationDelegateAdaptor + environment injection for
+  the upload store + service.
+- ContentView.swift: on `authStore.phase → .signedOut`,
+  photoUploadService?.cancelAll() so the next user starts clean.
+- Capture/SlotThumbnail.swift: ring-style progress overlay during
+  upload + red 'Retry' surface on failure.
+- Capture/PhotoIntakeView.swift: Done button generates a draft item
+  UUID and calls service.enqueueAll(); failed-slot tap routes to
+  service.retry(taskId).
+
+Tests in PhotoUploadTests.swift cover task phase transitions, store
+lookup by slot×item, pending vs terminal filtering, activeCount,
+retry counter, reset, and the concurrency-cap math (URLSession
+plumbing isn't hermetically testable — real verification on first
+TestFlight build).
 
 ## Session Notes (2026-05-27) — iOS library import (US-174)
 Same compression pipeline as the camera flow, just a different source.

@@ -22,6 +22,17 @@ struct PhotoIntakeView: View {
     @State private var slotForPreview: PhotoSlotType?
     @State private var showingExitConfirmation = false
 
+    /// Inventory item id created when the user hits Done. Anchors every
+    /// upload for this intake session AND the subsequent AI-extract review
+    /// screen. Setting it presents the AIExtractView fullScreenCover.
+    @State private var draftItemId: String?
+    @State private var isCreatingItem = false
+
+    // Injected services (US-175)
+    @Environment(\.photoUploadService) private var uploadService
+    @Environment(PhotoUploadStore.self) private var uploadStore
+    @Environment(AuthStore.self) private var authStore
+
     // Library-import flow (US-174)
     @State private var showingLibraryPicker = false
     @State private var isLoadingLibraryPicks = false
@@ -77,6 +88,28 @@ struct PhotoIntakeView: View {
                 Task { await ingestLibraryPicks(results) }
             }
             .ignoresSafeArea()
+        }
+        .fullScreenCover(
+            isPresented: Binding(
+                get: { draftItemId != nil },
+                set: { if !$0 { draftItemId = nil } }
+            )
+        ) {
+            if let itemId = draftItemId {
+                AIExtractView(
+                    inventoryItemId: itemId,
+                    userId: currentUserId() ?? "",
+                    photos: capturedEntries(),
+                    onComplete: {
+                        // Once the AI step finishes (Apply / Skip / error),
+                        // we bounce back through the camera and out to
+                        // the navigation stack the user came from.
+                        store.reset()
+                        draftItemId = nil
+                        dismiss()
+                    }
+                )
+            }
         }
         .sheet(isPresented: $showingStagingTray, onDismiss: {
             // A canceled tray drops everything that wasn't assigned — the
@@ -160,19 +193,23 @@ struct PhotoIntakeView: View {
 
             if store.allRequiredFilled {
                 Button {
-                    // TODO(US-175): hand the captures off to the upload
-                    // service. For now we just pop back to the previous
-                    // screen so the placeholder route flow stays clean.
-                    dismiss()
+                    AppRouter.haptic()
+                    Task { await startIntakeFlow() }
                 } label: {
-                    Text("Done")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.brandNavy)
-                        .clipShape(Capsule())
+                    HStack(spacing: 6) {
+                        if isCreatingItem {
+                            ProgressView().tint(.white)
+                        }
+                        Text("Done")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Color.brandNavy)
+                    .clipShape(Capsule())
                 }
+                .disabled(uploadService == nil || isCreatingItem)
             }
         }
         .padding(.horizontal, 16)
@@ -185,7 +222,12 @@ struct PhotoIntakeView: View {
                 ForEach(store.visibleSlots) { slot in
                     Button {
                         AppRouter.haptic()
-                        if store.photos[slot] != nil {
+                        if let phase = uploadPhase(for: slot), case .failed = phase {
+                            // Tap on a failed slot retries the upload
+                            // instead of opening the preview — that's the
+                            // affordance the slot's failureOverlay teases.
+                            retryUpload(for: slot)
+                        } else if store.photos[slot] != nil {
                             slotForPreview = slot
                         } else {
                             store.setActiveSlot(slot)
@@ -194,7 +236,8 @@ struct PhotoIntakeView: View {
                         SlotThumbnail(
                             slot: slot,
                             capture: store.photos[slot],
-                            isActive: store.activeSlot == slot
+                            isActive: store.activeSlot == slot,
+                            uploadPhase: uploadPhase(for: slot)
                         )
                     }
                     .simultaneousGesture(
@@ -325,6 +368,99 @@ struct PhotoIntakeView: View {
         } catch {
             startupError = error.localizedDescription
         }
+    }
+
+    // MARK: - Upload + AI extract flow (US-175 / US-176)
+
+    private func uploadPhase(for slot: PhotoSlotType) -> PhotoUploadTask.Phase? {
+        guard let itemId = draftItemId else { return nil }
+        return uploadStore.task(for: slot, inventoryItemId: itemId)?.phase
+    }
+
+    private func capturedEntries() -> [(slot: PhotoSlotType, capture: PhotoCapture)] {
+        store.visibleSlots.compactMap { slot in
+            guard let capture = store.photos[slot] else { return nil }
+            return (slot, capture)
+        }
+    }
+
+    private func currentUserId() -> String? {
+        if case let .signedIn(user) = authStore.phase {
+            return user.id.uuidString
+        }
+        return nil
+    }
+
+    /// End-to-end intake hand-off:
+    ///   1. Create the `inventory_items` row so US-175's item_photos
+    ///      insert has a valid foreign key.
+    ///   2. Enqueue the photo uploads against the new row id.
+    ///   3. Set `draftItemId` to present the AIExtractView fullScreenCover.
+    private func startIntakeFlow() async {
+        guard let service = uploadService else { return }
+        guard let userId = currentUserId() else { return }
+        guard !isCreatingItem else { return }
+
+        isCreatingItem = true
+        defer { isCreatingItem = false }
+
+        let entries = capturedEntries()
+        guard !entries.isEmpty else { return }
+
+        let newItemId: String
+        do {
+            newItemId = try await createDraftInventoryItem(userId: userId)
+        } catch {
+            startupError = "Couldn't create item: \(error.localizedDescription)"
+            return
+        }
+
+        service.enqueueAll(
+            photos: entries,
+            inventoryItemId: newItemId,
+            userId: userId
+        )
+        draftItemId = newItemId
+    }
+
+    /// Inserts an `inventory_items` row with the minimum required fields
+    /// so the AI extract step has somewhere to write accepted suggestions.
+    /// Returns the new row id.
+    private func createDraftInventoryItem(userId: String) async throws -> String {
+        struct ItemInsert: Encodable {
+            let user_id: String
+            let title: String
+            let status: String
+        }
+        struct ItemRowId: Decodable {
+            let id: String
+        }
+        // Title is intentionally generic — the AI extract step typically
+        // surfaces a brand + descriptor that the user can promote to a
+        // real title later (US-178 / US-182).
+        let payload = ItemInsert(
+            user_id: userId,
+            title: "Untitled item",
+            status: "cataloged"
+        )
+        let response: [ItemRowId] = try await SupabaseShared.client
+            .from("inventory_items")
+            .insert(payload, returning: .representation)
+            .select("id")
+            .execute()
+            .value
+        guard let id = response.first?.id else {
+            throw EdgeAPIError.serverError(detail: "No id returned from insert")
+        }
+        return id
+    }
+
+    private func retryUpload(for slot: PhotoSlotType) {
+        guard let itemId = draftItemId,
+              let task = uploadStore.task(for: slot, inventoryItemId: itemId),
+              let service = uploadService
+        else { return }
+        service.retry(task.id)
     }
 
     // MARK: - Library import (US-174)

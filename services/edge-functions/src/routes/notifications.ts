@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   sendDisputeResolvedEmail,
+  sendTrialExpiringEmail,
   sendWelcomeEmail,
 } from "../lib/email.ts";
 
@@ -149,4 +150,82 @@ notificationRoutes.post("/welcome", async (c) => {
     console.error("[Notifications] welcome error:", error);
     return c.json({ error: "Failed to send welcome email" }, 500);
   }
+});
+
+// ── POST /trial-check (US-219 + US-222) ──────────────────────────
+//
+// Daily cron. Two passes:
+//   1. Find users 3 days out from trial_ends_at, no Stripe customer, status=trialing
+//      → fire trial_expiring email. Marked via users.last_trial_warning_at
+//        so we don't double-send.
+//   2. Find users with trial_ends_at <= now, no Stripe customer, status=trialing
+//      → drop to free + clear status.
+//
+// Gated by FLIPDESK_INTERNAL_JOB_SECRET header (same pattern as other crons).
+notificationRoutes.post("/trial-check", async (c) => {
+  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
+  const authz = c.req.header("Authorization") ?? "";
+  const provided = authz.startsWith("Bearer ") ? authz.slice(7) : "";
+  if (!expected || provided !== expected) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const now = new Date();
+  const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+  const in4Days = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000);
+
+  // ─ Pass 1: 3-day-out warning ─
+  const { data: expiring, error: expiringErr } = await supabaseAdmin
+    .from("users")
+    .select("id, email, full_name, trial_ends_at")
+    .eq("subscription_status", "trialing")
+    .is("stripe_customer_id", null)
+    .gte("trial_ends_at", in3Days.toISOString())
+    .lt("trial_ends_at", in4Days.toISOString());
+
+  let warned = 0;
+  if (expiringErr) {
+    console.error("[trial-check] warn query failed:", expiringErr);
+  } else {
+    for (const u of expiring ?? []) {
+      if (!u.email || !u.trial_ends_at) continue;
+      const daysLeft = Math.max(
+        1,
+        Math.round((new Date(u.trial_ends_at).getTime() - now.getTime()) / (24 * 60 * 60 * 1000)),
+      );
+      const first = u.full_name?.trim().split(/\s+/)[0] || u.email.split("@")[0]!;
+      sendTrialExpiringEmail(u.email, {
+        userName: first,
+        daysLeft,
+        trialEndsAt: u.trial_ends_at,
+      }).catch((err) => {
+        console.error(`[trial-check] email failed for ${u.id}:`, err);
+      });
+      warned++;
+    }
+  }
+
+  // ─ Pass 2: expire trials whose end date has passed ─
+  const { data: expired, error: expireErr } = await supabaseAdmin
+    .from("users")
+    .update({
+      subscription_status: "none",
+      flipdesk_plan: "free",
+    })
+    .eq("subscription_status", "trialing")
+    .is("stripe_customer_id", null)
+    .lt("trial_ends_at", now.toISOString())
+    .select("id");
+
+  if (expireErr) {
+    console.error("[trial-check] expire update failed:", expireErr);
+  }
+
+  const expiredCount = expired?.length ?? 0;
+  console.log(`[trial-check] warned=${warned} expired=${expiredCount}`);
+
+  return c.json({
+    warned,
+    expired: expiredCount,
+  });
 });
