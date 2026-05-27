@@ -92,6 +92,7 @@ app.use("/api/payments/*", authMiddleware);
 app.use("/api/keys/*", authMiddleware);
 app.use("/api/notifications/dispute-resolved", authMiddleware);
 app.use("/api/notifications/register", authMiddleware);
+app.use("/api/notifications/feedback", authMiddleware);
 // FlipDesk: everything under /api/flipdesk is authed except inbound webhooks
 // and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
 // the `state` token from oauth_states identifies the user) + the scheduled

@@ -1,15 +1,22 @@
 name: iOS Release
 
 # Fires when:
-#   - a tag matching ios-v* is pushed (e.g. ios-v0.2.0)
+#   - any push to main that touches ios/** — auto-cuts a TestFlight build
+#   - a tag matching ios-v* is pushed (explicit version bumps)
 #   - someone clicks "Run workflow" from the Actions tab
 #
-# Two outputs:
-#   - Always uploads .ipa to TestFlight
-#   - When submit_to_app_store is true, also submits the build for review
+# Outputs per trigger:
+#   - main push        → archive + TestFlight upload to the 'Internal' tester group
+#   - ios-v* tag       → archive + TestFlight upload (release-notes from tag annotation)
+#   - workflow_dispatch → as above; submit_to_app_store flag also runs the
+#                        review-submission flow if the operator opts in.
 
 on:
   push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-release.yml"
     tags:
       - "ios-v*"
   workflow_dispatch:
@@ -19,9 +26,9 @@ on:
         type: boolean
         default: false
       release_notes:
-        description: "TestFlight release notes (optional)"
+        description: "TestFlight release notes (optional — auto-generated from git log when blank)"
         type: string
-        default: "New build from CI"
+        default: ""
 
 concurrency:
   # Don't queue concurrent releases — they fight over the keychain.
@@ -46,6 +53,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Fetch full history so the release-notes step can diff against
+          # the previous TestFlight tag.
+          fetch-depth: 0
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_15.4.app
@@ -56,6 +67,52 @@ jobs:
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
+
+      - name: Flip aps-environment to production
+        # Entitlements file ships with aps-environment=development so local
+        # Xcode-signed builds talk to the APNs sandbox. TestFlight + App
+        # Store builds need 'production' or silent-push delivery is dropped
+        # at the APNs gateway with no error. PlistBuddy is part of macOS;
+        # no install needed.
+        working-directory: ios
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :aps-environment production" \
+            GradeThread/GradeThread.entitlements
+          echo "aps-environment is now:"
+          /usr/libexec/PlistBuddy -c "Print :aps-environment" \
+            GradeThread/GradeThread.entitlements
+
+      - name: Build release notes
+        id: release_notes
+        # Auto-populate the TestFlight 'What to test' field from the
+        # commits between the previous ios-v* tag and HEAD. Manual
+        # override via the workflow_dispatch input wins when non-empty.
+        # Tag pushes use the tag annotation directly.
+        run: |
+          set -euo pipefail
+          MANUAL='${{ inputs.release_notes }}'
+          if [ -n "$MANUAL" ]; then
+            NOTES="$MANUAL"
+          elif [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then
+            # Tag annotation wins. Strip the "tag $TAG\n\n" header that
+            # `git tag -l --format` adds and keep the body.
+            NOTES=$(git for-each-ref --format='%(contents)' "$GITHUB_REF")
+          else
+            PREV=$(git tag -l 'ios-v*' --sort=-creatordate | head -n1 || true)
+            if [ -z "$PREV" ]; then
+              NOTES=$(git log -10 --pretty=format:'- %s' -- ios/)
+            else
+              NOTES=$(git log "$PREV"..HEAD --pretty=format:'- %s' -- ios/)
+            fi
+          fi
+          # GitHub Actions multi-line output via heredoc.
+          {
+            echo "notes<<EOF_NOTES"
+            echo "$NOTES"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+          echo "----- Release notes for this build -----"
+          echo "$NOTES"
 
       - name: Import signing certificate
         # Build an ephemeral keychain so nothing leaks between runs. The
@@ -162,6 +219,27 @@ jobs:
             --file "$IPA" \
             --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+
+      - name: Surface release notes
+        # TestFlight 'What to test' for the just-uploaded build is set
+        # via the App Store Connect API on a betaBuildLocalizations
+        # POST that needs the resolved BUILD ID — which only exists
+        # after Apple finishes processing the upload (~5-10 min).
+        # Rather than poll fragily in CI, we surface the notes in the
+        # workflow summary so the operator can paste them into the
+        # build's "What to test" field once it lands in App Store Connect.
+        # When you're ready to fully automate this, switch the upload
+        # step above to `fastlane pilot upload --changelog ...`.
+        run: |
+          {
+            echo "## TestFlight release notes for build #${{ steps.build_number.outputs.value }}"
+            echo ""
+            echo '```'
+            echo "${{ steps.release_notes.outputs.notes }}"
+            echo '```'
+            echo ""
+            echo "Paste these into the build's 'What to test' field in App Store Connect."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Submit for App Store review
         # Only when manually triggered with submit_to_app_store=true. Tag

@@ -499,12 +499,18 @@ private struct SettingsPlaceholder: View {
     /// Mirrors BackgroundRefreshService.isEnabled — kept in @State so the
     /// toggle binds correctly, written through on change.
     @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
+    @State private var showingFeedbackSheet = false
 
     var body: some View {
         List {
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
+                }
+                Button {
+                    showingFeedbackSheet = true
+                } label: {
+                    Label("Send feedback", systemImage: "envelope")
                 }
                 Button(role: .destructive) {
                     Task { await authStore.signOut() }
@@ -537,6 +543,9 @@ private struct SettingsPlaceholder: View {
             }
         }
         .navigationTitle("Settings")
+        .sheet(isPresented: $showingFeedbackSheet) {
+            FeedbackSheet()
+        }
     }
 
     /// US-191 analytics opt-in. PostHog events route through

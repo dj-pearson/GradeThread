@@ -24,6 +24,89 @@ function checkWelcomeRateLimit(ip: string): boolean {
   return entry.count <= WELCOME_MAX;
 }
 
+// ─── User-submitted feedback (US-199) ────────────────────────────────
+//
+// POST /feedback
+// Body: { message: string, source?: string, app_version?, os_version?,
+//         device_model?, breadcrumbs?: [...] }
+//
+// Inserts a row in feedback_messages tied to auth.uid() + optionally
+// emails support so a human sees it without polling the table.
+notificationRoutes.post("/feedback", async (c) => {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) {
+    return c.json({ error: "Sign-in required" }, 401);
+  }
+
+  let body: {
+    message?: unknown;
+    source?: unknown;
+    app_version?: unknown;
+    os_version?: unknown;
+    device_model?: unknown;
+    breadcrumbs?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const message =
+    typeof body.message === "string" ? body.message.trim() : "";
+  if (!message) {
+    return c.json({ error: "Feedback message is required" }, 400);
+  }
+  // Cap so an accidental paste doesn't bloat the row + email body.
+  const cappedMessage = message.length > 4000 ? message.slice(0, 4000) : message;
+
+  const insertPayload = {
+    user_id: userId,
+    message: cappedMessage,
+    source: typeof body.source === "string" ? body.source : "ios",
+    app_version: typeof body.app_version === "string" ? body.app_version : null,
+    os_version: typeof body.os_version === "string" ? body.os_version : null,
+    device_model: typeof body.device_model === "string" ? body.device_model : null,
+    breadcrumbs: Array.isArray(body.breadcrumbs) ? body.breadcrumbs : [],
+  };
+
+  const { data: inserted, error: insertErr } = await supabaseAdmin
+    .from("feedback_messages")
+    .insert(insertPayload)
+    .select("id, created_at")
+    .single();
+
+  if (insertErr) {
+    console.error("[feedback] insert failed:", insertErr);
+    return c.json({ error: "Couldn't save feedback. Try again." }, 500);
+  }
+
+  // Best-effort email send so a human triages without watching the
+  // table. We deliberately don't fail the request if email fails —
+  // the row is the system-of-record copy.
+  const { data: user } = await supabaseAdmin
+    .from("users")
+    .select("email, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  // Wired to existing email infra would go here. For now we log so
+  // the operator can see what would have been sent until the
+  // sendFeedbackEmail helper lands in services/edge-functions/src/lib/
+  // email.ts.
+  console.info("[feedback] new message", {
+    id: (inserted as { id: string } | null)?.id ?? null,
+    user_email: (user as { email?: string } | null)?.email ?? "unknown",
+    source: insertPayload.source,
+    length: insertPayload.message.length,
+  });
+
+  return c.json({
+    ok: true,
+    id: (inserted as { id: string } | null)?.id ?? null,
+  });
+});
+
 // ─── iOS push registration (US-187) ──────────────────────────────────
 //
 // POST /register

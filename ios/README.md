@@ -33,10 +33,16 @@ open GradeThread.xcodeproj
 
 All workflows live in `.github/workflows/`:
 
-| Workflow              | Triggers                                       | What it does                                         |
-| --------------------- | ---------------------------------------------- | ---------------------------------------------------- |
-| `ios-ci.yml`          | push/PR touching `ios/**`                      | xcodegen → xcodebuild test on iPhone 15 simulator    |
-| `ios-release.yml`     | tag `ios-v*` or manual workflow_dispatch       | archive → export .ipa → upload to TestFlight        |
+| Workflow              | Triggers                                                       | What it does                                                                                                |
+| --------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `ios-ci.yml`          | push/PR touching `ios/**`                                       | xcodegen → xcodebuild test on iPhone 15 simulator                                                            |
+| `ios-release.yml`     | push to `main` touching `ios/**`, `ios-v*` tag, manual dispatch | archive → export .ipa → upload to TestFlight; surfaces auto-generated release notes in the workflow summary |
+
+> **First-time setup?** Read [`RELEASE.md`](./RELEASE.md) — step-by-step
+> from a fresh Apple Developer account through your first TestFlight build,
+> with PowerShell base64 commands for every secret. The rest of this README
+> is a high-level reference for contributors who already have the project
+> running.
 
 ### Required GitHub secrets (release workflow)
 
@@ -70,21 +76,60 @@ persists between jobs and no secrets ever land in artifacts.
 
 ### Cutting a release
 
-Two paths:
+Three paths:
 
-**TestFlight beta**
+**Automatic beta (every merge to main)**
+
+A push to `main` that touches anything under `ios/` automatically
+archives + uploads to TestFlight. Build number = `GITHUB_RUN_NUMBER`
+so each upload is monotonic without manual bumping. Release notes
+are scraped from `git log <previous-ios-tag>..HEAD -- ios/` and
+surfaced in the workflow summary (paste them into the build's
+"What to test" field in App Store Connect; full automation via
+`fastlane pilot` is a follow-up).
+
+**Tagged version bump**
 
 ```bash
-git tag ios-v0.2.0
+git tag -a ios-v0.2.0 -m 'Drop -10% bulk action + Realtime channel'
 git push origin ios-v0.2.0
-# ios-release.yml fires, uploads to TestFlight automatically
 ```
+
+The tag annotation becomes the release-notes body verbatim.
 
 **Manual (App Store submission)**
 
-Run the **ios-release** workflow with `submit_to_app_store: true`. The
-build is uploaded and submitted for review with the metadata pulled from
-`ios/fastlane/metadata/` (added in US-197).
+Run the **ios-release** workflow with `submit_to_app_store: true`.
+The build is uploaded and submitted for review with metadata pulled
+from `ios/fastlane/metadata/` (lands in US-197).
+
+### TestFlight tester groups
+
+App Store Connect → TestFlight tab → External Testing. Create two
+groups once:
+
+1. **Internal** — Pearson Media team members. Internal testers don't
+   need a beta review for each build; they get builds as soon as the
+   upload finishes processing.
+2. **Beta** — external power users on the waitlist. First build
+   requires beta-review (24–48h); subsequent builds within the same
+   build train don't.
+
+The workflow uploads to TestFlight; group assignment happens in App
+Store Connect after the build finishes processing.
+
+### Crash report forwarding
+
+Two channels:
+
+- **Apple-side** — TestFlight automatically collects crash logs when
+  testers enable "Share with Developers". Visible under TestFlight →
+  Crashes in App Store Connect.
+- **Sentry** — production builds initialize Sentry-Cocoa at app
+  launch (US-191) with the DSN from xcconfig. Symbol uploads are not
+  yet automated; debug-symbol .dSYMs land in
+  `${{ runner.temp }}/GradeThread.xcarchive/dSYMs/` and you can
+  upload them with `sentry-cli upload-dif` as a manual follow-up.
 
 ## Status
 

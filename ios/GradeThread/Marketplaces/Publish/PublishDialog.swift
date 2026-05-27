@@ -281,6 +281,11 @@ struct PublishDialog: View {
             Telemetry.event(TelemetryEvent.listingPublished, props: [
                 "listing_id": response.listingId,
             ])
+            // US-199: a successful publish is the canonical "user got
+            // value" moment — record it for the review-prompt gate and
+            // optionally fire SKStoreReviewController.
+            ReviewPromptService.shared.recordPublish()
+            ReviewPromptService.shared.maybePrompt()
         case .blockers(let blockers):
             phase = .blocked(blockers)
             HapticFeedback.warning()

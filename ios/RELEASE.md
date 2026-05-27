@@ -1,0 +1,392 @@
+# iOS Release Guide — GradeThread
+
+End-to-end walkthrough from a fresh Apple Developer account to a TestFlight build, then to the App Store. All `base64` commands assume PowerShell on Windows (the daily-driver dev machine for this project).
+
+The CI infrastructure is already wired:
+- `.github/workflows/ios-ci.yml` — PR + main checks (build + test, unsigned)
+- `.github/workflows/ios-release.yml` — archive + sign + upload to TestFlight on `main`/tag/dispatch
+- `ios/project.yml` — XcodeGen project definition (no `.xcodeproj` in the repo; it's generated on every CI run)
+- `ios/GradeThread/Config/{Debug,Release}.xcconfig` — non-secret build-time values surfaced into `Info.plist`
+- `ios/GradeThread/GradeThread.entitlements` — APNs + Sign in with Apple capabilities
+
+This guide describes the **one-time setup** to make all of the above actually work. After Phase 1-8 (~2 hours, mostly waiting on Apple), every future release is just a push to `main`.
+
+---
+
+## Phase 0 · What you'll end up with
+
+- App registered at `com.gradethread.app` in Apple Developer
+- App Store Connect app record ready to receive TestFlight builds
+- 8 GitHub secrets configured (matching exactly what `ios-release.yml` reads)
+- Real Supabase + Sentry + PostHog values in `Release.xcconfig`
+- APNs configured on the edge service so pushes to `push_device_tokens` deliver
+- A first build sitting in TestFlight
+
+**Everything in this guide runs from Windows.** Apple's tooling assumes a Mac (their docs walk you through Keychain Access), but the underlying crypto and file formats are platform-independent — we generate the signing key + CSR with OpenSSL locally, upload the CSR to Apple's web portal, and bundle the result into a `.p12` from PowerShell. The macOS runner in GitHub Actions does the actual signing.
+
+---
+
+## Phase 1 · Apple Developer Program enrollment
+
+If not already enrolled:
+
+1. https://developer.apple.com/programs/enroll
+2. Sign in with the Apple ID that should permanently own the developer account (billing + ownership ties to it — use a long-term one, not a personal alias)
+3. **$99/year**, billed via Apple ID
+4. **Organization** enrollment for Pearson Media LLC requires a D-U-N-S number and takes 2-7 days. **Individual** is same-day. You can ship the first build under Individual and migrate the app to the org later if needed.
+5. Once enrolled, note your **Apple Team ID** at https://developer.apple.com/account → visible top-right. 10-char alphanumeric like `ABC1234567`. This becomes the `APPLE_TEAM_ID` GitHub secret.
+
+---
+
+## Phase 2 · Apple Developer Portal — App IDs + APNs key
+
+### 2a. Register the main App ID
+
+1. https://developer.apple.com/account/resources/identifiers/list
+2. **+** → **App IDs** → **Continue** → **App** → **Continue**
+3. Fill in:
+   - **Description:** `GradeThread`
+   - **Bundle ID:** `Explicit` → `com.gradethread.app`
+4. Under **Capabilities** check **ON**:
+   - **Push Notifications** (required — the `push_device_tokens` migration is wired for it)
+   - **Sign in with Apple** (the entitlements file already requests it)
+5. **Continue** → **Register**
+
+### 2b. Register the test-target App ID
+
+Repeat 2a with:
+- Description: `GradeThread Tests`
+- Bundle ID: `com.gradethread.app.tests`
+- No capabilities needed
+
+### 2c. Create the APNs Auth Key (.p8)
+
+This is what the **edge service** uses to send pushes. One key works for both APNs environments and all apps in the team.
+
+1. https://developer.apple.com/account/resources/authkeys/list
+2. **+** → name `GradeThread APNs` → check **Apple Push Notifications service (APNs)** → **Continue** → **Register**
+3. **Download the .p8 file immediately** — Apple only allows one download. Losing it means revoking and starting over.
+4. Note the **Key ID** shown on the confirmation page (10-char like `ABCD1234EF`)
+
+After Phase 2 you have:
+- `AuthKey_<APNS_KEY_ID>.p8`
+- APNs Key ID: `<APNS_KEY_ID>`
+- Apple Team ID: from Phase 1
+
+---
+
+## Phase 3 · App Store Connect — create app + API key
+
+### 3a. Create the app
+
+1. https://appstoreconnect.apple.com/apps
+2. **+** → **New App**
+3. Fill in:
+   - **Platform:** iOS
+   - **Name:** `GradeThread`
+   - **Primary Language:** English (U.S.)
+   - **Bundle ID:** select `com.gradethread.app — GradeThread` from the dropdown (only appears after Phase 2a)
+   - **SKU:** `gradethread-ios` (any unique non-user-visible string)
+   - **User Access:** Full Access
+4. **Create**
+
+The app sits as "Waiting for Upload" until the first CI build lands.
+
+### 3b. Create the App Store Connect API Key
+
+This is what CI uses to upload builds. **Different from the APNs key.**
+
+1. https://appstoreconnect.apple.com/access/integrations/api
+2. **Team Keys** tab → **Generate API Key**
+3. **Name:** `GradeThread CI` · **Access:** `App Manager` (sufficient to upload + manage TestFlight; avoid Admin)
+4. **Generate**
+5. **Download the .p8 immediately** — one-shot download
+6. Note:
+   - **Key ID** (10-char, shown in the list)
+   - **Issuer ID** (UUID like `69a6de70-...`, shown at the top of the page)
+
+After Phase 3 you have:
+- `AuthKey_<ASC_KEY_ID>.p8` (the ASC key — different file from the APNs one)
+- ASC Key ID + Issuer ID
+
+---
+
+## Phase 4 · Distribution certificate + provisioning profile (Mac required)
+
+### 4a. Create the Certificate Signing Request (CSR) — on a Mac
+
+1. Open **Keychain Access** → menu **Keychain Access → Certificate Assistant → Request a Certificate from a Certificate Authority…**
+2. Email: your Apple ID email · Common Name: `GradeThread Distribution` · CA Email: leave blank · select **Saved to disk**
+3. Save as `CertificateSigningRequest.certSigningRequest`
+
+### 4b. Generate the iOS Distribution certificate
+
+1. https://developer.apple.com/account/resources/certificates/list
+2. **+** → **Apple Distribution** → **Continue**
+3. Upload the CSR from 4a → **Continue** → **Download** the `.cer` file
+4. **Double-click the `.cer`** — Keychain Access installs it and pairs it with the private key from your CSR
+
+### 4c. Export the .p12 (cert + private key bundle)
+
+In Keychain Access, **login** keychain:
+1. Filter to **My Certificates** (must be this view — "Certificates" alone hides the private-key bundle)
+2. Find **Apple Distribution: \<your team name\>** — there should be an expand arrow showing the private key inside
+3. Right-click → **Export "Apple Distribution: …"** → save as `gradethread-distribution.p12`
+4. **Set a strong password** — this becomes the `P12_PASSWORD` GitHub secret. Save it in 1Password / Bitwarden; losing it means redoing Phase 4.
+
+### 4d. Create the App Store provisioning profile
+
+1. https://developer.apple.com/account/resources/profiles/list
+2. **+** → **App Store** (under Distribution) → **Continue**
+3. **App ID:** select `com.gradethread.app` → **Continue**
+4. **Certificates:** select the Distribution cert from 4b → **Continue**
+5. **Provisioning Profile Name:** `GradeThread App Store` → **Generate** → **Download**
+
+You now have `GradeThread_App_Store.mobileprovision`.
+
+**Copy all three files back to your Windows machine** (any folder — we'll base64-encode them next):
+- `gradethread-distribution.p12`
+- `GradeThread_App_Store.mobileprovision`
+- `AuthKey_<ASC_KEY_ID>.p8` (the App Store Connect API key from 3b)
+
+---
+
+## Phase 5 · Base64-encode the secrets (PowerShell)
+
+GitHub Actions secrets are plain text, so binary files have to be base64-encoded. From PowerShell in the folder containing the files:
+
+```powershell
+# Distribution certificate (.p12) → BUILD_CERTIFICATE_BASE64
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("gradethread-distribution.p12")) |
+  Set-Clipboard
+
+# Provisioning profile (.mobileprovision) → PROVISIONING_PROFILE_BASE64
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("GradeThread_App_Store.mobileprovision")) |
+  Set-Clipboard
+
+# App Store Connect API key (.p8) → APP_STORE_CONNECT_API_KEY_BASE64
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("AuthKey_<ASC_KEY_ID>.p8")) |
+  Set-Clipboard
+```
+
+If you'd rather write to a file than to the clipboard:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("gradethread-distribution.p12")) |
+  Out-File -Encoding ascii -NoNewline cert.b64.txt
+```
+
+**Generate the keychain password** (random 32-char string — the workflow uses it to create a temporary keychain that gets destroyed after the build):
+
+```powershell
+-join ((48..57 + 65..90 + 97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+# → save as KEYCHAIN_PASSWORD
+```
+
+**Verify the base64 round-trip** before pasting into GitHub (catches UTF-16 BOM and trailing-newline issues — the classic traps):
+
+```powershell
+$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("gradethread-distribution.p12"))
+[Convert]::FromBase64String($b64).Length
+# → must equal (Get-Item "gradethread-distribution.p12").Length
+```
+
+If lengths don't match, your file has a BOM or your terminal is line-wrapping. Use `Out-File -Encoding ascii -NoNewline` instead of redirecting.
+
+---
+
+## Phase 6 · Add the 8 GitHub secrets
+
+**https://github.com/dj-pearson/GradeThread/settings/secrets/actions → New repository secret**
+
+| Secret name | Value | Source |
+|---|---|---|
+| `APPLE_TEAM_ID` | `ABC1234567` | Phase 1 |
+| `APP_STORE_CONNECT_API_KEY_ID` | 10-char key ID | Phase 3b |
+| `APP_STORE_CONNECT_API_ISSUER_ID` | UUID like `69a6de70-...` | Phase 3b |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | base64 blob | Phase 5 — ASC `.p8` |
+| `BUILD_CERTIFICATE_BASE64` | base64 blob | Phase 5 — `.p12` |
+| `P12_PASSWORD` | password from 4c | Phase 4c |
+| `PROVISIONING_PROFILE_BASE64` | base64 blob | Phase 5 — `.mobileprovision` |
+| `KEYCHAIN_PASSWORD` | random 32-char string | Phase 5 |
+
+**Names must match exactly** — `ios-release.yml` reads them by exact spelling.
+
+---
+
+## Phase 7 · Fill in `Release.xcconfig`
+
+Edit `ios/GradeThread/Config/Release.xcconfig` (committed to the repo — that's fine; everything here is publicly safe).
+
+```
+SUPABASE_URL          = https:/$()/api.gradethread.com
+SUPABASE_ANON_KEY     = <paste the anon public key from Supabase Studio>
+EDGE_API_URL          = https:/$()/functions.gradethread.com
+SENTRY_DSN            = <https:/$()/abc@o123.ingest.sentry.io/456>
+POSTHOG_API_KEY       = <paste from PostHog project settings>
+POSTHOG_HOST          = https:/$()/us.i.posthog.com
+```
+
+Where to find each:
+- **`SUPABASE_ANON_KEY`** — Supabase Studio at `https://api.gradethread.com` → **Project Settings → API → Project API keys → `anon public`**
+- **`SENTRY_DSN`** — Sentry → project settings → Client Keys (DSN)
+- **`POSTHOG_API_KEY`** — PostHog → project settings → Project API Key
+
+**Critical gotcha:** xcconfig comments use `//`. URLs are written as `https:/$()/` and the build system resolves `$()` to nothing, producing a valid `https://` URL at runtime. If you forget the escape, the URL becomes `https:` and silently breaks.
+
+**Do NOT paste service-role keys here** — only the publicly-safe client keys. The `anon` Supabase key is gated by RLS; the Sentry DSN is rate-limited; the PostHog key is client-scoped. All three are designed for client-side use.
+
+**Note: `aps-environment` is handled automatically.** The entitlements file commits as `development` (for local Xcode-signed dev builds). The release workflow's **"Flip aps-environment to production"** step rewrites it to `production` with PlistBuddy before archiving. Don't flip it manually.
+
+---
+
+## Phase 8 · APNs env vars on the edge service (Coolify, not GitHub)
+
+The edge service (Deno/Hono) is what actually sends pushes — it reads from `push_device_tokens` and signs requests to APNs with the .p8 key from Phase 2c.
+
+**Convert the APNs .p8 to base64** (PowerShell):
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("AuthKey_<APNS_KEY_ID>.p8")) |
+  Set-Clipboard
+```
+
+**In Coolify → your edge-functions service → Environment Variables:**
+
+| Variable | Value |
+|---|---|
+| `APNS_KEY_ID` | APNs Key ID from Phase 2c (10-char) |
+| `APNS_TEAM_ID` | Same as `APPLE_TEAM_ID` |
+| `APNS_BUNDLE_ID` | `com.gradethread.app` |
+| `APNS_AUTH_KEY_BASE64` | base64 blob of the APNs `.p8` |
+| `APNS_ENVIRONMENT` | `production` (matches what the workflow flips entitlements to) |
+
+The `.p8` contents are PEM-encoded ASCII, so you *can* paste raw text instead of base64 — but base64 sidesteps newline-handling issues in Coolify's env var UI. Match whichever format the push code actually reads.
+
+Restart the edge service after setting these.
+
+---
+
+## Phase 9 · First TestFlight build
+
+### 9a. Trigger the workflow — pick one
+
+**A. Push to main** with any change touching `ios/**`:
+
+```bash
+git commit -m "ios: ship first TestFlight build"
+git push origin main
+```
+
+Easiest. The `ios-release.yml` `paths:` filter catches it.
+
+**B. Tag-driven release** for explicit version bumps:
+
+```bash
+git tag -a ios-v0.1.0 -m "First TestFlight build
+
+- Initial release for internal testing
+- Manual intake, voice dictation, barcode scan
+- eBay publish + sync"
+git push origin ios-v0.1.0
+```
+
+The tag annotation becomes the "What to test" release notes surfaced in the workflow run summary.
+
+**C. Manual** — **Actions → iOS Release → Run workflow**. Optional `submit_to_app_store` checkbox (leave off until App Store metadata is ready — see Phase 10).
+
+### 9b. What the workflow does (~10-15 min)
+
+1. Generates the Xcode project from `project.yml`
+2. **Flips `aps-environment` to `production`** in the entitlements file via PlistBuddy
+3. Decodes `.p12` + creates an ephemeral keychain on the macOS runner
+4. Installs the provisioning profile
+5. Drops the ASC `.p8` into `~/.appstoreconnect/private_keys/`
+6. Archives with manual signing using `Apple Distribution` + the team ID
+7. Exports an `.ipa` with `method=app-store`
+8. `xcrun altool --upload-app` to TestFlight
+9. Surfaces release notes in the run summary (paste them into TestFlight manually for v1)
+10. Saves the `.ipa` as a downloadable artifact (30-day retention)
+11. Destroys the keychain + deletes the ASC `.p8`
+
+### 9c. After the workflow finishes
+
+About 10-20 minutes later (Apple's processing delay):
+
+1. https://appstoreconnect.apple.com → your app → **TestFlight** tab
+2. New build appears under **iOS** → click it
+3. **Test Information** — feedback email, marketing URL (optional), privacy policy URL (required: `https://gradethread.com/privacy`)
+4. **Export Compliance** — `ITSAppUsesNonExemptEncryption: false` is set in `project.yml`, so it auto-approves
+5. **Groups → Internal Testing** → add yourself + internal testers (they get an email + install via the TestFlight app)
+6. Paste the release notes from the workflow run summary into **What to Test**
+
+External testing (the Public Link path) requires a **Beta App Review** from Apple — typically 1-2 days for the first submission, faster after.
+
+---
+
+## Phase 10 · App Store submission (when ready)
+
+When you eventually flip `submit_to_app_store: true` in the workflow_dispatch:
+
+- [ ] Real app icon in `ios/GradeThread/Assets.xcassets/AppIcon.appiconset` (Apple rejects builds without one)
+- [ ] Privacy policy URL live at `https://gradethread.com/privacy`
+- [ ] App Store screenshots: 6.7" iPhone (1290×2796) + 13" iPad (2064×2752) at minimum
+- [ ] **App Information** in App Store Connect: description, keywords, support URL, marketing URL
+- [ ] **Age rating** questionnaire completed
+- [ ] **App Review Information**: contact email, demo account credentials (since the app requires login)
+- [ ] **App Privacy** → data collection disclosures matching what Sentry/PostHog/Supabase actually collect (Sentry: crash data + breadcrumbs; PostHog: usage analytics if opted-in; Supabase: account data + user content)
+
+The actual `submit_to_app_store` workflow step currently exits 0 with a checkpoint reminder — wiring fastlane or App Store Connect API submission is tracked as US-197.
+
+---
+
+## Quick reference — every secret in one place
+
+| Where it lives | Name | What it is | Source |
+|---|---|---|---|
+| GitHub secrets | `APPLE_TEAM_ID` | Apple Team ID | Phase 1 |
+| GitHub secrets | `APP_STORE_CONNECT_API_KEY_ID` | ASC API key ID | Phase 3b |
+| GitHub secrets | `APP_STORE_CONNECT_API_ISSUER_ID` | ASC Issuer UUID | Phase 3b |
+| GitHub secrets | `APP_STORE_CONNECT_API_KEY_BASE64` | ASC `.p8` base64 | Phase 3b + 5 |
+| GitHub secrets | `BUILD_CERTIFICATE_BASE64` | Distribution `.p12` base64 | Phase 4c + 5 |
+| GitHub secrets | `P12_PASSWORD` | `.p12` export password | Phase 4c |
+| GitHub secrets | `PROVISIONING_PROFILE_BASE64` | `.mobileprovision` base64 | Phase 4d + 5 |
+| GitHub secrets | `KEYCHAIN_PASSWORD` | random 32-char string | Phase 5 |
+| `Release.xcconfig` (committed) | `SUPABASE_URL` | edge URL | already set |
+| `Release.xcconfig` (committed) | `SUPABASE_ANON_KEY` | Supabase anon public key | Phase 7 |
+| `Release.xcconfig` (committed) | `EDGE_API_URL` | functions.gradethread.com | already set |
+| `Release.xcconfig` (committed) | `SENTRY_DSN` | Sentry DSN | Phase 7 |
+| `Release.xcconfig` (committed) | `POSTHOG_API_KEY` | PostHog project key | Phase 7 |
+| Coolify edge service | `APNS_KEY_ID` | APNs Key ID | Phase 2c |
+| Coolify edge service | `APNS_TEAM_ID` | same as `APPLE_TEAM_ID` | Phase 1 |
+| Coolify edge service | `APNS_BUNDLE_ID` | `com.gradethread.app` | constant |
+| Coolify edge service | `APNS_AUTH_KEY_BASE64` | APNs `.p8` base64 | Phase 2c + 5 |
+| Coolify edge service | `APNS_ENVIRONMENT` | `production` | constant |
+
+---
+
+## Common failure modes + fixes
+
+| Symptom in CI logs | Cause | Fix |
+|---|---|---|
+| `No identity found` during Archive | `.p12` didn't include the private key | Re-export from Keychain Access → **My Certificates** view (not "Certificates") |
+| `Provisioning profile doesn't include signing certificate` | Profile in 4d was created before the cert in 4b | Regenerate the profile after the cert exists |
+| `Invalid Provisioning Profile` after upload | Profile's bundle ID doesn't match `com.gradethread.app` | Recheck Phase 2a + 4d |
+| `Could not find altool` | macOS runner image bump deprecated it | Workflow already pins `Xcode_15.4.app` — no action needed unless the pin is removed |
+| `The bundle does not support the minimum OS Version` | `IPHONEOS_DEPLOYMENT_TARGET` mismatch | Already `17.0` in `project.yml` — no action |
+| TestFlight build "Missing Compliance" | Forgot `ITSAppUsesNonExemptEncryption` | Already `false` in `project.yml` — no action |
+| Push notifications silently fail in prod | `aps-environment` shipped as `development` | Workflow already flips it — verify the **"Flip aps-environment to production"** step ran in the Actions log |
+| `base64: invalid input` on the runner | Windows wrote the base64 file as UTF-16 with BOM | Re-encode with `Out-File -Encoding ascii -NoNewline` (Phase 5) |
+| `Authentication failed for App Store Connect API` | ASC key was created with `Developer` access instead of `App Manager` | Regenerate the key in Phase 3b with `App Manager` |
+| Workflow times out > 60 min | Apple notarization queue backed up | Re-run the workflow; nothing to fix on our side |
+
+---
+
+## What this guide doesn't cover (yet)
+
+- **Fastlane integration** for App Store submission with screenshot uploads — US-197
+- **dSYM upload to Sentry** for symbolicated crash stacks — straightforward addition to the Archive step
+- **Different signing per branch** (e.g. ad-hoc profile for QA branch) — out of scope for v1
+- **Mac Catalyst / visionOS builds** — out of scope; iOS-only
+
+When any of those become priority, drop a US-### in `prd.json` and we'll wire it.

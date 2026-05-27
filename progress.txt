@@ -169,8 +169,109 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 25/32 — through US-188, plus US-191 telemetry, US-198 Realtime, US-192 accessibility, US-195 haptics + shutter sound + per-outcome feedback at every save/publish/sync call site. US-189/190/193/194/196/197/199 remaining
+- iOS app (US-168 → US-199): 27/32 — through US-188 + US-191/192/195/198, plus US-196 TestFlight pipeline, US-199 post-launch (SKStoreReviewController gating + in-app FeedbackSheet + /api/notifications/feedback edge + feedback_messages migration + FeatureFlag wrapper). US-189/190/193/194/197 remaining
+
+### PostHog dashboards (operator setup, US-199)
+The events the iOS app now emits are ready for these dashboards in the
+PostHog web UI:
+- **D1/D7/D30 retention** — cohorts grouped by signup week (auth.uid
+  → first `app_open`), retention = `app_open` event reach in subsequent
+  N-day windows.
+- **Intake → publish funnel** — `intake_completed` → `ai_extract_used`
+  (optional) → `listing_published`, grouped per user.
+- **AI extract acceptance** — `ai_extract_used.fields_accepted` /
+  `suggestions returned` (both already in the event props).
+- **eBay sync success rate** — `ebay_synced` count / total sync
+  attempts; alternatively use breadcrumbs from Sentry.
+- **Crash-free sessions** — Sentry → PostHog session-replay join.
+
+The dashboards themselves can't be checked into the repo (they live in
+the PostHog UI). The events + props are pinned by `TelemetryEvent`
+constants + `Telemetry.event(_:props:)` call sites + their
+`PostLaunchTests` raw-value tests.
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS post-launch (US-199)
+SKStoreReviewController prompt + in-app feedback channel + PostHog
+feature-flag wrapper. The dashboards themselves live in PostHog's web
+UI and can't be repo-managed; the events the iOS app emits are
+already pinned to the rawValues the dashboards target.
+
+What landed:
+- ios/GradeThread/Telemetry/ReviewPromptService.swift — gates
+  SKStoreReviewController.requestReview() behind the AC's three
+  conditions: ≥3 listings + ≥14 days since install + ≥365 days
+  since last ask. Three counters in UserDefaults; test hooks
+  (_setForTesting / _resetForTesting) inject the persisted state
+  without waiting real days. PublishDialog.runPush .pushed branch
+  records the publish + calls maybePrompt() so the request fires at
+  the user's canonical 'I got value' moment.
+- ios/GradeThread/Feedback/FeedbackSheet.swift — modal in Settings
+  with a multi-line TextEditor (2000-char soft cap) + auto-collected
+  context (app version + iOS version + device model via utsname
+  e.g. 'iPhone15,3'). POSTs to /api/notifications/feedback through
+  EdgeAPI with the user's auth token.
+- Settings → Account section now carries a 'Send feedback' button
+  next to Sign out (sheet binding on showingFeedbackSheet).
+- ios/GradeThread/Telemetry/FeatureFlag.swift — A/B test wrapper.
+  Three flags pinned to server-side raw values
+  (photo_first_by_default / bulk_price_drop_multistep /
+  show_confidence_bars) with per-case default values for fresh
+  launches + PostHog outages. UserDefaults override pattern
+  (_setOverride/_clear) for QA + UI tests pinning known states.
+
+Server-side:
+- supabase/migrations/00038_feedback_messages.sql — table
+  (message + source + app_version + os_version + device_model +
+  breadcrumbs jsonb + status enum + timestamps) with per-user RLS
+  for SELECT/INSERT, admin policies via is_admin() for triage,
+  status check constraint (new/triaged/responded/closed).
+- POST /api/notifications/feedback in
+  services/edge-functions/src/routes/notifications.ts inserts the
+  row + structured-logs for the operator's tail. Email send to
+  support@pearson-media.com is a one-line addition once the
+  email.ts sendFeedbackEmail helper lands.
+- main.ts wires authMiddleware for the feedback path.
+
+Tests in PostLaunchTests cover every ReviewPromptService gate
+branch (fresh-install fail, too-new, too-few-listings,
+all-gates-met, recently-asked, asked-over-a-year-ago,
+recordPublish counter), FeatureFlag defaults per case, override
+precedence, clear-override reverts to default, raw-value pinning.
+
+## Session Notes (2026-05-27) — iOS TestFlight pipeline (US-196)
+Beta cutting is now automatic. Push to main → archive + TestFlight
+upload + release notes scraped from git log; tag bumps + manual cuts
+still work via the explicit paths.
+
+What landed:
+- .github/workflows/ios-release.yml gains a push:main trigger (paths:
+  ios/**, .github/workflows/ios-release.yml). Existing ios-v* tag and
+  workflow_dispatch paths kept. fetch-depth: 0 on checkout so the
+  release-notes diff against the previous tag has real history.
+- Build number = $GITHUB_RUN_NUMBER. Monotonic across the repo
+  lifetime; App Store Connect rejects re-used numbers so this is
+  the simplest stable scheme.
+- Release-notes step: workflow_dispatch input wins when non-empty;
+  tag pushes use the annotation body; main pushes scrape
+  `git log <previous-ios-v* tag>..HEAD -- ios/` into bulleted notes.
+  Empty repo history (first build) gets the last 10 ios-touching
+  commits.
+- Surface step prints the notes to $GITHUB_STEP_SUMMARY so the
+  operator can paste them into the build's 'What to test' field in
+  App Store Connect after Apple's processing wraps (5–10 min). Full
+  API automation needs the resolved build id which only exists
+  post-processing — fastlane pilot will close that gap in a polish
+  pass.
+- ios/README.md grew: updated workflow table; new sections for
+  cutting a release (3 paths), TestFlight tester groups (Internal
+  vs Beta + beta-review timing), and crash report forwarding via
+  both TestFlight's built-in collector + the Sentry DSN from US-191
+  (dSYM upload via sentry-cli noted as a follow-up).
+
+Code signing still flows through the App Store Connect API key +
+ephemeral keychain from US-168 — no manual provisioning-profile
+dance.
 
 ## Session Notes (2026-05-27) — iOS haptics + sound polish (US-195)
 Per-outcome feedback at every save/publish/sync site, plus the standard
