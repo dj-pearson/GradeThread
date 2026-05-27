@@ -36,7 +36,7 @@ export function LegalLayout({
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">
         <Link to="/" aria-label="GradeThread home">
-          <img src="/logo_primary.svg" alt="GradeThread" className="h-8" />
+          <img src="/logo_primary.png" alt="GradeThread" className="h-8" />
         </Link>
         <div className="flex items-center gap-4">
           <Link to="/login">
@@ -125,7 +125,7 @@ export function LegalLayout({
       {/* Footer */}
       <footer className="border-t px-6 py-8 lg:px-12">
         <div className="mx-auto flex max-w-5xl flex-col items-center gap-4 text-sm text-muted-foreground sm:flex-row sm:justify-between">
-          <img src="/logo_primary.svg" alt="GradeThread" className="h-6" />
+          <img src="/logo_primary.png" alt="GradeThread" className="h-6" />
           <nav className="flex flex-wrap justify-center gap-4">
             {legalNav.map((item) => (
               <Link key={item.to} to={item.to} className="hover:text-foreground">

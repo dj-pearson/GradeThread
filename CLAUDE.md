@@ -108,10 +108,16 @@ supabase/
     └── 00001_initial_schema.sql  # Enums, tables, indexes, triggers, RLS, storage
 
 public/
-├── logo_primary.svg            # Dark text logo
-├── logo_white.svg              # White text logo (for dark backgrounds)
-├── logo_icon.svg               # GT icon mark
-├── favicon.svg                 # Favicon (GT on navy rounded rect)
+├── logo_primary.png            # Dark text wordmark (1806×376) — canonical for in-app
+├── logo_white.png              # White text wordmark (1806×376) — for dark backgrounds
+├── logo_icon.png               # GT square icon (512×512)
+├── logo_icon_{192,256,384,512,1024}.png  # Sized PWA icons; eBay app icon uses 512
+├── logo_icon_maskable_512.png  # PWA maskable variant (no rounded corners, safe-zone)
+├── logo_primary.svg            # Source SVG of dark wordmark — kept as source asset, NOT referenced
+├── logo_white.svg              # Source SVG of white wordmark — kept as source asset, NOT referenced
+├── logo_icon.svg               # Source SVG of icon — kept as source asset, NOT referenced
+├── favicon.svg                 # Favicon (still SVG — modern best practice; no PNG fallback)
+├── manifest.webmanifest        # PWA manifest — references PNG icons only
 ├── _redirects                  # SPA routing for Cloudflare Pages
 └── _headers                    # Security headers + asset caching
 ```

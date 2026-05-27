@@ -524,7 +524,11 @@ struct PhotoIntakeView: View {
 
     private func capture() {
         guard !isCapturing else { return }
-        AppRouter.haptic()
+        // US-195: medium impact for an action with a tangible outcome
+        // (photo captured) + the standard iOS shutter sound that's
+        // mandatory in some locales.
+        HapticFeedback.medium()
+        HapticFeedback.playShutterSound()
         isCapturing = true
         Task {
             defer { isCapturing = false }

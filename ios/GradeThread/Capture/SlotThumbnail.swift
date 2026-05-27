@@ -108,7 +108,7 @@ struct SlotThumbnail: View {
                 .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
                 .frame(width: 32, height: 32)
                 .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 0.2), value: progress)
+                .accessibleAnimation(.linear(duration: 0.2), value: progress)
         }
     }
 

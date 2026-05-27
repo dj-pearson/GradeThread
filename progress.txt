@@ -169,8 +169,51 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 23/32 — through US-188, plus US-191 telemetry, plus US-198 Supabase Realtime channel on inventory_items with reconnecting status chip + 'Live updates' settings toggle. US-189 + US-190 + US-192→US-197 + US-199 remaining
+- iOS app (US-168 → US-199): 24/32 — through US-188, plus US-191 telemetry, US-198 Realtime, US-192 accessibility (ReducedMotion helper + .accessibleAnimation modifier + high-contrast brand color variants in asset catalog). US-189/190/193/194/195/196/197/199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS accessibility (US-192)
+Receive-side accessibility surface in place — VoiceOver labels were
+mostly already there from per-view builds; this story added the
+Reduce Motion + Increase Contrast support that's harder to retrofit
+later.
+
+What landed:
+- ios/GradeThread/Accessibility/ReducedMotion.swift — wraps the
+  SwiftUI `.animation()` calls so they no-op when iOS Reduce Motion
+  is enabled. Drop-in `.accessibleAnimation(_:value:)` View modifier.
+- Existing animation sites switched: SyncStatusBar chip transition
+  in ContentView's MainShell, SlotThumbnail's upload-progress ring
+  linear interpolation.
+- ios/GradeThread/Assets.xcassets gains BrandNavy.colorset +
+  BrandRed.colorset, each carrying a high-contrast variant (navy
+  darkens to #061F45, red to #BE2348). Also added high-contrast to
+  AccentColor for the system tint.
+- Color.brandNavy / Color.brandRed extensions in ContentView now
+  read from the asset catalog by name so iOS picks the right tone
+  automatically when Increase Contrast is on — no per-view code
+  change.
+
+Existing accessibility labels audited; were already comprehensive
+from per-view builds:
+- SlotThumbnail: state-aware ('X — uploading N percent /
+  failed, tap to retry / uploaded')
+- FieldSuggestionRow: 'Title: value. Source. Confidence N percent.
+  accepted/not accepted.'
+- InventoryRow: 'Title. Brand. Size. Price. Status.'
+- Camera/barcode/mic/library buttons each carry their own labels.
+
+Dynamic Type already correct across views — every text site uses
+semantic fonts (.body / .subheadline / .caption / .headline); the
+few `.font(.system(size:))` calls are on icon overlays where fixed
+sizing is intentional.
+
+Tests in AccessibilityTests cover ReducedMotion.animation behavior
+(off path; on path requires system-level toggle), durationScale
+boundedness, accessibleAnimation modifier compilation, brand-color
+extension resolution. Real VoiceOver dogfood pass across sign-in /
+intake / item edit / eBay publish is a manual TestFlight checkpoint
+— the code surface is in.
 
 ## Session Notes (2026-05-27) — iOS Realtime channel (US-198)
 Phase 2 of US-172's sync layer — sale + listing edits now stream into

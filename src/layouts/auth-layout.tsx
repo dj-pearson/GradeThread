@@ -20,7 +20,7 @@ export function AuthLayout() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
-          <img src="/logo_primary.svg" alt="GradeThread" className="h-10" />
+          <img src="/logo_primary.png" alt="GradeThread" className="h-10" />
         </div>
         <Outlet />
       </div>

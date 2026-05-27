@@ -428,7 +428,7 @@ export function LandingPage() {
       <LaunchBanner />
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">
-        <img src="/logo_primary.svg" alt="GradeThread" className="h-8" />
+        <img src="/logo_primary.png" alt="GradeThread" className="h-8" />
         <div className="flex items-center gap-4">
           <Link to="/login">
             <Button variant="ghost" size="sm">
@@ -706,7 +706,7 @@ export function LandingPage() {
       <footer className="border-t px-6 py-10">
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <img src="/logo_primary.svg" alt="GradeThread" className="h-6" />
+            <img src="/logo_primary.png" alt="GradeThread" className="h-6" />
             <nav className="flex flex-wrap gap-4 text-sm text-muted-foreground sm:gap-6">
               <a href="#how-it-works" className="hover:text-foreground">
                 How It Works

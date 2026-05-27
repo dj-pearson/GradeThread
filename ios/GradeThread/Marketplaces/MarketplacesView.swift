@@ -236,6 +236,13 @@ struct MarketplacesView: View {
         let baseline = await service.snapshot(userId: userId)
         let completion = await service.sync(userId: userId, baseline: baseline)
         syncStore.apply(completion)
+        // US-195: feedback that mirrors the completion outcome.
+        switch completion {
+        case .completed:           HapticFeedback.success()
+        case .timedOut:            HapticFeedback.warning()
+        case .connectionFlagged,
+             .failed:              HapticFeedback.error()
+        }
 
         // Refresh the connection card so the "last synced" line catches up.
         await store.refresh(userId: userId)

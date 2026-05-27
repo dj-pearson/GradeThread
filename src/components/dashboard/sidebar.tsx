@@ -152,7 +152,7 @@ export function Sidebar() {
   return (
     <aside className="hidden w-64 flex-shrink-0 flex-col bg-brand-navy text-white md:flex">
       <div className="flex h-16 items-center px-6">
-        <img src="/logo_white.svg" alt="GradeThread" className="h-8" />
+        <img src="/logo_white.png" alt="GradeThread" className="h-8" />
       </div>
       <div className="flex flex-1 flex-col overflow-y-auto">
         <SidebarNav />
@@ -191,7 +191,7 @@ export function MobileNav() {
         >
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <div className="flex h-16 items-center px-6">
-            <img src="/logo_white.svg" alt="GradeThread" className="h-8" />
+            <img src="/logo_white.png" alt="GradeThread" className="h-8" />
           </div>
           <div className="flex flex-1 flex-col overflow-y-auto">
             <SidebarNav onNavigate={() => setOpen(false)} />

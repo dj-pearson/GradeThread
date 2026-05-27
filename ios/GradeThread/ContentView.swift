@@ -201,7 +201,7 @@ struct MainShell: View {
         @Bindable var router = router
         VStack(spacing: 0) {
             SyncStatusBar()
-                .animation(.easeInOut(duration: 0.2), value: router.selection)
+                .accessibleAnimation(.easeInOut(duration: 0.2), value: router.selection)
             Group {
                 if horizontalSizeClass == .regular {
                     SidebarSplitView(router: router)
@@ -448,13 +448,12 @@ final class AppRouter {
         }
     }
 
-    /// Light-impact haptic on tab change. Lazily instantiated and prepared
-    /// each time so the OS can hint the haptics engine — Apple HIG calls
-    /// this out specifically for tab switches.
+    /// Light-impact haptic on tab change. Kept here as a thin alias so
+    /// every existing call site continues to compile; the centralized
+    /// implementation now lives in ``HapticFeedback`` (US-195) so
+    /// per-action tuning happens in one place.
     static func haptic() {
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.prepare()
-        generator.impactOccurred()
+        HapticFeedback.light()
     }
 }
 
@@ -698,8 +697,19 @@ private struct TabPlaceholder: View {
 
 extension Color {
     /// Brand palette mirrors the web app (src/index.css).
-    static let brandNavy = Color(red: 15 / 255, green: 52 / 255, blue: 96 / 255)
-    static let brandRed = Color(red: 233 / 255, green: 69 / 255, blue: 96 / 255)
+    // Read from the asset catalog (US-192) so iOS swaps to the
+    // high-contrast variant when Increase Contrast is on in
+    // Accessibility Settings. The named entries fall back to the
+    // literal RGB tone we shipped before for older bundles that
+    // don't have the colorsets.
+    static let brandNavy = Color(
+        "BrandNavy",
+        bundle: nil
+    )
+    static let brandRed = Color(
+        "BrandRed",
+        bundle: nil
+    )
 }
 
 #Preview {

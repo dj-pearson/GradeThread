@@ -57,7 +57,7 @@ export function AdminLayout() {
       <aside className="hidden w-64 flex-shrink-0 flex-col bg-brand-night text-white md:flex">
         <div className="flex h-16 items-center justify-between px-6">
           <div className="flex items-center gap-2">
-            <img src="/logo_icon.svg" alt="GradeThread" className="h-7" />
+            <img src="/logo_icon.png" alt="GradeThread" className="h-7" />
             <span className="text-sm font-bold tracking-wide text-white/90">ADMIN</span>
           </div>
         </div>

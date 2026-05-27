@@ -39,3 +39,4 @@ temp_prd/
 .env.example
 Flip Tracker - Thrift Flip Tracker.csv
 .playwright-mcp/
+public/logo_primary.psd

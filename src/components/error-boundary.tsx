@@ -51,7 +51,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
                 <AlertTriangle className="h-8 w-8 text-destructive" />
               </div>
-              <img src="/logo_primary.svg" alt="GradeThread" className="mt-4 h-6" />
+              <img src="/logo_primary.png" alt="GradeThread" className="mt-4 h-6" />
               <h3 className="mt-4 text-lg font-medium">Something went wrong</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 An unexpected error occurred. Please try again or return home.
@@ -93,7 +93,7 @@ export function RouteErrorFallback() {
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
             <AlertTriangle className="h-8 w-8 text-destructive" />
           </div>
-          <img src="/logo_primary.svg" alt="GradeThread" className="mt-4 h-6" />
+          <img src="/logo_primary.png" alt="GradeThread" className="mt-4 h-6" />
           <h3 className="mt-4 text-lg font-medium">Page Error</h3>
           <p className="mt-2 text-sm text-muted-foreground">
             This page encountered an error. Please try again.

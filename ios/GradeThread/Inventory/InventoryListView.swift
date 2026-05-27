@@ -206,6 +206,12 @@ struct InventoryListView: View {
         let baseline = await service.snapshot(userId: userId)
         let completion = await service.sync(userId: userId, baseline: baseline)
         syncStore.apply(completion)
+        switch completion {
+        case .completed:           HapticFeedback.success()
+        case .timedOut:            HapticFeedback.warning()
+        case .connectionFlagged,
+             .failed:              HapticFeedback.error()
+        }
     }
 
     @ToolbarContentBuilder

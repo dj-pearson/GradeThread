@@ -273,6 +273,7 @@ struct PublishDialog: View {
         switch outcome {
         case .pushed(let response):
             phase = .succeeded(response)
+            HapticFeedback.success()
             Telemetry.breadcrumb(
                 "Publish succeeded \(response.listingId)",
                 category: "publish"
@@ -282,12 +283,16 @@ struct PublishDialog: View {
             ])
         case .blockers(let blockers):
             phase = .blocked(blockers)
+            HapticFeedback.warning()
         case .noOfferId:
             phase = .failed(message: "eBay couldn't link the offer. Try again or check Marketplaces.")
+            HapticFeedback.error()
         case .failed(let message):
             phase = .failed(message: message)
+            HapticFeedback.error()
         case .validated, .priceUpdated, .ended:
             phase = .failed(message: "Unexpected response from server.")
+            HapticFeedback.error()
         }
     }
 

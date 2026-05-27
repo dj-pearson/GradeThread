@@ -207,7 +207,7 @@ export function CertificatePage() {
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 px-6">
           <div className="flex items-center gap-3">
             <img
-              src="/logo_white.svg"
+              src="/logo_white.png"
               alt="GradeThread"
               className="h-8"
             />

@@ -355,6 +355,7 @@ struct DetailsIntakeView: View {
 
     private func handleSavedSuccessfully(outcome: SaveOutcome) {
         bannerMessage = BannerMessage(kind: .success, text: "Saved.")
+        HapticFeedback.success()
         Telemetry.event(TelemetryEvent.intakeCompleted, props: [
             "source": "details_first",
             "online": true,
@@ -373,6 +374,7 @@ struct DetailsIntakeView: View {
             kind: .offline,
             text: "Saved offline — will sync when you reconnect."
         )
+        HapticFeedback.warning()
         Telemetry.event(TelemetryEvent.intakeCompleted, props: [
             "source": "details_first",
             "online": false,

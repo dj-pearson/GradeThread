@@ -337,6 +337,7 @@ struct ItemCanvasView: View {
         guard let state else { return }
         guard state.isSavable, state.isDirty else { return }
         guard state.canTransition(to: state.draft.status) else {
+            HapticFeedback.error()
             state.failSaving("Can't move a \(state.original.status) item back to \(state.draft.status).")
             return
         }
@@ -356,8 +357,10 @@ struct ItemCanvasView: View {
             applyToLocalItem(state: state)
             state.acceptDraftAsOriginal()
             try? modelContext.save()
+            HapticFeedback.success()
             dismiss()
         } catch {
+            HapticFeedback.error()
             state.failSaving(error.localizedDescription)
         }
     }
