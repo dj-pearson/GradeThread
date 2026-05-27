@@ -35,6 +35,7 @@ import {
   getAllActiveEbaySelling,
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
+import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -1358,8 +1359,105 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
   }
 });
 
-flipdeskEbayRoutes.post("/payouts/import-csv", (c) => {
-  return c.json({ error: "Not implemented" }, 501);
+// Imports an eBay Seller Hub "Payouts" CSV into payout_imports. Server-side
+// parse so we can validate, dedupe, and reuse the parser for future webhook
+// ingestion. Idempotent — repeated uploads of the same export skip rows that
+// already match (payout_id + amount + date) for this user.
+//
+// Body: { csv: string }  Response: { imported, skipped, duplicates }
+flipdeskEbayRoutes.post("/payouts/import-csv", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { csv?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (typeof body.csv !== "string" || body.csv.trim().length === 0) {
+    return c.json({ error: "csv (string) is required" }, 400);
+  }
+  // Soft cap — eBay payouts exports rarely exceed a few hundred KB.
+  if (body.csv.length > 5 * 1024 * 1024) {
+    return c.json({ error: "CSV exceeds 5MB limit" }, 413);
+  }
+
+  const { headerFound, payouts, skipped } = parseEbayPayoutsCsv(body.csv);
+  if (!headerFound) {
+    return c.json(
+      {
+        error:
+          "Could not find a payouts table in this CSV. Export the report from Seller Hub → Payments → Payouts → Download.",
+      },
+      400,
+    );
+  }
+  if (payouts.length === 0) {
+    return c.json({ imported: 0, skipped, duplicates: 0 });
+  }
+
+  // Pre-fetch existing payout IDs for this user so we can dedupe in-memory
+  // rather than relying on a unique constraint that doesn't exist yet.
+  const candidateIds = Array.from(new Set(payouts.map((p) => p.payoutId)));
+  const { data: existing } = await supabaseAdmin
+    .from("payout_imports")
+    .select("raw_payload, payout_date, amount")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .in(
+      "raw_payload->>payoutid" as never,
+      candidateIds as never,
+    );
+
+  const seen = new Set<string>();
+  for (const row of (existing ?? []) as Array<{
+    raw_payload: Record<string, unknown>;
+    payout_date: string | null;
+    amount: number | null;
+  }>) {
+    const id = String(row.raw_payload?.payoutid ?? "");
+    if (id) seen.add(`${id}|${row.payout_date}|${row.amount}`);
+  }
+
+  const toInsert = payouts
+    .filter((p) => !seen.has(`${p.payoutId}|${p.payoutDate}|${p.amount}`))
+    .map((p) => ({
+      user_id: userId,
+      marketplace: "ebay" as const,
+      import_method: "csv_upload" as const,
+      raw_payload: {
+        payoutid: p.payoutId,
+        currency: p.currency,
+        status: p.status,
+        ...p.raw,
+      },
+      payout_date: p.payoutDate,
+      amount: p.amount,
+      reconciled: false,
+    }));
+  const duplicates = payouts.length - toInsert.length;
+
+  if (toInsert.length === 0) {
+    return c.json({ imported: 0, skipped, duplicates });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("payout_imports")
+    .insert(toInsert);
+  if (error) {
+    console.error("[flipdesk-ebay] payouts import failed:", error);
+    return c.json(
+      { error: "Failed to write payouts.", detail: error.message },
+      502,
+    );
+  }
+
+  return c.json({
+    imported: toInsert.length,
+    skipped,
+    duplicates,
+  });
 });
 
 // Live active-listing comps for the composer's pricing panel. Uses the
