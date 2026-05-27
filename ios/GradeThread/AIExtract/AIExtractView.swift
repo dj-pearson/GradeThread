@@ -116,6 +116,9 @@ struct AIExtractView: View {
     private func review(result: AIExtractStore.Result) -> some View {
         ScrollView {
             VStack(spacing: 12) {
+                if store.liveTextFallbackUsed {
+                    liveTextBanner
+                }
                 if let summary = result.conditionSummary, !summary.isEmpty {
                     summaryCard(summary)
                 }
@@ -128,6 +131,25 @@ struct AIExtractView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
+    }
+
+    private var liveTextBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "text.viewfinder")
+                .font(.system(size: 18))
+                .foregroundStyle(Color.brandNavy)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("On-device OCR filled in the gaps")
+                    .font(.subheadline.weight(.semibold))
+                Text("AI couldn't read the size tag confidently. Lower-confidence suggestions below are from iOS Live Text — double-check before accepting.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(Color.brandNavy.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func summaryCard(_ text: String) -> some View {
@@ -310,11 +332,80 @@ struct AIExtractView: View {
         do {
             let response = try await service.extract(request)
             store.applyResponse(response)
+            await runLiveTextFallbackIfNeeded()
         } catch let error as EdgeAPIError {
-            store.fail(error.errorDescription ?? "Unknown error")
+            // AI extract failed — try the on-device fallback as a
+            // last-resort source for brand + size so the user still gets
+            // *something* pre-filled before falling back to the manual
+            // form. The screen still reads "AI couldn't read these
+            // photos" because Claude failed; but if Live Text produced
+            // anything we surface it underneath.
+            let liveText = await liveTextSuggestions()
+            if !liveText.isEmpty {
+                let synthetic = AIExtractResponse(
+                    suggestions: liveText,
+                    conditionSummary: nil,
+                    conflicts: [],
+                    measurements: nil,
+                    model: nil,
+                    logId: nil,
+                    actionsRemaining: -1
+                )
+                store.applyResponse(synthetic)
+                store.liveTextFallbackUsed = true
+            } else {
+                store.fail(error.errorDescription ?? "Unknown error")
+            }
         } catch {
             store.fail(error.localizedDescription)
         }
+    }
+
+    // MARK: - Live Text fallback (US-177)
+
+    /// Runs Live Text on the tag-slot capture when Claude's result is
+    /// missing brand or size. No-op when both fields are already
+    /// covered.
+    private func runLiveTextFallbackIfNeeded() async {
+        guard case let .ready(result) = store.phase else { return }
+        let hasBrand = result.entries.contains { $0.field == "brand" }
+        let hasSize = result.entries.contains { $0.field == "size" }
+        guard !(hasBrand && hasSize) else { return }
+
+        let suggestions = await liveTextSuggestions()
+        guard !suggestions.isEmpty else { return }
+
+        let brand = hasBrand ? nil : suggestions["brand"]?.value
+        let size = hasSize ? nil : suggestions["size"]?.value
+        store.mergeLiveTextSuggestions(brand: brand, size: size)
+    }
+
+    /// Returns Live-Text-derived brand + size suggestions for the tag
+    /// slot, keyed by field name. Empty when no tag photo or the OCR
+    /// returned nothing useful.
+    private func liveTextSuggestions() async -> [String: FieldSuggestion] {
+        guard let tagEntry = photos.first(where: { $0.slot == .tag }) else {
+            return [:]
+        }
+        guard let image = UIImage(data: tagEntry.capture.imageData) else {
+            return [:]
+        }
+        let recognizer = TagTextRecognizer()
+        let lines: [RecognizedLine]
+        do {
+            lines = try await recognizer.recognize(image)
+        } catch {
+            return [:]
+        }
+        let inferred = SizeTagInference.infer(lines: lines.map(\.text))
+        var out: [String: FieldSuggestion] = [:]
+        if let brand = inferred.brand, !brand.isEmpty {
+            out["brand"] = FieldSuggestion(value: brand, confidence: 0.4, source: "live-text")
+        }
+        if let size = inferred.size, !size.isEmpty {
+            out["size"] = FieldSuggestion(value: size, confidence: 0.4, source: "live-text")
+        }
+        return out
     }
 
     // MARK: - Apply

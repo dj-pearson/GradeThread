@@ -34,6 +34,11 @@ final class AIExtractStore {
     /// All-or-nothing toggle for measurements — they're brand-spec
     /// estimates so the user either trusts the batch or not, per the AC.
     var acceptMeasurements: Bool = true
+    /// True iff the on-device Live Text fallback produced at least one
+    /// suggestion (brand or size that Claude missed). The review screen
+    /// surfaces a small banner so the user knows where those values came
+    /// from.
+    var liveTextFallbackUsed: Bool = false
 
     // MARK: - Lifecycle
 
@@ -43,6 +48,47 @@ final class AIExtractStore {
 
     func beginExtract() {
         phase = .extracting
+    }
+
+    /// Merges Live Text fallback suggestions (US-177) on top of the
+    /// already-loaded extract result, filling brand / size when Claude
+    /// missed them. Confidence stamp matches the AC (0.4) so the rows
+    /// render under the orange-tier styling — visible but obviously
+    /// less trustworthy than a Claude-sourced suggestion.
+    func mergeLiveTextSuggestions(brand: String?, size: String?) {
+        guard case let .ready(result) = phase else { return }
+        var entries = result.entries
+        var added = false
+
+        func merge(field: String, value: String) {
+            if entries.contains(where: { $0.field == field }) { return }
+            let suggestion = FieldSuggestion(
+                value: value,
+                confidence: 0.4,
+                source: "live-text"
+            )
+            entries.append(FieldSuggestionEntry(
+                id: field,
+                field: field,
+                suggestion: suggestion
+            ))
+            added = true
+        }
+
+        if let brand, !brand.isEmpty { merge(field: "brand", value: brand) }
+        if let size, !size.isEmpty { merge(field: "size", value: size) }
+
+        guard added else { return }
+        entries.sort { $0.field < $1.field }
+        phase = .ready(Result(
+            entries: entries,
+            measurements: result.measurements,
+            conditionSummary: result.conditionSummary
+        ))
+        liveTextFallbackUsed = true
+        // Don't auto-accept fallback suggestions — 0.4 confidence is
+        // below the default-accept threshold (0.8). The user can opt in
+        // explicitly.
     }
 
     func applyResponse(_ response: AIExtractResponse) {

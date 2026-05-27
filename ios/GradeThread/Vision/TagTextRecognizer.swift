@@ -1,0 +1,75 @@
+import CoreGraphics
+import Foundation
+import UIKit
+import Vision
+
+/// On-device OCR for size-tag photos. Wraps `VNRecognizeTextRequest` at
+/// the `.accurate` level — slower than `.fast` but markedly better at
+/// reading the small, often-rotated text printed on care tags.
+///
+/// Runs entirely on-device: no network, no Claude usage, works offline.
+/// Used as a fallback in ``AIExtractView`` when Claude's extract result
+/// is missing brand or size (per US-177 AC).
+struct RecognizedLine: Equatable {
+    let text: String
+    let confidence: Float
+    /// Normalized bounding box (0…1 in Vision's coordinate system).
+    let boundingBox: CGRect
+}
+
+actor TagTextRecognizer {
+
+    enum RecognizerError: LocalizedError {
+        case noCGImage
+        case visionFailure(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .noCGImage:
+                return "Couldn't read pixels from the tag photo."
+            case .visionFailure(let detail):
+                return "Vision OCR failed: \(detail)"
+            }
+        }
+    }
+
+    func recognize(_ image: UIImage) async throws -> [RecognizedLine] {
+        guard let cgImage = image.cgImage else { throw RecognizerError.noCGImage }
+
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<[RecognizedLine], Error>) in
+            let request = VNRecognizeTextRequest { (request, error) in
+                if let error {
+                    cont.resume(throwing: RecognizerError.visionFailure(error.localizedDescription))
+                    return
+                }
+                let observations = (request.results as? [VNRecognizedTextObservation]) ?? []
+                let lines: [RecognizedLine] = observations.compactMap { obs in
+                    guard let candidate = obs.topCandidates(1).first else { return nil }
+                    let trimmed = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return nil }
+                    return RecognizedLine(
+                        text: trimmed,
+                        confidence: candidate.confidence,
+                        boundingBox: obs.boundingBox
+                    )
+                }
+                cont.resume(returning: lines)
+            }
+            request.recognitionLevel = .accurate
+            // Tags are usually English-printed, but allow multi-language
+            // recognition so we don't lose imported brands (Levi's,
+            // Uniqlo, etc.) when the tag mixes scripts.
+            request.usesLanguageCorrection = true
+            request.recognitionLanguages = ["en-US"]
+            // Don't restrict character set — tag content includes punctuation
+            // ('Size 12 / W30 L32', care symbols).
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
+                cont.resume(throwing: RecognizerError.visionFailure(error.localizedDescription))
+            }
+        }
+    }
+}

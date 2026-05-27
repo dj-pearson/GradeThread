@@ -169,8 +169,45 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 9/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background URLSession photo uploads; US-176 AI extract review screen + inventory_items row creation closing the snap→catalog loop. US-177→US-199 remaining
+- iOS app (US-168 → US-199): 10/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background URLSession photo uploads; US-176 AI extract review; US-177 Vision Live Text on-device fallback for brand+size when AI misses. US-178→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS Live Text fallback (US-177)
+On-device OCR fills brand + size when Claude can't read the tag (low
+confidence, missing, or full extract failure). No network, works
+offline, no AI quota consumed.
+
+What landed in ios/GradeThread/Vision/:
+- TagTextRecognizer.swift — actor wrapping VNRecognizeTextRequest at
+  .accurate level. Returns [RecognizedLine] with text + confidence +
+  bounding box.
+- SizeTagInference.swift — heuristic parser. Lowercase whitelist of ~30
+  brand tokens catches both UPPERCASE-printed brands and the
+  consistently-lowercase ones (adidas, lululemon). Uppercase-ratio
+  fallback for unknown brands, with rejections for 'SIZE L' /
+  'MADE IN USA' / bare alpha-size tokens. Size detection in priority
+  order: waist×length ('W30 L32', '30x32') → explicit 'Size N' →
+  bare alpha (S/M/L/XL/XXL/XXXL) → bare numeric (0–60, year guard).
+
+AIExtract integration:
+- AIExtractStore.mergeLiveTextSuggestions(brand:size:) — inserts only
+  the fields Claude missed, at confidence 0.4 with source 'live-text'.
+  Not auto-accepted (below the 0.8 default threshold) — user opts in.
+- AIExtractView.runLiveTextFallbackIfNeeded() — pulls the tag-slot
+  capture's UIImage and runs the recognizer when brand OR size is
+  missing from Claude's result. When Claude's entire extract fails,
+  the fallback still runs and a synthetic Result is built from
+  whatever Live Text produced — partial recovery beats a hard error.
+- liveTextBanner — 'On-device OCR filled in the gaps' surfaces above
+  the field list when the fallback fired.
+- FieldSuggestionEntry.sourceLabel — 'live-text' source reads as
+  'On-device OCR' in the per-row UI.
+
+Tests in SizeTagInferenceTests cover whitelist hits, lowercase brand
+catch, uppercase heuristic, size-line rejection, all size patterns
+including waist×length precedence over bare alpha, year-vs-size
+guard, store merge non-override on existing fields, no-op when
+nothing new, and the source label.
 
 ## Session Notes (2026-05-27) — iOS AI extract review (US-176)
 Closes the "snap → catalog" loop: captured photos upload, AI extracts

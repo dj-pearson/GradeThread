@@ -107,9 +107,11 @@ struct FieldSuggestionEntry: Identifiable, Equatable {
             .joined(separator: " ")
     }
 
-    /// `photo:tag` / `photo:front` → "From tag photo" etc. "text" → "From description".
+    /// Human-readable source label. Knows the canonical `text`,
+    /// `photo:<slot>`, and `live-text` (on-device OCR, US-177) sources.
     var sourceLabel: String {
         if source == "text" { return "From description" }
+        if source == "live-text" { return "On-device OCR" }
         if source.hasPrefix("photo:") {
             let slot = String(source.dropFirst("photo:".count))
             return "From \(slot) photo"
