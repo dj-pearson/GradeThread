@@ -49,6 +49,12 @@ struct ContentView: View {
                     Task { await syncEngine?.sync() }
                 }
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: .inventoryPullRequested)
+            ) { _ in
+                // Inventory list pulled-to-refresh — route to the engine.
+                Task { await syncEngine?.sync() }
+            }
     }
 
     private func startSyncEngineIfNeeded() {
@@ -346,11 +352,7 @@ final class AppRouter {
 /// patterns are exercised in CI immediately.
 private struct InventoryPlaceholder: View {
     var body: some View {
-        TabPlaceholder(
-            title: "Inventory",
-            subtitle: "Your kanban + listings live here once US-180 lands.",
-            systemImage: "shippingbox"
-        )
+        InventoryListView()
     }
 }
 

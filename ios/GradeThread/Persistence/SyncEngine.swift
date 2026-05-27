@@ -81,23 +81,243 @@ actor SyncEngine {
 
     // MARK: - Pull
 
-    /// Fetches and merges. Stubbed at the IO boundary — when the network
-    /// fixtures for inventory_items / listings / sales land we'll wire
-    /// the real PostgREST calls. The merge step itself is fully implemented
-    /// and unit-tested via ``ConflictPolicy``.
+    /// Fetches the current user's inventory_items + their primary photos
+    /// from Supabase and merges into the local SwiftData cache via
+    /// ``ConflictPolicy``. Pulled fields are the subset the inventory
+    /// list (US-180) needs to render; listing + sale data joins land in
+    /// US-184.
     func pull() async {
         guard !isPulling else { return }
         isPulling = true
         defer { isPulling = false }
 
         await statusStore.set(.syncing)
-        // TODO(US-180): swap in real PostgREST calls once the list/detail
-        // hooks land. For now the engine no-ops cleanly so the UI surface
-        // and conflict policy can be exercised in tests.
-        // let remoteItems = try await SupabaseShared.client.from("items_full")…
+
+        let result = await pullRemote()
+        switch result {
+        case .success(let payload):
+            await merge(payload: payload)
+        case .failure(let error):
+            // Don't propagate — connection errors are expected on the
+            // road. The status banner will flip to .offline via the
+            // NetworkMonitor stream when path-unsatisfied; for other
+            // failures we just log and try again next pass.
+            print("[SyncEngine] pull failed: \(error.localizedDescription)")
+        }
+
         await refreshPendingCount()
         let pending = await pendingMutationCount()
         await statusStore.set(pending > 0 ? .pending : .idle)
+    }
+
+    // MARK: - Remote pull
+
+    private struct PullPayload {
+        let items: [RemoteInventoryItem]
+        /// Map of inventoryItemId → first photo (sort_order ascending).
+        let primaryPhotos: [String: RemoteItemPhoto]
+    }
+
+    /// Wire-shape `inventory_items` row. Subset of columns the iOS app
+    /// reads today — extend cautiously, every column is an extra byte
+    /// per row over the wire.
+    private struct RemoteInventoryItem: Decodable {
+        let id: String
+        let user_id: String
+        let title: String
+        let brand: String?
+        let sku: String?
+        let size: String?
+        let color: String?
+        let material: String?
+        let status: String
+        let target_price: Double?
+        let acquired_price: Double?
+        let grade_value: Double?
+        let grade_label: String?
+        let certificate_url: String?
+        let condition_notes: String?
+        let measurements: [String: Double]?
+        let created_at: String
+        let updated_at: String
+    }
+
+    private struct RemoteItemPhoto: Decodable {
+        let id: String
+        let inventory_item_id: String
+        let photo_type: String
+        let photo_url: String
+        let thumbnail_url: String?
+        let storage_path: String?
+        let sort_order: Int
+        let bytes: Int?
+        let created_at: String
+    }
+
+    private func pullRemote() async -> Result<PullPayload, Error> {
+        do {
+            let items: [RemoteInventoryItem] = try await SupabaseShared.client
+                .from("inventory_items")
+                .select(Self.itemColumns)
+                .order("updated_at", ascending: false)
+                .execute()
+                .value
+
+            // Without items we don't need the photo fetch — short circuit
+            // so a brand-new account doesn't spend a round trip.
+            guard !items.isEmpty else {
+                return .success(PullPayload(items: [], primaryPhotos: [:]))
+            }
+            let itemIds = items.map(\.id)
+            let photos: [RemoteItemPhoto] = try await SupabaseShared.client
+                .from("item_photos")
+                .select(Self.photoColumns)
+                .in("inventory_item_id", values: itemIds)
+                .order("sort_order", ascending: true)
+                .execute()
+                .value
+
+            // Keep just the first photo per item — "primary" by sort_order.
+            // Iterating in the sorted order means the first occurrence
+            // wins and later ones get dropped.
+            var primary: [String: RemoteItemPhoto] = [:]
+            for photo in photos where primary[photo.inventory_item_id] == nil {
+                primary[photo.inventory_item_id] = photo
+            }
+            return .success(PullPayload(items: items, primaryPhotos: primary))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private static let itemColumns = """
+    id, user_id, title, brand, sku, size, color, material, status,
+    target_price, acquired_price, grade_value, grade_label,
+    certificate_url, condition_notes, measurements, created_at, updated_at
+    """
+
+    private static let photoColumns = """
+    id, inventory_item_id, photo_type, photo_url, thumbnail_url,
+    storage_path, sort_order, bytes, created_at
+    """
+
+    private func merge(payload: PullPayload) async {
+        let payload = payload  // capture for the @MainActor block below
+        await MainActor.run {
+            let context = ModelContext(self.container)
+            let descriptor = FetchDescriptor<LocalInventoryItem>()
+            let existing = (try? context.fetch(descriptor)) ?? []
+            var existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+
+            let isoFull = ISO8601DateFormatter()
+            isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let isoPlain = ISO8601DateFormatter()
+            func parseDate(_ s: String) -> Date {
+                isoFull.date(from: s) ?? isoPlain.date(from: s) ?? .now
+            }
+
+            for remote in payload.items {
+                let createdAt = parseDate(remote.created_at)
+                let updatedAt = parseDate(remote.updated_at)
+                let primaryURL = payload.primaryPhotos[remote.id]?
+                    .thumbnail_url
+                    ?? payload.primaryPhotos[remote.id]?.photo_url
+
+                if let local = existingById[remote.id] {
+                    self.applyServerWins(to: local, remote: remote)
+                    local.primaryPhotoURL = primaryURL
+                    // updatedAt is server-authoritative; createdAt never
+                    // changes server-side so we don't reassign.
+                    local.updatedAt = updatedAt
+                } else {
+                    let local = LocalInventoryItem(
+                        id: remote.id,
+                        userId: remote.user_id,
+                        title: remote.title,
+                        status: remote.status,
+                        createdAt: createdAt,
+                        updatedAt: updatedAt,
+                        hasLocalChanges: false
+                    )
+                    self.applyServerWins(to: local, remote: remote)
+                    local.primaryPhotoURL = primaryURL
+                    context.insert(local)
+                    existingById[remote.id] = local
+                }
+            }
+
+            try? context.save()
+        }
+    }
+
+    /// Field-level merge that defers to ``ConflictPolicy`` for each
+    /// column. User-owned fields (title/brand/notes/measurements/
+    /// target_price) keep the local edit when hasLocalChanges is set;
+    /// everything else takes the server value.
+    private nonisolated func applyServerWins(
+        to local: LocalInventoryItem,
+        remote: RemoteInventoryItem
+    ) {
+        local.title = ConflictPolicy.resolveUserOwned(
+            local: local.title,
+            server: remote.title,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.brand = ConflictPolicy.resolveUserOwned(
+            local: local.brand,
+            server: remote.brand,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.sku = ConflictPolicy.resolveUserOwned(
+            local: local.sku,
+            server: remote.sku,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.size = ConflictPolicy.resolveUserOwned(
+            local: local.size,
+            server: remote.size,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.color = ConflictPolicy.resolveUserOwned(
+            local: local.color,
+            server: remote.color,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.material = ConflictPolicy.resolveUserOwned(
+            local: local.material,
+            server: remote.material,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.conditionNotes = ConflictPolicy.resolveUserOwned(
+            local: local.conditionNotes,
+            server: remote.condition_notes,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        local.targetPrice = ConflictPolicy.resolveUserOwned(
+            local: local.targetPrice,
+            server: remote.target_price,
+            hasLocalChanges: local.hasLocalChanges
+        )
+        // measurements stored as JSON string on the local side; we
+        // serialize the server payload before assigning so the column
+        // round-trips cleanly.
+        local.measurementsJSON = serializeMeasurements(remote.measurements, fallback: local.measurementsJSON)
+        // Server-owned fields: always take the server value.
+        local.acquiredPrice = remote.acquired_price
+        local.gradeValue = remote.grade_value
+        local.gradeLabel = remote.grade_label
+        local.certificateURL = remote.certificate_url
+        local.status = ConflictPolicy.resolveServerOwned(local: local.status, server: remote.status)
+    }
+
+    private nonisolated func serializeMeasurements(
+        _ remote: [String: Double]?,
+        fallback: String?
+    ) -> String? {
+        guard let remote, !remote.isEmpty else { return fallback }
+        return (try? JSONSerialization.data(withJSONObject: remote))
+            .flatMap { String(data: $0, encoding: .utf8) }
+            ?? fallback
     }
 
     // MARK: - Flush

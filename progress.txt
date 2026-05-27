@@ -169,8 +169,61 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 12/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 AVFoundation camera; US-174 PHPicker library; US-175 background photo uploads; US-176 AI extract review; US-177 Live Text fallback; US-178 details-first manual intake; US-179 voice dictation + barcode scanner shortcuts. US-180→US-199 remaining
+- iOS app (US-168 → US-199): 13/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list with stage tabs + search + sort + real SyncEngine.pull. US-181→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS inventory list (US-180)
+First real read surface on top of the SwiftData store — Inventory tab
+now shows the user's actual items, grouped by stage, searchable,
+sortable, pull-to-refreshable.
+
+What landed in ios/GradeThread/Inventory/:
+- InventoryStage.swift — maps inventory_items.status values to the
+  tab groupings (All / To list / Drafts / Active / Sold / Shipped /
+  Returned), mirroring the web TO_LIST_STATUSES + LISTED_STATUSES
+  sets. Each stage carries a label, SF Symbol, and empty-state copy.
+- SortOption.swift — newest / oldest / bestROI / highestComp / SKU
+  natural sort. naturalCompare diffs numeric runs as integers so
+  'S-2' lands before 'S-10'. ROI sort handles missing acquired_price
+  gracefully (no-cost rows sort to the bottom). Comparator shared
+  between the view and the unit tests.
+- InventoryFilter.swift — pure apply(stage:search:sort:) runs stage
+  cut → search substring → sort in cheapest-first order. Search
+  matches title/brand/SKU today; style + container follow once the
+  sync engine pulls them.
+- InventoryRow.swift — thumbnail (AsyncImage with brand-tinted
+  fallback) + title + brand·size + price (listing → target → cost
+  fallback via CurrencyFormatter) + status badge with color-coded
+  background (green sold/shipped, navy listed, red returned).
+- InventoryListView.swift — horizontal-scroll tab chip row with
+  per-stage live counts, .searchable in nav drawer, sort menu in
+  trailing toolbar, .refreshable triggers a NotificationCenter post
+  that ContentView routes into SyncEngine.sync() — keeps the engine
+  handle off the view's API surface.
+
+SyncEngine.pull() is no longer a stub:
+- Fetches inventory_items + item_photos in two batched requests
+  (no RPC; relies on RLS for per-user filtering).
+- Builds a primary-photo-per-item map (first by sort_order).
+- Merges into LocalInventoryItem applying ConflictPolicy per field:
+  title / brand / SKU / notes / measurements / target_price are
+  client-wins-if-dirty; status / grade / cost / created+updated are
+  server-wins. Measurements JSON-serialize for SwiftData storage.
+
+ContentView:
+- InventoryPlaceholder → InventoryListView wired in.
+- .onReceive observer for .inventoryPullRequested forwards to
+  syncEngine.sync().
+
+Tap on a row pushes ItemCanvasPlaceholder for now — full US-181
+canvas with inline editing lands next.
+
+Tests in InventoryFilterTests cover stage status mappings, sort
+comparators (newest / bestROI / SKU natural with numeric run
+ordering, case-insensitivity, empty strings, missing cost),
+InventoryFilter search substring on title/brand/SKU, whitespace
+search returning all, and the apply() pipeline composition (stage
+→ search → sort).
 
 ## Session Notes (2026-05-27) — iOS voice + barcode shortcuts (US-179)
 Two on-form shortcuts that turn a thrift trip from typing-heavy into
