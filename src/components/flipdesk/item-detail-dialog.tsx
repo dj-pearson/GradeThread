@@ -1,12 +1,12 @@
 import { useNavigate } from "react-router-dom";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
@@ -23,51 +23,72 @@ type Props = {
 
 export function ItemDetailDialog({ item, onClose }: Props) {
   const navigate = useNavigate();
-  if (!item) return null;
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] w-[calc(100vw-2rem)] max-w-5xl overflow-x-hidden overflow-y-auto">
-        <DialogHeader>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <DialogTitle className="truncate">
-                {item.item_title || "Untitled item"}
-              </DialogTitle>
-              <DialogDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                <span>SKU {item.item_number ?? "(none)"}</span>
-                <span className="text-muted-foreground/60">·</span>
-                <span>
-                  Status{" "}
-                  <span className="font-medium">
-                    {ITEM_STATUS_LABELS[item.status]}
-                  </span>
-                </span>
-              </DialogDescription>
+    <Sheet open={item != null} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl"
+      >
+        {item && (
+          <>
+            {/* Sticky header */}
+            <SheetHeader className="shrink-0 border-b px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <SheetTitle className="truncate text-base">
+                    {item.item_title || "Untitled item"}
+                  </SheetTitle>
+                  <SheetDescription className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                    <span>SKU {item.item_number ?? "(none)"}</span>
+                    <span className="text-muted-foreground/40">·</span>
+                    <span>
+                      Status{" "}
+                      <span className="font-medium">
+                        {ITEM_STATUS_LABELS[item.status]}
+                      </span>
+                    </span>
+                  </SheetDescription>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      onClose();
+                      navigate(`/dashboard/flipdesk/items/${item.id}`);
+                    }}
+                    className="h-8 px-2 text-xs"
+                  >
+                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                    Full page
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={onClose}
+                  >
+                    <X className="h-4 w-4" />
+                    <span className="sr-only">Close</span>
+                  </Button>
+                </div>
+              </div>
+            </SheetHeader>
+
+            {/* Scrollable canvas */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <ItemCanvas
+                item={item}
+                onAfterSave={onClose}
+                onCancel={onClose}
+                showHeader={false}
+              />
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                onClose();
-                navigate(`/dashboard/flipdesk/items/${item.id}`);
-              }}
-              className="flex-shrink-0"
-            >
-              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-              Open as page
-            </Button>
-          </div>
-        </DialogHeader>
-        <div className="min-w-0">
-          <ItemCanvas
-            item={item}
-            onAfterSave={onClose}
-            onCancel={onClose}
-            showHeader={false}
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }

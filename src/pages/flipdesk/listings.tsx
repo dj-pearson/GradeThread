@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Download,
   Sparkles,
+  Rocket,
   X,
   ChevronUp,
   ChevronDown,
@@ -68,6 +69,7 @@ import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
+import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
@@ -342,6 +344,7 @@ export function FlipdeskListingsPage() {
   const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(
     null,
   );
+  const [publishItem, setPublishItem] = useState<ItemFullRow | null>(null);
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(
     null,
   );
@@ -1339,7 +1342,7 @@ export function FlipdeskListingsPage() {
                         </TableHead>
                       )}
                       {tab === "drafts" && (
-                        <TableHead className="w-16 text-right" />
+                        <TableHead className="w-32 text-right" />
                       )}
                       <TableHead className="w-8" />
                     </TableRow>
@@ -1591,14 +1594,38 @@ export function FlipdeskListingsPage() {
                               className="text-right"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-6 px-2 text-[10px]"
-                                onClick={() => setMarkListedItem(it)}
-                              >
-                                List it
-                              </Button>
+                              <div className="flex items-center justify-end gap-1">
+                                {ebayConnection ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      onClick={() => setPublishItem(it)}
+                                    >
+                                      <Rocket className="mr-1 h-3 w-3" />
+                                      Publish
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-6 px-2 text-[10px]"
+                                      onClick={() => setMarkListedItem(it)}
+                                      title="Skip eBay API — just record that it's live"
+                                    >
+                                      Mark
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px]"
+                                    onClick={() => setMarkListedItem(it)}
+                                  >
+                                    List it
+                                  </Button>
+                                )}
+                              </div>
                             </TableCell>
                           )}
                           <TableCell onClick={(e) => e.stopPropagation()}>
@@ -1791,6 +1818,14 @@ export function FlipdeskListingsPage() {
         item={markListedItem}
         onClose={() => setMarkListedItem(null)}
       />
+
+      {publishItem && (
+        <PublishToEbayDialog
+          open={!!publishItem}
+          onOpenChange={(o) => !o && setPublishItem(null)}
+          itemId={publishItem.id}
+        />
+      )}
       <RecordSaleDialog
         item={recordSaleItem}
         onClose={() => setRecordSaleItem(null)}
