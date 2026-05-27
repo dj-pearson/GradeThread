@@ -25,6 +25,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     /// scene constructs it.
     let backgroundRefresh = BackgroundRefreshService()
 
+    /// US-187 push delegate. Held on the AppDelegate because
+    /// `UNUserNotificationCenter.delegate` is a weak reference — drop
+    /// the strong reference and the delegate vanishes mid-launch.
+    let pushNotificationDelegate = NotificationDelegate()
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
@@ -40,7 +45,35 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // SyncEngine.sync() via the .inventoryPullRequested notification
         // ContentView already listens for.
         backgroundRefresh.register()
+
+        // Hook the push delegate + register notification categories.
+        // We don't request notification *permission* here per the AC —
+        // that's deferred until first Sales tab visit.
+        UNUserNotificationCenter.current().delegate = pushNotificationDelegate
+        Task { @MainActor in
+            await NotificationCategories.registerAll()
+        }
         return true
+    }
+
+    // MARK: - Remote notifications
+
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        Task { @MainActor in
+            PushService.shared.handleDeviceToken(deviceToken)
+        }
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        Task { @MainActor in
+            PushService.shared.handleRegistrationError(error)
+        }
     }
 
     func applicationDidEnterBackground(_ application: UIApplication) {

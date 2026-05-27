@@ -8,6 +8,7 @@ import {
   purgeCloudflareCache,
 } from "../lib/cloudflare-purge.ts";
 import { dispatchContentWebhook } from "../lib/content-webhook.ts";
+import { mintPreviewToken } from "../lib/preview-token.ts";
 
 // Blog posts CRUD + lifecycle endpoints.
 //
@@ -190,6 +191,21 @@ contentBlogRoutes.patch("/:id", async (c) => {
   if (!data) return c.json({ error: "Not found" }, 404);
 
   if (Array.isArray(tags)) await replaceTags(id, tags);
+
+  // If the edit affected a live post, force-purge the SSR cache so
+  // readers see the change instead of stale HTML. Includes slug
+  // renames — purge BOTH the old and new slug if slug changed.
+  if (data.status === "published") {
+    const slugsToBust = new Set<string>([data.slug]);
+    if (patch.slug && patch.slug !== data.slug) slugsToBust.add(patch.slug);
+    (async () => {
+      const allFiles: string[] = [];
+      for (const slug of slugsToBust) {
+        allFiles.push(...(await buildBlogPurgeFiles(slug)));
+      }
+      await purgeCloudflareCache({ files: allFiles });
+    })().catch((e) => console.error("[content-blog] edit purge failed:", e));
+  }
 
   return c.json({ post: data });
 });
@@ -464,3 +480,44 @@ contentBlogRoutes.post("/:id/regenerate-section", (c) =>
     501,
   ),
 );
+
+// ──────────────────────────────────────────────────────────
+// PREVIEW LINK
+// ──────────────────────────────────────────────────────────
+// Mints a signed, time-limited URL the admin can share with a reviewer
+// without giving them dashboard access. The SSR worker at
+// /blog/preview/<token> verifies it before rendering.
+contentBlogRoutes.post("/:id/preview-link", async (c) => {
+  const id = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as { ttl_seconds?: number };
+
+  const { data: post, error } = await supabaseAdmin
+    .from("blog_posts")
+    .select("id")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  try {
+    const { token, expiresAt } = await mintPreviewToken(id, body.ttl_seconds);
+    const { data: settings } = await supabaseAdmin
+      .from("content_settings")
+      .select("public_site_url")
+      .eq("id", 1)
+      .maybeSingle();
+    const base =
+      (settings?.public_site_url as string | undefined)?.replace(/\/$/, "") ||
+      "https://gradethread.com";
+    return c.json({
+      url: `${base}/blog/preview/${token}`,
+      token,
+      expires_at: expiresAt,
+    });
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      500,
+    );
+  }
+});

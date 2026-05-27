@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { verifyPreviewToken } from "../lib/preview-token.ts";
 
 // Anonymous read endpoints powering the public blog SSR worker. No
 // auth middleware: every query is constrained server-side to
@@ -95,6 +96,39 @@ contentPublicRoutes.get("/tags/:tag", async (c) => {
     .limit(MAX_LIMIT);
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ posts: data ?? [], tag });
+});
+
+// ── GET /posts/preview/:token ─────────────────────────────
+// Verifies a signed preview token and returns the draft post.
+// The SSR worker hits this for /blog/preview/<token> URLs and
+// renders the result with noindex,nofollow so it never enters
+// search indexes even if shared publicly.
+contentPublicRoutes.get("/posts/preview/:token", async (c) => {
+  const token = c.req.param("token");
+  const verified = await verifyPreviewToken(token).catch(() => null);
+  if (!verified) {
+    return c.json({ error: "Invalid or expired preview token" }, 401);
+  }
+
+  const { data: post, error } = await supabaseAdmin
+    .from("blog_posts")
+    .select(POST_COLUMNS)
+    .eq("id", verified.postId)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  const { data: tagRows } = await supabaseAdmin
+    .from("blog_post_tags")
+    .select("tag")
+    .eq("post_id", post.id);
+  const tags = (tagRows ?? []).map((r) => r.tag as string);
+
+  return c.json({
+    post: { ...post, tags },
+    preview: true,
+    expires_at: new Date(verified.expiresAt * 1000).toISOString(),
+  });
 });
 
 // ── GET /sitemap.json ─────────────────────────────────────

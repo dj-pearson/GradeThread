@@ -5,10 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { RotateCw } from "lucide-react";
 import {
   useContentSettings,
+  useRetryWebhook,
   useTestWebhook,
   useUpdateContentSettings,
+  useWebhookLog,
 } from "@/hooks/use-content";
 
 // Singleton settings page. Admin-only via the route gate.
@@ -233,6 +237,82 @@ export function ContentSettingsPage() {
           {save.isPending ? "Saving…" : "Save settings"}
         </Button>
       </div>
+
+      <RecentDeliveries />
     </div>
+  );
+}
+
+function RecentDeliveries() {
+  const { data: deliveries = [], isLoading } = useWebhookLog();
+  const retry = useRetryWebhook();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Recent webhook deliveries</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : deliveries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No webhooks have been dispatched yet.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs uppercase text-muted-foreground">
+              <tr>
+                <th className="py-2">When</th>
+                <th className="py-2">Event</th>
+                <th className="py-2">Attempt</th>
+                <th className="py-2">Status</th>
+                <th className="py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveries.map((d) => (
+                <tr key={d.id} className="border-t">
+                  <td className="py-2 text-xs text-muted-foreground">
+                    {new Date(d.created_at).toLocaleString()}
+                  </td>
+                  <td className="py-2">
+                    {d.event}
+                    {d.format && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        /{d.format}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2">{d.attempt_no}</td>
+                  <td className="py-2">
+                    {d.succeeded ? (
+                      <Badge variant="default">{d.http_status ?? "200"}</Badge>
+                    ) : (
+                      <Badge variant="destructive">
+                        {d.http_status ?? d.error?.slice(0, 24) ?? "failed"}
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="py-2 text-right">
+                    {!d.succeeded && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={retry.isPending}
+                        onClick={() => retry.mutate(d.id)}
+                        title="Retry this delivery"
+                      >
+                        <RotateCw className="mr-1 h-3.5 w-3.5" /> Retry
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </CardContent>
+    </Card>
   );
 }

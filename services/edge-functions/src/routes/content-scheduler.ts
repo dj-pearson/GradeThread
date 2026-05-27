@@ -65,6 +65,7 @@ interface TickResult {
   post_id?: string;
   status?: "draft" | "published";
   refilled_topics?: number;
+  published_scheduled?: number; // count of scheduled drafts promoted this tick
 }
 
 async function loadSettings(): Promise<SettingsRow | null> {
@@ -129,6 +130,182 @@ async function pickProductFocus(surface: Surface): Promise<Product> {
     else if (row.product_focus === "gradethread") gt++;
   }
   return fd < gt ? "flipdesk" : "gradethread";
+}
+
+// Publishes any blog_posts/social_posts where status='scheduled' and
+// scheduled_for <= now. Runs at the start of every tick so the cron
+// doubles as the scheduled-post processor (no separate cron needed).
+//
+// Best-effort per row — a failure on one post doesn't abort the others.
+// Returns the count of posts actually published.
+async function publishDueScheduledPosts(): Promise<number> {
+  const nowIso = new Date().toISOString();
+  let published = 0;
+
+  const { data: blogs } = await supabaseAdmin
+    .from("blog_posts")
+    .select("*")
+    .eq("status", "scheduled")
+    .lte("scheduled_for", nowIso);
+
+  for (const post of blogs ?? []) {
+    try {
+      const { data: updated } = await supabaseAdmin
+        .from("blog_posts")
+        .update({ status: "published", published_at: nowIso })
+        .eq("id", post.id)
+        .eq("status", "scheduled") // optimistic concurrency: skip if someone else won
+        .select("*")
+        .maybeSingle();
+      if (!updated) continue;
+
+      if (updated.topic_id) {
+        await supabaseAdmin
+          .from("content_topics")
+          .update({ status: "used", used_by_post_id: updated.id, used_at: nowIso })
+          .eq("id", updated.topic_id);
+      }
+
+      const { data: tagRows } = await supabaseAdmin
+        .from("blog_post_tags")
+        .select("tag")
+        .eq("post_id", updated.id);
+      const tags = (tagRows ?? []).map((r) => r.tag as string);
+
+      appendToHistoryIndex({
+        surface: "blog",
+        product_focus: updated.product_focus,
+        post_id: updated.id,
+        title: updated.title,
+        primary_keyword: updated.primary_keyword ?? null,
+        secondary_keywords: updated.secondary_keywords ?? [],
+        summary_one_line: updated.excerpt ?? null,
+        published_at: nowIso,
+      }).catch((e) =>
+        console.error("[scheduler] scheduled blog history failed:", e),
+      );
+
+      buildBlogPurgeFiles(updated.slug)
+        .then((files) => purgeCloudflareCache({ files }))
+        .catch((e) => console.error("[scheduler] scheduled blog purge failed:", e));
+
+      const siteUrl =
+        (await loadSettings())?.public_site_url ?? "https://gradethread.com";
+      dispatchContentWebhook({
+        event: "blog.published",
+        timestamp: nowIso,
+        data: {
+          id: updated.id,
+          url: `${siteUrl.replace(/\/$/, "")}/blog/${updated.slug}`,
+          title: updated.title,
+          excerpt: updated.excerpt ?? null,
+          hero_image_url: updated.hero_image_url ?? null,
+          primary_keyword: updated.primary_keyword ?? null,
+          tags,
+          product_focus: updated.product_focus,
+        },
+      }).catch((e) =>
+        console.error("[scheduler] scheduled blog webhook failed:", e),
+      );
+
+      published++;
+    } catch (e) {
+      console.error(
+        `[scheduler] scheduled blog publish failed for ${post.id}:`,
+        e,
+      );
+    }
+  }
+
+  const { data: socials } = await supabaseAdmin
+    .from("social_posts")
+    .select("*")
+    .eq("status", "scheduled")
+    .lte("scheduled_for", nowIso);
+
+  for (const post of socials ?? []) {
+    try {
+      const { data: updated } = await supabaseAdmin
+        .from("social_posts")
+        .update({ status: "published", published_at: nowIso })
+        .eq("id", post.id)
+        .eq("status", "scheduled")
+        .select("*")
+        .maybeSingle();
+      if (!updated) continue;
+
+      if (updated.topic_id) {
+        await supabaseAdmin
+          .from("content_topics")
+          .update({ status: "used", used_by_post_id: updated.id, used_at: nowIso })
+          .eq("id", updated.topic_id);
+      }
+
+      const summary =
+        (updated.short_body || updated.long_body || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 140) || null;
+      appendToHistoryIndex({
+        surface: "social",
+        product_focus: updated.product_focus,
+        post_id: updated.id,
+        title: summary ?? "social post",
+        primary_keyword: null,
+        secondary_keywords: updated.hashtags ?? [],
+        summary_one_line: summary,
+        published_at: nowIso,
+      }).catch((e) =>
+        console.error("[scheduler] scheduled social history failed:", e),
+      );
+
+      const fires: Promise<unknown>[] = [];
+      if (updated.long_body?.trim()) {
+        fires.push(
+          dispatchContentWebhook({
+            event: "social.published",
+            format: "long",
+            timestamp: nowIso,
+            data: {
+              id: updated.id,
+              body: updated.long_body,
+              hashtags: updated.hashtags ?? [],
+              cta_url: updated.cta_url ?? null,
+              product_focus: updated.product_focus,
+            },
+          }),
+        );
+      }
+      if (updated.short_body?.trim()) {
+        fires.push(
+          dispatchContentWebhook({
+            event: "social.published",
+            format: "short",
+            timestamp: nowIso,
+            data: {
+              id: updated.id,
+              body: updated.short_body,
+              hashtags: updated.hashtags ?? [],
+              cta_url: updated.cta_url ?? null,
+              product_focus: updated.product_focus,
+            },
+          }),
+        );
+      }
+      Promise.all(fires).catch((e) =>
+        console.error("[scheduler] scheduled social webhook failed:", e),
+      );
+
+      published++;
+    } catch (e) {
+      console.error(
+        `[scheduler] scheduled social publish failed for ${post.id}:`,
+        e,
+      );
+    }
+  }
+
+  return published;
 }
 
 async function pickNextTopic(surface: Surface, product: Product) {
@@ -532,6 +709,12 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     return c.json({ error: "content_settings row missing" }, 500);
   }
 
+  // First: pick up anything the admin scheduled (status='scheduled' with
+  // scheduled_for in the past). This runs every tick regardless of
+  // cadence, so a scheduled post fires within the cron interval of its
+  // scheduled_for. Counts toward today's cadence below.
+  const publishedScheduled = await publishDueScheduledPosts();
+
   const today = await publishedTodayCounts();
 
   // Decide which surface (if any) is due for a slot.
@@ -554,6 +737,7 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     return c.json<TickResult>({
       skipped: true,
       reason: "cadence already met for today",
+      published_scheduled: publishedScheduled,
     });
   }
 
@@ -577,7 +761,11 @@ contentSchedulerRoutes.post("/tick", async (c) => {
       ? await runBlogTick(product, autoPublish)
       : await runSocialTick(product, autoPublish);
 
-  return c.json<TickResult>({ ...result, refilled_topics: refilled });
+  return c.json<TickResult>({
+    ...result,
+    refilled_topics: refilled,
+    published_scheduled: publishedScheduled,
+  });
 });
 
 // Lightweight ping — useful for Make.com to validate the secret + URL

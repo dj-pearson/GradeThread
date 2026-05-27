@@ -23,6 +23,7 @@ import {
   Image as ImageIcon,
   Send,
   Save,
+  Eye,
 } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/constants";
 import {
   useBlogPost,
+  useCreatePreviewLink,
   useGenerateBlogPost,
   useGenerateHero,
   usePublishBlogPost,
@@ -121,6 +123,7 @@ function Editor({
   const publish = usePublishBlogPost(postId);
   const generate = useGenerateBlogPost(postId);
   const heroGen = useGenerateHero(postId, "blog");
+  const preview = useCreatePreviewLink(postId);
 
   // Debounced autosave of body HTML. Other fields save on Save click.
   useEffect(() => {
@@ -189,6 +192,23 @@ function Editor({
     await publish.mutateAsync();
   };
 
+  const runPreview = async () => {
+    // Save meta first so the preview reflects the latest title/slug.
+    await saveMeta();
+    const link = await preview.mutateAsync({});
+    if (link?.url) {
+      try {
+        await navigator.clipboard.writeText(link.url);
+        toast.success(
+          `Preview link copied — valid until ${new Date(link.expires_at).toLocaleTimeString()}`,
+        );
+      } catch {
+        window.prompt("Copy this preview link:", link.url);
+      }
+      window.open(link.url, "_blank", "noopener");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <SEO title={`Editing — ${title || "untitled"}`} />
@@ -217,6 +237,16 @@ function Editor({
           >
             <Sparkles className="mr-2 h-4 w-4" />
             {generate.isPending ? "Generating…" : "Generate"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={runPreview}
+            disabled={preview.isPending || !body.trim()}
+            title="Mints a 30-minute signed preview link"
+          >
+            <Eye className="mr-2 h-4 w-4" />
+            {preview.isPending ? "…" : "Preview"}
           </Button>
           <Button
             size="sm"

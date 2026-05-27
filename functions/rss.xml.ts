@@ -27,8 +27,10 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     .map((p) => {
       const link = `${base}/blog/${p.slug}`;
       const pubDate = new Date(p.published_at).toUTCString();
-      const enclosure = p.hero_image_url
-        ? `<enclosure url="${escape(p.hero_image_url)}" type="image/png" length="0"/>`
+      const mediaBits = p.hero_image_url
+        ? `<enclosure url="${escape(p.hero_image_url)}" type="image/png" length="0" />
+  <media:thumbnail url="${escape(p.hero_image_url)}" />
+  <media:content url="${escape(p.hero_image_url)}" medium="image" />`
         : "";
       return `<item>
   <title>${escape(p.title)}</title>
@@ -36,13 +38,17 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
   <guid isPermaLink="true">${escape(link)}</guid>
   <pubDate>${pubDate}</pubDate>
   <description>${escape(p.excerpt ?? "")}</description>
-  ${enclosure}
+  ${mediaBits}
 </item>`;
     })
     .join("\n");
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0"
+  xmlns:atom="http://www.w3.org/2005/Atom"
+  xmlns:media="http://search.yahoo.com/mrss/"
+  xmlns:content="http://purl.org/rss/1.0/modules/content/"
+  xmlns:dc="http://purl.org/dc/elements/1.1/">
 <channel>
   <title>GradeThread Blog</title>
   <link>${escape(base)}/blog</link>

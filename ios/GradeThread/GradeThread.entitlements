@@ -6,5 +6,11 @@
     <array>
         <string>Default</string>
     </array>
+    <!-- US-187: APNs. Set to "development" for Xcode-signed dev builds;
+         the release workflow (ios-release.yml) flips this to "production"
+         via PlistBuddy before archiving so TestFlight + App Store builds
+         use the production APNs environment. -->
+    <key>aps-environment</key>
+    <string>development</string>
 </dict>
 </plist>

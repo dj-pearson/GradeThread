@@ -3,6 +3,11 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
 import { generateSocialPost } from "../lib/content-ai-social.ts";
 import { dispatchContentWebhook } from "../lib/content-webhook.ts";
+import {
+  getAiTemperature,
+  getAnthropicClient,
+  getLightweightModel,
+} from "../lib/ai-config.ts";
 
 // Social posts CRUD + lifecycle. One row carries BOTH long and short
 // variants so the editorial pairing stays atomic. Publish fires one
@@ -218,6 +223,81 @@ contentSocialRoutes.post("/:id/schedule", async (c) => {
   if (error) return c.json({ error: error.message }, 500);
   if (!data) return c.json({ error: "Not found" }, 404);
   return c.json({ post: data });
+});
+
+// ── SUGGEST HASHTAGS ─────────────────────────────────────
+// Cheap Haiku call. Returns 5-8 deduped, lowercased hashtags suitable
+// for the body's product/topic. The editor appends them to the chip
+// input, leaving the user in control.
+contentSocialRoutes.post("/:id/suggest-hashtags", async (c) => {
+  const id = c.req.param("id");
+  const { data: post } = await supabaseAdmin
+    .from("social_posts")
+    .select("long_body, short_body, product_focus")
+    .eq("id", id)
+    .maybeSingle();
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  const body = (post.long_body || post.short_body || "").trim();
+  if (!body) return c.json({ error: "Post body is empty" }, 400);
+
+  const userPrompt = [
+    "Suggest 5-8 hashtags for the following social post.",
+    "",
+    `Product focus: ${post.product_focus}`,
+    "Body:",
+    body.slice(0, 1500),
+    "",
+    "Rules:",
+    "- Lowercase, no spaces, no '#' prefix in the array values.",
+    "- Mix general (reselling, thrifting) with specific (vintageclothing, ebayreseller).",
+    "- Skip generic spam tags (follow4follow etc.).",
+    "",
+    'Return JSON: { "hashtags": ["reselling", "thrifting", "..."] }',
+  ].join("\n");
+
+  try {
+    const client = getAnthropicClient();
+    const model = getLightweightModel();
+    const temperature = getAiTemperature();
+    const response = await client.messages.create({
+      model,
+      max_tokens: 256,
+      ...(temperature !== undefined ? { temperature } : {}),
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    const textBlock = response.content.find((b) => b.type === "text");
+    if (!textBlock || textBlock.type !== "text") {
+      return c.json({ error: "AI response missing text" }, 502);
+    }
+    const cleaned = textBlock.text
+      .trim()
+      .replace(/^```(?:json)?\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "");
+    const parsed = JSON.parse(cleaned) as { hashtags?: unknown };
+    const out: string[] = [];
+    const seen = new Set<string>();
+    if (Array.isArray(parsed.hashtags)) {
+      for (const h of parsed.hashtags) {
+        if (typeof h !== "string") continue;
+        const norm = h
+          .trim()
+          .toLowerCase()
+          .replace(/^#/, "")
+          .replace(/\s+/g, "")
+          .replace(/[^a-z0-9_]/g, "");
+        if (!norm || seen.has(norm)) continue;
+        seen.add(norm);
+        out.push(norm);
+        if (out.length >= 8) break;
+      }
+    }
+    return c.json({ hashtags: out });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[content-social] suggest-hashtags failed:", msg);
+    return c.json({ error: msg }, 500);
+  }
 });
 
 // ── AI GENERATE ───────────────────────────────────────────

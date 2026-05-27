@@ -295,6 +295,11 @@ extension Notification.Name {
     /// Pulled-to-refresh on the inventory list. ContentView observes
     /// and forwards to SyncEngine.sync().
     static let inventoryPullRequested = Notification.Name("com.gradethread.inventoryPullRequested")
+
+    /// US-187: notification tap → MainShell mutates AppRouter to the
+    /// right tab + path. Carries `DeepLinkRoute` under
+    /// `DeepLinkRouter.routeUserInfoKey`.
+    static let applyDeepLink = Notification.Name("com.gradethread.applyDeepLink")
 }
 
 // (ItemCanvasPlaceholder removed — US-181 ItemCanvasView is now the

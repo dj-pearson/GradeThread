@@ -50,6 +50,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   if (segments.length === 2 && segments[0] === "tag") {
     return renderTag(env, segments[1] ?? "");
   }
+  if (segments.length === 2 && segments[0] === "preview") {
+    return renderPreview(env, segments[1] ?? "");
+  }
   if (segments.length === 1) {
     return renderPost(env, segments[0] ?? "");
   }
@@ -215,6 +218,64 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   );
 }
 
+async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
+  if (!token) return notFoundResponse(env);
+  const data = await fetchJson<PostResponse & { preview?: boolean; expires_at?: string }>(
+    env,
+    `/api/content/public/posts/preview/${encodeURIComponent(token)}`,
+  );
+  if (!data?.post) {
+    return new Response(
+      renderLayout({
+        title: "Preview unavailable — GradeThread",
+        description: "This preview link has expired or is invalid.",
+        canonicalUrl: `${siteUrl(env)}/blog`,
+        noindex: true,
+        bodyHtml: `<main class="container"><h1>Preview link expired</h1><p>Ask the post author for a fresh link, or check the token is intact.</p></main>`,
+      }),
+      {
+        status: 401,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      },
+    );
+  }
+  const post = data.post;
+  const canonical = `${siteUrl(env)}/blog/${post.slug}`;
+
+  const heroHtml = post.hero_image_url
+    ? `<img class="hero" src="${escape(post.hero_image_url)}" alt="${escape(post.title)}">`
+    : "";
+  const banner = `<div style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;padding:12px 16px;border-radius:6px;margin-bottom:24px;font-size:0.9rem">
+    <strong>Preview mode</strong> &middot; This is an unpublished draft.
+    ${data.expires_at ? `Link expires ${escape(formatDateTime(data.expires_at))}.` : ""}
+  </div>`;
+
+  const bodyHtml = `<main class="container">
+  ${banner}
+  ${heroHtml}
+  <h1>${escape(post.title)}</h1>
+  <article>${post.body_html}</article>
+</main>`;
+
+  return new Response(
+    renderLayout({
+      title: `Preview — ${post.title}`,
+      description: post.excerpt ?? "Draft preview",
+      canonicalUrl: canonical,
+      noindex: true,
+      bodyHtml,
+    }),
+    {
+      status: 200,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        // Never cache preview pages.
+        "Cache-Control": "private, no-store, max-age=0",
+      },
+    },
+  );
+}
+
 async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
   if (!tag) return notFoundResponse(env);
   const data = await fetchJson<TagResponse>(
@@ -274,6 +335,19 @@ function formatDate(iso: string): string {
       year: "numeric",
       month: "long",
       day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatDateTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
     });
   } catch {
     return iso;

@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Save, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, Hash, Save, Send, Sparkles } from "lucide-react";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUS_LABELS,
@@ -26,6 +26,7 @@ import {
   useGenerateSocialPost,
   usePublishSocialPost,
   useSocialPost,
+  useSuggestHashtags,
   useUpdateSocialPost,
 } from "@/hooks/use-content";
 import type { ContentProduct } from "@/types/database";
@@ -79,6 +80,7 @@ function SocialEditorInner({
   const update = useUpdateSocialPost(postId);
   const publish = usePublishSocialPost(postId);
   const generate = useGenerateSocialPost(postId);
+  const suggest = useSuggestHashtags(postId);
 
   const [productFocus, setProductFocus] = useState<ContentProduct>(
     initial.product_focus,
@@ -273,12 +275,47 @@ Then the body..."
           </div>
           <div className="md:col-span-3">
             <Label htmlFor="sp-hashtags">Hashtags (comma-separated)</Label>
-            <Input
-              id="sp-hashtags"
-              value={hashtags}
-              onChange={(e) => setHashtags(e.target.value)}
-              placeholder="reselling, thrifting, ebay"
-            />
+            <div className="flex gap-2">
+              <Input
+                id="sp-hashtags"
+                value={hashtags}
+                onChange={(e) => setHashtags(e.target.value)}
+                placeholder="reselling, thrifting, ebay"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  suggest.isPending || (!longBody.trim() && !shortBody.trim())
+                }
+                onClick={async () => {
+                  // Save any unsaved body edits so the suggester sees them.
+                  if (dirty) {
+                    await update.mutateAsync({
+                      long_body: longBody,
+                      short_body: shortBody,
+                    });
+                    setDirty(false);
+                  }
+                  const suggested = await suggest.mutateAsync();
+                  if (!suggested || suggested.length === 0) return;
+                  const existing = new Set(
+                    hashtags
+                      .split(",")
+                      .map((s) => s.trim().toLowerCase().replace(/^#/, ""))
+                      .filter(Boolean),
+                  );
+                  const merged = [
+                    ...Array.from(existing),
+                    ...suggested.filter((h) => !existing.has(h)),
+                  ];
+                  setHashtags(merged.join(", "));
+                }}
+              >
+                <Hash className="mr-2 h-4 w-4" />
+                {suggest.isPending ? "…" : "Suggest"}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

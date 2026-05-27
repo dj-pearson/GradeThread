@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SEO } from "@/components/seo";
+import { LaunchBanner } from "@/components/launch-banner";
 import {
   CREDIT_PACKS,
   FLIPDESK_PLANS,
@@ -424,6 +425,7 @@ export function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <SEO canonicalUrl="https://gradethread.com/" />
+      <LaunchBanner />
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">
         <img src="/logo_primary.svg" alt="GradeThread" className="h-8" />

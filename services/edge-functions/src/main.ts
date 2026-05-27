@@ -91,6 +91,7 @@ app.use("/api/grade/*", authMiddleware);
 app.use("/api/payments/*", authMiddleware);
 app.use("/api/keys/*", authMiddleware);
 app.use("/api/notifications/dispute-resolved", authMiddleware);
+app.use("/api/notifications/register", authMiddleware);
 // FlipDesk: everything under /api/flipdesk is authed except inbound webhooks
 // and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
 // the `state` token from oauth_states identifies the user) + the scheduled
@@ -139,6 +140,7 @@ app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000));
 // gpt-image-1). Cap at 20/min/user across these paths.
 app.use("/api/content/blog/*/generate", rateLimiter(20, 60_000));
 app.use("/api/content/social/*/generate", rateLimiter(20, 60_000));
+app.use("/api/content/social/*/suggest-hashtags", rateLimiter(30, 60_000));
 app.use("/api/content/topics/research", rateLimiter(20, 60_000));
 app.use("/api/content/images/*", rateLimiter(20, 60_000));
 

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Rocket } from "lucide-react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +8,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+
+// Mirrors the constant in components/launch-banner.tsx. The signup notice
+// auto-hides on/after launch so we don't have to remember to strip it.
+const LAUNCH_DATE = new Date("2026-07-01T00:00:00Z");
+const PRE_LAUNCH = Date.now() < LAUNCH_DATE.getTime();
 
 const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
   ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}`
@@ -79,6 +85,21 @@ export function SignupPage() {
         <CardDescription>Start grading clothes with AI today</CardDescription>
       </CardHeader>
       <CardContent>
+        {PRE_LAUNCH && (
+          <div className="mb-5 flex items-start gap-3 rounded-md border border-brand-red/30 bg-brand-red/5 p-3 text-sm">
+            <Rocket className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red" />
+            <div>
+              <p className="font-semibold text-brand-navy">
+                GradeThread launches July 1, 2026.
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Create your account now to be ready on day one. AI grading and
+                FlipDesk go live July 1 — your profile, preferences, and
+                onboarding will be waiting for you.
+              </p>
+            </div>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="name">Full name</Label>

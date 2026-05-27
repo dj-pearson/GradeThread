@@ -59,6 +59,27 @@ struct ContentView: View {
                 // Inventory list pulled-to-refresh — route to the engine.
                 Task { await syncEngine?.sync() }
             }
+            .onReceive(
+                NotificationCenter.default.publisher(for: DeepLinkRouter.notificationName)
+            ) { notification in
+                guard let route = notification.userInfo?[DeepLinkRouter.routeUserInfoKey]
+                        as? DeepLinkRoute else { return }
+                handleDeepLink(route)
+            }
+    }
+
+    private func handleDeepLink(_ route: DeepLinkRoute) {
+        // We don't own AppRouter directly (it lives inside MainShell).
+        // Re-post via a more specific notification so MainShell can
+        // mutate its router state without us threading a handle through
+        // the env. ProtectedRouteShell is what's currently rendered when
+        // .signedIn — anything else gets ignored.
+        guard case .signedIn = authStore.phase else { return }
+        NotificationCenter.default.post(
+            name: .applyDeepLink,
+            object: nil,
+            userInfo: [DeepLinkRouter.routeUserInfoKey: route]
+        )
     }
 
     private func runForegroundPullIfNeeded() {
@@ -153,6 +174,33 @@ struct MainShell: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Where would you like to start?")
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(for: .applyDeepLink)
+        ) { notification in
+            guard let route = notification.userInfo?[DeepLinkRouter.routeUserInfoKey]
+                    as? DeepLinkRoute else { return }
+            apply(route: route, router: router)
+        }
+    }
+
+    /// Translates a DeepLinkRoute into AppRouter mutations. Best-effort —
+    /// item-specific routes (which need a SwiftData fetch to push the
+    /// canvas) just land the user on the right tab for now; the
+    /// inventory list re-filters and shows the item.
+    private func apply(route: DeepLinkRoute, router: AppRouter) {
+        switch route {
+        case .salesTab:
+            router.selection = .sales
+        case .marketplacesTab:
+            router.selection = .marketplaces
+        case .inventoryItem:
+            router.selection = .inventory
+            // Pushing the canvas for a specific item id requires fetching
+            // the LocalInventoryItem first — that's a per-route TODO once
+            // we add a route descriptor that the inventory tab's
+            // navigationDestination can resolve. For now we drop the user
+            // on the inventory list where they can tap the row.
         }
     }
 }
@@ -372,12 +420,22 @@ private struct InventoryPlaceholder: View {
 }
 
 private struct SalesPlaceholder: View {
+    /// US-187: first time the user opens the Sales tab, request push
+    /// permission. Deliberately deferred from app launch so the prompt
+    /// lands at a moment the user's already thinking about sales.
+    @State private var hasRequestedPermission: Bool = false
+
     var body: some View {
         TabPlaceholder(
             title: "Sales",
             subtitle: "Order + payout views land in US-184.",
             systemImage: "dollarsign.circle"
         )
+        .task {
+            guard !hasRequestedPermission else { return }
+            hasRequestedPermission = true
+            _ = await PushService.shared.requestPermissionIfNeeded()
+        }
     }
 }
 
@@ -420,6 +478,7 @@ private struct SettingsPlaceholder: View {
                 Text("Pulls listings + sales while the app is in the background, when iOS allows. Respects the system Background App Refresh setting — turning that off in Settings overrides this toggle.")
                     .font(.footnote)
             }
+            notificationPreferencesSection
             Section {
                 Text("Full settings UI ships in US-194.")
                     .font(.footnote)
@@ -427,6 +486,59 @@ private struct SettingsPlaceholder: View {
             }
         }
         .navigationTitle("Settings")
+    }
+
+    /// Per-category toggles for US-187 notifications. Backed by
+    /// UserDefaults today so the UX is instant; a follow-up will sync
+    /// the values to users.notification_preferences via supabase-swift
+    /// so the web reads the same prefs.
+    private var notificationPreferencesSection: some View {
+        Section {
+            ForEach(NotificationCategoryID.allCases, id: \.self) { id in
+                NotificationCategoryToggle(category: id)
+            }
+        } header: {
+            Text("Push notifications")
+        } footer: {
+            Text("First time you open the Sales tab we'll ask permission. Critical alerts (eBay token expiring) can interrupt Focus modes — you control that in iOS Settings → Notifications → GradeThread.")
+                .font(.footnote)
+        }
+    }
+}
+
+/// One toggle per push category. Persists to UserDefaults under a
+/// per-category key so the value survives launches. Default ON.
+private struct NotificationCategoryToggle: View {
+    let category: NotificationCategoryID
+    @State private var isEnabled: Bool
+
+    init(category: NotificationCategoryID) {
+        self.category = category
+        let key = NotificationCategoryToggle.userDefaultsKey(for: category)
+        let initial = UserDefaults.standard.object(forKey: key) as? Bool ?? true
+        _isEnabled = State(initialValue: initial)
+    }
+
+    var body: some View {
+        Toggle(isOn: $isEnabled) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(category.label)
+                    .font(.subheadline)
+                Text(category.helpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: isEnabled) { _, newValue in
+            UserDefaults.standard.set(
+                newValue,
+                forKey: NotificationCategoryToggle.userDefaultsKey(for: category)
+            )
+        }
+    }
+
+    static func userDefaultsKey(for category: NotificationCategoryID) -> String {
+        "com.gradethread.app.notifyPref.\(category.rawValue)"
     }
 }
 

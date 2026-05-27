@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 
 // Singleton settings table (id=1). The dashboard's Content Settings page
 // reads/writes here for webhook URLs, auto-publish toggles, cadence,
@@ -80,6 +81,58 @@ contentSettingsRoutes.patch("/", async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ settings: data });
+});
+
+// ── Recent webhook deliveries ────────────────────────────
+// Used by the dashboard settings panel to surface failures and offer
+// a one-click retry. Returns the most recent 50 attempts.
+contentSettingsRoutes.get("/webhooks/log", async (c) => {
+  const onlyFailed = c.req.query("failed_only") === "1";
+  let q = supabaseAdmin
+    .from("content_webhook_log")
+    .select(
+      "id, event, format, target_url, attempt_no, http_status, succeeded, error, created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (onlyFailed) q = q.eq("succeeded", false);
+  const { data, error } = await q;
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ deliveries: data ?? [] });
+});
+
+// ── Retry a failed delivery ──────────────────────────────
+// Pulls the original payload out of the log row and re-dispatches.
+// New attempts will be logged as fresh content_webhook_log rows.
+contentSettingsRoutes.post("/webhooks/:logId/retry", async (c) => {
+  const logId = c.req.param("logId");
+  const { data: row, error } = await supabaseAdmin
+    .from("content_webhook_log")
+    .select("event, format, payload")
+    .eq("id", logId)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!row) return c.json({ error: "Log row not found" }, 404);
+
+  try {
+    // Payload is stored as jsonb — pass through to the dispatcher.
+    // The dispatcher resolves the URL fresh from content_settings, so a
+    // changed webhook URL takes effect on retry without code changes.
+    const result = await dispatchContentWebhook(
+      row.payload as Parameters<typeof dispatchContentWebhook>[0],
+    );
+    return c.json({
+      retried: true,
+      delivered: result.delivered,
+      attempts: result.attempts,
+      last_status: result.last_status,
+    });
+  } catch (e) {
+    return c.json(
+      { error: e instanceof Error ? e.message : String(e) },
+      500,
+    );
+  }
 });
 
 // Test-fire a webhook URL without publishing anything real. The dashboard

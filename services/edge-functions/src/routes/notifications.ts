@@ -24,6 +24,75 @@ function checkWelcomeRateLimit(ip: string): boolean {
   return entry.count <= WELCOME_MAX;
 }
 
+// ─── iOS push registration (US-187) ──────────────────────────────────
+//
+// POST /register
+// Body: { device_token: string, environment: "development"|"production",
+//         device_name?, os_version?, app_version? }
+//
+// Upserts a row in push_device_tokens scoped to the authed user. Idempotent
+// on (user_id, device_token) — re-registering the same token bumps
+// last_seen_at + is_active=true and skips the insert. APNs send paths
+// (sale.created, payout.cleared, token.expiring, item.review_needed)
+// fan out per active row.
+notificationRoutes.post("/register", async (c) => {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) {
+    return c.json({ error: "Sign-in required" }, 401);
+  }
+
+  let body: {
+    device_token?: unknown;
+    environment?: unknown;
+    device_name?: unknown;
+    os_version?: unknown;
+    app_version?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const deviceToken =
+    typeof body.device_token === "string" ? body.device_token.trim() : "";
+  const environment = body.environment === "production" ? "production" : "development";
+  if (!deviceToken || deviceToken.length < 32) {
+    return c.json({ error: "device_token is required" }, 400);
+  }
+
+  const { data: existing } = await supabaseAdmin
+    .from("push_device_tokens")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("device_token", deviceToken)
+    .maybeSingle();
+
+  const payload = {
+    user_id: userId,
+    device_token: deviceToken,
+    environment,
+    device_name: typeof body.device_name === "string" ? body.device_name : null,
+    os_version: typeof body.os_version === "string" ? body.os_version : null,
+    app_version: typeof body.app_version === "string" ? body.app_version : null,
+    is_active: true,
+    last_seen_at: new Date().toISOString(),
+  };
+
+  if (existing && (existing as { id: string }).id) {
+    await supabaseAdmin
+      .from("push_device_tokens")
+      .update(payload)
+      .eq("id", (existing as { id: string }).id);
+  } else {
+    await supabaseAdmin
+      .from("push_device_tokens")
+      .insert(payload);
+  }
+
+  return c.json({ ok: true });
+});
+
 /**
  * POST /dispute-resolved
  * Called by the admin frontend after resolving or rejecting a dispute.

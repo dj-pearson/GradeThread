@@ -169,8 +169,70 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 20/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage; US-186 reconciliation; US-188 BGAppRefreshTask + foreground debounce + new-sale local notification + settings toggle. US-187+US-189→US-199 remaining
+- iOS app (US-168 → US-199): 21/32 — US-168 scaffold + CI/CD; US-169 networking; US-170 auth; US-171 tab polish; US-172 SwiftData + sync; US-173 camera; US-174 library; US-175 background uploads; US-176 AI extract; US-177 Live Text; US-178 manual intake; US-179 voice + barcode; US-180 inventory list; US-181 item canvas; US-182 bulk actions; US-183 eBay OAuth; US-184 eBay sync; US-185 publish + manage; US-186 reconciliation; US-187 APNs receive side + deep-link router + category settings; US-188 BG refresh. US-189→US-199 remaining
 - Pricing model rework (US-200 → US-225): 0/26 — in-flight separately (DB types already updated in src/types/database.ts; remaining work covers Stripe products, checkout flows, plan-gate middleware, billing UI, dunning, trials, admin tools)
+
+## Session Notes (2026-05-27) — iOS push receive (US-187)
+APNs receive side is in place: permission prompt deferred to first
+Sales tab visit, device token captured + registered with the edge
+service, category-aware tap handling with deep-link routing. APNs
+send infrastructure (HTTP/2 client + .p8 key handling + per-event
+triggers) is intentionally separate scope — the device-token
+collection layer this story added is the bottleneck for whichever
+push provider lands next.
+
+What landed in ios/GradeThread/Notifications/:
+- NotificationCategories.swift — wire-string-pinned category
+  identifiers (sale.created / payout.cleared / token.expiring /
+  item.review_needed). token.expiring uses .customDismissAction so
+  Focus-mode interruption is possible when the user opts in.
+- PushService.swift — singleton handling permission +
+  registerForRemoteNotifications + hex-encoded token persistence +
+  POST /api/notifications/register with the right environment
+  string (DEBUG → development, RELEASE → production matching
+  aps-environment).
+- NotificationDelegate.swift — UNUserNotificationCenterDelegate.
+  Foreground presentation as [.banner, .badge, .sound, .list] so
+  in-app pushes still surface. Tap handling builds a DeepLinkRoute
+  via DeepLinkRoute.from(category:userInfo:) and forwards via
+  DeepLinkRouter (NotificationCenter-based bus) to MainShell.
+- DeepLinkRouter routes every category → destination:
+  sale.created/payout.cleared → .salesTab(itemId:),
+  token.expiring → .marketplacesTab,
+  item.review_needed (+ itemId) → .inventoryItem(id:).
+
+Wiring:
+- GradeThread.entitlements gains aps-environment='development'.
+  Release workflow flips to 'production' before archiving.
+- AppDelegate sets UNUserNotificationCenter.delegate to the
+  AppDelegate-owned NotificationDelegate (kept alive past launch
+  because delegate is a weak reference). Registers all 4 categories
+  at launch.
+- SalesPlaceholder calls PushService.shared.requestPermissionIfNeeded
+  exactly once via @State guard. Deferred from app launch per the
+  AC so the prompt feels intentional.
+- ContentView observes .applyDeepLink and posts to MainShell, which
+  mutates router.selection. Per-item canvas push is a TODO scoped
+  to the next iteration once a navigationDestination resolver lands.
+- SettingsPlaceholder gains a 'Push notifications' section with one
+  Toggle per category. UserDefaults-backed at
+  com.gradethread.app.notifyPref.<categoryRawValue>, default ON.
+  Web sync to users.notification_preferences is a follow-up.
+
+Server-side:
+- supabase/migrations/00037_push_device_tokens.sql — push_device_tokens
+  table (user_id, device_token, environment CHECK, device_name,
+  os_version, app_version, is_active, last_seen_at) with UNIQUE
+  (user_id, device_token) for idempotent re-registration, per-user
+  RLS, set_updated_at trigger.
+- POST /api/notifications/register in
+  services/edge-functions/src/routes/notifications.ts upserts by
+  (user_id, device_token). Gated by authMiddleware in main.ts.
+
+Tests in PushNotificationTests pin every category raw-value, allCases
+count, label + helpText non-empty, DeepLinkRoute.from for each
+category × itemId-present-or-not branch including unknown-category
+nil fallback, PushService.environmentName matches build config.
 
 ## Session Notes (2026-05-27) — iOS background refresh (US-188)
 App now stays opportunistically fresh in the background and debounces

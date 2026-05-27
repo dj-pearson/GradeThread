@@ -180,6 +180,23 @@ export function useGenerateBlogPost(id: string) {
   });
 }
 
+export function useCreatePreviewLink(postId: string) {
+  return useMutation({
+    mutationFn: async (input?: { ttl_seconds?: number }) => {
+      const data = await jfetch<{
+        url: string;
+        token: string;
+        expires_at: string;
+      }>(`/api/content/blog/${postId}/preview-link`, {
+        method: "POST",
+        json: input ?? {},
+      });
+      return data;
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
 export function useGenerateHero(postId: string, surface: "blog" | "social" = "blog") {
   const qc = useQueryClient();
   return useMutation({
@@ -246,6 +263,19 @@ export function useUpdateSocialPost(id: string) {
     onSuccess: (post) => {
       qc.setQueryData(["social_post", id], post);
       qc.invalidateQueries({ queryKey: ["social_posts"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export function useSuggestHashtags(id: string) {
+  return useMutation({
+    mutationFn: async () => {
+      const data = await jfetch<{ hashtags: string[] }>(
+        `/api/content/social/${id}/suggest-hashtags`,
+        { method: "POST", json: {} },
+      );
+      return data.hashtags;
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -555,6 +585,60 @@ export function useSchedulerTick() {
       } else {
         toast.success(
           `Generated ${r.surface} post (${r.product_focus}) — status: ${r.status}.`,
+        );
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+
+export interface WebhookDelivery {
+  id: string;
+  event: string;
+  format: string | null;
+  target_url: string;
+  attempt_no: number;
+  http_status: number | null;
+  succeeded: boolean;
+  error: string | null;
+  created_at: string;
+}
+
+export function useWebhookLog(failedOnly = false) {
+  return useQuery({
+    queryKey: ["content_webhook_log", failedOnly],
+    staleTime: 15_000,
+    queryFn: async () => {
+      const qs = failedOnly ? "?failed_only=1" : "";
+      const data = await jfetch<{ deliveries: WebhookDelivery[] }>(
+        `/api/content/settings/webhooks/log${qs}`,
+      );
+      return data.deliveries;
+    },
+  });
+}
+
+export function useRetryWebhook() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (logId: string) => {
+      const data = await jfetch<{
+        delivered: boolean;
+        attempts: number;
+        last_status: number | null;
+      }>(`/api/content/settings/webhooks/${logId}/retry`, {
+        method: "POST",
+        json: {},
+      });
+      return data;
+    },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["content_webhook_log"] });
+      if (r.delivered) {
+        toast.success(`Delivered (status ${r.last_status}).`);
+      } else {
+        toast.error(
+          `Retry failed after ${r.attempts} attempts (last status ${r.last_status ?? "—"}).`,
         );
       }
     },
