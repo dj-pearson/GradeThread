@@ -4,7 +4,7 @@ End-to-end walkthrough from a fresh Apple Developer account to a TestFlight buil
 
 The CI infrastructure is already wired:
 - `.github/workflows/ios-ci.yml` — PR + main checks (build + test, unsigned)
-- `.github/workflows/ios-release.yml` — archive + sign + upload to TestFlight on `main`/tag/dispatch
+- `.github/workflows/ios-release.yml` — archive + sign + upload to TestFlight on `main`/tag/dispatch (pulls all signing secrets from Infisical at runtime)
 - `ios/project.yml` — XcodeGen project definition (no `.xcodeproj` in the repo; it's generated on every CI run)
 - `ios/GradeThread/Config/{Debug,Release}.xcconfig` — non-secret build-time values surfaced into `Info.plist`
 - `ios/GradeThread/GradeThread.entitlements` — APNs + Sign in with Apple capabilities
@@ -17,7 +17,8 @@ This guide describes the **one-time setup** to make all of the above actually wo
 
 - App registered at `com.gradethread.app` in Apple Developer
 - App Store Connect app record ready to receive TestFlight builds
-- 8 GitHub secrets configured (matching exactly what `ios-release.yml` reads)
+- 8 signing secrets stored in **Infisical** (`grade-thread` project, `prod` environment) — `ios-release.yml` pulls them at build time
+- 3 Infisical-connection secrets in GitHub (`INFISICAL_CLIENT_ID`, `INFISICAL_CLIENT_SECRET`, `INFISICAL_DOMAIN`) — the only secrets that live in GitHub now
 - Real Supabase + Sentry + PostHog values in `Release.xcconfig`
 - APNs configured on the edge service so pushes to `push_device_tokens` deliver
 - A first build sitting in TestFlight
@@ -34,7 +35,7 @@ If not already enrolled:
 2. Sign in with the Apple ID that should permanently own the developer account (billing + ownership ties to it — use a long-term one, not a personal alias)
 3. **$99/year**, billed via Apple ID
 4. **Organization** enrollment for Pearson Media LLC requires a D-U-N-S number and takes 2-7 days. **Individual** is same-day. You can ship the first build under Individual and migrate the app to the org later if needed.
-5. Once enrolled, note your **Apple Team ID** at https://developer.apple.com/account → visible top-right. 10-char alphanumeric like `ABC1234567`. This becomes the `APPLE_TEAM_ID` GitHub secret.
+5. Once enrolled, note your **Apple Team ID** at https://developer.apple.com/account → visible top-right. 10-char alphanumeric like `ABC1234567`. This becomes the `APPLE_TEAM_ID` secret in Infisical (Phase 6b).
 
 ---
 
@@ -182,7 +183,7 @@ openssl pkcs12 -export -legacy `
   -name "Apple Distribution"
 ```
 
-When prompted **"Enter Export Password"**, type a strong password (16+ chars). **This becomes the `P12_PASSWORD` GitHub secret** — save it in 1Password / Bitwarden immediately. Losing it means redoing Phase 4 in full.
+When prompted **"Enter Export Password"**, type a strong password (16+ chars). **This becomes the `P12_PASSWORD` secret in Infisical** (Phase 6b) — save it in 1Password / Bitwarden immediately. Losing it means redoing Phase 4 in full.
 
 Confirm the .p12 is well-formed:
 
@@ -212,9 +213,9 @@ In your `C:\GradeThread-Signing\` folder (or wherever you worked):
 | `gradethread-private.key` | password manager / encrypted backup | regenerating future certs if Apple revokes; never goes to CI |
 | `gradethread.csr` | can delete after Phase 4c | one-shot upload to Apple |
 | `distribution.cer` / `.pem` | can delete after Phase 4d | one-shot intermediate |
-| `gradethread-distribution.p12` | encode → GitHub secret, then can delete local copy | `BUILD_CERTIFICATE_BASE64` |
-| `GradeThread_App_Store.mobileprovision` | encode → GitHub secret, then can delete local copy | `PROVISIONING_PROFILE_BASE64` |
-| `AuthKey_<ASC_KEY_ID>.p8` (from 3b) | encode → GitHub secret, then can delete local copy | `APP_STORE_CONNECT_API_KEY_BASE64` |
+| `gradethread-distribution.p12` | encode → Infisical secret, then can delete local copy | `BUILD_CERTIFICATE_BASE64` |
+| `GradeThread_App_Store.mobileprovision` | encode → Infisical secret, then can delete local copy | `PROVISIONING_PROFILE_BASE64` |
+| `AuthKey_<ASC_KEY_ID>.p8` (from 3b) | encode → Infisical secret, then can delete local copy | `APP_STORE_CONNECT_API_KEY_BASE64` |
 
 > **Alternative: Keychain Access on macOS.** If you ever do get Mac access, the Keychain Access UI does the same thing — CSR via *Certificate Assistant → Request a Certificate*, double-click the downloaded `.cer` to install, then **My Certificates** → right-click → **Export as .p12**. The output `.p12` is byte-compatible with what OpenSSL produces here.
 
@@ -222,7 +223,7 @@ In your `C:\GradeThread-Signing\` folder (or wherever you worked):
 
 ## Phase 5 · Base64-encode the secrets (PowerShell)
 
-GitHub Actions secrets are plain text, so binary files have to be base64-encoded. From PowerShell in the folder containing the files:
+Infisical secrets are plain text, so the binary files have to be base64-encoded before you paste them into Infisical (Phase 6b). The comment after each command is the **exact secret key** to store the value under. From PowerShell in the folder containing the files:
 
 ```powershell
 # Distribution certificate (.p12) → BUILD_CERTIFICATE_BASE64
@@ -252,7 +253,7 @@ If you'd rather write to a file than to the clipboard:
 # → save as KEYCHAIN_PASSWORD
 ```
 
-**Verify the base64 round-trip** before pasting into GitHub (catches UTF-16 BOM and trailing-newline issues — the classic traps):
+**Verify the base64 round-trip** before pasting into Infisical (catches UTF-16 BOM and trailing-newline issues — the classic traps):
 
 ```powershell
 $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("gradethread-distribution.p12"))
@@ -264,22 +265,57 @@ If lengths don't match, your file has a BOM or your terminal is line-wrapping. U
 
 ---
 
-## Phase 6 · Add the 8 GitHub secrets
+## Phase 6 · Store the secrets in Infisical + connect GitHub
 
-**https://github.com/dj-pearson/GradeThread/settings/secrets/actions → New repository secret**
+`ios-release.yml` does **not** read the 8 signing secrets from GitHub. Its **"Import signing secrets from Infisical"** step pulls them from self-hosted Infisical (`grade-thread` project, `prod` environment, root path) at build time and injects them into the job environment. The only things in GitHub are the three values the action needs to authenticate to Infisical.
 
-| Secret name | Value | Source |
+### 6a. Create a machine identity in Infisical
+
+The action authenticates with **Universal Auth** — a client ID + client secret bound to a machine identity.
+
+1. Infisical → **Organization → Access Control → Identities → Create identity**
+2. Name it `github-actions-ios`, organization role **No Access** (project access is granted separately in 6c)
+3. Open the identity → **Authentication → Universal Auth** (enabled by default)
+4. Copy the **Client ID**, then **Add Client Secret** and copy the secret value — it's shown only once
+
+These two values become `INFISICAL_CLIENT_ID` and `INFISICAL_CLIENT_SECRET` in 6d.
+
+### 6b. Add the 8 signing secrets to Infisical
+
+In Infisical → **`grade-thread` project → `prod` environment → root (`/`) path → Add Secret**, create all 8 with these **exact** keys.
+
+> **The key name *is* the env-var name.** The action injects each secret into the build using its Infisical key verbatim, and every workflow step reads it by that exact name (e.g. `$APPLE_TEAM_ID`). A typo'd key means the matching build step gets an empty value and fails — so the spelling below is not optional.
+
+| Infisical secret key (= env var name) | Value | Source |
 |---|---|---|
 | `APPLE_TEAM_ID` | `ABC1234567` | Phase 1 |
 | `APP_STORE_CONNECT_API_KEY_ID` | 10-char key ID | Phase 3b |
 | `APP_STORE_CONNECT_API_ISSUER_ID` | UUID like `69a6de70-...` | Phase 3b |
 | `APP_STORE_CONNECT_API_KEY_BASE64` | base64 blob | Phase 5 — ASC `.p8` |
 | `BUILD_CERTIFICATE_BASE64` | base64 blob | Phase 5 — `.p12` |
-| `P12_PASSWORD` | password from 4c | Phase 4c |
+| `P12_PASSWORD` | export password | Phase 4d |
 | `PROVISIONING_PROFILE_BASE64` | base64 blob | Phase 5 — `.mobileprovision` |
 | `KEYCHAIN_PASSWORD` | random 32-char string | Phase 5 |
 
-**Names must match exactly** — `ios-release.yml` reads them by exact spelling.
+### 6c. Grant the identity read access to the project
+
+1. Infisical → **`grade-thread` project → Access Control → Machine Identities → Add Identity**
+2. Select `github-actions-ios` from 6a
+3. Give it a role with **read** access to the `prod` environment (the built-in **Viewer** role is enough)
+
+Skip this and the CI step fails with a 401/403 — the identity can authenticate but can't see any secrets.
+
+### 6d. Add the 3 connection secrets to GitHub
+
+**https://github.com/dj-pearson/GradeThread/settings/secrets/actions → New repository secret**
+
+| GitHub secret | Value |
+|---|---|
+| `INFISICAL_CLIENT_ID` | Client ID from 6a |
+| `INFISICAL_CLIENT_SECRET` | Client secret from 6a |
+| `INFISICAL_DOMAIN` | Your self-hosted Infisical URL, e.g. `https://infisical.yourdomain.com` (include the scheme, no trailing slash) |
+
+The workflow step is already wired to `project-slug: grade-thread`, `env-slug: prod`, `secret-path: /`. Once these three exist in GitHub and the 8 secrets are in Infisical, the next release pulls them automatically — nothing else to configure.
 
 ---
 
@@ -366,17 +402,18 @@ The tag annotation becomes the "What to test" release notes surfaced in the work
 
 ### 9b. What the workflow does (~10-15 min)
 
-1. Generates the Xcode project from `project.yml`
-2. **Flips `aps-environment` to `production`** in the entitlements file via PlistBuddy
-3. Decodes `.p12` + creates an ephemeral keychain on the macOS runner
-4. Installs the provisioning profile
-5. Drops the ASC `.p8` into `~/.appstoreconnect/private_keys/`
-6. Archives with manual signing using `Apple Distribution` + the team ID
-7. Exports an `.ipa` with `method=app-store`
-8. `xcrun altool --upload-app` to TestFlight
-9. Surfaces release notes in the run summary (paste them into TestFlight manually for v1)
-10. Saves the `.ipa` as a downloadable artifact (30-day retention)
-11. Destroys the keychain + deletes the ASC `.p8`
+1. Pulls the 8 signing secrets from Infisical (`grade-thread`/`prod`) into the job environment
+2. Generates the Xcode project from `project.yml`
+3. **Flips `aps-environment` to `production`** in the entitlements file via PlistBuddy
+4. Decodes `.p12` + creates an ephemeral keychain on the macOS runner
+5. Installs the provisioning profile
+6. Drops the ASC `.p8` into `~/.appstoreconnect/private_keys/`
+7. Archives with manual signing using `Apple Distribution` + the team ID
+8. Exports an `.ipa` with `method=app-store`
+9. `xcrun altool --upload-app` to TestFlight
+10. Surfaces release notes in the run summary (paste them into TestFlight manually for v1)
+11. Saves the `.ipa` as a downloadable artifact (30-day retention)
+12. Destroys the keychain + deletes the ASC `.p8`
 
 ### 9c. After the workflow finishes
 
@@ -418,14 +455,17 @@ The `submit_to_app_store` workflow step now runs `bundle exec fastlane release` 
 
 | Where it lives | Name | What it is | Source |
 |---|---|---|---|
-| GitHub secrets | `APPLE_TEAM_ID` | Apple Team ID | Phase 1 |
-| GitHub secrets | `APP_STORE_CONNECT_API_KEY_ID` | ASC API key ID | Phase 3b |
-| GitHub secrets | `APP_STORE_CONNECT_API_ISSUER_ID` | ASC Issuer UUID | Phase 3b |
-| GitHub secrets | `APP_STORE_CONNECT_API_KEY_BASE64` | ASC `.p8` base64 | Phase 3b + 5 |
-| GitHub secrets | `BUILD_CERTIFICATE_BASE64` | Distribution `.p12` base64 | Phase 4c + 5 |
-| GitHub secrets | `P12_PASSWORD` | `.p12` export password | Phase 4c |
-| GitHub secrets | `PROVISIONING_PROFILE_BASE64` | `.mobileprovision` base64 | Phase 4d + 5 |
-| GitHub secrets | `KEYCHAIN_PASSWORD` | random 32-char string | Phase 5 |
+| GitHub secrets | `INFISICAL_CLIENT_ID` | Machine-identity client ID | Phase 6a |
+| GitHub secrets | `INFISICAL_CLIENT_SECRET` | Machine-identity client secret | Phase 6a |
+| GitHub secrets | `INFISICAL_DOMAIN` | Self-hosted Infisical URL | Phase 6d |
+| Infisical (`grade-thread`/`prod`) | `APPLE_TEAM_ID` | Apple Team ID | Phase 1 |
+| Infisical (`grade-thread`/`prod`) | `APP_STORE_CONNECT_API_KEY_ID` | ASC API key ID | Phase 3b |
+| Infisical (`grade-thread`/`prod`) | `APP_STORE_CONNECT_API_ISSUER_ID` | ASC Issuer UUID | Phase 3b |
+| Infisical (`grade-thread`/`prod`) | `APP_STORE_CONNECT_API_KEY_BASE64` | ASC `.p8` base64 | Phase 3b + 5 |
+| Infisical (`grade-thread`/`prod`) | `BUILD_CERTIFICATE_BASE64` | Distribution `.p12` base64 | Phase 4d + 5 |
+| Infisical (`grade-thread`/`prod`) | `P12_PASSWORD` | `.p12` export password | Phase 4d |
+| Infisical (`grade-thread`/`prod`) | `PROVISIONING_PROFILE_BASE64` | `.mobileprovision` base64 | Phase 4e + 5 |
+| Infisical (`grade-thread`/`prod`) | `KEYCHAIN_PASSWORD` | random 32-char string | Phase 5 |
 | `Release.xcconfig` (committed) | `SUPABASE_URL` | edge URL | already set |
 | `Release.xcconfig` (committed) | `SUPABASE_ANON_KEY` | Supabase anon public key | Phase 7 |
 | `Release.xcconfig` (committed) | `EDGE_API_URL` | functions.gradethread.com | already set |
@@ -444,7 +484,7 @@ The `submit_to_app_store` workflow step now runs `bundle exec fastlane release` 
 | Symptom in CI logs | Cause | Fix |
 |---|---|---|
 | `No identity found` during Archive | `.p12` didn't include the private key | Re-run Phase 4d step 2 — the `-inkey` flag must point at `gradethread-private.key` |
-| `MAC verify error` when CI imports the .p12 | OpenSSL 3.x exported with the modern PKCS#12 algorithm Apple's tooling can't read | Re-export in 4d with the `-legacy` flag (you'll get a fresh `.p12` — re-base64 it + update the GitHub secret) |
+| `MAC verify error` when CI imports the .p12 | OpenSSL 3.x exported with the modern PKCS#12 algorithm Apple's tooling can't read | Re-export in 4d with the `-legacy` flag (you'll get a fresh `.p12` — re-base64 it + update the `BUILD_CERTIFICATE_BASE64` secret in Infisical) |
 | `Provisioning profile doesn't include signing certificate` | Profile in 4e was created before the cert in 4c | Regenerate the profile after the cert exists |
 | `Invalid Provisioning Profile` after upload | Profile's bundle ID doesn't match `com.gradethread.app` | Recheck Phase 2a + 4e |
 | `Could not find altool` | macOS runner image bump deprecated it | Workflow already pins `Xcode_15.4.app` — no action needed unless the pin is removed |
@@ -453,6 +493,8 @@ The `submit_to_app_store` workflow step now runs `bundle exec fastlane release` 
 | Push notifications silently fail in prod | `aps-environment` shipped as `development` | Workflow already flips it — verify the **"Flip aps-environment to production"** step ran in the Actions log |
 | `base64: invalid input` on the runner | Windows wrote the base64 file as UTF-16 with BOM | Re-encode with `Out-File -Encoding ascii -NoNewline` (Phase 5) |
 | `Authentication failed for App Store Connect API` | ASC key was created with `Developer` access instead of `App Manager` | Regenerate the key in Phase 3b with `App Manager` |
+| `Import signing secrets from Infisical` step fails with 401/403 | Wrong `INFISICAL_CLIENT_ID`/`_SECRET`/`_DOMAIN`, or the machine identity has no read access to `prod` | Recheck the 3 GitHub secrets (6d) + grant Viewer on `prod` (6c) |
+| Build step gets an empty signing value (e.g. blank team ID, `No identity found` despite a valid `.p12`) | An Infisical secret key doesn't exactly match the env-var name the workflow expects | Recheck the keys in Phase 6b are spelled exactly (the key *is* the env-var name) |
 | Workflow times out > 60 min | Apple notarization queue backed up | Re-run the workflow; nothing to fix on our side |
 
 ---
