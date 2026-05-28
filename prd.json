@@ -4497,7 +4497,7 @@
       ],
       "priority": 269,
       "passes": false,
-      "notes": ""
+      "notes": "Partially implemented (highest-value slice). Context: edge admin handlers already log to admin_audit_log (admin-billing.ts auditLog() covers plan-change/comp-credits/refund), but the admin UI does many mutations as DIRECT client Supabase calls (RLS-gated by is_admin()) with no edge choke point. DECISION: close that gap with DB triggers. Migration 00046_admin_audit_triggers.sql adds log_user_admin_change() + trigger on users for role + suspended changes (actor=auth.uid(), before/after in details, source='db_trigger'); skips NULL-actor service-role writes to avoid double-logging. admin_audit_log already append-only (00003 has only SELECT+INSERT policies). REMAINING for full AC: extend the trigger pattern to disputes status + ai_prompt_versions is_active + content publish/delete; add a reusable writeAuditLog() helper with ip/user_agent for the edge handlers; add actor/action/target/date filters to the /admin/audit-log page; log the content scheduler tick (actor='system'). Those need the edge handlers + frontend (kept out of this pass to avoid conflicting with concurrent billing edits + because they need runtime verification)."
     },
     {
       "id": "US-270",
@@ -4586,7 +4586,7 @@
       ],
       "priority": 275,
       "passes": false,
-      "notes": ""
+      "notes": "Partially implemented; deletion backbone pre-existed. EXPORT (new): routes/account.ts GET /api/account/export assembles profile + submissions + grade_reports + inventory_items + listings + sales + sources, each tenant-scoped (direct user_id, or via parent submission_id / inventory_item_id since those children have no user_id), returned as a downloadable JSON attachment. Mounted at /api/account behind authMiddleware + a 10/min rate limit. DELETION: delete_account() RPC (migration 00043, pre-existing) deletes the caller's auth.users row and cascades all DB-resident data. Documented docs/DATA_RETENTION.md (export, deletion, retention). REMAINING for full AC: the cascade does NOT cover external systems — needs a POST /api/account/delete edge endpoint that (1) deletes the user's Supabase Storage folders (submission-images/item-photos), (2) deletes/anonymizes the Stripe customer, (3) revokes marketplace OAuth tokens at eBay — THEN calls delete_account(); plus the Settings UI for both flows (kept out of this pass to avoid conflicting with concurrent billing/frontend edits) and linking the privacy policy. Export endpoint pending runtime verification."
     },
     {
       "id": "US-276",

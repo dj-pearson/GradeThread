@@ -152,6 +152,16 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       if (currentPriceId === priceId) {
         return c.json({ ok: true, updated: true, unchanged: true });
       }
+      // An upgrade supersedes any pending downgrade. Stripe rejects mutating a
+      // subscription that's still attached to a schedule ("cannot migrate a
+      // subscription that is already attached to a schedule"), so release it
+      // first — this also cancels the pending downgrade, which is the intent.
+      if (existing.schedule) {
+        const scheduleId = typeof existing.schedule === "string"
+          ? existing.schedule
+          : existing.schedule.id;
+        await stripe.subscriptionSchedules.release(scheduleId);
+      }
       await stripe.subscriptions.update(user.flipdesk_subscription_id, {
         items: [{ id: item.id, price: priceId }],
         proration_behavior: "create_prorations",
@@ -165,6 +175,18 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
           interval,
         },
       });
+      // Clear any pending downgrade we just superseded (the webhook also clears
+      // it when the new plan matches, but do it here so the UI is correct even
+      // if that event lags).
+      await supabaseAdmin
+        .from("users")
+        .update({
+          pending_flipdesk_plan: null,
+          pending_flipdesk_interval: null,
+          pending_schedule_id: null,
+          pending_effective_at: null,
+        })
+        .eq("id", userId);
       return c.json({ ok: true, updated: true });
     } catch (err) {
       console.error("FlipDesk subscription update (upgrade) failed:", err);
@@ -758,6 +780,21 @@ paymentRoutes.post("/flipdesk/downgrade", async (c) => {
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
+    // If a schedule is already attached (a prior pending downgrade), release it
+    // first — Stripe rejects creating a second schedule on the same
+    // subscription ("cannot migrate a subscription that is already attached to
+    // a schedule"). Releasing returns the sub to its current plan with no
+    // pending change, which we then re-schedule below to the new target.
+    const current = await stripe.subscriptions.retrieve(
+      user.flipdesk_subscription_id,
+    );
+    if (current.schedule) {
+      const scheduleId = typeof current.schedule === "string"
+        ? current.schedule
+        : current.schedule.id;
+      await stripe.subscriptionSchedules.release(scheduleId);
+    }
+
     // Create a schedule that wraps the current subscription. This copies
     // the current price into phase 1 with a 1-cycle end date (current
     // period end) so we don't have to compute it ourselves.
