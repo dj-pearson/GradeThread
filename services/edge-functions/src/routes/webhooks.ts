@@ -152,7 +152,7 @@ async function recordEvent(
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -195,7 +195,12 @@ async function handleSubscriptionChange(event: Stripe.Event) {
 
   const plan = mapSubscriptionToFlipdeskPlan(sub);
   const interval = mapSubscriptionInterval(sub);
-  const status = mapSubscriptionStatus(sub.status);
+  // pause_collection pauses billing but leaves Stripe's status as "active", so
+  // mapSubscriptionStatus(sub.status) would never report "paused". Derive it
+  // from pause_collection directly so the UI's paused banner reflects reality.
+  const status = sub.pause_collection
+    ? "paused"
+    : mapSubscriptionStatus(sub.status);
   const periodEnd = sub.current_period_end
     ? new Date(sub.current_period_end * 1000).toISOString()
     : null;
@@ -298,8 +303,13 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       );
     }
 
-    // Paused / resumed (Stripe fires its own dedicated event types).
-    if (event.type === "customer.subscription.paused" && pauseUntil) {
+    // Pause / resume. We use pause_collection, which fires
+    // customer.subscription.updated (Stripe leaves status "active"), NOT the
+    // dedicated .paused/.resumed events — so detect the transition by comparing
+    // the newly-derived pauseUntil against the prior DB value. This is
+    // edge-triggered: a later .updated while still paused finds pause_until
+    // already set and won't re-send.
+    if (pauseUntil && !user.flipdesk_pause_until) {
       safeSendEmail(
         sendSubscriptionPausedEmail(user.email, {
           userName: name,
@@ -309,14 +319,11 @@ async function handleSubscriptionChange(event: Stripe.Event) {
         "subscription_paused",
       );
     }
-    if (event.type === "customer.subscription.resumed") {
-      // If the resume happened on the originally-scheduled date, treat it as
-      // automatic; if the resume happened earlier (user clicked Resume now),
-      // mark it as manual. Stripe doesn't distinguish — we approximate by
-      // whether the prior pause_until was in the past.
-      const auto = !user.flipdesk_pause_until
-        ? false
-        : new Date(user.flipdesk_pause_until).getTime() <= Date.now() + 60_000;
+    if (!pauseUntil && user.flipdesk_pause_until) {
+      // If the resume landed on/after the originally-scheduled date, treat it as
+      // automatic; an earlier clear means the user hit "Resume now".
+      const auto =
+        new Date(user.flipdesk_pause_until).getTime() <= Date.now() + 60_000;
       safeSendEmail(
         sendSubscriptionResumedEmail(user.email, {
           userName: name,
