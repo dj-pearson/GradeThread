@@ -84,7 +84,7 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const redirectTo = c.req.query("redirect_to") ?? null;
+  const redirectTo = sanitizeRelativePath(c.req.query("redirect_to"));
 
   const state = generateState();
   const { error } = await supabaseAdmin.from("oauth_states").insert({
@@ -92,6 +92,8 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
     user_id: userId,
     marketplace: "ebay",
     redirect_to: redirectTo,
+    // Tighten the lifetime to 10 min (overrides the 15-min table default). (US-274)
+    expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
   });
   if (error) {
     console.error("[flipdesk-ebay] failed to persist oauth state:", error);
@@ -182,10 +184,11 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     );
   }
 
+  // Defense-in-depth: redirect_to was sanitized at /oauth/start, but re-check
+  // here so a legacy/oddly-stored row can't drive an open redirect. (US-274)
   const dest =
-    typeof stateRow.redirect_to === "string" && stateRow.redirect_to
-      ? stateRow.redirect_to
-      : "/dashboard/flipdesk/marketplaces?ebay=connected";
+    sanitizeRelativePath(stateRow.redirect_to) ??
+    "/dashboard/flipdesk/marketplaces?ebay=connected";
   return c.redirect(appUrl(dest));
 });
 
@@ -1476,6 +1479,17 @@ function generateState(): string {
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Only same-origin relative redirects are allowed back out of the OAuth
+// callback — prevents an open redirect via a crafted ?redirect_to=. Must be a
+// path beginning with a single "/" (not "//" or "/\\", which browsers treat as
+// protocol-relative and would change host). Returns null for anything else,
+// including absolute URLs. (US-274)
+function sanitizeRelativePath(input: string | null | undefined): string | null {
+  if (!input || !input.startsWith("/")) return null;
+  if (input.startsWith("//") || input.startsWith("/\\")) return null;
+  return input;
 }
 
 // ── Manage helpers ─────────────────────────────────────────────────

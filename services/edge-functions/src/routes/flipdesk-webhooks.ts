@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
+import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -156,6 +157,18 @@ async function processEbayWebhookEvent(
 
   const notifId = notif?.notificationId ?? "(no-id)";
   console.log(`[flipdesk-webhooks] eBay event: topic=${topic} id=${notifId}`);
+
+  // Idempotency: dedupe by eBay's notificationId before side effects run, so a
+  // re-sent or replayed delivery can't double-ingest a payout/sale. Events
+  // without an id can't be deduped here — the payout layer has its own dedup. (US-277)
+  if (notif?.notificationId) {
+    if (!(await claimWebhookEvent("ebay", notif.notificationId, topic))) {
+      console.log(
+        `[flipdesk-webhooks] duplicate eBay event id=${notif.notificationId} — skipping`,
+      );
+      return;
+    }
+  }
 
   if (topic.startsWith("FINANCES_PAYOUT")) {
     await handlePayoutEvent(notif?.data ?? {}, topic);

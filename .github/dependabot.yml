@@ -1,0 +1,24 @@
+version: 2
+# Dependency update automation (US-273). Deno URL imports in
+# services/edge-functions are not supported by Dependabot — those are pinned in
+# deno.json and bumped manually; the Deno base image is covered by the docker
+# ecosystem below.
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "security"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]
+
+  - package-ecosystem: docker
+    directory: "/services/edge-functions"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "docker"]

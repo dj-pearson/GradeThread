@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
 import {
   sendCreditPackPurchasedEmail,
   sendPaymentFailedEmail,
@@ -62,6 +63,14 @@ webhookRoutes.post("/stripe", async (c) => {
   }
 
   console.log(`[Webhook] ${event.type} (${event.id})`);
+
+  // Idempotency: skip duplicate deliveries before any side effects run. Stripe
+  // retries the same event.id for up to 72h, so dedup (not timestamp rejection)
+  // is the correct replay defense here. (US-277)
+  if (!(await claimWebhookEvent("stripe", event.id, event.type))) {
+    console.log(`[Webhook] duplicate ${event.type} (${event.id}) — skipping`);
+    return c.json({ received: true, duplicate: true });
+  }
 
   try {
     switch (event.type) {
