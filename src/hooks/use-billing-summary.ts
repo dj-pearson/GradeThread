@@ -80,8 +80,15 @@ export function useBillingSummary() {
 // ── Mutations: subscribe / change / cancel / pause / resume ──────
 
 export function useFlipdeskSubscribe() {
+  const qc = useQueryClient();
   return useMutation<
-    { sessionId: string; url: string },
+    {
+      sessionId?: string;
+      url?: string;
+      ok?: boolean;
+      updated?: boolean;
+      unchanged?: boolean;
+    },
     Error,
     { plan: Exclude<FlipdeskPlanKey, "free">; interval: BillingInterval }
   >({
@@ -95,7 +102,20 @@ export function useFlipdeskSubscribe() {
       return json;
     },
     onSuccess: (data) => {
-      if (data.url) window.location.href = data.url;
+      // New subscription → Stripe Checkout redirect.
+      if (data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      // Existing subscription was modified in place (upgrade / interval swap).
+      // The customer.subscription.updated webhook persists the new plan a beat
+      // later, so poll the summary instead of reading it once.
+      if (data.updated) {
+        toast.success(
+          data.unchanged ? "You're already on that plan." : "Plan updated.",
+        );
+        pollBillingSummary(qc);
+      }
     },
     onError: (err) => toast.error(err.message),
   });
@@ -310,4 +330,26 @@ export function isPaidPlan(plan: FlipdeskPlan): boolean {
 
 export function refreshBilling(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["billing_summary"] });
+}
+
+// Stripe billing webhooks (credit grants, plan changes) land asynchronously a
+// beat after the user returns from Checkout or an in-place upgrade. A single
+// invalidate can fire before the webhook commits, leaving the UI stale. This
+// re-invalidates on an interval for a bounded window so the change surfaces
+// without a manual refresh.
+export function pollBillingSummary(
+  qc: ReturnType<typeof useQueryClient>,
+  durationMs = 16000,
+  intervalMs = 2000,
+): () => void {
+  qc.invalidateQueries({ queryKey: ["billing_summary"] });
+  const interval = window.setInterval(
+    () => qc.invalidateQueries({ queryKey: ["billing_summary"] }),
+    intervalMs,
+  );
+  const stop = window.setTimeout(() => window.clearInterval(interval), durationMs);
+  return () => {
+    window.clearInterval(interval);
+    window.clearTimeout(stop);
+  };
 }

@@ -1,73 +1,85 @@
 import { createMiddleware } from "hono/factory";
+import type { Context } from "hono";
+import { supabaseAdmin } from "../lib/supabase.ts";
 
-type RateLimitEntry = {
-  count: number;
-  resetAt: number;
-};
+// Distributed fixed-window rate limiter (US-265). Backed by the shared
+// rate_limit_counters table + increment_rate_limit() RPC, so limits hold across
+// container restarts and horizontal replicas — unlike the previous in-memory
+// Map. Keyed by user when authenticated, else by client IP.
+//
+// FAIL-OPEN: if the store errors (or no subject can be determined) the request
+// is allowed through. A limiter must never become an availability risk — at
+// worst it stops limiting; it never locks out legitimate traffic.
 
 type RateLimitEnv = {
   Variables: {
-    userId: string;
+    userId?: string;
   };
 };
 
-const store = new Map<string, RateLimitEntry>();
-
-// Clean up expired entries every 5 minutes
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
-
-let lastCleanup = Date.now();
-
-function cleanupExpiredEntries(): void {
-  const now = Date.now();
-  if (now - lastCleanup < CLEANUP_INTERVAL_MS) return;
-  lastCleanup = now;
-
-  for (const [key, entry] of store) {
-    if (entry.resetAt <= now) {
-      store.delete(key);
-    }
+// Trust order: Cloudflare's CF-Connecting-IP (set by CF, can't be spoofed by
+// the client), then the first hop of X-Forwarded-For.
+function clientIp(c: Context): string | null {
+  const cf = c.req.header("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  const xff = c.req.header("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
   }
+  return null;
 }
 
-export function rateLimiter(maxRequests = 60, windowMs = 60_000) {
+// `scope` groups requests that should share one budget (e.g. all /api/grade/*
+// calls). Distinct scopes get distinct counters so a user's grade budget isn't
+// drained by their flipdesk-ai calls.
+export function rateLimiter(maxRequests = 60, windowMs = 60_000, scope = "default") {
   return createMiddleware<RateLimitEnv>(async (c, next) => {
-    cleanupExpiredEntries();
-
     const userId = c.get("userId");
-    if (!userId) {
-      // No user context — skip rate limiting
+    const subject = userId ? `user:${userId}` : (() => {
+      const ip = clientIp(c);
+      return ip ? `ip:${ip}` : null;
+    })();
+
+    // No subject we can attribute the request to → can't fairly limit. Allow.
+    if (!subject) {
       await next();
       return;
     }
 
-    const now = Date.now();
-    const entry = store.get(userId);
+    const bucketKey = `${scope}|${subject}`;
+    const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
 
-    if (!entry || entry.resetAt <= now) {
-      // New window
-      store.set(userId, { count: 1, resetAt: now + windowMs });
-      c.header("X-RateLimit-Limit", String(maxRequests));
-      c.header("X-RateLimit-Remaining", String(maxRequests - 1));
-      c.header("X-RateLimit-Reset", String(Math.ceil((now + windowMs) / 1000)));
+    let count: number;
+    try {
+      const { data, error } = await supabaseAdmin.rpc("increment_rate_limit", {
+        p_bucket_key: bucketKey,
+        p_window_start: windowStart.toISOString(),
+      });
+      if (error || typeof data !== "number") {
+        throw error ?? new Error("increment_rate_limit returned non-number");
+      }
+      count = data;
+    } catch (err) {
+      console.error(
+        "[rate-limit] store unavailable — allowing request (fail-open):",
+        err instanceof Error ? err.message : String(err),
+      );
       await next();
       return;
     }
 
-    entry.count += 1;
+    const resetAtSec = Math.ceil((windowStart.getTime() + windowMs) / 1000);
+    c.header("X-RateLimit-Limit", String(maxRequests));
+    c.header("X-RateLimit-Remaining", String(Math.max(0, maxRequests - count)));
+    c.header("X-RateLimit-Reset", String(resetAtSec));
 
-    if (entry.count > maxRequests) {
-      const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
-      c.header("Retry-After", String(retryAfterSec));
-      c.header("X-RateLimit-Limit", String(maxRequests));
-      c.header("X-RateLimit-Remaining", "0");
-      c.header("X-RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
+    if (count > maxRequests) {
+      const retryAfter = Math.max(1, resetAtSec - Math.ceil(Date.now() / 1000));
+      c.header("Retry-After", String(retryAfter));
       return c.json({ error: "Too many requests. Please try again later." }, 429);
     }
 
-    c.header("X-RateLimit-Limit", String(maxRequests));
-    c.header("X-RateLimit-Remaining", String(maxRequests - entry.count));
-    c.header("X-RateLimit-Reset", String(Math.ceil(entry.resetAt / 1000)));
     await next();
   });
 }

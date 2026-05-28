@@ -133,6 +133,45 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
+  // If the user already has a live Stripe subscription, an upgrade or interval
+  // change must modify it in place (immediate + prorated) rather than open a
+  // second parallel subscription via Checkout. This fires
+  // customer.subscription.updated, which the webhook uses to persist the new
+  // plan. (Downgrades route through /flipdesk/downgrade instead.)
+  if (user.flipdesk_subscription_id && user.subscription_status !== "canceled") {
+    try {
+      const existing = await stripe.subscriptions.retrieve(
+        user.flipdesk_subscription_id,
+      );
+      const item = existing.items.data[0];
+      if (!item) {
+        return c.json({ error: "Subscription has no line item to update" }, 500);
+      }
+      const currentPriceId =
+        typeof item.price === "string" ? item.price : item.price?.id;
+      if (currentPriceId === priceId) {
+        return c.json({ ok: true, updated: true, unchanged: true });
+      }
+      await stripe.subscriptions.update(user.flipdesk_subscription_id, {
+        items: [{ id: item.id, price: priceId }],
+        proration_behavior: "create_prorations",
+        // Overwrite plan/interval so mapSubscriptionToFlipdeskPlan reads the new
+        // tier from metadata (it prefers metadata.plan over the price lookup_key).
+        metadata: {
+          ...existing.metadata,
+          user_id: userId,
+          product: "flipdesk",
+          plan,
+          interval,
+        },
+      });
+      return c.json({ ok: true, updated: true });
+    } catch (err) {
+      console.error("FlipDesk subscription update (upgrade) failed:", err);
+      return c.json({ error: "Failed to update subscription" }, 500);
+    }
+  }
+
   // Carry trial forward if the user still has time left and hasn't used a
   // paid subscription yet. flipdesk_subscription_id present = trial was
   // already converted, so we don't grant a second trial.

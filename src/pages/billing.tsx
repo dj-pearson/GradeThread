@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -23,6 +26,7 @@ import {
   useBillingPortal,
   isTrialing,
   planLabel,
+  pollBillingSummary,
 } from "@/hooks/use-billing-summary";
 import { UsageMeter, UsageMeters } from "@/components/billing/usage-meter";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
@@ -77,6 +81,33 @@ export function BillingPage() {
   const [highlightPlan, setHighlightPlan] = useState<FlipdeskPlanKey | undefined>(
     undefined,
   );
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const qc = useQueryClient();
+
+  // Returning from Stripe Checkout: the webhook that grants credits / activates
+  // the plan lands a beat after this redirect, so poll the summary for a short
+  // window instead of showing the pre-webhook snapshot. Strip the params so a
+  // later manual refresh doesn't re-trigger the poll.
+  useEffect(() => {
+    if (searchParams.get("checkout") !== "success") return;
+    const product = searchParams.get("product");
+    toast.success(
+      product === "credit_pack"
+        ? "Payment received — adding your credits…"
+        : "Payment received — updating your subscription…",
+    );
+    const cancelPoll = pollBillingSummary(qc);
+
+    const next = new URLSearchParams(searchParams);
+    ["checkout", "product", "credits"].forEach((k) => next.delete(k));
+    setSearchParams(next, { replace: true });
+
+    return cancelPoll;
+    // Run once on mount; we immediately clear the params so deps would only
+    // ever fire this again after we've already handled it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (isLoading || !summary) {
     return (

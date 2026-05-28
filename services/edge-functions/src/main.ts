@@ -165,24 +165,42 @@ app.use("/api/content/images/*", adminAuthMiddleware);
 app.use("/api/content/settings/*", authMiddleware);
 app.use("/api/content/settings/*", adminAuthMiddleware);
 
-// Rate limiting — 60 requests per minute for authenticated grade endpoints
-app.use("/api/grade/*", rateLimiter(60, 60_000));
-app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000));
-app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000));
-app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000));
+// Rate limiting (US-265) — distributed (Postgres-backed), per-scope so budgets
+// don't bleed across endpoint groups. Keyed by user when authed, else by IP.
+app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
+app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
+app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
+app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
+
+// Broadened coverage: sensitive / abusable surfaces that previously had none.
+app.use("/api/payments/*", rateLimiter(30, 60_000, "payments"));
+app.use("/api/keys/*", rateLimiter(30, 60_000, "api-keys")); // incl. key creation
+app.use("/api/workspace/*", rateLimiter(30, 60_000, "workspace")); // incl. invitation sends
+app.use("/api/notifications/*", rateLimiter(60, 60_000, "notifications"));
+app.use("/api/flipdesk/ebay/oauth/start", rateLimiter(10, 60_000, "ebay-oauth"));
+app.use("/api/flipdesk/images/*", rateLimiter(30, 60_000, "flipdesk-images"));
+app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
+app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
+app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
 
 // Content AI endpoints — generation, research, image creation. Each
 // call is expensive (multi-thousand-token Claude responses or OpenAI
 // gpt-image-1). Cap at 20/min/user across these paths.
-app.use("/api/content/blog/*/generate", rateLimiter(20, 60_000));
-app.use("/api/content/social/*/generate", rateLimiter(20, 60_000));
-app.use("/api/content/social/*/suggest-hashtags", rateLimiter(30, 60_000));
-app.use("/api/content/topics/research", rateLimiter(20, 60_000));
-app.use("/api/content/images/*", rateLimiter(20, 60_000));
+app.use("/api/content/blog/*/generate", rateLimiter(20, 60_000, "content-ai"));
+app.use("/api/content/social/*/generate", rateLimiter(20, 60_000, "content-ai"));
+app.use("/api/content/social/*/suggest-hashtags", rateLimiter(30, 60_000, "content-ai"));
+app.use("/api/content/topics/research", rateLimiter(20, 60_000, "content-ai"));
+app.use("/api/content/images/*", rateLimiter(20, 60_000, "content-ai"));
+
+// Coarse per-IP ceiling on the unauthenticated webhook receivers — blunts
+// floods only. Legit Stripe/eBay bursts stay well under it, and a 429 just
+// makes the provider retry (idempotency in US-277 makes that safe).
+app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe"));
+app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay"));
 
 // Public API v1 — API key auth + 100 requests per minute
 app.use("/api/v1/*", apiKeyAuthMiddleware);
-app.use("/api/v1/*", rateLimiter(100, 60_000));
+app.use("/api/v1/*", rateLimiter(100, 60_000, "api-v1"));
 
 // Routes
 app.route("/health", healthRoutes);

@@ -4423,7 +4423,7 @@
       ],
       "priority": 264,
       "passes": false,
-      "notes": ""
+      "notes": "Implemented (report-only phase): public/_headers global block gains Strict-Transport-Security (2y, includeSubDomains, preload), Cross-Origin-Opener-Policy same-origin, and Content-Security-Policy-Report-Only scoped to the app's real origins — Supabase (api.gradethread.com), edge (functions.gradethread.com), Stripe (js/api/hooks), Sentry (*.ingest.sentry.io), PostHog (us.i + us-assets), Google Fonts (googleapis/gstatic), Google Analytics (googletagmanager + *.google-analytics.com). object-src none, base-uri/form-action self, frame-ancestors none, worker-src 'self' blob:. CAVEATS before flipping to enforcing CSP: (1) index.html has an INLINE gtag bootstrap script (lines 36-41) — script-src intentionally omits 'unsafe-inline' so it reports as a violation; externalize it or add a sha256 hash/nonce before enforce. (2) style-src keeps 'unsafe-inline' (Tailwind/runtime style injection). (3) Needs a real browser pass (Stripe Checkout, Google OAuth redirect, Sentry, PostHog, GA) to confirm no legit resource is missing, then rename the header to Content-Security-Policy. Could not browser-verify locally."
     },
     {
       "id": "US-265",
@@ -4438,7 +4438,7 @@
       ],
       "priority": 265,
       "passes": false,
-      "notes": ""
+      "notes": "Implemented: migration 00045_rate_limit_counters.sql (table + increment_rate_limit() RPC: atomic upsert, self-pruning of older windows, RLS service-role-only). Rewrote middleware/rate-limit.ts from the in-memory Map to the Postgres-backed fixed-window store — survives restarts + shared across replicas. Keyed by user:<id> when authed, else ip:<CF-Connecting-IP|XFF>. Added a per-group `scope` arg so budgets don't bleed across endpoint groups. FAIL-OPEN on any store error (never locks out traffic). Broadened coverage in main.ts: payments(30), api-keys(30), workspace(30), notifications(60), ebay-oauth-start(10), flipdesk images/recon/sheets(30 each), content-scheduler(60), plus a coarse per-IP 600/min ceiling on the unauthenticated /api/webhooks/* and /api/flipdesk/webhooks/* receivers (429 → provider retries, safe given US-277 idempotency). DECISION: chose Postgres over Deno KV (local Deno KV is per-container = same flaw as in-memory; the shared Supabase DB is the real cross-replica store). CAVEAT: adds one indexed upsert per rate-limited request; needs runtime verification (no Deno locally) — watch that the RPC latency is acceptable and that no legit flow trips a limit."
     },
     {
       "id": "US-266",
@@ -4528,7 +4528,7 @@
       ],
       "priority": 271,
       "passes": false,
-      "notes": ""
+      "notes": "Documented (code can't set these — self-hosted GoTrue is configured via env vars on the Supabase auth container, NOT config.toml). Added a 'Production GoTrue config — US-271' section to ENVIRONMENT.md: a table of the hardening settings with their GoTrue env var names + target values — email confirmation required, secure email-change, min password length 12, complexity, HIBP leaked-password protection, refresh-token rotation + reuse detection, JWT exp 3600, auth/OTP/email rate limits, and a no-wildcard redirect allow-list — plus an apply-checklist. Flagged that exact env var names vary by supabase/gotrue|auth image version (verify against deployed version). MFA enforcement deferred to US-270. ACTION REQUIRED (ops): apply these on the production auth container; I cannot set them from the repo."
     },
     {
       "id": "US-272",

@@ -154,3 +154,33 @@ The features that are currently built and verified need only:
 
 Everything in sections **2e–2g** (eBay, R2, job secret) is for FlipDesk
 features that are still stubbed — add them only as those stories ship.
+
+---
+
+## Production GoTrue (Supabase Auth) config — US-271
+
+`supabase/config.toml` is the **local CLI** config; it does NOT configure the
+self-hosted production auth server. In production these are **GoTrue env vars**
+set on the Supabase `auth` container. Exact names vary by `supabase/gotrue` /
+`supabase/auth` image version — **verify against your deployed version** and the
+official self-hosting auth reference before applying.
+
+| Setting | Env var (verify per version) | Target | Why |
+|---|---|---|---|
+| Email confirmation required | `GOTRUE_MAILER_AUTOCONFIRM` | `false` | No unverified accounts (mirrors `enable_confirmations` in config.toml) |
+| Secure email-change (double confirm) | `GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED` | `true` | Confirm on both old + new address |
+| Min password length | `GOTRUE_PASSWORD_MIN_LENGTH` | `12` | Stronger baseline than the 6-char default |
+| Password complexity | `GOTRUE_PASSWORD_REQUIRED_CHARACTERS` | letters+digits+symbols set | Reject trivial passwords |
+| **Leaked-password protection (HIBP)** | `GOTRUE_PASSWORD_HIBP_ENABLED` | `true` | Block passwords found in HaveIBeenPwned breaches (newer auth images / dashboard toggle on hosted) |
+| Refresh-token rotation | `GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED` | `true` | Rotate refresh tokens on use |
+| Refresh-token reuse detection | `GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL` | `10` (sec) | Detect + revoke a stolen refresh token replayed after the grace window |
+| Access-token lifetime | `GOTRUE_JWT_EXP` | `3600` | Already 3600 in config.toml; keep short |
+| Sign-in brute-force / OTP limits | `GOTRUE_RATE_LIMIT_VERIFY`, `GOTRUE_RATE_LIMIT_OTP`, `GOTRUE_RATE_LIMIT_TOKEN_REFRESH`, `GOTRUE_RATE_LIMIT_EMAIL_SENT` | sane caps | Throttle credential stuffing + OTP/email abuse |
+| Redirect allow-list | `GOTRUE_URI_ALLOW_LIST` | exact callback URLs only | **No wildcards** — only `https://gradethread.com/auth/callback` (+ localhost in dev) |
+
+MFA enforcement for admin/super_admin accounts is tracked separately in
+**US-270** (`GOTRUE_MFA_*` + server-side AAL2 checks).
+
+**Checklist after applying:** sign-up requires confirmation · a known-breached
+password is rejected · old refresh token is rejected after rotation · an OAuth
+redirect to an unlisted URL is refused.
