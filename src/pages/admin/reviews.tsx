@@ -184,6 +184,10 @@ export function AdminReviewsPage() {
     odor_cleanliness_score: 5,
   });
   const [reviewNotes, setReviewNotes] = useState("");
+  // Reviewer flag: the AI mistook an intentional design feature (e.g. factory
+  // distressing) for damage. Feeds the per-category misread-rate metric that
+  // catches denim/distressing prompt regressions.
+  const [intentionalMisread, setIntentionalMisread] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   // Reject confirmation
@@ -337,6 +341,7 @@ export function AdminReviewsPage() {
       odor_cleanliness_score: item.report.odor_cleanliness_score,
     });
     setReviewNotes("");
+    setIntentionalMisread(false);
     setReviewPhotoUrls({});
   }
 
@@ -465,6 +470,14 @@ export function AdminReviewsPage() {
         reviewer_id: profile.id,
         original_score: reviewingItem.report.overall_score,
         adjusted_score: computedOverallScore,
+        // Persist the actual per-factor corrections so accuracy tracking can
+        // attribute bias to a specific factor instead of estimating it.
+        adjusted_fabric_condition: adjustedScores.fabric_condition_score,
+        adjusted_structural_integrity: adjustedScores.structural_integrity_score,
+        adjusted_cosmetic_appearance: adjustedScores.cosmetic_appearance_score,
+        adjusted_functional_elements: adjustedScores.functional_elements_score,
+        adjusted_odor_cleanliness: adjustedScores.odor_cleanliness_score,
+        intentional_misread: intentionalMisread,
         review_notes: reviewNotes,
       };
 
@@ -1001,6 +1014,24 @@ export function AdminReviewsPage() {
                   rows={3}
                   className="mt-1"
                 />
+              </div>
+
+              {/* Intentional-design misread flag — the denim-regression signal */}
+              <div className="flex items-start gap-2">
+                <input
+                  id="intentional-misread"
+                  type="checkbox"
+                  checked={intentionalMisread}
+                  onChange={(e) => setIntentionalMisread(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-input"
+                />
+                <Label
+                  htmlFor="intentional-misread"
+                  className="text-sm font-normal leading-snug text-muted-foreground"
+                >
+                  AI mistook an intentional design feature (e.g. factory
+                  distressing, raw hem) for damage
+                </Label>
               </div>
 
               {/* Action Buttons */}

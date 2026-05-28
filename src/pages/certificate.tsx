@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import { Shield, AlertTriangle, Calendar, Cpu } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -348,6 +348,34 @@ export function CertificatePage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Intentional design features — buyers see distressing was assessed
+            as styling, not counted against the condition grade. */}
+        {gradeReport.detected_style_attributes &&
+          gradeReport.detected_style_attributes.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Design Features</CardTitle>
+                <CardDescription>
+                  Intentional design elements assessed as styling — graded
+                  relative to the garment's original manufactured state.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {gradeReport.detected_style_attributes.map((s, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full bg-muted px-3 py-1 text-xs font-medium capitalize"
+                    >
+                      {s.attribute}
+                      {s.location ? ` · ${s.location}` : ""}
+                    </span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         <Separator />
 

@@ -705,6 +705,34 @@ export function SubmissionDetailPage() {
                 </p>
               </CardContent>
             </Card>
+
+            {/* Intentional design features — shown so the seller/buyer can see
+                distressing etc. was recognized as styling, not counted as damage. */}
+            {gradeReport.detected_style_attributes &&
+              gradeReport.detected_style_attributes.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Design Features</CardTitle>
+                    <CardDescription>
+                      Intentional design elements assessed as styling — these did
+                      not lower the grade.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {gradeReport.detected_style_attributes.map((s, i) => (
+                        <span
+                          key={i}
+                          className="rounded-full bg-muted px-3 py-1 text-xs font-medium capitalize"
+                        >
+                          {s.attribute}
+                          {s.location ? ` · ${s.location}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
           </div>
 
           {/* Right column: Confidence + Defects + Images */}

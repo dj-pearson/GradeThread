@@ -43,7 +43,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes")
       .eq("id", submissionId)
       .single();
 
@@ -113,8 +113,20 @@ export async function processSubmission(submissionId: string) {
     // --- Step 4: Run analyzeImage() on each image in parallel ---
     console.log(`[Pipeline] Running per-image analysis for ${imageData.length} images`);
 
+    // Seller-declared design features (e.g. distressed, raw-hem) flow through
+    // as a hint so the grader doesn't read intentional distressing as damage.
+    const styleHint: string[] = Array.isArray(submission.style_attributes)
+      ? (submission.style_attributes as string[])
+      : [];
+
     const perImagePromises = imageData.map((img) =>
-      analyzeImage(img.dataUri, img.imageType, submission.garment_type)
+      analyzeImage(
+        img.dataUri,
+        img.imageType,
+        submission.garment_type,
+        submission.garment_category,
+        styleHint
+      )
     );
 
     const perImageResults: PerImageAnalysis[] = await Promise.all(perImagePromises);
@@ -128,6 +140,7 @@ export async function processSubmission(submissionId: string) {
       brand: submission.brand,
       title: submission.title,
       description: submission.description,
+      style_attributes: styleHint,
     };
 
     console.log(`[Pipeline] Running composite grading for submission ${submissionId}`);
@@ -159,6 +172,14 @@ export async function processSubmission(submissionId: string) {
         .join("; ");
     }
 
+    // Add intentional-design summary so the certificate / report can show that
+    // distressing was assessed as styling, not counted as damage.
+    if (compositeResult.style_attributes.length > 0) {
+      detailedNotes["style_attributes_summary"] = compositeResult.style_attributes
+        .map((s) => `${s.attribute}${s.location ? ` (${s.location})` : ""}`)
+        .join("; ");
+    }
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -172,12 +193,19 @@ export async function processSubmission(submissionId: string) {
         odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
         ai_summary: compositeResult.ai_summary,
         detailed_notes: detailedNotes,
+        // Intentional design features the AI judged present (distressing, raw
+        // hems, etc.) — these did NOT lower the grade.
+        detected_style_attributes: compositeResult.style_attributes,
+        // Full per-image trace for eval/training + dispute explanation.
+        per_image_analysis: perImageResults,
         confidence_score: compositeResult.confidence_score,
         needs_human_review: compositeResult.needs_human_review,
         // Record the real model + prompt version (e.g.
-        // "claude-sonnet-4-6|composite_v1") so accuracy-tracking can
-        // distinguish model changes, not just prompt revisions.
+        // "claude-sonnet-4-6|composite_v2") so accuracy-tracking can
+        // distinguish model changes, not just prompt revisions. prompt_version
+        // is also stored on its own column for the accuracy join.
         model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
+        prompt_version: compositeResult.prompt_version,
         certificate_id: certificateId,
       })
       .select()

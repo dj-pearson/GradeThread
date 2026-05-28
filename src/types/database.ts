@@ -267,12 +267,22 @@ export interface SubmissionRow {
   brand: string | null;
   title: string;
   description: string | null;
+  // Seller-declared intentional design features (distressed, raw-hem, …) — a
+  // hint to the grader so factory distressing isn't read as damage.
+  style_attributes: string[];
   status: SubmissionStatus;
   flagged: boolean;
   flag_reason: string | null;
   moderation_status: ModerationStatus | null;
   created_at: string;
   updated_at: string;
+}
+
+// Intentional design feature the grader judged present (does NOT lower grade).
+export interface DetectedStyleAttribute {
+  attribute: string;
+  location: string;
+  confidence: number;
 }
 
 export interface SubmissionImageRow {
@@ -296,9 +306,17 @@ export interface GradeReportRow {
   odor_cleanliness_score: number;
   ai_summary: string;
   detailed_notes: Record<string, string> | null;
+  // Intentional design features the AI recognized (distressing, raw hems, …).
+  // These did NOT lower the grade — condition is graded vs. as-manufactured state.
+  detected_style_attributes: DetectedStyleAttribute[];
+  // Raw per-image analysis trace (eval/training/dispute explanation). Nullable
+  // for historical rows graded before migration 00050.
+  per_image_analysis: unknown[] | null;
   confidence_score: number;
   needs_human_review: boolean;
   model_version: string;
+  // First-class prompt version that produced this grade (e.g. "composite_v2").
+  prompt_version: string | null;
   certificate_id: string | null;
   created_at: string;
 }
@@ -757,6 +775,15 @@ export interface HumanReviewRow {
   reviewer_id: string;
   original_score: number;
   adjusted_score: number | null;
+  // Optional per-factor corrections — null where the reviewer didn't change a
+  // factor. Drives real per-factor accuracy (vs. estimating from overall).
+  adjusted_fabric_condition: number | null;
+  adjusted_structural_integrity: number | null;
+  adjusted_cosmetic_appearance: number | null;
+  adjusted_functional_elements: number | null;
+  adjusted_odor_cleanliness: number | null;
+  // Reviewer flag: AI mistook an intentional design feature for damage.
+  intentional_misread: boolean;
   review_notes: string | null;
   reviewed_at: string;
 }
@@ -768,6 +795,47 @@ export interface AiPromptVersionRow {
   is_active: boolean;
   accuracy_score: number | null;
   total_grades: number;
+  // Which grading stage this prompt drives + optional category scope (00050).
+  stage: "per_image" | "composite";
+  garment_scope: string | null;
+  eval_passed: boolean | null;
+  eval_run_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface GradingEvalCaseRow {
+  id: string;
+  label: string;
+  garment_type: GarmentType;
+  garment_category: GarmentCategory;
+  brand: string | null;
+  description: string | null;
+  style_attributes: string[];
+  images: Array<{ image_type: string; storage_path: string }>;
+  expected_score: number;
+  expected_tier: GradeTier;
+  tags: string[];
+  is_active: boolean;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GradingEvalRunRow {
+  id: string;
+  prompt_version_id: string | null;
+  prompt_version_name: string;
+  model: string;
+  mean_absolute_error: number;
+  agreement_rate: number;
+  cases_total: number;
+  cases_passed: number;
+  passed: boolean;
+  per_case: unknown[];
+  per_tag: Record<string, unknown>;
+  triggered_by: string | null;
   created_at: string;
 }
 
@@ -815,6 +883,7 @@ export interface SubmissionInsert {
   brand?: string | null;
   title: string;
   description?: string | null;
+  style_attributes?: string[];
 }
 
 export interface SubmissionImageInsert {
@@ -835,9 +904,12 @@ export interface GradeReportInsert {
   odor_cleanliness_score: number;
   ai_summary: string;
   detailed_notes?: Record<string, string> | null;
+  detected_style_attributes?: DetectedStyleAttribute[];
+  per_image_analysis?: unknown[] | null;
   confidence_score: number;
   needs_human_review?: boolean;
   model_version: string;
+  prompt_version?: string | null;
   certificate_id?: string | null;
 }
 
@@ -1010,6 +1082,12 @@ export interface HumanReviewInsert {
   reviewer_id: string;
   original_score: number;
   adjusted_score?: number | null;
+  adjusted_fabric_condition?: number | null;
+  adjusted_structural_integrity?: number | null;
+  adjusted_cosmetic_appearance?: number | null;
+  adjusted_functional_elements?: number | null;
+  adjusted_odor_cleanliness?: number | null;
+  intentional_misread?: boolean;
   review_notes?: string | null;
 }
 
@@ -1019,6 +1097,27 @@ export interface AiPromptVersionInsert {
   is_active?: boolean;
   accuracy_score?: number | null;
   total_grades?: number;
+  stage?: "per_image" | "composite";
+  garment_scope?: string | null;
+  eval_passed?: boolean | null;
+  eval_run_id?: string | null;
+  notes?: string | null;
+}
+
+export interface GradingEvalCaseInsert {
+  label: string;
+  garment_type: GarmentType;
+  garment_category: GarmentCategory;
+  brand?: string | null;
+  description?: string | null;
+  style_attributes?: string[];
+  images: Array<{ image_type: string; storage_path: string }>;
+  expected_score: number;
+  expected_tier: GradeTier;
+  tags?: string[];
+  is_active?: boolean;
+  notes?: string | null;
+  created_by?: string | null;
 }
 
 export interface NotificationInsert {
@@ -1391,6 +1490,16 @@ export interface Database {
         Row: AiPromptVersionRow;
         Insert: AiPromptVersionInsert;
         Update: AiPromptVersionUpdate;
+      };
+      grading_eval_cases: {
+        Row: GradingEvalCaseRow;
+        Insert: GradingEvalCaseInsert;
+        Update: Partial<Omit<GradingEvalCaseRow, "id" | "created_at" | "updated_at">>;
+      };
+      grading_eval_runs: {
+        Row: GradingEvalRunRow;
+        Insert: Omit<GradingEvalRunRow, "id" | "created_at">;
+        Update: Partial<Omit<GradingEvalRunRow, "id" | "created_at">>;
       };
       notifications: {
         Row: NotificationRow;

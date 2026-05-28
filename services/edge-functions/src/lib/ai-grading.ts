@@ -6,6 +6,14 @@ import {
   getGradingCompositeModel,
   isCachingEnabled,
 } from "./ai-config.ts";
+import { supabaseAdmin } from "./supabase.ts";
+
+// Version names for the in-code default prompts. These MUST match the seeded
+// rows in ai_prompt_versions (migration 00050) so the accuracy loop can
+// attribute grades to a version and write the score back. Bump the suffix
+// whenever the prompt text below changes in a way that could move grades.
+export const PER_IMAGE_PROMPT_VERSION = "per_image_v2";
+export const COMPOSITE_PROMPT_VERSION = "composite_v2";
 
 // --- Types ---
 
@@ -13,12 +21,25 @@ export interface PerImageAnalysis {
   image_type: string;
   detected_issues: DetectedIssue[];
   condition_signals: ConditionSignal[];
+  // Intentional design features observed in this image (factory distressing,
+  // raw hems, acid wash, etc.). These are recorded as STYLE, not damage, and
+  // must not reduce estimated_scores.
+  style_attributes: StyleAttribute[];
   estimated_scores: FactorScores;
 }
 
 export interface DetectedIssue {
   issue: string;
   severity: "minor" | "moderate" | "major";
+  location: string;
+  // True when the "issue" is an intentional manufactured design feature
+  // (distressing, deliberate fraying, etc.) rather than genuine wear/damage.
+  // Intentional issues are reported for transparency but do NOT lower scores.
+  is_intentional: boolean;
+}
+
+export interface StyleAttribute {
+  attribute: string;
   location: string;
 }
 
@@ -41,6 +62,16 @@ export interface GarmentInfo {
   brand: string | null;
   title: string;
   description: string | null;
+  // Seller-declared intentional design features (hint only — the grader
+  // verifies visually and may override). Empty when none declared.
+  style_attributes?: string[];
+}
+
+export interface DetectedStyleAttribute {
+  attribute: string;
+  location: string;
+  // 0.0–1.0 — how sure the AI is this is intentional design vs. genuine damage.
+  confidence: number;
 }
 
 export interface DefectFound {
@@ -61,6 +92,10 @@ export interface CompositeGradeResult {
   factor_scores: FactorScores;
   ai_summary: string;
   defects_found: DefectFound[];
+  // Intentional design features the AI judged present. Surfaced on the
+  // certificate so buyers see distressing was assessed, not missed. Never
+  // lowers the grade.
+  style_attributes: DetectedStyleAttribute[];
   confidence_score: number;
   needs_human_review: boolean;
   image_validity: ImageValidity;
@@ -90,7 +125,7 @@ const GARMENT_TYPE_CRITERIA: Record<string, string> = {
   tops:
     "For tops: Pay special attention to collar condition, armpit discoloration/staining, cuff wear, button integrity, print/graphic condition, and fabric pilling especially around high-friction areas.",
   bottoms:
-    "For bottoms: Pay special attention to waistband elasticity, zipper/button fly function, knee wear, seat wear, hem fraying, pocket integrity, and crotch area reinforcement.",
+    "For bottoms: Pay special attention to waistband elasticity, zipper/button fly function, pocket integrity, and crotch/inseam reinforcement (a blown-out crotch seam is genuine failure). IMPORTANT: knee abrasion, seat fading, hem fraying, whiskering and rips are frequently INTENTIONAL on jeans and other distressed bottoms — judge whether each is a manufactured design feature or genuine wear before counting it against condition.",
   outerwear:
     "For outerwear: Pay special attention to zipper functionality, snap/button closures, lining condition, insulation integrity, waterproofing condition, cuff elasticity, and hood attachment.",
   dresses:
@@ -101,7 +136,50 @@ const GARMENT_TYPE_CRITERIA: Record<string, string> = {
     "For accessories: Pay special attention to hardware condition (buckles, clasps, zippers), material wear, stitching integrity, structural shape retention, and any tarnishing or corrosion on metal parts.",
 };
 
-const SYSTEM_PROMPT = `You are an expert clothing condition assessor for GradeThread, a professional garment grading service. You have extensive experience evaluating pre-owned clothing condition across all garment types.
+// Category-level criteria layered ON TOP of the garment_type criteria. Keyed
+// on garment_category (the 20-value list). This is where design-vs-defect
+// nuance lives for the categories most prone to intentional distressing.
+const GARMENT_CATEGORY_CRITERIA: Record<string, string> = {
+  jeans:
+    "JEANS-SPECIFIC: Distressing is a mainstream design choice. Factory features that LOOK like damage but are NOT condition defects include: deliberate rips/slashes/holes (often at knees/thighs), whiskering and honeycomb fading, sandblasted/abraded patches, raw or frayed hems (chewed/cut-off hems are a style), destroyed/'destroyed-wash' panels, paint splatter, acid/bleach wash, and grinding at pockets/hems. Distinguish these from GENUINE wear: a designed knee slash that has RUN further than intended into the leg, a hem fraying because the garment is worn out (vs. a deliberate raw hem), thinning/transparency from real abrasion, blown crotch/inseam seams, popped rivets, a non-functional zipper/button, stains, or odor. Grade condition relative to how the jean looked NEW from the factory.",
+  pants:
+    "PANTS-SPECIFIC: Some styles ship with intentional distressing or raw hems; assess whether knee/seat/hem wear is by design or genuine. Watch crease retention on dress pants and shininess from over-wear.",
+  shorts:
+    "SHORTS-SPECIFIC: Cut-off/raw frayed hems are commonly intentional on denim shorts. Distinguish a deliberate frayed hem from a hem disintegrating due to wear.",
+  jacket:
+    "JACKET-SPECIFIC: Distressed/washed denim and leather jackets may have intentional abrasion, cracking-look finishes, or patchwork. Verify zipper/snap function and lining integrity, which are genuine condition signals.",
+  sweater:
+    "SWEATER-SPECIFIC: Some designs are intentionally slubby, loose-knit, or pre-distressed. Distinguish design texture from genuine pilling, snags, moth holes, and stretched-out cuffs/hems.",
+  hoodie:
+    "HOODIE-SPECIFIC: 'Vintage'/acid-wash and intentionally cropped raw hems exist. Distinguish from genuine pilling, drawstring loss, and cuff stretch-out.",
+  "t-shirt":
+    "T-SHIRT-SPECIFIC: Distressed/'thrashed' tees and intentionally cropped raw hems are common, as is intentional vintage fading on graphics. Distinguish from genuine thinning, holes, cracked-from-wear prints, and stains.",
+  dress:
+    "DRESS-SPECIFIC: Some designs use intentional raw edges or distressing; most do not. Treat tears, broken zippers, and embellishment loss as genuine defects.",
+};
+
+// The single most important framing change: condition is measured against the
+// garment's AS-MANUFACTURED state, not against an idealized defect-free
+// garment. This block is shared by both grading stages.
+const DESIGN_VS_DEFECT_PRINCIPLE = `CORE PRINCIPLE — GRADE AGAINST AS-MANUFACTURED STATE:
+Condition measures how far a garment has deviated from how it looked when it left the factory — NOT the absence of holes, fraying, or fading in the abstract. Many garments are MANUFACTURED with features that resemble damage:
+- Distressed/ripped/destroyed denim (rips, slashes, holes, sandblasting, grinding)
+- Whiskering, honeycombs, and intentional fading
+- Raw, frayed, or cut-off hems (denim, tees, sweatshirts)
+- Acid/bleach/tie-dye/garment-dye finishes
+- Deliberate paint splatter, patchwork, deconstructed seams
+- Pre-pilled, slubby, or "vintage" finishes
+
+A pristine, never-worn factory-distressed jean is a 10 — the rips are design, not wear.
+
+For EVERY observed "issue", first decide: is this an INTENTIONAL manufactured design feature, or GENUINE wear/damage?
+- Intentional design feature → record it as a style attribute / mark the issue is_intentional=true. It must NOT lower any factor score.
+- Genuine wear/damage → assess severity and let it affect the relevant factor scores.
+- The hard case: an intentional feature that has DEGRADED beyond its design intent (e.g. a designed knee slash that has torn further up the leg, a deliberate raw hem now unraveling from wear). Count ONLY the genuine excess degradation, not the original design.
+
+Use the seller's declared design features (when provided) as a HINT, but verify visually — sellers sometimes mislabel. When genuinely ambiguous, lean toward "intentional" only if the feature is symmetric/uniform/finished in a way consistent with manufacturing, and lower confidence_score.`;
+
+const SYSTEM_PROMPT = `You are an expert clothing condition assessor for GradeThread, a professional garment grading service. You have extensive experience evaluating pre-owned clothing condition across all garment types, including distressed, washed, and intentionally-designed garments.
 
 Your role is to analyze individual garment images and provide detailed, objective condition assessments. You grade on a 1.0-10.0 scale:
 - 10: New with Tags (NWT) - unworn, tags attached
@@ -119,19 +197,101 @@ You evaluate 5 condition factors:
 4. Functional Elements (15% weight): Zippers, buttons, closures, pockets, elastic
 5. Odor & Cleanliness (10% weight): Visible cleanliness indicators, staining patterns
 
+${DESIGN_VS_DEFECT_PRINCIPLE}
+
 IMPORTANT: You must respond ONLY with valid JSON matching the exact schema requested. No markdown, no explanation, no preamble — just the JSON object.`;
 
-function buildUserPrompt(imageType: string, garmentType: string): string {
+// ── DB-driven prompt overrides ────────────────────────────────────────
+// Prompts ship as versioned code defaults. An active row in
+// ai_prompt_versions (stage + optional garment_scope) OVERRIDES the code
+// prompt at runtime, enabling no-deploy iteration + A/B testing. We always
+// report the version_name so the accuracy loop can attribute the grade.
+
+export interface ResolvedPrompt {
+  text: string;
+  versionName: string;
+}
+
+const PROMPT_CACHE_TTL_MS = 60_000;
+const promptCache = new Map<string, { value: ResolvedPrompt; expiresAt: number }>();
+
+/**
+ * Resolve the active prompt for a grading stage. Prefers a garment_scope-
+ * specific active row, then a global (null-scope) active row, then the code
+ * default. A row with empty prompt_text means "use the code default text but
+ * attribute to this version_name" (that's how the seeded default rows work).
+ * Never throws — a DB hiccup falls back to the code default.
+ */
+async function resolveActivePrompt(
+  stage: "per_image" | "composite",
+  garmentScope: string | null,
+  codeDefault: ResolvedPrompt,
+): Promise<ResolvedPrompt> {
+  const cacheKey = `${stage}:${garmentScope ?? ""}`;
+  const now = Date.now();
+  const cached = promptCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  let resolved = codeDefault;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("ai_prompt_versions")
+      .select("version_name, prompt_text, garment_scope")
+      .eq("stage", stage)
+      .eq("is_active", true);
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const rows = data as Array<{
+        version_name: string;
+        prompt_text: string | null;
+        garment_scope: string | null;
+      }>;
+      const scoped = garmentScope
+        ? rows.find((r) => r.garment_scope === garmentScope)
+        : undefined;
+      const global = rows.find((r) => !r.garment_scope);
+      const picked = scoped ?? global;
+      if (picked) {
+        const text =
+          picked.prompt_text && picked.prompt_text.trim().length > 0
+            ? picked.prompt_text
+            : codeDefault.text;
+        resolved = { text, versionName: picked.version_name };
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[AI Grading] resolveActivePrompt fallback (${stage}/${garmentScope ?? "global"}):`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  promptCache.set(cacheKey, { value: resolved, expiresAt: now + PROMPT_CACHE_TTL_MS });
+  return resolved;
+}
+
+function buildUserPrompt(
+  imageType: string,
+  garmentType: string,
+  garmentCategory: string,
+  styleHint: string[],
+): string {
   const imageContext =
     IMAGE_TYPE_CONTEXT[imageType] || `This is a ${imageType} image of the garment.`;
   const garmentCriteria =
     GARMENT_TYPE_CRITERIA[garmentType] || "Evaluate using general garment condition criteria.";
+  const categoryCriteria = GARMENT_CATEGORY_CRITERIA[garmentCategory];
+
+  const styleHintLine =
+    styleHint.length > 0
+      ? `\nSELLER-DECLARED DESIGN FEATURES (hint — verify visually, may be wrong): ${styleHint.join(", ")}`
+      : "";
 
   return `Analyze this garment image and provide a detailed condition assessment.
 
 IMAGE CONTEXT: ${imageContext}
 
-GARMENT-SPECIFIC CRITERIA: ${garmentCriteria}
+GARMENT-TYPE CRITERIA: ${garmentCriteria}${categoryCriteria ? `\n\nCATEGORY CRITERIA: ${categoryCriteria}` : ""}${styleHintLine}
 
 Respond with a JSON object matching this exact schema:
 {
@@ -139,6 +299,13 @@ Respond with a JSON object matching this exact schema:
     {
       "issue": "description of the issue",
       "severity": "minor" | "moderate" | "major",
+      "location": "where on the garment",
+      "is_intentional": true | false
+    }
+  ],
+  "style_attributes": [
+    {
+      "attribute": "intentional design feature (e.g. factory distressing, raw hem, acid wash)",
       "location": "where on the garment"
     }
   ],
@@ -158,9 +325,10 @@ Respond with a JSON object matching this exact schema:
 }
 
 Rules:
-- detected_issues: List every visible issue. Empty array if none found.
+- detected_issues: List every visible issue. Set is_intentional=true when the "issue" is a manufactured design feature (distressing, raw hem, etc.), false for genuine wear/damage. Empty array if none found.
+- style_attributes: List intentional design features you observe (the design language of the garment). Empty array if none.
+- estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only, GRADING AGAINST THE AS-MANUFACTURED STATE. Intentional design features (is_intentional=true) must NOT lower any score — only genuine wear/damage and any degradation BEYOND the original design intent counts.
 - condition_signals: List all positive AND negative indicators you observe.
-- estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only.
 - For factors not assessable from this image type, score 7.0 (neutral) and note it in condition_signals.
 - Be precise and objective. Do not guess about things not visible in the image.`;
 }
@@ -198,19 +366,32 @@ function parseImageInput(imageUrl: string): {
 export async function analyzeImage(
   imageUrl: string,
   imageType: string,
-  garmentType: string
+  garmentType: string,
+  garmentCategory = "",
+  styleHint: string[] = [],
+  // Eval harness passes a candidate prompt to score a not-yet-active version.
+  promptOverride?: ResolvedPrompt
 ): Promise<PerImageAnalysis> {
   const client = getAnthropicClient();
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
   const temperature = getAiTemperature();
 
+  // Resolve the active per-image prompt (DB override → code default), unless
+  // the caller supplied an explicit candidate prompt.
+  const prompt =
+    promptOverride ??
+    (await resolveActivePrompt("per_image", garmentCategory || null, {
+      text: SYSTEM_PROMPT,
+      versionName: PER_IMAGE_PROMPT_VERSION,
+    }));
+
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
   // don't re-bill the prompt tokens. Mirrors the FlipDesk extractor.
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
-    ? { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
-    : { type: "text", text: SYSTEM_PROMPT };
+    ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
+    : { type: "text", text: prompt.text };
 
   try {
     const response = await client.messages.create({
@@ -228,7 +409,7 @@ export async function analyzeImage(
             },
             {
               type: "text",
-              text: buildUserPrompt(imageType, garmentType),
+              text: buildUserPrompt(imageType, garmentType, garmentCategory, styleHint),
             },
           ],
         },
@@ -257,6 +438,7 @@ export async function analyzeImage(
 
     let parsed: {
       detected_issues: DetectedIssue[];
+      style_attributes?: StyleAttribute[];
       condition_signals: ConditionSignal[];
       estimated_scores: FactorScores;
     };
@@ -271,6 +453,15 @@ export async function analyzeImage(
     // Validate response structure
     if (!parsed.detected_issues || !Array.isArray(parsed.detected_issues)) {
       parsed.detected_issues = [];
+    }
+    // Normalize is_intentional (older/looser responses may omit it → treat as
+    // genuine damage, the safe default).
+    parsed.detected_issues = parsed.detected_issues.map((i) => ({
+      ...i,
+      is_intentional: i.is_intentional === true,
+    }));
+    if (!parsed.style_attributes || !Array.isArray(parsed.style_attributes)) {
+      parsed.style_attributes = [];
     }
     if (!parsed.condition_signals || !Array.isArray(parsed.condition_signals)) {
       parsed.condition_signals = [];
@@ -299,6 +490,7 @@ export async function analyzeImage(
     return {
       image_type: imageType,
       detected_issues: parsed.detected_issues,
+      style_attributes: parsed.style_attributes,
       condition_signals: parsed.condition_signals,
       estimated_scores: parsed.estimated_scores,
     };
@@ -355,6 +547,10 @@ Factor Weights:
 
 You must synthesize all individual image analyses into one cohesive grade. When images disagree, weight the more revealing image type (e.g., defect images carry more weight for their specific area than front overview shots).
 
+${DESIGN_VS_DEFECT_PRINCIPLE}
+
+When synthesizing: consolidate intentional design features into style_attributes (NOT defects_found). An issue flagged is_intentional=true in a per-image analysis must not pull down factor scores — re-examine it if a per-image score seems to have penalized intentional distressing. defects_found contains GENUINE wear/damage only.
+
 IMPORTANT: You must respond ONLY with valid JSON matching the exact schema requested. No markdown, no explanation, no preamble — just the JSON object.`;
 
 function buildCompositeUserPrompt(
@@ -362,6 +558,11 @@ function buildCompositeUserPrompt(
   garmentInfo: GarmentInfo
 ): string {
   const analysesJson = JSON.stringify(perImageResults, null, 2);
+  const styleHint = garmentInfo.style_attributes ?? [];
+  const styleHintLine =
+    styleHint.length > 0
+      ? `\n- Seller-declared design features (hint, verify): ${styleHint.join(", ")}`
+      : "";
 
   return `Synthesize the following per-image analyses into a single composite grade for this garment.
 
@@ -370,12 +571,12 @@ GARMENT INFO:
 - Category: ${garmentInfo.garment_category}
 - Brand: ${garmentInfo.brand || "Unknown"}
 - Title: ${garmentInfo.title}
-${garmentInfo.description ? `- Description: ${garmentInfo.description}` : ""}
+${garmentInfo.description ? `- Description: ${garmentInfo.description}` : ""}${styleHintLine}
 
 PER-IMAGE ANALYSES:
 ${analysesJson}
 
-Apply the factor weights (Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%) to produce the final scores.
+Apply the factor weights (Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%) to produce the final scores. Grade against the AS-MANUFACTURED state — intentional design features never lower the grade.
 
 Respond with a JSON object matching this exact schema:
 {
@@ -388,13 +589,20 @@ Respond with a JSON object matching this exact schema:
     "functional_elements": <1.0-10.0>,
     "odor_cleanliness": <1.0-10.0>
   },
-  "ai_summary": "<2-4 sentence professional condition summary>",
+  "ai_summary": "<2-4 sentence professional condition summary; mention intentional design features as styling, not defects>",
   "defects_found": [
     {
-      "defect": "<description>",
+      "defect": "<description of GENUINE wear/damage only>",
       "severity": "minor|moderate|major",
       "location": "<where on garment>",
       "impact_on_grade": "<how this affects the score>"
+    }
+  ],
+  "style_attributes": [
+    {
+      "attribute": "<intentional design feature, e.g. factory distressing, raw hem, acid wash>",
+      "location": "<where on garment>",
+      "confidence": <0.0-1.0 that this is intentional design vs. genuine damage>
     }
   ],
   "confidence_score": <0.0-1.0, your confidence in the accuracy of this grade>,
@@ -407,10 +615,11 @@ Respond with a JSON object matching this exact schema:
 Rules:
 - overall_score must be the weighted average of factor scores, rounded to nearest 0.5
 - grade_tier must match the overall_score according to the tier definitions
-- factor_scores: synthesize across all images, weighting image types appropriately
+- factor_scores: synthesize across all images, weighting image types appropriately, grading against as-manufactured state
 - ai_summary: professional, objective summary suitable for a grade certificate
-- defects_found: consolidate all unique defects from all images (empty array if none)
-- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, or unusual garment
+- defects_found: consolidate all unique GENUINE defects (empty array if none). Do NOT list intentional design features here.
+- style_attributes: consolidate all intentional design features observed (empty array if none). These do not lower the grade.
+- confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, ambiguous design-vs-damage calls, or unusual garment
 - image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)`;
 }
 
@@ -430,24 +639,34 @@ function roundToHalf(value: number): number {
 
 export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
-  garmentInfo: GarmentInfo
+  garmentInfo: GarmentInfo,
+  // Eval harness passes a candidate prompt to score a not-yet-active version.
+  promptOverride?: ResolvedPrompt
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
   const temperature = getAiTemperature();
   const compositeModel = getGradingCompositeModel();
 
-  // Determine prompt version — references ai_prompt_versions concept
-  const promptVersion = "composite_v1";
+  // Resolve the active composite prompt (DB override → code default), unless
+  // the caller supplied an explicit candidate. The resolved version_name is
+  // recorded on the grade so accuracy tracking can attribute it.
+  const prompt =
+    promptOverride ??
+    (await resolveActivePrompt("composite", garmentInfo.garment_category || null, {
+      text: COMPOSITE_SYSTEM_PROMPT,
+      versionName: COMPOSITE_PROMPT_VERSION,
+    }));
+  const promptVersion = prompt.versionName;
 
   // Cache the static composite system prompt (tier definitions + weights).
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
     ? {
         type: "text",
-        text: COMPOSITE_SYSTEM_PROMPT,
+        text: prompt.text,
         cache_control: { type: "ephemeral" },
       }
-    : { type: "text", text: COMPOSITE_SYSTEM_PROMPT };
+    : { type: "text", text: prompt.text };
 
   try {
     const response = await client.messages.create({
@@ -489,6 +708,7 @@ export async function compositeGrade(
       factor_scores: FactorScores;
       ai_summary: string;
       defects_found: DefectFound[];
+      style_attributes?: DetectedStyleAttribute[];
       confidence_score: number;
       image_validity?: { is_clothing?: boolean; reason?: string };
     };
@@ -557,6 +777,23 @@ export async function compositeGrade(
         )
       : [];
 
+    // Validate style_attributes — intentional design features. Clamp
+    // confidence and drop malformed entries.
+    const styleAttributes: DetectedStyleAttribute[] = Array.isArray(parsed.style_attributes)
+      ? parsed.style_attributes
+          .filter(
+            (s) => typeof s === "object" && s !== null && typeof s.attribute === "string"
+          )
+          .map((s) => ({
+            attribute: s.attribute,
+            location: typeof s.location === "string" ? s.location : "",
+            confidence:
+              typeof s.confidence === "number" && !isNaN(s.confidence)
+                ? Math.max(0.0, Math.min(1.0, s.confidence))
+                : 0.5,
+          }))
+      : [];
+
     // Validate image_validity — default to valid if the AI omitted it.
     const imageValidity: ImageValidity = {
       is_clothing: parsed.image_validity?.is_clothing !== false,
@@ -582,6 +819,7 @@ export async function compositeGrade(
       factor_scores: parsed.factor_scores,
       ai_summary: aiSummary,
       defects_found: defectsFound,
+      style_attributes: styleAttributes,
       confidence_score: confidenceScore,
       needs_human_review: needsHumanReview,
       image_validity: imageValidity,

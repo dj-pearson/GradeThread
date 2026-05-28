@@ -16,6 +16,7 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
+import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
 import { contentTopicsRoutes } from "./routes/content-topics.ts";
@@ -222,6 +223,7 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/admin", adminBillingRoutes);
+app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/social", contentSocialRoutes);
 app.route("/api/content/topics", contentTopicsRoutes);

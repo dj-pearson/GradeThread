@@ -36,6 +36,34 @@ const GARMENT_CATEGORIES = [
 const IMAGE_TYPES = ["front", "back", "label", "detail", "defect"] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
 
+// Optional seller-declared intentional design features. Passed to the grader
+// as a hint so factory distressing isn't read as damage. Allowlist keeps the
+// hint clean (free text would let sellers game the grade). Mirror of
+// STYLE_ATTRIBUTES in src/lib/constants.ts.
+const STYLE_ATTRIBUTES = [
+  "distressed", "ripped", "raw-hem", "acid-wash", "bleached", "tie-dye",
+  "cropped", "frayed", "patchwork", "painted", "vintage-wash", "garment-dyed",
+  "deconstructed", "pre-pilled",
+] as const;
+type StyleAttribute = (typeof STYLE_ATTRIBUTES)[number];
+
+// Parse style_attributes from the form. Accepts repeated fields or a single
+// comma-separated value. Silently drops anything not on the allowlist.
+function parseStyleAttributes(formData: FormData): string[] {
+  const raw = formData.getAll("style_attributes");
+  const flat: string[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "string") continue;
+    for (const part of entry.split(",")) {
+      const v = part.trim().toLowerCase();
+      if (v) flat.push(v);
+    }
+  }
+  return [...new Set(flat)].filter((v): v is StyleAttribute =>
+    (STYLE_ATTRIBUTES as readonly string[]).includes(v)
+  );
+}
+
 type GarmentType = (typeof GARMENT_TYPES)[number];
 type GarmentCategory = (typeof GARMENT_CATEGORIES)[number];
 type ImageType = (typeof IMAGE_TYPES)[number];
@@ -89,6 +117,7 @@ gradeRoutes.post("/submit", async (c) => {
   const title = formData.get("title") as string | null;
   const brand = formData.get("brand") as string | null;
   const description = formData.get("description") as string | null;
+  const styleAttributes = parseStyleAttributes(formData);
   const tierRaw = (formData.get("tier") as string | null) ?? "standard";
   const tier: GradeTier = GRADE_TIERS.includes(tierRaw as GradeTier)
     ? (tierRaw as GradeTier)
@@ -166,6 +195,7 @@ gradeRoutes.post("/submit", async (c) => {
       title: title!.trim(),
       brand: brand?.trim() || null,
       description: description?.trim() || null,
+      style_attributes: styleAttributes,
       status: "pending",
       payment_status: "unpaid",
     })
