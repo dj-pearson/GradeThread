@@ -1,17 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
-
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
-  }
-  return `Bearer ${session.access_token}`;
-}
+import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
 export interface ArchiveResponse {
   archived: number;
@@ -31,7 +21,7 @@ export function useArchivePhotos() {
         `${edgeApiUrl()}/api/flipdesk/images/archive`,
         {
           method: "POST",
-          headers: { Authorization: await authHeader() },
+          headers: await edgeAuthHeaders(),
         },
       );
       const json = await res.json().catch(() => ({}));

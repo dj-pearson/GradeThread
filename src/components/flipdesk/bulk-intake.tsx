@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
 import { ITEM_CATEGORIES } from "@/lib/constants";
 import type { InventoryItemInsert, ItemCategory } from "@/types/database";
@@ -105,6 +106,7 @@ export function BulkIntake() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId, can } = useWorkspace();
   const { data: sources = [] } = useSources();
   const [session, setSession] = useState<BulkSession>(loadSession);
   const [finalizing, setFinalizing] = useState(false);
@@ -168,8 +170,12 @@ export function BulkIntake() {
   }
 
   async function endSession() {
-    if (!user) {
+    if (!user || !workspaceOwnerId) {
       toast.error("You must be signed in.");
+      return;
+    }
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to add inventory in this workspace.");
       return;
     }
     if (itemCount === 0) {
@@ -193,7 +199,7 @@ export function BulkIntake() {
           ) => Promise<{ data: string | null; error: Error | null }>;
         };
         const { data, error } = await supabaseAny.rpc("get_or_create_source", {
-          p_user_id: user.id,
+          p_user_id: workspaceOwnerId,
           p_name: session.sourceNew.trim(),
           p_source_type: "other",
         });
@@ -210,7 +216,7 @@ export function BulkIntake() {
           : null;
 
       const rows: InventoryItemInsert[] = session.items.map((it) => ({
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         title: it.title.trim(),
         sku: trimOrNull(it.sku),
         brand: trimOrNull(it.brand),

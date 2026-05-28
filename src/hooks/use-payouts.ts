@@ -4,15 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
 
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
-  }
-  return `Bearer ${session.access_token}`;
-}
+import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
 export interface PayoutImportRow {
   id: string;
@@ -88,7 +80,7 @@ export function useReconciliationQueue() {
     queryFn: async (): Promise<QueueEntry[]> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/reconciliation/queue`,
-        { headers: { Authorization: await authHeader() } },
+        { headers: await edgeAuthHeaders() },
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -117,7 +109,7 @@ export function useReconciliationRun() {
         `${edgeApiUrl()}/api/flipdesk/reconciliation/run`,
         {
           method: "POST",
-          headers: { Authorization: await authHeader() },
+          headers: await edgeAuthHeaders(),
         },
       );
       const json = await res.json().catch(() => ({}));
@@ -149,10 +141,7 @@ export function useReconciliationMatch() {
         `${edgeApiUrl()}/api/flipdesk/reconciliation/match`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await edgeAuthHeaders(),
           body: JSON.stringify({
             payout_import_id: payoutImportId,
             sale_id: saleId,
@@ -195,7 +184,7 @@ export function useReconciliationDismiss() {
         )}`,
         {
           method: "POST",
-          headers: { Authorization: await authHeader() },
+          headers: await edgeAuthHeaders(),
         },
       );
       const json = await res.json().catch(() => ({}));
@@ -220,10 +209,7 @@ export function useImportPayoutsCsv() {
         `${edgeApiUrl()}/api/flipdesk/ebay/payouts/import-csv`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await edgeAuthHeaders(),
           body: JSON.stringify({ csv }),
         },
       );

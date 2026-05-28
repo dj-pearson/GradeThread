@@ -23,6 +23,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 import type { InventoryItemRow, InventoryItemInsert } from "@/types/database";
 
@@ -52,6 +53,7 @@ function todayString(): string {
 export function InventoryAddPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { workspaceOwnerId, can } = useWorkspace();
   const [submitting, setSubmitting] = useState(false);
 
   // Form state
@@ -70,7 +72,11 @@ export function InventoryAddPage() {
 
   async function handleSubmit(e: React.FormEvent, submitForGrading: boolean) {
     e.preventDefault();
-    if (!user || !isValid) return;
+    if (!user || !workspaceOwnerId || !isValid) return;
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to add inventory in this workspace.");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -82,7 +88,7 @@ export function InventoryAddPage() {
       }
 
       const insertData: InventoryItemInsert = {
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         title: title.trim(),
         brand: brand.trim() || null,
         garment_type: (garmentType as InventoryItemInsert["garment_type"]) || null,

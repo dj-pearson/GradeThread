@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import {
@@ -59,6 +60,7 @@ export function SnapCatalog() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
   const { data: sources = [] } = useSources();
   const aiExtract = useAiExtract();
 
@@ -81,12 +83,12 @@ export function SnapCatalog() {
 
   // Create a minimal draft row up front so photos have an item_id.
   async function createDraft() {
-    if (!user || creatingRef.current) return;
+    if (!user || !workspaceOwnerId || creatingRef.current) return;
     creatingRef.current = true;
     const { data, error } = await supabase
       .from("inventory_items")
       .insert({
-        user_id: user.id,
+        user_id: workspaceOwnerId,
         title: DRAFT_TITLE,
         status: "cataloged",
       } as never)

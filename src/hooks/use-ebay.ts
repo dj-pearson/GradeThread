@@ -42,6 +42,10 @@ export function useEbayConnection(pollingInterval?: number) {
   });
 }
 
+// Legacy single-header helper. Most call sites use it via
+// `Authorization: await authHeader()`; new sites should prefer the shared
+// edgeAuthHeaders() from @/lib/edge-fetch, which also attaches the
+// X-Workspace-Owner header.
 async function authHeader(): Promise<string> {
   const {
     data: { session },
@@ -50,6 +54,20 @@ async function authHeader(): Promise<string> {
     throw new Error("You must be signed in.");
   }
   return `Bearer ${session.access_token}`;
+}
+
+// Returns Authorization + X-Workspace-Owner so eBay endpoints scope to the
+// active workspace (marketplace connections, listings, payouts all live
+// under the workspace owner).
+async function ebayHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    Authorization: await authHeader(),
+    "Content-Type": "application/json",
+  };
+  const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
+  const ownerId = activeWorkspaceOwnerId ?? user?.id;
+  if (ownerId) headers["X-Workspace-Owner"] = ownerId;
+  return headers;
 }
 
 // Kicks off the OAuth dance: GETs /oauth/start, then assigns window.location
@@ -63,7 +81,7 @@ export function useStartEbayOauth() {
       const qs = params.toString() ? `?${params.toString()}` : "";
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/oauth/start${qs}`,
-        { headers: { Authorization: await authHeader() } }
+        { headers: await ebayHeaders() }
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -98,7 +116,7 @@ export function useEbayCategorySuggest(query: string) {
         `${edgeApiUrl()}/api/flipdesk/ebay/category/suggest?q=${encodeURIComponent(
           query
         )}`,
-        { headers: { Authorization: await authHeader() } }
+        { headers: await ebayHeaders() }
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -142,7 +160,7 @@ export function useEbayCategoryAspects(categoryId: string | null) {
         `${edgeApiUrl()}/api/flipdesk/ebay/category/${encodeURIComponent(
           categoryId!
         )}/aspects`,
-        { headers: { Authorization: await authHeader() } }
+        { headers: await ebayHeaders() }
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -190,10 +208,7 @@ export function useAiExtractAspects() {
         `${edgeApiUrl()}/api/flipdesk/ai/extract-aspects`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await ebayHeaders(),
           body: JSON.stringify({
             item_id: itemId,
             category_id: categoryId,
@@ -269,7 +284,7 @@ export function useEbayComps(args: EbayCompsArgs) {
       if (args.limit) params.set("limit", String(args.limit));
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/comps?${params.toString()}`,
-        { headers: { Authorization: await authHeader() } }
+        { headers: await ebayHeaders() }
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -310,7 +325,7 @@ export function useEbayCategoryCheck() {
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/${encodeURIComponent(
           listingId,
         )}/category-check`,
-        { headers: { Authorization: await authHeader() } },
+        { headers: await ebayHeaders() },
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -344,10 +359,7 @@ export function useEbayUpdateListingPrice() {
         )}/price`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await ebayHeaders(),
           body: JSON.stringify({ price }),
         }
       );
@@ -394,10 +406,7 @@ export function useEbayReviseListing() {
         )}/revise`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await ebayHeaders(),
           body: JSON.stringify(patch),
         }
       );
@@ -430,7 +439,7 @@ export function useEbayEndListing() {
         )}`,
         {
           method: "DELETE",
-          headers: { Authorization: await authHeader() },
+          headers: await ebayHeaders(),
         }
       );
       const json = await res.json().catch(() => ({}));
@@ -484,10 +493,7 @@ export function useSyncEbayListings() {
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/pull`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await ebayHeaders(),
         }
       );
       const json = (await res.json().catch(() => ({}))) as {
@@ -561,10 +567,7 @@ export function useValidatePublish() {
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await ebayHeaders(),
           body: JSON.stringify({ inventory_item_id: itemId }),
         }
       );
@@ -585,10 +588,7 @@ export function usePublishToEbay() {
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/push`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await ebayHeaders(),
           body: JSON.stringify({ inventory_item_id: itemId }),
         }
       );

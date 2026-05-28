@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/use-auth";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
 import type { SubmissionStatus } from "@/types/database";
 
@@ -12,26 +12,28 @@ interface SubmissionChange {
 }
 
 /**
- * Subscribes to realtime status changes on the submissions table
- * for the current user. Shows a toast when a grade completes and
- * invalidates relevant queries so lists/detail views stay fresh.
+ * Subscribes to realtime status changes on the submissions table for the
+ * active workspace. Filters by workspaceOwnerId so a member acting inside
+ * an owner's workspace sees grade-complete toasts for the workspace's
+ * submissions, not their personal ones. The subscription re-binds when the
+ * user switches workspaces.
  */
 export function useRealtimeSubmissions() {
-  const { user } = useAuth();
+  const { workspaceOwnerId } = useWorkspace();
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!workspaceOwnerId) return;
 
     const channel = supabase
-      .channel("submissions-realtime")
+      .channel(`submissions-realtime-${workspaceOwnerId}`)
       .on(
         "postgres_changes",
         {
           event: "UPDATE",
           schema: "public",
           table: "submissions",
-          filter: `user_id=eq.${user.id}`,
+          filter: `user_id=eq.${workspaceOwnerId}`,
         },
         (payload) => {
           const row = payload.new as SubmissionChange;
@@ -65,7 +67,7 @@ export function useRealtimeSubmissions() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.id, queryClient]);
+  }, [workspaceOwnerId, queryClient]);
 }
 
 /**

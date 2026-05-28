@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmail, signInWithGoogle } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,9 @@ import { toast } from "sonner";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [params] = useSearchParams();
+  const inviteToken = params.get("invite");
+  const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -19,7 +21,7 @@ export function LoginPage() {
     setIsLoading(true);
     try {
       await signInWithEmail(email, password);
-      navigate("/dashboard");
+      navigate(inviteToken ? `/accept-invite?token=${inviteToken}` : "/dashboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to sign in");
     } finally {

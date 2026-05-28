@@ -23,10 +23,12 @@ import { contentImagesRoutes } from "./routes/content-images.ts";
 import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
+import { workspaceRoutes } from "./routes/workspace.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
+import { workspaceMiddleware } from "./middleware/workspace.ts";
 
 const app = new Hono();
 
@@ -45,6 +47,7 @@ const ALLOWED_HEADERS = [
   "Authorization",
   "X-API-Key",
   "X-Internal-Job-Secret",
+  "X-Workspace-Owner",
 ];
 
 // Belt-and-suspenders: respond to every OPTIONS preflight FIRST, before any
@@ -108,6 +111,29 @@ app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
+// Workspace (team) management: auth + workspace context. The route handlers
+// enforce per-action role checks (owner/admin required to invite, etc.).
+app.use("/api/workspace/*", authMiddleware);
+app.use("/api/workspace/*", workspaceMiddleware);
+
+// Workspace context middleware — resolves X-Workspace-Owner into
+// workspaceOwnerId/workspaceRole so routes can write to the correct tenant
+// when a member is acting inside an owner's workspace. Sits after
+// authMiddleware. No-ops (workspaceOwnerId === userId) for solo users.
+app.use("/api/grade/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/category/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/listings/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
+app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
+app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
+app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
+app.use("/api/flipdesk/images/*", workspaceMiddleware);
+app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
+app.use("/api/flipdesk/ai/*", workspaceMiddleware);
+app.use("/api/keys/*", workspaceMiddleware);
+
 // Admin billing: user JWT auth, then admin role check
 app.use("/api/admin/*", authMiddleware);
 app.use("/api/admin/*", adminAuthMiddleware);
@@ -175,6 +201,7 @@ app.route("/api/content/public", contentPublicRoutes);
 // route module short-circuits on X-Internal-Job-Secret OR falls back
 // to admin JWT). Don't add /scheduler/* to the use() lines above.
 app.route("/api/content/scheduler", contentSchedulerRoutes);
+app.route("/api/workspace", workspaceRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));

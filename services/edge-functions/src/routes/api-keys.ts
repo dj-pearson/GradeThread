@@ -4,6 +4,13 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 type ApiKeysEnv = {
   Variables: {
     userId: string;
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
   };
 };
 
@@ -26,7 +33,15 @@ async function generateApiKey(): Promise<{ fullKey: string; keyHash: string; key
 
 // List user's API keys
 apiKeyRoutes.get("/", async (c) => {
-  const userId = c.get("userId");
+  // API keys are workspace-scoped; only admin+ in this workspace can manage them.
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json(
+      { error: "Only the workspace owner and admins can manage API keys" },
+      403,
+    );
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   const { data: keys, error } = await supabaseAdmin
     .from("api_keys")
@@ -44,7 +59,15 @@ apiKeyRoutes.get("/", async (c) => {
 
 // Create a new API key
 apiKeyRoutes.post("/", async (c) => {
-  const userId = c.get("userId");
+  // API keys are workspace-scoped; only admin+ in this workspace can manage them.
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json(
+      { error: "Only the workspace owner and admins can manage API keys" },
+      403,
+    );
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { name?: string; expires_at?: string };
   try {
@@ -138,7 +161,15 @@ apiKeyRoutes.post("/", async (c) => {
 
 // Delete/revoke an API key
 apiKeyRoutes.delete("/:id", async (c) => {
-  const userId = c.get("userId");
+  // API keys are workspace-scoped; only admin+ in this workspace can manage them.
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json(
+      { error: "Only the workspace owner and admins can manage API keys" },
+      403,
+    );
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const keyId = c.req.param("id");
 
   if (!keyId) {

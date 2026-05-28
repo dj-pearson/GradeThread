@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { useAuthStore } from "@/stores/auth-store";
 
 export interface AiFieldSuggestion {
   value: string;
@@ -48,6 +49,20 @@ async function authHeader(): Promise<string> {
   return `Bearer ${session.access_token}`;
 }
 
+// Build the standard set of headers for an edge request: auth + workspace
+// tenant. Pulled from the auth store so it picks up the active workspace
+// without needing to plumb it through every hook.
+async function aiHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {
+    Authorization: await authHeader(),
+    "Content-Type": "application/json",
+  };
+  const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
+  const ownerId = activeWorkspaceOwnerId ?? user?.id;
+  if (ownerId) headers["X-Workspace-Owner"] = ownerId;
+  return headers;
+}
+
 // Records which suggested fields the user accepted. Telemetry only — failures
 // are swallowed so they never block the user's Apply action.
 export async function recordAiAcceptance(
@@ -57,10 +72,7 @@ export async function recordAiAcceptance(
   try {
     await fetch(`${edgeApiUrl()}/api/flipdesk/ai/log/${logId}`, {
       method: "PATCH",
-      headers: {
-        Authorization: await authHeader(),
-        "Content-Type": "application/json",
-      },
+      headers: await aiHeaders(),
       body: JSON.stringify({ accepted_fields: acceptedFields }),
     });
   } catch {
@@ -85,10 +97,7 @@ function aiErrorToast(err: ApiError): void {
 async function postJson<T>(path: string, input: unknown): Promise<T> {
   const res = await fetch(`${edgeApiUrl()}${path}`, {
     method: "POST",
-    headers: {
-      Authorization: await authHeader(),
-      "Content-Type": "application/json",
-    },
+    headers: await aiHeaders(),
     body: JSON.stringify(input),
   });
   const json = await res.json().catch(() => ({}));

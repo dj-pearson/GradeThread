@@ -30,6 +30,8 @@ const FinancesPage = lazy(() => import("@/pages/finances").then(m => ({ default:
 const SettingsPage = lazy(() => import("@/pages/settings").then(m => ({ default: m.SettingsPage })));
 const BillingPage = lazy(() => import("@/pages/billing").then(m => ({ default: m.BillingPage })));
 const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
+const TeamPage = lazy(() => import("@/pages/team").then(m => ({ default: m.TeamPage })));
+const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({ default: m.AcceptInvitePage })));
 const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then(m => ({ default: m.PriceSuggestionsPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const PrivacyPage = lazy(() => import("@/pages/legal/privacy").then(m => ({ default: m.PrivacyPage })));
@@ -116,6 +118,11 @@ export const router = createBrowserRouter([
       // Auth callback (public, handles redirect)
       { path: "/auth/callback", element: <SuspenseWrapper><AuthCallbackPage /></SuspenseWrapper> },
 
+      // Workspace invitation acceptance — works for both signed-in and
+      // signed-out users. The page redirects to /signup or /login as
+      // needed and resumes after auth.
+      { path: "/accept-invite", element: <SuspenseWrapper><AcceptInvitePage /></SuspenseWrapper> },
+
       // Protected dashboard routes
       {
         element: <ProtectedRoute />,
@@ -164,6 +171,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/settings", element: <SuspenseWrapper><SettingsPage /></SuspenseWrapper> },
               { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
+              { path: "/dashboard/team", element: <SuspenseWrapper><TeamPage /></SuspenseWrapper> },
               // Content module (admin-only). The AdminRoute guard
               // wraps the content children so non-admins land back at
               // /dashboard with the standard "Access denied" toast.

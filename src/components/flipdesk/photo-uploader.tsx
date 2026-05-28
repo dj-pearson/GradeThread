@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import {
   REQUIRED_PHOTO_TYPES,
@@ -40,6 +41,7 @@ export function PhotoUploader({
   currentStatus?: ItemStatus;
 }) {
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId } = useWorkspace();
   const qc = useQueryClient();
   const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
@@ -107,7 +109,8 @@ export function PhotoUploader({
       }
 
       const ts = Date.now();
-      const path = `${user.id}/${itemId}/${photoType}_${ts}.${ext}`;
+      const ownerFolder = workspaceOwnerId ?? user.id;
+      const path = `${ownerFolder}/${itemId}/${photoType}_${ts}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("item-photos")
         .upload(path, body, {
@@ -125,7 +128,7 @@ export function PhotoUploader({
       let thumbnailUrl: string | null = null;
       let thumbnailPath: string | null = null;
       if (thumbBlob) {
-        thumbnailPath = `${user.id}/${itemId}/thumbs/${photoType}_${ts}.${extForBlobType(thumbType, "webp")}`;
+        thumbnailPath = `${ownerFolder}/${itemId}/thumbs/${photoType}_${ts}.${extForBlobType(thumbType, "webp")}`;
         const { error: thumbUpErr } = await supabase.storage
           .from("item-photos")
           .upload(thumbnailPath, thumbBlob, {

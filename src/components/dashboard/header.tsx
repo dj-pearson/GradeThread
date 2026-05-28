@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MobileNav } from "@/components/dashboard/sidebar";
 import { NotificationCenter } from "@/components/dashboard/notification-center";
+import { WorkspaceSwitcher } from "@/components/dashboard/workspace-switcher";
 
 export function Header() {
   const { user, profile } = useAuth();
@@ -43,6 +44,7 @@ export function Header() {
     <header className="flex h-16 items-center justify-between border-b bg-card px-6">
       <div className="flex items-center gap-3">
         <MobileNav />
+        <WorkspaceSwitcher />
         <Badge variant="secondary" className="text-xs font-medium">
           {planLabel} Plan
         </Badge>

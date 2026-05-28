@@ -13,7 +13,18 @@ import {
 // Required env for /archive: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 // R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_BASE_URL.
 
-type ImagesEnv = { Variables: { userId: string } };
+type ImagesEnv = {
+  Variables: {
+    userId: string;
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
+  };
+};
 
 export const flipdeskImageRoutes = new Hono<ImagesEnv>();
 
@@ -41,7 +52,7 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
       503,
     );
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { item_photo_id?: unknown };
   try {
@@ -206,7 +217,7 @@ interface PhotoToArchive {
 }
 
 flipdeskImageRoutes.post("/archive", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   if (!isR2Configured()) {
     return c.json({ error: "R2 is not configured on this server." }, 503);

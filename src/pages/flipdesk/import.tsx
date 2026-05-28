@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { parseSheet } from "@/lib/csv";
 import {
   IMPORT_FIELDS,
@@ -83,6 +84,7 @@ function buildMapped(
 export function FlipdeskImportPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const { workspaceOwnerId, can } = useWorkspace();
 
   const [text, setText] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -138,8 +140,12 @@ export function FlipdeskImportPage() {
   const titleFieldMapped = mapping.includes("title");
 
   async function handleImport() {
-    if (!user) {
+    if (!user || !workspaceOwnerId) {
       toast.error("You must be signed in.");
+      return;
+    }
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to import inventory in this workspace.");
       return;
     }
     if (!titleFieldMapped) {
@@ -176,7 +182,7 @@ export function FlipdeskImportPage() {
         const { data: sid, error: sErr } = await supabaseAny.rpc(
           "get_or_create_source",
           {
-            p_user_id: user.id,
+            p_user_id: workspaceOwnerId,
             p_name: name,
             p_source_type: "other",
           },
@@ -208,7 +214,7 @@ export function FlipdeskImportPage() {
         const { data, error: lookupErr } = await supabase
           .from("inventory_items")
           .select("id, sku")
-          .eq("user_id", user.id)
+          .eq("user_id", workspaceOwnerId)
           .in("sku", chunk);
         if (lookupErr) throw lookupErr;
         for (const row of (data ?? []) as ExistingRow[]) {
@@ -254,7 +260,7 @@ export function FlipdeskImportPage() {
 
           const sku = mapped.sku?.trim() ?? null;
           const itemPayload: InventoryItemInsert = {
-            user_id: user.id,
+            user_id: workspaceOwnerId,
             title,
             sku,
             container: mapped.container ?? null,

@@ -28,6 +28,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { calculateSuggestedPrice } from "@/lib/price-suggestions";
 import type {
   InventoryItemRow,
@@ -53,6 +54,7 @@ function formatLabel(value: string): string {
 
 export function PriceSuggestionsPage() {
   const { user } = useAuthStore();
+  const { workspaceOwnerId } = useWorkspace();
   const [items, setItems] = useState<InventoryItemRow[]>([]);
   const [listings, setListings] = useState<ListingRow[]>([]);
   const [sales, setSales] = useState<SaleRow[]>([]);
@@ -60,7 +62,7 @@ export function PriceSuggestionsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !workspaceOwnerId) return;
 
     async function fetchData() {
       setLoading(true);
@@ -69,7 +71,7 @@ export function PriceSuggestionsPage() {
         supabase
           .from("inventory_items")
           .select("*")
-          .eq("user_id", user!.id)
+          .eq("user_id", workspaceOwnerId!)
           .in("status", ["acquired", "grading", "graded", "listed"]),
         supabase.from("listings").select("*"),
         supabase.from("sales").select("*"),
@@ -84,7 +86,7 @@ export function PriceSuggestionsPage() {
     }
 
     fetchData();
-  }, [user]);
+  }, [user, workspaceOwnerId]);
 
   // Build suggestions for each item
   const suggestions = useMemo(() => {

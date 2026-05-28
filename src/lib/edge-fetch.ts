@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { useAuthStore } from "@/stores/auth-store";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 
@@ -32,6 +33,37 @@ export interface EdgeFetchOptions extends RequestInit {
    * stringifies. Just shorthand — the standard `body` field still works.
    */
   json?: unknown;
+  /**
+   * Skip the automatic X-Workspace-Owner header. Use for endpoints that
+   * deliberately operate on the caller's personal account regardless of
+   * which workspace is active (e.g. the workspace-management endpoints
+   * themselves, where the active workspace is the target).
+   */
+  skipWorkspaceHeader?: boolean;
+}
+
+// Shared helper for the (still many) hooks that call fetch() directly with
+// edgeApiUrl(). Returns Authorization + X-Workspace-Owner + Content-Type so
+// the call site can spread the result into its headers object.
+//
+// New code should use edgeFetch() instead — this is a migration crutch.
+export async function edgeAuthHeaders(
+  contentType: string | null = "application/json",
+): Promise<Record<string, string>> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("You must be signed in.");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${session.access_token}`,
+  };
+  if (contentType) headers["Content-Type"] = contentType;
+  const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
+  const ownerId = activeWorkspaceOwnerId ?? user?.id;
+  if (ownerId) headers["X-Workspace-Owner"] = ownerId;
+  return headers;
 }
 
 export async function edgeFetch(
@@ -48,6 +80,17 @@ export async function edgeFetch(
       throw new Error("You must be signed in.");
     }
     headers.set("Authorization", `Bearer ${session.access_token}`);
+
+    // Forward the active workspace so edge routes can scope writes to the
+    // correct tenant (owner_id). For solo users this is identical to their
+    // own id and the server short-circuits without any extra DB lookup.
+    if (!opts.skipWorkspaceHeader && !headers.has("X-Workspace-Owner")) {
+      const { activeWorkspaceOwnerId, user } = useAuthStore.getState();
+      const ownerId = activeWorkspaceOwnerId ?? user?.id ?? null;
+      if (ownerId) {
+        headers.set("X-Workspace-Owner", ownerId);
+      }
+    }
   }
 
   let body = opts.body;

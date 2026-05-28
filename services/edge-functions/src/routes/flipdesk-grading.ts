@@ -13,7 +13,20 @@ import {
 // Until the GradeThread Public API ships (Phase 2 of GradeThread roadmap), this
 // can take a direct DB shortcut since both products share a Supabase instance.
 
-type GradingEnv = { Variables: { userId: string } };
+type GradingEnv = {
+  Variables: {
+    userId: string;
+    // Workspace owner — billing, item ownership, and submission tenant
+    // all key off this. Equals userId for solo users.
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
+  };
+};
 
 export const flipdeskGradingRoutes = new Hono<GradingEnv>();
 
@@ -57,7 +70,7 @@ const REQUIRED_GRADING_PHOTO_TYPES = ["front", "back", "tag"] as const;
 // then computes per-item readiness. Used by both /validate (just returns the
 // result) and /submit (in G2; refuses to proceed if can_submit is false).
 async function buildValidation(
-  userId: string,
+  ownerId: string,
   inputs: SubmitItemInput[],
 ): Promise<
   | { ok: true; result: ValidationResult }
@@ -70,7 +83,7 @@ async function buildValidation(
   const { data: userRow, error: userErr } = await supabaseAdmin
     .from("users")
     .select("plan, grades_used_this_month, grade_reset_at, suspended")
-    .eq("id", userId)
+    .eq("id", ownerId)
     .maybeSingle();
   if (userErr || !userRow) {
     return { ok: false, status: 404, error: "User not found" };
@@ -163,7 +176,7 @@ async function buildValidation(
 
     if (!item) {
       blockers.push("Item not found");
-    } else if (item.user_id !== userId) {
+    } else if (item.user_id !== ownerId) {
       blockers.push("Item not found");
     } else {
       if (!item.garment_type) blockers.push("Missing garment_type");
@@ -254,7 +267,7 @@ function parseSubmitBody(
 // remaining without creating any records. UI calls this before /submit so
 // it can grey-out unready items and warn about plan limits.
 flipdeskGradingRoutes.post("/validate", async (c) => {
-  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: unknown;
   try {
     body = await c.req.json();
@@ -265,7 +278,7 @@ flipdeskGradingRoutes.post("/validate", async (c) => {
   if (!parsed.ok) {
     return c.json({ error: parsed.error }, 400);
   }
-  const result = await buildValidation(userId, parsed.items);
+  const result = await buildValidation(ownerId, parsed.items);
   if (!result.ok) {
     return c.json(
       { error: result.error, details: result.details },
@@ -301,7 +314,15 @@ function mapPhotoTypeForGrading(t: string): string | null {
 // failed rows include the blocker. Partial success is normal — failing
 // items don't block successful ones.
 flipdeskGradingRoutes.post("/submit", async (c) => {
-  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const role = c.get("workspaceRole") ?? "owner";
+
+  if (role === "viewer") {
+    return c.json(
+      { error: "Viewers cannot submit grade requests in this workspace" },
+      403,
+    );
+  }
 
   let body: unknown;
   try {
@@ -314,7 +335,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
     return c.json({ error: parsed.error }, 400);
   }
 
-  const validation = await buildValidation(userId, parsed.items);
+  const validation = await buildValidation(ownerId, parsed.items);
   if (!validation.ok) {
     return c.json(
       { error: validation.error, details: validation.details },
@@ -377,13 +398,13 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
         garment_type: string;
         garment_category: string;
       };
-      if (it.user_id !== userId) throw new Error("Item ownership mismatch");
+      if (it.user_id !== ownerId) throw new Error("Item ownership mismatch");
 
-      // 1. Create submissions row
+      // 1. Create submissions row (keyed on workspace owner so all members see it).
       const { data: subInsert, error: subErr } = await supabaseAdmin
         .from("submissions")
         .insert({
-          user_id: userId,
+          user_id: ownerId,
           garment_type: it.garment_type,
           garment_category: it.garment_category,
           title: (it.title ?? "").trim() || "Untitled item",
@@ -441,7 +462,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
         const arrayBuf = await blob.arrayBuffer();
         const ext =
           photo.storage_path.split(".").pop()?.toLowerCase() || "webp";
-        const newPath = `${userId}/${submissionId}/${photo.submission_image_type}_${i}.${ext}`;
+        const newPath = `${ownerId}/${submissionId}/${photo.submission_image_type}_${i}.${ext}`;
         const { error: upErr } = await supabaseAdmin.storage
           .from("submission-images")
           .upload(newPath, new Uint8Array(arrayBuf), {
@@ -542,7 +563,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
         grades_used_this_month: next,
         ...(limit !== -1 ? { grade_reset_at: nextResetAt.toISOString() } : {}),
       })
-      .eq("id", userId);
+      .eq("id", ownerId);
   }
 
   return c.json({
@@ -572,7 +593,7 @@ flipdeskGradingRoutes.post("/webhook", (c) => {
 // pipeline write didn't reach the cache. Returns full state + the linked
 // grade_report payload when the grade is complete.
 flipdeskGradingRoutes.get("/submissions/:id", async (c) => {
-  const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const id = c.req.param("id");
 
   // Load the flipdesk_grading_submissions row + ownership-check via the
@@ -610,7 +631,7 @@ flipdeskGradingRoutes.get("/submissions/:id", async (c) => {
       certificate_url: string | null;
     };
   };
-  if (r.inventory_items.user_id !== userId) {
+  if (r.inventory_items.user_id !== ownerId) {
     return c.json({ error: "Submission not found" }, 404);
   }
 
