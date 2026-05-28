@@ -89,7 +89,7 @@ export function useTaskCommentCounts(taskIds: string[]) {
         .in("task_id", taskIds);
       if (error) throw error;
       const counts: Record<string, number> = {};
-      for (const r of data ?? []) {
+      for (const r of (data ?? []) as { task_id: string }[]) {
         counts[r.task_id] = (counts[r.task_id] ?? 0) + 1;
       }
       return counts;
@@ -124,11 +124,11 @@ export function useCreateProject() {
     mutationFn: async (input: AdminTaskProjectInsert): Promise<AdminTaskProjectRow> => {
       const { data, error } = await supabase
         .from("admin_task_projects")
-        .insert(input)
+        .insert(input as never)
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return data as AdminTaskProjectRow;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: TASK_PROJECTS_KEY }),
   });
@@ -146,7 +146,7 @@ export function useUpdateProject() {
     }) => {
       const { error } = await supabase
         .from("admin_task_projects")
-        .update(patch)
+        .update(patch as never)
         .eq("id", id);
       if (error) throw error;
     },
@@ -181,11 +181,11 @@ export function useCreateTask() {
     mutationFn: async (input: AdminTaskInsert): Promise<AdminTaskRow> => {
       const { data, error } = await supabase
         .from("admin_tasks")
-        .insert(input)
+        .insert(input as never)
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return data as AdminTaskRow;
     },
     onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: projectTasksKey(row.project_id) });
@@ -206,12 +206,12 @@ export function useUpdateTask() {
     }): Promise<AdminTaskRow> => {
       const { data, error } = await supabase
         .from("admin_tasks")
-        .update(patch)
+        .update(patch as never)
         .eq("id", id)
         .select()
         .single();
       if (error) throw error;
-      return data;
+      return data as AdminTaskRow;
     },
     onSuccess: (row) => {
       qc.invalidateQueries({ queryKey: projectTasksKey(row.project_id) });
@@ -244,7 +244,7 @@ export function useAddComment() {
     mutationFn: async ({ taskId, body }: { taskId: string; body: string }) => {
       const { error } = await supabase
         .from("admin_task_comments")
-        .insert({ task_id: taskId, body });
+        .insert({ task_id: taskId, body } as never);
       if (error) throw error;
     },
     onSuccess: (_data, { taskId }) => {
@@ -293,11 +293,11 @@ export function useImportMarkdown() {
       if (!projectId) {
         const { data, error } = await supabase
           .from("admin_task_projects")
-          .insert({ title: parsed.title, description: parsed.description })
+          .insert({ title: parsed.title, description: parsed.description } as never)
           .select()
           .single();
         if (error) throw error;
-        projectId = data.id;
+        projectId = (data as AdminTaskProjectRow).id;
       }
 
       // When appending, start positions after the existing max.
@@ -310,7 +310,8 @@ export function useImportMarkdown() {
           .order("position", { ascending: false })
           .limit(1);
         if (exErr) throw exErr;
-        base = (existing?.[0]?.position ?? -1) + 1;
+        const rows = (existing ?? []) as { position: number }[];
+        base = (rows[0]?.position ?? -1) + 1;
       }
 
       if (parsed.tasks.length > 0) {
@@ -325,7 +326,9 @@ export function useImportMarkdown() {
           position: base + i,
           completed_at: t.status === "done" ? new Date().toISOString() : null,
         }));
-        const { error } = await supabase.from("admin_tasks").insert(rows);
+        const { error } = await supabase
+          .from("admin_tasks")
+          .insert(rows as never);
         if (error) throw error;
       }
 

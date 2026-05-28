@@ -10,6 +10,7 @@ import {
   ScrollText,
   ShieldAlert,
   Tag,
+  ListChecks,
   ArrowLeft,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
@@ -24,6 +25,7 @@ const adminNavItems = [
   { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
+  { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
 ];
