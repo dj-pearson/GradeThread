@@ -501,7 +501,7 @@ function ImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Import from Markdown</DialogTitle>
           <DialogDescription>
@@ -512,7 +512,7 @@ function ImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="flex-1 space-y-3 overflow-y-auto px-1">
           <div className="flex flex-wrap items-center gap-2">
             <Select value={target} onValueChange={setTarget}>
               <SelectTrigger className="w-64">
@@ -553,7 +553,7 @@ function ImportDialog({
             onChange={(e) => setText(e.target.value)}
             placeholder={SAMPLE_MARKDOWN}
             rows={12}
-            className="font-mono text-xs"
+            className="h-64 resize-y overflow-y-auto font-mono text-xs [field-sizing:fixed]"
           />
 
           {summary && parsed && (
