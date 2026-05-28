@@ -48,6 +48,7 @@ Notes:
 | `SUPABASE_SERVICE_KEY` | ⬜ Optional | Legacy fallback name; only used if `SUPABASE_SERVICE_ROLE_KEY` is unset | Same value as above — prefer setting `SUPABASE_SERVICE_ROLE_KEY` |
 | `PORT` | ⬜ Optional | Port the Hono server binds | Defaults to `8787` |
 | `SITE_URL` | ✅ Required (for billing) | Used to build Stripe checkout success/cancel return URLs | Your frontend URL, e.g. `https://gradethread.com` |
+| `EDGE_ENV` | ✅ Required (prod) | Deploy environment. **Defaults to `production` when unset (fail-closed).** When `production`, all security debug flags (e.g. `WEBHOOK_PAYOUT_DEBUG`) are ignored and signature verification can never be bypassed. Set to `development` only in local dev. | `production` in Coolify; `development` in `docker-compose.dev.yml` |
 
 ### 2b. AI — Anthropic (Claude)
 

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Pre-commit secret scan (US-272).
+#
+# Enable once per clone:
+#   git config core.hooksPath .githooks
+#
+# Scans staged changes with gitleaks. If gitleaks isn't installed it warns and
+# lets the commit through — the CI job (.github/workflows/secret-scan.yml) is
+# the hard gate. Install locally with:  brew install gitleaks  (or see
+# https://github.com/gitleaks/gitleaks#installing)
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[pre-commit] gitleaks not installed — skipping local secret scan."
+  echo "[pre-commit] Install it to catch secrets before they're committed:"
+  echo "[pre-commit]   https://github.com/gitleaks/gitleaks#installing"
+  exit 0
+fi
+
+echo "[pre-commit] Scanning staged changes for secrets…"
+if ! gitleaks protect --staged --redact --config .gitleaks.toml; then
+  echo ""
+  echo "[pre-commit] BLOCKED: a potential secret was found in your staged changes."
+  echo "[pre-commit] Remove it, or if it's a false positive add an allowlist"
+  echo "[pre-commit] entry to .gitleaks.toml, then commit again."
+  exit 1
+fi
+
+echo "[pre-commit] No secrets detected."

@@ -30,6 +30,8 @@ import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
+import { securityHeaders } from "./middleware/security-headers.ts";
+import { assertNoProdDebugFlags } from "./lib/env.ts";
 
 const app = new Hono();
 
@@ -89,6 +91,11 @@ app.use(
     maxAge: 86400,
   })
 );
+
+// Security hardening headers on every response (HSTS, nosniff, frame-deny,
+// referrer policy, CORP) + no-store on user-scoped surfaces. Runs after cors()
+// so it can't clobber Access-Control-* headers. (US-263)
+app.use("*", securityHeaders);
 
 // Auth middleware — applied to protected routes only (not health or webhooks)
 app.use("/api/grade/*", authMiddleware);
@@ -214,6 +221,10 @@ app.onError((err, c) => {
   console.error("Unhandled error:", err);
   return c.json({ error: "Internal server error" }, 500);
 });
+
+// Fail-closed safety net: warn loudly if a security-weakening debug flag is
+// set in production (the flag is already ignored by isDebugAllowed). (US-266)
+assertNoProdDebugFlags();
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
 console.log(`Edge functions running on port ${port}`);

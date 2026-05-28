@@ -4394,6 +4394,242 @@
       "priority": 262,
       "passes": true,
       "notes": ""
+    },
+    {
+      "id": "US-263",
+      "title": "Security: global hardening-header middleware on the edge service",
+      "description": "As the platform owner, I need every Deno/Hono API response to carry security hardening headers so browsers and intermediaries cannot be tricked into unsafe behavior, and sensitive JSON is never cached.",
+      "acceptanceCriteria": [
+        "New middleware services/edge-functions/src/middleware/security-headers.ts sets on every response: Strict-Transport-Security 'max-age=63072000; includeSubDomains; preload', X-Content-Type-Options 'nosniff', X-Frame-Options 'DENY', Referrer-Policy 'strict-origin-when-cross-origin', Cross-Origin-Resource-Policy 'same-site'",
+        "Sensitive surfaces (/api/payments, /api/keys, /api/admin, /api/workspace, /api/v1, auth-bearing responses) additionally send Cache-Control 'no-store'",
+        "Registered in main.ts as app.use('*', securityHeaders()) after the CORS middleware and before route mounts; must NOT clobber the existing CORS / OPTIONS-preflight headers",
+        "/health is exempt from no-store; no Server / X-Powered-By header is emitted",
+        "Manual check with curl -I confirms headers present on a real route and on a 404/500"
+      ],
+      "priority": 263,
+      "passes": false,
+      "notes": "Implemented: services/edge-functions/src/middleware/security-headers.ts sets HSTS/nosniff/X-Frame-Options DENY/Referrer-Policy/CORP on every response and Cache-Control no-store on user-scoped prefixes (payments, keys, admin, workspace, v1, grade, flipdesk, notifications); /health and /api/content/public left cacheable. Registered in main.ts after cors(). Pending runtime verification (curl -I) since Deno isn't installed locally."
+    },
+    {
+      "id": "US-264",
+      "title": "Security: Content-Security-Policy + HSTS on the SPA (Cloudflare Pages)",
+      "description": "As the platform owner, I need the static frontend to ship a strict CSP and HSTS via public/_headers so an injected script cannot exfiltrate user data or tokens.",
+      "acceptanceCriteria": [
+        "public/_headers adds Strict-Transport-Security 'max-age=63072000; includeSubDomains; preload' and Cross-Origin-Opener-Policy 'same-origin' to the global block (alongside the existing X-Frame-Options / X-Content-Type-Options / Referrer-Policy / Permissions-Policy)",
+        "A Content-Security-Policy scoped to known origins: default-src 'self'; connect-src 'self' https://api.gradethread.com https://functions.gradethread.com https://*.stripe.com https://*.ingest.sentry.io https://us.i.posthog.com; script-src 'self' https://js.stripe.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; frame-src https://js.stripe.com https://hooks.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self'",
+        "Ship for one deploy cycle as Content-Security-Policy-Report-Only, capture violations, then flip to enforcing",
+        "Verified in a browser that Stripe Checkout, Google OAuth redirect, Sentry, and PostHog all still function under the enforced policy",
+        "No 'unsafe-eval'; if a dependency requires it, document the exception in the PR instead of silently adding it"
+      ],
+      "priority": 264,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-265",
+      "title": "Security: distributed + broadened rate limiting",
+      "description": "As the platform owner, I need rate limits that survive restarts, apply across all container replicas, and cover unauthenticated abuse - not just a per-process in-memory Map keyed by userId.",
+      "acceptanceCriteria": [
+        "Replace the in-memory Map in services/edge-functions/src/middleware/rate-limit.ts with a shared store (a Postgres rate_limit_counters table using an atomic increment RPC, or Deno KV) so counts hold across restarts and horizontal replicas",
+        "Key by userId when authenticated; fall back to client IP (CF-Connecting-IP, then validated X-Forwarded-For) for unauthenticated/pre-auth requests",
+        "Extend coverage in main.ts to /api/payments/*, POST /api/keys (stricter cap on key creation), /api/workspace/* invitation sends, /api/notifications/*, /api/flipdesk/ebay/oauth/start, /api/flipdesk/images/*, /api/flipdesk/reconciliation/*, /api/flipdesk/sheets/*, /api/content/scheduler/*",
+        "A coarse per-IP ceiling on all unauthenticated paths (including webhook receivers) to blunt floods",
+        "Continue emitting X-RateLimit-* and Retry-After; return 429 on exceed; fail-open only if the backing store itself is unreachable, and log that to Sentry"
+      ],
+      "priority": 265,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-266",
+      "title": "Security: fail-closed on production debug bypasses",
+      "description": "As the platform owner, I need debug switches that skip signature verification or log raw payloads to be impossible to activate in production.",
+      "acceptanceCriteria": [
+        "WEBHOOK_PAYOUT_DEBUG in flipdesk-webhooks.ts is treated as false whenever the runtime env is production (new EDGE_ENV, defaulting safe); eBay signature verification always runs in prod",
+        "Grep the edge codebase for every env-gated verification bypass or verbose-payload log; route them through a single isDebugAllowed() helper that returns false in production",
+        "On startup, if any known debug flag is set while EDGE_ENV=production, emit a loud Sentry warning and disable the flag",
+        "EDGE_ENV documented in ENVIRONMENT.md and set to 'production' in services/edge-functions/docker-compose.coolify.yml"
+      ],
+      "priority": 266,
+      "passes": false,
+      "notes": "Implemented: lib/env.ts provides edgeEnv()/isProduction()/isDebugAllowed()/assertNoProdDebugFlags(), defaulting to production (fail-closed) when EDGE_ENV unset. flipdesk-webhooks.ts now reads WEBHOOK_PAYOUT_DEBUG via isDebugAllowed() so it's inert in prod. main.ts calls assertNoProdDebugFlags() at startup (console.error warning; no Sentry in edge). EDGE_ENV=production set in docker-compose.coolify.yml, =development in docker-compose.dev.yml, documented in ENVIRONMENT.md + edge .env.example. Pending deploy verification."
+    },
+    {
+      "id": "US-267",
+      "title": "Security: request body-size limits + schema validation on edge inputs",
+      "description": "As the platform owner, I need every edge endpoint to reject oversized or malformed payloads so a single request cannot exhaust memory or smuggle unexpected fields into a service-role query.",
+      "acceptanceCriteria": [
+        "A body-size guard rejects requests exceeding per-route caps (e.g. 15MB for image/grade uploads, 256KB for JSON-only endpoints) with HTTP 413 before the body is fully buffered",
+        "zod schemas added for the request body of every POST/PATCH handler under services/edge-functions/src/routes/*; invalid input returns 400 with field errors, never a 500",
+        "Content-Type is enforced (application/json or multipart where expected)",
+        "Base64 image inputs are validated for declared MIME and decoded byte size before being forwarded to Claude Vision",
+        "A shared validation helper keeps handlers terse; at least the grade-submit and flipdesk grading-submit paths are converted as the reference implementation"
+      ],
+      "priority": 267,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-268",
+      "title": "Security: multi-tenant isolation audit + cross-tenant regression tests",
+      "description": "As the platform owner, I need certainty that no service-role query can read or mutate another tenant's data, since the edge service uses the RLS-bypassing service-role client everywhere.",
+      "acceptanceCriteria": [
+        "Audit every supabaseAdmin query in services/edge-functions/src for a user_id / workspace_owner_id scope; the PR lists each query and its scoping or fix",
+        "Any unscoped multi-tenant read or write is fixed to filter by the authenticated userId/workspaceOwnerId from request context",
+        "A Deno test suite seeds two users and asserts user B cannot read or mutate user A's submissions, grade_reports, inventory_items, listings, sales, marketplace_connections, or api_keys through the edge API",
+        "CLAUDE.md gains a rule under Database Patterns: 'every service-role query MUST be tenant-scoped by user_id or workspace_owner_id'",
+        "Where practical for read paths, evaluate a per-request RLS-respecting client (forwarding the user JWT) as defense-in-depth and note the decision"
+      ],
+      "priority": 268,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-269",
+      "title": "Security: complete admin / super-admin audit-log coverage",
+      "description": "As an admin, I need every privileged state change recorded with before/after detail so we have a forensic trail and can answer who changed what, when.",
+      "acceptanceCriteria": [
+        "Every state-changing endpoint under /api/admin/* and every admin-only content/prompt mutation writes an admin_audit_log row: actor_user_id, actor_role, action, target_type, target_id, before JSON, after JSON, ip, user_agent, created_at",
+        "Coverage includes plan changes / comp credits / refunds (US-221), role grant-revoke, content publish/schedule/delete, ai_prompt_versions changes, and the content scheduler tick (actor recorded as 'system')",
+        "A reusable writeAuditLog() helper is added and called from the handlers",
+        "The existing /admin/audit-log page gains filters by actor, action, target type, and date range; super_admin-only entries are visually flagged",
+        "Audit rows are append-only - no UPDATE/DELETE RLS policy, admin SELECT only"
+      ],
+      "priority": 269,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-270",
+      "title": "Security: super-admin MFA + step-up for destructive actions",
+      "description": "As the platform owner, I need privileged accounts protected by a second factor, with the most destructive actions requiring a fresh re-authentication, enforced on the server not just the client.",
+      "acceptanceCriteria": [
+        "Users with role admin or super_admin must enroll TOTP MFA; AdminRoute/admin-layout shows an enroll-MFA gate until enrolled, AND the edge adminAuthMiddleware rejects admin calls whose JWT assurance level is not aal2",
+        "The most destructive super-admin actions (role grant/revoke, manual refund, account deletion, ai_prompt_versions activation) require step-up: a recent (<=5 min) AAL2 re-auth verified server-side before the mutation runs",
+        "Uses Supabase MFA assurance level / amr claim; no client-only gating",
+        "MFA enrollment flow documented for the Pearson Media team"
+      ],
+      "priority": 270,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-271",
+      "title": "Security: production GoTrue auth-policy hardening",
+      "description": "As the platform owner, I need the self-hosted Supabase auth configured to best-practice defaults for passwords, lockout, confirmations, and token rotation.",
+      "acceptanceCriteria": [
+        "Leaked-password protection (HaveIBeenPwned) enabled (GOTRUE_PASSWORD_HIBP_ENABLED)",
+        "Minimum password length >= 12 with a strength/complexity policy enforced",
+        "Email confirmation required confirmed live (config.toml already sets enable_confirmations + double_confirm_changes)",
+        "Auth rate limits / brute-force protections set on sign-in and OTP endpoints (GOTRUE_RATE_LIMIT_*)",
+        "Refresh-token rotation + reuse detection enabled; jwt_expiry (3600s) reviewed and confirmed appropriate",
+        "additional_redirect_urls reviewed - only known callback URLs, no wildcards",
+        "All production values captured in ENVIRONMENT.md under a 'Production GoTrue config' section since they live in env vars, not config.toml"
+      ],
+      "priority": 271,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-272",
+      "title": "Security: secret hygiene + secret scanning",
+      "description": "As the platform owner, I need to stop committing real keys and to detect any secret before it lands in git.",
+      "acceptanceCriteria": [
+        "The real Supabase anon-key JWT on line 6 of .env.example (mislabeled as VITE_STRIPE_PUBLISHABLE_KEY) is replaced with a placeholder; the leftover 'Ralph=' lines are removed; services/edge-functions/.env.example audited the same way",
+        "git history scanned with gitleaks for any committed service-role key, Stripe secret key, Anthropic key, or EDGE_ENCRYPTION_KEY; anything real that was ever committed is rotated and the rotation documented",
+        "gitleaks added as a pre-commit hook and as a CI job that fails the build on findings",
+        "A key-rotation runbook is documented, including rotating EDGE_ENCRYPTION_KEY by re-encrypting marketplace_connections tokens via the 'v1:' version prefix to a new 'v2:'",
+        "Confirm .gitignore covers all .env variants (it does) and that .env.example contains only placeholders"
+      ],
+      "priority": 272,
+      "passes": false,
+      "notes": "Implemented: scrubbed real Supabase anon-key JWT (was mislabeled VITE_STRIPE_PUBLISHABLE_KEY) + removed leftover Ralph= lines from .env.example (also corrected VITE_EDGE_API_URL to functions.gradethread.com); removed .env.example from .gitignore so the placeholder example tracks normally; added .gitleaks.toml, .github/workflows/secret-scan.yml (gitleaks CI on PRs+push to main), and .githooks/pre-commit; documented docs/KEY_ROTATION.md including the EDGE_ENCRYPTION_KEY v1->v2 dual-key re-encryption procedure. Working-tree grep found no live secrets (anon key is public-by-design). REMAINING (manual): run gitleaks against full git history; enable the hook with `git config core.hooksPath .githooks`; make .githooks/pre-commit executable (git update-index --chmod=+x)."
+    },
+    {
+      "id": "US-273",
+      "title": "Security: CI for dependency + static analysis",
+      "description": "As a developer, I need automated checks so vulnerable dependencies and risky code patterns are caught on every PR to main.",
+      "acceptanceCriteria": [
+        ".github/workflows/security.yml runs on PRs to main: npm audit --audit-level=high (fails on high/critical), Deno lint + deno check for services/edge-functions, and gitleaks",
+        "GitHub CodeQL (javascript-typescript) enabled for the repo",
+        "Dependabot configured for npm and GitHub Actions on a weekly cadence",
+        "An allowlist file documents any accepted advisories / false positives so the build stays green deliberately, not by disabling the scan"
+      ],
+      "priority": 273,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-274",
+      "title": "Security: OAuth state CSRF hardening",
+      "description": "As the platform owner, I need the eBay OAuth flow's state token to be single-use, short-lived, and user-bound so a callback cannot be forged or replayed.",
+      "acceptanceCriteria": [
+        "oauth_states rows carry user_id, created_at, and expires_at (<=10 min); the eBay callback rejects missing, expired, or already-consumed state with 400",
+        "The state row is deleted (or marked consumed) atomically on successful token exchange; any reuse is rejected",
+        "The generated state value carries >=128 bits of CSPRNG entropy",
+        "The pattern is documented for reuse by future marketplace OAuth flows (Shopify / Whatnot)"
+      ],
+      "priority": 274,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-275",
+      "title": "Security: GDPR/CCPA data export + account deletion",
+      "description": "As a user, I have the right to export my data and to permanently delete my account, and the platform must honor both completely and verifiably.",
+      "acceptanceCriteria": [
+        "A self-serve 'Export my data' action in Settings calls an edge endpoint that assembles the user's submissions, grade_reports, inventory_items, listings, sales, and sources into a downloadable JSON/zip",
+        "A 'Delete my account' flow confirms intent, requires re-auth, then cascades deletion across all user-owned tables, deletes their storage objects (submission-images + item-photos folders), revokes and deletes marketplace tokens, and deletes/anonymizes the Stripe customer",
+        "Deletion is irreversible; a minimal non-PII record of the deletion request is retained for compliance",
+        "Data/image retention policy is documented (how long submissions are kept and any auto-purge cadence)",
+        "The privacy policy is linked from both flows"
+      ],
+      "priority": 275,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-276",
+      "title": "Security: storage & upload hardening",
+      "description": "As the platform owner, I need uploaded images served safely, stripped of sensitive metadata, and private images never publicly reachable.",
+      "acceptanceCriteria": [
+        "submission-images confirmed private; all reads go through short-lived signed URLs (<=15 min), never public URLs",
+        "The public item-photos bucket is audited so it only ever holds listing imagery the user intends to be public - no labels, receipts, or PII images routed there",
+        "Server-side upload validation: MIME allowlist (jpeg/png/webp/heic), max dimensions and byte size, magic-byte sniff (not just file extension), SVG rejected",
+        "EXIF/GPS metadata is stripped from uploaded photos before storage",
+        "Per-user folder storage RLS re-verified against the {userId}/{submissionId}/{imageType}_{timestamp} path convention"
+      ],
+      "priority": 276,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-277",
+      "title": "Security: webhook idempotency + replay protection",
+      "description": "As the platform owner, I need Stripe and eBay webhooks to process each event exactly once and to reject replays of old events.",
+      "acceptanceCriteria": [
+        "A processed_webhook_events table (provider, event_id, processed_at) with a unique constraint; both the Stripe and eBay handlers insert-on-conflict-do-nothing and skip already-processed events",
+        "Stripe events keyed by event.id; eBay events keyed by their notification id",
+        "Where the provider supplies a timestamp, events older than a tolerance window are rejected as stale",
+        "Dedup happens before any side effects so a replay never double-credits, double-charges, or double-ingests a payout"
+      ],
+      "priority": 277,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-278",
+      "title": "Security: SECURITY.md + incident-response runbook",
+      "description": "As the platform owner, I need a documented disclosure channel and an incident playbook so reported vulnerabilities and any breach are handled consistently.",
+      "acceptanceCriteria": [
+        "SECURITY.md at the repo root: responsible-disclosure contact, scope, safe-harbor language, and supported versions",
+        "docs/INCIDENT_RESPONSE.md: severity levels, notification chain, key-rotation steps (links the US-272 runbook), how to mass-revoke marketplace tokens, and emergency contacts for Supabase / Stripe / Cloudflare",
+        "A quarterly dependency/security-review checklist is included",
+        "Both documents are linked from the README"
+      ],
+      "priority": 278,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

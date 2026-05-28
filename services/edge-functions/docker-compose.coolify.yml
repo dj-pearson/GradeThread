@@ -20,6 +20,9 @@ services:
       - "8787"
     environment:
       - PORT=8787
+      # Marks this as the production runtime. Security debug flags (e.g.
+      # WEBHOOK_PAYOUT_DEBUG) are ignored when EDGE_ENV=production. (US-266)
+      - EDGE_ENV=production
     env_file:
       - .env
     healthcheck:

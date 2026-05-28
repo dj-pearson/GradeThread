@@ -2,6 +2,10 @@
 # Run with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 services:
   edge-functions:
+    environment:
+      # Enables local debug flags (e.g. WEBHOOK_PAYOUT_DEBUG). Never set this
+      # to anything but development outside local dev. (US-266)
+      - EDGE_ENV=development
     ports:
       - "8787:8787"
     volumes:

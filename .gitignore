@@ -36,7 +36,6 @@ temp_prd/
 
 # Local Netlify folder
 .netlify
-.env.example
 Flip Tracker - Thrift Flip Tracker.csv
 .playwright-mcp/
 public/logo_primary.psd

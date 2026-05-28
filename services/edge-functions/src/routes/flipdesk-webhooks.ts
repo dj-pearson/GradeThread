@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
+import { isDebugAllowed } from "../lib/env.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -19,7 +20,9 @@ export const flipdeskWebhookRoutes = new Hono();
 //
 // Sandbox tip: set WEBHOOK_PAYOUT_DEBUG=true to log the raw payload +
 // headers and SKIP signature verification while you confirm eBay's exact
-// signature scheme matches expectations. See W4 doc comment for details.
+// signature scheme matches expectations. This is IGNORED when
+// EDGE_ENV=production (see isDebugAllowed in lib/env.ts) — verification can
+// never be bypassed in prod. See W4 doc comment for details.
 flipdeskWebhookRoutes.post("/ebay", async (c) => {
   const verificationToken = Deno.env.get("EBAY_VERIFICATION_TOKEN");
   if (!verificationToken) {
@@ -30,7 +33,9 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
   // Read the body as TEXT first — HMAC verification requires the exact
   // bytes eBay sent, not a re-serialized object.
   const rawBody = await c.req.text();
-  const debug = Deno.env.get("WEBHOOK_PAYOUT_DEBUG") === "true";
+  // Debug logging + signature-bypass is ONLY honored outside production.
+  // In production this is always false, so verification below always runs.
+  const debug = isDebugAllowed("WEBHOOK_PAYOUT_DEBUG");
 
   // eBay's notification spec puts the signature in `x-ebay-signature`.
   // Older docs reference an Authorization header; we read both to be safe.

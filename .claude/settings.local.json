@@ -68,7 +68,11 @@
       "Bash(git -C C:/Users/dpearson/Documents/GradeThread status --short)",
       "Bash(git -C C:/Users/dpearson/Documents/GradeThread diff --stat HEAD)",
       "Bash(git fetch *)",
-      "Bash(git rev-list *)"
+      "Bash(git rev-list *)",
+      "Bash(ls .github/workflows/)",
+      "Bash(ls .github/)",
+      "Bash(ls .husky/)",
+      "Bash(ls .pre-commit-config.yaml)"
     ]
   },
   "hooks": {

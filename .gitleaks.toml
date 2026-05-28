@@ -1,0 +1,19 @@
+# gitleaks config (US-272). Extends the built-in default ruleset and adds an
+# allowlist so committed example/placeholder values don't trip the scanner.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders and known-public example values"
+paths = [
+  '''\.env\.example$''',
+  '''services/edge-functions/\.env\.example$''',
+]
+regexes = [
+  # Generic placeholder tokens used throughout the *.example files.
+  '''your-[a-z-]+''',
+  '''(pk|sk)_test_your-[a-z-]+''',
+  '''price_…''',
+  '''whsec_your-webhook-secret''',
+  '''re_your-resend-api-key''',
+]
