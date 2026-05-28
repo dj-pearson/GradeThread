@@ -43,7 +43,7 @@ export function CreditPackDialog({ open, onOpenChange }: CreditPackDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Buy GradeThread credits</DialogTitle>
           <DialogDescription>

@@ -152,7 +152,7 @@ async function recordEvent(
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -219,10 +219,16 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       ? new Date(sub.trial_end * 1000).toISOString()
       : undefined;
 
-  // Clear any pending downgrade if the new plan now matches what was pending
-  // (the Subscription Schedule transition fired — US-217).
+  // Clear a pending downgrade ONLY when the plan has actually transitioned to
+  // the scheduled target (the Subscription Schedule's phase 2 activated —
+  // US-217). Comparing the new plan against the stored pending plan avoids the
+  // false positive where merely *attaching* a schedule fires
+  // subscription.updated while the current plan is still unchanged — the old
+  // `metadata.plan === plan` check matched there (business === business) and
+  // wiped the pending state before the user ever saw the "Downgrade scheduled"
+  // banner.
   const pendingCleared =
-    sub.metadata?.product === "flipdesk" && sub.metadata?.plan === plan;
+    !!user.pending_flipdesk_plan && plan === user.pending_flipdesk_plan;
 
   const { error } = await supabaseAdmin
     .from("users")

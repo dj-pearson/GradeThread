@@ -546,6 +546,79 @@ export interface ItemFullRow {
   ai_enriched_at: string | null;
 }
 
+// ── Admin task / project management (00047) ──────────────────────────────
+export type AdminTaskStatus = "todo" | "in_progress" | "blocked" | "done";
+export type AdminTaskPriority = "low" | "medium" | "high";
+
+export interface AdminTaskProjectRow {
+  id: string;
+  title: string;
+  description: string | null;
+  archived: boolean;
+  position: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminTaskProjectInsert {
+  title: string;
+  description?: string | null;
+  archived?: boolean;
+  position?: number;
+}
+
+export type AdminTaskProjectUpdate = Partial<
+  Omit<AdminTaskProjectRow, "id" | "created_by" | "created_at" | "updated_at">
+>;
+
+export interface AdminTaskRow {
+  id: string;
+  project_id: string;
+  title: string;
+  body: string | null;
+  section: string | null;
+  status: AdminTaskStatus;
+  priority: AdminTaskPriority;
+  due_date: string | null;
+  position: number;
+  created_by: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminTaskInsert {
+  project_id: string;
+  title: string;
+  body?: string | null;
+  section?: string | null;
+  status?: AdminTaskStatus;
+  priority?: AdminTaskPriority;
+  due_date?: string | null;
+  position?: number;
+  completed_at?: string | null;
+}
+
+export type AdminTaskUpdate = Partial<
+  Omit<AdminTaskRow, "id" | "project_id" | "created_by" | "created_at" | "updated_at">
+>;
+
+export interface AdminTaskCommentRow {
+  id: string;
+  task_id: string;
+  author_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface AdminTaskCommentInsert {
+  task_id: string;
+  body: string;
+}
+
+export type AdminTaskCommentUpdate = Partial<Pick<AdminTaskCommentRow, "body">>;
+
 export interface SavedViewRow {
   id: string;
   user_id: string;
@@ -1351,6 +1424,21 @@ export interface Database {
         Row: SavedViewRow;
         Insert: SavedViewInsert;
         Update: SavedViewUpdate;
+      };
+      admin_task_projects: {
+        Row: AdminTaskProjectRow;
+        Insert: AdminTaskProjectInsert;
+        Update: AdminTaskProjectUpdate;
+      };
+      admin_tasks: {
+        Row: AdminTaskRow;
+        Insert: AdminTaskInsert;
+        Update: AdminTaskUpdate;
+      };
+      admin_task_comments: {
+        Row: AdminTaskCommentRow;
+        Insert: AdminTaskCommentInsert;
+        Update: AdminTaskCommentUpdate;
       };
       flipdesk_expenses: {
         Row: ExpenseRow;

@@ -146,7 +146,7 @@ export function FlipdeskPlanPickerDialog({
             targetInterval={interval}
           />
         )}
-        <div className="grid gap-4 lg:grid-cols-4">
+        <div className="grid items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {PLAN_ORDER.map((planKey) => {
             const plan = FLIPDESK_PLANS[planKey];
             const isCurrent =
@@ -198,12 +198,14 @@ export function FlipdeskPlanPickerDialog({
                 <CardHeader className="space-y-2 pb-3">
                   <div className="text-lg font-semibold">{plan.name}</div>
                   <div>
-                    <span className="text-3xl font-bold">
-                      {priceLabel(plan, interval)}
-                    </span>
-                    {plan.priceMonthlyCents > 0 && (
-                      <span className="text-muted-foreground">/mo</span>
-                    )}
+                    <div className="flex items-baseline gap-1 whitespace-nowrap">
+                      <span className="text-3xl font-bold">
+                        {priceLabel(plan, interval)}
+                      </span>
+                      {plan.priceMonthlyCents > 0 && (
+                        <span className="text-sm text-muted-foreground">/mo</span>
+                      )}
+                    </div>
                     {interval === "yearly" && savings != null && (
                       <div className="mt-0.5 text-xs text-emerald-700">
                         {dollars(plan.priceYearlyCents)} billed yearly
@@ -219,7 +221,7 @@ export function FlipdeskPlanPickerDialog({
                 </CardHeader>
 
                 <CardContent className="flex-1 space-y-3 pb-3 text-sm">
-                  <div className="space-y-1 border-b border-border pb-3">
+                  <div className="space-y-1.5 border-b border-border pb-3">
                     <Stat
                       label="Active listings"
                       value={
@@ -245,7 +247,7 @@ export function FlipdeskPlanPickerDialog({
                       value={plan.includedStandardGradesPerMonth.toString()}
                     />
                   </div>
-                  <ul className="space-y-1">
+                  <ul className="space-y-1.5">
                     {FEATURE_ROWS.map(({ flag, label }) => {
                       const enabled = plan.gateFlags[flag];
                       return (
@@ -257,11 +259,11 @@ export function FlipdeskPlanPickerDialog({
                           )}
                         >
                           {enabled ? (
-                            <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
                           ) : (
-                            <X className="h-3.5 w-3.5" />
+                            <X className="h-3.5 w-3.5 shrink-0" />
                           )}
-                          <span className="text-xs">{label}</span>
+                          <span className="text-xs leading-tight">{label}</span>
                         </li>
                       );
                     })}
@@ -299,9 +301,9 @@ export function FlipdeskPlanPickerDialog({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-baseline justify-between text-xs">
+    <div className="flex items-start justify-between gap-3 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium tabular-nums">{value}</span>
+      <span className="shrink-0 text-right font-medium tabular-nums">{value}</span>
     </div>
   );
 }
