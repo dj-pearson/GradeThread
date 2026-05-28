@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import {
+  type GradeTier,
+  isGradeTier,
+  type PrecedenceResult,
+  runPaymentPrecedence,
+} from "../lib/grade-billing.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -17,13 +23,6 @@ const GARMENT_CATEGORIES = [
 ] as const;
 const IMAGE_TYPES = ["front", "back", "label", "detail", "defect"] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
-
-const PLAN_LIMITS: Record<string, number> = {
-  free: 5,
-  starter: 50,
-  professional: 500,
-  enterprise: -1,
-};
 
 type GarmentType = (typeof GARMENT_TYPES)[number];
 type GarmentCategory = (typeof GARMENT_CATEGORIES)[number];
@@ -48,6 +47,7 @@ apiV1Routes.post("/grades", async (c) => {
     garment_category?: string;
     brand?: string;
     description?: string;
+    tier?: string;
     images?: GradeImage[];
   };
 
@@ -62,6 +62,7 @@ apiV1Routes.post("/grades", async (c) => {
   }
 
   const { title, garment_type, garment_category, brand, description, images } = body;
+  const tier: GradeTier = isGradeTier(body.tier) ? body.tier : "standard";
 
   // Validate required fields
   const errors: string[] = [];
@@ -129,10 +130,11 @@ apiV1Routes.post("/grades", async (c) => {
     }, 400);
   }
 
-  // Fetch user record to check plan limits
+  // Suspended-account gate. Payment (included → credits → checkout) is handled
+  // by runPaymentPrecedence after upload, the same path the web flow uses.
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
-    .select("plan, grades_used_this_month, grade_reset_at")
+    .select("suspended")
     .eq("id", userId)
     .single();
 
@@ -143,24 +145,11 @@ apiV1Routes.post("/grades", async (c) => {
       meta: null,
     }, 404);
   }
-
-  // Check if usage reset is needed
-  let gradesUsed = user.grades_used_this_month;
-  const resetAt = new Date(user.grade_reset_at);
-  if (resetAt <= new Date()) {
-    gradesUsed = 0;
-  }
-
-  // Check plan limit
-  const planLimit = PLAN_LIMITS[user.plan] ?? 0;
-  if (planLimit !== -1 && gradesUsed >= planLimit) {
+  if (user.suspended) {
     return c.json({
       data: null,
-      error: {
-        message: "Monthly grade limit reached. Please upgrade your plan.",
-        details: [],
-      },
-      meta: { current_usage: gradesUsed, plan_limit: planLimit },
+      error: { message: "Account suspended. Contact support.", details: [] },
+      meta: null,
     }, 403);
   }
 
@@ -175,6 +164,7 @@ apiV1Routes.post("/grades", async (c) => {
       brand: brand?.trim() || null,
       description: description?.trim() || null,
       status: "pending",
+      payment_status: "unpaid",
     })
     .select("id")
     .single();
@@ -293,22 +283,44 @@ apiV1Routes.post("/grades", async (c) => {
     }, 500);
   }
 
-  // Increment grades_used_this_month
-  const nextResetAt = new Date();
-  nextResetAt.setMonth(nextResetAt.getMonth() + 1);
-  nextResetAt.setDate(1);
-  nextResetAt.setHours(0, 0, 0, 0);
+  // Charge through the shared payment precedence (included → credits). API
+  // callers can't complete an interactive Stripe checkout mid-request, so if
+  // neither an included grade nor credits cover it, we reject with 402 and
+  // clean up the uploaded submission rather than leave it unpaid.
+  let precedence: PrecedenceResult;
+  try {
+    precedence = await runPaymentPrecedence(userId, submissionId, tier);
+  } catch (err) {
+    console.error(`[API v1] Payment precedence failed for ${submissionId}:`, err);
+    for (const record of imageRecords) {
+      await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+    }
+    await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+    return c.json({
+      data: null,
+      error: { message: "Payment processing error", details: [] },
+      meta: null,
+    }, 500);
+  }
 
-  if (resetAt <= new Date()) {
-    await supabaseAdmin
-      .from("users")
-      .update({
-        grades_used_this_month: 1,
-        grade_reset_at: nextResetAt.toISOString(),
-      })
-      .eq("id", userId);
-  } else {
-    await supabaseAdmin.rpc("increment_grades_used", { user_id_param: userId });
+  if (!precedence.paid) {
+    for (const record of imageRecords) {
+      await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+    }
+    await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+    return c.json({
+      data: null,
+      error: {
+        message:
+          "Insufficient grading credits. Buy a credit pack or upgrade your plan, then retry.",
+        details: [],
+      },
+      meta: {
+        tier,
+        credits_required: precedence.suggestedPack,
+        per_grade_price_cents: precedence.tierPriceCents,
+      },
+    }, 402);
   }
 
   // Set status to processing and trigger pipeline (fire-and-forget)
@@ -325,7 +337,12 @@ apiV1Routes.post("/grades", async (c) => {
   });
 
   return c.json({
-    data: { id: submissionId, status: "processing" },
+    data: {
+      id: submissionId,
+      status: "processing",
+      tier,
+      payment_method: precedence.method,
+    },
     error: null,
     meta: null,
   }, 202);

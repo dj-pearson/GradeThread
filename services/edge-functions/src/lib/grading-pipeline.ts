@@ -173,6 +173,7 @@ export async function processSubmission(submissionId: string) {
         ai_summary: compositeResult.ai_summary,
         detailed_notes: detailedNotes,
         confidence_score: compositeResult.confidence_score,
+        needs_human_review: compositeResult.needs_human_review,
         // Record the real model + prompt version (e.g.
         // "claude-sonnet-4-6|composite_v1") so accuracy-tracking can
         // distinguish model changes, not just prompt revisions.
@@ -330,6 +331,36 @@ export async function processSubmission(submissionId: string) {
       console.error(
         `[Pipeline] Failed to update submission status to 'failed':`,
         updateError
+      );
+    }
+
+    // Reverse the charge taken before the pipeline ran (runPaymentPrecedence
+    // in grade.ts / the FlipDesk grading path). Included grades go back to the
+    // monthly bundle; credit grades are re-granted. Idempotent via
+    // submissions.refunded_at. One-time Stripe payments can't be refunded by
+    // minting credits — they surface here for manual handling.
+    try {
+      const { data: refundResult, error: refundError } = await supabaseAdmin.rpc(
+        "refund_grade",
+        { p_submission_id: submissionId },
+      );
+      if (refundError) {
+        console.error(
+          `[Pipeline] REFUND FAILED for submission ${submissionId} — manual review needed:`,
+          refundError.message,
+        );
+      } else if (typeof refundResult === "string" && refundResult === "no_refund_paid_stripe") {
+        console.error(
+          `[Pipeline] Submission ${submissionId} was paid via Stripe but grading failed — ` +
+            `issue a Stripe refund manually.`,
+        );
+      } else {
+        console.log(`[Pipeline] Refund for submission ${submissionId}: ${refundResult}`);
+      }
+    } catch (refundErr) {
+      console.error(
+        `[Pipeline] Refund error for submission ${submissionId} — manual review needed:`,
+        refundErr instanceof Error ? refundErr.message : String(refundErr),
       );
     }
 

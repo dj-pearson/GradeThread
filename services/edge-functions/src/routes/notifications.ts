@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
 import {
   sendDisputeResolvedEmail,
   sendTrialExpiringEmail,
@@ -180,8 +181,13 @@ notificationRoutes.post("/register", async (c) => {
  * POST /dispute-resolved
  * Called by the admin frontend after resolving or rejecting a dispute.
  * Body: { disputeId: string }
+ *
+ * Admin-only: it emails the dispute owner with resolution details, so any
+ * authenticated user must NOT be able to trigger it for an arbitrary
+ * disputeId. adminAuthMiddleware runs after the route-group authMiddleware
+ * (main.ts) so c.var.userId is already set.
  */
-notificationRoutes.post("/dispute-resolved", async (c) => {
+notificationRoutes.post("/dispute-resolved", adminAuthMiddleware, async (c) => {
   const { disputeId } = await c.req.json<{ disputeId: string }>();
 
   if (!disputeId) {

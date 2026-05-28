@@ -7,13 +7,14 @@ import { useAuthStore } from "@/stores/auth-store";
 
 export type GradingTier = "standard" | "premium" | "express";
 
-// Mirror of the backend tier costs in grading-pricing.ts. Kept here so the
-// UI can show "$2.99" before the validate call returns. If costs ever drift,
-// the validate response is authoritative — UI re-reads from there.
+// Mirror of the canonical backend tier prices in lib/grade-billing.ts
+// (TIER_PRICE_CENTS). Kept here so the UI can show "$2.99" before the validate
+// call returns. If costs ever drift, the validate response is authoritative —
+// UI re-reads from there.
 export const GRADING_TIER_COSTS: Record<GradingTier, number> = {
   standard: 2.99,
-  premium: 5.99,
-  express: 9.99,
+  premium: 7.99,
+  express: 12.99,
 };
 
 export const GRADING_TIER_LABELS: Record<GradingTier, string> = {

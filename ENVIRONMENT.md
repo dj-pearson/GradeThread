@@ -29,9 +29,14 @@ There are **two places** env vars live:
 | `VITE_SENTRY_DSN` | ⬜ Optional | Frontend error reporting; disabled if blank | Sentry → Project → Settings → Client Keys (DSN) |
 | `VITE_POSTHOG_KEY` | ⬜ Optional | Product analytics; disabled if blank | PostHog → Project Settings → Project API Key |
 | `VITE_POSTHOG_HOST` | ⬜ Optional | PostHog ingestion host | `https://us.i.posthog.com` (or your region/self-hosted host) |
+| `SENTRY_AUTH_TOKEN` | ⬜ Optional (build-only) | Enables source-map upload to Sentry so production stack traces symbolicate. **Not** a `VITE_*` var — build-time only, never shipped to the browser. When unset, the build emits no source maps. | Sentry → Settings → Auth Tokens (scope: `project:releases`) |
+| `SENTRY_ORG` | With `SENTRY_AUTH_TOKEN` | Sentry org slug for source-map upload | Sentry → Settings → General |
+| `SENTRY_PROJECT` | With `SENTRY_AUTH_TOKEN` | Sentry project slug for source-map upload | Sentry → Project → Settings |
 
 Notes:
-- Everything in this list ships to the browser. **Never** put secret keys here.
+- Everything with the `VITE_` prefix ships to the browser. **Never** put secret
+  keys there. `SENTRY_AUTH_TOKEN`/`SENTRY_ORG`/`SENTRY_PROJECT` are build-time
+  only (no `VITE_` prefix) and are not exposed to the client.
 - `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are mandatory — the Supabase
   client throws on startup if either is missing.
 

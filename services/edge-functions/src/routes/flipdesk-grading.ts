@@ -2,11 +2,17 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
-  isGradingTier,
-  planLimit,
-  tierCost,
-  type GradingTier,
-} from "../lib/grading-pricing.ts";
+  computeBatchCredits,
+  effectivePlanFor,
+  INCLUDED_STANDARD_PER_MONTH,
+  isGradeTier,
+  runPaymentPrecedence,
+  tierPriceDollars,
+  type GradeTier,
+} from "../lib/grade-billing.ts";
+
+// Local alias keeps the existing interface names readable.
+type GradingTier = GradeTier;
 
 // FlipDesk → GradeThread bridge.
 // Submits inventory items to GradeThread for grading and receives webhook callbacks.
@@ -50,15 +56,18 @@ interface ValidatedItem {
 
 interface ValidationResult {
   user: {
-    plan: string;
-    grades_used_this_month: number;
-    plan_limit: number; // -1 = unlimited
-    grades_remaining: number; // Infinity for unlimited
+    plan: string; // flipdesk_plan
+    grades_used_this_month: number; // included-standard grades consumed
+    plan_limit: number; // included-standard cap for the plan
+    grades_remaining: number; // included remaining + affordable credit grades
+    included_remaining: number; // included standard grades left this month
+    credit_balance: number; // grade credit balance
   };
   items: ValidatedItem[];
-  total_cost: number;
-  can_submit: boolean; // every item.ready === true AND plan limit OK
-  limit_exceeded: boolean;
+  total_cost: number; // dollar value (display)
+  credits_required: number; // credits needed for the batch after included coverage
+  can_submit: boolean; // every item.ready AND the batch is payable
+  limit_exceeded: boolean; // not enough included + credits to cover the batch
 }
 
 // FlipDesk photo types required for a grading submission. `tag` maps to
@@ -82,16 +91,20 @@ async function buildValidation(
 
   const { data: userRow, error: userErr } = await supabaseAdmin
     .from("users")
-    .select("plan, grades_used_this_month, grade_reset_at, suspended")
+    .select(
+      "flipdesk_plan, subscription_status, grades_used_this_month, grade_reset_at, grade_credit_balance, suspended",
+    )
     .eq("id", ownerId)
     .maybeSingle();
   if (userErr || !userRow) {
     return { ok: false, status: 404, error: "User not found" };
   }
   const user = userRow as {
-    plan: string;
+    flipdesk_plan: string;
+    subscription_status: string | null;
     grades_used_this_month: number;
     grade_reset_at: string;
+    grade_credit_balance: number;
     suspended: boolean;
   };
   if (user.suspended) {
@@ -103,13 +116,18 @@ async function buildValidation(
     };
   }
 
-  // Auto-reset counter if the month rolled over. We just compute "as if"
-  // here — the actual write happens on /submit (G2).
+  // Mirror runPaymentPrecedence: included standard grades come from the plan's
+  // monthly bundle (Standard tier only); everything else is paid with credits.
+  // We compute "as if" here — /submit charges atomically via the shared path.
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+  );
+  const includedCap = INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0;
   const resetAt = new Date(user.grade_reset_at).getTime();
   const usedThisMonth = resetAt <= Date.now() ? 0 : user.grades_used_this_month;
-  const limit = planLimit(user.plan);
-  const remaining =
-    limit === -1 ? Number.POSITIVE_INFINITY : Math.max(0, limit - usedThisMonth);
+  const includedRemaining = Math.max(0, includedCap - usedThisMonth);
+  const creditBalance = user.grade_credit_balance ?? 0;
 
   const itemIds = Array.from(
     new Set(inputs.map((i) => i.inventory_item_id)),
@@ -195,7 +213,7 @@ async function buildValidation(
     return {
       inventory_item_id: input.inventory_item_id,
       tier: input.tier,
-      cost: tierCost(input.tier),
+      cost: tierPriceDollars(input.tier),
       ready: blockers.length === 0,
       blockers,
       title: item?.title ?? null,
@@ -205,23 +223,36 @@ async function buildValidation(
     };
   });
 
+  // Credits the batch needs after included-standard coverage (Standard-only,
+  // cheapest-first — matches runPaymentPrecedence run per item).
+  const readyItems = items.filter((i) => i.ready);
+  const creditsRequired = computeBatchCredits(
+    includedRemaining,
+    readyItems.map((i) => i.tier),
+  );
+
   const totalCost = items.reduce((acc, i) => acc + i.cost, 0);
-  const limitExceeded = remaining !== Number.POSITIVE_INFINITY && items.length > remaining;
-  const canSubmit = items.every((i) => i.ready) && !limitExceeded;
+  const affordable = creditBalance >= creditsRequired;
+  const canSubmit = items.length > 0 && items.every((i) => i.ready) && affordable;
 
   return {
     ok: true,
     result: {
       user: {
-        plan: user.plan,
+        plan: user.flipdesk_plan,
         grades_used_this_month: usedThisMonth,
-        plan_limit: limit,
-        grades_remaining: remaining,
+        plan_limit: includedCap,
+        // "Grades left" proxy for the UI: included remaining + how many more
+        // standard grades the credit balance covers (1 credit = 1 standard).
+        grades_remaining: includedRemaining + creditBalance,
+        included_remaining: includedRemaining,
+        credit_balance: creditBalance,
       },
       items,
       total_cost: Number(totalCost.toFixed(2)),
+      credits_required: creditsRequired,
       can_submit: canSubmit,
-      limit_exceeded: limitExceeded,
+      limit_exceeded: !affordable,
     },
   };
 }
@@ -252,7 +283,7 @@ function parseSubmitBody(
         error: `items[${i}].inventory_item_id must be a non-empty string`,
       };
     }
-    if (!isGradingTier(tier)) {
+    if (!isGradeTier(tier)) {
       return {
         ok: false,
         error: `items[${i}].tier must be one of: standard, premium, express`,
@@ -346,7 +377,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
     return c.json(
       {
         error: validation.result.limit_exceeded
-          ? "Monthly grade limit would be exceeded. Upgrade your plan or wait for the next reset."
+          ? "Not enough grading credits to cover this batch. Buy a credit pack or upgrade your plan."
           : "One or more items are not ready for grading. Call /validate for per-item blockers.",
         validation: validation.result,
       },
@@ -375,6 +406,10 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
   for (const item of validation.result.items) {
     const tier = item.tier;
     const cost = item.cost;
+    // Tracked across the try so the catch can compensate a charge if a later
+    // step (photo copy, link insert) fails after the grade was already paid.
+    let submissionId = "";
+    let charged = false;
     try {
       // Re-load full item row so we have brand/description for the
       // submission insert. buildValidation only selected the fields it
@@ -411,13 +446,34 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
           brand: it.brand,
           description: it.description,
           status: "pending",
+          payment_status: "unpaid",
         })
         .select("id")
         .single();
       if (subErr || !subInsert) {
         throw new Error(`Submission create failed: ${subErr?.message}`);
       }
-      const submissionId = (subInsert as { id: string }).id;
+      submissionId = (subInsert as { id: string }).id;
+
+      // 1b. Charge through the shared payment precedence (included → credits).
+      //     Batch validation already confirmed the owner can afford this, but
+      //     a concurrent submission could have drained credits in between, so
+      //     handle the checkout-required case per item.
+      const precedence = await runPaymentPrecedence(ownerId, submissionId, tier);
+      if (!precedence.paid) {
+        // Nothing was charged — drop the empty submission and report it.
+        await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+        submissionId = "";
+        results.push({
+          ok: false,
+          inventory_item_id: item.inventory_item_id,
+          error:
+            `Payment required for ${tier} grade — not enough grading credits. ` +
+            `Buy a credit pack or upgrade your plan.`,
+        });
+        continue;
+      }
+      charged = true;
 
       // 2. Load item photos eligible for grading (sort_order ascending so
       //    detail_1/2/3 land in a sensible order in the submission too).
@@ -540,6 +596,21 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
         cost,
       });
     } catch (err) {
+      // If the grade was already charged before this step failed, reverse it
+      // so the customer isn't billed for a submission that never ran. The
+      // refund_grade RPC is idempotent.
+      if (charged && submissionId) {
+        try {
+          await supabaseAdmin.rpc("refund_grade", {
+            p_submission_id: submissionId,
+          });
+        } catch (refundErr) {
+          console.error(
+            `[flipdesk-grading] refund failed for ${submissionId} — manual review needed:`,
+            refundErr instanceof Error ? refundErr.message : String(refundErr),
+          );
+        }
+      }
       results.push({
         ok: false,
         inventory_item_id: item.inventory_item_id,
@@ -548,23 +619,8 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
     }
   }
 
-  // Bump the user's monthly counter by the number of successful submissions.
-  if (successfullySubmitted > 0) {
-    const limit = validation.result.user.plan_limit;
-    const next =
-      validation.result.user.grades_used_this_month + successfullySubmitted;
-    // Reset the window if it expired before now — mirrors grade.ts behavior.
-    const nextResetAt = new Date();
-    nextResetAt.setMonth(nextResetAt.getMonth() + 1);
-    nextResetAt.setDate(1);
-    await supabaseAdmin
-      .from("users")
-      .update({
-        grades_used_this_month: next,
-        ...(limit !== -1 ? { grade_reset_at: nextResetAt.toISOString() } : {}),
-      })
-      .eq("id", ownerId);
-  }
+  // Note: the included-grade counter and credit balance are debited atomically
+  // per item by runPaymentPrecedence above — no separate counter bump here.
 
   return c.json({
     submitted: successfullySubmitted,

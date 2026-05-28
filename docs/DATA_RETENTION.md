@@ -11,28 +11,30 @@ reports, inventory items, listings, sales, and sources, scoped to their
 
 ## Deletion (right to erasure)
 
-`delete_account()` RPC (migration `00043`) deletes the caller's `auth.users`
-row; the `ON DELETE CASCADE` chain rooted at `public.users` wipes all
-DB-resident user data (submissions, grade_reports, inventory_items, listings,
-sales, sources, item_photos, marketplace_connections, api_keys, …).
+The authed **`POST /api/account/delete`** edge endpoint (`routes/account.ts`)
+performs the full teardown. The Settings page exposes it via a "Delete account"
+card requiring the user to type `DELETE MY ACCOUNT`. The endpoint:
 
-### Not covered by the cascade — must be handled before/with deletion
+1. Removes the user's Supabase Storage objects (`submission-images`,
+   `item-photos`) — derived from the owned DB rows before the cascade runs.
+2. Deletes the Stripe customer (which also cancels any active subscription).
+3. Deletes the `auth.users` row via the admin API; the `ON DELETE CASCADE`
+   chain rooted at `public.users` then wipes all DB-resident user data
+   (submissions, grade_reports, inventory_items, listings, sales, sources,
+   item_photos, marketplace_connections, api_keys, …).
 
-These live outside the Postgres FK graph and need explicit cleanup (tracked as
-remaining US-275 work):
+The legacy `delete_account()` RPC (migration `00043`) still exists for the
+client-side self-service path, but it only does step 3 — prefer the endpoint,
+which also handles the external resources below.
 
-- **Storage objects** — Supabase Storage (`submission-images`, `item-photos`
-  per-user folders) is NOT FK-cascaded. Delete the user's folders.
-- **Stripe customer** — delete or anonymize the `stripe_customer_id` customer
-  in Stripe.
-- **Marketplace OAuth tokens** — revoke at the source (eBay) before deleting
-  the `marketplace_connections` row, so the grant doesn't linger on eBay's side
-  (see `docs/INCIDENT_RESPONSE.md` for the revoke step).
+### Notes on external resources
 
-The recommended implementation is an authed `POST /api/account/delete` edge
-endpoint that performs the external cleanup (storage + Stripe + marketplace
-revoke) and THEN calls `delete_account()` — so the cascade only runs after the
-external side effects succeed.
+- **Storage objects** — handled in step 1 (not FK-cascaded).
+- **Stripe customer** — handled in step 2.
+- **Marketplace OAuth tokens** — the stored `marketplace_connections` rows
+  (incl. eBay tokens) are removed by the cascade. Live revocation at eBay is
+  not performed in-line; those tokens are short-lived and our stored copy is
+  destroyed. See `docs/INCIDENT_RESPONSE.md` if proactive revocation is needed.
 
 ## Retention
 

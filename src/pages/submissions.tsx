@@ -170,7 +170,7 @@ async function exportSubmissionsCsv() {
   const rows = allSubmissions.map((sub) => {
     const grade = gradeMap.get(sub.id);
     const certUrl = grade?.certificate_id
-      ? `${window.location.origin}/certificate/${grade.certificate_id}`
+      ? `${window.location.origin}/cert/${grade.certificate_id}`
       : "";
 
     const dateStr = new Date(sub.created_at).toISOString().slice(0, 10);

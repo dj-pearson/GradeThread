@@ -17,10 +17,15 @@ import {
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
 import { FLIPDESK_PLANS, PLANS, type PlanKey } from "@/lib/constants";
-import { Loader2, Upload, Download, Sparkles, Compass, Archive } from "lucide-react";
+import { Loader2, Upload, Download, Sparkles, Compass, Archive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
+import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeAuthHeaders } from "@/lib/edge-fetch";
+import { signOut } from "@/lib/auth";
+
+const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
 const EXPORT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -698,7 +703,75 @@ export function SettingsPage() {
       )}
 
       <PhotoArchiveCard />
+
+      <DangerZoneCard />
     </div>
+  );
+}
+
+function DangerZoneCard() {
+  const navigate = useNavigate();
+  const [confirmText, setConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`${edgeApiUrl()}/api/account/delete`, {
+        method: "POST",
+        headers: await edgeAuthHeaders(),
+        body: JSON.stringify({ confirm: DELETE_CONFIRM_PHRASE }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Failed to delete account.");
+      }
+      // Account (and session) are gone — clear local auth and return home.
+      await signOut().catch(() => {});
+      toast.success("Your account has been permanently deleted.");
+      navigate("/");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete account.");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Card className="border-destructive/40">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-destructive">
+          <AlertTriangle className="h-4 w-4" />
+          Delete account
+        </CardTitle>
+        <CardDescription>
+          Permanently delete your account and all associated data — submissions,
+          grades, inventory, photos, and billing profile. This cannot be undone.
+          Consider exporting your data first.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <Label htmlFor="delete-confirm">
+            Type <span className="font-mono font-semibold">{DELETE_CONFIRM_PHRASE}</span> to confirm
+          </Label>
+          <Input
+            id="delete-confirm"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            placeholder={DELETE_CONFIRM_PHRASE}
+            autoComplete="off"
+          />
+        </div>
+        <Button
+          variant="destructive"
+          onClick={handleDelete}
+          disabled={deleting || confirmText !== DELETE_CONFIRM_PHRASE}
+        >
+          {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Permanently delete my account
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

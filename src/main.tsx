@@ -4,11 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "react-router-dom";
 import { HelmetProvider } from "react-helmet-async";
 import * as Sentry from "@sentry/react";
-import posthog from "posthog-js";
 import { router } from "@/routes";
+import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import "@/index.css";
 
-// Initialize Sentry (conditional)
+// Initialize Sentry (conditional). Error monitoring is not gated by the cookie
+// banner — it runs under legitimate interest with no advertising signals.
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
 if (sentryDsn) {
   Sentry.init({
@@ -18,17 +19,10 @@ if (sentryDsn) {
   });
 }
 
-// Initialize PostHog (conditional)
-const posthogKey = import.meta.env.VITE_POSTHOG_KEY;
-const posthogHost = import.meta.env.VITE_POSTHOG_HOST;
-if (posthogKey) {
-  posthog.init(posthogKey, {
-    api_host: posthogHost || "https://us.i.posthog.com",
-    loaded: (ph) => {
-      if (import.meta.env.DEV) ph.opt_out_capturing();
-    },
-  });
-}
+// Analytics (Google Analytics + PostHog) are consent-gated. Returning visitors
+// who already opted in get analytics restored here; first-time visitors see the
+// cookie banner (rendered in RootLayout) and stay un-tracked until they accept.
+initAnalyticsFromStoredConsent();
 
 const queryClient = new QueryClient({
   defaultOptions: {

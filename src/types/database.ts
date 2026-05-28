@@ -297,6 +297,7 @@ export interface GradeReportRow {
   ai_summary: string;
   detailed_notes: Record<string, string> | null;
   confidence_score: number;
+  needs_human_review: boolean;
   model_version: string;
   certificate_id: string | null;
   created_at: string;
@@ -835,6 +836,7 @@ export interface GradeReportInsert {
   ai_summary: string;
   detailed_notes?: Record<string, string> | null;
   confidence_score: number;
+  needs_human_review?: boolean;
   model_version: string;
   certificate_id?: string | null;
 }

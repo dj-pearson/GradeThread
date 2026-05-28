@@ -48,6 +48,9 @@ jobs:
       # Matches the Dockerfile note that type-checking happens separately
       # (the container runs with --no-check for fast cold-starts).
       - run: deno check src/main.ts
+      # Unit tests (billing math, etc.). Integration tests that need a live
+      # fixture (tenant-isolation) skip cleanly when their env isn't set.
+      - run: deno test --allow-net --allow-env
 
   codeql:
     name: CodeQL (javascript-typescript)

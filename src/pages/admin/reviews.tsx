@@ -238,8 +238,10 @@ export function AdminReviewsPage() {
         .filter((s) => {
           const report = reportMap.get(s.id);
           if (!report) return false;
-          // Include if low confidence (< 0.75) — the main review trigger
-          if (report.confidence_score < 0.75) return true;
+          // Main review trigger: the pipeline-persisted low-confidence flag.
+          // (Falls back to the confidence threshold for rows graded before the
+          // needs_human_review column existed.)
+          if (report.needs_human_review || report.confidence_score < 0.75) return true;
           // Also include already-reviewed items so they show in "all" filter
           if (reviewByReport.has(report.id)) return true;
           return false;
