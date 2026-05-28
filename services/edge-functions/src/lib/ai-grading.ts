@@ -1,4 +1,11 @@
-import { getAiTemperature, getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import Anthropic from "@anthropic-ai/sdk";
+import {
+  getAiTemperature,
+  getAnthropicClient,
+  getDefaultModel,
+  getGradingCompositeModel,
+  isCachingEnabled,
+} from "./ai-config.ts";
 
 // --- Types ---
 
@@ -58,6 +65,10 @@ export interface CompositeGradeResult {
   needs_human_review: boolean;
   image_validity: ImageValidity;
   prompt_version: string;
+  // Actual model that produced the composite grade. Recorded so the
+  // accuracy tracker can attribute error rates per model, not just per
+  // prompt version.
+  model: string;
 }
 
 // --- Constants ---
@@ -194,12 +205,19 @@ export async function analyzeImage(
   const imageSource = parseImageInput(imageUrl);
   const temperature = getAiTemperature();
 
+  // Cache the (static) system prompt so repeated per-image calls within a
+  // submission — and across submissions inside the 5-min cache window —
+  // don't re-bill the prompt tokens. Mirrors the FlipDesk extractor.
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
+    : { type: "text", text: SYSTEM_PROMPT };
+
   try {
     const response = await client.messages.create({
       model: getDefaultModel(),
       max_tokens: 1024,
       ...(temperature !== undefined ? { temperature } : {}),
-      system: SYSTEM_PROMPT,
+      system: [systemBlock],
       messages: [
         {
           role: "user",
@@ -417,16 +435,26 @@ export async function compositeGrade(
   const client = getAnthropicClient();
   const startTime = Date.now();
   const temperature = getAiTemperature();
+  const compositeModel = getGradingCompositeModel();
 
   // Determine prompt version — references ai_prompt_versions concept
   const promptVersion = "composite_v1";
 
+  // Cache the static composite system prompt (tier definitions + weights).
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? {
+        type: "text",
+        text: COMPOSITE_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      }
+    : { type: "text", text: COMPOSITE_SYSTEM_PROMPT };
+
   try {
     const response = await client.messages.create({
-      model: getDefaultModel(),
+      model: compositeModel,
       max_tokens: 2048,
       ...(temperature !== undefined ? { temperature } : {}),
-      system: COMPOSITE_SYSTEM_PROMPT,
+      system: [systemBlock],
       messages: [
         {
           role: "user",
@@ -438,7 +466,8 @@ export async function compositeGrade(
     const latencyMs = Date.now() - startTime;
 
     console.log(
-      `[AI Grading] compositeGrade | garment_type=${garmentInfo.garment_type} | ` +
+      `[AI Grading] compositeGrade | model=${compositeModel} | ` +
+        `garment_type=${garmentInfo.garment_type} | ` +
         `images=${perImageResults.length} | ` +
         `input_tokens=${response.usage.input_tokens} | output_tokens=${response.usage.output_tokens} | ` +
         `latency_ms=${latencyMs}`
@@ -557,6 +586,7 @@ export async function compositeGrade(
       needs_human_review: needsHumanReview,
       image_validity: imageValidity,
       prompt_version: promptVersion,
+      model: compositeModel,
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;

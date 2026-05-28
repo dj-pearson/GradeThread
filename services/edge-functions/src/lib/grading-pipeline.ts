@@ -9,6 +9,21 @@ import {
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 
+// Base64-encode a byte array in 32KB chunks. The naive char-by-char
+// `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
+// slow for multi-MB photos; applying fromCharCode over the whole array at
+// once risks a call-stack overflow. Chunking avoids both.
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const CHUNK = 0x8000; // 32768
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)),
+    );
+  }
+  return btoa(binary);
+}
+
 /**
  * Processes a submission through the full grading pipeline:
  * 1. Fetch submission record and images from DB
@@ -73,12 +88,7 @@ export async function processSubmission(submissionId: string) {
 
       // Convert Blob to base64
       const arrayBuffer = await fileData.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      let binary = "";
-      for (let i = 0; i < uint8Array.length; i++) {
-        binary += String.fromCharCode(uint8Array[i]);
-      }
-      const base64 = btoa(binary);
+      const base64 = uint8ToBase64(new Uint8Array(arrayBuffer));
 
       // Determine media type from file extension
       const ext = image.storage_path.split(".").pop()?.toLowerCase() || "jpg";
@@ -163,7 +173,10 @@ export async function processSubmission(submissionId: string) {
         ai_summary: compositeResult.ai_summary,
         detailed_notes: detailedNotes,
         confidence_score: compositeResult.confidence_score,
-        model_version: compositeResult.prompt_version,
+        // Record the real model + prompt version (e.g.
+        // "claude-sonnet-4-6|composite_v1") so accuracy-tracking can
+        // distinguish model changes, not just prompt revisions.
+        model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
         certificate_id: certificateId,
       })
       .select()

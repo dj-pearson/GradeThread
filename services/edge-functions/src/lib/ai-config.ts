@@ -44,6 +44,13 @@ export function getLightweightModel(): string {
   return Deno.env.get("LIGHTWEIGHT_AI_MODEL")?.trim() || DEFAULTS.lightweightModel;
 }
 
+// Model for the grading composite step — a text-only synthesis of the
+// per-image vision results. Defaults to the vision model so behavior is
+// unchanged unless an operator deliberately routes it to a cheaper model.
+export function getGradingCompositeModel(): string {
+  return Deno.env.get("GRADING_COMPOSITE_MODEL")?.trim() || getDefaultModel();
+}
+
 export function getAiTimeoutMs(): number {
   return readNumber("AI_TIMEOUT_MS", DEFAULTS.timeoutMs);
 }
