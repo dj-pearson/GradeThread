@@ -1,0 +1,6 @@
+source "https://rubygems.org"
+
+# fastlane drives App Store screenshots (snapshot) + metadata/binary
+# submission (deliver). Pinned to the 2.x line; CI installs via
+# `bundle install` so the version is reproducible across runners.
+gem "fastlane", "~> 2.220"

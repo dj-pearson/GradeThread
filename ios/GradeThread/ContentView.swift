@@ -52,6 +52,9 @@ struct ContentView: View {
                     // the next user doesn't see ghost progress bars
                     // (US-175 AC).
                     photoUploadService?.cancelAll()
+                    // US-190: clear the home-screen widget so it stops
+                    // showing the previous user's numbers.
+                    WidgetSnapshotPublisher.publishSignedOut()
                 case .loading:
                     break
                 }
@@ -622,6 +625,7 @@ private struct SettingsPlaceholder: View {
     /// toggle binds correctly, written through on change.
     @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
     @State private var showingFeedbackSheet = false
+    @State private var showingDeleteAccountSheet = false
 
     var body: some View {
         List {
@@ -638,6 +642,11 @@ private struct SettingsPlaceholder: View {
                     Task { await authStore.signOut() }
                 } label: {
                     Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                Button(role: .destructive) {
+                    showingDeleteAccountSheet = true
+                } label: {
+                    Label("Delete account", systemImage: "trash")
                 }
             }
             Section {
@@ -667,6 +676,9 @@ private struct SettingsPlaceholder: View {
         .navigationTitle("Settings")
         .sheet(isPresented: $showingFeedbackSheet) {
             FeedbackSheet()
+        }
+        .sheet(isPresented: $showingDeleteAccountSheet) {
+            DeleteAccountSheet()
         }
     }
 

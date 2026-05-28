@@ -1,0 +1,67 @@
+# fastlane lanes for GradeThread / FlipDesk (US-197).
+#
+#   bundle exec fastlane screenshots   — capture App Store screenshots
+#   bundle exec fastlane upload_metadata — push metadata only (no submit)
+#   bundle exec fastlane release        — push metadata + screenshots + submit
+#
+# Auth: App Store Connect API key, decoded from CI secrets into env vars
+# (same key the release workflow uses to upload the binary). No Apple ID
+# password / 2FA needed.
+
+default_platform(:ios)
+
+platform :ios do
+  # Builds an App Store Connect API token from the env vars CI exports
+  # (see .github/workflows/ios-release.yml). Returns nil locally if the
+  # key isn't set so interactive runs fall back to Apple ID login.
+  def asc_api_token
+    key_id = ENV["APP_STORE_CONNECT_API_KEY_ID"]
+    issuer_id = ENV["APP_STORE_CONNECT_API_ISSUER_ID"]
+    key_content = ENV["APP_STORE_CONNECT_API_KEY_BASE64"]
+    return nil unless key_id && issuer_id && key_content
+
+    app_store_connect_api_key(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      key_content: key_content,
+      is_key_content_base64: true,
+      in_house: false
+    )
+  end
+
+  desc "Generate the .xcodeproj from project.yml (XcodeGen)"
+  lane :generate_project do
+    sh("which xcodegen > /dev/null || brew install xcodegen")
+    sh("cd .. && xcodegen generate")
+  end
+
+  desc "Capture App Store screenshots across required device sizes"
+  lane :screenshots do
+    generate_project
+    capture_screenshots(skip_open_summary: true)
+  end
+
+  desc "Upload metadata only (no screenshots, no submission)"
+  lane :upload_metadata do
+    token = asc_api_token
+    deliver(
+      api_key: token,
+      skip_screenshots: true,
+      skip_binary_upload: true,
+      submit_for_review: false,
+      force: true
+    )
+  end
+
+  desc "Push metadata + screenshots to App Store Connect and submit for review"
+  lane :release do
+    token = asc_api_token
+    deliver(
+      api_key: token,
+      skip_binary_upload: true,   # binary uploaded by altool in CI
+      submit_for_review: true,
+      automatic_release: false,   # operator clicks 'Release' after approval
+      force: true
+    )
+  end
+end

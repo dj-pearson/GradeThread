@@ -405,7 +405,12 @@ When you eventually flip `submit_to_app_store: true` in the workflow_dispatch:
 - [ ] **App Review Information**: contact email, demo account credentials (since the app requires login)
 - [ ] **App Privacy** → data collection disclosures matching what Sentry/PostHog/Supabase actually collect (Sentry: crash data + breadcrumbs; PostHog: usage analytics if opted-in; Supabase: account data + user content)
 
-The actual `submit_to_app_store` workflow step currently exits 0 with a checkpoint reminder — wiring fastlane or App Store Connect API submission is tracked as US-197.
+The `submit_to_app_store` workflow step now runs `bundle exec fastlane release` (US-197), which pushes the repo's metadata from `ios/fastlane/metadata`, runs Apple's precheck, and submits the already-uploaded build for review. Before the first run:
+
+- Fill in `ios/fastlane/metadata/review_information/demo_user.txt` + `demo_password.txt` with real demo-account credentials (the committed values are `*_PLACEHOLDER`).
+- Capture screenshots once with `cd ios && bundle exec fastlane screenshots` (needs a Mac + simulators) and commit them under `ios/fastlane/screenshots`, **or** upload them manually in App Store Connect — `deliver` is configured with `skip_screenshots` off, so it uploads whatever's in that folder.
+- Set the **App Privacy** answers in App Store Connect to match `ios/fastlane/metadata/PRIVACY_LABELS.md` (the on-device `PrivacyInfo.xcprivacy` is committed; the web nutrition labels are transcribed by hand).
+- Complete the **age-rating** questionnaire (expect 17+ for commercial/selling activity — see PRIVACY_LABELS.md).
 
 ---
 
@@ -454,7 +459,6 @@ The actual `submit_to_app_store` workflow step currently exits 0 with a checkpoi
 
 ## What this guide doesn't cover (yet)
 
-- **Fastlane integration** for App Store submission with screenshot uploads — US-197
 - **dSYM upload to Sentry** for symbolicated crash stacks — straightforward addition to the Archive step
 - **Different signing per branch** (e.g. ad-hoc profile for QA branch) — out of scope for v1
 - **Mac Catalyst / visionOS builds** — out of scope; iOS-only

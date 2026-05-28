@@ -48,6 +48,8 @@ targets:
       - path: Shared            # IntakeInbox + future cross-target helpers (US-189)
     resources:
       - path: GradeThread/Assets.xcassets
+    # PrivacyInfo.xcprivacy (US-197) is picked up by the GradeThread source
+    # glob above; XcodeGen classifies .xcprivacy into the resources phase.
     configFiles:
       Debug: GradeThread/Config/Debug.xcconfig
       Release: GradeThread/Config/Release.xcconfig
@@ -60,6 +62,8 @@ targets:
         product: PostHog
       - target: ShareExtension
         embed: true             # Bundle the extension in the host app (US-189)
+      - target: GradeThreadWidget
+        embed: true             # Bundle the widget extension in the host app (US-190)
     info:
       path: GradeThread/Info.plist
       properties:
@@ -145,3 +149,62 @@ targets:
         # Extension UIs are size-constrained — explicit so XcodeGen
         # doesn't auto-add device-family quirks.
         TARGETED_DEVICE_FAMILY: "1,2"
+
+  # Widget extension (US-190). Home-screen widget showing today's
+  # selling snapshot + pending payout. Reads the rollup the main app
+  # publishes to the App Group container — no network, no DB.
+  GradeThreadWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: GradeThreadWidget
+      - path: Shared            # WidgetSnapshot + store shared with the app
+    info:
+      path: GradeThreadWidget/Info.plist
+      properties:
+        CFBundleDisplayName: GradeThread
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.widget
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_ENTITLEMENTS: GradeThreadWidget/GradeThreadWidget.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  # UI-test target for App Store screenshot capture via fastlane snapshot
+  # (US-197). Deliberately NOT in the GradeThread scheme's test action so
+  # PR/unit CI stays fast — driven instead by the dedicated
+  # GradeThreadScreenshots scheme below.
+  GradeThreadUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: GradeThreadUITests
+    dependencies:
+      - target: GradeThread
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+
+# Dedicated scheme for fastlane snapshot so screenshot runs don't bloat
+# the unit-test action on every PR. fastlane/Snapfile points here.
+schemes:
+  GradeThreadScreenshots:
+    build:
+      targets:
+        GradeThread: all
+        GradeThreadUITests: [test]
+    test:
+      targets:
+        - GradeThreadUITests
+      gatherCoverageData: false

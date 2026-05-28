@@ -1,0 +1,40 @@
+# fastlane snapshot config (US-197). Captures App Store screenshots by
+# driving the GradeThreadUITests target across the device sizes Apple
+# requires for an iPhone + iPad universal app.
+#
+# Run with:  cd ios && bundle exec fastlane screenshots
+#
+# Requires the .xcodeproj to exist first (CI runs `xcodegen generate`;
+# locally run it manually).
+
+# Apple's required reference sizes. The 6.7" iPhone + 12.9"/13" iPad Pro
+# screenshots are mandatory; the 6.1" set gives App Review the mainline
+# device. Newer simulators (16 Pro Max / iPad Pro 13") map to the same
+# App Store display slots.
+devices([
+  "iPhone 15 Pro Max",   # 6.7" — 1290 x 2796
+  "iPhone 15",           # 6.1" — 1179 x 2556
+  "iPad Pro (12.9-inch) (6th generation)"  # 12.9" — 2048 x 2732
+])
+
+languages(["en-US"])
+
+# Dedicated screenshot scheme XcodeGen produces (keeps the UI tests out
+# of the unit-test CI action). See ios/project.yml schemes:.
+scheme("GradeThreadScreenshots")
+
+# Re-create the simulator status bar with full bars + 100% battery +
+# a clean clock so screenshots look polished.
+override_status_bar(true)
+
+# Stop on the first failure so a broken nav flow doesn't silently ship
+# half-captured screenshots.
+stop_after_first_error(true)
+
+# Where deliver picks them up from.
+output_directory("./fastlane/screenshots")
+
+clear_previous_screenshots(true)
+
+# The UI test sets the launch argument; snapshot also injects its own.
+launch_arguments(["-uiTestScreenshots YES"])

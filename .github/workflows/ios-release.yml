@@ -244,13 +244,19 @@ jobs:
       - name: Submit for App Store review
         # Only when manually triggered with submit_to_app_store=true. Tag
         # pushes default to TestFlight-only so accidental tags don't kick a
-        # build into App Review.
+        # build into App Review (US-197).
+        #
+        # The binary was already uploaded by altool above; fastlane deliver
+        # here pushes the repo's metadata (ios/fastlane/metadata) + any
+        # captured screenshots, runs Apple's precheck, and submits for
+        # review. Auth is the same App Store Connect API key the upload
+        # step used — surfaced via the job-level env vars the Fastfile reads.
         if: github.event_name == 'workflow_dispatch' && inputs.submit_to_app_store == true
+        working-directory: ios
         run: |
-          echo "App Store submission requires fastlane deliver or App Store"
-          echo "Connect API submission flow. Wiring of metadata + screenshots"
-          echo "lands in US-197. For now, this step is a checkpoint reminder."
-          exit 0
+          gem install bundler --no-document
+          bundle install --jobs 4 --retry 3
+          bundle exec fastlane release
 
       - name: Upload artifact
         if: always()

@@ -1,0 +1,13 @@
+# App identity for fastlane (US-197). The Apple-account-specific values
+# (apple_id, team_id, itc_team_id) are read from CI env vars so no
+# personal Apple ID is committed. Locally, `fastlane` will prompt if a
+# value is missing.
+
+app_identifier("com.gradethread.app")
+
+# App Store Connect uses API-key auth in CI (see Fastfile), so apple_id /
+# team_id are only needed for interactive local runs. Pulled from env so
+# the file stays credential-free.
+apple_id(ENV["FASTLANE_APPLE_ID"]) if ENV["FASTLANE_APPLE_ID"]
+team_id(ENV["APPLE_TEAM_ID"]) if ENV["APPLE_TEAM_ID"]
+itc_team_id(ENV["APP_STORE_CONNECT_TEAM_ID"]) if ENV["APP_STORE_CONNECT_TEAM_ID"]

@@ -169,7 +169,7 @@
 - FlipDesk integration: 28/35 PASSED (US-101→US-136 + US-138→US-145 done; US-137 + US-146→US-151 open)
 - Open and blocked on creds: US-137 (eBay sandbox + R2 + dogfood), US-146/147/148 (Google Sheets — need Google Cloud), US-151 (eBay Sell Analytics subscription)
 - Open and not started this pass: US-149 (multi-marketplace dispatch), US-150 (price-drop scheduler) — substantial builds, defer to focused sessions
-- iOS app (US-168 → US-199): 29/32 — through US-188 + US-191/192/195/198 + US-196 TestFlight + US-199 post-launch + US-193 iPad split-view + US-189 Share Extension. US-190/194/197 remaining
+- iOS app (US-168 → US-199): 31/32 — through US-188 + US-191/192/195/198 + US-196 TestFlight + US-199 + US-193 iPad + US-189 Share Extension + US-190 Widgets + US-197 App Store submission. US-194 remaining (held — conflicts with pricing rework)
 
 ### PostHog dashboards (operator setup, US-199)
 The events the iOS app now emits are ready for these dashboards in the
@@ -1485,3 +1485,115 @@ Tests in ShareInboxTests:
 - manifest-missing siblings are skipped
 - consumer drops unknown slot raw values
 - ShareIntakeView.allSlots == PhotoSlotType.allCases (rename trip)
+
+
+## Session Notes (2026-05-28) — iOS Widgets (US-190)
+Home-screen widget showing today's selling snapshot + pending payout.
+
+What landed:
+- ios/GradeThreadWidget/ is its own WidgetKit app-extension target.
+  Bundle id com.gradethread.app.widget. project.yml declares it and
+  the GradeThread target embeds it via dependencies.target embed:true.
+- Widgets run in a separate process with no SwiftData access, so the
+  app publishes a rollup to the shared App Group container
+  (group.com.gradethread.app, reused from US-189) and the widget
+  reads it back — no network, no DB.
+- ios/Shared/WidgetSnapshot.swift is the Codable cross-target model +
+  WidgetSnapshotStore (atomic App Group JSON write/read). write()
+  returns false rather than throwing when the container's missing so
+  unit tests + unsigned builds degrade gracefully.
+- ios/GradeThread/Widgets/WidgetSnapshotPublisher.swift: compute()
+  is pure + unit-tested (active listings, sold-today by startOfDay,
+  pending payout = sales w/o payoutReference netting fees, floored at
+  zero); publish() fetches from SwiftData + writes + reloads timelines.
+- SyncEngine.pull() republishes after each merge; ContentView's
+  sign-out path publishes the signed-out placeholder so the widget
+  stops showing the previous user's numbers.
+- GradeThreadWidget.swift: @main WidgetBundle, StaticConfiguration,
+  TimelineProvider reads the snapshot with a +30min backstop refresh
+  (app reloads are the primary trigger). Small family = sold-today +
+  payout stacked; medium = active / sold-today / payout row. Signed-
+  out swaps to a sign-in prompt. Brand colors inlined as literals
+  (widget target has no asset catalog).
+
+Tests in WidgetSnapshotTests:
+- signed-out short-circuit; active-only listing count
+- sold-today startOfDay bucketing incl. boundary sale
+- paid-vs-pending payout split; empty-string payoutReference = pending
+- fee>price floors net at zero; empty-but-signed-in is all-zeros
+- Codable round-trip; signedOut factory
+
+
+## Session Notes (2026-05-28) — iOS App Store submission (US-197)
+Every committable submission artifact landed; remainder is operational
+(screenshots on a Mac, real demo creds, ASC web-form privacy + rating).
+
+What landed:
+- App icon: existing 1024 mark copied into AppIcon.appiconset +
+  Contents.json references it by filename (slot was empty before).
+- ios/GradeThread/PrivacyInfo.xcprivacy — real Apple privacy manifest:
+  email/name/purchases/photos linked, crash + product-interaction not
+  linked, no tracking; UserDefaults (CA92.1) + file timestamp (C617.1)
+  required-reason APIs. Picked up by the source glob.
+- fastlane scaffolding (ios/Gemfile + ios/fastlane/{Appfile,Fastfile,
+  Snapfile,Deliverfile}). Lanes: generate_project, screenshots,
+  upload_metadata, release. Auth via the ASC API key CI already has —
+  no Apple ID password.
+- Marketing copy in fastlane/metadata/en-US: name 'FlipDesk by
+  GradeThread', subtitle, promo text, <4000-char description,
+  keywords (94 chars), release notes, support/marketing/privacy URLs.
+  App-level copyright + BUSINESS/SHOPPING categories. review_information
+  with contact + demo_user/demo_password PLACEHOLDERS + thorough
+  reviewer notes.txt.
+- fastlane/metadata/PRIVACY_LABELS.md — the data-type + per-SDK mapping
+  the operator transcribes into App Store Connect's web App Privacy
+  form, plus age-rating guidance (expect 17+) and the required-reason
+  list kept in sync with the manifest.
+- Screenshot UI test: new GradeThreadUITests target (bundle.ui-testing)
+  + vendored SnapshotHelper + ScreenshotUITests. Captures 01_Welcome
+  always, walks Inventory/Canvas/Sales/Marketplaces guarded by
+  existence checks. Kept OUT of the GradeThread scheme's test action
+  (unit CI stays fast) — runs via a dedicated GradeThreadScreenshots
+  scheme the Snapfile points at.
+- CI: ios-release.yml submit_to_app_store step now runs
+  'bundle exec fastlane release' (was an exit-0 checkpoint). Only on
+  workflow_dispatch with the flag set; tag pushes never auto-submit.
+- RELEASE.md Phase 10 rewritten with the pre-first-submit checklist.
+
+Operational remainder before first submit (not code):
+- Capture + commit screenshots on a Mac/simulator (or upload manually).
+- Seed the demo account in the real eBay sandbox + fill demo creds.
+- Enter App Privacy answers + complete the age-rating questionnaire
+  in the App Store Connect web UI.
+
+
+## Session Notes (2026-05-28) — iOS account deletion (US-194 PARTIAL)
+Shipped only the App Store-required account-deletion slice of US-194.
+US-194 stays OPEN — the rest is coupled to the in-flight pricing rework.
+
+What landed:
+- supabase/migrations/00043_delete_account_rpc.sql — SECURITY DEFINER
+  delete_account() RPC scoped to auth.uid(). Refuses NULL/anon callers,
+  pins search_path, deletes the caller's auth.users row which cascades
+  all data via the existing ON DELETE CASCADE chain. REVOKE from
+  public/anon, GRANT EXECUTE to authenticated.
+- AuthStore.deleteAccount() calls the RPC then signs out + clears the
+  Keychain. Throws (not fire-and-forget) so the sheet can keep the user
+  on-screen if it fails.
+- ios/GradeThread/Settings/DeleteAccountSheet.swift — typed 'delete'
+  confirmation (pure DeleteAccountSheet.canDelete gate: case-insensitive,
+  whitespace-trimmed). Destructive button disabled until it matches.
+- 'Delete account' destructive row wired into the Settings Account
+  section (ContentView) next to Sign out.
+- Tests in DeleteAccountTests cover the gate branches + phrase constant.
+
+Why US-194 stays open (deferred to after pricing rework lands):
+- AI Item Assistant usage meter's monthly limit is defined by the
+  flipdesk_plan tiers being reworked in US-200-225.
+- Plan/billing status display reads subscription_status/flipdesk_plan
+  (in-flux migration fields).
+- notification_preferences server sync needs a shared web-type schema
+  change (iOS push categories don't match the web prefs shape).
+
+Note: this slice makes US-197's App Store submission path Apple-compliant
+(Guideline 5.1.1(v) requires account deletion for apps with sign-up).

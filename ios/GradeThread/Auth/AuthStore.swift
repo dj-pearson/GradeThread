@@ -119,6 +119,25 @@ public final class AuthStore {
         }
     }
 
+    /// Permanently deletes the signed-in user's account (US-194). Calls
+    /// the `delete_account` Postgres RPC (SECURITY DEFINER, scoped to
+    /// auth.uid()) which removes the auth.users row + cascades all data,
+    /// then tears down the now-orphaned local session.
+    ///
+    /// Throws so the calling sheet can distinguish success from failure
+    /// — unlike the fire-and-forget auth actions, a failed delete must
+    /// keep the user on the confirmation screen rather than silently
+    /// dropping them back to a still-live account.
+    public func deleteAccount() async throws {
+        try await SupabaseShared.client.rpc("delete_account").execute()
+        // The account is gone server-side; clear the local session +
+        // keychain so the app falls back to LoginView. Best-effort — the
+        // auth-state stream will also flip to .signedOut once the now-
+        // invalid token fails to refresh.
+        try? await SupabaseShared.client.auth.signOut()
+        try? KeychainLocalStorage().removeAll()
+    }
+
     // MARK: - Internals
 
     /// Runs a throwing action, surfacing the error on `lastError` instead of

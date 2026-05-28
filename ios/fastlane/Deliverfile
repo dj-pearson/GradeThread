@@ -1,0 +1,38 @@
+# fastlane deliver config (US-197). Uploads metadata + screenshots +
+# binary to App Store Connect. The binary itself is uploaded by the
+# release workflow's altool step; deliver here handles metadata +
+# screenshots + the submission, so `skip_binary_upload` is true.
+
+app_identifier("com.gradethread.app")
+
+# Metadata lives in ./fastlane/metadata (the default). Screenshots in
+# ./fastlane/screenshots, produced by `fastlane screenshots`.
+metadata_path("./fastlane/metadata")
+screenshots_path("./fastlane/screenshots")
+
+# CI uploads the .ipa separately via altool; don't re-upload here.
+skip_binary_upload(true)
+
+# Run Apple's metadata precheck (broken URLs, placeholder text, etc.)
+# before submitting so a typo doesn't cost a review cycle.
+run_precheck_before_submit(true)
+precheck_default_rule_level(:error)
+
+# Don't auto-submit by default — the release workflow passes
+# `submit_for_review:true` explicitly only on the App Store lane.
+submit_for_review(false)
+
+# Phased release ramps the update to users over 7 days; safer than an
+# all-at-once push for a small team's first releases.
+phased_release(true)
+
+# Force-overwrite ASC metadata with the repo's copy so the repo is the
+# source of truth. Avoids interactive "are you sure" prompts in CI.
+force(true)
+
+# Export compliance is declared in Info.plist (ITSAppUsesNonExemptEncryption
+# = false), so deliver doesn't need to ask.
+submission_information({
+  export_compliance_uses_encryption: false,
+  add_id_info_uses_idfa: false
+})

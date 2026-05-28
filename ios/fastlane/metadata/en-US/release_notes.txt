@@ -1,0 +1,9 @@
+First public release of FlipDesk by GradeThread.
+
+- Photo-first intake with AI item detection
+- Standardized 1-10 condition grading with shareable certificates
+- Connect eBay to publish, revise, and sync listings
+- Sales + payout tracking with CSV reconciliation
+- Home-screen widget, Share Extension, offline capture, and a full iPad layout
+
+Thanks for trying FlipDesk! Send feedback any time from Settings.

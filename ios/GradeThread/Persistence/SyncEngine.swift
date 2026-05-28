@@ -108,6 +108,20 @@ actor SyncEngine {
         await refreshPendingCount()
         let pending = await pendingMutationCount()
         await statusStore.set(pending > 0 ? .pending : .idle)
+
+        // US-190: republish the widget rollup off the freshly-merged
+        // cache so the home-screen widget tracks the latest sync.
+        await publishWidgetSnapshot()
+    }
+
+    /// Recomputes + writes the home-screen widget snapshot from the
+    /// current local cache (US-190). Best-effort — a write failure (no
+    /// App Group container) is silently ignored inside the publisher.
+    private func publishWidgetSnapshot() async {
+        let container = self.container
+        await MainActor.run {
+            WidgetSnapshotPublisher.publish(container: container, isSignedIn: true)
+        }
     }
 
     // MARK: - Remote pull
