@@ -51,7 +51,20 @@ import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 // Required env: EBAY_APP_ID, EBAY_CERT_ID, EBAY_DEV_ID, EBAY_RU_NAME,
 //               EBAY_REDIRECT_URI, EBAY_ENV, EDGE_ENCRYPTION_KEY.
 
-type EbayEnv = { Variables: { userId: string } };
+type EbayEnv = {
+  Variables: {
+    userId: string;
+    // Workspace owner — marketplace connections, listings, and payouts all
+    // live on the workspace owner since they hold the OAuth tokens.
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
+  };
+};
 
 export const flipdeskEbayRoutes = new Hono<EbayEnv>();
 
@@ -70,7 +83,7 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const redirectTo = c.req.query("redirect_to") ?? null;
 
   const state = generateState();
@@ -802,7 +815,7 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   // Validate that the user has an active connection before firing the job.
   const { data: conn } = await supabaseAdmin
@@ -851,7 +864,7 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const listingId = c.req.param("id");
 
   let body: { price?: unknown };
@@ -907,7 +920,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const listingId = c.req.param("id");
 
   let body: {
@@ -1101,7 +1114,7 @@ flipdeskEbayRoutes.get("/listings/:id/category-check", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const listingId = c.req.param("id");
 
   // Load the listing + its title (from the joined inventory_item or the
@@ -1180,7 +1193,7 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const listingId = c.req.param("id");
 
   const row = await loadListingOwned(listingId, userId);
@@ -1223,7 +1236,7 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
 });
 
 flipdeskEbayRoutes.post("/listings/validate", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const itemId = await readItemId(c);
   if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
   const result = await assemblePublishContext(userId, itemId);
@@ -1236,7 +1249,7 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
 });
 
 flipdeskEbayRoutes.post("/listings/push", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const itemId = await readItemId(c);
   if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
 
@@ -1376,7 +1389,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
 //
 // Body: { csv: string }  Response: { imported, skipped, duplicates }
 flipdeskEbayRoutes.post("/payouts/import-csv", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { csv?: unknown };
   try {

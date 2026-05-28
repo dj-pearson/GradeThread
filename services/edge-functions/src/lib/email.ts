@@ -591,6 +591,51 @@ export async function sendTrialExpiringEmail(
   });
 }
 
+// ─── Workspace invitation (team support) ─────────────────────────────
+
+interface WorkspaceInvitationData {
+  inviterName: string;
+  inviterEmail: string;
+  workspaceName: string;
+  role: string;
+  acceptUrl: string;
+  expiresAt: string;
+}
+
+export async function sendWorkspaceInvitationEmail(
+  to: string,
+  data: WorkspaceInvitationData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      You're invited to join ${escapeHtml(data.workspaceName)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      ${escapeHtml(data.inviterName)} (${escapeHtml(data.inviterEmail)})
+      invited you to collaborate in their GradeThread workspace as a
+      <strong>${escapeHtml(data.role)}</strong>.
+    </p>
+    <p style="margin: 0 0 24px; color: #666; font-size: 14px; line-height: 1.5;">
+      Click the button below to accept. If you don't have an account yet,
+      you'll be prompted to create one first. This invite expires on
+      <strong>${formatDate(data.expiresAt)}</strong>.
+    </p>
+
+    ${ctaButton("Accept invitation", data.acceptUrl)}
+
+    <p style="margin: 24px 0 0; color: #999; font-size: 12px; line-height: 1.5; text-align: center;">
+      If you weren't expecting this invitation, you can safely ignore this
+      email. The workspace owner won't be notified.
+    </p>
+  `;
+
+  return sendEmail({
+    to,
+    subject: `${data.inviterName} invited you to ${data.workspaceName} on GradeThread`,
+    html: emailLayout(content),
+  });
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {

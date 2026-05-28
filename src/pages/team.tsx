@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Mail, Trash2, UserPlus, Users } from "lucide-react";
+import { Copy, Mail, Send, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,10 @@ export function TeamPage() {
   const { workspaceOwnerId, role, can, isPersonal } = useWorkspace();
   const queryClient = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [lastInviteUrl, setLastInviteUrl] = useState<string | null>(null);
+  const [lastInvite, setLastInvite] = useState<
+    | { inviteUrl: string; emailSent: boolean }
+    | null
+  >(null);
   const [removeMemberId, setRemoveMemberId] = useState<string | null>(null);
 
   // Only the owner of the workspace can manage members. Admins can VIEW
@@ -114,10 +118,19 @@ export function TeamPage() {
 
   useEffect(() => {
     // Auto-clear the "copy invite link" banner after 60s.
-    if (!lastInviteUrl) return;
-    const t = setTimeout(() => setLastInviteUrl(null), 60_000);
+    if (!lastInvite) return;
+    const t = setTimeout(() => setLastInvite(null), 60_000);
     return () => clearTimeout(t);
-  }, [lastInviteUrl]);
+  }, [lastInvite]);
+
+  useEffect(() => {
+    // Refresh the pending invitations list whenever a new invite is created.
+    if (lastInvite) {
+      queryClient.invalidateQueries({
+        queryKey: ["workspace-invitations", workspaceOwnerId],
+      });
+    }
+  }, [lastInvite, queryClient, workspaceOwnerId]);
 
   async function updateRole(memberId: string, newRole: WorkspaceRole) {
     if (!workspaceOwnerId) return;
@@ -168,6 +181,27 @@ export function TeamPage() {
     toast.success("Invite link copied");
   }
 
+  async function resendInvitation(id: string) {
+    const res = await edgeFetch(`/api/workspace/invitations/${id}/resend`, {
+      method: "POST",
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      email_sent?: boolean;
+      error?: string;
+    };
+    if (!res.ok) {
+      toast.error(data.error || "Could not resend invitation");
+      return;
+    }
+    if (data.email_sent) {
+      toast.success("Invitation email resent");
+    } else {
+      toast.warning(
+        "Email service failed — share the invite link manually for now",
+      );
+    }
+  }
+
   // If you're a member viewing someone else's workspace, you can't see the
   // owner's team — only owners/admins of THAT workspace can. Show a
   // read-only banner with your own role.
@@ -209,21 +243,23 @@ export function TeamPage() {
         )}
       </div>
 
-      {lastInviteUrl && (
+      {lastInvite && (
         <Card className="border-primary/40 bg-primary/5">
           <CardContent className="flex flex-wrap items-center gap-3 py-4">
             <Mail className="h-4 w-4 text-primary" />
             <span className="text-sm">
-              Invitation created. Share this link with your teammate:
+              {lastInvite.emailSent
+                ? "Invitation sent. Backup link in case it doesn't arrive:"
+                : "Invitation created — email delivery failed. Share this link manually:"}
             </span>
             <code className="flex-1 min-w-[200px] truncate rounded bg-background px-2 py-1 text-xs">
-              {lastInviteUrl}
+              {lastInvite.inviteUrl}
             </code>
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                navigator.clipboard.writeText(lastInviteUrl);
+                navigator.clipboard.writeText(lastInvite.inviteUrl);
                 toast.success("Copied");
               }}
             >
@@ -375,6 +411,15 @@ export function TeamPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => resendInvitation(inv.id)}
+                          title="Resend invitation email"
+                        >
+                          <Send className="mr-1 h-3.5 w-3.5" />
+                          Resend
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => copyInviteLink(inv.token)}
                         >
                           <Copy className="mr-1 h-3.5 w-3.5" />
@@ -408,7 +453,7 @@ export function TeamPage() {
       <InviteMemberDialog
         open={inviteOpen}
         onOpenChange={setInviteOpen}
-        onCreated={setLastInviteUrl}
+        onCreated={setLastInvite}
       />
 
       <AlertDialog

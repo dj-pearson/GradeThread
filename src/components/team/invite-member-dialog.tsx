@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/use-auth";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,18 +30,10 @@ import type { WorkspaceRole } from "@/types/database";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: (inviteUrl: string) => void;
-}
-
-function generateToken(): string {
-  // 64-char hex token. Two UUIDs combined for ~256 bits of entropy.
-  const a = crypto.randomUUID().replace(/-/g, "");
-  const b = crypto.randomUUID().replace(/-/g, "");
-  return `${a}${b}`;
+  onCreated: (result: { inviteUrl: string; emailSent: boolean }) => void;
 }
 
 export function InviteMemberDialog({ open, onOpenChange, onCreated }: Props) {
-  const { user } = useAuth();
   const { workspaceOwnerId } = useWorkspace();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<WorkspaceRole>("listing_manager");
@@ -50,34 +41,38 @@ export function InviteMemberDialog({ open, onOpenChange, onCreated }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!workspaceOwnerId || !user) return;
+    if (!workspaceOwnerId) return;
     if (!email.trim()) {
       toast.error("Enter an email address");
       return;
     }
     setSubmitting(true);
-    const token = generateToken();
-    const { error } = await supabase.from("workspace_invitations").insert({
-      owner_id: workspaceOwnerId,
-      email: email.trim().toLowerCase(),
-      role,
-      token,
-      invited_by: user.id,
-    } as never);
-    setSubmitting(false);
-    if (error) {
-      if (error.code === "23505") {
-        toast.error("There's already a pending invite for that email");
-      } else {
-        toast.error(error.message);
+    try {
+      // The edge route creates the invitation row + sends the email via
+      // Resend in one round-trip. Auth + workspace header are applied
+      // automatically by edgeFetch.
+      const res = await edgeFetch("/api/workspace/invitations", {
+        method: "POST",
+        json: { email: email.trim().toLowerCase(), role },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        accept_url?: string;
+        email_sent?: boolean;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.error || "Failed to create invitation");
+        return;
       }
-      return;
+      const inviteUrl =
+        data.accept_url ?? `${window.location.origin}/accept-invite`;
+      onCreated({ inviteUrl, emailSent: !!data.email_sent });
+      setEmail("");
+      setRole("listing_manager");
+      onOpenChange(false);
+    } finally {
+      setSubmitting(false);
     }
-    const url = `${window.location.origin}/accept-invite?token=${token}`;
-    onCreated(url);
-    setEmail("");
-    setRole("listing_manager");
-    onOpenChange(false);
   }
 
   return (

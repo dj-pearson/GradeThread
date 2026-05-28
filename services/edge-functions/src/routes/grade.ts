@@ -5,6 +5,18 @@ import { processSubmission } from "../lib/grading-pipeline.ts";
 type GradeEnv = {
   Variables: {
     userId: string;
+    // Set by workspaceMiddleware. Equals userId for solo users / when the
+    // caller is the workspace owner. For a member acting in someone else's
+    // workspace, this is the OWNER's id — billing, plan caps, credits,
+    // submissions, and storage paths all key off this so the work lands in
+    // the right tenant.
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
   };
 };
 
@@ -210,6 +222,17 @@ function kickPipeline(submissionId: string) {
 // ── POST /submit ─────────────────────────────────────────────────
 gradeRoutes.post("/submit", async (c) => {
   const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
+  const role = c.get("workspaceRole") ?? "owner";
+
+  // Member must have at least 'member' role in the workspace to submit a grade.
+  // Owner/admin/listing_manager all qualify; viewer does not.
+  if (role === "viewer") {
+    return c.json(
+      { error: "Viewers cannot submit grade requests in this workspace" },
+      403,
+    );
+  }
 
   let formData: FormData;
   try {
@@ -269,13 +292,14 @@ gradeRoutes.post("/submit", async (c) => {
     return c.json({ error: "Validation failed", details: errors }, 400);
   }
 
-  // Suspended account gate (pre-pricing). Plan caps are enforced by the
-  // precedence step below — exceeding included grades isn't a failure mode,
-  // it just falls through to credits or checkout.
+  // Suspended account gate (pre-pricing). Checks the WORKSPACE OWNER's
+  // suspension state since they own the billing relationship. Plan caps are
+  // enforced by the precedence step below — exceeding included grades isn't
+  // a failure mode, it just falls through to credits or checkout.
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select("suspended")
-    .eq("id", userId)
+    .eq("id", ownerId)
     .single();
 
   if (userError || !user) {
@@ -284,15 +308,16 @@ gradeRoutes.post("/submit", async (c) => {
   if (user.suspended) {
     return c.json({
       error:
-        "Your account has been suspended and cannot create new submissions. Contact support if you believe this is a mistake.",
+        "This workspace has been suspended and cannot create new submissions. Contact support if you believe this is a mistake.",
     }, 403);
   }
 
-  // Create submission (unpaid).
+  // Create submission (unpaid). user_id is the workspace owner so the row
+  // is visible to all workspace members via the additive RLS.
   const { data: submission, error: submissionError } = await supabaseAdmin
     .from("submissions")
     .insert({
-      user_id: userId,
+      user_id: ownerId,
       garment_type: garmentType as GarmentType,
       garment_category: garmentCategory as GarmentCategory,
       title: title!.trim(),
@@ -324,7 +349,7 @@ gradeRoutes.post("/submit", async (c) => {
     const imageType = imageTypes[i];
     const timestamp = Date.now();
     const ext = file.name.split(".").pop() || "jpg";
-    const storagePath = `${userId}/${submissionId}/${imageType}_${timestamp}.${ext}`;
+    const storagePath = `${ownerId}/${submissionId}/${imageType}_${timestamp}.${ext}`;
 
     const arrayBuffer = await file.arrayBuffer();
     const { error: uploadError } = await supabaseAdmin.storage
@@ -361,10 +386,11 @@ gradeRoutes.post("/submit", async (c) => {
     return c.json({ error: "Failed to save image records" }, 500);
   }
 
-  // Run payment precedence.
+  // Run payment precedence against the WORKSPACE OWNER's account — they pay,
+  // they have the plan and credit balance.
   let precedence: PrecedenceResult;
   try {
-    precedence = await runPaymentPrecedence(userId, submissionId, tier);
+    precedence = await runPaymentPrecedence(ownerId, submissionId, tier);
   } catch (err) {
     console.error(`Payment precedence failed for ${submissionId}:`, err);
     return c.json({ error: "Payment processing error" }, 500);
@@ -408,6 +434,7 @@ gradeRoutes.post("/submit", async (c) => {
 // success URL) so the new balance is consumed without a second click.
 gradeRoutes.post("/pay/:id", async (c) => {
   const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
   const submissionId = c.req.param("id");
 
   let body: { tier?: string };
@@ -426,7 +453,7 @@ gradeRoutes.post("/pay/:id", async (c) => {
     .from("submissions")
     .select("id, user_id, status, payment_status")
     .eq("id", submissionId)
-    .eq("user_id", userId)
+    .eq("user_id", ownerId)
     .single();
 
   if (error || !submission) {
@@ -442,7 +469,7 @@ gradeRoutes.post("/pay/:id", async (c) => {
 
   let precedence: PrecedenceResult;
   try {
-    precedence = await runPaymentPrecedence(userId, submissionId, tier);
+    precedence = await runPaymentPrecedence(ownerId, submissionId, tier);
   } catch (err) {
     console.error(`Retry precedence failed for ${submissionId}:`, err);
     return c.json({ error: "Payment processing error" }, 500);
@@ -480,12 +507,13 @@ gradeRoutes.post("/pay/:id", async (c) => {
 gradeRoutes.get("/status/:id", async (c) => {
   const id = c.req.param("id");
   const userId = c.get("userId");
+  const ownerId = c.get("workspaceOwnerId") ?? userId;
 
   const { data: submission, error } = await supabaseAdmin
     .from("submissions")
     .select("id, status, payment_status, paid_at, created_at, updated_at")
     .eq("id", id)
-    .eq("user_id", userId)
+    .eq("user_id", ownerId)
     .single();
 
   if (error || !submission) {

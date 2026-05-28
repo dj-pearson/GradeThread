@@ -24,24 +24,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase } from "@/lib/supabase";
 import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import type { UserPlan } from "@/types/database";
-
-const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
-  ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}`
-  : "";
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  return {
-    "Content-Type": "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
+import { edgeFetch } from "@/lib/edge-fetch";
 
 interface ApiKeyItem {
   id: string;
@@ -95,8 +82,7 @@ export function ApiKeysPage() {
   const { data: keys, isLoading } = useQuery<ApiKeyItem[]>({
     queryKey: ["api-keys"],
     queryFn: async () => {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${EDGE_URL}/api/keys`, { headers });
+      const res = await edgeFetch("/api/keys");
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Failed to fetch" }));
         throw new Error(err.error || "Failed to fetch API keys");
@@ -116,16 +102,14 @@ export function ApiKeysPage() {
 
     setCreating(true);
     try {
-      const headers = await getAuthHeaders();
       const body: Record<string, string> = { name: newKeyName.trim() };
       if (newKeyExpiry) {
         body.expires_at = new Date(newKeyExpiry).toISOString();
       }
 
-      const res = await fetch(`${EDGE_URL}/api/keys`, {
+      const res = await edgeFetch("/api/keys", {
         method: "POST",
-        headers,
-        body: JSON.stringify(body),
+        json: body,
       });
 
       const json = await res.json();
@@ -150,10 +134,8 @@ export function ApiKeysPage() {
 
     setRevoking(true);
     try {
-      const headers = await getAuthHeaders();
-      const res = await fetch(`${EDGE_URL}/api/keys/${revokeKeyId}`, {
+      const res = await edgeFetch(`/api/keys/${revokeKeyId}`, {
         method: "DELETE",
-        headers,
       });
 
       if (!res.ok) {

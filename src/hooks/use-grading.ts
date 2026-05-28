@@ -2,17 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeAuthHeaders } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
-
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
-  }
-  return `Bearer ${session.access_token}`;
-}
 
 export type GradingTier = "standard" | "premium" | "express";
 
@@ -70,10 +61,7 @@ export function useValidateGrading() {
         `${edgeApiUrl()}/api/flipdesk/grading/validate`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await edgeAuthHeaders(),
           body: JSON.stringify({
             items: [{ inventory_item_id: inventoryItemId, tier }],
           }),
@@ -121,10 +109,7 @@ export function useSubmitForGrading() {
         `${edgeApiUrl()}/api/flipdesk/grading/submit`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await edgeAuthHeaders(),
           body: JSON.stringify({
             items: [{ inventory_item_id: inventoryItemId, tier }],
           }),

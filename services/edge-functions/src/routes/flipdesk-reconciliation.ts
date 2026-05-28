@@ -4,7 +4,18 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 // Payout reconciliation: matches payout_imports rows to sales rows by listing ID
 // and timestamp window. Never silently mis-matches — unmatched rows stay queued.
 
-type ReconciliationEnv = { Variables: { userId: string } };
+type ReconciliationEnv = {
+  Variables: {
+    userId: string;
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
+  };
+};
 
 export const flipdeskReconciliationRoutes = new Hono<ReconciliationEnv>();
 
@@ -137,7 +148,7 @@ function scoreCandidate(
 
 // GET /queue — list unreconciled payout_imports with up to 5 candidate sales each.
 flipdeskReconciliationRoutes.get("/queue", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   const { data: payoutsRaw, error: payoutsErr } = await supabaseAdmin
     .from("payout_imports")
@@ -248,7 +259,7 @@ const AUTO_MATCH_MIN_MARGIN = 0.2;
 // over the next-best alternative. Returns counts; ambiguous rows stay in
 // the queue for /queue + /match.
 flipdeskReconciliationRoutes.post("/run", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   const { data: payoutsRaw } = await supabaseAdmin
     .from("payout_imports")
@@ -384,7 +395,7 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
 // somewhere else, that's a conflict the user needs to resolve explicitly.
 // Body: { payout_import_id: string; sale_id: string }
 flipdeskReconciliationRoutes.post("/match", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { payout_import_id?: unknown; sale_id?: unknown };
   try {
@@ -500,7 +511,7 @@ flipdeskReconciliationRoutes.post("/match", async (c) => {
 // We mark it reconciled so it leaves the queue, with sale_id = null and a
 // dismissed_at marker in raw_payload so the audit trail is preserved.
 flipdeskReconciliationRoutes.post("/dismiss/:id", async (c) => {
-  const userId = c.get("userId");
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const id = c.req.param("id");
 
   const { data: payout, error: payoutErr } = await supabaseAdmin

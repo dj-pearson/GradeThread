@@ -13,7 +13,21 @@ import { getCategoryAspects } from "../lib/ebay-client.ts";
 const MAX_PHOTOS = 8;
 
 // AI item-enrichment endpoints. Mounted at /api/flipdesk/ai (authed).
-export const flipdeskAiRoutes = new Hono<{ Variables: { userId: string } }>();
+// workspaceOwnerId is set by workspaceMiddleware — billing, item ownership,
+// and ai-actions counter all live on the workspace owner. userId stays
+// around for audit only.
+export const flipdeskAiRoutes = new Hono<{
+  Variables: {
+    userId: string;
+    workspaceOwnerId: string;
+    workspaceRole:
+      | "viewer"
+      | "member"
+      | "listing_manager"
+      | "admin"
+      | "owner";
+  };
+}>();
 
 // Monthly AI-action allowance per plan. -1 = unlimited. (US-167 refines.)
 const AI_ACTION_LIMITS: Record<string, number> = {
@@ -38,8 +52,9 @@ type QuotaResult =
 
 // Checks AI enablement + monthly cap for a user. `pending` lets a batch
 // caller account for actions it is about to consume in the same request.
+// Always pass the WORKSPACE OWNER's id — that's whose plan and AI quota apply.
 async function checkQuota(
-  userId: string,
+  ownerId: string,
   pending = 0
 ): Promise<QuotaResult> {
   const { data: user, error } = await supabaseAdmin
@@ -47,7 +62,7 @@ async function checkQuota(
     .select(
       "plan, ai_enrichment_enabled, ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit"
     )
-    .eq("id", userId)
+    .eq("id", ownerId)
     .single();
 
   if (error || !user) {
@@ -89,7 +104,10 @@ async function checkQuota(
  * Routes to Haiku (text) or Sonnet (photos), logs usage, returns suggestions.
  */
 flipdeskAiRoutes.post("/extract", async (c) => {
-  const userId = c.get("userId");
+  // Re-bind userId to the active workspace owner. For solo users this is
+  // identical to the caller's id; for a member acting in someone else's
+  // workspace, all reads/writes/quota lookups must target the owner.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: {
     text?: unknown;
@@ -298,7 +316,10 @@ function prioritizeAspects(
 }
 
 flipdeskAiRoutes.post("/extract-aspects", async (c) => {
-  const userId = c.get("userId");
+  // Re-bind userId to the active workspace owner. For solo users this is
+  // identical to the caller's id; for a member acting in someone else's
+  // workspace, all reads/writes/quota lookups must target the owner.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: {
     item_id?: unknown;
     category_id?: unknown;
@@ -484,7 +505,10 @@ const ENRICHABLE_COLUMNS = [
  * Body: { item_id }. Generates a marketplace listing title + description.
  */
 flipdeskAiRoutes.post("/listing-copy", async (c) => {
-  const userId = c.get("userId");
+  // Re-bind userId to the active workspace owner. For solo users this is
+  // identical to the caller's id; for a member acting in someone else's
+  // workspace, all reads/writes/quota lookups must target the owner.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: { item_id?: unknown };
   try {
     body = await c.req.json();
@@ -577,7 +601,10 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
  * fields auto-apply, uncertain ones are returned for per-item review.
  */
 flipdeskAiRoutes.post("/bulk-extract", async (c) => {
-  const userId = c.get("userId");
+  // Re-bind userId to the active workspace owner. For solo users this is
+  // identical to the caller's id; for a member acting in someone else's
+  // workspace, all reads/writes/quota lookups must target the owner.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: { item_ids?: unknown };
   try {
     body = await c.req.json();
@@ -752,7 +779,10 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
  * compute an acceptance rate. Body: { accepted_fields: Record<string,unknown> }
  */
 flipdeskAiRoutes.patch("/log/:id", async (c) => {
-  const userId = c.get("userId");
+  // Re-bind userId to the active workspace owner. For solo users this is
+  // identical to the caller's id; for a member acting in someone else's
+  // workspace, all reads/writes/quota lookups must target the owner.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const id = c.req.param("id");
 
   let body: { accepted_fields?: unknown };

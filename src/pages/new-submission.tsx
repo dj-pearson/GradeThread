@@ -21,6 +21,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { useAuthStore } from "@/stores/auth-store";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
 import type { InventoryItemRow } from "@/types/database";
@@ -218,11 +219,19 @@ export function NewSubmissionPage() {
         formData.append("image_types", photo.imageType);
       }
 
+      // Send the active workspace owner so the submission lands in the
+      // right tenant when a team member submits.
+      const { activeWorkspaceOwnerId, user: storeUser } = useAuthStore.getState();
+      const workspaceOwner = activeWorkspaceOwnerId ?? storeUser?.id;
+      const requestHeaders: Record<string, string> = {
+        Authorization: `Bearer ${session.access_token}`,
+      };
+      if (workspaceOwner) {
+        requestHeaders["X-Workspace-Owner"] = workspaceOwner;
+      }
       const response = await fetch(`${edgeApiUrl()}/api/grade/submit`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: requestHeaders,
         body: formData,
       });
 

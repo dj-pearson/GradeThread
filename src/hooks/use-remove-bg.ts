@@ -1,17 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
-
-async function authHeader(): Promise<string> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("You must be signed in.");
-  }
-  return `Bearer ${session.access_token}`;
-}
+import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
 export interface RemoveBgResponse {
   ok: true;
@@ -36,10 +26,7 @@ export function useRemoveBackground() {
         `${edgeApiUrl()}/api/flipdesk/images/remove-bg`,
         {
           method: "POST",
-          headers: {
-            Authorization: await authHeader(),
-            "Content-Type": "application/json",
-          },
+          headers: await edgeAuthHeaders(),
           body: JSON.stringify({ item_photo_id: itemPhotoId }),
         },
       );

@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
+import { useWorkspace } from "@/hooks/use-workspace";
 import { supabase } from "@/lib/supabase";
 import { parseSheet } from "@/lib/csv";
 import { readZip, baseName, type ZipEntry } from "@/lib/zip";
@@ -110,6 +111,7 @@ function validateRow(
 
 export function BulkSubmissionPage() {
   const { profile } = useAuth();
+  const { workspaceOwnerId } = useWorkspace();
   const navigate = useNavigate();
   const csvInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
@@ -278,9 +280,15 @@ export function BulkSubmissionPage() {
             formData.append("image_types", imageType);
           }
 
+          const headers: Record<string, string> = {
+            Authorization: `Bearer ${session.access_token}`,
+          };
+          if (workspaceOwnerId) {
+            headers["X-Workspace-Owner"] = workspaceOwnerId;
+          }
           const response = await fetch(`${baseUrl}/api/grade/submit`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${session.access_token}` },
+            headers,
             body: formData,
           });
           const json = await response.json();
