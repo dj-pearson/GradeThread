@@ -4482,7 +4482,7 @@
       ],
       "priority": 268,
       "passes": false,
-      "notes": ""
+      "notes": "Audit completed: swept every supabaseAdmin query in routes/* and lib/* for tenant scoping. RESULT: zero cross-tenant violations. Independently verified the highest-risk paths — loadListingOwned() (joins inventory_items!inner(user_id), rejects mismatch), assemblePublishContext() (checks item.user_id===userId before any .eq('id',itemId) update at flipdesk-ebay.ts:1636), doListingsPull (items scoped .eq('user_id',userId) at :311), api-keys delete (scoped by id AND user_id), flipdesk-grading submit/validate/status (ownership-checked). INSERTs set user_id to the authed owner. Webhooks resolve user_id from verified payload (Stripe customer / eBay handle). Deliverables: added env-gated cross-tenant regression suite services/edge-functions/src/tests/tenant-isolation_test.ts + 'test' task in deno.json + the 'service-role queries MUST be tenant-scoped' rule in CLAUDE.md. Tests need a live edge+Supabase fixture (skip cleanly without it); they go green in CI once US-273 wires Deno + a test DB."
     },
     {
       "id": "US-269",

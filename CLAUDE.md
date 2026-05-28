@@ -215,6 +215,7 @@ PORT=8787
 - RLS on every table - users access only their own data
 - Service-role client in edge functions for admin operations
 - Enum types for all fixed value sets
+- **SECURITY (US-268): the edge service uses the service-role client, which BYPASSES RLS.** Every query against a multi-tenant table (submissions, grade_reports, inventory_items, listings, sales, item_photos, marketplace_connections, api_keys, etc.) MUST be tenant-scoped — either `.eq("user_id", c.get("workspaceOwnerId") ?? c.get("userId"))` directly, or via a parent row whose ownership was already verified (see `loadListingOwned` / `assemblePublishContext` in flipdesk-ebay.ts). NEVER `update`/`delete`/`select`-by-`id` on these tables using an id from the request body without first confirming the caller owns it. Cross-tenant regression tests live in `services/edge-functions/src/tests/tenant-isolation_test.ts`.
 
 ### Error Handling
 - Auth functions throw on error, callers catch and show toast
