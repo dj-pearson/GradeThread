@@ -13,7 +13,8 @@
     "@anthropic-ai/sdk": "https://esm.sh/@anthropic-ai/sdk@0.24.1",
     "stripe": "https://esm.sh/stripe@15.5.0",
     "fast-xml-parser": "https://esm.sh/fast-xml-parser@4.5.0",
-    "aws4fetch": "https://esm.sh/aws4fetch@1.0.20"
+    "aws4fetch": "https://esm.sh/aws4fetch@1.0.20",
+    "denomailer": "https://deno.land/x/denomailer@1.6.0/mod.ts"
   },
   "compilerOptions": {
     "strict": true

@@ -1,11 +1,16 @@
 /**
- * Email notification utility using Resend API.
+ * Email notification utility using SMTP (e.g. Amazon SES).
  * Sends branded transactional emails for grade completions,
- * dispute resolutions, and welcome messages.
+ * dispute resolutions, billing events, and welcome messages.
+ *
+ * Configured via the same SMTP_* env vars Supabase uses for its own SMTP, so
+ * the edge service and Supabase Auth share one mail setup:
+ *   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_ADMIN_EMAIL (from address),
+ *   SMTP_SENDER_NAME (from display name).
  */
 
-const RESEND_API_URL = "https://api.resend.com/emails";
-const FROM_EMAIL = "GradeThread <notifications@gradethread.com>";
+import { SMTPClient } from "denomailer";
+
 const BRAND_NAVY = "#0F3460";
 const BRAND_RED = "#E94560";
 const BRAND_NIGHT = "#1A1A2E";
@@ -46,42 +51,55 @@ interface WelcomeData {
 // ─── Core Send Function ─────────────────────────────────────────────
 
 async function sendEmail(options: EmailOptions): Promise<boolean> {
-  const apiKey = Deno.env.get("RESEND_API_KEY");
-  if (!apiKey) {
-    console.warn("[Email] RESEND_API_KEY not configured, skipping email send");
+  const host = Deno.env.get("SMTP_HOST");
+  const port = Number(Deno.env.get("SMTP_PORT") ?? "587") || 587;
+  const user = Deno.env.get("SMTP_USER");
+  const pass = Deno.env.get("SMTP_PASS");
+  const fromEmail = Deno.env.get("SMTP_ADMIN_EMAIL");
+  const fromName = Deno.env.get("SMTP_SENDER_NAME") || "GradeThread";
+
+  if (!host || !user || !pass || !fromEmail) {
+    console.warn(
+      "[Email] SMTP not fully configured (need SMTP_HOST, SMTP_USER, SMTP_PASS, SMTP_ADMIN_EMAIL), skipping email send",
+    );
     return false;
   }
 
+  const client = new SMTPClient({
+    connection: {
+      hostname: host,
+      port,
+      // Port 465 uses implicit TLS; 587 (and 2587) connect plain then upgrade
+      // via STARTTLS, which denomailer negotiates automatically. SES requires
+      // TLS either way.
+      tls: port === 465,
+      auth: { username: user, password: pass },
+    },
+  });
+
   try {
-    const response = await fetch(RESEND_API_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: FROM_EMAIL,
-        to: [options.to],
-        subject: options.subject,
-        html: options.html,
-      }),
+    await client.send({
+      from: `${fromName} <${fromEmail}>`,
+      to: options.to,
+      subject: options.subject,
+      // "auto" generates a plaintext part from the HTML so we send multipart.
+      content: "auto",
+      html: options.html,
     });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      console.error(`[Email] Resend API error (${response.status}): ${errorBody}`);
-      return false;
-    }
-
-    const result = await response.json();
-    console.log(`[Email] Sent successfully to ${options.to} | id=${result.id}`);
+    console.log(`[Email] Sent successfully to ${options.to}`);
     return true;
   } catch (error) {
     console.error(
       "[Email] Failed to send:",
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : String(error),
     );
     return false;
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // Ignore close errors — the message was already accepted (or failed) above.
+    }
   }
 }
 
