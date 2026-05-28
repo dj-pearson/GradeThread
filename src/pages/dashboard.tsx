@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { fetchInChunks } from "@/lib/supabase-batch";
 import { PLANS } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, InventoryItemRow, ListingRow } from "@/types/database";
@@ -133,26 +134,24 @@ export function DashboardPage() {
       const items = (itemsRaw ?? []) as InventoryItemRow[];
 
       const itemIds = items.map((i) => i.id);
-      let allListings: ListingRow[] = [];
-      if (itemIds.length > 0) {
-        const { data: listingsRaw } = await supabase
+      const allListings = await fetchInChunks<ListingRow>(itemIds, async (chunk) => {
+        const { data, error } = await supabase
           .from("listings")
           .select("*")
-          .in("inventory_item_id", itemIds);
-        allListings = (listingsRaw ?? []) as ListingRow[];
-      }
+          .in("inventory_item_id", chunk);
+        return { data, error };
+      });
 
       const submissionIds = items
         .map((i) => i.submission_id)
         .filter((id): id is string => id !== null);
-      let allReports: GradeReportRow[] = [];
-      if (submissionIds.length > 0) {
-        const { data: reportsRaw } = await supabase
+      const allReports = await fetchInChunks<GradeReportRow>(submissionIds, async (chunk) => {
+        const { data, error } = await supabase
           .from("grade_reports")
           .select("*")
-          .in("submission_id", submissionIds);
-        allReports = (reportsRaw ?? []) as GradeReportRow[];
-      }
+          .in("submission_id", chunk);
+        return { data, error };
+      });
 
       return { items, listings: allListings, gradeReports: allReports };
     },

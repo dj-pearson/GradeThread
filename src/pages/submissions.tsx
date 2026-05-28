@@ -41,6 +41,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { fetchInChunks } from "@/lib/supabase-batch";
 import { GARMENT_TYPES, SUBMISSION_STATUSES } from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
 
@@ -120,12 +121,6 @@ async function exportSubmissionsCsv() {
 
   // Fetch all grade reports for these submissions
   const submissionIds = allSubmissions.map((s) => s.id);
-  const { data: reports } = await supabase
-    .from("grade_reports")
-    .select(
-      "submission_id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, certificate_id"
-    )
-    .in("submission_id", submissionIds);
 
   type ExportGradeReport = Pick<
     GradeReportRow,
@@ -139,7 +134,20 @@ async function exportSubmissionsCsv() {
     | "certificate_id"
   > & { submission_id: string };
 
-  const reportRows = (reports ?? []) as ExportGradeReport[];
+  // Batch the id list — a full export can span hundreds of submissions, which
+  // would overflow the request URL as a single .in() call.
+  const reportRows = await fetchInChunks<ExportGradeReport>(
+    submissionIds,
+    async (chunk) => {
+      const { data, error } = await supabase
+        .from("grade_reports")
+        .select(
+          "submission_id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, certificate_id"
+        )
+        .in("submission_id", chunk);
+      return { data, error };
+    },
+  );
   const gradeMap = new Map(reportRows.map((r) => [r.submission_id, r]));
 
   const headers = [
