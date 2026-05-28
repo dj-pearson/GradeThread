@@ -8,50 +8,39 @@ import type {
   WorkspaceRole,
 } from "@/types/database";
 
-export function useAuth() {
-  const {
-    user,
-    session,
-    profile,
-    isLoading,
-    workspaces,
-    activeWorkspaceOwnerId,
-    setUser,
-    setSession,
-    setProfile,
-    setIsLoading,
-    setWorkspaces,
-    setActiveWorkspaceOwnerId,
-    reset,
-  } = useAuthStore();
+// ── Module-level auth bootstrap ─────────────────────────────────────
+//
+// useAuth() is consumed by ~26 components. Previously each instance ran its
+// own getSession() + onAuthStateChange subscription + profile/workspace
+// fetch, so a single page load fired the same queries dozens of times (and
+// every one of those hammered workspace_members). We now bootstrap ONCE at
+// module scope: a single subscription, a single initial load, and a deduped
+// loader. Components just read the shared Zustand store reactively.
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      setSession(currentSession);
-      setUser(currentSession?.user ?? null);
-      if (currentSession?.user) {
-        loadProfileAndWorkspaces(currentSession.user.id);
-      } else {
-        setIsLoading(false);
-      }
-    });
+let authInitialized = false;
+let inFlightLoad: Promise<void> | null = null;
+let lastLoadedUserId: string | null = null;
+let lastLoadedAt = 0;
+// Collapse the initial mount-storm: repeated loads for the same user within
+// this window are skipped. refreshProfile() passes force to bypass it.
+const LOAD_DEDUP_MS = 3000;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
-      setUser(newSession?.user ?? null);
-      if (newSession?.user) {
-        loadProfileAndWorkspaces(newSession.user.id);
-      } else {
-        reset();
-      }
-    });
+async function loadProfileAndWorkspaces(
+  userId: string,
+  opts?: { force?: boolean },
+): Promise<void> {
+  const force = opts?.force ?? false;
+  if (!force) {
+    // Concurrent callers share the in-flight promise.
+    if (inFlightLoad && lastLoadedUserId === userId) return inFlightLoad;
+    // Recently-completed loads for the same user are a no-op.
+    if (lastLoadedUserId === userId && Date.now() - lastLoadedAt < LOAD_DEDUP_MS) {
+      return;
+    }
+  }
 
-    return () => subscription.unsubscribe();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function loadProfileAndWorkspaces(userId: string) {
+  const promise = (async () => {
+    const store = useAuthStore.getState();
     try {
       const [profileRes, membershipsRes] = await Promise.all([
         supabase.from("users").select("*").eq("id", userId).single(),
@@ -63,9 +52,11 @@ export function useAuth() {
 
       if (profileRes.error) throw profileRes.error;
       const userProfile = profileRes.data as UserRow;
-      setProfile(userProfile);
+      store.setProfile(userProfile);
 
-      // Build the workspace list: personal first, then memberships.
+      // The workspace_members table is part of the team feature (migration
+      // 00042). If it isn't deployed yet PostgREST 404s here; we treat that
+      // as "no memberships" so solo accounts work unchanged.
       const memberships = (membershipsRes.data ?? []) as unknown as Pick<
         WorkspaceMemberRow,
         "owner_id" | "role"
@@ -105,28 +96,79 @@ export function useAuth() {
       }
 
       const allWorkspaces = [personal, ...memberSummaries];
-      setWorkspaces(allWorkspaces);
+      store.setWorkspaces(allWorkspaces);
 
-      // Resolve the active workspace. Prefer the value on the profile if
-      // it still corresponds to a workspace the user belongs to; fall
-      // back to personal.
       const stored = userProfile.active_workspace_owner_id;
       const validStored =
-        stored && allWorkspaces.some((w) => w.ownerId === stored) ? stored : null;
-      setActiveWorkspaceOwnerId(validStored ?? userId);
+        stored && allWorkspaces.some((w) => w.ownerId === stored)
+          ? stored
+          : null;
+      store.setActiveWorkspaceOwnerId(validStored ?? userId);
     } catch {
-      setProfile(null);
-      setWorkspaces([]);
-      setActiveWorkspaceOwnerId(null);
+      store.setProfile(null);
+      store.setWorkspaces([]);
+      store.setActiveWorkspaceOwnerId(null);
     } finally {
-      setIsLoading(false);
+      store.setIsLoading(false);
+      lastLoadedUserId = userId;
+      lastLoadedAt = Date.now();
     }
+  })();
+
+  inFlightLoad = promise;
+  try {
+    await promise;
+  } finally {
+    if (inFlightLoad === promise) inFlightLoad = null;
   }
+}
+
+// Runs exactly once for the app lifetime. The subscription is intentionally
+// never torn down — auth state should track the whole session, and the
+// previous per-component subscribe/unsubscribe churn was the bug.
+function initAuth() {
+  if (authInitialized) return;
+  authInitialized = true;
+
+  const store = useAuthStore.getState();
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    store.setSession(session);
+    store.setUser(session?.user ?? null);
+    if (session?.user) {
+      void loadProfileAndWorkspaces(session.user.id);
+    } else {
+      store.setIsLoading(false);
+    }
+  });
+
+  supabase.auth.onAuthStateChange((_event, newSession) => {
+    const s = useAuthStore.getState();
+    s.setSession(newSession);
+    s.setUser(newSession?.user ?? null);
+    if (newSession?.user) {
+      void loadProfileAndWorkspaces(newSession.user.id);
+    } else {
+      s.reset();
+    }
+  });
+}
+
+export function useAuth() {
+  const user = useAuthStore((s) => s.user);
+  const session = useAuthStore((s) => s.session);
+  const profile = useAuthStore((s) => s.profile);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  const workspaces = useAuthStore((s) => s.workspaces);
+  const activeWorkspaceOwnerId = useAuthStore((s) => s.activeWorkspaceOwnerId);
+
+  useEffect(() => {
+    initAuth();
+  }, []);
 
   async function refreshProfile() {
-    const userId = user?.id;
+    const userId = useAuthStore.getState().user?.id;
     if (userId) {
-      await loadProfileAndWorkspaces(userId);
+      await loadProfileAndWorkspaces(userId, { force: true });
     }
   }
 
