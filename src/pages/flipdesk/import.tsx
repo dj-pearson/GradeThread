@@ -1,6 +1,12 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Upload, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  Upload,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Link2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -27,9 +33,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
 import { parseSheet } from "@/lib/csv";
 import {
   IMPORT_FIELDS,
@@ -87,12 +95,27 @@ export function FlipdeskImportPage() {
   const { workspaceOwnerId, can } = useWorkspace();
 
   const [text, setText] = useState("");
+  const [sheetUrl, setSheetUrl] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ImportField[]>([]);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<Progress>({ phase: "idle" });
   const [result, setResult] = useState<ImportResult | null>(null);
+  const fetchSheet = useFetchGoogleSheet();
+
+  async function handleFetchSheet() {
+    if (!sheetUrl.trim()) return;
+    try {
+      const { csv } = await fetchSheet.mutateAsync({ url: sheetUrl.trim() });
+      setText(csv);
+      detectFromText(csv);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err), {
+        duration: 12_000,
+      });
+    }
+  }
 
   function detectFromText(raw: string) {
     if (!raw.trim()) {
@@ -419,6 +442,53 @@ export function FlipdeskImportPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Google Sheet link — paste a share URL and we pull it directly */}
+          <div className="rounded-md border bg-muted/30 p-4">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Link2 className="h-4 w-4" />
+              Connect a Google Sheet
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Paste a share link. The sheet must be shared with{" "}
+              <strong>Anyone with the link</strong> (Viewer). We pull the first
+              tab — add <code>#gid=…</code> to target a specific tab.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Input
+                value={sheetUrl}
+                onChange={(e) => setSheetUrl(e.target.value)}
+                placeholder="https://docs.google.com/spreadsheets/d/…"
+                className="min-w-[260px] flex-1 text-xs"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void handleFetchSheet();
+                }}
+              />
+              <Button
+                variant="outline"
+                onClick={handleFetchSheet}
+                disabled={!sheetUrl.trim() || fetchSheet.isPending}
+              >
+                {fetchSheet.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Link2 className="mr-2 h-4 w-4" />
+                )}
+                Fetch sheet
+              </Button>
+            </div>
+          </div>
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-card px-2 text-muted-foreground">
+                or upload a file
+              </span>
+            </div>
+          </div>
+
           <div className="rounded-md border-2 border-dashed border-muted-foreground/30 p-4 text-center">
             <input
               type="file"

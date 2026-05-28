@@ -8,6 +8,7 @@ import {
   Upload,
   Loader2,
   FileText,
+  Download,
 } from "lucide-react";
 import {
   Card,
@@ -40,6 +41,7 @@ import {
   useReconciliationRun,
   type QueueEntry,
 } from "@/hooks/use-payouts";
+import { downloadSalesCsv } from "@/lib/csv-export";
 import type { SaleRow, ItemFullRow } from "@/types/database";
 
 const STEPS = [
@@ -156,17 +158,27 @@ export function FlipdeskReconciliationPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <Scale className="h-5 w-5" />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
+            <Scale className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Reconciliation</h1>
+            <p className="text-sm text-muted-foreground">
+              Close the loop between eBay and FlipDesk — SKUs, payouts, and
+              per-item profit.
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Reconciliation</h1>
-          <p className="text-sm text-muted-foreground">
-            Close the loop between eBay and FlipDesk — SKUs, payouts, and
-            per-item profit.
-          </p>
-        </div>
+        <Button
+          variant="outline"
+          onClick={() => downloadSalesCsv(sales, titleById)}
+          disabled={sales.length === 0}
+        >
+          <Download className="mr-2 h-4 w-4" />
+          Export sales CSV
+        </Button>
       </div>
 
       <Tabs defaultValue="ebay">

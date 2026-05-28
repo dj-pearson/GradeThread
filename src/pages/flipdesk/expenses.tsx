@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Wallet, Plus, Trash2, Loader2 } from "lucide-react";
+import { Wallet, Plus, Trash2, Loader2, Download } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -43,6 +43,7 @@ import {
   EXPENSE_CATEGORIES,
   EXPENSE_CATEGORY_LABELS,
 } from "@/lib/constants";
+import { downloadExpensesCsv } from "@/lib/csv-export";
 import type { ExpenseRow, ExpenseCategory, ExpenseInsert } from "@/types/database";
 
 function monthKey(d: string): string {
@@ -123,10 +124,20 @@ export function FlipdeskExpensesPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Add expense
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={() => downloadExpensesCsv(expenses)}
+            disabled={expenses.length === 0}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+          <Button onClick={() => setDialogOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add expense
+          </Button>
+        </div>
       </div>
 
       {/* Monthly summary */}

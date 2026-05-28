@@ -13,6 +13,7 @@ import { flipdeskWebhookRoutes } from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
+import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
@@ -110,6 +111,7 @@ app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
+app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 // Workspace (team) management: auth + workspace context. The route handlers
 // enforce per-action role checks (owner/admin required to invite, etc.).
@@ -188,6 +190,7 @@ app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
+app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/admin", adminBillingRoutes);
 app.route("/api/content/blog", contentBlogRoutes);
