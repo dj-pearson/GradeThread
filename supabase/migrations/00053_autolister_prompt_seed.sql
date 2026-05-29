@@ -45,9 +45,14 @@ BEGIN
 END $$;
 
 -- ── 2. Seed the in-code default listing prompt version (inactive) ─────
+-- version_name has no unique constraint (see migration 00003), so ON CONFLICT
+-- can't dedupe — guard with NOT EXISTS so re-applying never duplicates the row.
 INSERT INTO public.ai_prompt_versions (version_name, prompt_text, stage, is_active, notes)
-VALUES
-  ('listing_gen_v1', '', 'listing_gen', false,
-   'In-code default (ai-listing.ts generateListingFields). Seeded so AutoLister '
-   'generations can be attributed and a DB override can be eval-gated before activation.')
-ON CONFLICT DO NOTHING;
+SELECT
+  'listing_gen_v1', '', 'listing_gen', false,
+  'In-code default (ai-listing.ts generateListingFields). Seeded so AutoLister '
+  'generations can be attributed and a DB override can be eval-gated before activation.'
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.ai_prompt_versions
+  WHERE version_name = 'listing_gen_v1' AND stage = 'listing_gen'
+);

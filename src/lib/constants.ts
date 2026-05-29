@@ -245,6 +245,19 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
 
 export type FlipdeskPlanKey = "free" | "starter" | "pro" | "business";
 
+// eBay Sell API condition enum values with buyer-friendly labels. Mirrors
+// EBAY_CONDITION_VALUES in services/edge-functions/src/lib/ai-listing.ts.
+// Shared by the listing composer and the AutoLister bulk editor.
+export const EBAY_CONDITION_OPTIONS: { value: string; label: string }[] = [
+  { value: "NEW", label: "New" },
+  { value: "LIKE_NEW", label: "New without tags / Like new" },
+  { value: "USED_EXCELLENT", label: "Used — Excellent" },
+  { value: "USED_VERY_GOOD", label: "Used — Very good" },
+  { value: "USED_GOOD", label: "Used — Good" },
+  { value: "USED_ACCEPTABLE", label: "Used — Acceptable" },
+  { value: "FOR_PARTS_OR_NOT_WORKING", label: "For parts / not working" },
+];
+
 export interface GradeTierConfig {
   label: string;
   priceCents: number;

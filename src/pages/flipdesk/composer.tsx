@@ -54,6 +54,7 @@ import {
   templateGroupFor,
 } from "@/lib/listing-templates";
 import { compositeGradeBadge } from "@/lib/grade-badge";
+import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
@@ -68,18 +69,6 @@ import type {
 } from "@/types/database";
 
 const TITLE_MAX = 80;
-
-// eBay Sell condition enum values (mirror EBAY_CONDITION_VALUES in the edge
-// lib ai-listing.ts) with buyer-friendly labels for the select.
-const EBAY_CONDITION_OPTIONS: { value: string; label: string }[] = [
-  { value: "NEW", label: "New" },
-  { value: "LIKE_NEW", label: "New without tags / Like new" },
-  { value: "USED_EXCELLENT", label: "Used — Excellent" },
-  { value: "USED_VERY_GOOD", label: "Used — Very good" },
-  { value: "USED_GOOD", label: "Used — Good" },
-  { value: "USED_ACCEPTABLE", label: "Used — Acceptable" },
-  { value: "FOR_PARTS_OR_NOT_WORKING", label: "For parts / not working" },
-];
 
 export function FlipdeskComposerPage() {
   const { id } = useParams<{ id: string }>();

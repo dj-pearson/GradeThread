@@ -74,6 +74,8 @@ CREATE INDEX IF NOT EXISTS idx_listing_generation_batches_user_id
 CREATE INDEX IF NOT EXISTS idx_listing_generation_batches_status
   ON public.listing_generation_batches(status);
 
+DROP TRIGGER IF EXISTS set_listing_generation_batches_updated_at
+  ON public.listing_generation_batches;
 CREATE TRIGGER set_listing_generation_batches_updated_at
   BEFORE UPDATE ON public.listing_generation_batches
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -99,6 +101,8 @@ CREATE INDEX IF NOT EXISTS idx_listing_generation_jobs_status
 CREATE INDEX IF NOT EXISTS idx_listing_generation_jobs_inventory_item_id
   ON public.listing_generation_jobs(inventory_item_id);
 
+DROP TRIGGER IF EXISTS set_listing_generation_jobs_updated_at
+  ON public.listing_generation_jobs;
 CREATE TRIGGER set_listing_generation_jobs_updated_at
   BEFORE UPDATE ON public.listing_generation_jobs
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -129,6 +133,8 @@ CREATE INDEX IF NOT EXISTS idx_business_policies_default
   ON public.business_policies(user_id, marketplace, policy_type)
   WHERE is_default = true;
 
+DROP TRIGGER IF EXISTS set_business_policies_updated_at
+  ON public.business_policies;
 CREATE TRIGGER set_business_policies_updated_at
   BEFORE UPDATE ON public.business_policies
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
@@ -178,17 +184,25 @@ ALTER TABLE public.listing_generation_batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.listing_generation_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.business_policies ENABLE ROW LEVEL SECURITY;
 
+-- CREATE POLICY has no IF NOT EXISTS in Postgres, so each is preceded by a
+-- DROP POLICY IF EXISTS to keep this migration safely re-runnable.
+
 -- Batches: own data only
+DROP POLICY IF EXISTS "Users can view own generation batches" ON public.listing_generation_batches;
 CREATE POLICY "Users can view own generation batches"
   ON public.listing_generation_batches FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create generation batches" ON public.listing_generation_batches;
 CREATE POLICY "Users can create generation batches"
   ON public.listing_generation_batches FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own generation batches" ON public.listing_generation_batches;
 CREATE POLICY "Users can update own generation batches"
   ON public.listing_generation_batches FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own generation batches" ON public.listing_generation_batches;
 CREATE POLICY "Users can delete own generation batches"
   ON public.listing_generation_batches FOR DELETE USING (auth.uid() = user_id);
 
 -- Jobs: via parent batch ownership
+DROP POLICY IF EXISTS "Users can view own generation jobs" ON public.listing_generation_jobs;
 CREATE POLICY "Users can view own generation jobs"
   ON public.listing_generation_jobs FOR SELECT USING (
     EXISTS (
@@ -197,6 +211,7 @@ CREATE POLICY "Users can view own generation jobs"
         AND b.user_id = auth.uid()
     )
   );
+DROP POLICY IF EXISTS "Users can create generation jobs" ON public.listing_generation_jobs;
 CREATE POLICY "Users can create generation jobs"
   ON public.listing_generation_jobs FOR INSERT WITH CHECK (
     EXISTS (
@@ -205,6 +220,7 @@ CREATE POLICY "Users can create generation jobs"
         AND b.user_id = auth.uid()
     )
   );
+DROP POLICY IF EXISTS "Users can update own generation jobs" ON public.listing_generation_jobs;
 CREATE POLICY "Users can update own generation jobs"
   ON public.listing_generation_jobs FOR UPDATE USING (
     EXISTS (
@@ -213,6 +229,7 @@ CREATE POLICY "Users can update own generation jobs"
         AND b.user_id = auth.uid()
     )
   );
+DROP POLICY IF EXISTS "Users can delete own generation jobs" ON public.listing_generation_jobs;
 CREATE POLICY "Users can delete own generation jobs"
   ON public.listing_generation_jobs FOR DELETE USING (
     EXISTS (
@@ -223,11 +240,15 @@ CREATE POLICY "Users can delete own generation jobs"
   );
 
 -- Business policies: own data only
+DROP POLICY IF EXISTS "Users can view own business policies" ON public.business_policies;
 CREATE POLICY "Users can view own business policies"
   ON public.business_policies FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can create business policies" ON public.business_policies;
 CREATE POLICY "Users can create business policies"
   ON public.business_policies FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own business policies" ON public.business_policies;
 CREATE POLICY "Users can update own business policies"
   ON public.business_policies FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own business policies" ON public.business_policies;
 CREATE POLICY "Users can delete own business policies"
   ON public.business_policies FOR DELETE USING (auth.uid() = user_id);

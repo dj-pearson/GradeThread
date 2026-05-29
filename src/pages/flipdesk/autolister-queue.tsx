@@ -156,6 +156,13 @@ export function FlipdeskAutolisterQueuePage() {
               Publish all ({succeededJobs.length})
             </Button>
           )}
+          {succeededJobs.length > 0 && (
+            <Button asChild variant="outline">
+              <Link to={`/dashboard/flipdesk/autolister/bulk-edit?batch=${batchId}`}>
+                Bulk edit
+              </Link>
+            </Button>
+          )}
           <Button asChild variant="outline">
             <Link to="/dashboard/flipdesk/autolister">New batch</Link>
           </Button>

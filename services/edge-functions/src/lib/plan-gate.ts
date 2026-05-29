@@ -141,9 +141,13 @@ type EnvWithUser = { Variables: { userId: string } };
  * Returns a Response (402 PAYMENT_REQUIRED) if the user is blocked. Returns
  * null if the call should proceed. When at the soft-warning threshold, sets
  * the X-Plan-Warning header and returns null.
+ *
+ * Generic over the Hono env so routes with a richer Variables shape (e.g.
+ * workspaceOwnerId/workspaceRole) can pass their own Context — Context is
+ * invariant, so a non-generic param would reject those callers.
  */
-export async function requireFlipdesk(
-  c: Context<EnvWithUser>,
+export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
+  c: Context<E>,
   opts: RequireFlipdeskOptions,
 ): Promise<Response | null> {
   const userId = opts.userId ?? c.get("userId");

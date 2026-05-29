@@ -574,7 +574,7 @@ export async function generateListing(
     try {
       const comps = await searchBrowseComps({
         categoryId,
-        q: item.brand ?? listing.suggested_category_query || undefined,
+        q: item.brand ?? (listing.suggested_category_query || undefined),
         brand: item.brand ?? undefined,
         size: item.size ?? undefined,
         conditionId: conditionIdForComps(listing.ebay_condition),
