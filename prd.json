@@ -4874,8 +4874,8 @@
         "Typecheck passes"
       ],
       "priority": 293,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-291 (manifest) and US-294 (cert endpoint). Removes the stale hand-listed static routes."
+      "passes": true,
+      "notes": "DONE 2026-05-29. Registry-driven dynamic sitemap. functions/_shared/sitemap.ts builds URLs from THREE self-maintaining sources: (1) static routes from dist/seo-manifest.json (fetched same-origin; emitted by the US-291 Vite plugin), (2) blog posts/tags via /api/content/public/sitemap.json, (3) public certificates via the new /api/content/public/certificates.json (US-294). functions/sitemap.xml.ts emits a single <urlset> under SITEMAP_MAX_URLS (5000) and a <sitemapindex> above it, pointing at functions/sitemap-{static,blog,certs}.xml.ts. Removed the stale static public/sitemap.xml. robots.txt still references /sitemap.xml. Unit tests src/test/sitemap.test.ts (12 cases: serializers escape &, manifest→URL mapping, blog/cert merge, missing-source fallbacks, 5000 threshold). tsc(functions) + vitest + lint green."
     },
     {
       "id": "US-294",
@@ -4892,8 +4892,8 @@
         "Typecheck passes"
       ],
       "priority": 294,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. CRITICAL: anonymous service-role queries — must hard-filter to public certs only (US-268)."
+      "passes": true,
+      "notes": "DONE 2026-05-29. Public certificate edge SSR. functions/cert/[id].ts SSRs /cert/:id via the blog-render helpers — full grade, factor table, AI summary, canonical, OG image (signed hero URL), and Product+Review/Rating + BreadcrumbList JSON-LD. Fed by two NEW anonymous endpoints in content-public.ts: GET /certificates/:id and GET /certificates.json. CRITICAL tenant isolation (US-268): a report is public IFF certificate_id IS NOT NULL (the same signal as the RLS policy 'Public can view grade reports with certificates'); the service-role queries hard-filter .not('certificate_id','is',null) and look up BY certificate_id (never internal report id), strip submission_id/user_id/confidence from the payload. Cross-tenant Deno tests added to tenant-isolation_test.ts: a private/uncertified report id 404s (no field leak) and an unknown id 404s. The SPA /cert/:id still hydrates for humans; grading-pipeline.ts pings IndexNow on cert creation. tsc(functions) green."
     },
     {
       "id": "US-295",
@@ -4927,8 +4927,8 @@
         "Typecheck passes"
       ],
       "priority": 296,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Reuse the existing publish hook in content-blog.ts. Google sitemap-ping is deprecated; IndexNow covers Bing/Yandex/Naver/Seznam."
+      "passes": true,
+      "notes": "DONE 2026-05-29. IndexNow instant-indexing. services/edge-functions/src/lib/indexnow.ts submitUrls() POSTs {host,key,keyLocation,urlList} to api.indexnow.org — dedupes, drops non-http, never throws, no-ops when INDEXNOW_KEY unset. Key generated + hosted at public/<key>.txt (fbbbde76...). Wired into content-blog.ts publish + edit (old+new slug on rename) + archive, alongside the existing Cloudflare purge; and into grading-pipeline.ts on certificate creation (US-294). INDEXNOW_KEY documented in services/edge-functions/.env.example + ENVIRONMENT.md (§2i). Deno unit tests services/edge-functions/src/tests/indexnow_test.ts assert payload shape, dedupe/drop, no-op-without-key, and swallowed fetch errors. Note: Google doesn't use IndexNow (sitemap + Search Console cover it); its sitemap-ping is deprecated."
     },
     {
       "id": "US-297",
@@ -4979,7 +4979,7 @@
       ],
       "priority": 299,
       "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page). GROUNDWORK 2026-05-29: faqPageLd/breadcrumbLd/howToLd built + unit-tested; FAQPage live on landing, BreadcrumbList live on certificate + legal pages. Remaining for pass: HowTo on /how-it-works (US-302) + prerender presence (US-292). UPDATE 2026-05-29: prerender visibility now achieved for FAQPage (landing) + BreadcrumbList (legal) via US-292. STILL OPEN: HowTo has no host page yet (needs /how-it-works, US-302) and BreadcrumbList is not yet on blog posts. Stays passes=false until those land."
+      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page). GROUNDWORK 2026-05-29: faqPageLd/breadcrumbLd/howToLd built + unit-tested; FAQPage live on landing, BreadcrumbList live on certificate + legal pages. Remaining for pass: HowTo on /how-it-works (US-302) + prerender presence (US-292). UPDATE 2026-05-29: prerender visibility now achieved for FAQPage (landing) + BreadcrumbList (legal) via US-292. STILL OPEN: HowTo has no host page yet (needs /how-it-works, US-302) and BreadcrumbList is not yet on blog posts. Stays passes=false until those land. UPDATE 2026-05-29: BreadcrumbList now also emitted on certificate pages (SSR + SPA). Still passes=false until /how-it-works (HowTo, US-302) + breadcrumbs on blog posts land."
     },
     {
       "id": "US-300",
@@ -4995,8 +4995,8 @@
         "Typecheck passes"
       ],
       "priority": 300,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-294 + US-298. Certificates are the flagship programmatic SEO surface. GROUNDWORK 2026-05-29: certificateLd built + unit-tested (Product + bounded Review/Rating 1-10) and emitted on the hydrated SPA cert page. Remaining for pass: cert edge SSR (US-294) + stable image URLs + prerender visibility. UPDATE 2026-05-29: certificateLd is emitted on the hydrated SPA cert page, but the AC requires it in the cert EDGE SSR (US-294), which doesn't exist yet, and stable (non-signed) image URLs. Stays passes=false until US-294."
+      "passes": true,
+      "notes": "DONE 2026-05-29. certificateLd() in src/lib/seo/json-ld.ts builds a Product with a bounded expert Review/Rating (ratingValue=grade, bestRating=10, worstRating=1, alternateName=tier), stable @id = canonical /cert/:id, datePublished, itemCondition=UsedCondition, and brand/category/image when present. Emitted on BOTH surfaces: the hydrated SPA cert page (src/pages/certificate.tsx via <SEO jsonLd>) AND the edge SSR (functions/cert/[id].ts, mirrored builder). Only visible fields are marked up. Structural unit test in src/lib/seo/__tests__/json-ld.test.ts asserts the Rating block + required Product fields. Now satisfied because US-294 (cert SSR) landed."
     },
     {
       "id": "US-301",

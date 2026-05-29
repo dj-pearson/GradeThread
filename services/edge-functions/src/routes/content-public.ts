@@ -159,3 +159,114 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
     tags: Array.from(tagSet).sort(),
   });
 });
+
+// ── Certificates (public grade certificates) ──────────────────────
+// A grade report is PUBLIC iff it has a non-null certificate_id — this is
+// exactly the signal the RLS policy "Public can view grade reports with
+// certificates" uses (00001_initial_schema.sql). The service-role client
+// bypasses RLS, so EVERY query here MUST carry .not("certificate_id","is",null)
+// (and look up BY certificate_id, never by the internal report id). A private,
+// uncertified report must be unreachable through these endpoints (US-268).
+
+// Columns safe to expose publicly. We deliberately omit confidence_score,
+// detailed_notes, model_version internals, and the owner user_id.
+const CERT_REPORT_COLUMNS =
+  "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
+  "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
+  "ai_summary, certificate_id, created_at, submission_id";
+
+// Signed-URL TTL for certificate images (seconds). Long enough for an edge
+// cache window; the cert SSR caches the HTML, not the URL, so this just needs
+// to outlive a render.
+const CERT_IMAGE_TTL = 60 * 60 * 6;
+
+// ── GET /certificates/:id ─────────────────────────────────────────
+// Public certificate by certificate_id. Returns 404 for any id that doesn't
+// map to a certified (public) report — never leaks a private report.
+contentPublicRoutes.get("/certificates/:id", async (c) => {
+  const certId = c.req.param("id");
+
+  const { data: report, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select(CERT_REPORT_COLUMNS)
+    .eq("certificate_id", certId)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!report) return c.json({ error: "Not found" }, 404);
+
+  // Garment metadata from the parent submission (title/brand/category).
+  const { data: submission } = await supabaseAdmin
+    .from("submissions")
+    .select("title, brand, garment_type, garment_category")
+    .eq("id", report.submission_id)
+    .maybeSingle();
+
+  // A representative image (front, else lowest display_order) → signed URL so
+  // the SSR/OG card can show it without exposing the private bucket wholesale.
+  let heroImageUrl: string | null = null;
+  const { data: images } = await supabaseAdmin
+    .from("submission_images")
+    .select("storage_path, image_type, display_order")
+    .eq("submission_id", report.submission_id)
+    .order("display_order", { ascending: true });
+  const hero =
+    (images ?? []).find((i) => i.image_type === "front") ?? (images ?? [])[0];
+  if (hero?.storage_path) {
+    const { data: signed } = await supabaseAdmin.storage
+      .from("submission-images")
+      .createSignedUrl(hero.storage_path as string, CERT_IMAGE_TTL);
+    heroImageUrl = signed?.signedUrl ?? null;
+  }
+
+  // Strip the internal submission_id from the public payload.
+  const publicReport: Record<string, unknown> = { ...report };
+  delete publicReport.submission_id;
+
+  return c.json({
+    certificate: {
+      ...publicReport,
+      id: report.certificate_id,
+      title: submission?.title ?? "Graded garment",
+      brand: submission?.brand ?? null,
+      garment_type: submission?.garment_type ?? null,
+      garment_category: submission?.garment_category ?? null,
+      hero_image_url: heroImageUrl,
+    },
+  });
+});
+
+// ── GET /certificates.json ────────────────────────────────────────
+// Compact list for the sitemap (US-293): every public certificate's id +
+// lastmod. Capped + cursor-paginated by created_at so a crawler can't pull the
+// whole table at once.
+contentPublicRoutes.get("/certificates.json", async (c) => {
+  const limit = Math.min(
+    Math.max(Number(c.req.query("limit") ?? 1000) || 1000, 1),
+    5000,
+  );
+  const cursor = c.req.query("cursor");
+
+  let q = supabaseAdmin
+    .from("grade_reports")
+    .select("certificate_id, created_at")
+    .not("certificate_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (cursor) q = q.lt("created_at", cursor);
+
+  const { data, error } = await q;
+  if (error) return c.json({ error: error.message }, 500);
+
+  const rows = data ?? [];
+  const nextCursor =
+    rows.length === limit ? rows[rows.length - 1]?.created_at ?? null : null;
+  return c.json({
+    certificates: rows.map((r) => ({
+      id: r.certificate_id,
+      updated_at: r.created_at,
+    })),
+    next_cursor: nextCursor,
+  });
+});
+

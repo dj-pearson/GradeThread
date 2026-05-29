@@ -1747,3 +1747,81 @@ Recommended next: US-293 (registry-driven sitemap — consume
 dist/seo-manifest.json + the blog/cert collections), then US-294 (cert
 edge SSR, closes US-300), then US-296/297 (IndexNow), then US-302
 (marketing pages, closes US-299).
+
+
+## Session Notes (2026-05-29 cont.) — Cert SSR + sitemap + IndexNow (US-293, US-294, US-296, US-300)
+
+Shipped the dynamic-content half of the SEO machine: public certificates
+are now crawlable, the sitemap builds itself from every source, and
+publishes ping IndexNow. Did US-294 before US-293 because the sitemap
+merges the cert endpoint US-294 introduces.
+
+US-294 — public certificate edge SSR:
+- functions/cert/[id].ts SSRs /cert/:id via the existing blog-render
+  helpers (renderLayout/escape/fetchJson). Renders grade, factor table,
+  AI summary, signed hero image, canonical, OG, and Product+Review/Rating
+  + BreadcrumbList JSON-LD.
+- Two NEW anonymous endpoints in services/edge-functions/src/routes/
+  content-public.ts:
+    GET /api/content/public/certificates/:id   (single cert)
+    GET /api/content/public/certificates.json   (sitemap list, paginated)
+- TENANT ISOLATION (US-268) is the critical bit: a grade report is PUBLIC
+  iff certificate_id IS NOT NULL — the exact predicate the RLS policy
+  "Public can view grade reports with certificates" uses. The service-role
+  client bypasses RLS, so every query hard-filters
+  .not("certificate_id","is",null) AND looks up BY certificate_id (never
+  the internal grade_reports.id), and the payload strips submission_id /
+  user_id / confidence_score / model_version internals. Cross-tenant Deno
+  tests added to tenant-isolation_test.ts: a private/uncertified report id
+  404s with no field leak; an unknown id 404s.
+- The SPA /cert/:id keeps hydrating for humans (its JSON-LD was wired last
+  session and mirrors the SSR builder).
+
+US-293 — registry-driven dynamic sitemap with index:
+- functions/_shared/sitemap.ts: staticUrls() reads dist/seo-manifest.json
+  same-origin (emitted by the US-291 Vite plugin); blogUrls() and
+  certUrls() hit the public edge endpoints; urlsetXml()/sitemapIndexXml()
+  serialize. SITEMAP_MAX_URLS=5000.
+- functions/sitemap.xml.ts: single <urlset> under the threshold, else a
+  <sitemapindex> → functions/sitemap-{static,blog,certs}.xml.ts (each its
+  own Function). Removed the stale static public/sitemap.xml so the
+  Function is authoritative.
+- Unit tests src/test/sitemap.test.ts (vitest can import the shared module;
+  fetch is stubbed) — 12 cases incl. & escaping, manifest→URL mapping,
+  blog/cert merge, missing-source fallbacks (never throws), 5000 threshold.
+
+US-296 — IndexNow instant indexing:
+- services/edge-functions/src/lib/indexnow.ts submitUrls() POSTs
+  {host,key,keyLocation,urlList} to api.indexnow.org; dedupes, drops
+  non-http, never throws, no-ops when INDEXNOW_KEY unset.
+- Key generated + committed at public/<key>.txt
+  (fbbbde76db3470647e2f8b533899204e.txt) — IndexNow keys are public
+  verification tokens, not secrets, so a static file is the robust choice
+  (a root /<key>.txt Function would shadow /privacy etc.).
+- Wired into content-blog.ts publish + edit (old+new slug on rename) +
+  archive, alongside the existing Cloudflare purge; and into
+  grading-pipeline.ts right after the grade report is created.
+- INDEXNOW_KEY documented in .env.example + ENVIRONMENT.md §2i (which also
+  newly documents CLOUDFLARE_API_TOKEN/ZONE_ID/PUBLIC_SITE_URL). Deno unit
+  tests services/edge-functions/src/tests/indexnow_test.ts assert payload
+  shape, dedupe/drop, no-op-without-key, swallowed fetch errors.
+
+US-300 closed too: certificateLd is now emitted on BOTH the SPA cert page
+and the edge SSR, so its AC ("both SSR and hydrated SPA emit it") is met.
+
+NOTE on test reach: the edge service (Deno) and Pages Functions aren't run
+by vitest, and Deno isn't installed in this container, so the new Deno
+tests (indexnow_test.ts, the cert cases in tenant-isolation_test.ts) were
+written to the repo's conventions but executed only by self-review +
+`deno task test` in CI. The frontend-importable logic (sitemap serializers
++ URL builders) IS covered by vitest.
+
+Verification: npx tsc -b (app) + tsc -p tsconfig.functions.json both exit
+0; vitest 45/45 (7 files); eslint clean; npm run build green (prerenders 5
+pages, emits manifest + the IndexNow key file to dist). prd.json now
+232/309 (US-293/294/296/300 passes=true). US-297 (deploy-time IndexNow of
+static routes) and US-299 (HowTo needs /how-it-works) still open.
+
+Recommended next: US-297 (CI step submits dist/seo-manifest.json URLs to
+IndexNow after deploy — small, uses the same key), then US-302 (marketing
+pages incl. /how-it-works, which closes US-299), then US-303 (glossary).

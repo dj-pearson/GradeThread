@@ -142,6 +142,15 @@ when that feature lands.
 |---|---|---|---|
 | `COOLIFY_FQDN` | ⬜ Optional | FQDN Traefik binds the service to | Defaults to `https://functions.gradethread.com`; see `services/edge-functions/COOLIFY.md` |
 
+### 2i. SEO — sitemap, cache purge, IndexNow
+
+| Variable | Required | Purpose | Where to get it |
+|---|---|---|---|
+| `PUBLIC_SITE_URL` | ⬜ Optional | Canonical site root for sitemap/RSS/blog/cert URLs + IndexNow `keyLocation` | Defaults to `https://gradethread.com` |
+| `CLOUDFLARE_API_TOKEN` | When using blog/cert SSR | Purges the Cloudflare edge cache after publish so readers don't see stale HTML | Cloudflare dashboard → My Profile → API Tokens (Zone → Cache Purge) |
+| `CLOUDFLARE_ZONE_ID` | With `CLOUDFLARE_API_TOKEN` | The zone whose cache to purge | Cloudflare dashboard → your domain → Overview (Zone ID) |
+| `INDEXNOW_KEY` | ⬜ Optional (recommended) | Instant-indexing key for Bing/Yandex/Naver/Seznam (US-296). Submissions cleanly no-op when unset. The matching key file **must** be hosted at `https://gradethread.com/<INDEXNOW_KEY>.txt` — commit it as `public/<key>.txt` (already done for the current key). | Generate with `openssl rand -hex 16` |
+
 ---
 
 ## Minimum set to run today
