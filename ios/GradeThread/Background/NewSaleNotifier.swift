@@ -9,7 +9,7 @@ import UserNotifications
 @MainActor
 public final class NewSaleNotifier {
 
-    nonisolated init() {}
+    nonisolated public init() {}
 
     /// Requests permission for local notifications. The caller can
     /// fire-and-forget; the notification system silently no-ops when

@@ -50,7 +50,7 @@ public final class EbayConnectionService: NSObject {
 
     private let supabase: SupabaseClient
 
-    nonisolated init(supabase: SupabaseClient = SupabaseShared.client) {
+    nonisolated public init(supabase: SupabaseClient = SupabaseShared.client) {
         self.supabase = supabase
         super.init()
     }

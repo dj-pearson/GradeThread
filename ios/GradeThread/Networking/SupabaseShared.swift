@@ -31,8 +31,8 @@ public enum SupabaseShared {
             options: SupabaseClientOptions(
                 auth: SupabaseClientOptions.AuthOptions(
                     storage: KeychainLocalStorage(),
-                    flowType: .pkce,
-                    redirectToURL: redirectURL
+                    redirectToURL: redirectURL,
+                    flowType: .pkce
                 )
             )
         )
