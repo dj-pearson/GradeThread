@@ -1,0 +1,49 @@
+name: IndexNow (static routes)
+
+# After a production deploy, submit the static public routes to IndexNow so
+# Bing/Yandex/Naver/Seznam pick up marketing/landing changes immediately
+# instead of waiting for a crawl (US-297).
+#
+# Cloudflare Pages auto-deploys from the Git integration on push to main; this
+# job runs on the same trigger. It rebuilds to regenerate dist/seo-manifest.json
+# (the route registry → manifest, US-291) and submits those URLs. Blog posts +
+# certificates are submitted at publish time by the edge service (US-296), so
+# this only needs the static set.
+#
+# Production branch only; never runs on PRs/previews. Non-blocking: the submit
+# script always exits 0, and the job is decoupled from the actual deploy.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: indexnow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  submit:
+    name: Submit static routes to IndexNow
+    runs-on: ubuntu-latest
+    # Skip entirely if the key isn't configured, so forks/unconfigured repos
+    # don't run a pointless build.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      # Regenerate dist/seo-manifest.json from the route registry. (Full build
+      # is the simplest way to emit it via the Vite seoManifestPlugin.)
+      - name: Build (emit seo-manifest.json)
+        run: npm run build
+      - name: Submit to IndexNow
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+        # Never fail the workflow on a submit hiccup.
+        run: node scripts/submit-indexnow.mjs || true

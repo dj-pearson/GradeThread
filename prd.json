@@ -4944,8 +4944,8 @@
         "Typecheck passes"
       ],
       "priority": 297,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-291 (manifest) + US-296 (key/endpoint)."
+      "passes": true,
+      "notes": "DONE 2026-05-29. Deploy-time IndexNow submission of static routes. scripts/submit-indexnow.mjs reads dist/seo-manifest.json (US-291) and POSTs those absolute URLs to api.indexnow.org with the same key contract as the runtime client (US-296); pure helpers parseArgs/buildPayload + injectable submitIndexNow({fetchImpl,log}). Supports --dry-run (prints payload, no network) and --manifest <path>; CLI always exits 0 so it can never fail a deploy. New workflow .github/workflows/indexnow.yml runs on push to main only (Cloudflare Pages auto-deploys on the same trigger; never on PRs/previews), rebuilds to emit the manifest, and runs the submitter with INDEXNOW_KEY from a GitHub Actions secret (step suffixed `|| true`, non-blocking). Blog/cert URLs are already submitted at publish time by the edge service (US-296), so this covers only the static set. Unit tests src/test/submit-indexnow.test.ts (9 cases: arg parse, payload build/dedupe/drop-non-absolute, skip-without-key, skip-on-missing-manifest, dry-run, POST shape, never-throws). tsc(app+functions) + vitest 54/54 + lint green. NOTE: INDEXNOW_KEY must be added as a repo Actions secret (operator step, documented in ENVIRONMENT.md §2i)."
     },
     {
       "id": "US-298",
