@@ -50,7 +50,7 @@ public final class EbayConnectionService: NSObject {
 
     private let supabase: SupabaseClient
 
-    public init(supabase: SupabaseClient = SupabaseShared.client) {
+    nonisolated init(supabase: SupabaseClient = SupabaseShared.client) {
         self.supabase = supabase
         super.init()
     }
@@ -59,7 +59,7 @@ public final class EbayConnectionService: NSObject {
 
     /// Runs the full connect handshake and resolves to the new row when
     /// successful. Throws on cancel, expired state, or network failure.
-    public func connect(userId: String) async throws -> RemoteMarketplaceConnection {
+    func connect(userId: String) async throws -> RemoteMarketplaceConnection {
         let consent = try await fetchConsentURL()
         let callback = try await runAuthSession(url: consent)
         if let result = EbayConnectResult.from(callbackURL: callback) {
@@ -108,7 +108,7 @@ public final class EbayConnectionService: NSObject {
     /// Fetches the user's current active eBay connection if one exists.
     /// Used by ``MarketplaceConnectionStore`` on appear and after
     /// connect/disconnect to refresh the UI state.
-    public func fetchActiveConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
+    func fetchActiveConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
         let rows: [RemoteMarketplaceConnection] = try await supabase
             .from("marketplace_connections")
             .select("id, marketplace, account_handle, is_active, last_synced_at, refresh_error, created_at, updated_at")
@@ -125,7 +125,7 @@ public final class EbayConnectionService: NSObject {
     /// Fetches the most recent connection regardless of active state —
     /// surfaces a 'reconnect required' card when the refresh worker
     /// has flagged a stale grant.
-    public func fetchLatestConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
+    func fetchLatestConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
         let rows: [RemoteMarketplaceConnection] = try await supabase
             .from("marketplace_connections")
             .select("id, marketplace, account_handle, is_active, last_synced_at, refresh_error, created_at, updated_at")

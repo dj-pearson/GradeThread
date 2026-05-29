@@ -578,7 +578,7 @@ final class AppRouter {
     /// implementation now lives in ``HapticFeedback`` (US-195) so
     /// per-action tuning happens in one place.
     static func haptic() {
-        HapticFeedback.light()
+        Task { @MainActor in HapticFeedback.light() }
     }
 }
 

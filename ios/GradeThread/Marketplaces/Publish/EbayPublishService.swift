@@ -11,14 +11,14 @@ public final class EbayPublishService {
     private let baseURL: URL
     private let session: URLSession
 
-    public init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
     }
 
     // MARK: - Validate
 
-    public func validate(inventoryItemId: String) async -> PublishOutcome {
+    func validate(inventoryItemId: String) async -> PublishOutcome {
         struct Body: Encodable { let inventory_item_id: String }
         do {
             let response: ValidateResponse = try await postJSON(
@@ -35,7 +35,7 @@ public final class EbayPublishService {
 
     // MARK: - Push
 
-    public func push(inventoryItemId: String) async -> PublishOutcome {
+    func push(inventoryItemId: String) async -> PublishOutcome {
         struct Body: Encodable { let inventory_item_id: String }
         do {
             let response: PushResponse = try await postJSON(
@@ -52,7 +52,7 @@ public final class EbayPublishService {
 
     // MARK: - Price
 
-    public func updatePrice(listingId: String, price: Double) async -> PublishOutcome {
+    func updatePrice(listingId: String, price: Double) async -> PublishOutcome {
         struct Body: Encodable { let price: Double }
         let path = "/api/flipdesk/ebay/listings/\(listingId)/price"
         do {
@@ -70,7 +70,7 @@ public final class EbayPublishService {
 
     // MARK: - End listing
 
-    public func endListing(listingId: String) async -> PublishOutcome {
+    func endListing(listingId: String) async -> PublishOutcome {
         let path = "/api/flipdesk/ebay/listings/\(listingId)"
         do {
             let response: EndListingResponse = try await sendJSON(

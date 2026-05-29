@@ -35,7 +35,7 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
 
     /// Lower-comes-first comparator over LocalInventoryItem-like values.
     /// Returns true iff `a` should appear before `b` under this sort.
-    public func isOrdered(_ a: LocalInventoryItem, _ b: LocalInventoryItem) -> Bool {
+    func isOrdered(_ a: LocalInventoryItem, _ b: LocalInventoryItem) -> Bool {
         switch self {
         case .newest:
             return a.createdAt > b.createdAt

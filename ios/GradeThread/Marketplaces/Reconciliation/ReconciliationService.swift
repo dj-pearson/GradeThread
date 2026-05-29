@@ -10,7 +10,7 @@ public final class ReconciliationService {
 
     private let supabase: SupabaseClient
 
-    public init(supabase: SupabaseClient = SupabaseShared.client) {
+    nonisolated init(supabase: SupabaseClient = SupabaseShared.client) {
         self.supabase = supabase
     }
 

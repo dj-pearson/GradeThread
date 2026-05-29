@@ -24,7 +24,7 @@ public struct BulkActionExecutor {
     /// Routes to the per-action handler. Caller passes already-filtered
     /// items (the InventoryListView only includes rows visible in the
     /// current stage / search).
-    public func execute(_ action: BulkAction, items: [LocalInventoryItem]) async -> BulkActionResult {
+    func execute(_ action: BulkAction, items: [LocalInventoryItem]) async -> BulkActionResult {
         switch action {
         case .createDraft:
             return await updateStatus(items, to: "drafted", action: action)

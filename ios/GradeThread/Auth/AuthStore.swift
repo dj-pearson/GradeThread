@@ -45,10 +45,6 @@ public final class AuthStore {
         streamTask = nil
     }
 
-    deinit {
-        streamTask?.cancel()
-    }
-
     // MARK: - Actions
 
     public func signIn(email: String, password: String) async {
@@ -92,7 +88,7 @@ public final class AuthStore {
             )
             // Name is only available on the first Apple grant — store it as
             // user metadata so we have a display name without re-prompting.
-            if let fullName, let name = fullNameString(from: fullName) {
+            if let fullName, let name = await fullNameString(from: fullName) {
                 _ = try? await SupabaseShared.client.auth.update(
                     user: UserAttributes(data: ["full_name": .string(name)])
                 )
@@ -104,8 +100,7 @@ public final class AuthStore {
         await run {
             _ = try await SupabaseShared.client.auth.signInWithOAuth(
                 provider: .google,
-                redirectTo: SupabaseShared.redirectURL,
-                scopes: "email profile"
+                redirectTo: SupabaseShared.redirectURL
             )
         }
     }

@@ -6,7 +6,7 @@ import Observation
 @MainActor
 @Observable
 public final class MarketplaceConnectionStore {
-    public enum Phase: Equatable {
+    enum Phase: Equatable {
         case loading
         case disconnected
         case connected(RemoteMarketplaceConnection)
@@ -14,7 +14,7 @@ public final class MarketplaceConnectionStore {
         case failed(message: String)
     }
 
-    public var phase: Phase = .loading
+    var phase: Phase = .loading
     public var isConnecting: Bool = false
 
     private let service: EbayConnectionService

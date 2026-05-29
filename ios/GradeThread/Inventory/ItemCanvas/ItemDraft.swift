@@ -45,7 +45,7 @@ public struct ItemDraft: Equatable {
     /// Populate from a LocalInventoryItem. The numeric fields go through
     /// a string box so the user can type freely; CurrencyFormatter
     /// parses back to Double on save.
-    public init(from item: LocalInventoryItem, currencyFormatter: CurrencyFormatter = CurrencyFormatter()) {
+    init(from item: LocalInventoryItem, currencyFormatter: CurrencyFormatter = CurrencyFormatter()) {
         self.title = item.title
         self.brand = item.brand ?? ""
         self.sku = item.sku ?? ""

@@ -9,7 +9,7 @@ import UserNotifications
 @MainActor
 public final class NewSaleNotifier {
 
-    public init() {}
+    nonisolated init() {}
 
     /// Requests permission for local notifications. The caller can
     /// fire-and-forget; the notification system silently no-ops when
@@ -25,7 +25,7 @@ public final class NewSaleNotifier {
 
     /// Schedules an immediate-delivery local notification. iOS will
     /// suppress it if permission isn't granted — no error to surface.
-    public func notifyNewSales(count: Int, latest: LocalSale) async {
+    func notifyNewSales(count: Int, latest: LocalSale) async {
         await requestPermissionIfNeeded()
 
         let center = UNUserNotificationCenter.current()

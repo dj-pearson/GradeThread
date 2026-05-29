@@ -21,7 +21,7 @@ public final class ItemCanvasState {
 
     private let currencyFormatter: CurrencyFormatter
 
-    public init(item: LocalInventoryItem, currencyFormatter: CurrencyFormatter = CurrencyFormatter()) {
+    init(item: LocalInventoryItem, currencyFormatter: CurrencyFormatter = CurrencyFormatter()) {
         self.itemId = item.id
         let initial = ItemDraft(from: item, currencyFormatter: currencyFormatter)
         self.original = initial

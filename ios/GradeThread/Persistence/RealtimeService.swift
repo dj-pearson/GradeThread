@@ -36,7 +36,7 @@ public final class RealtimeService {
 
     private static let userDefaultsKey = "com.gradethread.app.realtime.enabled"
 
-    public init(supabase: SupabaseClient = SupabaseShared.client, syncEngine: SyncEngine) {
+    init(supabase: SupabaseClient = SupabaseShared.client, syncEngine: SyncEngine) {
         self.supabase = supabase
         self.syncEngine = syncEngine
     }
@@ -101,7 +101,7 @@ public final class RealtimeService {
         }
 
         do {
-            try await channel.subscribe()
+            try await channel.subscribeWithError()
         } catch {
             print("[Realtime] subscribe failed: \(error)")
             phase = .reconnecting
@@ -141,9 +141,9 @@ public final class RealtimeService {
             if let id = stringValue(from: delete.oldRecord, key: "id") {
                 await syncEngine.applyRealtimeInventoryDelete(id: id)
             }
-        case .select:
-            // Not a mutation — Supabase emits these for replay state
-            // sync; we ignore them.
+        @unknown default:
+            // Newer SDKs may emit additional action kinds (e.g. select
+            // replay-state events). We only act on inventory mutations.
             break
         }
     }
@@ -164,7 +164,7 @@ public final class RealtimeService {
         return nil
     }
 
-    private func applyStatus(_ status: RealtimeSubscribeStates) {
+    private func applyStatus(_ status: RealtimeChannelStatus) {
         // Map supabase-swift's status to our UI-level phase. The actual
         // case names vary slightly across SDK versions; we accept the
         // common four states + leave the default branch open.

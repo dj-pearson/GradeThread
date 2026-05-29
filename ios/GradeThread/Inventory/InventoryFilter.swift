@@ -9,7 +9,7 @@ public enum InventoryFilter {
     /// Applies stage + search + sort in that order. The pipeline order
     /// matters: stage filtering is the cheapest cut, search is
     /// substring-based on a small set of fields, sort is the final pass.
-    public static func apply(
+    static func apply(
         _ items: [LocalInventoryItem],
         stage: InventoryStage,
         search: String,
@@ -22,7 +22,7 @@ public enum InventoryFilter {
 
     /// Substring match against title / brand / style / SKU / container —
     /// matches the web's `InventoryFilter.matchesText` field set.
-    public static func filter(_ items: [LocalInventoryItem], search: String) -> [LocalInventoryItem] {
+    static func filter(_ items: [LocalInventoryItem], search: String) -> [LocalInventoryItem] {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return items }
         return items.filter { matches(item: $0, needle: needle) }
