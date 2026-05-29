@@ -4,8 +4,14 @@
 // parser doesn't see it as a comment delimiter.
 
 SUPABASE_URL = https:/$()/api.gradethread.com
-SUPABASE_ANON_KEY = REPLACE_ME_WITH_REAL_SUPABASE_ANON_KEY
 EDGE_API_URL = https:/$()/functions.gradethread.com
+
+// Non-secret dummy so the app launches in the CI test job + local sim
+// (AppConfig fatal-errors on an empty or "REPLACE_ME..." value). The real
+// anon key is injected at release time from Infisical — see the Archive
+// step in .github/workflows/ios-release.yml. For local runs against the
+// real backend, override this in an untracked local xcconfig.
+SUPABASE_ANON_KEY = ci-debug-anon-key-placeholder
 
 // US-191 telemetry. Empty values disable the corresponding SDK
 // silently — analytics + crash reporting are opt-in best-effort.

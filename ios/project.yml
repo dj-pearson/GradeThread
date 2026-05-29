@@ -84,9 +84,37 @@ targets:
         NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading and to scan SKU barcodes when cataloging items."
         NSPhotoLibraryUsageDescription: "GradeThread imports photos from your library so you can grade existing garment shots."
         ITSAppUsesNonExemptEncryption: false
-        # SUPABASE_URL, SUPABASE_ANON_KEY, EDGE_API_URL are surfaced from the
-        # active xcconfig directly via Info.plist (see GradeThread/Info.plist)
-        # — single source of truth there avoids accidental drift.
+        # Runtime config read by AppConfig, surfaced from the active xcconfig
+        # via build-setting substitution ($(...) is expanded at build time).
+        # These MUST live here: XcodeGen regenerates GradeThread/Info.plist
+        # from this block on every `xcodegen generate`, so keys present only
+        # in a committed Info.plist get stripped at generate time.
+        SUPABASE_URL: "$(SUPABASE_URL)"
+        SUPABASE_ANON_KEY: "$(SUPABASE_ANON_KEY)"
+        EDGE_API_URL: "$(EDGE_API_URL)"
+        SENTRY_DSN: "$(SENTRY_DSN)"
+        POSTHOG_API_KEY: "$(POSTHOG_API_KEY)"
+        POSTHOG_HOST: "$(POSTHOG_HOST)"
+        # Multi-window on iPad (US-193).
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations: {}
+        # Opportunistic background sync (US-188). The identifier must match
+        # what BGTaskScheduler registers at launch.
+        UIBackgroundModes:
+          - fetch
+          - processing
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.gradethread.app.refresh
+        # Voice dictation in the manual intake form (US-179).
+        NSSpeechRecognitionUsageDescription: "GradeThread uses speech recognition so you can dictate notes hands-free while sourcing items."
+        NSMicrophoneUsageDescription: "GradeThread needs the microphone to capture your voice for dictation."
+        # Custom URL scheme so Supabase OAuth redirects return to the app.
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: com.gradethread.app.oauth
+            CFBundleURLSchemes:
+              - com.gradethread.app
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app
