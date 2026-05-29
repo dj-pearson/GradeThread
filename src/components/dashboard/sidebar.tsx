@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   Activity,
   Users,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,6 +66,7 @@ const navGroups: NavGroup[] = [
       // Inventory is one surface now. Its in-page tabs switch between
       // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
       { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
+      { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },

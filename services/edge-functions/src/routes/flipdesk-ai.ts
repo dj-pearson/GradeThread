@@ -30,7 +30,9 @@ export const flipdeskAiRoutes = new Hono<{
 }>();
 
 // Monthly AI-action allowance per plan. -1 = unlimited. (US-167 refines.)
-const AI_ACTION_LIMITS: Record<string, number> = {
+// Exported so AutoLister batch generation (flipdesk-autolister.ts) shares the
+// exact same per-plan budget and reset semantics.
+export const AI_ACTION_LIMITS: Record<string, number> = {
   free: 25,
   starter: 200,
   professional: 1000,
@@ -53,7 +55,8 @@ type QuotaResult =
 // Checks AI enablement + monthly cap for a user. `pending` lets a batch
 // caller account for actions it is about to consume in the same request.
 // Always pass the WORKSPACE OWNER's id — that's whose plan and AI quota apply.
-async function checkQuota(
+// Exported for reuse by AutoLister batch generation (flipdesk-autolister.ts).
+export async function checkQuota(
   ownerId: string,
   pending = 0
 ): Promise<QuotaResult> {

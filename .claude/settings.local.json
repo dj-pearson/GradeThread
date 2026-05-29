@@ -78,7 +78,8 @@
       "Bash(npx vitest *)",
       "WebFetch(domain:www.youtube.com)",
       "WebFetch(domain:autolister.io)",
-      "mcp__plugin_playwright_playwright__browser_snapshot"
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "Bash(Find C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\src\\\\types -name \"*.ts\")"
     ]
   },
   "hooks": {

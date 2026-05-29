@@ -240,7 +240,8 @@ FlipDesk is the reseller-management surface inside GradeThread. It's a section u
 - Single Deno/Hono container at `services/edge-functions/` hosting BOTH GradeThread and FlipDesk endpoints.
 - Coolify compose: `services/edge-functions/docker-compose.coolify.yml` with Traefik labels, healthcheck, restart policy.
 - FlipDesk route modules under `services/edge-functions/src/routes/flipdesk-*.ts` mounted at `/api/flipdesk/*`.
-- All handlers currently return 501 — wire up incrementally (PRD section 15.2).
+- The **eBay module (`flipdesk-ebay.ts`) is fully wired**: OAuth + token refresh (AES-GCM), Inventory API create/offer/publish, Taxonomy category+aspects (cached), Browse comps, business policies, `assemblePublishContext`/`loadListingOwned`. Some other flipdesk-* handlers still return 501 — wire up incrementally (PRD section 15.2).
+- **AutoLister** (bulk photos → AI eBay listings → publish) is being built as US-310..US-325; new edge module `flipdesk-autolister.ts`, prompt in `ai-listing.ts`, migrations 00052/00053.
 - See `services/edge-functions/COOLIFY.md` for deploy instructions.
 
 ## PRD & Roadmap

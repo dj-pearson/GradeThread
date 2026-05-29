@@ -5151,6 +5151,268 @@
       "priority": 309,
       "passes": false,
       "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-305/306/308. Closes the loop: measure → audit → act."
+    },
+    {
+      "id": "US-310",
+      "title": "AutoLister: DB schema for batch jobs, draft fields, and business policies",
+      "description": "As a backend engineer, I want migration-defined tables and columns for batch generation, draft listing fields, and cached eBay business policies, so that AutoLister can persist grouping, generated drafts, queue state, and publish settings.",
+      "acceptanceCriteria": [
+        "New migration supabase/migrations/00052_autolister_schema.sql creating listing_generation_batches (id, user_id FK, status enum pending|running|completed|failed|partial, item_count int, succeeded_count int, failed_count int, source enum, created_at, updated_at) and listing_generation_jobs (id, batch_id FK, item_id FK to inventory_items, status enum pending|running|success|failed, error text, attempts int, listing_id FK nullable, created_at, updated_at)",
+        "ALTER listings adds: batch_id (FK to listing_generation_batches, nullable), scheduled_publish_at timestamptz, publish_error text, publish_failed_at timestamptz, ebay_condition text, ebay_condition_description text, item_specifics_override jsonb, return_policy_id text, shipping_policy_id text, payment_policy_id text, quantity int default 1, best_offer_enabled boolean default false, synced_to_ebay_at timestamptz",
+        "ALTER inventory_items adds ai_generated_aspects_at timestamptz",
+        "New business_policies table (id, user_id FK, marketplace text, policy_id text, policy_type enum fulfillment|payment|return, policy_name text, policy_data jsonb, is_default boolean, synced_from_ebay_at timestamptz) with unique (user_id, marketplace, policy_id)",
+        "RLS enabled on all new tables: users access only rows where user_id = auth.uid() (mirror existing FlipDesk table policies); listing_generation_jobs scoped via parent batch ownership",
+        "src/types/database.ts updated with Row/Insert/Update types for new tables and columns",
+        "Migration applies cleanly on a fresh DB and against existing data; tests pass; typecheck passes"
+      ],
+      "priority": 310,
+      "passes": false,
+      "notes": "BUILD-NEW. Audit confirms NONE of batch/queue, scheduled_publish_at, publish_error, ebay_condition, item_specifics_override, business policies, quantity, best_offer exist. Next migration number is 00052 (highest is 00051_blog_geo_fields.sql). Follow RLS pattern from 00008_flipdesk_schema.sql (marketplace_connections 170-196) and listing_status enum at 00008:44-46. Update src/types/database.ts. Dependency root for US-312/313/319/320/321/322."
+    },
+    {
+      "id": "US-311",
+      "title": "AutoLister: eBay listing-generation prompt + structured schema, seeded and eval-gated",
+      "description": "As an AI engineer, I want a new Claude prompt and a structured tool schema dedicated to producing complete eBay listings from photos, seeded into ai_prompt_versions and validated by the eval harness before activation, so that generation quality is gated and versioned like grading.",
+      "acceptanceCriteria": [
+        "New prompt+tool schema constrains Claude output to {title (<=80 chars), description, suggested_category_query, ebay_condition enum, condition_description, item_specifics (Record<string,string[]>), suggested_price_cents int, confidence 0-1} via Anthropic tool_choice",
+        "Prompt is distinct from clothing grading (generates listing fields, NOT condition factor scores) and lives in services/edge-functions/src/lib/ai-listing.ts with an exported version constant LISTING_GEN_PROMPT_VERSION = 'listing_gen_v1'",
+        "System block uses cache_control: {type:'ephemeral'} (reuse pattern at ai-grading.ts:392-394 / ai-extract.ts:273-275)",
+        "New migration 00053_autolister_prompt_seed.sql inserts a listing_gen row into ai_prompt_versions with eval_passed/eval_run_id columns (reuse 00050 schema), inactive until eval passes",
+        "Eval harness extended (services/edge-functions/src/lib/grading-eval.ts pattern) with golden listing cases and thresholds (title length, required-aspect coverage, price sanity) gating activation",
+        "resolveActivePrompt('listing_gen', ...) returns the DB override when active, else code default (reuse ai-grading.ts:204-271)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 311,
+      "passes": false,
+      "notes": "BUILD-NEW prompt+schema; REUSE infra. Audit lists this as missing. Reuse: resolveActivePrompt (ai-grading.ts:204-271), ephemeral cache_control, tool_choice pattern (ai-extract.ts:159-284), eval harness (grading-eval.ts scoreGradingPrompt + grading_eval_cases). Next migration after US-310's 00052 is 00053. Depends on US-310 for table availability only."
+    },
+    {
+      "id": "US-312",
+      "title": "AutoLister: single-item listing generation service (Vision + Taxonomy + price)",
+      "description": "As a backend engineer, I want a service that takes one grouped item's photos and produces a complete eBay listing object using the listing-gen prompt, resolves a real eBay leaf category via the Taxonomy API, fetches valid item specifics for that category, and suggests a price, so that generation returns publish-ready drafts.",
+      "acceptanceCriteria": [
+        "New function generateListing(itemId) in services/edge-functions/src/lib/ai-listing.ts: downloads item photos (reuse grading-pipeline.ts:17-112 base64 chunking), calls Claude with the listing_gen prompt, returns the structured listing object",
+        "Resolves suggested_category_query to a real eBay leaf category via existing suggestCategories (ebay-client.ts:377-415) and loads required/recommended aspects via getCategoryAspects (ebay-client.ts:511-573, 30-day cache)",
+        "Second pass constrains item_specifics to that category's allowed aspect values (reuse extractEbayAspects dynamic tool schema, ai-extract.ts:432-476/507-614)",
+        "Suggested price derived from existing comps (searchBrowseComps, ebay-client.ts:1341-1428) median/p25-p75 when available; falls back to Claude estimate with a flag",
+        "Writes a draft row to listings (listing_status='draft') with title/description/platform_category_id/ebay_condition/ebay_condition_description/item_specifics_override and sets inventory_items.ai_generated_aspects_at; all writes tenant-scoped to workspaceOwnerId per US-268",
+        "Cost/tokens logged to ai_enrichment_log (reuse pattern flipdesk-ai.ts:200-214) and respects checkQuota",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 312,
+      "passes": false,
+      "notes": "BUILD-NEW orchestration; heavy REUSE. Reuse verified: generateListingCopy exists (flipdesk-ai.ts:539) but only does title+description — extend/wrap it. suggestCategories/getCategoryAspects/searchBrowseComps all BUILT. Writes into US-310 listings columns. SECURITY US-268: scope all listings/inventory_items writes to c.get('workspaceOwnerId') ?? c.get('userId'). Depends on US-310, US-311."
+    },
+    {
+      "id": "US-313",
+      "title": "AutoLister: batch generation queue and orchestration endpoint",
+      "description": "As a reseller, I want to submit many grouped items for generation at once and have them processed in parallel with bounded concurrency and per-item status, so that I can generate hundreds of listings without one-by-one waiting.",
+      "acceptanceCriteria": [
+        "New route module services/edge-functions/src/routes/flipdesk-autolister.ts mounted under /api/flipdesk/autolister with auth + workspace middleware (reuse main.ts:115-147 gating pattern)",
+        "POST /batch creates a listing_generation_batches row + one listing_generation_jobs row per item, returns 202 with batch_id, and fires background processing (reuse 202+background pattern from listings/pull, flipdesk-ebay.ts:817-847)",
+        "Background worker processes jobs with bounded concurrency (reuse CONCURRENCY pattern flipdesk-ai.ts:756-759), calling generateListing per item, updating job status (running/success/failed), attempts, error, and rolling batch counts; partial failures do not abort the batch",
+        "GET /batch/:id returns batch + per-job status for progress polling; all reads tenant-scoped (join through batch.user_id, verify ownership before returning)",
+        "Quota checked once per batch against AI_ACTION_LIMITS and decremented per generated item; over-quota items marked failed with a clear error rather than silently dropped",
+        "Rate limit applied to /batch (reuse main.ts rate-limit groups)",
+        "Tenant-isolation: a user cannot read or enqueue jobs for another workspace's items; covered by a test",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 313,
+      "passes": false,
+      "notes": "BUILD-NEW. No queue/job abstraction exists today (single synchronous publish only). Reuse: bounded-concurrency loop (flipdesk-ai.ts:756-759 CONCURRENCY=3), 202+background fire (flipdesk-ebay.ts:817-847), checkQuota/AI_ACTION_LIMITS (flipdesk-ai.ts:33-99), auth+workspace middleware (main.ts:115-147). Writes US-310 tables. SECURITY US-268: every job/batch query scoped to owner. Depends on US-310, US-312."
+    },
+    {
+      "id": "US-314",
+      "title": "AutoLister: business-policy and merchant-location preset resolution & caching",
+      "description": "As a reseller, I want my eBay business policies and merchant location synced and stored as selectable presets, so that batch-generated drafts default to valid fulfillment/payment/return policies and a shipping origin without per-listing manual entry.",
+      "acceptanceCriteria": [
+        "New endpoint GET /api/flipdesk/ebay/policies syncs from eBay (reuse getDefaultPolicies, ebay-client.ts:653-728, and merchant location resolution 688-715) into the business_policies table from US-310, marking defaults",
+        "Endpoint to set/override a user's default fulfillment/payment/return policy and merchant_location_key; stored per user, tenant-scoped",
+        "assemblePublishContext (flipdesk-ebay.ts:1614-1779) reads policy/location defaults from business_policies/connection instead of re-fetching every publish, with fallback to live fetch when cache empty",
+        "MissingPolicies path still returns the help URL blocker when the seller has none (preserve existing behavior)",
+        "All policy reads/writes scoped to workspaceOwnerId per US-268",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 314,
+      "passes": false,
+      "notes": "REUSE-existing API + BUILD-NEW caching. getDefaultPolicies/location resolution are BUILT but no business_policies table or policy FKs exist (added in US-310). Touch ebay-client.ts:653-728, flipdesk-ebay.ts assemblePublishContext:1614-1779/1739-1752. Depends on US-310. Needed by US-321/US-322 publish paths."
+    },
+    {
+      "id": "US-315",
+      "title": "AutoLister: backfill seller account identity on connect",
+      "description": "As a reseller, I want my eBay account handle captured when I connect, so that drafts and the marketplaces UI show which seller account a listing will publish under.",
+      "acceptanceCriteria": [
+        "OAuth callback (flipdesk-ebay.ts:123-193) calls commerce/identity/v1/user after token exchange and persists account_handle on marketplace_connections (column already exists, 00008:170-196)",
+        "A backfill path populates account_handle for already-connected accounts on next token refresh if null",
+        "Failure to fetch identity does not break the connect flow (logged, account_handle stays null, retried later)",
+        "/oauth/debug snapshot (flipdesk-ebay.ts:75-77) reports whether account_handle is populated",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 315,
+      "passes": false,
+      "notes": "BUILD-NEW small. Audit missing: seller identity lookup (commerce/identity/v1/user); account_handle remains null at connect time. Reuse: upsertConnection (ebay-client.ts:233-296), fetchAuthed helper, OAuth callback (flipdesk-ebay.ts:123-193), debugSnapshot (ebay-client.ts:43-92). account_handle column already exists. Independent of US-310; can land early."
+    },
+    {
+      "id": "US-316",
+      "title": "AutoLister: bulk photo upload entry with browser resize/compress",
+      "description": "As a reseller, I want a bulk photo upload surface that resizes and compresses images client-side before upload, so that I can quickly bring many garment photos into AutoLister without huge transfers.",
+      "acceptanceCriteria": [
+        "New AutoLister route /dashboard/flipdesk/autolister in src/routes/index.tsx and a sidebar entry under the FlipDesk group in src/components/dashboard/sidebar.tsx",
+        "Upload step reuses the existing PhotoUploader (src/components/flipdesk/photo-uploader.tsx) for client-side compression, EXIF stripping, thumbnailing, and Supabase storage upload",
+        "Supports selecting/dropping many files at once with overall progress and per-file error handling",
+        "Uploaded photos are held in an ungrouped staging state (not yet attached to a single item) pending the grouping step (US-317)",
+        "Page is gated behind the AutoLister tier check (US-323) with an upgrade prompt for ineligible plans",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 316,
+      "passes": false,
+      "notes": "REUSE-existing uploader. Bulk photo upload is BUILT (photo-uploader.tsx:36-319) but there is NO AutoLister route/sidebar entry. Add route to src/routes/index.tsx (lines 48-189 region) and link to sidebar.tsx (FlipDesk group lines 62-74). Staging state feeds US-317. Tier gate from US-323."
+    },
+    {
+      "id": "US-317",
+      "title": "AutoLister: photo grouping UI (cluster photos into per-item listings)",
+      "description": "As a reseller, I want to drag and group uploaded photos so each group becomes one item/listing, so that AutoLister knows which photos belong together before generation.",
+      "acceptanceCriteria": [
+        "New component src/components/flipdesk/photo-grouping.tsx with drag-and-drop grouping (reuse dnd-kit already used in composer.tsx) to move photos between named groups; each group = one listing",
+        "User can create, rename, merge, split, and delete groups; ungrouped photos remain in a holding area",
+        "On confirm, each group is materialized into an inventory_items row with its item_photos attached (tenant-scoped insert), producing the item set the batch generator consumes",
+        "Grouping state persists across reloads (temp persistence: localStorage keyed by session or a lightweight staging table) so an interrupted session is recoverable",
+        "Primary photo per group is selectable (reuse primary_photo_id concept from 00027_listing_composer_picks.sql)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 317,
+      "passes": false,
+      "notes": "BUILD-NEW. Photo grouping is ABSENT (uploads ALL photos to single item_id today). Reuse dnd-kit (already in composer.tsx). Materializes inventory_items + item_photos (item_photos table 00008:153-164). SECURITY US-268: scope inserts to current workspace. Depends on US-316; output feeds US-318."
+    },
+    {
+      "id": "US-318",
+      "title": "AutoLister: Generate action + batch queue/progress view",
+      "description": "As a reseller, I want a Generate button that submits all grouped items for parallel AI generation and a live progress view showing per-item status, so that I can watch a batch complete and see which listings succeeded or failed.",
+      "acceptanceCriteria": [
+        "Generate button submits grouped items to POST /api/flipdesk/autolister/batch (US-313) and navigates to a queue/progress view",
+        "New route /dashboard/flipdesk/autolister/queue (and src/pages/flipdesk/autolister-queue.tsx) polls GET /batch/:id (or uses Supabase realtime) showing per-item status pending/running/success/failed with error detail",
+        "Progress bar shows succeeded/failed/total; failed items offer a one-click retry that re-enqueues only those jobs",
+        "Completed items link directly to their draft in the single editor (US-319)",
+        "New hooks (e.g. src/hooks/use-autolister-batch.ts) wrap the batch submit + poll via TanStack Query",
+        "View respects the AutoLister tier gate (US-323)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 318,
+      "passes": false,
+      "notes": "BUILD-NEW. Batch generation, generate button, and queue/progress view all ABSENT. Reuse TanStack Query (project standard) and the inline progress pattern from bulkPublishProgress (listings.tsx:879-921) as UX reference. Consumes US-313 endpoints, US-317 grouped items. Routes added in src/routes/index.tsx."
+    },
+    {
+      "id": "US-319",
+      "title": "AutoLister: single generated-draft editor",
+      "description": "As a reseller, I want to open any generated draft in an editor and review/adjust title, description, category, item specifics, condition, and price before publishing, so that I keep control over the final listing.",
+      "acceptanceCriteria": [
+        "Extend the existing composer (src/pages/flipdesk/composer.tsx) to load AI-generated drafts including platform_category_id, ebay_condition, ebay_condition_description, item_specifics_override, and suggested price from US-310 columns",
+        "Item-specifics editor renders the category's required/recommended aspects (from getCategoryAspects) with validation highlighting missing required aspects (reuse blockers concept from assemblePublishContext)",
+        "Category can be changed via the existing eBay category picker; changing it refreshes the aspect set",
+        "Edits save back to the listings row; an 'AI-generated' indicator and the ai_generated_aspects_at timestamp are shown",
+        "Validate-before-publish uses existing useValidatePublish / POST /listings/validate (flipdesk-ebay.ts:1241-1252) to show blockers without touching eBay",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 319,
+      "passes": false,
+      "notes": "REUSE-existing composer + EXTEND. Single-item composer is BUILT (composer.tsx:1-600+) with category picker and comps; it does NOT currently surface AI-generated listing fields. Reuse category aspects endpoint (flipdesk-ebay.ts:263-278), validate endpoint (1241-1252), PublishToEbayDialog. Reads US-310 columns populated by US-312. Depends on US-310, US-312."
+    },
+    {
+      "id": "US-320",
+      "title": "AutoLister: bulk/spreadsheet draft editor",
+      "description": "As a reseller, I want a spreadsheet-style grid to edit many generated drafts at once (price, title, category, condition) and apply bulk overrides, so that I can clean up a whole batch quickly before publishing.",
+      "acceptanceCriteria": [
+        "New component/page src/pages/flipdesk/autolister-bulk-edit.tsx showing one row per draft with inline-editable title, listing_price, ebay_condition, and category",
+        "Bulk-apply actions: set/round price (e.g. % markup or floor), set category, set condition, set best_offer_enabled, set quantity across selected rows",
+        "Per-row validation indicator (missing required aspects, title length >80, missing price) reusing the validate endpoint summary",
+        "Edits batch-saved to listings with all writes tenant-scoped per US-268; optimistic UI with rollback on error",
+        "Grid filters to the current batch (batch_id) and to drafts only",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 320,
+      "passes": false,
+      "notes": "BUILD-NEW. The drafts tab exists (listings.tsx:177-183) but is read/select only. Uses US-310 batch_id/quantity/best_offer columns and validate endpoint (flipdesk-ebay.ts:1241-1252). SECURITY US-268: scope all updates. Depends on US-310, US-312, US-318."
+    },
+    {
+      "id": "US-321",
+      "title": "AutoLister: bulk publish to eBay with progress and failure recovery",
+      "description": "As a reseller, I want to publish an entire batch of reviewed drafts to eBay in one action with parallel execution, progress, and clear per-item failure recovery, so that I can go live with many listings at once.",
+      "acceptanceCriteria": [
+        "Bulk publish confirmation dialog lists drafts to publish, surfaces pre-flight blockers (POST /listings/validate) and refuses items with unresolved blockers",
+        "Publish executes the existing three-step inventory PUT → offer POST → offer publish sequence per item (reuse flipdesk-ebay.ts publish flow 1286-1338) with bounded concurrency, not strictly sequential",
+        "Per-item results captured: success writes platform_offer_id/platform_listing_id/synced_to_ebay_at; failure writes publish_error/publish_failed_at (US-310 columns) and is retryable",
+        "Progress UI builds on existing bulkPublishToEbay (listings.tsx:879-921) but adds parallelism and persistent per-item error display",
+        "Offer-already-exists is handled idempotently (reuse isOfferAlreadyExistsError fallback, flipdesk-ebay.ts:1328-1334)",
+        "All publish operations verify listing ownership via loadListingOwned (flipdesk-ebay.ts:1510-1539) per US-268",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 321,
+      "passes": false,
+      "notes": "REUSE-heavy. Full publish lifecycle is BUILT; missing only bulk monitoring. bulkPublishToEbay is PARTIAL (sequential, no auto-gen). Reuse publish flow (flipdesk-ebay.ts:1286-1338), loadListingOwned (1510-1539), validate (1241-1252), idempotency fallback (1328-1334). Writes US-310 columns. Depends on US-310, US-314, US-319."
+    },
+    {
+      "id": "US-322",
+      "title": "AutoLister: eBay-native scheduled publishing",
+      "description": "As a reseller, I want to schedule when a draft or batch goes live on eBay rather than publishing immediately, so that I can time listings for peak buyer traffic.",
+      "acceptanceCriteria": [
+        "Draft editor and bulk publish allow setting scheduled_publish_at (US-310 column) per listing or for the whole batch",
+        "Publish path passes eBay's native schedule (offer publish with a future start) when supported, persisting synced_to_ebay_at only once eBay confirms live; otherwise an internal scheduled-job publishes at the time",
+        "A scheduled background job (reuse the FLIPDESK_INTERNAL_JOB_SECRET-gated scheduled pattern, flipdesk-ebay.ts:199-239) scans due scheduled_publish_at rows and publishes them, with the same validation and ownership checks as immediate publish",
+        "UI shows scheduled state and lets the user reschedule or cancel before the time",
+        "Failures on scheduled publish set publish_error/publish_failed_at and notify the user",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 322,
+      "passes": false,
+      "notes": "BUILD-NEW scheduling on REUSE publish. scheduled_publish_at added in US-310. Reuse scheduled-job gating pattern (oauth/refresh handler, flipdesk-ebay.ts:199-239), publish flow, loadListingOwned. Depends on US-310, US-321."
+    },
+    {
+      "id": "US-323",
+      "title": "AutoLister: subscription-tier gating and usage metering",
+      "description": "As the business owner, I want AutoLister batch generation restricted to a premium subscription tier with metered AI usage, so that the feature drives upgrades and AI cost stays bounded per plan.",
+      "acceptanceCriteria": [
+        "AutoLister generation endpoints (US-313) enforce a premium-tier check on the workspace owner's plan; non-eligible plans get a clear 402/403 with an upgrade path, not a silent failure",
+        "Per-plan monthly AutoLister generation limits added to AI_ACTION_LIMITS (flipdesk-ai.ts:33-38) and enforced via checkQuota (flipdesk-ai.ts:56-99); the owner's plan/quota governs members (reuse workspaceOwnerId billing pattern)",
+        "Frontend gates the AutoLister route, sidebar entry, Generate, and bulk publish actions behind the same capability check with an upgrade CTA (US-316/318)",
+        "Usage (items generated, tokens, cost) is logged to ai_enrichment_log and summarized for the user (count remaining this period)",
+        "Pricing tiers referenced from the canonical pricing model (FlipDesk $0/$29/$59/$99); AutoLister gated to the appropriate paid tier(s)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 323,
+      "passes": false,
+      "notes": "BUILD-NEW gating; REUSE quota infra. Audit missing: subscription gate, higher tier only. Reuse AI_ACTION_LIMITS + checkQuota (flipdesk-ai.ts:33-99) and workspace-owner billing. Pricing per FlipDesk pricing model ($0/$29/$59/$99). Depends on US-313, US-316, US-318."
+    },
+    {
+      "id": "US-324",
+      "title": "AutoLister: tenant-isolation security tests for all new surfaces",
+      "description": "As a security-minded engineer, I want cross-tenant regression tests covering every new AutoLister table, endpoint, and query, so that the service-role client cannot leak or mutate another workspace's batches, jobs, drafts, or policies.",
+      "acceptanceCriteria": [
+        "Tests added to services/edge-functions/src/tests/tenant-isolation_test.ts covering: /autolister/batch create+read, /autolister/batch/:id, generateListing writes, business_policies read/write, bulk publish, and scheduled publish",
+        "Each test asserts a user CANNOT read/update/delete another workspace's listing_generation_batches, listing_generation_jobs, listings, inventory_items, item_photos, or business_policies via any new endpoint or id-in-body path",
+        "Verifies every new query is scoped to c.get('workspaceOwnerId') ?? c.get('userId') or via a verified-owned parent row (per CLAUDE.md US-268)",
+        "RLS policies on US-310 tables verified to block cross-tenant access for the anon/authenticated roles",
+        "Tests fail if a new endpoint queries a multi-tenant table by id from the request body without ownership verification",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 324,
+      "passes": false,
+      "notes": "BUILD-NEW tests. CLAUDE.md US-268 mandate: service-role bypasses RLS; existing tests live in services/edge-functions/src/tests/tenant-isolation_test.ts. Reuse loadListingOwned / assemblePublishContext ownership patterns as the assertion model. Depends on US-310, US-312, US-313, US-314, US-321, US-322."
+    },
+    {
+      "id": "US-325",
+      "title": "AutoLister: eBay rate-limit handling, retry backoff, and failure notifications",
+      "description": "As a reseller running large batches, I want generation and publishing to gracefully handle eBay/Anthropic rate limits and transient failures with backoff and clear notifications, so that big batches finish reliably instead of failing en masse.",
+      "acceptanceCriteria": [
+        "eBay API calls in the publish path detect HTTP 429 / rate-limit error bodies and apply exponential backoff with bounded retries before marking a job failed",
+        "Anthropic rate-limit/transient errors in generateListing retry with backoff and respect the per-batch concurrency so retries don't amplify load",
+        "listing_generation_jobs.attempts and publish retry_count are incremented and capped; permanently-failed items surface a clear, actionable error",
+        "User is notified (toast/in-app) on batch completion summarizing succeeded/failed and on permanent failures, with a one-click retry of failed-only",
+        "Backoff/retry logic is unit-tested (including a simulated 429) without hitting live APIs",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 325,
+      "passes": false,
+      "notes": "BUILD-NEW. Audit missing: error handling for eBay API rate limits and publication failures with retry backoff and user notification. Reuse: fetchAuthed/token-refresh in ebay-client.ts, the attempts/error columns on listing_generation_jobs (US-310), bounded-concurrency worker (US-313). Toasts via sonner (project standard). Depends on US-313, US-321."
     }
   ]
 }

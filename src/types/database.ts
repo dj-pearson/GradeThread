@@ -113,6 +113,20 @@ export type FlipdeskPhotoType =
 export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
 export type GradingSubmissionTier = "standard" | "premium" | "express";
 export type PayoutImportMethod = "csv_upload" | "api_sync";
+// AutoLister (migration 00052)
+export type ListingGenerationStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "partial";
+export type ListingGenerationJobStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed";
+export type ListingGenerationSource = "autolister" | "manual" | "api";
+export type BusinessPolicyType = "fulfillment" | "payment" | "return";
 export type ExpenseCategory =
   | "shipping_supplies"
   | "mileage"
@@ -383,6 +397,8 @@ export interface InventoryItemRow {
   // eBay taxonomy mapping (migration 00030)
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
+  // AutoLister: when listing fields were last AI-generated (migration 00052)
+  ai_generated_aspects_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -412,6 +428,24 @@ export interface ListingRow {
   // Listing-composer picks (migration 00027)
   primary_photo_id: string | null;
   badge_enabled: boolean;
+  // eBay handles (migrations 00031, 00034)
+  platform_offer_id: string | null;
+  platform_category_id: string | null;
+  // AutoLister draft + publish fields (migration 00052)
+  batch_id: string | null;
+  scheduled_publish_at: string | null;
+  publish_error: string | null;
+  publish_failed_at: string | null;
+  ebay_condition: string | null;
+  ebay_condition_description: string | null;
+  item_specifics_override: Record<string, string[]> | null;
+  return_policy_id: string | null;
+  shipping_policy_id: string | null;
+  payment_policy_id: string | null;
+  quantity: number;
+  best_offer_enabled: boolean;
+  synced_to_ebay_at: string | null;
+  price_is_estimated: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -490,6 +524,88 @@ export interface MarketplaceConnectionRow {
   created_at: string;
   updated_at: string;
 }
+
+// AutoLister batch generation (migration 00052)
+export interface ListingGenerationBatchRow {
+  id: string;
+  user_id: string;
+  status: ListingGenerationStatus;
+  source: ListingGenerationSource;
+  item_count: number;
+  succeeded_count: number;
+  failed_count: number;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListingGenerationBatchInsert {
+  user_id: string;
+  status?: ListingGenerationStatus;
+  source?: ListingGenerationSource;
+  item_count?: number;
+  succeeded_count?: number;
+  failed_count?: number;
+  error?: string | null;
+}
+
+export type ListingGenerationBatchUpdate = Partial<
+  Omit<ListingGenerationBatchRow, "id" | "user_id" | "created_at" | "updated_at">
+>;
+
+export interface ListingGenerationJobRow {
+  id: string;
+  batch_id: string;
+  inventory_item_id: string;
+  status: ListingGenerationJobStatus;
+  error: string | null;
+  attempts: number;
+  listing_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListingGenerationJobInsert {
+  batch_id: string;
+  inventory_item_id: string;
+  status?: ListingGenerationJobStatus;
+  error?: string | null;
+  attempts?: number;
+  listing_id?: string | null;
+}
+
+export type ListingGenerationJobUpdate = Partial<
+  Omit<ListingGenerationJobRow, "id" | "batch_id" | "inventory_item_id" | "created_at">
+>;
+
+export interface BusinessPolicyRow {
+  id: string;
+  user_id: string;
+  marketplace: ListingPlatform;
+  policy_id: string;
+  policy_type: BusinessPolicyType;
+  policy_name: string | null;
+  policy_data: Record<string, unknown> | null;
+  is_default: boolean;
+  synced_from_ebay_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BusinessPolicyInsert {
+  user_id: string;
+  marketplace: ListingPlatform;
+  policy_id: string;
+  policy_type: BusinessPolicyType;
+  policy_name?: string | null;
+  policy_data?: Record<string, unknown> | null;
+  is_default?: boolean;
+  synced_from_ebay_at?: string | null;
+}
+
+export type BusinessPolicyUpdate = Partial<
+  Omit<BusinessPolicyRow, "id" | "user_id" | "created_at" | "updated_at">
+>;
 
 export interface PayoutImportRow {
   id: string;
@@ -962,6 +1078,7 @@ export interface InventoryItemInsert {
   ai_enriched_at?: string | null;
   ebay_category_id?: string | null;
   ebay_aspects?: Record<string, string[]> | null;
+  ai_generated_aspects_at?: string | null;
 }
 
 export interface ListingInsert {
@@ -980,6 +1097,24 @@ export interface ListingInsert {
   views?: number;
   primary_photo_id?: string | null;
   badge_enabled?: boolean;
+  // eBay handles (migrations 00031, 00034)
+  platform_offer_id?: string | null;
+  platform_category_id?: string | null;
+  // AutoLister (migration 00052)
+  batch_id?: string | null;
+  scheduled_publish_at?: string | null;
+  publish_error?: string | null;
+  publish_failed_at?: string | null;
+  ebay_condition?: string | null;
+  ebay_condition_description?: string | null;
+  item_specifics_override?: Record<string, string[]> | null;
+  return_policy_id?: string | null;
+  shipping_policy_id?: string | null;
+  payment_policy_id?: string | null;
+  quantity?: number;
+  best_offer_enabled?: boolean;
+  synced_to_ebay_at?: string | null;
+  price_is_estimated?: boolean;
 }
 
 export interface SaleInsert {
@@ -1530,6 +1665,21 @@ export interface Database {
         Row: MarketplaceConnectionRow;
         Insert: MarketplaceConnectionInsert;
         Update: MarketplaceConnectionUpdate;
+      };
+      listing_generation_batches: {
+        Row: ListingGenerationBatchRow;
+        Insert: ListingGenerationBatchInsert;
+        Update: ListingGenerationBatchUpdate;
+      };
+      listing_generation_jobs: {
+        Row: ListingGenerationJobRow;
+        Insert: ListingGenerationJobInsert;
+        Update: ListingGenerationJobUpdate;
+      };
+      business_policies: {
+        Row: BusinessPolicyRow;
+        Insert: BusinessPolicyInsert;
+        Update: BusinessPolicyUpdate;
       };
       payout_imports: {
         Row: PayoutImportRow;
