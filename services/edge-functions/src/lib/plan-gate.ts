@@ -50,6 +50,8 @@ interface GateFlags {
   apiAccess: boolean;
   reconciliation: boolean;
   prioritySupport: boolean;
+  /** AI AutoLister — bulk photos → generated eBay listings (US-323). Premium. */
+  autolister: boolean;
 }
 
 interface PlanConfig {
@@ -71,7 +73,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     gateFlags: {
       bulkActions: false, scheduledActions: false, compPulls: false,
       autoRelist: false, subAccounts: false, apiAccess: false,
-      reconciliation: false, prioritySupport: false,
+      reconciliation: false, prioritySupport: false, autolister: false,
     },
   },
   starter: {
@@ -82,7 +84,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     gateFlags: {
       bulkActions: false, scheduledActions: false, compPulls: false,
       autoRelist: false, subAccounts: false, apiAccess: false,
-      reconciliation: false, prioritySupport: false,
+      reconciliation: false, prioritySupport: false, autolister: false,
     },
   },
   pro: {
@@ -93,7 +95,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     gateFlags: {
       bulkActions: true, scheduledActions: true, compPulls: true,
       autoRelist: true, subAccounts: false, apiAccess: false,
-      reconciliation: false, prioritySupport: false,
+      reconciliation: false, prioritySupport: false, autolister: true,
     },
   },
   business: {
@@ -104,7 +106,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     gateFlags: {
       bulkActions: true, scheduledActions: true, compPulls: true,
       autoRelist: true, subAccounts: true, apiAccess: true,
-      reconciliation: true, prioritySupport: true,
+      reconciliation: true, prioritySupport: true, autolister: true,
     },
   },
 };

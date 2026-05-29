@@ -20,6 +20,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { compressImage } from "@/lib/image-utils";
 import { useStartAutolisterBatch } from "@/hooks/use-autolister";
+import { useBillingSummary } from "@/hooks/use-billing-summary";
+import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
+import { FLIPDESK_PLANS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 // FlipDesk AutoLister (US-316 upload + US-317 grouping). Dump a folder of
@@ -60,6 +63,10 @@ export function FlipdeskAutolisterPage() {
   const ownerId = workspaceOwnerId ?? user?.id ?? null;
   const navigate = useNavigate();
   const startBatch = useStartAutolisterBatch();
+
+  const { data: billing, isLoading: billingLoading } = useBillingSummary();
+  const plan = billing?.subscription.plan ?? "free";
+  const entitled = FLIPDESK_PLANS[plan].gateFlags.autolister;
 
   const sessionId = useRef(crypto.randomUUID());
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -287,7 +294,7 @@ export function FlipdeskAutolisterPage() {
         </div>
         <Button
           onClick={generate}
-          disabled={busy || groups.length === 0 || uploading > 0}
+          disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
           size="lg"
         >
           {busy ? (
@@ -298,6 +305,36 @@ export function FlipdeskAutolisterPage() {
           Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
         </Button>
       </div>
+
+      {/* Premium gate (US-323) — shown when the plan doesn't include AutoLister.
+          The server also enforces this; this is the in-app upsell. */}
+      {!entitled && !billingLoading && (
+        <Card className="border-brand-red/40 bg-brand-red/5 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold">
+                <Sparkles className="h-4 w-4 text-brand-red" />
+                AutoLister is a Pro feature
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Upgrade to Pro or Business to turn batches of photos into
+                complete eBay listings automatically.
+              </p>
+            </div>
+            <Button
+              onClick={() =>
+                useUpgradeDialogStore.getState().show({
+                  reason: { type: "feature", feature: "autolister" },
+                  currentPlan: plan,
+                  requiredPlan: "pro",
+                })
+              }
+            >
+              Upgrade to unlock
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Upload */}
       <Card className="p-4">
@@ -315,7 +352,8 @@ export function FlipdeskAutolisterPage() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+          disabled={!entitled}
+          className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-input disabled:hover:text-muted-foreground"
         >
           {uploading > 0 ? (
             <Loader2 className="h-7 w-7 animate-spin" />

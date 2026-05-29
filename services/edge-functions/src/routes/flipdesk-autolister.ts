@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateListing } from "../lib/ai-listing.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 // FlipDesk AutoLister batch generation (US-313).
 // Mounted at /api/flipdesk/autolister (authed + workspace context).
@@ -161,7 +162,13 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
     );
   }
 
-  // AI enablement check (also surfaces 403/404 for disabled/missing user).
+  // Premium tier gate (US-323): AutoLister is a paid-tier feature. A blocked
+  // plan returns 402 FEATURE_LOCKED, which edgeFetch turns into the upgrade
+  // dialog on the client. Gate the workspace OWNER's plan (they pay).
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  // AI enablement + monthly allowance (over-quota items fail per-item below).
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
   const allowance = quota.limit === -1

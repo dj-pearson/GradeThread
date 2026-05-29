@@ -108,6 +108,8 @@ export interface FlipdeskGateFlags {
   reconciliation: boolean;
   /** Priority support SLA. */
   prioritySupport: boolean;
+  /** AI AutoLister — bulk photos → generated eBay listings (US-323). Premium. */
+  autolister: boolean;
 }
 
 export interface FlipdeskPlanConfig {
@@ -148,6 +150,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       apiAccess: false,
       reconciliation: false,
       prioritySupport: false,
+      autolister: false,
     },
   },
   starter: {
@@ -174,6 +177,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       apiAccess: false,
       reconciliation: false,
       prioritySupport: false,
+      autolister: false,
     },
   },
   pro: {
@@ -190,6 +194,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       "1,000 AI actions / month",
       "30 Standard grades included / month",
       "Bulk actions + scheduled actions",
+      "AI AutoLister — bulk photos to eBay listings",
       "AI comp pulls",
       "Auto-relist",
     ],
@@ -202,6 +207,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       apiAccess: false,
       reconciliation: false,
       prioritySupport: false,
+      autolister: true,
     },
   },
   business: {
@@ -217,6 +223,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       "All marketplaces",
       "5,000 AI actions / month",
       "75 Standard grades included / month",
+      "AI AutoLister — bulk photos to eBay listings",
       "Sub-accounts (team seats)",
       "Programmatic API access",
       "Payout reconciliation",
@@ -231,6 +238,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       apiAccess: true,
       reconciliation: true,
       prioritySupport: true,
+      autolister: true,
     },
   },
 } as const;
