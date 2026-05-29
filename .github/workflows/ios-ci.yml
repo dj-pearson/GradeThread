@@ -28,7 +28,9 @@ jobs:
       - name: Select Xcode
         # Pinned because Apple ships new Xcodes on macos-14 frequently and an
         # unannounced bump breaks the build cache. Update intentionally.
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        # Must be >= 16: XcodeGen 2.45+ writes the project at objectVersion 77,
+        # which Xcode 15.4 refuses to open ("future Xcode project file format").
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
       - name: Show toolchain
         run: |

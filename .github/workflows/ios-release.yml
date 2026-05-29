@@ -63,7 +63,10 @@ jobs:
           secret-path: /
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_15.4.app
+        # Must be >= 16: XcodeGen 2.45+ writes objectVersion 77 (unreadable by
+        # Xcode 15.4), and App Store Connect rejects uploads built against the
+        # iOS 17 SDK — Xcode 16 builds against iOS 18, which Apple requires.
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
 
       - name: Install XcodeGen + xcbeautify
         run: brew install xcodegen xcbeautify
@@ -126,7 +129,33 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
           CERT_PATH="$RUNNER_TEMP/build_certificate.p12"
 
-          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+          # Fail loudly + early if a signing secret didn't make it out of
+          # Infisical, instead of letting `security import` blow up later with
+          # an opaque errSecParam.
+          : "${BUILD_CERTIFICATE_BASE64:?missing from env (check Infisical prod /)}"
+          : "${P12_PASSWORD:?missing from env (check Infisical prod /)}"
+          : "${KEYCHAIN_PASSWORD:?missing from env (check Infisical prod /)}"
+
+          # `--decode` ignores whitespace but not invalid alphabet chars; -A
+          # tolerates trailing garbage. Strip CRs in case the secret was stored
+          # with Windows line endings.
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | tr -d '\r\n' | base64 --decode -o "$CERT_PATH"
+
+          if [ ! -s "$CERT_PATH" ]; then
+            echo "::error::Decoded certificate is empty — BUILD_CERTIFICATE_BASE64 is not valid base64." >&2
+            exit 1
+          fi
+
+          # Diagnostic only (non-fatal): tells us up front whether the bytes are
+          # a real PKCS#12 and whether P12_PASSWORD opens it, so a bad secret
+          # surfaces as a clear message rather than SecKeychainItemImport's
+          # generic "parameters were not valid". `-legacy` handles p12s exported
+          # by OpenSSL 1.x that OpenSSL 3 otherwise can't read.
+          if ! openssl pkcs12 -in "$CERT_PATH" -nokeys -passin pass:"$P12_PASSWORD" -legacy -noout 2>/tmp/p12err \
+             && ! openssl pkcs12 -in "$CERT_PATH" -nokeys -passin pass:"$P12_PASSWORD" -noout 2>>/tmp/p12err; then
+            echo "::warning::Could not open the .p12 with the supplied P12_PASSWORD; security import will likely fail. Verify BUILD_CERTIFICATE_BASE64 is a base64-encoded .p12 (not .cer/.pem) and that P12_PASSWORD matches it." >&2
+            sed 's/^/  openssl: /' /tmp/p12err >&2 || true
+          fi
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"

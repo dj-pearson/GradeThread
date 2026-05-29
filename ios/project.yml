@@ -6,7 +6,7 @@ options:
   developmentLanguage: en
   groupSortPosition: top
   generateEmptyDirectories: true
-  xcodeVersion: "15.4"
+  xcodeVersion: "16.2"
 
 settings:
   base:
