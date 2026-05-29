@@ -1,0 +1,96 @@
+name: Lighthouse CI
+
+# Core Web Vitals performance budget (US-305). Runs Lighthouse against the
+# PRERENDERED static build (dist/, produced by `npm run build`) and posts the
+# results as a NON-BLOCKING PR comment. Budgets (LCP < 2.5s, CLS < 0.1, TBT as
+# the INP proxy, performance >= 0.9) are configured at "warn" level in
+# lighthouserc.json, and the collect step is continue-on-error, so this workflow
+# never blocks a merge — it's a report, not a gate (the merge gate is ci.yml).
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # to upsert the report comment
+
+jobs:
+  lighthouse:
+    name: Lighthouse (Core Web Vitals report)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Build (prerendered)
+        run: npm run build
+
+      - name: Run Lighthouse CI
+        id: lhci
+        continue-on-error: true
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          configPath: ./lighthouserc.json
+          temporaryPublicStorage: true
+          uploadArtifacts: true
+
+      - name: Comment results on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Best-effort, never throws: a reporting step must not fail CI.
+            try {
+              const manifest = JSON.parse(`${{ steps.lhci.outputs.manifest || '[]' }}`);
+              const links = JSON.parse(`${{ steps.lhci.outputs.links || '{}' }}`);
+              if (!Array.isArray(manifest) || manifest.length === 0) {
+                core.info("No Lighthouse manifest to report.");
+                return;
+              }
+              // One row per URL, using the representative (median) run.
+              const seen = new Set();
+              const rows = [];
+              for (const r of manifest) {
+                if (r.isRepresentativeRun === false) continue;
+                if (seen.has(r.url)) continue;
+                seen.add(r.url);
+                const s = r.summary || {};
+                const pct = (n) => (typeof n === "number" ? Math.round(n * 100) : "—");
+                const path = (() => { try { return new URL(r.url).pathname; } catch { return r.url; } })();
+                const report = links[r.url] ? `[report](${links[r.url]})` : "";
+                rows.push(`| \`${path}\` | ${pct(s.performance)} | ${pct(s.seo)} | ${pct(s["best-practices"])} | ${pct(s.accessibility)} | ${report} |`);
+              }
+              const body = [
+                "## 🔦 Lighthouse CI (Core Web Vitals)",
+                "",
+                "Budgets (non-blocking): **LCP < 2.5s · CLS < 0.1 · TBT < 200ms · Performance ≥ 90**.",
+                "Scores below are 0–100; open a report for the per-metric numbers.",
+                "",
+                "| Page | Perf | SEO | Best Practices | A11y | |",
+                "|---|---|---|---|---|---|",
+                ...rows,
+                "",
+                "_Reports expire after ~7 days (temporary public storage)._",
+              ].join("\n");
+
+              const marker = "## 🔦 Lighthouse CI";
+              const { owner, repo } = context.repo;
+              const issue_number = context.issue.number;
+              const existing = await github.rest.issues.listComments({ owner, repo, issue_number });
+              const mine = existing.data.find((c) => c.body && c.body.startsWith(marker));
+              if (mine) {
+                await github.rest.issues.updateComment({ owner, repo, comment_id: mine.id, body });
+              } else {
+                await github.rest.issues.createComment({ owner, repo, issue_number, body });
+              }
+            } catch (e) {
+              core.info(`Lighthouse comment skipped: ${e}`);
+            }

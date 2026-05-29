@@ -53,7 +53,15 @@ export function MarketingLayout({
       {/* Header — matches the landing page */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">
         <Link to="/" aria-label="GradeThread home">
-          <img src="/logo_primary.png" alt="GradeThread" className="h-8" />
+          {/* Intrinsic dimensions (1806×376) reserve space → no CLS (US-305). */}
+          <img
+            src="/logo_primary.png"
+            alt="GradeThread"
+            width={154}
+            height={32}
+            fetchPriority="high"
+            className="h-8 w-auto"
+          />
         </Link>
         <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">
           <Link to="/how-it-works" className="hover:text-foreground">
@@ -94,7 +102,14 @@ export function MarketingLayout({
       <footer className="border-t px-6 py-10 lg:px-12">
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <img src="/logo_primary.png" alt="GradeThread" className="h-6" />
+            <img
+              src="/logo_primary.png"
+              alt="GradeThread"
+              width={115}
+              height={24}
+              loading="lazy"
+              className="h-6 w-auto"
+            />
             <nav className="flex flex-wrap gap-4 text-sm text-muted-foreground sm:gap-6">
               <Link to="/how-it-works" className="hover:text-foreground">
                 How It Works

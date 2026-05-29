@@ -1286,6 +1286,12 @@ export type ContentTopicUpdate = Partial<
   Omit<ContentTopicRow, "id" | "created_at" | "updated_at">
 >;
 
+/** A single on-page FAQ entry (US-304); rendered visibly + as FAQPage JSON-LD. */
+export interface BlogFaq {
+  q: string;
+  a: string;
+}
+
 export interface BlogPostRow {
   id: string;
   slug: string;
@@ -1311,6 +1317,10 @@ export interface BlogPostRow {
   model_used: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
+  // Blog GEO / E-E-A-T fields (US-304). Nullable/defaulted → legacy posts OK.
+  author: string | null;
+  key_takeaways: string[];
+  faqs: BlogFaq[];
   created_at: string;
   updated_at: string;
 }

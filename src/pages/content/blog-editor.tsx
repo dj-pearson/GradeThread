@@ -84,6 +84,10 @@ interface BlogPostShape {
   generated_by: "ai" | "human";
   model_used: string | null;
   tags?: string[];
+  // Blog GEO / E-E-A-T fields (US-304).
+  author: string | null;
+  key_takeaways: string[];
+  faqs: { q: string; a: string }[];
 }
 
 function Editor({
@@ -113,6 +117,15 @@ function Editor({
   );
   const [heroPrompt, setHeroPrompt] = useState(initial.hero_prompt ?? "");
   const [tags, setTags] = useState((initial.tags ?? []).join(", "));
+  // GEO / E-E-A-T (US-304): byline, answer-first takeaways (one per line),
+  // and FAQs ("Question | Answer" per line).
+  const [author, setAuthor] = useState(initial.author ?? "");
+  const [keyTakeaways, setKeyTakeaways] = useState(
+    (initial.key_takeaways ?? []).join("\n"),
+  );
+  const [faqsText, setFaqsText] = useState(
+    (initial.faqs ?? []).map((f) => `${f.q} | ${f.a}`).join("\n"),
+  );
 
   const [body, setBody] = useState(initial.body_html);
   const [editor, setEditor] = useState<TiptapEditorInstance | null>(null);
@@ -140,6 +153,19 @@ function Editor({
     return () => clearTimeout(t);
   }, [body, update]);
 
+  // Parse the "Question | Answer" textarea into structured FAQ pairs.
+  const parseFaqs = (raw: string): { q: string; a: string }[] =>
+    raw
+      .split("\n")
+      .map((line) => {
+        const idx = line.indexOf("|");
+        if (idx === -1) return null;
+        const q = line.slice(0, idx).trim();
+        const a = line.slice(idx + 1).trim();
+        return q && a ? { q, a } : null;
+      })
+      .filter((f): f is { q: string; a: string } => f !== null);
+
   const saveMeta = async () => {
     await update.mutateAsync({
       title,
@@ -158,6 +184,13 @@ function Editor({
         .split(",")
         .map((s) => s.trim().toLowerCase())
         .filter(Boolean),
+      // GEO / E-E-A-T fields (US-304).
+      author: author.trim() || null,
+      key_takeaways: keyTakeaways
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      faqs: parseFaqs(faqsText),
     });
     toast.success("Saved.");
   };
@@ -375,6 +408,49 @@ function Editor({
                   onChange={(e) => setTags(e.target.value)}
                   placeholder="grading, denim, vintage"
                 />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Answer engine (GEO)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <Label htmlFor="bp-author">Author byline</Label>
+                <Input
+                  id="bp-author"
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                  placeholder="e.g. Jane Doe (blank → GradeThread Team)"
+                />
+              </div>
+              <div>
+                <Label htmlFor="bp-takeaways">Key takeaways (one per line)</Label>
+                <Textarea
+                  id="bp-takeaways"
+                  value={keyTakeaways}
+                  onChange={(e) => setKeyTakeaways(e.target.value)}
+                  rows={4}
+                  placeholder={"Answer-first summary bullet\nAnother key point"}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Shown as an answer-first summary near the top.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="bp-faqs">FAQs (Question | Answer per line)</Label>
+                <Textarea
+                  id="bp-faqs"
+                  value={faqsText}
+                  onChange={(e) => setFaqsText(e.target.value)}
+                  rows={5}
+                  placeholder={"What is X? | X is …\nHow do I Y? | You can …"}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Rendered on-page and as FAQPage structured data.
+                </p>
               </div>
             </CardContent>
           </Card>

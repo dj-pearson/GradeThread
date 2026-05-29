@@ -24,7 +24,10 @@ export function CookieConsent() {
       role="dialog"
       aria-label="Cookie consent"
       aria-live="polite"
-      className="fixed inset-x-0 bottom-0 z-[100] border-t bg-background/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80"
+      // Fixed overlay → it never shifts document flow (no CLS). The reserved
+      // min-height keeps the banner's own box stable so its content doesn't
+      // reflow as it mounts (US-305).
+      className="fixed inset-x-0 bottom-0 z-[100] min-h-20 border-t bg-background/95 p-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80"
     >
       <div className="mx-auto flex max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">

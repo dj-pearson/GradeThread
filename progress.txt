@@ -1966,3 +1966,110 @@ blocks, author byline E-E-A-T, related posts, visible dateModified -- needs a
 blog_posts migration for author/key_takeaways/faqs + SSR/editor wiring), then
 US-305 (Core Web Vitals), US-306 (responsive images), US-307 (dynamic OG
 images), US-308 (GSC/Bing ingestion), US-309 (admin SEO dashboard).
+
+
+## Session Notes (2026-05-29 cont.) -- US-304 blog GEO / E-E-A-T
+
+Shipped blog GEO enhancements end to end: answer-first structure, auto TOC,
+on-page FAQ + FAQPage JSON-LD, author byline (E-E-A-T), visible "Updated
+<date>", and related-posts internal linking.
+
+Schema:
+- Migration 00051_blog_geo_fields.sql adds blog_posts.author (text),
+  key_takeaways (text[] default '{}'), faqs (jsonb default '[]'). All
+  nullable/defaulted -> existing posts render unchanged (graceful fallback).
+  MUST be applied to the self-hosted Supabase.
+
+Edge:
+- content-public.ts: POST_COLUMNS returns author/key_takeaways/faqs.
+  /posts/:slug normalizes faqs (drops malformed {q,a}) and attaches related[]
+  -- published posts sharing >=1 tag, ranked by shared-tag count then recency,
+  capped at 3 (empty when no tags). Preview endpoint normalizes faqs too.
+- content-blog.ts UpdateInput accepts author/key_takeaways/faqs so the autosave
+  PATCH persists them.
+
+SSR (functions/blog/[[path]].ts + pure helpers in functions/_shared/
+blog-render.ts):
+- Answer-first key-takeaways block near the top.
+- Auto table-of-contents from the body's H2s: buildTableOfContents() injects +
+  de-dupes anchor ids and returns a TOC nav (shown only for 2+ headings).
+- On-page FAQ section + a FAQPage JSON-LD node, added alongside the existing
+  Article + BreadcrumbList.
+- Visible author byline ("By <author>", falls back to "GradeThread Team") and a
+  Person author in the Article JSON-LD for E-E-A-T.
+- Visible "Updated <date>" when updated_at's date is after published_at.
+- Related-posts block at the bottom.
+- Moved formatDate into the shared module; helpers are pure (no CF globals).
+
+Editor (blog-editor.tsx): new "Answer engine (GEO)" card -- author input,
+key-takeaways textarea (one per line), FAQs textarea ("Question | Answer" per
+line, parsed to {q,a}). BlogPostRow/BlogFaq types extended in
+src/types/database.ts.
+
+Tests: new src/test/blog-geo.test.ts (18 cases) covers TOC id/de-dupe/strip/
+threshold, key-takeaways, FAQ render + FAQPage LD parity, related cards, author
+Person/Org fallback, updated-after-publish, and empty/legacy graceful fallback.
+
+Verification: tsc -b (app) + tsc -p tsconfig.functions.json exit 0; vitest
+80/80; eslint clean. (Deno not installed locally; edge service is Deno-checked
+in CI -- changes are additive supabase-js queries + typed helpers.)
+prd.json 237/309 (US-304 passes=true).
+
+Recommended next: US-305 (Core Web Vitals: web-vitals reporting via the consent
+flow, LCP/CLS fixes, Lighthouse CI budget, docs/SEO_PERFORMANCE.md), then US-306
+(responsive images), US-307 (dynamic OG images), US-308 (GSC/Bing ingestion),
+US-309 (admin SEO dashboard).
+
+
+## Session Notes (2026-05-29 cont.) -- US-305 Core Web Vitals + budget
+
+Field measurement, lab CI budget, and the layout-shift/LCP fixes.
+
+Field (real users):
+- New src/lib/web-vitals.ts: subscribes to LCP/INP/CLS/TTFB via the web-vitals
+  library (added as a dependency) and reports each once per load to GA
+  (web_vitals event, non_interaction) + PostHog (web_vitals capture). CLS is
+  sent x1000 as an integer; the rest are whole ms. buildVitalEvent() is the
+  pure mapping core.
+- CONSENT-GATED: startWebVitals() is invoked only from startAnalytics()
+  (src/lib/analytics.ts) after cookie-banner opt-in; web-vitals is lazy-imported
+  so decliners never download it.
+
+Layout-shift / LCP fixes:
+- index.html: Inter now loads non-render-blocking (<link rel=preload as=style
+  onload=this.rel='stylesheet'> + <noscript> fallback, display=swap) over the
+  system-font fallback stack already in index.css. The marketing/landing LCP
+  element is the hero <h1> text, so it paints instantly in the fallback and
+  swaps to Inter -- no render-blocking stylesheet in the critical path.
+- Above-the-fold logos (landing + marketing-layout headers) get explicit
+  width/height + fetchPriority=high; footer logos get width/height +
+  loading=lazy. Kills CLS from late-sizing images.
+- Cookie banner: fixed overlay (never shifts document flow) with a reserved
+  min-h-20 so its own box doesn't reflow as it mounts.
+
+Lab (CI):
+- New .github/workflows/lighthouse.yml: builds the PRERENDERED dist and runs
+  treosh/lighthouse-ci-action (desktop preset, 3 runs/median) against /,
+  /condition-grading, /how-it-works. Budgets in lighthouserc.json at WARN level
+  (LCP<2.5s, CLS<0.1, TBT<200ms as the INP lab proxy, performance>=0.9). The
+  collect step is continue-on-error and the job upserts a NON-BLOCKING PR
+  comment (per-page scores + report links) via actions/github-script. Merge
+  gate stays ci.yml.
+
+Docs: docs/SEO_PERFORMANCE.md -- budgets table, where field vitals land (GA +
+PostHog event shapes), the codebase safeguards, and `npx @lhci/cli autorun`.
+
+Tests: src/lib/__tests__/web-vitals.test.ts (3 cases) covers buildVitalEvent
+(ms rounding, CLS x1000, field passthrough).
+
+Verification: tsc -b (app) + tsc -p tsconfig.functions.json exit 0; vitest
+83/83; eslint clean; npm run build green (22 prerendered pages; confirmed the
+font preload, fetchPriority, and single <title> survive prerender).
+prd.json 238/309 (US-305 passes=true).
+
+Recommended next: US-306 (responsive images: srcset/sizes + AVIF/WebP, a
+reusable <Image> helper, R2 derivatives for blog heroes, landing-hero srcset
+smoke test), then US-307 (dynamic OG images), US-308 (GSC/Bing ingestion),
+US-309 (admin SEO dashboard). NOTE: US-306 may be light on the marketing pages
+(few raster images beyond the PNG logo) -- main payoff is blog hero/content
+images (R2) and converting the logo PNGs to responsive sources.

@@ -22,10 +22,81 @@ const DEFAULT_LIMIT = 20;
 const POST_COLUMNS =
   "id, slug, title, excerpt, body_html, product_focus, hero_image_url, " +
   "seo_title, seo_description, primary_keyword, secondary_keywords, " +
-  "reading_time_min, published_at, updated_at, jsonld";
+  "reading_time_min, published_at, updated_at, jsonld, " +
+  // Blog GEO / E-E-A-T fields (US-304).
+  "author, key_takeaways, faqs";
 const LIST_COLUMNS =
   "id, slug, title, excerpt, product_focus, hero_image_url, primary_keyword, " +
   "reading_time_min, published_at, updated_at";
+
+// Max related posts surfaced on an article (US-304).
+const MAX_RELATED = 3;
+
+/**
+ * Normalize the jsonb `faqs` column into a clean array of {q,a} string pairs.
+ * Defensive: the column is admin-written but feeds public FAQPage JSON-LD, so
+ * drop anything malformed rather than emit broken structured data.
+ */
+function normalizeFaqs(raw: unknown): Array<{ q: string; a: string }> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ q: string; a: string }> = [];
+  for (const item of raw) {
+    if (item && typeof item === "object") {
+      const q = (item as Record<string, unknown>).q;
+      const a = (item as Record<string, unknown>).a;
+      if (typeof q === "string" && typeof a === "string" && q.trim() && a.trim()) {
+        out.push({ q: q.trim(), a: a.trim() });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Related published posts that share at least one tag with the given post,
+ * ranked by shared-tag count then recency. Returns LIST_COLUMNS-shaped rows.
+ * Empty when the post has no tags (graceful — the SSR omits the block).
+ */
+async function fetchRelated(
+  postId: string,
+  tags: string[],
+): Promise<unknown[]> {
+  if (tags.length === 0) return [];
+
+  const { data: tagRows } = await supabaseAdmin
+    .from("blog_post_tags")
+    .select("post_id, tag")
+    .in("tag", tags)
+    .neq("post_id", postId);
+
+  // Count shared tags per candidate post.
+  const shareCount = new Map<string, number>();
+  for (const r of tagRows ?? []) {
+    const pid = r.post_id as string;
+    shareCount.set(pid, (shareCount.get(pid) ?? 0) + 1);
+  }
+  if (shareCount.size === 0) return [];
+
+  const candidateIds = Array.from(shareCount.keys());
+  const { data: posts } = await supabaseAdmin
+    .from("blog_posts")
+    .select(LIST_COLUMNS)
+    .eq("status", "published")
+    .in("id", candidateIds)
+    .limit(50);
+
+  return (posts ?? [])
+    .sort((a, b) => {
+      const sa = shareCount.get((a as { id: string }).id) ?? 0;
+      const sb = shareCount.get((b as { id: string }).id) ?? 0;
+      if (sb !== sa) return sb - sa;
+      // Tie-break: newest first.
+      const pa = (a as { published_at: string }).published_at ?? "";
+      const pb = (b as { published_at: string }).published_at ?? "";
+      return pb.localeCompare(pa);
+    })
+    .slice(0, MAX_RELATED);
+}
 
 // ── GET /posts ────────────────────────────────────────────
 // Cursor pagination by published_at (newest first). Cursor is the
@@ -73,7 +144,17 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
     .eq("post_id", post.id);
   const tags = (tagRows ?? []).map((r) => r.tag as string);
 
-  return c.json({ post: { ...post, tags } });
+  // GEO enhancements (US-304): normalized FAQs + related posts (by shared tag).
+  const related = await fetchRelated(post.id, tags);
+
+  return c.json({
+    post: {
+      ...post,
+      tags,
+      faqs: normalizeFaqs((post as { faqs?: unknown }).faqs),
+      related,
+    },
+  });
 });
 
 // ── GET /tags/:tag ────────────────────────────────────────
@@ -125,7 +206,11 @@ contentPublicRoutes.get("/posts/preview/:token", async (c) => {
   const tags = (tagRows ?? []).map((r) => r.tag as string);
 
   return c.json({
-    post: { ...post, tags },
+    post: {
+      ...post,
+      tags,
+      faqs: normalizeFaqs((post as { faqs?: unknown }).faqs),
+    },
     preview: true,
     expires_at: new Date(verified.expiresAt * 1000).toISOString(),
   });

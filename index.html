@@ -31,10 +31,21 @@
     <meta name="twitter:description" content="Standardize pre-owned clothing grades with AI. Build buyer trust, reduce returns, and sell faster." />
     <!-- prerender:head:end -->
 
-    <!-- Inter font -->
+    <!-- Inter font (US-305). Loaded non-render-blocking: the stylesheet is
+         fetched as a preload and promoted to a stylesheet onload, so the hero
+         H1 (the LCP element) paints immediately in the system fallback and
+         swaps to Inter when ready (display=swap). <noscript> covers no-JS. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
+    </noscript>
 
     <!-- Google tag (gtag.js) with Consent Mode v2 — denied until the user
          opts in via the cookie banner (GDPR/CCPA). The banner calls

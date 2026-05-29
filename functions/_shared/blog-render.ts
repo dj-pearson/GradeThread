@@ -23,6 +23,11 @@ export interface PublicPostListItem {
   updated_at: string;
 }
 
+export interface BlogFaq {
+  q: string;
+  a: string;
+}
+
 export interface PublicPost extends PublicPostListItem {
   body_html: string;
   seo_title: string | null;
@@ -30,6 +35,11 @@ export interface PublicPost extends PublicPostListItem {
   secondary_keywords: string[];
   jsonld: Record<string, unknown> | null;
   tags: string[];
+  // Blog GEO / E-E-A-T fields (US-304). Optional → legacy posts render fine.
+  author?: string | null;
+  key_takeaways?: string[];
+  faqs?: BlogFaq[];
+  related?: PublicPostListItem[];
 }
 
 // Defaults. The Pages Function reads context.env first; these are fallbacks
@@ -123,6 +133,27 @@ const BASE_STYLES = `
   .tag-list a:hover { background: var(--accent); color: white; }
   .cta { display: inline-block; margin-top: 24px; padding: 12px 24px; background: var(--accent); color: white; text-decoration: none; border-radius: 6px; font-weight: 500; }
   .cta:hover { background: #0a274a; text-decoration: none; }
+  .post-meta .author { font-weight: 600; color: var(--fg); }
+  .post-meta .updated { color: var(--accent); }
+  .key-takeaways { background: #f9fafb; border: 1px solid #e5e7eb; border-left: 4px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 0 0 24px; }
+  .key-takeaways h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 0 0 8px; }
+  .key-takeaways ul { margin: 0 0 0 20px; }
+  .key-takeaways li { margin: 6px 0; }
+  .toc { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 20px; margin: 0 0 32px; font-size: 0.95rem; }
+  .toc-title { font-weight: 600; margin: 0 0 8px; }
+  .toc ul { margin: 0 0 0 18px; }
+  .toc li { margin: 4px 0; }
+  .faq { margin-top: 48px; }
+  .faq dl { margin: 16px 0 0; }
+  .faq dt { font-weight: 600; margin-top: 16px; }
+  .faq dd { margin: 4px 0 0; color: var(--muted); }
+  .related { margin-top: 48px; border-top: 1px solid #e5e7eb; padding-top: 24px; }
+  .related-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 640px) { .related-grid { grid-template-columns: repeat(3, 1fr); } }
+  .related-card { display: block; padding: 16px; border: 1px solid #e5e7eb; border-radius: 8px; text-decoration: none; color: inherit; }
+  .related-card:hover { background: #f9fafb; }
+  .related-card h3 { margin: 0 0 6px; font-size: 1rem; }
+  .related-card p { margin: 0; color: var(--muted); font-size: 0.875rem; }
 `;
 
 export function renderLayout(input: LayoutInput): string {
@@ -192,6 +223,163 @@ export function notFoundResponse(env: PagesEnv): Response {
     }),
     { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
+}
+
+// ─── Blog GEO helpers (US-304) ────────────────────────────────────────────
+// Pure functions (no Cloudflare globals) so they're unit-testable. They power
+// the answer-first key-takeaways block, the auto table-of-contents, on-page FAQ
+// + FAQPage JSON-LD, the author byline, the visible "Updated <date>", and the
+// related-posts internal-link block on each article.
+
+/** Human date, e.g. "March 5, 2026". Falls back to the raw ISO on parse error. */
+export function formatDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Strip tags + collapse whitespace from a heading's inner HTML. */
+function stripTags(s: string): string {
+  return s.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+}
+
+/** Slugify a heading into a stable anchor id. */
+export function slugifyHeading(text: string): string {
+  return (
+    stripTags(text)
+      .toLowerCase()
+      .replace(/&[a-z]+;/g, " ") // drop entities like &amp;
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 60) || "section"
+  );
+}
+
+/**
+ * Scan rendered body HTML for <h2> headings, ensure each carries a unique id
+ * (so the TOC can anchor to it), and return the rewritten HTML plus the TOC
+ * entries. Idempotent: existing ids are preserved and de-duplicated.
+ */
+export function buildTableOfContents(html: string): {
+  html: string;
+  toc: Array<{ id: string; text: string }>;
+} {
+  const toc: Array<{ id: string; text: string }> = [];
+  const used = new Set<string>();
+  const out = html.replace(
+    /<h2\b([^>]*)>([\s\S]*?)<\/h2>/gi,
+    (match, attrs: string, inner: string) => {
+      const text = stripTags(inner);
+      if (!text) return match;
+      const existing = attrs.match(/\bid="([^"]+)"/i)?.[1];
+      let id = existing ?? slugifyHeading(text);
+      let unique = id;
+      let n = 2;
+      while (used.has(unique)) unique = `${id}-${n++}`;
+      id = unique;
+      used.add(id);
+      toc.push({ id, text });
+      const newAttrs = existing
+        ? attrs.replace(/\bid="[^"]*"/i, `id="${id}"`)
+        : `${attrs} id="${id}"`;
+      return `<h2${newAttrs}>${inner}</h2>`;
+    },
+  );
+  return { html: out, toc };
+}
+
+/** Answer-first key-takeaways block. Empty string when there's nothing to show. */
+export function renderKeyTakeaways(items: string[] | undefined | null): string {
+  const clean = (items ?? []).map((s) => s.trim()).filter(Boolean);
+  if (clean.length === 0) return "";
+  const lis = clean.map((t) => `<li>${escape(t)}</li>`).join("");
+  return `<aside class="key-takeaways"><h2>Key takeaways</h2><ul>${lis}</ul></aside>`;
+}
+
+/** Table-of-contents nav. Only worthwhile with 2+ headings; else empty string. */
+export function renderTableOfContents(
+  toc: Array<{ id: string; text: string }>,
+): string {
+  if (toc.length < 2) return "";
+  const lis = toc
+    .map((h) => `<li><a href="#${escape(h.id)}">${escape(h.text)}</a></li>`)
+    .join("");
+  return `<nav class="toc" aria-label="Table of contents"><p class="toc-title">On this page</p><ul>${lis}</ul></nav>`;
+}
+
+/** Visible on-page FAQ. Empty string when there are no FAQs. */
+export function renderFaqSection(faqs: BlogFaq[] | undefined | null): string {
+  const clean = (faqs ?? []).filter((f) => f?.q?.trim() && f?.a?.trim());
+  if (clean.length === 0) return "";
+  const items = clean
+    .map(
+      (f) =>
+        `<dt>${escape(f.q.trim())}</dt><dd>${escape(f.a.trim())}</dd>`,
+    )
+    .join("");
+  return `<section class="faq"><h2>Frequently asked questions</h2><dl>${items}</dl></section>`;
+}
+
+/** FAQPage JSON-LD for the article's FAQs, or null when there are none. */
+export function faqPageJsonLd(
+  faqs: BlogFaq[] | undefined | null,
+): Record<string, unknown> | null {
+  const clean = (faqs ?? []).filter((f) => f?.q?.trim() && f?.a?.trim());
+  if (clean.length === 0) return null;
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: clean.map((f) => ({
+      "@type": "Question",
+      name: f.q.trim(),
+      acceptedAnswer: { "@type": "Answer", text: f.a.trim() },
+    })),
+  };
+}
+
+/** Related-posts internal-link block (by shared tag). Empty when none. */
+export function renderRelatedPosts(
+  related: PublicPostListItem[] | undefined | null,
+): string {
+  const clean = (related ?? []).filter((p) => p?.slug && p?.title);
+  if (clean.length === 0) return "";
+  const cards = clean
+    .map(
+      (p) =>
+        `<a class="related-card" href="/blog/${escape(p.slug)}"><h3>${escape(
+          p.title,
+        )}</h3>${p.excerpt ? `<p>${escape(p.excerpt)}</p>` : ""}</a>`,
+    )
+    .join("");
+  return `<section class="related"><h2>Keep reading</h2><div class="related-grid">${cards}</div></section>`;
+}
+
+/** Article author node — a Person for E-E-A-T, else the GradeThread Team org. */
+export function articleAuthorLd(
+  author: string | null | undefined,
+  siteUrl: string,
+): Record<string, unknown> {
+  const name = author?.trim();
+  return name
+    ? { "@type": "Person", name }
+    : { "@type": "Organization", name: "GradeThread Team", url: siteUrl };
+}
+
+/** True when the post was meaningfully updated after publish (date differs). */
+export function wasUpdatedAfterPublish(
+  publishedAt: string | null | undefined,
+  updatedAt: string | null | undefined,
+): boolean {
+  if (!publishedAt || !updatedAt) return false;
+  const p = publishedAt.slice(0, 10);
+  const u = updatedAt.slice(0, 10);
+  return u > p;
 }
 
 // Best-effort JSON fetch from the edge API. Returns null on any error so

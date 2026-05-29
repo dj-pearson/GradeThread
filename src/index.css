@@ -4,7 +4,9 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Inter is loaded via <link rel="stylesheet"> in index.html. A previous
+/* Inter is loaded non-render-blocking via <link rel="preload" as="style"> in
+   index.html (US-305), with display=swap so the hero H1 (LCP) paints in the
+   system fallback immediately and swaps to Inter when ready. A previous
    @font-face block here pointed `src:` at the Google Fonts CSS endpoint
    (a stylesheet, not a font binary), which the browser tried to parse as
    OpenType — producing repeated "OTS parsing error: invalid sfntVersion:

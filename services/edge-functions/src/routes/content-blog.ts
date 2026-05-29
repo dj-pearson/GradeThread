@@ -65,6 +65,10 @@ interface UpdateInput extends Partial<CreateInput> {
   reading_time_min?: number | null;
   scheduled_for?: string | null;
   tags?: string[];
+  // Blog GEO / E-E-A-T fields (US-304).
+  author?: string | null;
+  key_takeaways?: string[];
+  faqs?: Array<{ q: string; a: string }>;
 }
 
 function slugify(s: string): string {

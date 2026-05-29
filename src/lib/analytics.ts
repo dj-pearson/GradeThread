@@ -51,6 +51,12 @@ export async function startAnalytics() {
       },
     });
   }
+
+  // Real-user Core Web Vitals (US-305). Consent-gated by living here: it only
+  // runs once the visitor has opted in. Lazy-imports the web-vitals library so
+  // its code never downloads for visitors who decline.
+  const { startWebVitals } = await import("./web-vitals");
+  void startWebVitals();
 }
 
 export function acceptConsent() {

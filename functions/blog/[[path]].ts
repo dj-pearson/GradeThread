@@ -11,10 +11,19 @@
 import {
   escape,
   fetchJson,
+  formatDate,
   notFoundResponse,
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
+  buildTableOfContents,
+  renderKeyTakeaways,
+  renderTableOfContents,
+  renderFaqSection,
+  faqPageJsonLd,
+  renderRelatedPosts,
+  articleAuthorLd,
+  wasUpdatedAfterPublish,
   type PagesEnv,
   type PublicPost,
   type PublicPostListItem,
@@ -165,16 +174,34 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       ? `/?utm_source=blog&utm_medium=organic&utm_campaign=${encodeURIComponent(post.slug)}#flipdesk`
       : `/?utm_source=blog&utm_medium=organic&utm_campaign=${encodeURIComponent(post.slug)}`;
 
+  // GEO enhancements (US-304): author byline + visible "Updated <date>",
+  // answer-first key-takeaways, auto TOC from the body's H2s, on-page FAQ,
+  // and a related-posts internal-link block.
+  const authorName = post.author?.trim() || "GradeThread Team";
+  const updatedHtml = wasUpdatedAfterPublish(post.published_at, post.updated_at)
+    ? `<span class="sep">·</span><span class="updated">Updated <time datetime="${escape(
+        post.updated_at,
+      )}">${escape(formatDate(post.updated_at))}</time></span>`
+    : "";
+  const { html: bodyWithAnchors, toc } = buildTableOfContents(post.body_html);
+
   const bodyHtml = `<main class="container">
   ${heroHtml}
   <h1>${escape(post.title)}</h1>
   <div class="post-meta">
+    <span class="author">By ${escape(authorName)}</span>
+    <span class="sep">·</span>
     <time datetime="${escape(post.published_at)}">${escape(formatDate(post.published_at))}</time>
     ${post.reading_time_min ? `<span class="sep">·</span>${post.reading_time_min} min read` : ""}
+    ${updatedHtml}
   </div>
   ${tagsHtml}
-  <article>${post.body_html}</article>
+  ${renderKeyTakeaways(post.key_takeaways)}
+  ${renderTableOfContents(toc)}
+  <article>${bodyWithAnchors}</article>
+  ${renderFaqSection(post.faqs)}
   <a class="cta" href="${escape(ctaHref)}">${escape(ctaText)} &rarr;</a>
+  ${renderRelatedPosts(post.related)}
 </main>`;
 
   // Article schema — prefer model-supplied jsonld if present, else build one.
@@ -187,11 +214,8 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
     datePublished: post.published_at,
     dateModified: post.updated_at,
     mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
-    author: {
-      "@type": "Organization",
-      name: "GradeThread Team",
-      url: siteUrl(env),
-    },
+    // E-E-A-T author signal (US-304): a named Person when supplied, else the team.
+    author: articleAuthorLd(post.author, siteUrl(env)),
     publisher: organizationLd(env),
     keywords:
       [post.primary_keyword, ...(post.secondary_keywords ?? [])]
@@ -210,13 +234,17 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
     ],
   };
 
+  // FAQPage node (US-304) — emitted in addition to the Article so AI answer
+  // engines can extract the Q&A even though Google dropped FAQ rich results.
+  const faqLd = faqPageJsonLd(post.faqs);
+
   return new Response(
     renderLayout({
       title,
       description,
       canonicalUrl: canonical,
       ogImage: post.hero_image_url,
-      jsonLd: [articleLd, breadcrumbLd],
+      jsonLd: [articleLd, breadcrumbLd, ...(faqLd ? [faqLd] : [])],
       bodyHtml,
     }),
     {
@@ -338,18 +366,6 @@ function organizationLd(env: PagesEnv) {
     logo: `${siteUrl(env)}/logo_icon_512.png`,
     sameAs: ["https://github.com/dj-pearson"],
   };
-}
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
 }
 
 function formatDateTime(iso: string): string {
