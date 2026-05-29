@@ -79,7 +79,10 @@
       "WebFetch(domain:www.youtube.com)",
       "WebFetch(domain:autolister.io)",
       "mcp__plugin_playwright_playwright__browser_snapshot",
-      "Bash(Find C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\src\\\\types -name \"*.ts\")"
+      "Bash(Find C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\src\\\\types -name \"*.ts\")",
+      "PowerShell(Get-Command *)",
+      "PowerShell(irm https://deno.land/install.ps1 | iex; $env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; deno --version)",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; Set-Location services\\\\edge-functions; deno check src/main.ts 2>&1 | Select-Object -Last 40)"
     ]
   },
   "hooks": {

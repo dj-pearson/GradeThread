@@ -1,8 +1,8 @@
-# Pin to a recent Deno 1.x.
-# 1.42 (Apr 2024) is too old to reliably resolve current Hono/esm.sh deps during
-# `deno cache`. 1.46.x (Sep 2024) is the last 1.x and is what Supabase Edge
-# Functions ship — safest baseline for our deps.
-FROM denoland/deno:debian-1.46.3
+# Pin to Deno 2.x.
+# deno.lock is lockfile "version": 5, which requires Deno 2.x — Deno 1.46.x
+# cannot read a v5 lock and fails `deno cache` at build time. Stay on the debian
+# (glibc) variant: more compatible than alpine for esm.sh deps.
+FROM denoland/deno:debian-2.8.0
 
 WORKDIR /app
 
