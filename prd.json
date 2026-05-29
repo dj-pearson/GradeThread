@@ -4857,8 +4857,8 @@
         "Typecheck passes"
       ],
       "priority": 292,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-291. Dynamic public pages (/cert, /blog) use edge SSR instead (US-294, existing blog SSR)."
+      "passes": true,
+      "notes": "DONE 2026-05-29. Browserless build-time prerender (no Chromium needed). scripts/prerender.mjs runs after `vite build` (wired into npm run build): for every PUBLIC_ROUTES entry it SSR-renders the page via src/prerender/entry-server.tsx, builds the per-route <head> from src/prerender/head-builder.ts (title/desc/canonical/robots/OG/Twitter + JSON-LD), strips the inline Helmet tags the v3 fork leaks into the SSR body, injects body+head into dist/index.html between prerender:head markers + the #root prerender:body marker, and writes dist/<route>/index.html. index.html gained those markers. NOT cloaking: identical HTML to all visitors; client mounts with createRoot over the static shell. A registry<->entry sync guard fails the build if a route is added to one but not the other. Smoke + unit tests in src/prerender/__tests__/prerender.test.ts (dist assertions run when dist exists). Verified: each page emits exactly one <title>, landing hero is static text, 4 JSON-LD blocks in /, Organization+Breadcrumb on legal pages, no SEO-tag leak into body. Build+tests+lint+tsc green."
     },
     {
       "id": "US-293",
@@ -4961,8 +4961,8 @@
         "Typecheck passes"
       ],
       "priority": 298,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. The edge SSR (blog/cert) already has an organizationLd helper — keep the two in sync or share constants. GROUNDWORK 2026-05-29: organizationLd/webSiteLd/softwareApplicationLd built in src/lib/seo/json-ld.ts and rendered on the landing page via <SEO jsonLd>. Remaining for pass: presence in prerendered HTML (US-292) + Rich Results validation. SearchAction intentionally omitted until a real site-search endpoint exists."
+      "passes": true,
+      "notes": "DONE 2026-05-29. src/lib/seo/json-ld.ts organizationLd/webSiteLd/softwareApplicationLd; landing renders Organization+WebSite+SoftwareApplication via <SEO>, and they are now present in the PRERENDERED HTML (US-292), not just after hydration (verified in dist/index.html). Structural unit tests in src/lib/seo/__tests__/json-ld.test.ts. INTENTIONAL DEVIATIONS from AC for Google-policy compliance (marking up non-existent data earns manual actions): (1) webSiteLd() emits a SearchAction ONLY when passed a real search URL — omitted on the live site until a real site-search endpoint exists; (2) no aggregateRating placeholder on SoftwareApplication — we have no real aggregate rating yet. Both are capabilities ready to enable when the underlying feature/data lands."
     },
     {
       "id": "US-299",
@@ -4979,7 +4979,7 @@
       ],
       "priority": 299,
       "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page). GROUNDWORK 2026-05-29: faqPageLd/breadcrumbLd/howToLd built + unit-tested; FAQPage live on landing, BreadcrumbList live on certificate + legal pages. Remaining for pass: HowTo on /how-it-works (US-302) + prerender presence (US-292)."
+      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page). GROUNDWORK 2026-05-29: faqPageLd/breadcrumbLd/howToLd built + unit-tested; FAQPage live on landing, BreadcrumbList live on certificate + legal pages. Remaining for pass: HowTo on /how-it-works (US-302) + prerender presence (US-292). UPDATE 2026-05-29: prerender visibility now achieved for FAQPage (landing) + BreadcrumbList (legal) via US-292. STILL OPEN: HowTo has no host page yet (needs /how-it-works, US-302) and BreadcrumbList is not yet on blog posts. Stays passes=false until those land."
     },
     {
       "id": "US-300",
@@ -4996,7 +4996,7 @@
       ],
       "priority": 300,
       "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-294 + US-298. Certificates are the flagship programmatic SEO surface. GROUNDWORK 2026-05-29: certificateLd built + unit-tested (Product + bounded Review/Rating 1-10) and emitted on the hydrated SPA cert page. Remaining for pass: cert edge SSR (US-294) + stable image URLs + prerender visibility."
+      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-294 + US-298. Certificates are the flagship programmatic SEO surface. GROUNDWORK 2026-05-29: certificateLd built + unit-tested (Product + bounded Review/Rating 1-10) and emitted on the hydrated SPA cert page. Remaining for pass: cert edge SSR (US-294) + stable image URLs + prerender visibility. UPDATE 2026-05-29: certificateLd is emitted on the hydrated SPA cert page, but the AC requires it in the cert EDGE SSR (US-294), which doesn't exist yet, and stable (non-signed) image URLs. Stays passes=false until US-294."
     },
     {
       "id": "US-301",

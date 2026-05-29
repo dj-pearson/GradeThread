@@ -1,0 +1,110 @@
+// Deterministic <head> builder for the build-time prerender (US-292).
+//
+// Why not react-helmet-async? The v3 fork in use renders NOTHING server-side
+// (its SSR `context.helmet` sink comes back empty) and injects no <script>
+// client-side either — verified directly. So the crawlable <head> for each
+// static route is assembled here from the route registry + JSON-LD builders,
+// which is the same data the client <SEO> component uses. Humans still get the
+// full hydrated SPA (and the runtime useEffect JSON-LD); crawlers get this.
+
+import {
+  PUBLIC_ROUTES,
+  SITE_URL,
+  absoluteUrl,
+  type PublicRoute,
+} from "@/lib/seo/public-routes";
+import {
+  organizationLd,
+  webSiteLd,
+  softwareApplicationLd,
+  faqPageLd,
+  breadcrumbLd,
+  type JsonLd,
+} from "@/lib/seo/json-ld";
+import { LANDING_FAQS } from "@/pages/landing-faqs";
+
+const DEFAULT_OG_IMAGE = `${SITE_URL}/logo_icon_512.png`;
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// The <SEO> component renders react-helmet-async <Helmet> children, and this
+// fork emits those tags INLINE into the SSR body instead of collecting them
+// into a head sink. <title>/<meta>/<link rel=canonical> are never valid inside
+// <body>, and the canonical <head> is built separately by buildHeadTags(), so
+// strip the SEO tags from the rendered body before injecting it. (The client
+// re-adds them correctly after mount.)
+export function stripHeadTagsFromBody(body: string): string {
+  return body
+    .replace(/<title>[\s\S]*?<\/title>/gi, "")
+    // Only the SEO meta tags the component emits — leave other markup alone.
+    .replace(
+      /<meta\b[^>]*?\b(?:name="(?:description|robots|keywords|twitter:[^"]*)"|property="og:[^"]*")[^>]*?>/gi,
+      "",
+    )
+    .replace(/<link\b[^>]*?\brel="canonical"[^>]*?>/gi, "");
+}
+
+/** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */
+export function jsonLdForRoute(path: string): JsonLd[] {
+  if (path === "/") {
+    return [organizationLd(), webSiteLd(), softwareApplicationLd(), faqPageLd(LANDING_FAQS)];
+  }
+  // Legal pages render Organization + a 2-level breadcrumb.
+  const route = PUBLIC_ROUTES.find((r) => r.path === path);
+  if (route) {
+    return [
+      organizationLd(),
+      breadcrumbLd([
+        { name: "GradeThread", url: `${SITE_URL}/` },
+        { name: route.title, url: absoluteUrl(path) },
+      ]),
+    ];
+  }
+  return [];
+}
+
+/** Full <head> inner HTML (meta + canonical + OG/Twitter + JSON-LD) for a route. */
+export function buildHeadTags(route: PublicRoute): string {
+  const canonical = absoluteUrl(route.path);
+  const fullTitle =
+    route.path === "/"
+      ? "GradeThread - AI-Powered Clothing Condition Grading"
+      : `${route.title} | GradeThread`;
+  const desc = escapeAttr(route.description);
+  const title = escapeAttr(fullTitle);
+
+  const ld = jsonLdForRoute(route.path)
+    .map(
+      (obj) =>
+        `<script type="application/ld+json" data-seo-jsonld="true">${JSON.stringify(
+          obj,
+        ).replace(/</g, "\\u003c")}</script>`,
+    )
+    .join("\n    ");
+
+  return [
+    `<title>${title}</title>`,
+    `<meta name="description" content="${desc}">`,
+    `<meta name="robots" content="index, follow">`,
+    `<link rel="canonical" href="${escapeAttr(canonical)}">`,
+    `<meta property="og:type" content="website">`,
+    `<meta property="og:title" content="${title}">`,
+    `<meta property="og:description" content="${desc}">`,
+    `<meta property="og:site_name" content="GradeThread">`,
+    `<meta property="og:url" content="${escapeAttr(canonical)}">`,
+    `<meta property="og:image" content="${DEFAULT_OG_IMAGE}">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
+    `<meta name="twitter:title" content="${title}">`,
+    `<meta name="twitter:description" content="${desc}">`,
+    `<meta name="twitter:image" content="${DEFAULT_OG_IMAGE}">`,
+    ld,
+  ]
+    .filter(Boolean)
+    .join("\n    ");
+}

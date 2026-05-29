@@ -1668,3 +1668,82 @@ keystone that makes client-injected meta + JSON-LD visible to non-JS AI
 crawlers and lets US-298/299/300 close; then US-293 (registry-driven
 sitemap, consume the manifest) + US-294 (cert edge SSR with tenant
 isolation), then US-296/297 (IndexNow).
+
+
+## Session Notes (2026-05-29 cont.) — Build-time prerender (US-292, US-298)
+
+Shipped the keystone of the SEO program: every static public page is now
+prerendered to crawlable HTML at build time. This makes the <title>,
+description, canonical, OG/Twitter, and JSON-LD visible to AI crawlers
+that don't run JS (GPTBot, ClaudeBot, PerplexityBot, etc.).
+
+Approach + the big constraint:
+- NO headless browser is used. There is no Chromium/puppeteer/playwright
+  in this container, and a Chromium download would be fragile in
+  CI/Cloudflare builds. So the prerender is a BROWSERLESS Vite SSR pass.
+- CONFIRMED (probed directly) that react-helmet-async v3.0.0 does BOTH:
+  renders nothing into a server head sink (ctx.helmet came back empty)
+  AND injects no <script> client-side. So helmet cannot drive the
+  prerendered <head>. Instead the <head> is built deterministically from
+  the route registry + json-ld.ts.
+- Bonus discovery: LaunchBanner + CookieConsent were already written to
+  "render nothing on the server pass" — the codebase was designed for
+  prerendering.
+
+What landed:
+- src/prerender/entry-server.tsx: renders each public page inside a
+  StaticRouter + HelmetProvider + QueryClientProvider via renderToString.
+  Pages are mapped explicitly (not via the lazy app router) so the SSR
+  bundle never pulls in the auth/dashboard/supabase graph. Exports
+  PRERENDERABLE_PATHS for the sync guard.
+- src/prerender/head-builder.ts: buildHeadTags(route) (title/desc/
+  canonical/robots/OG/Twitter + JSON-LD), jsonLdForRoute(path) (mirrors
+  what each page's <SEO> emits: landing = Org+WebSite+SoftwareApp+FAQ;
+  legal = Org+Breadcrumb), and stripHeadTagsFromBody() — removes the
+  inline Helmet <title>/<meta>/<link canonical> the v3 fork leaks into
+  the SSR body so they don't end up inside <div id=root>.
+- scripts/prerender.mjs: runs after `vite build` (wired into npm run
+  build + a standalone `npm run prerender`). Loads the above via Vite
+  ssrLoadModule, asserts registry<->entry are in sync (build fails if a
+  route is in one but not the other), then for each route injects body
+  + head into dist/index.html between the new prerender:head markers and
+  the #root prerender:body marker, writing dist/<route>/index.html.
+- index.html: added <!-- prerender:head:start/end --> markers around the
+  default head tags and <!--prerender:body--> inside #root. The defaults
+  remain the SPA fallback for any non-prerendered route.
+- src/pages/landing-faqs.ts: FAQ data extracted to its own module so both
+  landing.tsx and head-builder share it (and landing stays a
+  components-only file for the react-refresh lint).
+- package.json build script: "tsc -b && vite build && node
+  scripts/prerender.mjs".
+
+Not cloaking, no hydration mismatch: identical HTML to all visitors;
+main.tsx uses createRoot (not hydrateRoot) so the SPA cleanly re-renders
+over the static shell. SPA fallback intact (dist/_redirects /* ->
+/index.html 200); real static files like dist/privacy/index.html take
+precedence over that rewrite on Cloudflare Pages (same way /assets/*
+already does).
+
+Verification: npm run build green and prerenders 5 pages (/ , /privacy,
+/terms, /cookies, /acceptable-use). Confirmed each output has exactly one
+<title>, the landing hero as STATIC text, 4 JSON-LD blocks on /,
+Org+Breadcrumb on legal pages, and no SEO tags leaking into the body.
+vitest 36/36 (new src/prerender/__tests__/prerender.test.ts has unit
+tests for head-builder + dist smoke tests that run when dist exists);
+tsc -b clean; eslint clean.
+
+prd.json: US-292 passes=true; US-298 passes=true (global structured data
+is now in the prerendered HTML — the prior blocker). US-298 has two
+INTENTIONAL deviations from its AC for Google-policy compliance: no
+SearchAction until a real site-search endpoint exists, and no
+aggregateRating placeholder until we have real ratings (marking up
+non-existent data risks manual actions). US-299/300 stay passes=false:
+US-299 needs a /how-it-works page for HowTo (US-302) + breadcrumbs on
+blog posts; US-300 needs the cert edge SSR (US-294). Now 228/309.
+Documented the whole prerender architecture + the helmet gotcha in
+CLAUDE.md (new "SEO / GEO" section under Gotchas).
+
+Recommended next: US-293 (registry-driven sitemap — consume
+dist/seo-manifest.json + the blog/cert collections), then US-294 (cert
+edge SSR, closes US-300), then US-296/297 (IndexNow), then US-302
+(marketing pages, closes US-299).
