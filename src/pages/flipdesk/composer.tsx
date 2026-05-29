@@ -56,7 +56,7 @@ import {
 import { compositeGradeBadge } from "@/lib/grade-badge";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
-import { cn } from "@/lib/utils";
+import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
@@ -83,6 +83,7 @@ export function FlipdeskComposerPage() {
   const [conditionDesc, setConditionDesc] = useState("");
   const [price, setPrice] = useState("");
   const [priceEstimated, setPriceEstimated] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
   const [badgeEnabled, setBadgeEnabled] = useState(false);
@@ -199,6 +200,7 @@ export function FlipdeskComposerPage() {
       listing?.listing_price ?? item.target_price ?? item.list_price ?? null;
     setPrice(seedPrice != null && seedPrice > 0 ? String(seedPrice) : "");
     setPriceEstimated(listing?.price_is_estimated ?? false);
+    setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
     setBadgeEnabled(listing?.badge_enabled ?? false);
     const seededPrimary =
       listing?.primary_photo_id &&
@@ -359,6 +361,7 @@ export function FlipdeskComposerPage() {
         listing_description: description.trim() || null,
         ebay_condition: ebayCondition || null,
         ebay_condition_description: conditionDesc.trim() || null,
+        scheduled_publish_at: localInputToIso(scheduledAt),
         // Saving = a human reviewed the price, so it's no longer an unverified
         // AI estimate.
         price_is_estimated: false,
@@ -615,6 +618,31 @@ export function FlipdeskComposerPage() {
                     Edit it to confirm.
                   </p>
                 )}
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="schedule-at">Schedule publish (optional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="schedule-at"
+                    type="datetime-local"
+                    value={scheduledAt}
+                    onChange={(e) => setScheduledAt(e.target.value)}
+                    className="max-w-[16rem]"
+                  />
+                  {scheduledAt && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setScheduledAt("")}
+                    >
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to publish immediately when you hit “Publish”.
+                  If set, save the draft and it goes live automatically at that time.
+                </p>
               </div>
             </CardContent>
           </Card>

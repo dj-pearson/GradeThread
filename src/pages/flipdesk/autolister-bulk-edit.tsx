@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
-import { cn } from "@/lib/utils";
+import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 
 // AutoLister bulk spreadsheet editor (US-320). Edit a whole generated batch in
 // a grid — inline title/price/condition/quantity/best-offer — with bulk-apply
@@ -24,6 +24,7 @@ interface DraftRow {
   ebay_condition: string | null;
   quantity: number | null;
   best_offer_enabled: boolean | null;
+  scheduled_publish_at: string | null;
 }
 
 interface EditRow {
@@ -34,6 +35,7 @@ interface EditRow {
   condition: string;
   quantity: string;
   bestOffer: boolean;
+  scheduledAt: string;
   dirty: boolean;
 }
 
@@ -54,7 +56,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled",
+          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -89,6 +91,7 @@ export function FlipdeskAutolisterBulkEditPage() {
   const [markupPct, setMarkupPct] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
   const [bulkQty, setBulkQty] = useState("");
+  const [bulkSchedule, setBulkSchedule] = useState("");
 
   // Seed editable rows once the drafts load.
   useEffect(() => {
@@ -102,6 +105,7 @@ export function FlipdeskAutolisterBulkEditPage() {
         condition: r.ebay_condition ?? "",
         quantity: r.quantity != null ? String(r.quantity) : "1",
         bestOffer: r.best_offer_enabled ?? false,
+        scheduledAt: isoToLocalInput(r.scheduled_publish_at),
         dirty: false,
       })),
     );
@@ -162,6 +166,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                 ebay_condition: r.condition || null,
                 quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
                 best_offer_enabled: r.bestOffer,
+                scheduled_publish_at: localInputToIso(r.scheduledAt),
                 price_is_estimated: false,
               } as never)
               .eq("id", r.id);
@@ -344,6 +349,34 @@ export function FlipdeskAutolisterBulkEditPage() {
             Disable
           </Button>
         </div>
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Schedule publish
+            </label>
+            <Input
+              type="datetime-local"
+              value={bulkSchedule}
+              onChange={(e) => setBulkSchedule(e.target.value)}
+              className="h-8 w-52"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!bulkSchedule}
+            onClick={() => applyToTargets(() => ({ scheduledAt: bulkSchedule }))}
+          >
+            Apply
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => applyToTargets(() => ({ scheduledAt: "" }))}
+          >
+            Clear
+          </Button>
+        </div>
       </Card>
 
       {/* Grid */}
@@ -368,6 +401,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="w-44 p-2">Condition</th>
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
+              <th className="w-52 p-2">Schedule</th>
               <th className="w-10 p-2" />
             </tr>
           </thead>
@@ -455,6 +489,14 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
+                    <Input
+                      type="datetime-local"
+                      value={r.scheduledAt}
+                      onChange={(e) => patchRow(r.id, { scheduledAt: e.target.value })}
+                      className="h-8"
+                    />
+                  </td>
+                  <td className="p-2">
                     {issues.length > 0 && (
                       <span title={issues.join(" • ")}>
                         <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -466,7 +508,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={8} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>

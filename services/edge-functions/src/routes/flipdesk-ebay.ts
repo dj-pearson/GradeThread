@@ -1251,23 +1251,37 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   });
 });
 
-flipdeskEbayRoutes.post("/listings/push", async (c) => {
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const itemId = await readItemId(c);
-  if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+export type PublishItemResult =
+  | {
+    ok: true;
+    listing_id: string;
+    listing_url: string;
+    offer_id: string;
+    sku: string;
+  }
+  | { ok: false; status: 400 | 404 | 422 | 502 | 503; body: Record<string, unknown> };
 
-  const ctx = await assemblePublishContext(userId, itemId);
-  if (!ctx.ok) return c.json(ctx.error, ctx.status);
+// Publish one owned item to eBay (inventory PUT → offer POST → publish POST).
+// Parameterized by ownerId so both the authed /listings/push handler and the
+// scheduled publish-due worker (US-322) reuse the identical flow. Returns a
+// result union instead of an HTTP response so non-HTTP callers can use it.
+export async function publishItemForOwner(
+  ownerId: string,
+  itemId: string,
+): Promise<PublishItemResult> {
+  const ctx = await assemblePublishContext(ownerId, itemId);
+  if (!ctx.ok) return { ok: false, status: ctx.status, body: ctx.error };
   if (ctx.blockers.length > 0 || !ctx.policies) {
-    return c.json(
-      {
+    return {
+      ok: false,
+      status: 422,
+      body: {
         ok: false,
         blockers: ctx.blockers.length > 0
           ? ctx.blockers
           : ["eBay business policies are not configured."],
       },
-      422
-    );
+    };
   }
 
   const { item, listing, photos, policies, sku } = ctx;
@@ -1283,7 +1297,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
 
   try {
     // 2. Push inventory_item (idempotent PUT).
-    await createOrReplaceInventoryItem(userId, sku, {
+    await createOrReplaceInventoryItem(ownerId, sku, {
       product: {
         title: ctx.summary.title,
         description: ctx.summary.description,
@@ -1304,7 +1318,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
     // 3. Create or reuse an offer for this SKU.
     let offerId: string;
     try {
-      const created = await createOffer(userId, {
+      const created = await createOffer(ownerId, {
         sku,
         marketplaceId: getMarketplaceId(),
         format: "FIXED_PRICE",
@@ -1327,19 +1341,20 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
       offerId = created.offerId;
     } catch (err) {
       if (!isOfferAlreadyExistsError(err)) throw err;
-      const existing = await listOffersForSku(userId, sku);
+      const existing = await listOffersForSku(ownerId, sku);
       const found = existing.find((o) => !!o.offerId);
       if (!found) throw err;
       offerId = found.offerId;
     }
 
     // 4. Publish.
-    const published = await publishOffer(userId, offerId);
+    const published = await publishOffer(ownerId, offerId);
     const listingId = published.listingId;
     const url = ebayListingUrl(listingId);
 
     // 5. Persist the live state. Upsert the listings row so a re-publish
-    //    of the same item points at the new eBay listingId.
+    //    of the same item points at the new eBay listingId. synced_to_ebay_at
+    //    marks the draft as live (clears any prior publish failure).
     const listingPayload = {
       inventory_item_id: itemId,
       platform: "ebay" as const,
@@ -1353,6 +1368,9 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
       listing_status: "active" as const,
       is_active: true,
       listed_at: new Date().toISOString(),
+      synced_to_ebay_at: new Date().toISOString(),
+      publish_error: null,
+      publish_failed_at: null,
     };
     if (listing?.id) {
       await supabaseAdmin
@@ -1368,21 +1386,114 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
       .update({ status: "listed" })
       .eq("id", itemId);
 
-    return c.json({
+    return {
       ok: true,
       listing_id: listingId,
       listing_url: url,
       offer_id: offerId,
       sku,
-    });
+    };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] publish failed:", msg);
-    return c.json(
-      { ok: false, error: "Publish failed", detail: msg.slice(0, 1000) },
-      502
-    );
+    return {
+      ok: false,
+      status: 502,
+      body: { ok: false, error: "Publish failed", detail: msg.slice(0, 1000) },
+    };
   }
+}
+
+flipdeskEbayRoutes.post("/listings/push", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const itemId = await readItemId(c);
+  if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+
+  const result = await publishItemForOwner(userId, itemId);
+  if (!result.ok) return c.json(result.body, result.status);
+  return c.json({
+    ok: true,
+    listing_id: result.listing_id,
+    listing_url: result.listing_url,
+    offer_id: result.offer_id,
+    sku: result.sku,
+  });
+});
+
+// Scheduled publishing worker (US-322). Job-secret gated (no user token) like
+// /oauth/refresh — a cron hits this periodically. Publishes every draft whose
+// scheduled_publish_at is due and that isn't already live, AS the listing's
+// owner. Not under authMiddleware (path is /jobs/*, not /listings/*).
+flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
+  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
+  const provided = c.req.header("X-Internal-Job-Secret");
+  if (!expected || !provided || provided !== expected) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const now = new Date().toISOString();
+  // Due = scheduled at/before now, not yet synced live, still a draft. The
+  // lte filter already excludes NULL scheduled_publish_at rows.
+  const { data: dueRows, error } = await supabaseAdmin
+    .from("listings")
+    .select("id, inventory_item_id")
+    .lte("scheduled_publish_at", now)
+    .is("synced_to_ebay_at", null)
+    .eq("listing_status", "draft")
+    .limit(100);
+  if (error) {
+    console.error("[flipdesk-ebay] publish-due scan failed:", error);
+    return c.json({ error: "Scan failed" }, 500);
+  }
+
+  const due = (dueRows ?? []) as { id: string; inventory_item_id: string }[];
+  if (due.length === 0) return c.json({ scanned: 0, published: 0, failed: 0 });
+
+  // Resolve each item's owner (the publish must run as them).
+  const itemIds = Array.from(new Set(due.map((d) => d.inventory_item_id)));
+  const { data: itemRows } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id")
+    .in("id", itemIds);
+  const ownerByItem = new Map(
+    ((itemRows ?? []) as { id: string; user_id: string }[]).map((r) => [r.id, r.user_id]),
+  );
+
+  let published = 0;
+  let failed = 0;
+  for (const row of due) {
+    const owner = ownerByItem.get(row.inventory_item_id);
+    if (!owner) {
+      failed += 1;
+      continue;
+    }
+    try {
+      const result = await publishItemForOwner(owner, row.inventory_item_id);
+      if (result.ok) {
+        published += 1;
+      } else {
+        failed += 1;
+        const b = result.body;
+        const msg = (b.detail ?? b.error ??
+          (Array.isArray(b.blockers) ? (b.blockers as string[]).join("; ") : "Publish failed")) as string;
+        await supabaseAdmin
+          .from("listings")
+          .update({ publish_error: msg.slice(0, 1000), publish_failed_at: now })
+          .eq("id", row.id);
+      }
+    } catch (err) {
+      failed += 1;
+      await supabaseAdmin
+        .from("listings")
+        .update({
+          publish_error: (err instanceof Error ? err.message : String(err)).slice(0, 1000),
+          publish_failed_at: now,
+        })
+        .eq("id", row.id);
+    }
+  }
+
+  return c.json({ scanned: due.length, published, failed });
 });
 
 // Imports an eBay Seller Hub "Payouts" CSV into payout_imports. Server-side
