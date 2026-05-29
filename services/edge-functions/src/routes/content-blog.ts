@@ -9,6 +9,18 @@ import {
 } from "../lib/cloudflare-purge.ts";
 import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 import { mintPreviewToken } from "../lib/preview-token.ts";
+import { submitUrls } from "../lib/indexnow.ts";
+
+// Submit blog-post URLs to IndexNow (US-296) — best-effort, fire-and-forget.
+// Mirrors the cache-purge sites so Bing/Yandex re-index on publish/edit/archive.
+function pingIndexNow(slugs: string[]): void {
+  const base = (Deno.env.get("PUBLIC_SITE_URL") ?? "https://gradethread.com")
+    .trim()
+    .replace(/\/$/, "");
+  submitUrls(slugs.map((s) => `${base}/blog/${s}`)).catch((e) =>
+    console.warn("[content-blog] IndexNow submit failed:", e),
+  );
+}
 
 // Blog posts CRUD + lifecycle endpoints.
 //
@@ -205,6 +217,7 @@ contentBlogRoutes.patch("/:id", async (c) => {
       }
       await purgeCloudflareCache({ files: allFiles });
     })().catch((e) => console.error("[content-blog] edit purge failed:", e));
+    pingIndexNow([...slugsToBust]);
   }
 
   return c.json({ post: data });
@@ -277,6 +290,7 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
   buildBlogPurgeFiles(updated.slug)
     .then((files) => purgeCloudflareCache({ files }))
     .catch((e) => console.error("[content-blog] cache purge failed:", e));
+  pingIndexNow([updated.slug]);
 
   // Resolve tags then fire the Make.com webhook. Best-effort; failures
   // log and surface in content_webhook_log but never roll back publish.
@@ -357,6 +371,7 @@ contentBlogRoutes.post("/:id/archive", async (c) => {
   buildBlogPurgeFiles(data.slug)
     .then((files) => purgeCloudflareCache({ files }))
     .catch((e) => console.error("[content-blog] archive purge failed:", e));
+  pingIndexNow([data.slug]);
 
   return c.json({ post: data });
 });

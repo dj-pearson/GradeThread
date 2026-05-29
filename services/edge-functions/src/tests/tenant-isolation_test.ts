@@ -119,3 +119,41 @@ Deno.test({
     );
   },
 });
+
+// US-294: the anonymous public-certificate endpoint must serve ONLY certified
+// (public) reports. A private/uncertified report's id (whether the internal
+// grade_reports.id or any non-certificate uuid) must 404 — never return data.
+// Set TEST_PRIVATE_REPORT_ID to a grade_reports.id that has NO certificate_id.
+Deno.test({
+  name: "public cert endpoint 404s for a private/uncertified report id",
+  ignore: !BASE || !Deno.env.get("TEST_PRIVATE_REPORT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_PRIVATE_REPORT_ID")!;
+    const res = await fetch(
+      `${BASE}/api/content/public/certificates/${id}`,
+    );
+    const status = res.status;
+    const text = await res.text();
+    assert(
+      status === 404,
+      `private report should 404 from public cert endpoint, got ${status}`,
+    );
+    assert(
+      !text.includes("overall_score") && !text.includes("ai_summary"),
+      "public cert endpoint leaked report fields for a private id",
+    );
+  },
+});
+
+// A random non-existent certificate id must also 404 (no info leak).
+Deno.test({
+  name: "public cert endpoint 404s for an unknown certificate id",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/content/public/certificates/00000000-0000-0000-0000-000000000000`,
+    );
+    await res.body?.cancel();
+    assert(res.status === 404, `unknown cert id should 404, got ${res.status}`);
+  },
+});

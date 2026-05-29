@@ -69,7 +69,7 @@ export function ContentAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <SEO title="Content Analytics" />
+      <SEO title="Content Analytics" noindex />
       <div>
         <h1 className="text-2xl font-bold">Content Analytics</h1>
         <p className="text-sm text-muted-foreground">

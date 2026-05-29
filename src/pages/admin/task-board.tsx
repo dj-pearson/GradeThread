@@ -234,7 +234,7 @@ export function AdminTaskBoardPage() {
 
   return (
     <div className="space-y-4">
-      <SEO title={project ? `${project.title} · Tasks` : "Tasks"} />
+      <SEO title={project ? `${project.title} · Tasks` : "Tasks"} noindex />
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">

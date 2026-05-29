@@ -8,6 +8,7 @@ import {
 } from "./ai-grading.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
+import { submitUrls, certificateUrl } from "./indexnow.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -215,6 +216,14 @@ export async function processSubmission(submissionId: string) {
       console.error("[Pipeline] Failed to create grade report:", reportError);
       throw new Error("Failed to create grade report record");
     }
+
+    // The certificate is public the moment the report exists (its
+    // certificate_id is non-null). Ping IndexNow so Bing/Yandex/etc. index the
+    // new /cert/:id page promptly (US-296). Fire-and-forget — never blocks or
+    // fails grading; no-ops when INDEXNOW_KEY is unset.
+    submitUrls([certificateUrl(certificateId)]).catch((e) =>
+      console.warn("[Pipeline] IndexNow submit failed:", e),
+    );
 
     // --- Step 7: Update submission status to 'completed' ---
     // Flag for moderation if the AI judged the images not to be clothing.

@@ -267,3 +267,12 @@ The full product roadmap is in `prd.json` (Ralph AI format). 100 user stories ac
 - Supabase client throws if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` env vars are missing
 - Storage paths use format `{userId}/{submissionId}/{imageType}_{timestamp}.{ext}`
 - The `handle_new_user()` trigger runs as `SECURITY DEFINER` to bypass RLS when creating profiles
+
+## SEO / GEO (US-291..US-309)
+
+- **Indexable routes are registered** in `src/lib/seo/public-routes.ts` (`PUBLIC_ROUTES`). Adding a public static page means adding it there AND to `src/prerender/entry-server.tsx` — a CI guard test (`src/lib/seo/__tests__/public-routes.test.ts`) and the prerender sync-guard both fail the build otherwise. `dist/seo-manifest.json` is emitted from this registry by a Vite plugin.
+- **Static public pages are prerendered at build time** by `scripts/prerender.mjs` (runs in `npm run build`). It SSR-renders each page (`entry-server.tsx`), builds the `<head>` from `head-builder.ts`, and writes `dist/<route>/index.html`. No headless browser — none is available in CI/Cloudflare builds. Same HTML to humans and bots (no cloaking); the SPA mounts over it with `createRoot`.
+- **GOTCHA: `react-helmet-async` v3 renders NO head server-side and injects NO `<script>` client-side** (verified). So: (1) the `<SEO>` component injects JSON-LD via `useEffect` for the live SPA; (2) the prerender builds the crawlable `<head>` deterministically from the registry + `src/lib/seo/json-ld.ts`, and strips the inline Helmet tags the fork leaks into the SSR body. Add structured data via `<SEO jsonLd=...>`, and mirror it in `head-builder.ts` `jsonLdForRoute()` so it appears in prerendered HTML.
+- **Don't mark up data that doesn't exist** (Google policy): no `SearchAction` until a real site-search endpoint exists, no `aggregateRating` placeholder until real ratings exist.
+- `index.html` has `prerender:head:start`/`prerender:head:end` markers and a `<!--prerender:body-->` marker — don't remove them.
+- Dynamic public surfaces (blog, certificates) are NOT prerendered; they're edge-SSR'd by Cloudflare Pages Functions in `functions/` (blog done; cert SSR = US-294). robots.txt/llms.txt/sitemap.xml/rss.xml are dynamic Pages Functions, not static files.

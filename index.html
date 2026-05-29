@@ -12,6 +12,10 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="FlipDesk" />
+    <!-- prerender:head:start — the build-time prerender (US-292,
+         scripts/prerender.mjs) replaces everything between these markers with
+         per-route <title>/description/canonical/OG/Twitter + JSON-LD. The
+         values below are the default (SPA fallback) for non-prerendered routes. -->
     <title>GradeThread - AI-Powered Clothing Condition Grading</title>
     <meta name="description" content="Standardize pre-owned clothing grades with AI. Build buyer trust, reduce returns, and sell faster with verified condition certificates." />
 
@@ -25,6 +29,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="GradeThread - AI-Powered Clothing Condition Grading" />
     <meta name="twitter:description" content="Standardize pre-owned clothing grades with AI. Build buyer trust, reduce returns, and sell faster." />
+    <!-- prerender:head:end -->
 
     <!-- Inter font -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -50,7 +55,7 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><!--prerender:body--></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

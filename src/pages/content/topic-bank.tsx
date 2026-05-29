@@ -50,7 +50,7 @@ export function TopicBankPage() {
 
   return (
     <div className="space-y-4">
-      <SEO title="Topic Bank" />
+      <SEO title="Topic Bank" noindex />
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold">Topic Bank</h1>

@@ -31,7 +31,7 @@ export function KnowledgePage() {
 
   return (
     <div className="space-y-4">
-      <SEO title="Knowledge Docs" />
+      <SEO title="Knowledge Docs" noindex />
       <div>
         <h1 className="text-2xl font-bold">Knowledge</h1>
         <p className="text-sm text-muted-foreground">
