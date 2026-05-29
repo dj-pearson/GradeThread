@@ -33,7 +33,7 @@ final class AIExtractTests: XCTestCase {
         XCTAssertNotNil(response.suggestions["garment_category"])
         XCTAssertNotNil(response.suggestions["garment_type"])
         XCTAssertEqual(response.suggestions["brand"]?.value, "Patagonia")
-        XCTAssertEqual(response.suggestions["size"]?.confidence, 0.88, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(response.suggestions["size"]?.confidence), 0.88, accuracy: 0.001)
         XCTAssertEqual(response.conditionSummary, "Light wear on cuffs.")
         XCTAssertEqual(response.measurements?["chest"], 22.5)
         XCTAssertEqual(response.actionsRemaining, 47)
