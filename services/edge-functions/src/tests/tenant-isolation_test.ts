@@ -17,6 +17,12 @@
 //   TEST_USER_A_SUBMISSION_ID   a flipdesk_grading_submissions.id
 //   TEST_USER_A_LISTING_ID      a listings.id
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
+//   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
+//   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
+// For the AutoLister batch-enqueue test, user B should ideally be on a plan
+// that includes AutoLister so the OWNERSHIP path is exercised; if B is on a
+// free/starter plan the request is denied earlier with 402 (still a pass —
+// B never touches A's items).
 //
 // Run:  deno task test   (or: deno test --allow-net --allow-env)
 
@@ -155,5 +161,69 @@ Deno.test({
     );
     await res.body?.cancel();
     assert(res.status === 404, `unknown cert id should 404, got ${res.status}`);
+  },
+});
+
+// ── AutoLister (US-324) ──────────────────────────────────────────────
+// The batch generator and queue use the service-role client, so isolation
+// rests on POST /batch verifying every item belongs to the caller, and
+// GET /batch/:id scoping by the batch owner.
+
+// 402 = blocked by the premium feature gate (which runs before the ownership
+// check). Either way user B did NOT enqueue generation for A's items.
+const DENIED_OR_GATED = new Set([401, 402, 403, 404]);
+
+Deno.test({
+  name: "B cannot enqueue an AutoLister batch containing A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/batch`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [itemId] }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_GATED.has(status),
+      `POST autolister/batch with another tenant's item should be denied ` +
+        `(401/402/403/404) but got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "B cannot read A's AutoLister batch status",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_BATCH_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_BATCH_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/batch/${id}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET autolister batch");
+  },
+});
+
+Deno.test({
+  name: "B cannot publish A's item to eBay (bulk-publish reuse path)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/push`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ inventory_item_id: itemId }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    // Item isn't owned by B → the publish-context assembly can't find it.
+    // 422 (unprocessable/blockers) is also acceptable: it did NOT publish.
+    assert(
+      DENIED.has(status) || status === 422,
+      `POST listings/push for another tenant's item should be denied ` +
+        `(401/403/404/422) but got ${status}`,
+    );
   },
 });

@@ -1,6 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   CheckCircle2,
   Loader2,
@@ -68,6 +69,25 @@ export function FlipdeskAutolisterQueuePage() {
       return map;
     },
   });
+
+  // Notify once when the generation batch finishes (US-325 AC4).
+  const notifiedRef = useRef<string | null>(null);
+  const batchStatus = data?.batch.status;
+  useEffect(() => {
+    if (!data || !batchId) return;
+    const terminal = batchStatus === "completed" || batchStatus === "partial" ||
+      batchStatus === "failed";
+    if (!terminal || notifiedRef.current === batchId) return;
+    notifiedRef.current = batchId;
+    const { succeeded_count: ok, failed_count: bad } = data.batch;
+    if (bad === 0) {
+      toast.success(`Generated ${ok} listing${ok === 1 ? "" : "s"}.`);
+    } else {
+      toast.warning(`Generation finished — ${ok} ready, ${bad} failed.`, {
+        description: "Use “Retry failed” to re-run the ones that didn't generate.",
+      });
+    }
+  }, [data, batchId, batchStatus]);
 
   if (!batchId) {
     return (

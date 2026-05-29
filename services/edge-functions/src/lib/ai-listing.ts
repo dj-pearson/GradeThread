@@ -26,6 +26,7 @@ import {
   searchBrowseComps,
   suggestCategories,
 } from "./ebay-client.ts";
+import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
 // Bump when the prompt or tool schema changes in a way that should be tracked
@@ -295,15 +296,26 @@ export async function generateListingFields(
     ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
     : { type: "text", text: prompt.text };
 
-  const response = await client.messages.create({
-    model,
-    max_tokens: 1536,
-    ...(temperature !== undefined ? { temperature } : {}),
-    system: [systemBlock],
-    tools: [LISTING_GEN_TOOL],
-    tool_choice: { type: "tool", name: "create_ebay_listing" },
-    messages: [{ role: "user", content }],
-  });
+  // Retry transient Anthropic rate-limit / overload (429/529/5xx) with
+  // exponential backoff so one momentary limit doesn't fail the whole batch.
+  const response = await withRetry(
+    () =>
+      client.messages.create({
+        model,
+        max_tokens: 1536,
+        ...(temperature !== undefined ? { temperature } : {}),
+        system: [systemBlock],
+        tools: [LISTING_GEN_TOOL],
+        tool_choice: { type: "tool", name: "create_ebay_listing" },
+        messages: [{ role: "user", content }],
+      }),
+    {
+      onRetry: ({ attempt, delayMs }) =>
+        console.warn(
+          `[AI Listing] Anthropic call retry #${attempt} after ${delayMs}ms backoff`,
+        ),
+    },
+  );
 
   const toolUse = response.content.find((b) => b.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") {

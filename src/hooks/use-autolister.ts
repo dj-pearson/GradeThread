@@ -75,6 +75,15 @@ export function useStartAutolisterBatch() {
 
 const PUBLISH_CONCURRENCY = 3;
 
+// eBay returns 429 under burst publishing. Retry the publish call a few times
+// with exponential backoff (full jitter) before giving up on an item (US-325).
+const PUBLISH_RETRYABLE = new Set([429, 500, 502, 503, 504]);
+
+function backoff(attempt: number): Promise<void> {
+  const cap = Math.min(8000, 500 * 2 ** (attempt - 1));
+  return new Promise((r) => setTimeout(r, Math.floor(Math.random() * cap)));
+}
+
 export type BulkPublishStatus = "pending" | "publishing" | "success" | "failed";
 
 export interface BulkPublishItemResult {
@@ -140,19 +149,39 @@ export function useBulkPublish() {
             throw new Error(vJson.blockers.join(" • "));
           }
 
-          // Publish (3-step Sell API flow on the server).
-          const pRes = await edgeFetch("/api/flipdesk/ebay/listings/push", {
-            method: "POST",
-            json: { inventory_item_id: item.itemId },
-          });
-          const pJson = await pRes.json().catch(() => ({}));
-          if (!pRes.ok || pJson.ok === false) {
-            const detail = pJson.detail ?? pJson.error ?? "Publish failed.";
-            const blockers = Array.isArray(pJson.blockers) ? pJson.blockers.join(" • ") : "";
+          // Publish (3-step Sell API flow on the server), retrying transient
+          // rate-limit / 5xx responses with exponential backoff.
+          const MAX_PUBLISH_ATTEMPTS = 3;
+          let pRes: Response | null = null;
+          let pJson: Record<string, unknown> = {};
+          for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt++) {
+            pRes = await edgeFetch("/api/flipdesk/ebay/listings/push", {
+              method: "POST",
+              json: { inventory_item_id: item.itemId },
+            });
+            pJson = await pRes.json().catch(() => ({}));
+            if (
+              PUBLISH_RETRYABLE.has(pRes.status) &&
+              attempt < MAX_PUBLISH_ATTEMPTS
+            ) {
+              await backoff(attempt);
+              continue;
+            }
+            break;
+          }
+          if (!pRes || !pRes.ok || pJson.ok === false) {
+            const detail = (pJson.detail ?? pJson.error ?? "Publish failed.") as string;
+            const blockers = Array.isArray(pJson.blockers)
+              ? (pJson.blockers as string[]).join(" • ")
+              : "";
             throw new Error(blockers ? `${detail} — ${blockers}` : detail);
           }
 
-          set(item.itemId, { status: "success", listingUrl: pJson.listing_url });
+          set(item.itemId, {
+            status: "success",
+            listingUrl:
+              typeof pJson.listing_url === "string" ? pJson.listing_url : undefined,
+          });
           await markListingOutcome(item, {
             synced_to_ebay_at: new Date().toISOString(),
             publish_error: null,
