@@ -636,11 +636,15 @@ export async function generateListing(
     listingId = inserted.id;
   }
 
-  // 9. Persist category + AI-generation marker on the item.
+  // 9. Persist category + specifics + AI-generation marker on the item.
+  // ebay_aspects is the canonical aspect store the composer's category picker
+  // and the publish path (assemblePublishContext) both read, so the generated
+  // specifics must land here — not only on listings.item_specifics_override.
   await supabaseAdmin
     .from("inventory_items")
     .update({
       ebay_category_id: categoryId,
+      ebay_aspects: itemSpecifics,
       ai_generated_aspects_at: new Date().toISOString(),
     })
     .eq("id", itemId)
