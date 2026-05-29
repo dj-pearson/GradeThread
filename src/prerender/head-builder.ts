@@ -22,6 +22,12 @@ import {
   type JsonLd,
 } from "@/lib/seo/json-ld";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
+import {
+  howItWorksJsonLd,
+  pricingJsonLd,
+  faqJsonLd,
+  conditionGradingJsonLd,
+} from "@/pages/marketing/marketing-jsonld";
 
 const DEFAULT_OG_IMAGE = `${SITE_URL}/logo_icon_512.png`;
 
@@ -50,23 +56,34 @@ export function stripHeadTagsFromBody(body: string): string {
     .replace(/<link\b[^>]*?\brel="canonical"[^>]*?>/gi, "");
 }
 
+// Per-route page JSON-LD beyond the shared Organization + BreadcrumbList.
+// Imported from the page modules so the prerendered HTML carries IDENTICAL
+// structured data to what the live page injects at runtime (no drift).
+const MARKETING_LD: Record<string, () => JsonLd[]> = {
+  "/how-it-works": howItWorksJsonLd,
+  "/pricing": pricingJsonLd,
+  "/faq": faqJsonLd,
+  "/condition-grading": conditionGradingJsonLd,
+};
+
 /** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */
 export function jsonLdForRoute(path: string): JsonLd[] {
   if (path === "/") {
     return [organizationLd(), webSiteLd(), softwareApplicationLd(), faqPageLd(LANDING_FAQS)];
   }
-  // Legal pages render Organization + a 2-level breadcrumb.
   const route = PUBLIC_ROUTES.find((r) => r.path === path);
-  if (route) {
-    return [
-      organizationLd(),
-      breadcrumbLd([
-        { name: "GradeThread", url: `${SITE_URL}/` },
-        { name: route.title, url: absoluteUrl(path) },
-      ]),
-    ];
-  }
-  return [];
+  if (!route) return [];
+  // Every non-home page (legal + marketing) renders Organization + a 2-level
+  // breadcrumb via its layout; marketing pages add page-type schema on top.
+  const base: JsonLd[] = [
+    organizationLd(),
+    breadcrumbLd([
+      { name: "GradeThread", url: `${SITE_URL}/` },
+      { name: route.title, url: absoluteUrl(path) },
+    ]),
+  ];
+  const extra = MARKETING_LD[path]?.() ?? [];
+  return [...base, ...extra];
 }
 
 /** Full <head> inner HTML (meta + canonical + OG/Twitter + JSON-LD) for a route. */

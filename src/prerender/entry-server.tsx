@@ -27,10 +27,20 @@ import { PrivacyPage } from "@/pages/legal/privacy";
 import { TermsPage } from "@/pages/legal/terms";
 import { CookiesPage } from "@/pages/legal/cookies";
 import { AcceptableUsePage } from "@/pages/legal/acceptable-use";
+import { HowItWorksPage } from "@/pages/marketing/how-it-works";
+import { PricingPage } from "@/pages/marketing/pricing";
+import { ForResellersPage } from "@/pages/marketing/for-resellers";
+import { FaqPage } from "@/pages/marketing/faq";
+import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
   "/": <LandingPage />,
+  "/how-it-works": <HowItWorksPage />,
+  "/pricing": <PricingPage />,
+  "/for-resellers": <ForResellersPage />,
+  "/faq": <FaqPage />,
+  "/condition-grading": <ConditionGradingPage />,
   "/privacy": <PrivacyPage />,
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,

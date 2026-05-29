@@ -1,0 +1,200 @@
+import { Link } from "react-router-dom";
+import { Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  MarketingLayout,
+  MarketingCTA,
+} from "@/components/marketing/marketing-layout";
+import {
+  GRADETHREAD_TIERS,
+  CREDIT_PACKS,
+  FLIPDESK_PLANS,
+} from "@/lib/constants";
+import type { FlipdeskPlan as FlipdeskPlanKey } from "@/types/database";
+import { PRICING_FAQS, pricingJsonLd } from "@/pages/marketing/marketing-jsonld";
+
+const dollars = (cents: number) =>
+  cents === 0 ? "$0" : `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+
+const GRADE_TIER_ROWS = [
+  { key: "standard" as const, ...GRADETHREAD_TIERS.standard },
+  { key: "premium" as const, ...GRADETHREAD_TIERS.premium },
+  { key: "express" as const, ...GRADETHREAD_TIERS.express },
+];
+
+const FLIPDESK_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];
+
+export function PricingPage() {
+  return (
+    <MarketingLayout
+      title="Pricing"
+      description="GradeThread pricing: a free plan with 3 grades/month, pay-per-grade tiers from $2.99, credit packs, and FlipDesk reseller subscriptions."
+      canonicalPath="/pricing"
+      jsonLd={pricingJsonLd()}
+    >
+      {/* Answer-first intro */}
+      <section className="px-6 py-16 lg:py-20">
+        <div className="mx-auto max-w-3xl text-center">
+          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+            Simple, transparent pricing
+          </h1>
+          <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+            GradeThread is free to start — every account gets{" "}
+            {FLIPDESK_PLANS.free.includedStandardGradesPerMonth} Standard grades
+            a month at no cost. Beyond that you can pay per grade (from{" "}
+            {dollars(GRADETHREAD_TIERS.standard.priceCents)}), buy credit packs
+            that never expire, or subscribe to FlipDesk to manage your whole
+            reseller workflow. No setup fees, and you can change plans anytime.
+          </p>
+        </div>
+      </section>
+
+      {/* Per-grade tiers */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-4xl">
+          <h2 className="text-3xl font-bold">Pay-per-grade</h2>
+          <p className="mt-3 text-muted-foreground">
+            One-time grades, billed per item. Faster tiers carry a quicker
+            service-level target.
+          </p>
+          <div className="mt-8 grid gap-6 sm:grid-cols-3">
+            {GRADE_TIER_ROWS.map((tier) => (
+              <div
+                key={tier.key}
+                className="rounded-lg border bg-background p-6"
+              >
+                <h3 className="text-lg font-semibold">{tier.label}</h3>
+                <p className="mt-2 text-3xl font-bold text-brand-navy">
+                  {dollars(tier.priceCents)}
+                </p>
+                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-brand-navy" />
+                    {tier.slaHours}h service-level target
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-brand-navy" />
+                    {tier.creditCost} credit{tier.creditCost > 1 ? "s" : ""} per
+                    grade
+                  </li>
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {/* Credit packs */}
+          <h3 className="mt-12 text-xl font-semibold">Credit packs</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Buy in bulk and save. Credits never expire.
+          </p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-4">
+            {CREDIT_PACKS.map((pack) => (
+              <div
+                key={pack.credits}
+                className="rounded-lg border bg-background p-4 text-center"
+              >
+                <p className="text-2xl font-bold text-brand-navy">
+                  {pack.credits}
+                </p>
+                <p className="text-xs text-muted-foreground">credits</p>
+                <p className="mt-2 font-medium">{dollars(pack.priceCents)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FlipDesk subscriptions */}
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-3xl font-bold">FlipDesk subscriptions</h2>
+          <p className="mt-3 text-muted-foreground">
+            The full reseller workflow — catalog, photograph, draft, list, sell,
+            ship, reconcile — with grading built in.
+          </p>
+          <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+            {FLIPDESK_ORDER.map((key) => {
+              const plan = FLIPDESK_PLANS[key];
+              return (
+                <div
+                  key={key}
+                  className="flex flex-col rounded-lg border bg-background p-6"
+                >
+                  <h3 className="text-lg font-semibold">{plan.name}</h3>
+                  <p className="mt-2 text-3xl font-bold text-brand-navy">
+                    {dollars(plan.priceMonthlyCents)}
+                    <span className="text-sm font-normal text-muted-foreground">
+                      /mo
+                    </span>
+                  </p>
+                  <ul className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
+                    <li className="flex items-start gap-2">
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy" />
+                      {plan.includedStandardGradesPerMonth} grades/mo included
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy" />
+                      {plan.activeListingCap === -1
+                        ? "Unlimited active listings"
+                        : `${plan.activeListingCap} active listings`}
+                    </li>
+                    {plan.features.slice(0, 3).map((f) => (
+                      <li key={f} className="flex items-start gap-2">
+                        <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-8 text-sm text-muted-foreground">
+            New to grading? Start with{" "}
+            <Link
+              to="/how-it-works"
+              className="font-medium text-brand-navy hover:underline"
+            >
+              how it works
+            </Link>{" "}
+            or read the{" "}
+            <Link
+              to="/faq"
+              className="font-medium text-brand-navy hover:underline"
+            >
+              FAQ
+            </Link>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* Pricing FAQ */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="text-center text-3xl font-bold">Pricing FAQ</h2>
+          <dl className="mt-10 space-y-6">
+            {PRICING_FAQS.map((faq) => (
+              <div key={faq.q} className="border-b pb-6 last:border-b-0">
+                <dt className="font-medium">{faq.q}</dt>
+                <dd className="mt-2 text-sm text-muted-foreground">{faq.a}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="mt-10 text-center">
+            <Link to="/signup">
+              <Button
+                size="lg"
+                className="bg-brand-navy text-white hover:bg-brand-navy/90"
+              >
+                Start free
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <MarketingCTA />
+    </MarketingLayout>
+  );
+}

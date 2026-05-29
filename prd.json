@@ -4978,8 +4978,8 @@
         "Typecheck passes"
       ],
       "priority": 299,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page). GROUNDWORK 2026-05-29: faqPageLd/breadcrumbLd/howToLd built + unit-tested; FAQPage live on landing, BreadcrumbList live on certificate + legal pages. Remaining for pass: HowTo on /how-it-works (US-302) + prerender presence (US-292). UPDATE 2026-05-29: prerender visibility now achieved for FAQPage (landing) + BreadcrumbList (legal) via US-292. STILL OPEN: HowTo has no host page yet (needs /how-it-works, US-302) and BreadcrumbList is not yet on blog posts. Stays passes=false until those land. UPDATE 2026-05-29: BreadcrumbList now also emitted on certificate pages (SSR + SPA). Still passes=false until /how-it-works (HowTo, US-302) + breadcrumbs on blog posts land."
+      "passes": true,
+      "notes": "DONE 2026-05-29. faqPageLd/breadcrumbLd/howToLd in src/lib/seo/json-ld.ts with structural unit tests (json-ld.test.ts). All three now appear in prerendered/SSR HTML reflecting visible content: FAQPage on landing + /faq + /pricing + /condition-grading; HowTo on /how-it-works (US-302); BreadcrumbList on legal pages, certificate (SPA + edge SSR), all marketing pages, AND blog posts (added GradeThread›Blog›<post> to functions/blog/[[path]].ts). Verified in built dist/*/index.html (e.g. /how-it-works carries HowTo+HowToStep+FAQPage+Question+Answer+Organization+BreadcrumbList)."
     },
     {
       "id": "US-300",
@@ -5030,8 +5030,8 @@
         "Typecheck passes"
       ],
       "priority": 302,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-291/292/298/299. Content can be drafted via the existing content module/knowledge base."
+      "passes": true,
+      "notes": "DONE 2026-05-29. Five evergreen marketing pages: /how-it-works, /pricing, /for-resellers, /faq, /condition-grading (pillar). Shared chrome in src/components/marketing/marketing-layout.tsx (MarketingLayout + MarketingCTA) reusing the landing header/footer + brand tokens; each page has a unique title/description/H1, an answer-first intro (first ~200 words answer the primary query), H2/H3 hierarchy, and internal links to related pages + signup. JSON-LD: /how-it-works emits HowTo + FAQPage; /pricing, /faq, /condition-grading emit FAQPage; all emit Organization + BreadcrumbList via the layout. Page JSON-LD + FAQ/step data live in src/pages/marketing/marketing-jsonld.ts (single source of truth) so the prerender head-builder emits IDENTICAL structured data to the runtime SPA. Pricing content sourced from src/lib/constants.ts (GRADETHREAD_TIERS/CREDIT_PACKS/FLIPDESK_PLANS). All five registered in PUBLIC_ROUTES → auto-prerender (US-292: verified 10 static pages, each 1 <title>, JSON-LD in <head>), sitemap (US-293), IndexNow (US-297). The CI guard test (public-routes.test.ts) confirms registry↔router↔entry-server are in sync. tsc(app+functions) + vitest 54/54 + lint + build green."
     },
     {
       "id": "US-303",

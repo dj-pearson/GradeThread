@@ -38,6 +38,12 @@ const PrivacyPage = lazy(() => import("@/pages/legal/privacy").then(m => ({ defa
 const TermsPage = lazy(() => import("@/pages/legal/terms").then(m => ({ default: m.TermsPage })));
 const CookiesPage = lazy(() => import("@/pages/legal/cookies").then(m => ({ default: m.CookiesPage })));
 const AcceptableUsePage = lazy(() => import("@/pages/legal/acceptable-use").then(m => ({ default: m.AcceptableUsePage })));
+// Evergreen marketing pages (US-302) — public, prerendered, indexable.
+const HowItWorksPage = lazy(() => import("@/pages/marketing/how-it-works").then(m => ({ default: m.HowItWorksPage })));
+const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ default: m.PricingPage })));
+const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
+const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default: m.FaqPage })));
+const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskPipelinePage = lazy(() => import("@/pages/flipdesk/pipeline").then(m => ({ default: m.FlipdeskPipelinePage })));
 const FlipdeskListingsPage = lazy(() => import("@/pages/flipdesk/listings").then(m => ({ default: m.FlipdeskListingsPage })));
@@ -100,6 +106,13 @@ export const router = createBrowserRouter([
       // Public routes
       { path: "/", element: <SuspenseWrapper><LandingPage /></SuspenseWrapper> },
       { path: "/cert/:id", element: <SuspenseWrapper><CertificatePage /></SuspenseWrapper> },
+
+      // Marketing pages (public, prerendered — US-302)
+      { path: "/how-it-works", element: <SuspenseWrapper><HowItWorksPage /></SuspenseWrapper> },
+      { path: "/pricing", element: <SuspenseWrapper><PricingPage /></SuspenseWrapper> },
+      { path: "/for-resellers", element: <SuspenseWrapper><ForResellersPage /></SuspenseWrapper> },
+      { path: "/faq", element: <SuspenseWrapper><FaqPage /></SuspenseWrapper> },
+      { path: "/condition-grading", element: <SuspenseWrapper><ConditionGradingPage /></SuspenseWrapper> },
 
       // Legal pages (public)
       { path: "/privacy", element: <SuspenseWrapper><PrivacyPage /></SuspenseWrapper> },
