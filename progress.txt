@@ -2073,3 +2073,54 @@ smoke test), then US-307 (dynamic OG images), US-308 (GSC/Bing ingestion),
 US-309 (admin SEO dashboard). NOTE: US-306 may be light on the marketing pages
 (few raster images beyond the PNG logo) -- main payoff is blog hero/content
 images (R2) and converting the logo PNGs to responsive sources.
+
+
+## Session Notes (2026-05-29 cont.) -- US-306 responsive images
+
+Responsive images via Cloudflare Image Resizing -- no derivatives stored.
+
+Helpers:
+- cfImage(src, width) -> /cdn-cgi/image/width=W,quality=80,format=auto,
+  fit=scale-down,onerror=redirect/<src>. format=auto content-negotiates
+  AVIF->WebP->original; onerror=redirect falls back to the original on a
+  transform failure; the rendered plain `src` is always the untransformed
+  original (works even if the zone feature is off / no srcset support).
+- buildSrcSet(src, widths) -> "<url> <w>w, ..." candidates.
+- Frontend copy: src/lib/images.ts. SSR copy: functions/_shared/blog-render.ts
+  (independent because the two live in different build graphs; both tested).
+
+Frontend:
+- New reusable <Image> component (src/components/responsive-image.tsx): always
+  sets width/height (no CLS); loading=lazy unless `priority` (then eager +
+  fetchpriority=high); default 1x/2x srcset. Used for landing + marketing-layout
+  logos (header priority, footer lazy), replacing the raw <img> from US-305.
+
+Blog SSR (functions/blog/[[path]].ts):
+- renderHeroImage(): responsive hero, eager + fetchpriority=high (LCP); .hero
+  CSS already reserves a 16/9 box (no CLS).
+- rewriteContentImages(): adds srcset+sizes+loading=lazy+decoding=async to
+  in-body <img> (idempotent -- skips data:/already-srcset/already-cdn-cgi).
+- Preview hero reuses renderHeroImage. Heroes/content use widths
+  [640,1024,1600] @ "(max-width:720px) 100vw, 720px".
+
+Tests: src/test/responsive-images.test.ts (16) -- frontend+SSR cfImage parity,
+buildSrcSet, renderHeroImage, rewriteContentImages, and a dist smoke test
+asserting the prerendered landing logo ships a /cdn-cgi/image srcset
+(case-insensitive: React SSR emits camelCase srcSet/fetchPriority, which is
+valid HTML).
+
+Docs: docs/SEO_PERFORMANCE.md gained a "Responsive images" section incl. the
+one-time prerequisite -- ENABLE IMAGE RESIZING ON THE CLOUDFLARE ZONE (until
+then /cdn-cgi/image URLs 404; the `src` fallback keeps base images working).
+
+Verification: tsc -b + tsc -p tsconfig.functions.json exit 0; vitest 98/98;
+eslint clean; npm run build green (22 prerendered pages; logo srcset confirmed
+in dist/index.html). No new eager runtime deps. prd.json 239/309
+(US-306 passes=true).
+
+Recommended next: US-307 (dynamic OG images -- edge satori/resvg or workers OG
+at /og/cert/:id + /og/blog/:slug, 1200x630, cached at edge, fallback to the
+default brand OG image), then US-308 (GSC/Bing verification + Search Analytics
+ingestion: meta-tag/file verification from env, a scheduled edge job + migration
+pulling GSC Search Analytics, admin-only platform data), then US-309 (admin SEO
+dashboard -- depends on 305/306/308).

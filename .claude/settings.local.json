@@ -75,7 +75,10 @@
       "Bash(ls .pre-commit-config.yaml)",
       "Bash(powershell *)",
       "Bash(git -C C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread ls-files)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "WebFetch(domain:www.youtube.com)",
+      "WebFetch(domain:autolister.io)",
+      "mcp__plugin_playwright_playwright__browser_snapshot"
     ]
   },
   "hooks": {

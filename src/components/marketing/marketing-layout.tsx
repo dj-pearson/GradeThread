@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
+import { Image } from "@/components/responsive-image";
 import {
   organizationLd,
   breadcrumbLd,
@@ -53,13 +54,13 @@ export function MarketingLayout({
       {/* Header — matches the landing page */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">
         <Link to="/" aria-label="GradeThread home">
-          {/* Intrinsic dimensions (1806×376) reserve space → no CLS (US-305). */}
-          <img
+          {/* Responsive logo: 1x/2x srcset (AVIF/WebP), no CLS (US-306). */}
+          <Image
             src="/logo_primary.png"
             alt="GradeThread"
             width={154}
             height={32}
-            fetchPriority="high"
+            priority
             className="h-8 w-auto"
           />
         </Link>
@@ -102,12 +103,11 @@ export function MarketingLayout({
       <footer className="border-t px-6 py-10 lg:px-12">
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <img
+            <Image
               src="/logo_primary.png"
               alt="GradeThread"
               width={115}
               height={24}
-              loading="lazy"
               className="h-6 w-auto"
             />
             <nav className="flex flex-wrap gap-4 text-sm text-muted-foreground sm:gap-6">

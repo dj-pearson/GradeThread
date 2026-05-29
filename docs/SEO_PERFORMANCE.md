@@ -67,3 +67,28 @@ npx @lhci/cli autorun --config=./lighthouserc.json
   + `fetchPriority="high"`; footer logos are `loading="lazy"`.
 - **Cookie banner:** fixed overlay with a reserved `min-h-20`, so it neither
   shifts document flow nor reflows its own box as it mounts.
+
+## Responsive images (US-306)
+
+Public images are served responsively through **Cloudflare Image Resizing**
+(`/cdn-cgi/image/<options>/<src>`), so no derivatives are stored:
+
+- `format=auto` content-negotiates **AVIF → WebP → original** by the request's
+  `Accept` header (modern formats with a built-in fallback).
+- `fit=scale-down` never upscales; `quality=80`.
+- `onerror=redirect` serves the **untransformed original** if a specific image
+  can't be resized — and the plain `src` we render is always the original, so
+  non-`srcset` clients still get a working image.
+
+Helpers: `src/lib/images.ts` (`cfImage`, `buildSrcSet`) + the reusable
+`<Image>` component (`src/components/responsive-image.tsx`) for React pages, and
+the mirror copy in `functions/_shared/blog-render.ts` (`cfImage`,
+`buildSrcSet`, `renderHeroImage`, `rewriteContentImages`) for the blog SSR. The
+blog hero is eager + `fetchpriority=high` (it's the LCP); in-body content
+images get a `srcset` + `loading=lazy`.
+
+> **Prerequisite:** Image Resizing must be enabled on the Cloudflare zone (a
+> one-time dashboard/Speed → Optimization setting). Until it is, `/cdn-cgi/image/`
+> URLs 404; `onerror=redirect` only covers per-image transform failures, not the
+> feature being disabled. The rendered `src` fallback keeps the base image
+> working regardless.

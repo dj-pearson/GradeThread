@@ -360,6 +360,69 @@ export function renderRelatedPosts(
   return `<section class="related"><h2>Keep reading</h2><div class="related-grid">${cards}</div></section>`;
 }
 
+// ─── Responsive images (US-306) ───────────────────────────────────────────
+// Cloudflare Image Resizing for the SSR blog: the hero + in-body content images
+// (R2-hosted) are served through `/cdn-cgi/image/<opts>/<src>` with format=auto
+// (AVIF/WebP negotiation), fit=scale-down, and onerror=redirect (fall back to
+// the original if a transform fails). PREREQUISITE: Image Resizing enabled on
+// the zone. Mirrors src/lib/images.ts for the React side.
+
+const IMG_QUALITY = 80;
+
+/** Build a Cloudflare Image Resizing URL for `src` at a given pixel width. */
+export function cfImage(src: string, width: number, quality = IMG_QUALITY): string {
+  if (!src || src.startsWith("data:") || src.includes("/cdn-cgi/image/")) {
+    return src;
+  }
+  const opts = `width=${width},quality=${quality},format=auto,fit=scale-down,onerror=redirect`;
+  const source = src.startsWith("http") ? src : src.replace(/^\//, "");
+  return `/cdn-cgi/image/${opts}/${source}`;
+}
+
+/** `srcset` string for the given candidate widths. */
+export function buildSrcSet(src: string, widths: number[], quality = IMG_QUALITY): string {
+  if (!src || src.startsWith("data:")) return "";
+  return widths
+    .filter((w) => w > 0)
+    .map((w) => `${cfImage(src, w, quality)} ${w}w`)
+    .join(", ");
+}
+
+// The blog content column is 720px wide; heroes span it, content images too.
+const BLOG_IMG_WIDTHS = [640, 1024, 1600];
+const BLOG_IMG_SIZES = "(max-width: 720px) 100vw, 720px";
+
+/** Hero <img> with responsive srcset. Eager + high priority (it's the LCP). */
+export function renderHeroImage(src: string | null | undefined, alt: string): string {
+  if (!src) return "";
+  const srcset = buildSrcSet(src, BLOG_IMG_WIDTHS);
+  return (
+    `<img class="hero" src="${escape(src)}"` +
+    (srcset ? ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"` : "") +
+    ` alt="${escape(alt)}" loading="eager" fetchpriority="high" decoding="async">`
+  );
+}
+
+/**
+ * Rewrite in-body content <img> tags to add a responsive srcset/sizes + lazy
+ * loading. Idempotent: skips data: URIs and images that already carry a srcset
+ * or a cdn-cgi transform. Body HTML is sanitized upstream, so this only adds
+ * attributes — it never introduces new tags.
+ */
+export function rewriteContentImages(html: string): string {
+  return html.replace(/<img\b([^>]*?)>/gi, (full, attrs: string) => {
+    if (/\bsrcset=/i.test(attrs) || /\/cdn-cgi\/image\//i.test(attrs)) return full;
+    const src = attrs.match(/\bsrc="([^"]+)"/i)?.[1];
+    if (!src || src.startsWith("data:")) return full;
+    const srcset = buildSrcSet(src, BLOG_IMG_WIDTHS);
+    if (!srcset) return full;
+    let extra = ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"`;
+    if (!/\bloading=/i.test(attrs)) extra += ` loading="lazy"`;
+    if (!/\bdecoding=/i.test(attrs)) extra += ` decoding="async"`;
+    return `<img${attrs}${extra}>`;
+  });
+}
+
 /** Article author node — a Person for E-E-A-T, else the GradeThread Team org. */
 export function articleAuthorLd(
   author: string | null | undefined,
