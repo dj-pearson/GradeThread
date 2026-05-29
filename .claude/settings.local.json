@@ -72,7 +72,10 @@
       "Bash(ls .github/workflows/)",
       "Bash(ls .github/)",
       "Bash(ls .husky/)",
-      "Bash(ls .pre-commit-config.yaml)"
+      "Bash(ls .pre-commit-config.yaml)",
+      "Bash(powershell *)",
+      "Bash(git -C C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread ls-files)",
+      "Bash(npx vitest *)"
     ]
   },
   "hooks": {

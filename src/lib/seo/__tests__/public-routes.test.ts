@@ -48,7 +48,15 @@ describe("public-routes registry guard (US-291)", () => {
   });
 
   it("every registered route exists in the router", () => {
+    // Glossary hub pages (US-303) are registered as concrete indexable paths
+    // (/grading/<slug>) but served by a single dynamic /grading/:slug route, so
+    // they won't appear as literal paths. Accept them when that route exists.
+    const hasGlossaryDynamicRoute = allRouterPaths.includes("/grading/:slug");
     for (const r of PUBLIC_ROUTES) {
+      if (r.path.startsWith("/grading/")) {
+        expect(hasGlossaryDynamicRoute).toBe(true);
+        continue;
+      }
       expect(allRouterPaths).toContain(r.path);
     }
   });

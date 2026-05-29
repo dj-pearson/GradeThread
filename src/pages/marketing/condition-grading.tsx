@@ -5,6 +5,7 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { GRADE_FACTORS } from "@/lib/constants";
+import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 import {
   CONDITION_GRADING_FAQS,
   conditionGradingJsonLd,
@@ -54,6 +55,10 @@ const TIERS = [
 const FACTORS = Object.values(GRADE_FACTORS);
 
 const FAQS = CONDITION_GRADING_FAQS;
+
+// Hub-and-spoke: the pillar links to every glossary spoke (US-303).
+const TIER_GLOSSARY = GLOSSARY_ENTRIES.filter((e) => e.kind === "tier");
+const FACTOR_GLOSSARY = GLOSSARY_ENTRIES.filter((e) => e.kind === "factor");
 
 export function ConditionGradingPage() {
   return (
@@ -157,8 +162,45 @@ export function ConditionGradingPage() {
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* Glossary hub — links to every tier + factor page (US-303) */}
       <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-3xl font-bold">Condition grading glossary</h2>
+          <p className="mt-3 text-muted-foreground">
+            A definitive page for every grade tier and grading factor — what each
+            term means, what graders look for, and examples.
+          </p>
+
+          <h3 className="mt-8 text-lg font-semibold">Grade tiers</h3>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {TIER_GLOSSARY.map((e) => (
+              <Link
+                key={e.slug}
+                to={e.path}
+                className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white"
+              >
+                {e.term}
+              </Link>
+            ))}
+          </div>
+
+          <h3 className="mt-8 text-lg font-semibold">Grading factors</h3>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {FACTOR_GLOSSARY.map((e) => (
+              <Link
+                key={e.slug}
+                to={e.path}
+                className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white"
+              >
+                {e.term}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-2xl">
           <h2 className="text-center text-3xl font-bold">
             Condition grading FAQ

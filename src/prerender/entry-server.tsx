@@ -32,6 +32,8 @@ import { PricingPage } from "@/pages/marketing/pricing";
 import { ForResellersPage } from "@/pages/marketing/for-resellers";
 import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
+import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
+import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 
 // Static map of prerenderable routes → page element.
 const PAGES: Record<string, React.ReactNode> = {
@@ -45,6 +47,15 @@ const PAGES: Record<string, React.ReactNode> = {
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,
   "/acceptable-use": <AcceptableUsePage />,
+  // Glossary hub (US-303): the /grading/:slug route resolves its slug from
+  // useParams at runtime; here we render each entry with an explicit slug prop
+  // since the prerender renders a path directly with no router param match.
+  ...Object.fromEntries(
+    GLOSSARY_ENTRIES.map((e) => [
+      e.path,
+      <GradingGlossaryPage key={e.slug} slug={e.slug} />,
+    ]),
+  ),
 };
 
 export function renderRoute(path: string): string {

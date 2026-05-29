@@ -44,6 +44,7 @@ const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ 
 const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
 const FaqPage = lazy(() => import("@/pages/marketing/faq").then(m => ({ default: m.FaqPage })));
 const ConditionGradingPage = lazy(() => import("@/pages/marketing/condition-grading").then(m => ({ default: m.ConditionGradingPage })));
+const GradingGlossaryPage = lazy(() => import("@/pages/marketing/grading-glossary").then(m => ({ default: m.GradingGlossaryPage })));
 const FlipdeskOverviewPage = lazy(() => import("@/pages/flipdesk/overview").then(m => ({ default: m.FlipdeskOverviewPage })));
 const FlipdeskPipelinePage = lazy(() => import("@/pages/flipdesk/pipeline").then(m => ({ default: m.FlipdeskPipelinePage })));
 const FlipdeskListingsPage = lazy(() => import("@/pages/flipdesk/listings").then(m => ({ default: m.FlipdeskListingsPage })));
@@ -113,6 +114,10 @@ export const router = createBrowserRouter([
       { path: "/for-resellers", element: <SuspenseWrapper><ForResellersPage /></SuspenseWrapper> },
       { path: "/faq", element: <SuspenseWrapper><FaqPage /></SuspenseWrapper> },
       { path: "/condition-grading", element: <SuspenseWrapper><ConditionGradingPage /></SuspenseWrapper> },
+      // Glossary hub spokes (US-303): one page per grade tier + factor, served
+      // by a single dynamic route. The indexable set is registered in
+      // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.
+      { path: "/grading/:slug", element: <SuspenseWrapper><GradingGlossaryPage /></SuspenseWrapper> },
 
       // Legal pages (public)
       { path: "/privacy", element: <SuspenseWrapper><PrivacyPage /></SuspenseWrapper> },

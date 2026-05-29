@@ -4,8 +4,10 @@
 // pages use — guaranteeing the prerendered <head> and the runtime SPA emit
 // identical structured data.
 
-import { howToLd, faqPageLd, type JsonLd } from "@/lib/seo/json-ld";
+import { howToLd, faqPageLd, breadcrumbLd, type JsonLd } from "@/lib/seo/json-ld";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
+import { SITE_URL } from "@/lib/seo/public-routes";
+import { glossaryTrail, type GlossaryEntry } from "@/lib/seo/glossary";
 
 // ── /how-it-works ──────────────────────────────────────────────────
 export const HOW_IT_WORKS_STEPS = [
@@ -114,4 +116,29 @@ export const CONDITION_GRADING_FAQS = [
 
 export function conditionGradingJsonLd(): JsonLd[] {
   return [faqPageLd(CONDITION_GRADING_FAQS)];
+}
+
+// ── /grading/* glossary hub (US-303) ────────────────────────────────
+// Absolute breadcrumb trail (GradeThread → Condition grading → <term>) for a
+// glossary entry. Shared by the live page (via MarketingLayout's `breadcrumbs`
+// override) and the prerender head-builder so both emit identical structure.
+export function glossaryBreadcrumbItems(
+  entry: GlossaryEntry,
+): Array<{ name: string; url: string }> {
+  return glossaryTrail(entry).map((t) => ({
+    name: t.name,
+    url: t.path === "/" ? `${SITE_URL}/` : `${SITE_URL}${t.path}`,
+  }));
+}
+
+/**
+ * Page-specific JSON-LD for a glossary entry: a 3-level BreadcrumbList back to
+ * the pillar + an FAQPage from the entry's visible Q&A. Organization is added
+ * separately by the layout/head-builder, matching the other marketing pages.
+ */
+export function glossaryJsonLd(entry: GlossaryEntry): JsonLd[] {
+  return [
+    breadcrumbLd(glossaryBreadcrumbItems(entry)),
+    faqPageLd(entry.faqs),
+  ];
 }

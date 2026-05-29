@@ -27,7 +27,9 @@ import {
   pricingJsonLd,
   faqJsonLd,
   conditionGradingJsonLd,
+  glossaryJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
+import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 
 const DEFAULT_OG_IMAGE = `${SITE_URL}/logo_icon_512.png`;
 
@@ -73,8 +75,15 @@ export function jsonLdForRoute(path: string): JsonLd[] {
   }
   const route = PUBLIC_ROUTES.find((r) => r.path === path);
   if (!route) return [];
-  // Every non-home page (legal + marketing) renders Organization + a 2-level
-  // breadcrumb via its layout; marketing pages add page-type schema on top.
+  // Glossary pages (US-303) carry a 3-level breadcrumb back to the pillar plus
+  // an FAQPage — built from the SAME helpers the live page passes to its layout,
+  // so prerendered and runtime structured data stay identical.
+  const glossary = getGlossaryEntryByPath(path);
+  if (glossary) {
+    return [organizationLd(), ...glossaryJsonLd(glossary)];
+  }
+  // Every other non-home page (legal + marketing) renders Organization + a
+  // 2-level breadcrumb via its layout; marketing pages add page-type schema.
   const base: JsonLd[] = [
     organizationLd(),
     breadcrumbLd([

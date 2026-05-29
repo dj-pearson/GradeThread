@@ -15,6 +15,11 @@ interface MarketingLayoutProps {
   canonicalPath: string;
   /** Extra JSON-LD beyond Organization + BreadcrumbList (e.g. HowTo, FAQPage). */
   jsonLd?: JsonLd[];
+  /**
+   * Override the default 2-level breadcrumb (GradeThread → title). Glossary
+   * pages (US-303) pass a 3-level trail back to the /condition-grading pillar.
+   */
+  breadcrumbs?: Array<{ name: string; url: string }>;
   children: React.ReactNode;
 }
 
@@ -29,22 +34,20 @@ export function MarketingLayout({
   description,
   canonicalPath,
   jsonLd = [],
+  breadcrumbs,
   children,
 }: MarketingLayoutProps) {
+  const trail = breadcrumbs ?? [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: title, url: `${SITE_URL}${canonicalPath}` },
+  ];
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <SEO
         title={title}
         description={description}
         canonicalUrl={`${SITE_URL}${canonicalPath}`}
-        jsonLd={[
-          organizationLd(),
-          breadcrumbLd([
-            { name: "GradeThread", url: `${SITE_URL}/` },
-            { name: title, url: `${SITE_URL}${canonicalPath}` },
-          ]),
-          ...jsonLd,
-        ]}
+        jsonLd={[organizationLd(), breadcrumbLd(trail), ...jsonLd]}
       />
 
       {/* Header — matches the landing page */}

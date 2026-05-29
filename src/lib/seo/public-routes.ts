@@ -13,8 +13,12 @@
 // Dynamic collections (blog posts, certificates) are NOT listed here — they
 // enter the sitemap via the edge API, which already knows them.
 //
-// Keep this file dependency-free (pure data): it is imported by the Vite
-// config in a plain Node context as well as by the browser bundle.
+// Keep this file dependency-light: it is imported by the Vite config in a plain
+// Node context as well as by the browser bundle. It may import other PURE-DATA
+// modules via RELATIVE paths (the `@/` alias is not resolved in the Vite config
+// context) — e.g. ./glossary, which derives its routes from src/lib/constants.
+
+import { glossaryRoutes } from "./glossary";
 
 export const SITE_URL = "https://gradethread.com";
 
@@ -123,6 +127,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     changefreq: "yearly",
     priority: 0.3,
   },
+  // Condition-grading glossary hub (US-303): one page per grade tier + factor,
+  // generated from src/lib/constants.ts. Spokes off the /condition-grading
+  // pillar; auto-flow into the manifest/sitemap/IndexNow/prerender.
+  ...glossaryRoutes(),
 ];
 
 /** Normalize a pathname for lookup (strip trailing slash, keep root as "/"). */

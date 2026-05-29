@@ -1913,3 +1913,56 @@ tier/factor from constants, hub-and-spoke from /condition-grading), then
 US-304 (blog GEO: answer-first/TOC/author/related posts), US-305 (Core Web
 Vitals), US-306 (responsive images), US-307 (dynamic OG images), and the
 measurement stories US-308 (GSC/Bing) + US-309 (admin SEO dashboard).
+
+
+## Session Notes (2026-05-29 cont.) -- US-303 grading glossary / knowledge hub
+
+Shipped the condition-grading glossary hub: 12 programmatic public pages
+(7 grade tiers + 5 grading factors) at /grading/<slug>, all generated from
+src/lib/constants.ts. Spokes off the /condition-grading pillar (US-302).
+
+What landed:
+- src/lib/seo/glossary.ts -- single source of truth. PURE DATA: imports only
+  ../constants (relative, so the Vite-config Node context resolves it) + a
+  type-only PublicRoute (no runtime value cycle with public-routes). Iterates
+  GRADE_TIERS + GRADE_FACTORS and merges editorial content (definition,
+  what-graders-look-for, examples, FAQs, related terms); throws if a
+  tier/factor is missing content. Exports GLOSSARY_ENTRIES, glossaryRoutes(),
+  glossaryTrail(), and slug/path lookups.
+- public-routes.ts spreads glossaryRoutes() into PUBLIC_ROUTES, so the 12 pages
+  auto-flow into seo-manifest.json -> sitemap (US-293) + IndexNow (US-297) +
+  prerender (US-292). No other plumbing needed.
+- One dynamic router route /grading/:slug -> src/pages/marketing/
+  grading-glossary.tsx (reads slug from useParams; prerender passes it as a
+  prop since SSR renders a path with no param match). Each page: answer-first
+  definition, numeric anchor/weight badge, look-for bullets, examples,
+  related-terms link block, FAQ, CTA -- via MarketingLayout chrome.
+- JSON-LD: marketing-jsonld.ts gained glossaryJsonLd()/glossaryBreadcrumbItems()
+  (3-level BreadcrumbList back to the pillar + FAQPage). MarketingLayout gained
+  a `breadcrumbs` override; the prerender head-builder special-cases glossary
+  paths -> identical structured data on the live SPA and prerendered HTML.
+- Pillar /condition-grading now has a "Condition grading glossary" section
+  linking every tier + factor page (hub-and-spoke, AC#4).
+- constants.ts: made the import.meta.env read node-safe via a local cast (it is
+  now reached by the Vite-config type-check graph through the SEO registry).
+
+Tests:
+- New src/lib/seo/__tests__/glossary.test.ts (AC#5): every constants tier/factor
+  has a generated route + PUBLIC_ROUTES entry; content well-formed; slugs
+  unique; related links resolve; 3-level trail; routes registry-shaped.
+- public-routes.test.ts guard updated: glossary routes are registered concrete
+  paths served by the single /grading/:slug dynamic route, so the
+  "registered route exists in the router" check accepts them via that route.
+
+Verification: tsc -b (app) + tsc -p tsconfig.functions.json exit 0; vitest
+62/62; eslint clean; npm run build prerendered 22 static pages (was 10) --
+confirmed dist/grading/nwot/index.html: 1 <title>, canonical correct, body
+populated, JSON-LD = Organization + 3-item BreadcrumbList (/, /condition-grading,
+/grading/nwot) + FAQPage(2 Q&A); seo-manifest.json lists all 12 /grading/* URLs.
+prd.json 236/309 (US-303 passes=true).
+
+Recommended next: US-304 (blog GEO: answer-first/key-takeaways, auto TOC, FAQ
+blocks, author byline E-E-A-T, related posts, visible dateModified -- needs a
+blog_posts migration for author/key_takeaways/faqs + SSR/editor wiring), then
+US-305 (Core Web Vitals), US-306 (responsive images), US-307 (dynamic OG
+images), US-308 (GSC/Bing ingestion), US-309 (admin SEO dashboard).

@@ -556,8 +556,14 @@ export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], stri
 //
 // Note: edge-function (Deno/Hono) code reads these from Deno.env directly
 // so this constant is frontend-only.
+// `import.meta.env` is typed by vite/client under the app tsconfig, but this
+// module is also reached by the Vite-config type-check graph (via the SEO route
+// registry), where that type isn't present — so read it through a local cast
+// that type-checks in both contexts. Behavior is unchanged (Vite still inlines
+// the real VITE_* values at build time; the fallback covers non-Vite contexts).
 const env = (key: string, fallback: string): string =>
-  (import.meta.env?.[key] as string | undefined) ?? fallback;
+  ((import.meta as { env?: Record<string, string | undefined> }).env?.[key]) ??
+  fallback;
 
 export const STRIPE_PRICE_IDS = {
   flipdesk: {
