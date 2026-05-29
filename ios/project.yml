@@ -136,6 +136,15 @@ targets:
         CFBundleDisplayName: Add to FlipDesk
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
+        # Required for the OS to install the appex. XcodeGen regenerates
+        # this plist, so the NSExtension dict must live here. Accept up to
+        # 8 image attachments; the extension hides on text/URL/video shares.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).ShareViewController"
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 8
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.share-extension
@@ -145,7 +154,6 @@ targets:
         CODE_SIGNING_REQUIRED: NO
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
-        INFOPLIST_KEY_NSExtensionPointIdentifier: com.apple.share-services
         # Extension UIs are size-constrained — explicit so XcodeGen
         # doesn't auto-add device-family quirks.
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -165,6 +173,11 @@ targets:
         CFBundleDisplayName: GradeThread
         CFBundleShortVersionString: "0.1.0"
         CFBundleVersion: "1"
+        # Required for the OS to install the appex — WidgetKit's extension
+        # point. XcodeGen regenerates this plist, so it must live here (not
+        # only in the committed Info.plist, which gets overwritten).
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.gradethread.app.widget
