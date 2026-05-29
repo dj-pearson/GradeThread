@@ -31,7 +31,7 @@ export function SocialListPage() {
 
   return (
     <div className="space-y-4">
-      <SEO title="Social" />
+      <SEO title="Social" noindex />
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold">Social</h1>

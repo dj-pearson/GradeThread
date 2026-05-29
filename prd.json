@@ -4839,8 +4839,8 @@
         "Typecheck passes"
       ],
       "priority": 291,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Foundation story — US-292/293/296 depend on this registry + manifest."
+      "passes": true,
+      "notes": "DONE 2026-05-29. src/lib/seo/public-routes.ts registry (PUBLIC_ROUTES, getRouteMeta, normalizePath, absoluteUrl); vite.config.ts seoManifestPlugin emits dist/seo-manifest.json on build (verified); CI guard test src/lib/seo/__tests__/public-routes.test.ts parses the router and fails if a static public path is unregistered. Tests + typecheck + build green."
     },
     {
       "id": "US-292",
@@ -4909,8 +4909,8 @@
         "Typecheck passes"
       ],
       "priority": 295,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. robots.txt is the real lever; llms.txt is low-cost/unproven but harmless."
+      "passes": true,
+      "notes": "DONE 2026-05-29. functions/_shared/seo-config.ts pure builders (buildRobotsTxt/buildLlmsTxt + ALLOWED_AI_AGENTS/BLOCKED_AI_AGENTS/DISALLOWED_PATHS); functions/robots.txt.ts emits explicit per-UA allow blocks (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot, Google-Extended, Applebot-Extended, etc.) keeping /dashboard /admin /auth /api /accept-invite disallowed; new functions/llms.txt.ts; removed superseded static public/robots.txt. Tested in src/test/seo-crawl.test.ts."
     },
     {
       "id": "US-296",
@@ -4962,7 +4962,7 @@
       ],
       "priority": 298,
       "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. The edge SSR (blog/cert) already has an organizationLd helper — keep the two in sync or share constants."
+      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. The edge SSR (blog/cert) already has an organizationLd helper — keep the two in sync or share constants. GROUNDWORK 2026-05-29: organizationLd/webSiteLd/softwareApplicationLd built in src/lib/seo/json-ld.ts and rendered on the landing page via <SEO jsonLd>. Remaining for pass: presence in prerendered HTML (US-292) + Rich Results validation. SearchAction intentionally omitted until a real site-search endpoint exists."
     },
     {
       "id": "US-299",
@@ -4979,7 +4979,7 @@
       ],
       "priority": 299,
       "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page)."
+      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-298 (json-ld.ts) and US-302 (how-it-works page). GROUNDWORK 2026-05-29: faqPageLd/breadcrumbLd/howToLd built + unit-tested; FAQPage live on landing, BreadcrumbList live on certificate + legal pages. Remaining for pass: HowTo on /how-it-works (US-302) + prerender presence (US-292)."
     },
     {
       "id": "US-300",
@@ -4996,7 +4996,7 @@
       ],
       "priority": 300,
       "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-294 + US-298. Certificates are the flagship programmatic SEO surface."
+      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-294 + US-298. Certificates are the flagship programmatic SEO surface. GROUNDWORK 2026-05-29: certificateLd built + unit-tested (Product + bounded Review/Rating 1-10) and emitted on the hydrated SPA cert page. Remaining for pass: cert edge SSR (US-294) + stable image URLs + prerender visibility."
     },
     {
       "id": "US-301",
@@ -5013,8 +5013,8 @@
         "Typecheck passes"
       ],
       "priority": 301,
-      "passes": false,
-      "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Used by US-298/299/300. Keep parity with the edge renderLayout() head tags."
+      "passes": true,
+      "notes": "DONE 2026-05-29. src/components/seo.tsx upgraded: noindex, jsonLd (array|object), default ogImage, ogType, article{published/modified/author}, twitterSite, keywords, self-canonical fallback. NOTE: react-helmet-async v3 does NOT inject <script> client-side, so JSON-LD is injected via useEffect (works at runtime + captured by the US-292 headless prerender). Wired landing (org/website/software/faq), certificate (certificate+breadcrumb), legal-layout (org+breadcrumb); added noindex to all admin/content SEO usages. json-ld.ts builders added (also serve US-298/299/300). Unit test src/components/seo.test.tsx."
     },
     {
       "id": "US-302",

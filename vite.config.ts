@@ -1,19 +1,43 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
+import { writeFileSync } from "fs";
+import { PUBLIC_ROUTES, SITE_URL } from "./src/lib/seo/public-routes";
 
 // Source-map upload only runs on builds that carry a Sentry auth token (CI).
 // Local/tokenless builds skip it and emit no source maps, so nothing leaks.
 const sentryAuthToken = process.env.SENTRY_AUTH_TOKEN;
 const uploadSourcemaps = Boolean(sentryAuthToken);
 
+// Emits dist/seo-manifest.json from the indexable-route registry (US-291) so
+// the sitemap Pages Function and the deploy-time IndexNow submitter share a
+// build-stable source of truth for static public URLs.
+function seoManifestPlugin(): Plugin {
+  return {
+    name: "seo-manifest",
+    apply: "build",
+    closeBundle() {
+      const manifest = {
+        siteUrl: SITE_URL,
+        generatedAt: new Date().toISOString(),
+        routes: PUBLIC_ROUTES,
+      };
+      writeFileSync(
+        path.resolve(__dirname, "dist/seo-manifest.json"),
+        JSON.stringify(manifest, null, 2) + "\n",
+      );
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    seoManifestPlugin(),
     VitePWA({
       registerType: "autoUpdate",
       // The service worker is registered explicitly from the FlipDesk intake

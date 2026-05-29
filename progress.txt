@@ -1597,3 +1597,74 @@ Why US-194 stays open (deferred to after pricing rework lands):
 
 Note: this slice makes US-197's App Store submission path Apple-compliant
 (Guideline 5.1.1(v) requires account deletion for apps with sign-up).
+
+
+## Session Notes (2026-05-29) — Hardened SEO/GEO foundation (US-291, US-295, US-301)
+
+Shipped the first high-priority slice of the SEO/GEO program (plan:
+tasks/prd-seo-hardening.md; stories US-291..US-309). Picked the
+fully self-contained, no-external-secrets foundation so it lands and
+passes cleanly; the heavier infra stories (prerender, cert SSR,
+IndexNow, GSC) remain open and now have groundwork.
+
+US-291 — indexable public-route registry + manifest + CI guard:
+- src/lib/seo/public-routes.ts: PUBLIC_ROUTES (single source of truth
+  for indexable static routes) + getRouteMeta/normalizePath/absoluteUrl
+  + SITE_URL. Dependency-free (imported by Vite config AND browser).
+- vite.config.ts seoManifestPlugin() emits dist/seo-manifest.json from
+  the registry at build (verified). The sitemap Function (US-293) and
+  deploy IndexNow (US-297) will consume it.
+- Guard test src/lib/seo/__tests__/public-routes.test.ts parses
+  src/routes/index.tsx, derives the static-public paths (excludes
+  /dashboard, /admin, /auth, /login, /signup, /accept-invite, params,
+  catch-all) and fails the build if any is unregistered (and vice
+  versa). This is what makes the sitemap update itself when a page is
+  added: you can't ship a public page without registering it.
+
+US-295 — AI-aware robots.txt + llms.txt:
+- functions/_shared/seo-config.ts: pure builders buildRobotsTxt /
+  buildLlmsTxt + ALLOWED_AI_AGENTS / BLOCKED_AI_AGENTS / DISALLOWED_PATHS.
+- functions/robots.txt.ts emits explicit per-UA Allow blocks for
+  Googlebot, Bingbot, GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot,
+  Claude-User, PerplexityBot, Perplexity-User, Google-Extended, Applebot,
+  Applebot-Extended; /dashboard /admin /auth /api /accept-invite stay
+  Disallow'd for all; sitemap advertised. BLOCKED list is config-driven
+  (empty by default) for aggressive scrapers.
+- New functions/llms.txt.ts serves a curated Markdown site map for LLMs.
+- Removed the superseded static public/robots.txt (the dynamic Pages
+  Function takes precedence). Tests: src/test/seo-crawl.test.ts.
+
+US-301 — upgraded shared <SEO> component + JSON-LD library:
+- src/components/seo.tsx gained noindex, jsonLd (object | object[]),
+  default ogImage, ogType, article{published/modified/author},
+  twitterSite, keywords, self-canonical fallback.
+- GOTCHA: react-helmet-async v3.0.0 (the React 19 fork in use) does NOT
+  inject <script> into the DOM head client-side (verified via head
+  dump). So JSON-LD is injected imperatively via useEffect
+  (data-seo-jsonld nodes, < escaped). This works at runtime AND is
+  captured by the headless prerender planned in US-292 (it executes JS
+  before snapshotting). Add structured data via <SEO jsonLd=...>, never
+  raw Helmet <script>.
+- src/lib/seo/json-ld.ts: organizationLd, webSiteLd (SearchAction only
+  when a real search URL is passed — omitted for now), softwareApplicationLd,
+  faqPageLd, breadcrumbLd, howToLd, certificateLd (Product + bounded
+  Review/Rating 1-10 so the numeric grade is AI-citable).
+- Wired: landing (Organization+WebSite+SoftwareApplication+FAQPage),
+  certificate (certificate Product + BreadcrumbList), legal-layout
+  (Organization+BreadcrumbList). Added noindex to all 10 admin/content
+  SEO usages. Unit test src/components/seo.test.tsx (jsdom render; no
+  @testing-library dep added).
+
+Verification: tsc -b (app) and tsc -p tsconfig.functions.json both exit
+0; vitest 29/29 pass; eslint clean; npm run build green and emits
+dist/seo-manifest.json. prd.json: US-291/US-295/US-301 passes=true
+(226/309). US-298/299/300 left passes=false with GROUNDWORK notes — the
+json-ld builders + SPA wiring are done, but their criteria require
+prerender visibility (US-292) / cert SSR (US-294) / a /how-it-works page
+(US-302), all still open.
+
+Recommended next (dependency order): US-292 (build-time prerender) — the
+keystone that makes client-injected meta + JSON-LD visible to non-JS AI
+crawlers and lets US-298/299/300 close; then US-293 (registry-driven
+sitemap, consume the manifest) + US-294 (cert edge SSR with tenant
+isolation), then US-296/297 (IndexNow).

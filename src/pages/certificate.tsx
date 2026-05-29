@@ -8,6 +8,8 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
+import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
+import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
@@ -201,6 +203,23 @@ export function CertificatePage() {
         description={`Verified GradeThread grade certificate for ${submission?.title ?? "garment"}. Grade: ${gradeReport.grade_tier} (${gradeReport.overall_score}/10).`}
         ogType="article"
         canonicalUrl={`https://gradethread.com/cert/${id}`}
+        jsonLd={[
+          certificateLd({
+            id: id ?? "",
+            title: submission?.title ?? "Graded garment",
+            overallScore: gradeReport.overall_score,
+            gradeTier: gradeReport.grade_tier,
+            brand: submission?.brand ?? null,
+            datePublished: gradeReport.created_at,
+          }),
+          breadcrumbLd([
+            { name: "GradeThread", url: `${SITE_URL}/` },
+            {
+              name: "Grade Certificate",
+              url: `${SITE_URL}/cert/${id ?? ""}`,
+            },
+          ]),
+        ]}
       />
       {/* Header with branding */}
       <div className="bg-brand-navy py-6 text-white">

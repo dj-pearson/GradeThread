@@ -1,8 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /dashboard
-Disallow: /admin
-Disallow: /auth
-Disallow: /accept-invite
-
-Sitemap: https://gradethread.com/sitemap.xml

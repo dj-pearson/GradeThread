@@ -22,6 +22,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SEO } from "@/components/seo";
+import {
+  organizationLd,
+  webSiteLd,
+  softwareApplicationLd,
+  faqPageLd,
+} from "@/lib/seo/json-ld";
 import { LaunchBanner } from "@/components/launch-banner";
 import {
   CREDIT_PACKS,
@@ -424,7 +430,15 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 export function LandingPage() {
   return (
     <div className="flex min-h-screen flex-col">
-      <SEO canonicalUrl="https://gradethread.com/" />
+      <SEO
+        canonicalUrl="https://gradethread.com/"
+        jsonLd={[
+          organizationLd(),
+          webSiteLd(),
+          softwareApplicationLd(),
+          faqPageLd(faqs),
+        ]}
+      />
       <LaunchBanner />
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:px-12">

@@ -50,7 +50,7 @@ export function BlogListPage() {
 
   return (
     <div className="space-y-4">
-      <SEO title="Blog" />
+      <SEO title="Blog" noindex />
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-bold">Blog</h1>

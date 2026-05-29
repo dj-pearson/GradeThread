@@ -144,7 +144,7 @@ function SocialEditorInner({
 
   return (
     <div className="space-y-4">
-      <SEO title="Social post" />
+      <SEO title="Social post" noindex />
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" onClick={onBack}>
           <ArrowLeft className="mr-2 h-4 w-4" /> Back

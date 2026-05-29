@@ -2,6 +2,8 @@ import { Link, NavLink } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
+import { breadcrumbLd, organizationLd } from "@/lib/seo/json-ld";
+import { SITE_URL } from "@/lib/seo/public-routes";
 
 interface LegalLayoutProps {
   title: string;
@@ -30,7 +32,14 @@ export function LegalLayout({
       <SEO
         title={title}
         description={description}
-        canonicalUrl={`https://gradethread.com${canonicalPath}`}
+        canonicalUrl={`${SITE_URL}${canonicalPath}`}
+        jsonLd={[
+          organizationLd(),
+          breadcrumbLd([
+            { name: "GradeThread", url: `${SITE_URL}/` },
+            { name: title, url: `${SITE_URL}${canonicalPath}` },
+          ]),
+        ]}
       />
 
       {/* Header */}
