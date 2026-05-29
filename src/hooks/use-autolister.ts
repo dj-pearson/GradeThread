@@ -1,6 +1,8 @@
+import { useCallback, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { supabase } from "@/lib/supabase";
 import type { ListingGenerationJobStatus, ListingGenerationStatus } from "@/types/database";
 
 // Client for the AutoLister batch API (US-313 backend). Submits grouped items
@@ -60,6 +62,126 @@ export function useStartAutolisterBatch() {
     },
     onError: (err) => toast.error(err.message),
   });
+}
+
+// ── Bulk publish (US-321) ───────────────────────────────────────
+//
+// Client-side orchestrator over the proven single-item publish path: for each
+// item it validates (POST /listings/validate — refuses items with unresolved
+// blockers) then publishes (POST /listings/push — the 3-step inventory PUT →
+// offer POST → offer publish). Runs with bounded concurrency, captures a
+// per-item result, and writes the publish outcome back to the listing row
+// (synced_to_ebay_at on success; publish_error/publish_failed_at on failure).
+
+const PUBLISH_CONCURRENCY = 3;
+
+export type BulkPublishStatus = "pending" | "publishing" | "success" | "failed";
+
+export interface BulkPublishItemResult {
+  itemId: string;
+  status: BulkPublishStatus;
+  error?: string;
+  listingUrl?: string;
+}
+
+export interface BulkPublishItem {
+  itemId: string;
+  listingId?: string | null;
+}
+
+async function markListingOutcome(
+  item: BulkPublishItem,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  try {
+    let q = supabase.from("listings").update(patch as never);
+    q = item.listingId
+      ? q.eq("id", item.listingId)
+      : q.eq("inventory_item_id", item.itemId).eq("platform", "ebay");
+    await q;
+  } catch {
+    /* non-fatal — the UI already reflects the result */
+  }
+}
+
+export function useBulkPublish() {
+  const [results, setResults] = useState<Record<string, BulkPublishItemResult>>({});
+  const [running, setRunning] = useState(false);
+
+  const set = useCallback((itemId: string, patch: Partial<BulkPublishItemResult>) => {
+    setResults((prev) => ({
+      ...prev,
+      [itemId]: { ...(prev[itemId] ?? { itemId, status: "pending" }), ...patch, itemId },
+    }));
+  }, []);
+
+  const run = useCallback(
+    async (items: BulkPublishItem[]) => {
+      if (items.length === 0) return;
+      setRunning(true);
+      setResults(
+        Object.fromEntries(
+          items.map((i) => [i.itemId, { itemId: i.itemId, status: "pending" as const }]),
+        ),
+      );
+
+      let failed = 0;
+      const publishOne = async (item: BulkPublishItem) => {
+        set(item.itemId, { status: "publishing" });
+        try {
+          // Pre-flight: refuse items with unresolved blockers.
+          const vRes = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
+            method: "POST",
+            json: { inventory_item_id: item.itemId },
+          });
+          const vJson = await vRes.json().catch(() => ({}));
+          if (!vRes.ok) throw new Error(vJson.error || "Validation failed.");
+          if (vJson.ok === false && Array.isArray(vJson.blockers) && vJson.blockers.length) {
+            throw new Error(vJson.blockers.join(" • "));
+          }
+
+          // Publish (3-step Sell API flow on the server).
+          const pRes = await edgeFetch("/api/flipdesk/ebay/listings/push", {
+            method: "POST",
+            json: { inventory_item_id: item.itemId },
+          });
+          const pJson = await pRes.json().catch(() => ({}));
+          if (!pRes.ok || pJson.ok === false) {
+            const detail = pJson.detail ?? pJson.error ?? "Publish failed.";
+            const blockers = Array.isArray(pJson.blockers) ? pJson.blockers.join(" • ") : "";
+            throw new Error(blockers ? `${detail} — ${blockers}` : detail);
+          }
+
+          set(item.itemId, { status: "success", listingUrl: pJson.listing_url });
+          await markListingOutcome(item, {
+            synced_to_ebay_at: new Date().toISOString(),
+            publish_error: null,
+            publish_failed_at: null,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Publish failed.";
+          failed++;
+          set(item.itemId, { status: "failed", error: message });
+          await markListingOutcome(item, {
+            publish_error: message,
+            publish_failed_at: new Date().toISOString(),
+          });
+        }
+      };
+
+      for (let i = 0; i < items.length; i += PUBLISH_CONCURRENCY) {
+        await Promise.all(items.slice(i, i + PUBLISH_CONCURRENCY).map(publishOne));
+      }
+      setRunning(false);
+
+      toast.success(
+        `Publish finished — ${items.length - failed} live${failed ? `, ${failed} failed` : ""}.`,
+      );
+    },
+    [set],
+  );
+
+  return { run, results, running };
 }
 
 /**

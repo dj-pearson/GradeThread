@@ -8,6 +8,8 @@ import {
   Clock,
   RefreshCw,
   ArrowRight,
+  Rocket,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,9 +17,11 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import {
   useAutolisterBatch,
+  useBulkPublish,
   useStartAutolisterBatch,
   type AutolisterJob,
 } from "@/hooks/use-autolister";
+import { useEbayConnection } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
 
 // AutoLister queue / progress view (US-318). Polls the batch until it finishes,
@@ -42,6 +46,8 @@ export function FlipdeskAutolisterQueuePage() {
   const batchId = params.get("batch");
   const { data, isLoading, error } = useAutolisterBatch(batchId);
   const startBatch = useStartAutolisterBatch();
+  const bulkPublish = useBulkPublish();
+  const { data: ebayConnection } = useEbayConnection();
 
   const jobs = useMemo(() => data?.jobs ?? [], [data]);
   const itemIds = useMemo(() => jobs.map((j) => j.inventory_item_id), [jobs]);
@@ -99,6 +105,13 @@ export function FlipdeskAutolisterQueuePage() {
   const failedItemIds = jobs
     .filter((j) => j.status === "failed")
     .map((j) => j.inventory_item_id);
+  const succeededJobs = jobs.filter((j) => j.status === "success");
+
+  function publishAll() {
+    void bulkPublish.run(
+      succeededJobs.map((j) => ({ itemId: j.inventory_item_id, listingId: j.listing_id })),
+    );
+  }
 
   async function retryFailed() {
     if (failedItemIds.length === 0) return;
@@ -123,6 +136,24 @@ export function FlipdeskAutolisterQueuePage() {
             <Button variant="secondary" onClick={retryFailed} disabled={startBatch.isPending}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry {failedItemIds.length} failed
+            </Button>
+          )}
+          {succeededJobs.length > 0 && !isRunning && (
+            <Button
+              onClick={publishAll}
+              disabled={bulkPublish.running || !ebayConnection}
+              title={
+                !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : "Validate and publish every generated draft."
+              }
+            >
+              {bulkPublish.running ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              Publish all ({succeededJobs.length})
             </Button>
           )}
           <Button asChild variant="outline">
@@ -171,30 +202,64 @@ export function FlipdeskAutolisterQueuePage() {
 
       {/* Per-item rows */}
       <div className="space-y-2">
-        {jobs.map((job) => (
-          <div
-            key={job.id}
-            className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
-          >
-            <StatusIcon status={job.status} />
-            <span className="flex-1 truncate">
-              {titles[job.inventory_item_id] ?? job.inventory_item_id}
-            </span>
-            {job.status === "failed" && job.error && (
-              <span className="max-w-xs truncate text-xs text-destructive" title={job.error}>
-                {job.error}
+        {jobs.map((job) => {
+          const pub = bulkPublish.results[job.inventory_item_id];
+          return (
+            <div
+              key={job.id}
+              className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
+            >
+              <StatusIcon status={job.status} />
+              <span className="flex-1 truncate">
+                {titles[job.inventory_item_id] ?? job.inventory_item_id}
               </span>
-            )}
-            {job.status === "success" && (
-              <Button asChild size="sm" variant="ghost">
-                <Link to={`/dashboard/flipdesk/items/${job.inventory_item_id}/draft`}>
-                  Review
-                  <ArrowRight className="ml-1 h-3 w-3" />
-                </Link>
-              </Button>
-            )}
-          </div>
-        ))}
+
+              {/* Generation error */}
+              {job.status === "failed" && job.error && !pub && (
+                <span className="max-w-xs truncate text-xs text-destructive" title={job.error}>
+                  {job.error}
+                </span>
+              )}
+
+              {/* Publish state (once a bulk publish has touched this item) */}
+              {pub?.status === "publishing" && (
+                <Badge variant="secondary" className="gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Publishing
+                </Badge>
+              )}
+              {pub?.status === "failed" && (
+                <span className="max-w-xs truncate text-xs text-destructive" title={pub.error}>
+                  {pub.error}
+                </span>
+              )}
+              {pub?.status === "success" ? (
+                pub.listingUrl ? (
+                  <a
+                    href={pub.listingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:underline"
+                  >
+                    Live on eBay
+                    <ExternalLink className="h-3 w-3" />
+                  </a>
+                ) : (
+                  <Badge variant="default">Live</Badge>
+                )
+              ) : (
+                job.status === "success" && (
+                  <Button asChild size="sm" variant="ghost">
+                    <Link to={`/dashboard/flipdesk/items/${job.inventory_item_id}/draft`}>
+                      Review
+                      <ArrowRight className="ml-1 h-3 w-3" />
+                    </Link>
+                  </Button>
+                )
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
