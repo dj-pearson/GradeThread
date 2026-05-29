@@ -46,7 +46,7 @@ public final class SignInWithAppleCoordinator: NSObject {
     // MARK: - Nonce helpers (testable)
 
     /// Cryptographically-random nonce of `length` URL-safe characters.
-    public static func randomNonce(length: Int = 32) -> String {
+    public nonisolated static func randomNonce(length: Int = 32) -> String {
         precondition(length > 0)
         let charset: [Character] = Array(
             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._"
@@ -57,7 +57,7 @@ public final class SignInWithAppleCoordinator: NSObject {
         return String(random.map { charset[Int($0) % charset.count] })
     }
 
-    public static func hashedNonce(_ input: String) -> String {
+    public nonisolated static func hashedNonce(_ input: String) -> String {
         let digest = SHA256.hash(data: Data(input.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }

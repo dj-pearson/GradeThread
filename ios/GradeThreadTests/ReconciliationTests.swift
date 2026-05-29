@@ -25,7 +25,7 @@ final class ReconciliationTests: XCTestCase {
         XCTAssertEqual(parsed.ebayItemId, "1234567890")
         XCTAssertEqual(parsed.customLabel, "S-12")
         XCTAssertEqual(parsed.title, "Vintage Pendleton wool shirt")
-        XCTAssertEqual(parsed.currentPrice, 38.0, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(parsed.currentPrice), 38.0, accuracy: 0.0001)
         XCTAssertEqual(parsed.availableQuantity, 1)
         XCTAssertEqual(parsed.listingURL, "https://www.ebay.com/itm/1234567890")
         XCTAssertEqual(parsed.listingFormat, "FIXED_PRICE")
