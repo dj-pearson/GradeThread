@@ -199,13 +199,24 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
         .join(", ") || undefined,
   };
 
+  // Breadcrumb: GradeThread › Blog › <post> (US-299).
+  const breadcrumbLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "GradeThread", item: `${siteUrl(env)}/` },
+      { "@type": "ListItem", position: 2, name: "Blog", item: `${siteUrl(env)}/blog` },
+      { "@type": "ListItem", position: 3, name: post.title, item: canonical },
+    ],
+  };
+
   return new Response(
     renderLayout({
       title,
       description,
       canonicalUrl: canonical,
       ogImage: post.hero_image_url,
-      jsonLd: [articleLd],
+      jsonLd: [articleLd, breadcrumbLd],
       bodyHtml,
     }),
     {

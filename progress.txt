@@ -1825,3 +1825,91 @@ static routes) and US-299 (HowTo needs /how-it-works) still open.
 Recommended next: US-297 (CI step submits dist/seo-manifest.json URLs to
 IndexNow after deploy — small, uses the same key), then US-302 (marketing
 pages incl. /how-it-works, which closes US-299), then US-303 (glossary).
+
+
+## Session Notes (2026-05-29 cont.) — Deploy-time IndexNow (US-297)
+
+Work is being tracked on PR #15 (branch claude/hardened-seo-strategy-fdsBX);
+pushing commits updates it — no new PRs.
+
+US-297 — submit static routes to IndexNow after a production deploy:
+- scripts/submit-indexnow.mjs: reads dist/seo-manifest.json (the registry→
+  manifest from US-291) and POSTs those absolute URLs to api.indexnow.org
+  using the same key contract as the runtime edge client (US-296). Pure,
+  testable core: parseArgs(), buildPayload(manifest,key) (absolute-URL map +
+  dedupe + drop non-absolute), and submitIndexNow({fetchImpl,log}) with
+  dependency injection. Flags: --dry-run (prints payload, no network),
+  --manifest <path>. The CLI ALWAYS exits 0 so it can never fail a deploy.
+- .github/workflows/indexnow.yml: runs on push to main only (Cloudflare
+  Pages auto-deploys on the same trigger; never on PRs/previews). Rebuilds
+  to emit the manifest, then runs the submitter with INDEXNOW_KEY from a
+  GitHub Actions secret; the step is suffixed `|| true` and the script
+  self-exits 0, so it's doubly non-blocking. Only the STATIC set is
+  submitted here — blog posts + certificates already ping IndexNow at
+  publish time via the edge service (US-296).
+- Unit tests src/test/submit-indexnow.test.ts (9 cases): arg parsing,
+  payload build/dedupe/drop, skip-without-key, skip-on-missing-manifest,
+  dry-run prints + no fetch, POST shape, and never-throws-on-fetch-error.
+  (Vitest can import the .mjs; fetch is injected, so no network.)
+
+Operator step: add INDEXNOW_KEY as a GitHub repo Actions secret (same value
+as the edge service env + the committed public/<key>.txt). Documented in
+ENVIRONMENT.md §2i.
+
+Verification: npx tsc -b + tsc -p tsconfig.functions.json both exit 0;
+vitest 54/54 (8 files); eslint clean; submit-indexnow.mjs --dry-run lists
+the 5 static URLs from the built manifest; workflow YAML parses (js-yaml)
+with the expected on.push.main + secrets.INDEXNOW_KEY. prd.json 233/309
+(US-297 passes=true).
+
+Recommended next: US-302 (evergreen marketing pages incl. /how-it-works,
+which closes US-299's HowTo requirement; also /pricing, /for-resellers,
+/faq, /condition-grading — all registry-driven so they auto-prerender +
+sitemap + IndexNow), then US-303 (grading glossary hub), then US-304 (blog
+GEO), US-305 (Core Web Vitals), and the measurement stories US-308/309.
+
+
+## Session Notes (2026-05-29 cont.) — Marketing pages + structured data (US-302, US-299)
+
+Tracking on PR #15. Shipped five evergreen marketing pages and finished
+the structured-data story.
+
+US-302 — evergreen marketing pages:
+- New shared chrome src/components/marketing/marketing-layout.tsx
+  (MarketingLayout + MarketingCTA) mirrors the landing header/footer + brand
+  tokens, and emits Organization + BreadcrumbList JSON-LD for every page.
+- Five pages under src/pages/marketing/: how-it-works, pricing,
+  for-resellers, faq, condition-grading (the pillar). Each: unique
+  title/description/H1, answer-first intro (first ~200 words answer the
+  page's primary query), H2/H3 hierarchy, internal links to siblings +
+  signup. Responsive, reuses shadcn/Tailwind.
+- JSON-LD: /how-it-works → HowTo + FAQPage; /pricing, /faq,
+  /condition-grading → FAQPage; all → Org + BreadcrumbList.
+- src/pages/marketing/marketing-jsonld.ts holds the page JSON-LD builders +
+  their FAQ/step data as the single source of truth, so the prerender
+  head-builder emits IDENTICAL structured data to the runtime SPA (no
+  drift) and the page .tsx files stay components-only (react-refresh lint).
+- Pricing sources GRADETHREAD_TIERS / CREDIT_PACKS / FLIPDESK_PLANS from
+  src/lib/constants.ts so it can't drift from real pricing.
+- Registered all five in PUBLIC_ROUTES + the prerender entry-server +
+  head-builder's jsonLdForRoute. The CI guard (public-routes.test.ts) +
+  the prerender sync-guard enforce registry↔router↔entry parity.
+
+US-299 — FAQPage / BreadcrumbList / HowTo (now fully done):
+- The builders + structural unit tests existed since the foundation; this
+  session put all three into prerendered/SSR HTML reflecting visible
+  content. Added the last missing piece: BreadcrumbList on BLOG POSTS
+  (functions/blog/[[path]].ts now emits GradeThread › Blog › <post>
+  alongside the Article schema).
+
+Verification: tsc -b (app) + tsc -p tsconfig.functions.json exit 0; vitest
+54/54; eslint clean; npm run build prerenders 10 static pages (was 5) —
+confirmed each has exactly one <title> and the right JSON-LD types in
+<head> (/how-it-works: HowTo+HowToStep+FAQPage+Question+Answer+Organization
++BreadcrumbList). prd.json 235/309 (US-302 + US-299 passes=true).
+
+Recommended next: US-303 (grading glossary hub — programmatic pages per
+tier/factor from constants, hub-and-spoke from /condition-grading), then
+US-304 (blog GEO: answer-first/TOC/author/related posts), US-305 (Core Web
+Vitals), US-306 (responsive images), US-307 (dynamic OG images), and the
+measurement stories US-308 (GSC/Bing) + US-309 (admin SEO dashboard).

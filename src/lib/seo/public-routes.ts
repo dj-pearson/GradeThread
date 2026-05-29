@@ -52,6 +52,49 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     jsonLdType: "WebSite",
   },
   {
+    path: "/how-it-works",
+    title: "How It Works",
+    description:
+      "How GradeThread's AI grades pre-owned clothing: upload photos, get a 1.0–10.0 condition grade across 5 weighted factors, and share a verified certificate.",
+    changefreq: "monthly",
+    priority: 0.9,
+    jsonLdType: "HowTo",
+  },
+  {
+    path: "/pricing",
+    title: "Pricing",
+    description:
+      "GradeThread pricing: a free plan with 3 grades/month, pay-per-grade tiers from $2.99, credit packs, and FlipDesk reseller subscriptions.",
+    changefreq: "weekly",
+    priority: 0.9,
+    jsonLdType: "FAQPage",
+  },
+  {
+    path: "/for-resellers",
+    title: "For Resellers",
+    description:
+      "Standardized condition grades that build buyer trust, cut returns, and speed up sales for eBay, Poshmark, Mercari, Depop, and Grailed sellers.",
+    changefreq: "monthly",
+    priority: 0.8,
+  },
+  {
+    path: "/faq",
+    title: "Frequently Asked Questions",
+    description:
+      "Answers about AI clothing grading, the 1.0–10.0 condition scale, disputes, certificates, pricing, credits, and the GradeThread API.",
+    changefreq: "monthly",
+    priority: 0.7,
+    jsonLdType: "FAQPage",
+  },
+  {
+    path: "/condition-grading",
+    title: "What Is Clothing Condition Grading?",
+    description:
+      "A complete guide to pre-owned clothing condition grading: the 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted factors graders assess.",
+    changefreq: "monthly",
+    priority: 0.9,
+  },
+  {
     path: "/privacy",
     title: "Privacy Policy",
     description:
