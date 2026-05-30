@@ -82,7 +82,11 @@
       "Bash(Find C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\src\\\\types -name \"*.ts\")",
       "PowerShell(Get-Command *)",
       "PowerShell(irm https://deno.land/install.ps1 | iex; $env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; deno --version)",
-      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; Set-Location services\\\\edge-functions; deno check src/main.ts 2>&1 | Select-Object -Last 40)"
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; Set-Location services\\\\edge-functions; deno check src/main.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(Out-File *)",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; Set-Location \"C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread\\\\services\\\\edge-functions\"; $errs = deno check src/main.ts 2>&1; \\($errs | Select-String \"TS\\\\d+ \\\\[ERROR\\\\]\"\\).Count; \\($errs | Select-Object -Last 3\\) -join \"`n\")",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread\"; $r = npx tsc --noEmit 2>&1; \"ExitCode: $LASTEXITCODE Count: $\\($r.Count\\)\"; if \\($LASTEXITCODE -ne 0\\) { $r | Select-Object -Last 30 })",
+      "PowerShell($env:Path = \"$env:USERPROFILE\\\\.deno\\\\bin;$env:Path\"; Set-Location \"C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread\\\\services\\\\edge-functions\"; $errs = deno check src/main.ts 2>&1; \"Edge errors: \" + \\($errs | Select-String \"TS\\\\d+ \\\\[ERROR\\\\]\"\\).Count; \"Tail:\"; $errs | Select-Object -Last 3)"
     ]
   },
   "hooks": {

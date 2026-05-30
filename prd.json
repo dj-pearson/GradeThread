@@ -5166,7 +5166,7 @@
         "Migration applies cleanly on a fresh DB and against existing data; tests pass; typecheck passes"
       ],
       "priority": 310,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW. Audit confirms NONE of batch/queue, scheduled_publish_at, publish_error, ebay_condition, item_specifics_override, business policies, quantity, best_offer exist. Next migration number is 00052 (highest is 00051_blog_geo_fields.sql). Follow RLS pattern from 00008_flipdesk_schema.sql (marketplace_connections 170-196) and listing_status enum at 00008:44-46. Update src/types/database.ts. Dependency root for US-312/313/319/320/321/322."
     },
     {
@@ -5183,7 +5183,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 311,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW prompt+schema; REUSE infra. Audit lists this as missing. Reuse: resolveActivePrompt (ai-grading.ts:204-271), ephemeral cache_control, tool_choice pattern (ai-extract.ts:159-284), eval harness (grading-eval.ts scoreGradingPrompt + grading_eval_cases). Next migration after US-310's 00052 is 00053. Depends on US-310 for table availability only."
     },
     {
@@ -5200,7 +5200,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 312,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW orchestration; heavy REUSE. Reuse verified: generateListingCopy exists (flipdesk-ai.ts:539) but only does title+description — extend/wrap it. suggestCategories/getCategoryAspects/searchBrowseComps all BUILT. Writes into US-310 listings columns. SECURITY US-268: scope all listings/inventory_items writes to c.get('workspaceOwnerId') ?? c.get('userId'). Depends on US-310, US-311."
     },
     {
@@ -5218,7 +5218,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 313,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW. No queue/job abstraction exists today (single synchronous publish only). Reuse: bounded-concurrency loop (flipdesk-ai.ts:756-759 CONCURRENCY=3), 202+background fire (flipdesk-ebay.ts:817-847), checkQuota/AI_ACTION_LIMITS (flipdesk-ai.ts:33-99), auth+workspace middleware (main.ts:115-147). Writes US-310 tables. SECURITY US-268: every job/batch query scoped to owner. Depends on US-310, US-312."
     },
     {
@@ -5234,7 +5234,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 314,
-      "passes": false,
+      "passes": true,
       "notes": "REUSE-existing API + BUILD-NEW caching. getDefaultPolicies/location resolution are BUILT but no business_policies table or policy FKs exist (added in US-310). Touch ebay-client.ts:653-728, flipdesk-ebay.ts assemblePublishContext:1614-1779/1739-1752. Depends on US-310. Needed by US-321/US-322 publish paths."
     },
     {
@@ -5249,7 +5249,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 315,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW small. Audit missing: seller identity lookup (commerce/identity/v1/user); account_handle remains null at connect time. Reuse: upsertConnection (ebay-client.ts:233-296), fetchAuthed helper, OAuth callback (flipdesk-ebay.ts:123-193), debugSnapshot (ebay-client.ts:43-92). account_handle column already exists. Independent of US-310; can land early."
     },
     {
@@ -5265,7 +5265,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 316,
-      "passes": false,
+      "passes": true,
       "notes": "REUSE-existing uploader. Bulk photo upload is BUILT (photo-uploader.tsx:36-319) but there is NO AutoLister route/sidebar entry. Add route to src/routes/index.tsx (lines 48-189 region) and link to sidebar.tsx (FlipDesk group lines 62-74). Staging state feeds US-317. Tier gate from US-323."
     },
     {
@@ -5281,7 +5281,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 317,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW. Photo grouping is ABSENT (uploads ALL photos to single item_id today). Reuse dnd-kit (already in composer.tsx). Materializes inventory_items + item_photos (item_photos table 00008:153-164). SECURITY US-268: scope inserts to current workspace. Depends on US-316; output feeds US-318."
     },
     {
@@ -5298,7 +5298,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 318,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW. Batch generation, generate button, and queue/progress view all ABSENT. Reuse TanStack Query (project standard) and the inline progress pattern from bulkPublishProgress (listings.tsx:879-921) as UX reference. Consumes US-313 endpoints, US-317 grouped items. Routes added in src/routes/index.tsx."
     },
     {
@@ -5314,7 +5314,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 319,
-      "passes": false,
+      "passes": true,
       "notes": "REUSE-existing composer + EXTEND. Single-item composer is BUILT (composer.tsx:1-600+) with category picker and comps; it does NOT currently surface AI-generated listing fields. Reuse category aspects endpoint (flipdesk-ebay.ts:263-278), validate endpoint (1241-1252), PublishToEbayDialog. Reads US-310 columns populated by US-312. Depends on US-310, US-312."
     },
     {
@@ -5330,7 +5330,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 320,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW. The drafts tab exists (listings.tsx:177-183) but is read/select only. Uses US-310 batch_id/quantity/best_offer columns and validate endpoint (flipdesk-ebay.ts:1241-1252). SECURITY US-268: scope all updates. Depends on US-310, US-312, US-318."
     },
     {
@@ -5347,7 +5347,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 321,
-      "passes": false,
+      "passes": true,
       "notes": "REUSE-heavy. Full publish lifecycle is BUILT; missing only bulk monitoring. bulkPublishToEbay is PARTIAL (sequential, no auto-gen). Reuse publish flow (flipdesk-ebay.ts:1286-1338), loadListingOwned (1510-1539), validate (1241-1252), idempotency fallback (1328-1334). Writes US-310 columns. Depends on US-310, US-314, US-319."
     },
     {
@@ -5363,7 +5363,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 322,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW scheduling on REUSE publish. scheduled_publish_at added in US-310. Reuse scheduled-job gating pattern (oauth/refresh handler, flipdesk-ebay.ts:199-239), publish flow, loadListingOwned. Depends on US-310, US-321."
     },
     {
@@ -5379,7 +5379,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 323,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW gating; REUSE quota infra. Audit missing: subscription gate, higher tier only. Reuse AI_ACTION_LIMITS + checkQuota (flipdesk-ai.ts:33-99) and workspace-owner billing. Pricing per FlipDesk pricing model ($0/$29/$59/$99). Depends on US-313, US-316, US-318."
     },
     {
@@ -5395,7 +5395,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 324,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW tests. CLAUDE.md US-268 mandate: service-role bypasses RLS; existing tests live in services/edge-functions/src/tests/tenant-isolation_test.ts. Reuse loadListingOwned / assemblePublishContext ownership patterns as the assertion model. Depends on US-310, US-312, US-313, US-314, US-321, US-322."
     },
     {
@@ -5411,7 +5411,7 @@
         "Tests pass; typecheck passes"
       ],
       "priority": 325,
-      "passes": false,
+      "passes": true,
       "notes": "BUILD-NEW. Audit missing: error handling for eBay API rate limits and publication failures with retry backoff and user notification. Reuse: fetchAuthed/token-refresh in ebay-client.ts, the attempts/error columns on listing_generation_jobs (US-310), bounded-concurrency worker (US-313). Toasts via sonner (project standard). Depends on US-313, US-321."
     }
   ]

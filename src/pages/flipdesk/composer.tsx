@@ -350,6 +350,17 @@ export function FlipdeskComposerPage() {
     setSaving(true);
     try {
       const parsedPrice = Number.parseFloat(price);
+      // US-319: round-trip the listing-row override columns so publish picks
+      // them up. The picker writes aspects to inventory_items on its own
+      // save; we null item_specifics_override here so the picker's aspect
+      // mirror becomes the source of truth for any subsequent publish. The
+      // bulk editor remains free to set its own override (it doesn't route
+      // through the composer).
+      const resolvedCategoryId =
+        livePickedCategoryId ??
+        listing?.platform_category_id ??
+        ebayMapping?.ebay_category_id ??
+        null;
       const payload: ListingInsert = {
         inventory_item_id: item.id,
         platform: "ebay",
@@ -361,6 +372,8 @@ export function FlipdeskComposerPage() {
         listing_description: description.trim() || null,
         ebay_condition: ebayCondition || null,
         ebay_condition_description: conditionDesc.trim() || null,
+        platform_category_id: resolvedCategoryId,
+        item_specifics_override: null,
         scheduled_publish_at: localInputToIso(scheduledAt),
         // Saving = a human reviewed the price, so it's no longer an unverified
         // AI estimate.
@@ -534,11 +547,17 @@ export function FlipdeskComposerPage() {
             </CardContent>
           </Card>
 
-          {/* eBay category + item specifics */}
+          {/* eBay category + item specifics — prefer the listing-row override
+              when present (the editor / bulk-edit writes here), then fall
+              back to the inventory_items mirror for legacy single-item flows. */}
           <EbayCategoryPicker
             itemId={item.id}
-            initialCategoryId={ebayMapping?.ebay_category_id ?? null}
-            initialAspects={ebayMapping?.ebay_aspects ?? null}
+            initialCategoryId={
+              listing?.platform_category_id ?? ebayMapping?.ebay_category_id ?? null
+            }
+            initialAspects={
+              listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null
+            }
             seedQuery={item.item_title ?? ""}
             onCategoryChange={setLivePickedCategoryId}
           />
@@ -547,7 +566,10 @@ export function FlipdeskComposerPage() {
           <EbayCompsPanel
             itemId={item.id}
             categoryId={
-              livePickedCategoryId ?? ebayMapping?.ebay_category_id ?? null
+              livePickedCategoryId ??
+              listing?.platform_category_id ??
+              ebayMapping?.ebay_category_id ??
+              null
             }
             brand={item.brand ?? null}
             size={item.size ?? null}

@@ -13,6 +13,7 @@ import {
   getDefaultPolicies,
   getMarketplaceId,
   getUserAccessToken,
+  getUserIdentityFromToken,
   isEbayConfigured,
   isOfferAlreadyExistsError,
   listAllOffers,
@@ -20,8 +21,11 @@ import {
   listRecentOrders,
   listRecentTransactions,
   publishOffer,
+  resolveCachedDefaults,
   searchBrowseComps,
+  setDefaultPolicies,
   suggestCategories,
+  syncBusinessPolicies,
   updateOfferFields,
   updateOfferPrice,
   upsertConnection,
@@ -72,8 +76,11 @@ export const flipdeskEbayRoutes = new Hono<EbayEnv>();
 // GET /oauth/debug — returns a sanitized snapshot of how the edge service
 // resolved the eBay env vars. No secrets. Use this to spot sandbox/prod
 // mismatches and whitespace problems without grepping Coolify settings.
-flipdeskEbayRoutes.get("/oauth/debug", (c) => {
-  return c.json(debugSnapshot());
+// When a JWT is present we also include this user's account_handle status
+// so US-315 backfill can be verified at a glance.
+flipdeskEbayRoutes.get("/oauth/debug", async (c) => {
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as string | undefined;
+  return c.json(await debugSnapshot(userId));
 });
 
 // ── OAuth: start ───────────────────────────────────────────────────
@@ -171,11 +178,17 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
 
   try {
     const tokens = await exchangeCodeForTokens(code);
+    // US-315: capture the seller's eBay username at connect time so webhooks
+    // and admin views know which account a listing publishes under. Identity
+    // lookup is non-fatal — a 4xx/network blip should not block connect; the
+    // refresh path will backfill on the next token rotation.
+    const identity = await getUserIdentityFromToken(tokens.access_token);
     await upsertConnection({
       userId: stateRow.user_id,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       accessExpiresInSeconds: tokens.expires_in,
+      accountHandle: identity?.username ?? null,
     });
   } catch (err) {
     console.error("[flipdesk-ebay] OAuth exchange failed:", err);
@@ -236,6 +249,168 @@ flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
     }
   }
   return c.json({ scanned: userIds.length, refreshed, failed });
+});
+
+// ── US-314: business policies + merchant location ────────────────────
+//
+// GET  /policies          → list cached policies + locations (syncs if empty);
+//                           tenant-scoped to the workspace owner.
+// PUT  /policies/default  → set the default policy of each kind (and merchant
+//                           location key) — written to business_policies and
+//                           marketplace_connections respectively.
+// POST /policies/sync     → force a fresh pull from eBay (UI "Re-sync" button).
+
+interface BusinessPolicyRow {
+  policy_id: string;
+  policy_type: "fulfillment" | "payment" | "return";
+  policy_name: string;
+  is_default: boolean;
+  synced_from_ebay_at: string | null;
+}
+
+async function listCachedPolicies(userId: string) {
+  const { data } = await supabaseAdmin
+    .from("business_policies")
+    .select("policy_id, policy_type, policy_name, is_default, synced_from_ebay_at")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .order("policy_type", { ascending: true })
+    .order("policy_name", { ascending: true });
+  return (data ?? []) as BusinessPolicyRow[];
+}
+
+async function loadMerchantLocationKey(userId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("merchant_location_key")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  return (data as { merchant_location_key: string | null } | null)
+    ?.merchant_location_key ?? null;
+}
+
+flipdeskEbayRoutes.get("/policies", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    let policies = await listCachedPolicies(ownerId);
+    let merchantLocationKey = await loadMerchantLocationKey(ownerId);
+
+    // Empty cache → sync once so the UI has something to render.
+    if (policies.length === 0) {
+      await syncBusinessPolicies(ownerId);
+      policies = await listCachedPolicies(ownerId);
+      merchantLocationKey = await loadMerchantLocationKey(ownerId);
+    }
+
+    const defaults = {
+      fulfillment_policy_id:
+        policies.find((p) => p.policy_type === "fulfillment" && p.is_default)?.policy_id ?? null,
+      payment_policy_id:
+        policies.find((p) => p.policy_type === "payment" && p.is_default)?.policy_id ?? null,
+      return_policy_id:
+        policies.find((p) => p.policy_type === "return" && p.is_default)?.policy_id ?? null,
+      merchant_location_key: merchantLocationKey,
+    };
+    return c.json({ policies, defaults });
+  } catch (err) {
+    console.error("[flipdesk-ebay] /policies failed:", err);
+    return c.json({ error: "Could not load eBay policies." }, 502);
+  }
+});
+
+flipdeskEbayRoutes.post("/policies/sync", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  try {
+    const result = await syncBusinessPolicies(ownerId);
+    return c.json({
+      synced: result.policies.length,
+      merchant_location_key: result.merchantLocationKey,
+      missing: result.missing,
+    });
+  } catch (err) {
+    console.error("[flipdesk-ebay] /policies/sync failed:", err);
+    return c.json({ error: "Could not sync eBay policies." }, 502);
+  }
+});
+
+flipdeskEbayRoutes.put("/policies/default", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: {
+    fulfillment_policy_id?: unknown;
+    payment_policy_id?: unknown;
+    return_policy_id?: unknown;
+    merchant_location_key?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  // Validate each id by checking it exists in this workspace's cached
+  // policies — prevents writing a stale or foreign id as default. Tenant
+  // isolation: ownership is implicit in the user_id-scoped lookup.
+  const cached = await listCachedPolicies(ownerId);
+  const idsByKind = new Map<string, Set<string>>();
+  for (const row of cached) {
+    if (!idsByKind.has(row.policy_type)) idsByKind.set(row.policy_type, new Set());
+    idsByKind.get(row.policy_type)!.add(row.policy_id);
+  }
+
+  const selection: {
+    fulfillment_policy_id?: string;
+    payment_policy_id?: string;
+    return_policy_id?: string;
+    merchant_location_key?: string;
+  } = {};
+  if (typeof body.fulfillment_policy_id === "string") {
+    if (!idsByKind.get("fulfillment")?.has(body.fulfillment_policy_id)) {
+      return c.json({ error: "Unknown fulfillment policy id" }, 400);
+    }
+    selection.fulfillment_policy_id = body.fulfillment_policy_id;
+  }
+  if (typeof body.payment_policy_id === "string") {
+    if (!idsByKind.get("payment")?.has(body.payment_policy_id)) {
+      return c.json({ error: "Unknown payment policy id" }, 400);
+    }
+    selection.payment_policy_id = body.payment_policy_id;
+  }
+  if (typeof body.return_policy_id === "string") {
+    if (!idsByKind.get("return")?.has(body.return_policy_id)) {
+      return c.json({ error: "Unknown return policy id" }, 400);
+    }
+    selection.return_policy_id = body.return_policy_id;
+  }
+  if (typeof body.merchant_location_key === "string" && body.merchant_location_key.trim()) {
+    selection.merchant_location_key = body.merchant_location_key.trim();
+  }
+
+  await setDefaultPolicies(ownerId, selection);
+
+  const next = await listCachedPolicies(ownerId);
+  const nextLocation = await loadMerchantLocationKey(ownerId);
+  return c.json({
+    policies: next,
+    defaults: {
+      fulfillment_policy_id:
+        next.find((p) => p.policy_type === "fulfillment" && p.is_default)?.policy_id ?? null,
+      payment_policy_id:
+        next.find((p) => p.policy_type === "payment" && p.is_default)?.policy_id ?? null,
+      return_policy_id:
+        next.find((p) => p.policy_type === "return" && p.is_default)?.policy_id ?? null,
+      merchant_location_key: nextLocation,
+    },
+  });
 });
 
 // ── Taxonomy ───────────────────────────────────────────────────────
@@ -1296,13 +1471,14 @@ export async function publishItemForOwner(
   }
 
   try {
-    // 2. Push inventory_item (idempotent PUT).
+    // 2. Push inventory_item (idempotent PUT). Quantity, aspects, and
+    //    condition all come from the publish context, which already resolved
+    //    listing-row edits ahead of inventory defaults (US-319/320/321).
     await createOrReplaceInventoryItem(ownerId, sku, {
       product: {
         title: ctx.summary.title,
         description: ctx.summary.description,
-        aspects:
-          (item.ebay_aspects as Record<string, string[]> | null) ?? undefined,
+        aspects: ctx.summary.aspects,
         imageUrls: photos.map((p) => p.public_url),
         brand:
           typeof item.brand === "string" && item.brand.trim()
@@ -1312,7 +1488,9 @@ export async function publishItemForOwner(
       condition: ctx.summary.condition,
       conditionDescription:
         ctx.summary.conditionDescription || undefined,
-      availability: { shipToLocationAvailability: { quantity: 1 } },
+      availability: {
+        shipToLocationAvailability: { quantity: ctx.summary.quantity },
+      },
     });
 
     // 3. Create or reuse an offer for this SKU.
@@ -1322,13 +1500,16 @@ export async function publishItemForOwner(
         sku,
         marketplaceId: getMarketplaceId(),
         format: "FIXED_PRICE",
-        availableQuantity: 1,
-        categoryId: item.ebay_category_id as string,
+        availableQuantity: ctx.summary.quantity,
+        categoryId: ctx.summary.categoryId,
         listingDescription: ctx.summary.description,
         listingPolicies: {
           fulfillmentPolicyId: policies.fulfillmentPolicyId,
           paymentPolicyId: policies.paymentPolicyId,
           returnPolicyId: policies.returnPolicyId,
+          ...(ctx.summary.bestOfferEnabled
+            ? { bestOfferTerms: { bestOfferEnabled: true } }
+            : {}),
         },
         pricingSummary: {
           price: {
@@ -1360,7 +1541,7 @@ export async function publishItemForOwner(
       platform: "ebay" as const,
       platform_listing_id: listingId,
       platform_offer_id: offerId,
-      platform_category_id: item.ebay_category_id,
+      platform_category_id: ctx.summary.categoryId,
       listing_url: url,
       listing_price: Number(ctx.summary.priceValue),
       listing_title: ctx.summary.title,
@@ -1396,6 +1577,21 @@ export async function publishItemForOwner(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] publish failed:", msg);
+    // US-321: persist the failure on the draft listing so the queue/UI can
+    // surface "last failed: X" on reload, and US-325 retry can target it.
+    if (listing?.id) {
+      try {
+        await supabaseAdmin
+          .from("listings")
+          .update({
+            publish_error: msg.slice(0, 1000),
+            publish_failed_at: new Date().toISOString(),
+          })
+          .eq("id", listing.id);
+      } catch (logErr) {
+        console.error("[flipdesk-ebay] could not persist publish_error:", logErr);
+      }
+    }
     return {
       ok: false,
       status: 502,
@@ -1693,6 +1889,15 @@ interface PublishListing {
   listing_title: string | null;
   listing_description: string | null;
   listing_price: number | null;
+  // US-319/320/321: edits made in the composer/bulk editor must reach eBay.
+  // These mirror the columns added in 00052_autolister_schema.sql.
+  ebay_condition: string | null;
+  ebay_condition_description: string | null;
+  quantity: number | null;
+  best_offer_enabled: boolean | null;
+  platform_category_id: string | null;
+  item_specifics_override: Record<string, string[]> | null;
+  scheduled_publish_at: string | null;
 }
 
 interface PublishContextOk {
@@ -1711,6 +1916,10 @@ interface PublishContextOk {
     currency: string;
     condition: string;
     conditionDescription: string;
+    categoryId: string;
+    aspects: Record<string, string[]>;
+    quantity: number;
+    bestOfferEnabled: boolean;
   };
 }
 
@@ -1764,9 +1973,13 @@ async function assemblePublishContext(
   const item = itemRow as PublishItem;
 
   // Most recent eBay-platform listing draft for this item (if any).
+  // Pull the AutoLister-edited columns too — composer/bulk-edit writes here
+  // and these must reach eBay at publish (US-319/320/321).
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
-    .select("id, listing_title, listing_description, listing_price")
+    .select(
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at",
+    )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
     .order("created_at", { ascending: false })
@@ -1802,12 +2015,20 @@ async function assemblePublishContext(
   });
 
   const blockers: string[] = [];
-  if (!item.ebay_category_id) blockers.push("Pick an eBay category.");
-  const aspectMap = (item.ebay_aspects as Record<string, string[]> | null) ?? {};
+  // Category resolution: listing-row override wins (AutoLister writes here);
+  // fall back to inventory_items for legacy / single-item composer flows.
+  const categoryId = listing?.platform_category_id ?? item.ebay_category_id ?? null;
+  if (!categoryId) blockers.push("Pick an eBay category.");
+  // Aspect map: prefer item_specifics_override (the AutoLister-edited copy);
+  // fall back to the inventory mirror. The inventory mirror feeds legacy flows.
+  const aspectMap: Record<string, string[]> =
+    listing?.item_specifics_override ??
+    (item.ebay_aspects as Record<string, string[]> | null) ??
+    {};
   let requiredMissing: string[] = [];
-  if (item.ebay_category_id) {
+  if (categoryId) {
     try {
-      const aspectsResp = await getCategoryAspects(item.ebay_category_id);
+      const aspectsResp = await getCategoryAspects(categoryId);
       const raw = (aspectsResp.aspects as Record<string, unknown>).aspects;
       const list = Array.isArray(raw)
         ? (raw as Array<{
@@ -1837,7 +2058,9 @@ async function assemblePublishContext(
     blockers.push("Add at least one photo.");
   }
 
-  const priceNumber = item.target_price ?? item.list_price ?? listing?.listing_price ?? null;
+  // Price priority: explicit listing edits beat inventory defaults so a user
+  // who changed the price in the composer or bulk-edit actually publishes that.
+  const priceNumber = listing?.listing_price ?? item.target_price ?? item.list_price ?? null;
   if (!priceNumber || priceNumber <= 0) {
     blockers.push("Set a target price.");
   }
@@ -1847,9 +2070,11 @@ async function assemblePublishContext(
 
   // Look up policies last — only blocks if everything else is ready, but
   // surface the missing prereqs as part of `blockers` either way.
+  // US-314: read from the cached business_policies table first; only refresh
+  // from eBay when the cache is empty or partial.
   let policies: PolicySet | null = null;
   try {
-    const policyResult = await getDefaultPolicies(userId);
+    const policyResult = await resolveCachedDefaults(userId);
     if ("missing" in policyResult) {
       blockers.push(
         `Configure eBay business policies on your seller account: ${policyResult.missing.join(", ")}.`
@@ -1865,8 +2090,17 @@ async function assemblePublishContext(
   const description = (listing?.listing_description ?? item.description ?? title).trim() ||
     title;
   const sku = item.sku && item.sku.trim() ? item.sku.trim() : `FD-${item.id.slice(0, 8)}`;
-  const condition = mapEbayCondition(item.grade_value, item.grade_label);
-  const conditionDescription = item.condition_notes?.trim() ?? "";
+  // Condition: explicit editor value wins; only fall back to grade-derived
+  // mapping when the user/AI hasn't set one.
+  const condition = (listing?.ebay_condition && listing.ebay_condition.trim())
+    ? listing.ebay_condition.trim()
+    : mapEbayCondition(item.grade_value, item.grade_label);
+  const conditionDescription =
+    (listing?.ebay_condition_description ?? item.condition_notes ?? "").trim();
+
+  // Quantity: default 1 for single-item resellers; respect the column when set.
+  const quantity = listing?.quantity && listing.quantity > 0 ? listing.quantity : 1;
+  const bestOfferEnabled = listing?.best_offer_enabled === true;
 
   const summary: PublishContextOk["summary"] = {
     title,
@@ -1875,6 +2109,10 @@ async function assemblePublishContext(
     currency: "USD",
     condition,
     conditionDescription,
+    categoryId: categoryId ?? "",
+    aspects: aspectMap,
+    quantity,
+    bestOfferEnabled,
   };
 
   return {

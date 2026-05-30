@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, AlertTriangle, ArrowRight } from "lucide-react";
+import { Loader2, Save, AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ interface DraftRow {
   quantity: number | null;
   best_offer_enabled: boolean | null;
   scheduled_publish_at: string | null;
+  platform_category_id: string | null;
 }
 
 interface EditRow {
@@ -36,6 +38,9 @@ interface EditRow {
   quantity: string;
   bestOffer: boolean;
   scheduledAt: string;
+  categoryId: string;
+  // Server-side validation blockers (US-320) — populated by "Validate" actions.
+  validationBlockers: string[] | null;
   dirty: boolean;
 }
 
@@ -56,7 +61,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at",
+          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -88,10 +93,12 @@ export function FlipdeskAutolisterBulkEditPage() {
   const [rows, setRows] = useState<EditRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
   const [markupPct, setMarkupPct] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
   const [bulkQty, setBulkQty] = useState("");
   const [bulkSchedule, setBulkSchedule] = useState("");
+  const [bulkCategoryId, setBulkCategoryId] = useState("");
 
   // Seed editable rows once the drafts load.
   useEffect(() => {
@@ -106,6 +113,8 @@ export function FlipdeskAutolisterBulkEditPage() {
         quantity: r.quantity != null ? String(r.quantity) : "1",
         bestOffer: r.best_offer_enabled ?? false,
         scheduledAt: isoToLocalInput(r.scheduled_publish_at),
+        categoryId: r.platform_category_id ?? "",
+        validationBlockers: null,
         dirty: false,
       })),
     );
@@ -167,6 +176,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                 quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
                 best_offer_enabled: r.bestOffer,
                 scheduled_publish_at: localInputToIso(r.scheduledAt),
+                platform_category_id: r.categoryId.trim() || null,
                 price_is_estimated: false,
               } as never)
               .eq("id", r.id);
@@ -188,6 +198,64 @@ export function FlipdeskAutolisterBulkEditPage() {
     }
   }
 
+  // US-320: real publish-blocker checks via /listings/validate. Bounded
+  // concurrency so a 100-row batch doesn't hammer the edge service. Save
+  // dirty rows first so the server validates the latest edits.
+  async function validateRows(targetRows: EditRow[]) {
+    if (targetRows.length === 0) {
+      toast.info("Select rows to validate (or save edits first).");
+      return;
+    }
+    if (rows.some((r) => r.dirty)) {
+      toast.warning("Save your edits before validating — the server reads from the listing row.");
+      return;
+    }
+    setValidating(true);
+    try {
+      const CONCURRENCY = 4;
+      let ok = 0;
+      let blocked = 0;
+      for (let i = 0; i < targetRows.length; i += CONCURRENCY) {
+        const batch = targetRows.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (row) => {
+            try {
+              const res = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
+                method: "POST",
+                json: { inventory_item_id: row.itemId },
+              });
+              const json = await res.json().catch(() => ({}));
+              const blockers = Array.isArray(json.blockers)
+                ? (json.blockers as string[])
+                : [];
+              return { id: row.id, blockers };
+            } catch (err) {
+              return {
+                id: row.id,
+                blockers: [
+                  err instanceof Error ? err.message : "Validation request failed.",
+                ],
+              };
+            }
+          }),
+        );
+        setRows((prev) =>
+          prev.map((r) => {
+            const hit = results.find((x) => x.id === r.id);
+            return hit ? { ...r, validationBlockers: hit.blockers } : r;
+          }),
+        );
+        for (const r of results) {
+          if (r.blockers.length === 0) ok++;
+          else blocked++;
+        }
+      }
+      toast.success(`Validated ${targetRows.length} — ${ok} clean, ${blocked} blocked.`);
+    } finally {
+      setValidating(false);
+    }
+  }
+
   function rowIssues(r: EditRow): string[] {
     const issues: string[] = [];
     if (!r.title.trim()) issues.push("Title is empty");
@@ -195,6 +263,12 @@ export function FlipdeskAutolisterBulkEditPage() {
     const price = Number.parseFloat(r.price);
     if (!Number.isFinite(price) || price <= 0) issues.push("Price not set");
     if (!r.condition) issues.push("No condition");
+    if (!r.categoryId.trim()) issues.push("No category");
+    // Server-side blockers from /listings/validate take precedence — they
+    // reflect missing required aspects, etc., that the local heuristics can't see.
+    if (r.validationBlockers && r.validationBlockers.length > 0) {
+      issues.push(...r.validationBlockers);
+    }
     return issues;
   }
 
@@ -377,6 +451,47 @@ export function FlipdeskAutolisterBulkEditPage() {
             Clear
           </Button>
         </div>
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              eBay category id
+            </label>
+            <Input
+              value={bulkCategoryId}
+              onChange={(e) => setBulkCategoryId(e.target.value)}
+              className="h-8 w-32"
+              placeholder="e.g. 11450"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!bulkCategoryId.trim()}
+            onClick={() => applyToTargets(() => ({ categoryId: bulkCategoryId.trim() }))}
+          >
+            Apply
+          </Button>
+        </div>
+        <div className="flex items-end gap-1.5">
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={validating}
+            onClick={() => {
+              const target = selected.size > 0
+                ? rows.filter((r) => selected.has(r.id))
+                : rows;
+              void validateRows(target);
+            }}
+          >
+            {validating ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Validate {selected.size > 0 ? `(${selected.size})` : "all"}
+          </Button>
+        </div>
       </Card>
 
       {/* Grid */}
@@ -399,6 +514,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="p-2">Title</th>
               <th className="w-28 p-2">Price</th>
               <th className="w-44 p-2">Condition</th>
+              <th className="w-28 p-2">Category</th>
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
               <th className="w-52 p-2">Schedule</th>
@@ -473,6 +589,14 @@ export function FlipdeskAutolisterBulkEditPage() {
                   </td>
                   <td className="p-2">
                     <Input
+                      value={r.categoryId}
+                      onChange={(e) => patchRow(r.id, { categoryId: e.target.value })}
+                      className="h-8"
+                      placeholder="—"
+                    />
+                  </td>
+                  <td className="p-2">
+                    <Input
                       type="number"
                       min="1"
                       value={r.quantity}
@@ -508,7 +632,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={9} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>

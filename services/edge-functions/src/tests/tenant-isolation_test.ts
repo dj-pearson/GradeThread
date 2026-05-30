@@ -227,3 +227,96 @@ Deno.test({
     );
   },
 });
+
+// ── US-324 additions: policies, retry-failed, scheduled-publish gate ──
+//
+// US-314 added /policies; US-324 requires we confirm B cannot promote one of
+// A's policy ids to "default" via PUT /policies/default — the route's lookup
+// of cached policies is workspace-scoped, so an unknown id for B's workspace
+// must 400.
+Deno.test({
+  name: "B cannot promote A's eBay policy id as their own default",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_FULFILLMENT_POLICY_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_FULFILLMENT_POLICY_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/policies/default`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ fulfillment_policy_id: id }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    // 400 = id unknown to B's workspace (the route validates against B's cache).
+    // 401/403/404 also fine — anything but a 200 that wrote the row.
+    assert(
+      status === 400 || DENIED.has(status),
+      `PUT policies/default with another tenant's policy id should be ` +
+        `rejected (400/401/403/404) but got ${status}`,
+    );
+  },
+});
+
+// US-318 retry endpoint: B must not be able to re-run jobs in A's batch.
+Deno.test({
+  name: "B cannot retry failed jobs in A's AutoLister batch",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_BATCH_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_BATCH_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/autolister/batch/${id}/retry-failed`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_GATED.has(status),
+      `POST autolister/batch/:id/retry-failed for another tenant should ` +
+        `be denied (401/402/403/404) but got ${status}`,
+    );
+  },
+});
+
+// US-322: the scheduled-publish worker is gated by FLIPDESK_INTERNAL_JOB_SECRET
+// in the X-Internal-Job-Secret header, NOT a user JWT. A user token must NOT
+// be able to trigger it — only the cron with the matching secret can.
+Deno.test({
+  name: "scheduled-publish job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/jobs/publish-due`,
+      { method: "POST", headers: authHeaders(A_JWT!) },
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/publish-due with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+// Negative companion: an explicit wrong secret must also be rejected. (Run even
+// without a victim id so we always exercise this gate in CI.)
+Deno.test({
+  name: "scheduled-publish job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/jobs/publish-due`,
+      {
+        method: "POST",
+        headers: {
+          "X-Internal-Job-Secret": "wrong-secret-value",
+          "Content-Type": "application/json",
+        },
+      },
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/publish-due with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});

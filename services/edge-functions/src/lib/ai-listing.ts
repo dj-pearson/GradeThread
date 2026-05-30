@@ -20,7 +20,11 @@ import {
   getDefaultModel,
   isCachingEnabled,
 } from "./ai-config.ts";
-import { estimateCost } from "./ai-extract.ts";
+import {
+  estimateCost,
+  extractEbayAspects,
+  type EbayAspectSpec,
+} from "./ai-extract.ts";
 import {
   getCategoryAspects,
   searchBrowseComps,
@@ -409,20 +413,85 @@ function extractAllowedAspects(aspectsResponse: unknown): Record<string, string[
   return out;
 }
 
-// Keep only generated specifics whose aspect name matches one the category
-// allows (case-insensitive). This constrains item_specifics to the resolved
-// category without a second AI call.
-function filterToAllowedAspects(
-  specifics: Record<string, string[]>,
-  allowed: Record<string, string[]>,
-): Record<string, string[]> {
-  const allowedNames = new Map(
-    Object.keys(allowed).map((n) => [n.toLowerCase(), n]),
+// US-312: convert eBay's getCategoryAspects raw payload to EbayAspectSpec[] so
+// the second-pass call to extractEbayAspects can constrain VALUES (not just
+// names) to what eBay accepts for this category. Mirrors flipdesk-ai.ts
+// toAspectSpecs but lives here to avoid pulling a route module into a lib.
+function buildAspectSpecsForCategory(
+  aspectsResponse: unknown,
+): EbayAspectSpec[] {
+  const top = (aspectsResponse as { aspects?: unknown } | null)?.aspects;
+  const raw = (top as { aspects?: unknown } | null)?.aspects;
+  if (!Array.isArray(raw)) return [];
+
+  type RawAspect = {
+    localizedAspectName?: string;
+    aspectConstraint?: {
+      aspectRequired?: boolean;
+      aspectMode?: string;
+      itemToAspectCardinality?: string;
+      aspectUsage?: string;
+    };
+    aspectValues?: Array<{ localizedValue?: string }>;
+  };
+
+  const specs: EbayAspectSpec[] = [];
+  for (const a of raw as RawAspect[]) {
+    const name = typeof a.localizedAspectName === "string"
+      ? a.localizedAspectName.trim()
+      : "";
+    if (!name) continue;
+    const c = a.aspectConstraint ?? {};
+    const mode = (c.aspectMode === "SELECTION_ONLY" ||
+        c.aspectMode === "SUGGESTED" ||
+        c.aspectMode === "FREE_TEXT")
+      ? c.aspectMode
+      : "FREE_TEXT";
+    const cardinality = c.itemToAspectCardinality === "MULTI" ? "MULTI" : "SINGLE";
+    const required = !!c.aspectRequired;
+    // Cap to a sensible per-aspect allowed-value count so the tool schema
+    // doesn't balloon for categories that ship hundreds of values per aspect.
+    const allowedValues = (a.aspectValues ?? [])
+      .map((v) => (typeof v.localizedValue === "string" ? v.localizedValue : ""))
+      .filter((v): v is string => v.length > 0)
+      .slice(0, 80);
+    specs.push({
+      name,
+      required,
+      cardinality,
+      mode,
+      allowedValues: allowedValues.length > 0 ? allowedValues : undefined,
+    });
+  }
+
+  // Prioritize: required → recommended → optional, capped so the AI focuses on
+  // what actually matters for an eBay listing.
+  const usageByName = new Map<string, string>();
+  for (const a of raw as RawAspect[]) {
+    if (a.localizedAspectName) {
+      usageByName.set(a.localizedAspectName, a.aspectConstraint?.aspectUsage ?? "OPTIONAL");
+    }
+  }
+  const required = specs.filter((s) => s.required);
+  const recommended = specs.filter(
+    (s) => !s.required && usageByName.get(s.name) === "RECOMMENDED",
   );
+  const optional = specs.filter(
+    (s) => !s.required && usageByName.get(s.name) !== "RECOMMENDED",
+  );
+  return [...required, ...recommended, ...optional].slice(0, 35);
+}
+
+// Collapse extractEbayAspects's suggestion map back to the plain name -> values
+// shape the listing schema and DB columns expect.
+function suggestionsToSpecifics(
+  suggestions: Record<string, { values: string[] }>,
+): Record<string, string[]> {
   const out: Record<string, string[]> = {};
-  for (const [name, values] of Object.entries(specifics)) {
-    const canonical = allowedNames.get(name.toLowerCase());
-    if (canonical) out[canonical] = values;
+  for (const [name, sug] of Object.entries(suggestions)) {
+    if (Array.isArray(sug.values) && sug.values.length > 0) {
+      out[name] = sug.values;
+    }
   }
   return out;
 }
@@ -567,17 +636,66 @@ export async function generateListing(
     }
   }
 
-  // 6. Constrain specifics to the resolved category (filter, no extra AI call).
-  if (categoryId && !aspectsAlreadyConstrained) {
+  // 6. US-312: second pass — constrain item_specifics VALUES (not just names)
+  //    to the category's allowed aspect set via extractEbayAspects' dynamic
+  //    tool schema. Photos + the AI-generated specifics ("known aspects")
+  //    drive the call; eBay-rejected free-text values for SELECTION_ONLY
+  //    aspects get dropped, required gaps get filled when supported.
+  let itemSpecifics: Record<string, string[]> = listing.item_specifics;
+  let extractCost = 0;
+  let extractTokensIn = 0;
+  let extractTokensOut = 0;
+  if (categoryId) {
+    let rawAspectsResponse: unknown = null;
     try {
-      allowedAspects = extractAllowedAspects(await getCategoryAspects(categoryId));
+      rawAspectsResponse = await getCategoryAspects(categoryId);
     } catch (err) {
       console.error("[AI Listing] getCategoryAspects (post) failed:", err);
     }
+    if (rawAspectsResponse) {
+      // Keep the name-keyed map for legacy paths that read allowedAspects.
+      allowedAspects = extractAllowedAspects(rawAspectsResponse);
+      const specs = buildAspectSpecsForCategory(rawAspectsResponse);
+      if (specs.length > 0) {
+        try {
+          const refined = await extractEbayAspects({
+            text: [item.title, item.brand, item.size, item.color, item.material]
+              .filter((v): v is string => !!v && v.length > 0)
+              .join(" • "),
+            photos: photos.map((p) => ({ url: p.url, type: p.type })),
+            knownAspects: listing.item_specifics,
+            aspects: specs,
+            categoryPath,
+          });
+          const refinedSpecifics = suggestionsToSpecifics(refined.suggestions);
+          // Merge: refined values WIN (they're constrained to eBay's allowed
+          // set); fall back to the original AI generation for any aspect the
+          // refiner didn't return (e.g. extractEbayAspects intentionally omits
+          // SELECTION_ONLY aspects when no allowed value matches — keep the
+          // original in case it's a synonym we can clean up later).
+          itemSpecifics = { ...listing.item_specifics, ...refinedSpecifics };
+          extractCost = estimateCost(refined.model, refined.tokensIn, refined.tokensOut);
+          extractTokensIn = refined.tokensIn;
+          extractTokensOut = refined.tokensOut;
+        } catch (err) {
+          console.error("[AI Listing] extractEbayAspects (second pass) failed:", err);
+          // Fall back to the name-only filter so we never publish aspects the
+          // category doesn't accept, even if the value-constrain call fails.
+          if (Object.keys(allowedAspects).length > 0) {
+            const allowedNames = new Map(
+              Object.keys(allowedAspects).map((n) => [n.toLowerCase(), n]),
+            );
+            const filtered: Record<string, string[]> = {};
+            for (const [name, values] of Object.entries(listing.item_specifics)) {
+              const canonical = allowedNames.get(name.toLowerCase());
+              if (canonical) filtered[canonical] = values;
+            }
+            itemSpecifics = filtered;
+          }
+        }
+      }
+    }
   }
-  const itemSpecifics = Object.keys(allowedAspects).length > 0
-    ? filterToAllowedAspects(listing.item_specifics, allowedAspects)
-    : listing.item_specifics;
 
   // 7. Price: prefer comp median, else AI estimate (flagged).
   let priceCents = listing.suggested_price_cents;
@@ -601,6 +719,22 @@ export async function generateListing(
   }
   const priceDollars = Math.round(priceCents) / 100;
 
+  // US-317: surface the per-group cover photo as listings.primary_photo_id
+  // so the composer's "primary photo" view (00027) and any thumbnail-aware
+  // surface (kanban, listings table) see the cover that AutoLister chose.
+  // Items are inserted by autolister.tsx with the cover at sort_order=0; we
+  // resolve its id here so the listing draft can reference it.
+  const { data: firstPhotoRow } = await supabaseAdmin
+    .from("item_photos")
+    .select("id")
+    .eq("inventory_item_id", itemId)
+    .order("sort_order", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const primaryPhotoId = firstPhotoRow
+    ? ((firstPhotoRow as { id: string }).id)
+    : null;
+
   // 8. Upsert the eBay draft listing for this item (tenant-safe: item owned).
   const draftFields = {
     listing_title: listing.title,
@@ -613,6 +747,7 @@ export async function generateListing(
     item_specifics_override: itemSpecifics,
     price_is_estimated: priceIsEstimated,
     batch_id: opts.batchId ?? null,
+    primary_photo_id: primaryPhotoId,
   };
 
   const { data: existing } = await supabaseAdmin
@@ -662,16 +797,21 @@ export async function generateListing(
     .eq("id", itemId)
     .eq("user_id", ownerId);
 
-  // 10. Usage logging (the quota GATE is enforced by the caller).
-  const costUsd = estimateCost(gen.model, gen.tokensIn, gen.tokensOut);
+  // 10. Usage logging (the quota GATE is enforced by the caller). Includes
+  //     the second-pass aspect-extraction tokens/cost so per-item billing
+  //     reflects total Anthropic spend, not just the generation call.
+  const genCost = estimateCost(gen.model, gen.tokensIn, gen.tokensOut);
+  const costUsd = genCost + extractCost;
+  const totalTokensIn = gen.tokensIn + extractTokensIn;
+  const totalTokensOut = gen.tokensOut + extractTokensOut;
   try {
     await supabaseAdmin.from("ai_enrichment_log").insert({
       user_id: ownerId,
       inventory_item_id: itemId,
       model: gen.model,
       input_kind: "both",
-      tokens_in: gen.tokensIn,
-      tokens_out: gen.tokensOut,
+      tokens_in: totalTokensIn,
+      tokens_out: totalTokensOut,
       cost_usd: costUsd,
       latency_ms: 0,
       suggested_fields: {
@@ -681,6 +821,8 @@ export async function generateListing(
           price_cents: priceCents,
           price_is_estimated: priceIsEstimated,
           prompt_version: gen.promptVersion,
+          aspect_refine_tokens_in: extractTokensIn,
+          aspect_refine_tokens_out: extractTokensOut,
         },
       },
     });
@@ -699,7 +841,7 @@ export async function generateListing(
     model: gen.model,
     promptVersion: gen.promptVersion,
     costUsd,
-    tokensIn: gen.tokensIn,
-    tokensOut: gen.tokensOut,
+    tokensIn: totalTokensIn,
+    tokensOut: totalTokensOut,
   };
 }

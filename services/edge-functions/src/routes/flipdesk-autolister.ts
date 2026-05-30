@@ -45,19 +45,24 @@ type BatchStatus = "pending" | "running" | "completed" | "failed" | "partial";
 async function processBatch(
   batchId: string,
   ownerId: string,
-  jobs: Array<{ id: string; inventory_item_id: string }>,
+  jobs: Array<{ id: string; inventory_item_id: string; attempts?: number }>,
   useComps: boolean,
   allowance: number,
+  initialCounts?: { succeeded: number; failed: number },
 ): Promise<void> {
-  let succeeded = 0;
-  let failed = 0;
+  let succeeded = initialCounts?.succeeded ?? 0;
+  let failed = initialCounts?.failed ?? 0;
   let consumed = 0;
 
-  async function runJob(job: { id: string; inventory_item_id: string }): Promise<void> {
-    // Mark running + increment attempts.
+  async function runJob(
+    job: { id: string; inventory_item_id: string; attempts?: number },
+  ): Promise<void> {
+    // Mark running + bump attempts (US-325: real per-job retry counter).
+    // attempts always reflects the total number of times the job has been run.
+    const nextAttempts = (job.attempts ?? 0) + 1;
     await supabaseAdmin
       .from("listing_generation_jobs")
-      .update({ status: "running", attempts: 1 })
+      .update({ status: "running", attempts: nextAttempts, error: null })
       .eq("id", job.id);
 
     // Quota gate (local counter against the run's allowance).
@@ -237,6 +242,79 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   );
 
   return c.json({ batch_id: batchId, item_count: itemIds.length }, 202);
+});
+
+// POST /batch/:id/retry-failed  —  re-runs ONLY the failed jobs in this batch
+// against the same item set (US-318/US-325). Increments each job's attempts
+// counter and resets its status to "running"; partial failures stay in place
+// for further retries. Quota is re-checked, so the workspace can't bypass its
+// monthly cap by spamming retries.
+flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const batchId = c.req.param("id");
+
+  // Ownership-scoped batch lookup (tenant isolation per CLAUDE.md US-268).
+  const { data: batch, error: batchErr } = await supabaseAdmin
+    .from("listing_generation_batches")
+    .select(
+      "id, status, item_count, succeeded_count, failed_count",
+    )
+    .eq("id", batchId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (batchErr) return c.json({ error: "Could not load batch." }, 500);
+  if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+  // Premium tier + quota (same gates as POST /batch).
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+  const allowance = quota.limit === -1
+    ? Number.POSITIVE_INFINITY
+    : Math.max(0, quota.limit - quota.used);
+
+  const { data: failedJobs, error: jobsErr } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .select("id, inventory_item_id, attempts")
+    .eq("batch_id", batchId)
+    .eq("status", "failed");
+  if (jobsErr) return c.json({ error: "Could not load failed jobs." }, 500);
+  const jobs = (failedJobs ?? []) as Array<
+    { id: string; inventory_item_id: string; attempts: number }
+  >;
+  if (jobs.length === 0) {
+    return c.json({ error: "No failed jobs to retry." }, 400);
+  }
+
+  // Reopen the batch and decrement failed_count by the retry set; keep
+  // succeeded_count untouched. processBatch will re-roll on completion.
+  const b = batch as {
+    id: string;
+    item_count: number;
+    succeeded_count: number | null;
+    failed_count: number | null;
+  };
+  const succeededSoFar = b.succeeded_count ?? 0;
+  const failedSoFar = Math.max(0, (b.failed_count ?? 0) - jobs.length);
+  await supabaseAdmin
+    .from("listing_generation_batches")
+    .update({
+      status: "running",
+      succeeded_count: succeededSoFar,
+      failed_count: failedSoFar,
+      error: null,
+    })
+    .eq("id", batchId);
+
+  void processBatch(batchId, ownerId, jobs, true, allowance, {
+    succeeded: succeededSoFar,
+    failed: failedSoFar,
+  }).catch((err) =>
+    console.error("[flipdesk-autolister] retry batch crashed:", err)
+  );
+
+  return c.json({ batch_id: batchId, retried: jobs.length }, 202);
 });
 
 // GET /batch/:id — batch + per-job status for progress polling.

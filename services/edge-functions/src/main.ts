@@ -114,10 +114,13 @@ app.use("/api/account/*", authMiddleware);
 // the `state` token from oauth_states identifies the user) + the scheduled
 // /oauth/refresh job (gated by FLIPDESK_INTERNAL_JOB_SECRET header).
 app.use("/api/flipdesk/ebay/oauth/start", authMiddleware);
+app.use("/api/flipdesk/ebay/oauth/debug", authMiddleware);
 app.use("/api/flipdesk/ebay/category/*", authMiddleware);
 app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
+app.use("/api/flipdesk/ebay/policies", authMiddleware);
+app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -137,10 +140,13 @@ app.use("/api/workspace/*", workspaceMiddleware);
 // authMiddleware. No-ops (workspaceOwnerId === userId) for solo users.
 app.use("/api/grade/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/oauth/debug", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/category/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
@@ -188,6 +194,9 @@ app.use("/api/keys/*", rateLimiter(30, 60_000, "api-keys")); // incl. key creati
 app.use("/api/workspace/*", rateLimiter(30, 60_000, "workspace")); // incl. invitation sends
 app.use("/api/notifications/*", rateLimiter(60, 60_000, "notifications"));
 app.use("/api/flipdesk/ebay/oauth/start", rateLimiter(10, 60_000, "ebay-oauth"));
+// Policy reads/syncs are infrequent UI actions; this just blunts pathological spam.
+app.use("/api/flipdesk/ebay/policies", rateLimiter(30, 60_000, "ebay-policies"));
+app.use("/api/flipdesk/ebay/policies/*", rateLimiter(30, 60_000, "ebay-policies"));
 app.use("/api/flipdesk/images/*", rateLimiter(30, 60_000, "flipdesk-images"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));

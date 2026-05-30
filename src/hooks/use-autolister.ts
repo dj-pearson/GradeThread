@@ -233,3 +233,23 @@ export function useAutolisterBatch(batchId: string | null) {
     },
   });
 }
+
+/**
+ * POST /api/flipdesk/autolister/batch/:id/retry-failed — re-runs only the
+ * failed jobs in this batch in place, incrementing each job's attempts. The
+ * queue keeps polling the same batch_id; no navigation needed.
+ */
+export function useRetryFailedAutolister() {
+  return useMutation<{ batch_id: string; retried: number }, Error, { batchId: string }>({
+    mutationFn: async ({ batchId }) => {
+      const res = await edgeFetch(
+        `/api/flipdesk/autolister/batch/${batchId}/retry-failed`,
+        { method: "POST" },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not retry failed jobs.");
+      return json as { batch_id: string; retried: number };
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}

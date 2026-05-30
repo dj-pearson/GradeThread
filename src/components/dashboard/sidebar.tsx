@@ -36,6 +36,8 @@ import { useSavedViews } from "@/hooks/use-saved-views";
 import { SidebarUsageWidget } from "@/components/dashboard/sidebar-usage-widget";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { useBillingSummary } from "@/hooks/use-billing-summary";
+import { FLIPDESK_PLANS, type FlipdeskGateFlags, type FlipdeskPlanKey } from "@/lib/constants";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 
 type NavItem = {
@@ -46,6 +48,9 @@ type NavItem = {
   // Optional capability gate. If set, only render this item when the
   // current user can perform this action in the active workspace.
   requires?: WorkspaceCapability;
+  // Optional FlipDesk plan-tier gate (US-323). When set, the item is only
+  // shown if the workspace's current FlipDesk plan has this gate flag true.
+  requiresFlipdeskFlag?: keyof FlipdeskGateFlags;
 };
 type NavGroup = { title?: string; items: NavItem[]; adminOnly?: boolean };
 
@@ -66,7 +71,7 @@ const navGroups: NavGroup[] = [
       // Inventory is one surface now. Its in-page tabs switch between
       // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
       { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
-      { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false },
+      { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
@@ -102,14 +107,23 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const isAdmin =
     profile?.role === "admin" || profile?.role === "super_admin";
   const { can } = useWorkspace();
+  // FlipDesk plan governs feature-flag sidebar entries (US-323).
+  const { data: billing } = useBillingSummary();
+  const flipdeskFlags =
+    FLIPDESK_PLANS[(billing?.subscription.plan as FlipdeskPlanKey) ?? "free"]
+      .gateFlags;
   return (
     <nav className="mt-2 flex-1 space-y-4 px-3">
       {navGroups
         .filter((g) => !g.adminOnly || isAdmin)
         .map((group, gi) => {
-        const visibleItems = group.items.filter(
-          (item) => !item.requires || can(item.requires),
-        );
+        const visibleItems = group.items.filter((item) => {
+          if (item.requires && !can(item.requires)) return false;
+          if (item.requiresFlipdeskFlag && !flipdeskFlags[item.requiresFlipdeskFlag]) {
+            return false;
+          }
+          return true;
+        });
         if (visibleItems.length === 0) return null;
         return (
         <div key={gi} className="space-y-1">

@@ -521,6 +521,8 @@ export interface MarketplaceConnectionRow {
   last_synced_at: string | null;
   last_refresh_attempt_at: string | null;
   refresh_error: string | null;
+  // 00054: cached default Sell Inventory location key (US-314).
+  merchant_location_key: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1170,6 +1172,7 @@ export interface MarketplaceConnectionInsert {
   account_handle?: string | null;
   scopes?: string[];
   is_active?: boolean;
+  merchant_location_key?: string | null;
 }
 
 export interface PayoutImportInsert {

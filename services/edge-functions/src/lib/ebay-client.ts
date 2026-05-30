@@ -11,6 +11,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
+import { withRetry } from "./retry.ts";
 
 export type EbayEnv = "sandbox" | "production";
 
@@ -40,7 +41,11 @@ export function isEbayConfigured(): boolean {
 
 // Sanitized snapshot for the /oauth/debug endpoint. Never returns secrets;
 // shows enough for a human to spot env-var problems (env, host, RuName format).
-export function debugSnapshot(): {
+// When `userId` is provided, the snapshot includes per-user connection state
+// (account_handle presence) so US-315 backfill can be verified at a glance.
+export async function debugSnapshot(
+  userId?: string,
+): Promise<{
   configured: boolean;
   env: EbayEnv;
   auth_host: string;
@@ -55,7 +60,8 @@ export function debugSnapshot(): {
   ru_name_looks_like_url: boolean;
   edge_encryption_key_present: boolean;
   edge_encryption_key_byte_length: number | null;
-} {
+  account_handle_present: boolean | null;
+}> {
   const appId = readEnv("EBAY_APP_ID");
   const ruName = readEnv("EBAY_RU_NAME");
   const encKey = readEnv("EDGE_ENCRYPTION_KEY");
@@ -67,6 +73,25 @@ export function debugSnapshot(): {
       keyBytes = -1; // signals "not valid base64"
     }
   }
+
+  // Per-user check (US-315): true if this user's active eBay connection has
+  // a non-null account_handle. null when no userId was passed (env-only view).
+  let accountHandlePresent: boolean | null = null;
+  if (userId) {
+    const { data } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("account_handle")
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    if (data) {
+      accountHandlePresent =
+        (data as { account_handle: string | null }).account_handle != null;
+    }
+  }
+
   return {
     configured: isEbayConfigured(),
     env: getEbayEnv(),
@@ -88,6 +113,7 @@ export function debugSnapshot(): {
     ru_name_looks_like_url: ruName ? /^https?:\/\//i.test(ruName) : false,
     edge_encryption_key_present: !!encKey,
     edge_encryption_key_byte_length: keyBytes,
+    account_handle_present: accountHandlePresent,
   };
 }
 
@@ -129,6 +155,10 @@ function getScopes(): string {
       // Required by /sell/finances/v1/transaction for fees + payout sync
       // (lets sales rows flip from "Pending" to "Cleared" with real numbers).
       "https://api.ebay.com/oauth/api_scope/sell.finances",
+      // US-315: required by /commerce/identity/v1/user to capture the seller's
+      // account_handle. Used by webhooks to match eBay's account-deletion
+      // notifications back to the right workspace.
+      "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
     ].join(" ")
   );
 }
@@ -167,6 +197,38 @@ export interface EbayUserTokenResponse {
   refresh_token: string;
   refresh_token_expires_in: number; // seconds
   token_type: string;
+}
+
+// US-315: read the seller's eBay identity (account handle) using a raw token.
+// Called directly after exchangeCodeForTokens (no DB row exists yet) and from
+// the refresh path's backfill. Returns null on failure — the caller treats it
+// as non-fatal so identity outages don't break connect or refresh.
+export async function getUserIdentityFromToken(
+  accessToken: string,
+): Promise<{ username: string | null } | null> {
+  try {
+    const res = await fetch(`${apiHost()}/commerce/identity/v1/user`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      },
+    });
+    if (!res.ok) {
+      console.warn(
+        `[ebay-client] identity lookup returned ${res.status}; account_handle stays null`,
+      );
+      return null;
+    }
+    const body = await res.json() as {
+      username?: string;
+      userId?: string;
+    };
+    return { username: body.username ?? body.userId ?? null };
+  } catch (err) {
+    console.warn("[ebay-client] identity lookup threw:", err);
+    return null;
+  }
 }
 
 export async function exchangeCodeForTokens(
@@ -301,7 +363,7 @@ export async function getUserAccessToken(userId: string): Promise<string> {
   const { data: row, error } = await supabaseAdmin
     .from("marketplace_connections")
     .select(
-      "id, access_token_encrypted, refresh_token_encrypted, token_expires_at"
+      "id, access_token_encrypted, refresh_token_encrypted, token_expires_at, account_handle"
     )
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
@@ -335,6 +397,16 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     const expiresAtNew = new Date(
       Date.now() + fresh.expires_in * 1000
     ).toISOString();
+    // US-315: opportunistically backfill account_handle for connections that
+    // pre-date the commerce.identity scope or for which identity lookup
+    // previously failed. Non-fatal — keeps the refresh path simple.
+    let accountHandlePatch: Record<string, unknown> = {};
+    if ((row as { account_handle: string | null }).account_handle == null) {
+      const identity = await getUserIdentityFromToken(fresh.access_token);
+      if (identity?.username) {
+        accountHandlePatch = { account_handle: identity.username };
+      }
+    }
     await supabaseAdmin
       .from("marketplace_connections")
       .update({
@@ -342,6 +414,7 @@ export async function getUserAccessToken(userId: string): Promise<string> {
         token_expires_at: expiresAtNew,
         last_refresh_attempt_at: new Date().toISOString(),
         refresh_error: null,
+        ...accountHandlePatch,
       })
       .eq("id", row.id);
     return fresh.access_token;
@@ -620,7 +693,18 @@ function localeForMarketplace(): string {
   }
 }
 
+// US-325: 429/5xx from eBay during a batch shouldn't fail the job — wrap in
+// withRetry. A 429 or 5xx means eBay rejected the request before mutating
+// state, so retrying is safe even for non-idempotent POSTs.
 async function fetchAuthed<T>(
+  userId: string,
+  path: string,
+  init?: RequestInit
+): Promise<T> {
+  return await withRetry(() => fetchAuthedOnce<T>(userId, path, init));
+}
+
+async function fetchAuthedOnce<T>(
   userId: string,
   path: string,
   init?: RequestInit
@@ -641,9 +725,13 @@ async function fetchAuthed<T>(
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(
-      `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`
-    );
+    // Throw an Error with `status` attached so withRetry's isRetryableError
+    // matches on the numeric status (not just the message regex).
+    const err = new Error(
+      `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`,
+    ) as Error & { status: number };
+    err.status = res.status;
+    throw err;
   }
   // 204 No Content is valid for publishOffer in some paths.
   const body = await res.text();
@@ -727,6 +815,320 @@ export async function getDefaultPolicies(
   return details as PolicySet;
 }
 
+// ── US-314: business_policies cache ────────────────────────────────
+//
+// Each publish previously called getDefaultPolicies() which round-trips four
+// eBay endpoints. For bulk publish that adds seconds and burns rate budget.
+// syncBusinessPolicies fetches ALL policies + locations once and persists them
+// to business_policies (+ merchant_location_key on the connection); the
+// publish path then reads the is_default rows via resolveCachedDefaults.
+
+export type EbayPolicyKind = "fulfillment" | "payment" | "return";
+
+export interface SyncedPolicy {
+  policy_id: string;
+  policy_type: EbayPolicyKind;
+  policy_name: string;
+  policy_data: Record<string, unknown>;
+  is_default: boolean;
+}
+
+export interface SyncedPolicies {
+  policies: SyncedPolicy[];
+  merchantLocationKey: string | null;
+  missing: string[];
+}
+
+/**
+ * Fetch all business policies + merchant locations from eBay and persist them
+ * to `business_policies`, marking the first of each kind as default (only if
+ * no existing default for that kind in the workspace). Writes the first
+ * merchant location key onto marketplace_connections.merchant_location_key.
+ *
+ * Tenant-safe: every write is keyed on `userId` (the workspace owner id) so
+ * the service-role client cannot leak rows across workspaces.
+ */
+export async function syncBusinessPolicies(
+  userId: string,
+): Promise<SyncedPolicies> {
+  const marketplaceId = getMarketplaceId();
+
+  type FulfillmentPolicy = {
+    fulfillmentPolicyId: string;
+    name?: string;
+  } & Record<string, unknown>;
+  type PaymentPolicy = {
+    paymentPolicyId: string;
+    name?: string;
+  } & Record<string, unknown>;
+  type ReturnPolicy = {
+    returnPolicyId: string;
+    name?: string;
+  } & Record<string, unknown>;
+  type EbayLocation = {
+    merchantLocationKey?: string;
+  };
+
+  const [fulfillment, payment, ret, locs] = await Promise.all([
+    fetchAuthed<{ fulfillmentPolicies?: FulfillmentPolicy[] }>(
+      userId,
+      `/sell/account/v1/fulfillment_policy?marketplace_id=${marketplaceId}`,
+    ).catch((e) => {
+      console.error("[ebay-client] fulfillment_policy sync:", e);
+      return { fulfillmentPolicies: [] as FulfillmentPolicy[] };
+    }),
+    fetchAuthed<{ paymentPolicies?: PaymentPolicy[] }>(
+      userId,
+      `/sell/account/v1/payment_policy?marketplace_id=${marketplaceId}`,
+    ).catch((e) => {
+      console.error("[ebay-client] payment_policy sync:", e);
+      return { paymentPolicies: [] as PaymentPolicy[] };
+    }),
+    fetchAuthed<{ returnPolicies?: ReturnPolicy[] }>(
+      userId,
+      `/sell/account/v1/return_policy?marketplace_id=${marketplaceId}`,
+    ).catch((e) => {
+      console.error("[ebay-client] return_policy sync:", e);
+      return { returnPolicies: [] as ReturnPolicy[] };
+    }),
+    fetchAuthed<{ locations?: EbayLocation[] }>(
+      userId,
+      `/sell/inventory/v1/location`,
+    ).catch((e) => {
+      console.error("[ebay-client] location sync:", e);
+      return { locations: [] as EbayLocation[] };
+    }),
+  ]);
+
+  const fulfillmentPolicies = (fulfillment?.fulfillmentPolicies ?? []) as FulfillmentPolicy[];
+  const paymentPolicies = (payment?.paymentPolicies ?? []) as PaymentPolicy[];
+  const returnPolicies = (ret?.returnPolicies ?? []) as ReturnPolicy[];
+  const locations = (locs?.locations ?? []).filter(
+    (l): l is { merchantLocationKey: string } =>
+      typeof l.merchantLocationKey === "string" && l.merchantLocationKey.length > 0,
+  );
+
+  const missing: string[] = [];
+  if (fulfillmentPolicies.length === 0) missing.push("fulfillment policy");
+  if (paymentPolicies.length === 0) missing.push("payment policy");
+  if (returnPolicies.length === 0) missing.push("return policy");
+  if (locations.length === 0) missing.push("merchant location");
+
+  // Look up existing defaults so we don't clobber a user's manual override.
+  const { data: existingDefaults } = await supabaseAdmin
+    .from("business_policies")
+    .select("policy_type, policy_id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_default", true);
+  const existingDefaultByType = new Map<EbayPolicyKind, string>();
+  for (const row of (existingDefaults ?? []) as Array<
+    { policy_type: EbayPolicyKind; policy_id: string }
+  >) {
+    existingDefaultByType.set(row.policy_type, row.policy_id);
+  }
+
+  const synced: SyncedPolicy[] = [];
+
+  const push = (
+    kind: EbayPolicyKind,
+    id: string,
+    name: string | undefined,
+    data: Record<string, unknown>,
+    isFirst: boolean,
+  ) => {
+    const existingDefault = existingDefaultByType.get(kind);
+    const isDefault = existingDefault
+      ? existingDefault === id
+      : isFirst;
+    synced.push({
+      policy_id: id,
+      policy_type: kind,
+      policy_name: name ?? id,
+      policy_data: data,
+      is_default: isDefault,
+    });
+  };
+
+  fulfillmentPolicies.forEach((p, i) =>
+    push("fulfillment", p.fulfillmentPolicyId, p.name, p, i === 0),
+  );
+  paymentPolicies.forEach((p, i) =>
+    push("payment", p.paymentPolicyId, p.name, p, i === 0),
+  );
+  returnPolicies.forEach((p, i) =>
+    push("return", p.returnPolicyId, p.name, p, i === 0),
+  );
+
+  // Upsert each policy row, scoped to the workspace owner. Unique constraint
+  // on (user_id, marketplace, policy_id) drives the upsert merge.
+  if (synced.length > 0) {
+    const now = new Date().toISOString();
+    const { error: upErr } = await supabaseAdmin
+      .from("business_policies")
+      .upsert(
+        synced.map((p) => ({
+          user_id: userId,
+          marketplace: "ebay",
+          policy_id: p.policy_id,
+          policy_type: p.policy_type,
+          policy_name: p.policy_name,
+          policy_data: p.policy_data,
+          is_default: p.is_default,
+          synced_from_ebay_at: now,
+        })),
+        { onConflict: "user_id,marketplace,policy_id" },
+      );
+    if (upErr) {
+      console.error("[ebay-client] business_policies upsert:", upErr);
+    }
+  }
+
+  // Persist the merchant location on the connection so resolveCachedDefaults
+  // can pick it up without re-hitting eBay every publish.
+  const merchantLocationKey = locations[0]?.merchantLocationKey ?? null;
+  if (merchantLocationKey) {
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ merchant_location_key: merchantLocationKey })
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("is_active", true);
+  }
+
+  return { policies: synced, merchantLocationKey, missing };
+}
+
+/**
+ * Resolve the publish-time policy set from cache, falling back to a live sync
+ * if the cache is empty. Returns PolicySet on success, MissingPolicies (with
+ * helpUrl) if the seller has none configured. Used by assemblePublishContext.
+ */
+export async function resolveCachedDefaults(
+  userId: string,
+): Promise<PolicySet | MissingPolicies> {
+  // 1. Try the cache first.
+  const cached = await readCachedDefaults(userId);
+  if (cached.ok) return cached.policies;
+
+  // 2. Cache miss / partial — refresh from eBay and try again.
+  const synced = await syncBusinessPolicies(userId);
+  if (synced.missing.length > 0) {
+    return {
+      missing: synced.missing,
+      details: {
+        helpUrl:
+          "https://www.ebay.com/help/selling/business-policies/business-policies?id=4212",
+      },
+    };
+  }
+  const refreshed = await readCachedDefaults(userId);
+  if (refreshed.ok) return refreshed.policies;
+
+  // 3. Refresh didn't yield a set — fall back to the legacy live resolver so
+  //    publish doesn't fail closed when only the cache is broken.
+  return await getDefaultPolicies(userId);
+}
+
+async function readCachedDefaults(
+  userId: string,
+): Promise<
+  | { ok: true; policies: PolicySet }
+  | { ok: false }
+> {
+  const { data: defaults } = await supabaseAdmin
+    .from("business_policies")
+    .select("policy_type, policy_id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_default", true);
+  const byType = new Map<string, string>();
+  for (const row of (defaults ?? []) as Array<{ policy_type: string; policy_id: string }>) {
+    byType.set(row.policy_type, row.policy_id);
+  }
+
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("merchant_location_key")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  const fulfillment = byType.get("fulfillment");
+  const payment = byType.get("payment");
+  const ret = byType.get("return");
+  const merchantLocationKey =
+    (conn as { merchant_location_key: string | null } | null)?.merchant_location_key ?? null;
+
+  if (fulfillment && payment && ret && merchantLocationKey) {
+    return {
+      ok: true,
+      policies: {
+        fulfillmentPolicyId: fulfillment,
+        paymentPolicyId: payment,
+        returnPolicyId: ret,
+        merchantLocationKey,
+      },
+    };
+  }
+  return { ok: false };
+}
+
+/**
+ * Apply a manual default selection. The caller (HTTP route) is responsible for
+ * authorizing the user. Each id is upserted as that type's default; existing
+ * defaults of the same type are demoted.
+ */
+export async function setDefaultPolicies(
+  userId: string,
+  selection: {
+    fulfillment_policy_id?: string;
+    payment_policy_id?: string;
+    return_policy_id?: string;
+    merchant_location_key?: string;
+  },
+): Promise<void> {
+  const updates: Array<{ kind: EbayPolicyKind; id: string }> = [];
+  if (selection.fulfillment_policy_id) {
+    updates.push({ kind: "fulfillment", id: selection.fulfillment_policy_id });
+  }
+  if (selection.payment_policy_id) {
+    updates.push({ kind: "payment", id: selection.payment_policy_id });
+  }
+  if (selection.return_policy_id) {
+    updates.push({ kind: "return", id: selection.return_policy_id });
+  }
+
+  for (const u of updates) {
+    // Demote the current default for this kind, then promote the chosen one.
+    await supabaseAdmin
+      .from("business_policies")
+      .update({ is_default: false })
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("policy_type", u.kind)
+      .eq("is_default", true);
+    await supabaseAdmin
+      .from("business_policies")
+      .update({ is_default: true })
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("policy_id", u.id)
+      .eq("policy_type", u.kind);
+  }
+
+  if (selection.merchant_location_key) {
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ merchant_location_key: selection.merchant_location_key })
+      .eq("user_id", userId)
+      .eq("marketplace", "ebay")
+      .eq("is_active", true);
+  }
+}
+
 export interface InventoryItemPayload {
   product: {
     title: string;
@@ -767,6 +1169,9 @@ export interface OfferPayload {
     fulfillmentPolicyId: string;
     paymentPolicyId: string;
     returnPolicyId: string;
+    // US-321: Best Offer is set per-offer via listingPolicies.bestOfferTerms.
+    // Only present when the seller has best-offer enabled on the draft.
+    bestOfferTerms?: { bestOfferEnabled: boolean };
   };
   pricingSummary: {
     price: { value: string; currency: string };

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Upload,
@@ -9,6 +9,7 @@ import {
   Star,
   X,
   ImageIcon,
+  Combine,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -68,14 +69,66 @@ export function FlipdeskAutolisterPage() {
   const plan = billing?.subscription.plan ?? "free";
   const entitled = FLIPDESK_PLANS[plan].gateFlags.autolister;
 
-  const sessionId = useRef(crypto.randomUUID());
+  // US-317: persist sessionId across reloads so the _staging uploads aren't
+  // orphaned and the staged/groups state can be rehydrated.
+  const sessionId = useRef<string>(
+    (() => {
+      const existing = typeof window !== "undefined"
+        ? window.localStorage.getItem("autolister:sessionId")
+        : null;
+      if (existing) return existing;
+      const id = crypto.randomUUID();
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("autolister:sessionId", id);
+      }
+      return id;
+    })(),
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [staged, setStaged] = useState<StagedPhoto[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const storageKey = `autolister:state:${sessionId.current}`;
+  // Lazy-rehydrate staged/groups from localStorage so a refresh recovers the
+  // in-flight session. Uploaded photos live in Supabase Storage independently;
+  // only the in-memory grouping state is at risk of loss.
+  const [staged, setStaged] = useState<StagedPhoto[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as { staged?: StagedPhoto[] };
+      return Array.isArray(parsed.staged) ? parsed.staged : [];
+    } catch {
+      return [];
+    }
+  });
+  const [groups, setGroups] = useState<Group[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as { groups?: Group[] };
+      return Array.isArray(parsed.groups) ? parsed.groups : [];
+    } catch {
+      return [];
+    }
+  });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
+
+  // Persist whenever staged / groups change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify({ staged, groups }),
+      );
+    } catch {
+      /* quota or disabled storage — best-effort */
+    }
+  }, [staged, groups, storageKey]);
 
   const stagedById = useMemo(
     () => new Map(staged.map((p) => [p.id, p])),
@@ -210,6 +263,43 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => prev.filter((g) => g.id !== groupId));
   }
 
+  // US-317: merge two or more groups. Keeps the first group's name and cover,
+  // concatenates the rest's photos. Called when 2+ groups are checkbox-selected
+  // via the group toolbar's "Merge selected" action.
+  function mergeGroups(groupIds: string[]) {
+    if (groupIds.length < 2) return;
+    setGroups((prev) => {
+      const survivors = prev.filter((g) => !groupIds.includes(g.id));
+      const merged = prev.filter((g) => groupIds.includes(g.id));
+      if (merged.length < 2) return prev;
+      const allIds = Array.from(new Set(merged.flatMap((g) => g.photoIds)));
+      const head = merged[0]!;
+      const combined: Group = {
+        id: head.id,
+        name: head.name,
+        photoIds: allIds,
+        coverId: allIds.includes(head.coverId) ? head.coverId : (allIds[0] ?? ""),
+      };
+      // Preserve the relative order of the first merged group.
+      const headIdx = prev.findIndex((g) => g.id === head.id);
+      const out = [...survivors];
+      out.splice(Math.min(headIdx, out.length), 0, combined);
+      return out;
+    });
+  }
+
+  // US-317: clear the persisted session AFTER a successful generate so we
+  // don't re-show drafts on the next visit.
+  function clearStoredSession() {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.removeItem(storageKey);
+      window.localStorage.removeItem("autolister:sessionId");
+    } catch {
+      /* best-effort */
+    }
+  }
+
   async function generate() {
     if (!ownerId) return;
     if (groups.length === 0) {
@@ -269,6 +359,9 @@ export function FlipdeskAutolisterPage() {
       }
 
       const res = await startBatch.mutateAsync({ item_ids: itemIds });
+      // Clear the persisted session — the batch is now durable on the server,
+      // and re-showing the staged photos on the next visit would be confusing.
+      clearStoredSession();
       navigate(`/dashboard/flipdesk/autolister/queue?batch=${res.batch_id}`);
     } catch (err) {
       toast.error(
@@ -427,12 +520,41 @@ export function FlipdeskAutolisterPage() {
       {/* Groups */}
       {groups.length > 0 && (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Listings to generate ({groups.length})
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Listings to generate ({groups.length})
+            </h2>
+            {selectedGroups.size >= 2 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  mergeGroups(Array.from(selectedGroups));
+                  setSelectedGroups(new Set());
+                }}
+              >
+                <Combine className="mr-1 h-4 w-4" />
+                Merge {selectedGroups.size} groups
+              </Button>
+            )}
+          </div>
           {groups.map((g) => (
             <Card key={g.id} className="p-3">
               <div className="mb-2 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedGroups.has(g.id)}
+                  onChange={(e) =>
+                    setSelectedGroups((prev) => {
+                      const next = new Set(prev);
+                      if (e.target.checked) next.add(g.id);
+                      else next.delete(g.id);
+                      return next;
+                    })
+                  }
+                  aria-label={`Select group ${g.name}`}
+                  className="h-4 w-4"
+                />
                 <Input
                   value={g.name}
                   onChange={(e) => updateGroup(g.id, { name: e.target.value })}

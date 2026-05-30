@@ -84,13 +84,18 @@ Coolify (Settings → Scheduled Tasks → New). The container field is the
 edge-functions service; the command runs *inside* the container so
 `functions.gradethread.com` resolves over the internal network.
 
-| Name                    | Schedule (UTC)         | Command                                                                                                                                              |
-| ----------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ebay-token-refresh      | `0 * * * *` (hourly)   | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/oauth/refresh`                    |
-| photo-archive           | `0 4 * * *` (04:00)    | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/images/archive`                       |
-| reconciliation-sweep    | `0 5 * * *` (05:00)    | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/reconciliation/run`                   |
-| ebay-orders-sync        | `*/30 * * * *` (30min) | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/listings/pull`                   |
-| trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "Authorization: Bearer $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                     |
+All scheduled-job handlers authenticate with the `X-Internal-Job-Secret`
+header (not Authorization: Bearer) — the header name must match exactly or
+the handler returns 401.
+
+| Name                    | Schedule (UTC)         | Command                                                                                                                                            |
+| ----------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ebay-token-refresh      | `0 * * * *` (hourly)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/oauth/refresh`                |
+| photo-archive           | `0 4 * * *` (04:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/images/archive`                    |
+| reconciliation-sweep    | `0 5 * * *` (05:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/reconciliation/run`                |
+| ebay-orders-sync        | `*/30 * * * *` (30min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/listings/pull`                |
+| ebay-publish-due        | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/publish-due`             |
+| trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                  |
 
 Use `http://localhost:8787` from inside the container (not the public FQDN)
 so scheduled jobs don't take the round-trip through Traefik + WAF and

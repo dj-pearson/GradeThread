@@ -1,0 +1,615 @@
+﻿deno : [0m[32mCheck[0m src/main.ts
+At line:1 char:150
++ ... services\edge-functions"; $errs = deno check src/main.ts 2>&1; ($errs ...
++                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([0m[32mCheck[0m src/main.ts:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[0m[1mTS2724 [0m[ERROR]: '"https://esm.sh/@anthropic-ai/sdk@0.24.1/index.d.mts".Anthropic' has no exported member named 'ContentBlockParam'. Did you mean 
+'ContentBlock'?
+  const content: Anthropic.ContentBlockParam[] = [];
+[0m[31m                           ~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m261[0m:[0m[33m28[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type '{ type: "text"; text: string; cache_control: { type: string; }; } | { type: "text"; text: string; }' is not assignable to type 
+'TextBlockParam'.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+    ? { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
+[0m[31m                                           ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m274[0m:[0m[33m44[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_read_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_read_input_tokens ?? 0) +
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m365[0m:[0m[33m23[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_creation_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_creation_input_tokens ?? 0),
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m366[0m:[0m[33m23[0m
+
+[0m[1mTS2724 [0m[ERROR]: '"https://esm.sh/@anthropic-ai/sdk@0.24.1/index.d.mts".Anthropic' has no exported member named 'ContentBlockParam'. Did you mean 
+'ContentBlock'?
+  const content: Anthropic.ContentBlockParam[] = [];
+[0m[31m                           ~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m527[0m:[0m[33m28[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type '{ type: "text"; text: string; cache_control: { type: string; }; } | { type: "text"; text: string; }' is not assignable to type 
+'TextBlockParam'.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+        cache_control: { type: "ephemeral" },
+[0m[31m        ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m541[0m:[0m[33m9[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_read_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_read_input_tokens ?? 0) +
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m610[0m:[0m[33m23[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_creation_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_creation_input_tokens ?? 0),
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m611[0m:[0m[33m23[0m
+
+[0m[1mTS2724 [0m[ERROR]: '"https://esm.sh/@anthropic-ai/sdk@0.24.1/index.d.mts".Anthropic' has no exported member named 'ContentBlockParam'. Did you mean 
+'ContentBlock'?
+  const content: Anthropic.ContentBlockParam[] = [];
+[0m[31m                           ~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m676[0m:[0m[33m28[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type '{ type: "text"; text: string; cache_control: { type: string; }; } | { type: "text"; text: string; }' is not assignable to type 
+'TextBlockParam'.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+    ? { type: "text", text: LISTING_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
+[0m[31m                                                   ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m699[0m:[0m[33m52[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_read_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_read_input_tokens ?? 0) +
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m730[0m:[0m[33m23[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_creation_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_creation_input_tokens ?? 0),
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-extract.ts[0m:[0m[33m731[0m:[0m[33m23[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type '{ type: "text"; text: string; cache_control: { type: string; }; } | { type: "text"; text: string; }' is not assignable to type 
+'TextBlockParam'.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+    ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
+[0m[31m                                         ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-grading.ts[0m:[0m[33m393[0m:[0m[33m42[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type '{ type: "text"; text: string; cache_control: { type: string; }; } | { type: "text"; text: string; }' is not assignable to type 
+'TextBlockParam'.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+        cache_control: { type: "ephemeral" },
+[0m[31m        ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-grading.ts[0m:[0m[33m667[0m:[0m[33m9[0m
+
+[0m[1mTS2724 [0m[ERROR]: '"https://esm.sh/@anthropic-ai/sdk@0.24.1/index.d.mts".Anthropic' has no exported member named 'ContentBlockParam'. Did you mean 
+'ContentBlock'?
+  const content: Anthropic.ContentBlockParam[] = [];
+[0m[31m                           ~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-listing.ts[0m:[0m[33m270[0m:[0m[33m28[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type '{ type: "text"; text: string; cache_control: { type: string; }; } | { type: "text"; text: string; }' is not assignable to type 
+'TextBlockParam'.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+    ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
+[0m[31m                                         ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-listing.ts[0m:[0m[33m296[0m:[0m[33m42[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_read_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_read_input_tokens ?? 0) +
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-listing.ts[0m:[0m[33m366[0m:[0m[33m23[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'cache_creation_input_tokens' does not exist on type 'Usage'.
+      (response.usage.cache_creation_input_tokens ?? 0),
+[0m[31m                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ai-listing.ts[0m:[0m[33m367[0m:[0m[33m23[0m
+
+[0m[1mTS2769 [0m[ERROR]: No overload matches this call.
+  Overload 1 of 2, '(format: "jwk", keyData: JsonWebKey, algorithm: AlgorithmIdentifier | HmacImportParams | RsaHashedImportParams | EcKeyImportParams, 
+extractable: boolean, keyUsages: KeyUsage[]): Promise<...>', gave the following error.
+    Argument of type '"raw"' is not assignable to parameter of type '"jwk"'.
+  Overload 2 of 2, '(format: "raw" | "pkcs8" | "spki", keyData: BufferSource, algorithm: AlgorithmIdentifier | HmacImportParams | RsaHashedImportParams | 
+EcKeyImportParams, extractable: boolean, keyUsages: KeyUsage[]): Promise<...>', gave the following error.
+    Argument of type 'Uint8Array<ArrayBufferLike>' is not assignable to parameter of type 'BufferSource'.
+      Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+        Types of property 'buffer' are incompatible.
+          Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+            Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+  cachedKey = await crypto.subtle.importKey(
+[0m[31m                                  ~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/crypto-aes.ts[0m:[0m[33m28[0m:[0m[33m35[0m
+
+[0m[1mTS2322 [0m[ERROR]: Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'BufferSource'.
+  Type 'Uint8Array<ArrayBufferLike>' is not assignable to type 'ArrayBufferView<ArrayBuffer>'.
+    Types of property 'buffer' are incompatible.
+      Type 'ArrayBufferLike' is not assignable to type 'ArrayBuffer'.
+        Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+    { name: "AES-GCM", iv },
+[0m[31m                       ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/crypto-aes.ts[0m:[0m[33m60[0m:[0m[33m24[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'sku' does not exist on type '{ offerId: string; }'.
+      sku: o.sku ?? sku,
+[0m[31m             ~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m840[0m:[0m[33m14[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'marketplaceId' does not exist on type '{ offerId: string; }'.
+      marketplaceId: o.marketplaceId ?? null,
+[0m[31m                       ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m841[0m:[0m[33m24[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'format' does not exist on type '{ offerId: string; }'.
+      format: o.format ?? null,
+[0m[31m                ~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m842[0m:[0m[33m17[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'availableQuantity' does not exist on type '{ offerId: string; }'.
+      availableQuantity: o.availableQuantity ?? null,
+[0m[31m                           ~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m843[0m:[0m[33m28[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'status' does not exist on type '{ offerId: string; }'.
+      status: o.status ?? null,
+[0m[31m                ~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m844[0m:[0m[33m17[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'categoryId' does not exist on type '{ offerId: string; }'.
+      categoryId: o.categoryId ?? null,
+[0m[31m                    ~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m845[0m:[0m[33m21[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'pricingSummary' does not exist on type '{ offerId: string; }'.
+      price: o.pricingSummary?.price
+[0m[31m               ~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m846[0m:[0m[33m16[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'pricingSummary' does not exist on type '{ offerId: string; }'.
+            value: String(o.pricingSummary.price.value ?? "0"),
+[0m[31m                            ~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m848[0m:[0m[33m29[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'pricingSummary' does not exist on type '{ offerId: string; }'.
+            currency: String(o.pricingSummary.price.currency ?? "USD"),
+[0m[31m                               ~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m849[0m:[0m[33m32[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'listing' does not exist on type '{ offerId: string; }'.
+      listingId: o.listing?.listingId ?? null,
+[0m[31m                   ~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m852[0m:[0m[33m20[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'listing' does not exist on type '{ offerId: string; }'.
+      listingStatus: o.listing?.listingStatus ?? null,
+[0m[31m                       ~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m853[0m:[0m[33m24[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'listingDescription' does not exist on type '{ offerId: string; }'.
+      listingDescription: o.listingDescription ?? null,
+[0m[31m                            ~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/ebay-client.ts[0m:[0m[33m854[0m:[0m[33m29[0m
+
+[0m[1mTS2345 [0m[ERROR]: Argument of type 'Uint8Array<ArrayBuffer>' is not assignable to parameter of type 'CryptoKey'.
+  Type 'Uint8Array<ArrayBuffer>' is missing the following properties from type 'CryptoKey': algorithm, extractable, type, usages
+  const signature = await crypto.subtle.sign("HMAC", encoder.encode(payload), key);
+[0m[31m                                                     ~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/lib/webhook-delivery.ts[0m:[0m[33m25[0m:[0m[33m54[0m
+
+[0m[1mTS2769 [0m[ERROR]: No overload matches this call.
+  Overload 1 of 2, '(key: keyof ContextVariableMap, value: any): void', gave the following error.
+    Argument of type '"user"' is not assignable to parameter of type 'keyof ContextVariableMap'.
+  Overload 2 of 2, '(key: "user", value: { [key: string]: unknown; id: string; email?: string | undefined; }): void', gave the following error.
+    Argument of type 'User' is not assignable to parameter of type '{ [key: string]: unknown; id: string; email?: string | undefined; }'.
+      Index signature for type 'string' is missing in type 'User'.
+  c.set("user", data.user);
+[0m[31m    ~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/middleware/auth.ts[0m:[0m[33m26[0m:[0m[33m5[0m
+
+[0m[1mTS7006 [0m[ERROR]: Parameter 'c' implicitly has an 'any' type.
+      coupons: coupons.data.map((c) => ({
+[0m[31m                                 ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/admin-billing.ts[0m:[0m[33m320[0m:[0m[33m34[0m
+
+[0m[1mTS7006 [0m[ERROR]: Parameter 'p' implicitly has an 'any' type.
+      promotion_codes: promoCodes.data.map((p) => ({
+[0m[31m                                            ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/admin-billing.ts[0m:[0m[33m334[0m:[0m[33m45[0m
+
+[0m[1mTS7006 [0m[ERROR]: Parameter 'ch' implicitly has an 'any' type.
+      charges: charges.data.map((ch) => ({
+[0m[31m                                 ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/admin-billing.ts[0m:[0m[33m384[0m:[0m[33m34[0m
+
+[0m[1mTS7006 [0m[ERROR]: Parameter 'it' implicitly has an 'any' type.
+            items: subscription.items.data.map((it) => ({
+[0m[31m                                                ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/admin-billing.ts[0m:[0m[33m402[0m:[0m[33m49[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type 'GenericStringError' to type '{ id: string; }' may be a mistake because neither type sufficiently overlaps with the 
+other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'id' is missing in type '{ error: true; } & String' but required in type '{ id: string; }'.
+      const sa = shareCount.get((a as { id: string }).id) ?? 0;
+[0m[31m                                 ~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m90[0m:[0m[33m34[0m
+
+    'id' is declared here.
+          const sa = shareCount.get((a as { id: string }).id) ?? 0;
+    [0m[36m                                        ~~[0m
+        at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m90[0m:[0m[33m41[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type 'GenericStringError' to type '{ id: string; }' may be a mistake because neither type sufficiently overlaps with the 
+other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'id' is missing in type '{ error: true; } & String' but required in type '{ id: string; }'.
+      const sb = shareCount.get((b as { id: string }).id) ?? 0;
+[0m[31m                                 ~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m91[0m:[0m[33m34[0m
+
+    'id' is declared here.
+          const sb = shareCount.get((b as { id: string }).id) ?? 0;
+    [0m[36m                                        ~~[0m
+        at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m91[0m:[0m[33m41[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type 'GenericStringError' to type '{ published_at: string; }' may be a mistake because neither type sufficiently 
+overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'published_at' is missing in type '{ error: true; } & String' but required in type '{ published_at: string; }'.
+      const pa = (a as { published_at: string }).published_at ?? "";
+[0m[31m                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m94[0m:[0m[33m19[0m
+
+    'published_at' is declared here.
+          const pa = (a as { published_at: string }).published_at ?? "";
+    [0m[36m                         ~~~~~~~~~~~~[0m
+        at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m94[0m:[0m[33m26[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type 'GenericStringError' to type '{ published_at: string; }' may be a mistake because neither type sufficiently 
+overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Property 'published_at' is missing in type '{ error: true; } & String' but required in type '{ published_at: string; }'.
+      const pb = (b as { published_at: string }).published_at ?? "";
+[0m[31m                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m95[0m:[0m[33m19[0m
+
+    'published_at' is declared here.
+          const pb = (b as { published_at: string }).published_at ?? "";
+    [0m[36m                         ~~~~~~~~~~~~[0m
+        at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m95[0m:[0m[33m26[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'published_at' does not exist on type 'GenericStringError'.
+    data && data.length === limit ? data[data.length - 1]?.published_at : null;
+[0m[31m                                                           ~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m125[0m:[0m[33m60[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'id' does not exist on type 'GenericStringError'.
+    .eq("post_id", post.id);
+[0m[31m                        ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m144[0m:[0m[33m25[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'id' does not exist on type 'GenericStringError'.
+  const related = await fetchRelated(post.id, tags);
+[0m[31m                                          ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m148[0m:[0m[33m43[0m
+
+[0m[1mTS2698 [0m[ERROR]: Spread types may only be created from object types.
+      ...post,
+[0m[31m      ~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m152[0m:[0m[33m7[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'id' does not exist on type 'GenericStringError'.
+    .eq("post_id", post.id);
+[0m[31m                        ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m205[0m:[0m[33m25[0m
+
+[0m[1mTS2698 [0m[ERROR]: Spread types may only be created from object types.
+      ...post,
+[0m[31m      ~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m210[0m:[0m[33m7[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'submission_id' does not exist on type 'GenericStringError'.
+    .eq("id", report.submission_id)
+[0m[31m                     ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m287[0m:[0m[33m22[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'submission_id' does not exist on type 'GenericStringError'.
+    .eq("submission_id", report.submission_id)
+[0m[31m                                ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m296[0m:[0m[33m33[0m
+
+[0m[1mTS2698 [0m[ERROR]: Spread types may only be created from object types.
+  const publicReport: Record<string, unknown> = { ...report };
+[0m[31m                                                  ~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m308[0m:[0m[33m51[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'certificate_id' does not exist on type 'GenericStringError'.
+      id: report.certificate_id,
+[0m[31m                 ~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-public.ts[0m:[0m[33m314[0m:[0m[33m18[0m
+
+[0m[1mTS2345 [0m[ERROR]: Argument of type 'Context<SchedulerEnv, any, {}>' is not assignable to parameter of type 'Context<AuthEnv, any, {}>'.
+  Types of property '_var' are incompatible.
+    Property 'user' is missing in type '{ userId?: string | undefined; }' but required in type '{ user: { [key: string]: unknown; id: string; email?: string | 
+undefined; }; userId: string; }'.
+  await authMiddleware(c, async () => {
+[0m[31m                       ^[0m
+    at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-scheduler.ts[0m:[0m[33m40[0m:[0m[33m24[0m
+
+    'user' is declared here.
+        user: { id: string; email?: string; [key: string]: unknown };
+    [0m[36m    ~~~~[0m
+        at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/middleware/auth.ts[0m:[0m[33m6[0m:[0m[33m5[0m
+
+[0m[1mTS2345 [0m[ERROR]: Argument of type 'Context<SchedulerEnv, any, {}>' is not assignable to parameter of type 'Context<AdminEnv, any, {}>'.
+  Types of property '_var' are incompatible.
+    Type '{ userId?: string | undefined; }' is missing the following properties from type '{ userId: string; user: { [key: string]: unknown; id: string; email?: 
+string | undefined; }; adminRole: "admin" | "super_admin"; }': user, adminRole
+    await adminAuthMiddleware(c, next);
+[0m[31m                              ^[0m
+    at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-scheduler.ts[0m:[0m[33m41[0m:[0m[33m31[0m
+
+[0m[1mTS2558 [0m[ERROR]: Expected 2 type arguments, but got 1.
+    return c.json<TickResult>({
+[0m[31m                  ~~~~~~~~~~[0m
+    at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-scheduler.ts[0m:[0m[33m737[0m:[0m[33m19[0m
+
+[0m[1mTS2558 [0m[ERROR]: Expected 2 type arguments, but got 1.
+  return c.json<TickResult>({
+[0m[31m                ~~~~~~~~~~[0m
+    at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/content-scheduler.ts[0m:[0m[33m764[0m:[0m[33m17[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; sale_price: any; shipping_collected: any; shipping_cost: any; grading_cost: 
+any; other_costs: any; platform_order_id: any; inventory_items: { user_id: any; acquired_price: any; }[]; }[]' to type '{ id: string; inventory_item_id: string; 
+sale_price: number | null; shipping_collected: number | null; shipping_cost: number | null; grading_cost: number | null; other_costs: number | null; 
+platform_order_id: string | null; inventory_items: { ...; }; }[]' may be a mistake because neither type sufficiently overlaps with the other. If this was 
+intentional, convert the expression to 'unknown' first.
+  Type '{ id: any; inventory_item_id: any; sale_price: any; shipping_collected: any; shipping_cost: any; grading_cost: any; other_costs: any; platform_order_id: 
+any; inventory_items: { user_id: any; acquired_price: any; }[]; }' is not comparable to type '{ id: string; inventory_item_id: string; sale_price: number | null; 
+shipping_collected: number | null; shipping_cost: number | null; grading_cost: number | null; other_costs: number | null; platform_order_id: string | null; 
+inventory_items: { ...; }; }'.
+    Types of property 'inventory_items' are incompatible.
+      Type '{ user_id: any; acquired_price: any; }[]' is missing the following properties from type '{ user_id: string; acquired_price: number | null; }': 
+user_id, acquired_price
+      for (const row of (salesRows ?? []) as Array<{
+[0m[31m                        ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-ebay.ts[0m:[0m[33m726[0m:[0m[33m25[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; platform_category_id: any; platform_listing_id: any; listing_title: any; inventory_items: { user_id: 
+any; title: any; brand: any; style: any; }[]; }' to type '{ id: string; platform_category_id: string | null; platform_listing_id: string | null; listing_title: 
+string | null; inventory_items: { user_id: string; title: string | null; brand: string | null; style: string | null; }; }' may be a mistake because neither type 
+sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'inventory_items' are incompatible.
+    Type '{ user_id: any; title: any; brand: any; style: any; }[]' is missing the following properties from type '{ user_id: string; title: string | null; brand: 
+string | null; style: string | null; }': user_id, title, brand, style
+  const r = row as {
+[0m[31m            ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-ebay.ts[0m:[0m[33m1133[0m:[0m[33m13[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; platform_offer_id: any; platform_listing_id: any; inventory_items: { user_id: 
+any; }[]; }' to type 'ListingRowForManage & { inventory_items: { user_id: string; }; }' may be a mistake because neither type sufficiently overlaps with the 
+other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: any; inventory_item_id: any; platform_offer_id: any; platform_listing_id: any; inventory_items: { user_id: any; }[]; }' is not comparable to type '{ 
+inventory_items: { user_id: string; }; }'.
+    Types of property 'inventory_items' are incompatible.
+      Property 'user_id' is missing in type '{ user_id: any; }[]' but required in type '{ user_id: string; }'.
+  const row = data as ListingRowForManage & {
+[0m[31m              ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-ebay.ts[0m:[0m[33m1656[0m:[0m[33m15[0m
+
+    'user_id' is declared here.
+        inventory_items: { user_id: string };
+    [0m[36m                       ~~~~~~~[0m
+        at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-ebay.ts[0m:[0m[33m1657[0m:[0m[33m24[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; submission_id: any; tier: any; status: any; cost: any; submitted_at: any; 
+graded_at: any; webhook_received_at: any; error: any; inventory_items: { user_id: any; title: any; grade_value: any; grade_label: any; grade_report_id: any; 
+certificate_url: any; }[]; }' to type '{ id: string; inventory_item_id: string; submission_id: string | null; tier: string; status: string; cost: number; 
+submitted_at: string | null; graded_at: string | null; webhook_received_at: string | null; error: string | null; inventory_items: { ...; }; }' may be a mistake 
+because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'inventory_items' are incompatible.
+    Type '{ user_id: any; title: any; grade_value: any; grade_label: any; grade_report_id: any; certificate_url: any; }[]' is missing the following properties 
+from type '{ user_id: string; title: string | null; grade_value: number | null; grade_label: string | null; grade_report_id: string | null; certificate_url: 
+string | null; }': user_id, title, grade_value, grade_label, and 2 more.
+  const r = row as {
+[0m[31m            ^[0m
+    at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-grading.ts[0m:[0m[33m670[0m:[0m[33m13[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; storage_path: any; photo_url: any; sort_order: any; inventory_items: { user_id: 
+any; }[]; }' to type '{ id: string; inventory_item_id: string; storage_path: string | null; photo_url: string; sort_order: number; inventory_items: { user_id: 
+string; }; }' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Types of property 'inventory_items' are incompatible.
+    Property 'user_id' is missing in type '{ user_id: any; }[]' but required in type '{ user_id: string; }'.
+  const photo = row as {
+[0m[31m                ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-images.ts[0m:[0m[33m80[0m:[0m[33m17[0m
+
+    'user_id' is declared here.
+        inventory_items: { user_id: string };
+    [0m[36m                       ~~~~~~~[0m
+        at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-images.ts[0m:[0m[33m86[0m:[0m[33m24[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; photo_url: any; storage_path: any; bytes: any; inventory_items: { user_id: any; 
+status: any; updated_at: any; }[]; }[]' to type '(PhotoToArchive & { inventory_items: { user_id: string; status: string; updated_at: string; }; })[]' may be a 
+mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: any; inventory_item_id: any; photo_url: any; storage_path: any; bytes: any; inventory_items: { user_id: any; status: any; updated_at: any; }[]; }' 
+is not comparable to type 'PhotoToArchive & { inventory_items: { user_id: string; status: string; updated_at: string; }; }'.
+    Type '{ id: any; inventory_item_id: any; photo_url: any; storage_path: any; bytes: any; inventory_items: { user_id: any; status: any; updated_at: any; }[]; }' 
+is not comparable to type '{ inventory_items: { user_id: string; status: string; updated_at: string; }; }'.
+      Types of property 'inventory_items' are incompatible.
+        Type '{ user_id: any; status: any; updated_at: any; }[]' is missing the following properties from type '{ user_id: string; status: string; updated_at: 
+string; }': user_id, status, updated_at
+  const eligible = (rows ?? []) as Array<
+[0m[31m                   ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-images.ts[0m:[0m[33m251[0m:[0m[33m20[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; sale_price: any; sale_date: any; payout_amount: any; payout_reference: any; 
+platform_fees: any; shipping_collected: any; inventory_items: { user_id: any; title: any; }[]; }[]' to type 'SaleRowWithItem[]' may be a mistake because neither 
+type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: any; inventory_item_id: any; sale_price: any; sale_date: any; payout_amount: any; payout_reference: any; platform_fees: any; shipping_collected: 
+any; inventory_items: { user_id: any; title: any; }[]; }' is not comparable to type 'SaleRowWithItem'.
+    Type '{ id: any; inventory_item_id: any; sale_price: any; sale_date: any; payout_amount: any; payout_reference: any; platform_fees: any; shipping_collected: 
+any; inventory_items: { user_id: any; title: any; }[]; }' is not comparable to type '{ inventory_items: { user_id: string; title: string | null; }; }'.
+      Types of property 'inventory_items' are incompatible.
+        Type '{ user_id: any; title: any; }[]' is missing the following properties from type '{ user_id: string; title: string | null; }': user_id, title
+  const sales = (salesRaw ?? []) as SaleRowWithItem[];
+[0m[31m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-reconciliation.ts[0m:[0m[33m215[0m:[0m[3
+3m17[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; inventory_item_id: any; sale_price: any; sale_date: any; payout_amount: any; payout_reference: any; 
+platform_fees: any; shipping_collected: any; inventory_items: { user_id: any; }[]; }[]' to type 'SaleRowWithItem[]' may be a mistake because neither type 
+sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type '{ id: any; inventory_item_id: any; sale_price: any; sale_date: any; payout_amount: any; payout_reference: any; platform_fees: any; shipping_collected: 
+any; inventory_items: { user_id: any; }[]; }' is not comparable to type 'SaleRowWithItem'.
+    Type '{ id: any; inventory_item_id: any; sale_price: any; sale_date: any; payout_amount: any; payout_reference: any; platform_fees: any; shipping_collected: 
+any; inventory_items: { user_id: any; }[]; }' is not comparable to type '{ inventory_items: { user_id: string; }; }'.
+      Types of property 'inventory_items' are incompatible.
+        Property 'user_id' is missing in type '{ user_id: any; }[]' but required in type '{ user_id: string; }'.
+  const sales = (salesRaw ?? []) as SaleRowWithItem[];
+[0m[31m                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-reconciliation.ts[0m:[0m[33m311[0m:[0m[3
+3m17[0m
+
+    'user_id' is declared here.
+        inventory_items: { user_id: string };
+    [0m[36m                       ~~~~~~~[0m
+        at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-reconciliation.ts[0m:[0m[33m309[0m:[0
+m[33m24[0m
+
+[0m[1mTS2352 [0m[ERROR]: Conversion of type '{ id: any; payout_reference: any; inventory_items: { user_id: any; }[]; }' to type '{ id: string; 
+payout_reference: string | null; inventory_items: { user_id: string; }; }' may be a mistake because neither type sufficiently overlaps with the other. If this was 
+intentional, convert the expression to 'unknown' first.
+  Types of property 'inventory_items' are incompatible.
+    Property 'user_id' is missing in type '{ user_id: any; }[]' but required in type '{ user_id: string; }'.
+  const s = sale as {
+[0m[31m            ^[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-reconciliation.ts[0m:[0m[33m452[0m:[0m[3
+3m13[0m
+
+    'user_id' is declared here.
+        inventory_items: { user_id: string };
+    [0m[36m                       ~~~~~~~[0m
+        at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-reconciliation.ts[0m:[0m[33m455[0m:[0
+m[33m24[0m
+
+[0m[1mTS2345 [0m[ERROR]: Argument of type 'Record<string, unknown> | null' is not assignable to parameter of type 'Record<string, unknown>'.
+  Type 'null' is not assignable to type 'Record<string, unknown>'.
+  processEbayWebhookEvent(parsed).catch((err) => {
+[0m[31m                          ~~~~~~[0m
+    at 
+[0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/flipdesk-webhooks.ts[0m:[0m[33m86[0m:[0m[33m27[0m
+
+[0m[1mTS2769 [0m[ERROR]: No overload matches this call.
+  Overload 1 of 2, '(key: keyof ContextVariableMap): any', gave the following error.
+    Argument of type '"userId"' is not assignable to parameter of type 'keyof ContextVariableMap'.
+  Overload 2 of 2, '(key: never): never', gave the following error.
+    Argument of type '"userId"' is not assignable to parameter of type 'never'.
+  const userId = c.get("userId") as string | undefined;
+[0m[31m                       ~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/notifications.ts[0m:[0m[33m37[0m:[0m[33m24[0m
+
+[0m[1mTS2769 [0m[ERROR]: No overload matches this call.
+  Overload 1 of 2, '(key: keyof ContextVariableMap): any', gave the following error.
+    Argument of type '"userId"' is not assignable to parameter of type 'keyof ContextVariableMap'.
+  Overload 2 of 2, '(key: never): never', gave the following error.
+    Argument of type '"userId"' is not assignable to parameter of type 'never'.
+  const userId = c.get("userId") as string | undefined;
+[0m[31m                       ~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/notifications.ts[0m:[0m[33m123[0m:[0m[33m24[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'flipdesk_plan' does not exist on type 'GenericStringError'.
+      plan: user.flipdesk_plan,
+[0m[31m                 ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m588[0m:[0m[33m18[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'flipdesk_interval' does not exist on type 'GenericStringError'.
+      interval: user.flipdesk_interval,
+[0m[31m                     ~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m589[0m:[0m[33m22[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'subscription_status' does not exist on type 'GenericStringError'.
+      status: user.subscription_status,
+[0m[31m                   ~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m590[0m:[0m[33m20[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'flipdesk_period_end' does not exist on type 'GenericStringError'.
+      period_end: user.flipdesk_period_end,
+[0m[31m                       ~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m591[0m:[0m[33m24[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'flipdesk_pause_until' does not exist on type 'GenericStringError'.
+      pause_until: user.flipdesk_pause_until,
+[0m[31m                        ~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m592[0m:[0m[33m25[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'flipdesk_cancel_at_period_end' does not exist on type 'GenericStringError'.
+      cancel_at_period_end: user.flipdesk_cancel_at_period_end,
+[0m[31m                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m593[0m:[0m[33m34[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'trial_ends_at' does not exist on type 'GenericStringError'.
+      trial_ends_at: user.trial_ends_at,
+[0m[31m                          ~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m594[0m:[0m[33m27[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'stripe_customer_id' does not exist on type 'GenericStringError'.
+      stripe_customer_id: user.stripe_customer_id,
+[0m[31m                               ~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m595[0m:[0m[33m32[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'pending_flipdesk_plan' does not exist on type 'GenericStringError'.
+      pending_plan: user.pending_flipdesk_plan,
+[0m[31m                         ~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m596[0m:[0m[33m26[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'pending_flipdesk_interval' does not exist on type 'GenericStringError'.
+      pending_interval: user.pending_flipdesk_interval,
+[0m[31m                             ~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m597[0m:[0m[33m30[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'pending_effective_at' does not exist on type 'GenericStringError'.
+      pending_effective_at: user.pending_effective_at,
+[0m[31m                                 ~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m598[0m:[0m[33m34[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'grade_credit_balance' does not exist on type 'GenericStringError'.
+      credit_balance: user.grade_credit_balance,
+[0m[31m                           ~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m601[0m:[0m[33m28[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'grades_used_this_month' does not exist on type 'GenericStringError'.
+      included_used_this_month: user.grades_used_this_month,
+[0m[31m                                     ~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m602[0m:[0m[33m38[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'ai_actions_used_this_month' does not exist on type 'GenericStringError'.
+      ai_actions_used_this_month: user.ai_actions_used_this_month,
+[0m[31m                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m607[0m:[0m[33m40[0m
+
+[0m[1mTS2339 [0m[ERROR]: Property 'ai_action_limit' does not exist on type 'GenericStringError'.
+      ai_action_limit: user.ai_action_limit,
+[0m[31m                            ~~~~~~~~~~~~~~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m608[0m:[0m[33m29[0m
+
+[0m[1mTS7006 [0m[ERROR]: Parameter 'it' implicitly has an 'any' type.
+          items: existingPhase.items.map((it) => ({
+[0m[31m                                          ~~[0m
+    at [0m[36mfile:///C:/Users/pears/Documents/GradeThread/GradeThread/services/edge-functions/src/routes/payments.ts[0m:[0m[33m815[0m:[0m[33m43[0m
+
+Found 84 errors.
+
+[0m[1m[31merror[0m: Type checking failed.

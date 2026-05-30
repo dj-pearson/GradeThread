@@ -7,6 +7,7 @@ import {
   type ResolvedPrompt,
 } from "./ai-grading.ts";
 import { getGradingCompositeModel } from "./ai-config.ts";
+import { runListingEval } from "./listing-eval.ts";
 
 // ─── Eval harness + activation gate ─────────────────────────────────
 //
@@ -130,9 +131,22 @@ export async function runEval(
     id: string;
     version_name: string;
     prompt_text: string | null;
-    stage: "per_image" | "composite";
+    stage: "per_image" | "composite" | "listing_gen";
     garment_scope: string | null;
   };
+
+  // US-311: listing_gen prompts have a separate eval path with golden
+  // listing cases and listing-specific thresholds (title length, required
+  // aspect coverage, price sanity) — not grading MAE/agreement. Dispatch to
+  // listing-eval and return its result in the shared EvalRunResult shape.
+  if (v.stage === "listing_gen") {
+    return await runListingEval({
+      promptVersionId: v.id,
+      promptVersionName: v.version_name,
+      promptText: v.prompt_text,
+      triggeredBy,
+    });
+  }
 
   const override: ResolvedPrompt | undefined =
     v.prompt_text && v.prompt_text.trim().length > 0
