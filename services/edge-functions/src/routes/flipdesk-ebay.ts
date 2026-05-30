@@ -1967,7 +1967,19 @@ async function assemblePublishContext(
     )
     .eq("id", itemId)
     .maybeSingle();
-  if (!itemRow || (itemRow as PublishItem).user_id !== userId) {
+  if (!itemRow) {
+    // Distinct logs so the AutoLister "Item not found" debugging path can
+    // tell whether the row was never written vs. an ownership mismatch.
+    console.warn(
+      `[flipdesk-ebay] publish lookup: inventory_items row ${itemId} does not exist (caller userId=${userId})`,
+    );
+    return { ok: false, error: { error: "Item not found" }, status: 404 };
+  }
+  if ((itemRow as PublishItem).user_id !== userId) {
+    console.warn(
+      `[flipdesk-ebay] publish lookup: ownership mismatch for item ${itemId} ` +
+        `— row user_id=${(itemRow as PublishItem).user_id}, caller userId=${userId}`,
+    );
     return { ok: false, error: { error: "Item not found" }, status: 404 };
   }
   const item = itemRow as PublishItem;

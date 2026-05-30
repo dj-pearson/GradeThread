@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Upload,
   Loader2,
@@ -63,6 +64,7 @@ export function FlipdeskAutolisterPage() {
   const { workspaceOwnerId } = useWorkspace();
   const ownerId = workspaceOwnerId ?? user?.id ?? null;
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const startBatch = useStartAutolisterBatch();
 
   const { data: billing, isLoading: billingLoading } = useBillingSummary();
@@ -144,8 +146,24 @@ export function FlipdeskAutolisterPage() {
     if (!files || !ownerId) return;
     setUploading((n) => n + files.length);
     const added: StagedPhoto[] = [];
+    let heicSkipped = 0;
     for (const file of Array.from(files)) {
       try {
+        // iPhone-default HEIC/HEIF: browsers can't decode these in canvas, and
+        // Claude Vision can't read them either. Detect by mime OR extension
+        // (Safari sometimes reports an empty mime for HEIC) and SKIP with a
+        // clear message — uploading the raw bytes makes the AI step fail later
+        // with a confusing "item not found" downstream.
+        const lcName = file.name.toLowerCase();
+        const looksHeic =
+          file.type === "image/heic" ||
+          file.type === "image/heif" ||
+          lcName.endsWith(".heic") ||
+          lcName.endsWith(".heif");
+        if (looksHeic) {
+          heicSkipped++;
+          continue;
+        }
         if (!file.type.startsWith("image/")) continue;
         const id = crypto.randomUUID();
         let body: Blob = file;
@@ -154,6 +172,7 @@ export function FlipdeskAutolisterPage() {
         let height: number | null = null;
         let thumbBlob: Blob | null = null;
         let thumbType = "image/webp";
+        let compressed = false;
         try {
           const main = await compressImage(file, 2400, 0.85);
           body = main.blob;
@@ -163,8 +182,17 @@ export function FlipdeskAutolisterPage() {
           const thumb = await compressImage(file, 320, 0.7);
           thumbBlob = thumb.blob;
           thumbType = thumb.blob.type || "image/webp";
+          compressed = true;
         } catch (compErr) {
           console.warn("[autolister] compress failed, using original:", compErr);
+        }
+        // If compression failed AND the original is huge (>15MB), the AI
+        // generation will likely choke too. Skip with a clear message.
+        if (!compressed && file.size > 15 * 1024 * 1024) {
+          toast.error(
+            `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB and couldn't be compressed in the browser. Please convert it to a regular JPEG and try again.`,
+          );
+          continue;
         }
 
         const base = `${ownerId}/_staging/${sessionId.current}/${id}`;
@@ -212,6 +240,17 @@ export function FlipdeskAutolisterPage() {
     if (added.length > 0) {
       setStaged((prev) => [...prev, ...added]);
       toast.success(`${added.length} photo${added.length === 1 ? "" : "s"} added.`);
+    }
+    if (heicSkipped > 0) {
+      toast.warning(
+        `${heicSkipped} iPhone HEIC photo${heicSkipped === 1 ? "" : "s"} skipped.`,
+        {
+          description:
+            "On your iPhone: Settings → Camera → Formats → Most Compatible. " +
+            "Re-export the photos as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
+          duration: 10_000,
+        },
+      );
     }
   }
 
@@ -358,6 +397,13 @@ export function FlipdeskAutolisterPage() {
         return;
       }
 
+      // Invalidate the shared items_full cache (composer/inventory/grid/
+      // analytics all share `["items_full", user?.id]` with a 5min staleTime).
+      // Without this, the composer's "Review" link can open before TanStack
+      // Query refetches, fail to find the newly-created item, and render
+      // "Item not found." Same applies to any inventory surface the user
+      // visits next.
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
       const res = await startBatch.mutateAsync({ item_ids: itemIds });
       // Clear the persisted session — the batch is now durable on the server,
       // and re-showing the staged photos on the next visit would be confusing.
