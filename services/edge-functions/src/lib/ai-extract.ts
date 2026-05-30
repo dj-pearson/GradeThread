@@ -429,10 +429,44 @@ Hard rules:
 
 You will call extract_ebay_aspects with a single object whose properties are the aspect names. Each property's value is { values: string[], confidence: number, source: string }.`;
 
-function buildAspectTool(aspects: EbayAspectSpec[]): Anthropic.Tool {
+// Anthropic's tool input_schema property keys must match
+// `^[a-zA-Z0-9_.-]{1,64}$`. eBay aspect names regularly contain spaces and
+// slashes ("Country/Region of Manufacture", "Size Type", "Material/Fabric"),
+// which would be rejected with a 400. Sanitize to a safe key and keep a
+// reverse map so the response can be read back under the original name.
+function sanitizeKey(name: string): string {
+  let safe = name
+    .replace(/[^a-zA-Z0-9_.-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+  if (!safe) safe = "_";
+  return safe;
+}
+
+interface BuiltAspectTool {
+  tool: Anthropic.Tool;
+  /** Sanitized property key → original aspect name (for reading the response). */
+  keyToName: Map<string, string>;
+}
+
+function buildAspectTool(aspects: EbayAspectSpec[]): BuiltAspectTool {
   // Build one property per aspect. The shared item shape is values+confidence+source.
   const properties: Record<string, unknown> = {};
+  const keyToName = new Map<string, string>();
+  const usedKeys = new Set<string>();
   for (const a of aspects) {
+    // Disambiguate collisions (rare but possible — "Color" and "Color " both
+    // sanitize to "Color"). Suffix _2, _3, … as needed.
+    let key = sanitizeKey(a.name);
+    if (usedKeys.has(key)) {
+      let n = 2;
+      while (usedKeys.has(`${key}_${n}`)) n++;
+      key = `${key}_${n}`;
+    }
+    usedKeys.add(key);
+    keyToName.set(key, a.name);
+
     const valuesSchema: Record<string, unknown> = {
       type: "array",
       items: { type: "string" },
@@ -451,8 +485,11 @@ function buildAspectTool(aspects: EbayAspectSpec[]): Anthropic.Tool {
     if (a.cardinality === "SINGLE") {
       valuesSchema.maxItems = 1;
     }
-    properties[a.name] = {
+    properties[key] = {
       type: "object",
+      // Always reference the ORIGINAL aspect name in the description so the
+      // model knows what this slot represents, even though the key was
+      // sanitized for Anthropic's pattern.
       description: `eBay aspect "${a.name}" — ${a.cardinality}, ${a.mode}${
         a.required ? ", required" : ""
       }`,
@@ -465,13 +502,16 @@ function buildAspectTool(aspects: EbayAspectSpec[]): Anthropic.Tool {
     };
   }
   return {
-    name: "extract_ebay_aspects",
-    description:
-      "Return values for each eBay item-specific you can determine from the inputs. Omit aspects you cannot support.",
-    input_schema: {
-      type: "object",
-      properties,
+    tool: {
+      name: "extract_ebay_aspects",
+      description:
+        "Return values for each eBay item-specific you can determine from the inputs. Omit aspects you cannot support.",
+      input_schema: {
+        type: "object",
+        properties,
+      },
     },
+    keyToName,
   };
 }
 
@@ -542,7 +582,12 @@ export async function extractEbayAspects(
       }
     : { type: "text", text: ASPECT_SYSTEM_PROMPT };
 
-  const tool = buildAspectTool(input.aspects);
+  const { tool, keyToName } = buildAspectTool(input.aspects);
+  // Reverse map: original name → sanitized key, so each aspect can be looked
+  // up from its original name in the response object.
+  const nameToKey = new Map<string, string>();
+  for (const [k, n] of keyToName) nameToKey.set(n, k);
+
   const response = await client.messages.create({
     model,
     max_tokens: 2048,
@@ -569,7 +614,11 @@ export async function extractEbayAspects(
 
   const suggestions: Record<string, AspectValueSuggestion> = {};
   for (const a of input.aspects) {
-    const field = raw[a.name];
+    // Look up the sanitized property key for this aspect; fall back to the
+    // raw name for backwards compatibility with any caller that hand-built a
+    // raw map without going through buildAspectTool (none currently).
+    const key = nameToKey.get(a.name) ?? a.name;
+    const field = raw[key];
     if (!field || typeof field !== "object") continue;
     const f = field as {
       values?: unknown;
