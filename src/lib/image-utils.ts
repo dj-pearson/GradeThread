@@ -2,6 +2,59 @@ const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MIN_RESOLUTION = 1200;
 
+// iPhone-default HEIC/HEIF. Browsers can't decode these in a <canvas> and Claude
+// Vision can't read the raw bytes, so we transcode to JPEG client-side before any
+// canvas/compression step. Detect by MIME (Safari sometimes reports an empty MIME)
+// OR by file extension. (US-326)
+const HEIC_MIME_TYPES = [
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+];
+
+export function isHeicFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return (
+    HEIC_MIME_TYPES.includes(file.type) ||
+    name.endsWith(".heic") ||
+    name.endsWith(".heif")
+  );
+}
+
+/**
+ * Transcode a HEIC/HEIF file to a JPEG File entirely in the browser. heic2any
+ * bundles a libheif wasm decoder (~1.5MB) so it is dynamically imported here —
+ * the cost is only paid the first time a HEIC photo is uploaded. Throws if the
+ * decode fails (caller decides whether to skip the file).
+ */
+export async function decodeHeicToJpeg(
+  file: File,
+  quality = 0.92
+): Promise<File> {
+  const { default: heic2any } = await import("heic2any");
+  const out = await heic2any({ blob: file, toType: "image/jpeg", quality });
+  // heic2any returns Blob | Blob[] (multi-image HEIC). Take the primary image.
+  const blob = Array.isArray(out) ? out[0] : out;
+  if (!blob) {
+    throw new Error("HEIC conversion produced no image data.");
+  }
+  const newName = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+  return new File([blob], newName.endsWith(".jpg") ? newName : `${newName}.jpg`, {
+    type: "image/jpeg",
+    lastModified: file.lastModified,
+  });
+}
+
+/**
+ * Returns a canvas-decodable File: HEIC/HEIF is transcoded to JPEG, everything
+ * else passes through unchanged. Safe to call on any uploader entry point so
+ * HEIC handling lives in exactly one place.
+ */
+export async function normalizeImageFile(file: File): Promise<File> {
+  return isHeicFile(file) ? decodeHeicToJpeg(file) : file;
+}
+
 export interface ImageValidationError {
   field: string;
   message: string;
@@ -155,10 +208,13 @@ export interface CompressResult {
 }
 
 export async function compressImage(
-  file: File,
+  rawFile: File,
   maxWidth = 2400,
   quality = 0.85
 ): Promise<CompressResult> {
+  // HEIC/HEIF can't be drawn to a canvas — transcode to JPEG first. No-op for
+  // already-decodable formats, so this is safe on every call site. (US-326)
+  const file = await normalizeImageFile(rawFile);
   const img = await loadImage(file);
   const orientation = await getExifOrientation(file);
 

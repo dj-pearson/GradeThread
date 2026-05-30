@@ -5413,6 +5413,323 @@
       "priority": 325,
       "passes": true,
       "notes": "BUILD-NEW. Audit missing: error handling for eBay API rate limits and publication failures with retry backoff and user notification. Reuse: fetchAuthed/token-refresh in ebay-client.ts, the attempts/error columns on listing_generation_jobs (US-310), bounded-concurrency worker (US-313). Toasts via sonner (project standard). Depends on US-313, US-321."
+    },
+    {
+      "id": "US-326",
+      "title": "Photo upload: client-side HEIC/HEIF conversion to JPEG",
+      "description": "As an iPhone-using reseller, I want my default HEIC/HEIF photos to be accepted and converted automatically, so that I never have to change my camera settings or re-export images before bulk listing. Today the AutoLister uploader detects HEIC and SKIPS it with a 'change your camera settings' toast (autolister.tsx:152-166), which silently drops the majority of real-world mobile uploads.",
+      "acceptanceCriteria": [
+        "A reusable helper in src/lib/image-utils.ts detects HEIC/HEIF by MIME (image/heic, image/heif, *-sequence) OR file extension (Safari often reports empty MIME) and transcodes to JPEG entirely in the browser (heic2any/libheif-wasm), dynamically imported so the wasm stays out of the main bundle",
+        "compressImage() normalizes HEIC input before canvas processing so ALL uploaders (AutoLister, item photo-uploader, submission photo-upload) accept HEIC without per-call-site changes",
+        "AutoLister handleFiles no longer skips HEIC; converted photos flow through the existing compress -> thumbnail -> upload path; only a genuine decode failure is skipped, with a clear actionable message",
+        "Converted images preserve correct orientation (no sideways photos) and stay under the existing size limits after compression",
+        "Tests cover HEIC detection (MIME and extension, including empty-MIME) and the conversion-failure fallback path",
+        "Typecheck passes; npm run build green"
+      ],
+      "priority": 326,
+      "passes": true,
+      "notes": "DONE. heic2any added (dynamic import → 1.35MB chunk lazy-loaded only on HEIC upload). image-utils.ts gained isHeicFile/decodeHeicToJpeg/normalizeImageFile; compressImage normalizes HEIC→JPEG up front so ALL uploaders accept HEIC for free. AutoLister no longer skips HEIC (autolister.tsx) — only genuine decode failures are skipped with an actionable toast. Tests: src/lib/__tests__/image-utils.test.ts (7) cover MIME+extension+empty-MIME detection, pass-through no-op, multi-image primary-frame selection, and the no-data throw. tsc -b clean, eslint clean, vitest green, npm run build green."
+    },
+    {
+      "id": "US-327",
+      "title": "Photo upload: drag-and-drop on the AutoLister bulk uploader",
+      "description": "As a reseller dropping dozens of photos at once, I want to drag a folder/selection of images onto the AutoLister upload card, so that bulk intake matches the convenience of the single-item submission uploader (which already supports drag-drop) instead of being click-only.",
+      "acceptanceCriteria": [
+        "The AutoLister upload card (autolister.tsx ~480-510) accepts dropped files via onDrop/onDragOver/onDragLeave with a visible drag-over state, reusing the same handleFiles path",
+        "Dropped directories and multi-file selections are flattened to image files; non-images are ignored gracefully",
+        "Keyboard/click file picker still works unchanged; drag-drop is additive",
+        "Drag-over styling uses brand tokens consistent with submission/photo-upload.tsx drag states",
+        "Typecheck passes; npm run build green"
+      ],
+      "priority": 327,
+      "passes": false,
+      "notes": "P1 photo. The single-item submission uploader already has drag-drop (submission/photo-upload.tsx:215-225) but the BULK path is click-only — backwards. Reuse existing handleFiles."
+    },
+    {
+      "id": "US-328",
+      "title": "Photo upload: consolidate dual pipelines and unify EXIF/thumbnail behavior",
+      "description": "As a developer, I want a single image-processing pipeline shared by every uploader, so that EXIF auto-rotation, compression quality, and thumbnail storage conventions behave identically everywhere and never drift. Today photo-uploader.tsx and submission/photo-upload.tsx use divergent compression settings and inconsistent thumbnail path conventions (thumbs/ subfolder vs _thumb suffix).",
+      "acceptanceCriteria": [
+        "All uploaders (AutoLister, item photo-uploader, submission photo-upload) call the same image-utils helpers for normalize(HEIC) -> compress -> thumbnail, with a single set of defaults",
+        "EXIF orientation handling (getExifOrientation) is applied consistently for JPEG and post-conversion HEIC across all paths",
+        "Thumbnail storage path convention is unified (documented in CLAUDE.md Gotchas) and applied in both photo-uploader.tsx and autolister.tsx",
+        "validateImage ALLOWED_MIME_TYPES and limits are centralized and referenced by all callers (no per-file magic numbers)",
+        "No behavioral regression: existing uploads still produce 2400px main + 320px thumb WebP with width/height/bytes metadata",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 328,
+      "passes": false,
+      "notes": "P1 photo. Two upload pipelines exist with divergent settings + thumbnail path drift (thumbs/ vs _thumb). Depends on US-326."
+    },
+    {
+      "id": "US-329",
+      "title": "Photo upload: configurable quality presets and per-file upload progress",
+      "description": "As a reseller, I want control over compression quality for hero shots and visibility into per-file upload progress on large batches, so that I can trade size for clarity and know the batch is making progress instead of seeing only a spinner count.",
+      "acceptanceCriteria": [
+        "compressImage maxWidth/quality are driven by named presets (e.g. standard 2400/0.85, high 3200/0.92) rather than hardcoded constants, with a sensible default that matches current behavior",
+        "AutoLister exposes a simple quality choice (standard vs high) that applies to the batch",
+        "The uploader shows per-file progress/state (queued -> processing -> uploading -> done/failed) rather than only an aggregate 'uploading N' count (autolister.tsx ~482)",
+        "eBay image guidance respected (longest side >= 1600px retained for clarity)",
+        "Typecheck passes; npm run build green"
+      ],
+      "priority": 329,
+      "passes": false,
+      "notes": "P2 photo. Quality 0.85/0.7 and 2400px are hardcoded in image-utils.ts and autolister.tsx. Per-file progress improves large-batch UX."
+    },
+    {
+      "id": "US-330",
+      "title": "Photo upload: pre-AI photo quality gate (blur/exposure)",
+      "description": "As the business owner, I want a cheap client-side quality check before a photo is sent to a paid Claude Vision call, so that blurry or severely under/over-exposed photos are flagged early instead of burning AI quota on an image the model can't read.",
+      "acceptanceCriteria": [
+        "A lightweight client-side heuristic (e.g. Laplacian-variance blur score + luminance histogram) runs on the canvas already produced during compression — no extra decode",
+        "Photos below a configurable sharpness/exposure threshold surface a non-blocking warning with a 'use anyway' option (never hard-blocks)",
+        "The check adds negligible latency and degrades gracefully if canvas pixel access is unavailable",
+        "Warnings are surfaced in the AutoLister grouping UI per photo",
+        "Tests cover the scoring function on known-sharp vs known-blurry sample matrices",
+        "Typecheck passes"
+      ],
+      "priority": 330,
+      "passes": false,
+      "notes": "P2 photo. Reuse the canvas from compressImage to avoid a second decode. Advisory only."
+    },
+    {
+      "id": "US-331",
+      "title": "eBay: Bulk Inventory API publish path for batches",
+      "description": "As a reseller publishing large batches, I want listings pushed via eBay's Bulk Inventory API, so that throughput is not capped by the current 4-sequential-calls-per-item loop and daily call limits last longer. eBay supports bulkCreateOrReplaceInventoryItem, bulkCreateOffer, and bulkPublishOffer (up to 25 items per call).",
+      "acceptanceCriteria": [
+        "publishItemForOwner's sequential Inventory PUT -> Offer POST -> Publish chain (flipdesk-ebay.ts:1442-1600) has a bulk counterpart that batches up to 25 items per eBay call for AutoLister-queue publishes",
+        "Per-item results are demultiplexed from bulk responses and written back to listings (synced_to_ebay_at, listing_url, platform_offer_id, publish_error/publish_failed_at) exactly as the single path does",
+        "Idempotency preserved: re-publish reuses existing SKU/offer; partial bulk failures don't abort the whole batch",
+        "Bulk path is tenant-scoped: every item ownership-verified via assemblePublishContext / workspaceOwnerId before inclusion (CLAUDE.md US-268)",
+        "Bulk publish covered by tenant-isolation and partial-failure unit tests (no live eBay calls)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 331,
+      "passes": false,
+      "notes": "Biggest throughput lever. Backend for the existing AutoLister queue bulk-publish UI. Add bulk wrappers in ebay-client.ts. Depends on US-321."
+    },
+    {
+      "id": "US-332",
+      "title": "eBay: sold-comps pricing via Marketplace Insights API",
+      "description": "As a reseller, I want pricing suggestions derived from actual SOLD comps, not just active listings, so that items are priced to sell rather than systematically over-priced (active comps skew high because they haven't sold). Today searchBrowseComps uses the Browse API (active listings only).",
+      "acceptanceCriteria": [
+        "A Marketplace Insights API client (sold/last-90-days) is added alongside searchBrowseComps in ebay-client.ts, returning count/min/max/median of sold prices",
+        "generateListing pricing (ai-listing.ts:707-726) prefers sold-comp median when available; falls back to active-comp median, then AI estimate, setting price_is_estimated accordingly",
+        "The comps endpoint and pricing panel distinguish 'priced from N sold comps' vs 'active comps' vs 'estimated' to the user",
+        "Graceful degradation if the seller's account lacks Marketplace Insights access (fall back to Browse, no hard error)",
+        "Unit tests cover median selection and the sold->active->estimate fallback ladder",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 332,
+      "passes": false,
+      "notes": "Biggest pricing-accuracy win. Reuse getAppAccessToken + the price_is_estimated flag (US-310). Marketplace Insights may require eBay approval — gate gracefully."
+    },
+    {
+      "id": "US-333",
+      "title": "eBay: per-workspace category and aspect suggestion cache",
+      "description": "As a reseller listing many similar items, I want category and aspect suggestions cached and reused per workspace, so that 50 identical items don't each trigger an identical Taxonomy lookup and category drift, cutting API calls and improving consistency.",
+      "acceptanceCriteria": [
+        "suggestCategories results are cached keyed by normalized (brand + item-type/query) per workspace, extending the existing ebay_category_aspects cache pattern (flipdesk-ebay.ts category/aspects)",
+        "Cache has a sane TTL and an explicit invalidation path; a cache miss falls back to the live Taxonomy call transparently",
+        "generateListing's category resolution (ai-listing.ts:633-644) reads through the cache before hitting Taxonomy",
+        "Cache is tenant-scoped (no cross-workspace category leakage) and migration adds any needed table/columns with RLS",
+        "Tests cover cache hit/miss/invalidation and tenant scoping",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 333,
+      "passes": false,
+      "notes": "Reuse ebay_category_aspects cache. Reduces Taxonomy calls + drift on repeated items. Depends on US-312."
+    },
+    {
+      "id": "US-334",
+      "title": "eBay: Catalog/Product API aspect autofill for branded/UPC items",
+      "description": "As a reseller of branded items, I want eBay's own product catalog used to auto-fill item specifics when a UPC/style code is known, so that aspects are 100% valid (sourced from eBay's product record) instead of inferred from photos.",
+      "acceptanceCriteria": [
+        "When an item has a UPC/EAN/style code or a confident catalog match, the Catalog/Product API is queried and its aspects pre-fill item_specifics before the AI/second-pass aspect step",
+        "Catalog-sourced aspects take precedence over inferred ones but are still validated against the resolved category's allowed values (extractEbayAspects second pass, ai-listing.ts:645-705)",
+        "No catalog match degrades silently to the current photo-inference flow",
+        "Catalog lookups use app-level credentials (getAppAccessToken) and are cached",
+        "Tests cover catalog-hit precedence and no-match fallback",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 334,
+      "passes": false,
+      "notes": "Aspect accuracy for branded items. Reuse app-token + aspect second-pass. Depends on US-312, US-333."
+    },
+    {
+      "id": "US-335",
+      "title": "eBay: adaptive publish concurrency and token-bucket rate limiting",
+      "description": "As a reseller running 100-item batches, I want publish concurrency to adapt to eBay's daily/short-term call limits, so that large batches don't exhaust quotas or amplify load during retries. Today processBatch concurrency is fixed at 3 and rate-limit-blind beyond per-call backoff.",
+      "acceptanceCriteria": [
+        "A per-connection token-bucket throttles eBay calls across the publish path; concurrency backs off on sustained 429s and recovers when limits clear (complements US-325 per-call backoff)",
+        "Bulk-publish (US-331) respects the same bucket so batched calls don't bypass throttling",
+        "Throttle parameters are configurable and observable (logged); exhaustion produces a clear 'try again later' state rather than a wall of failures",
+        "Throttling logic unit-tested with a simulated rate-limit response (no live APIs)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 335,
+      "passes": false,
+      "notes": "Builds on US-325 (per-call backoff) and US-331 (bulk). processBatch concurrency fixed at 3 (flipdesk-autolister.ts:19)."
+    },
+    {
+      "id": "US-336",
+      "title": "AutoLister: keyword-optimized title refinement pass",
+      "description": "As a reseller, I want listing titles optimized with high-traffic, category-relevant search keywords within eBay's 80-char limit, so that my items rank better in search than a generic brand-first title.",
+      "acceptanceCriteria": [
+        "After category + aspects resolve, an optional title-refinement step composes a keyword-dense 80-char title from the resolved top aspects (brand, type, size, color, material, style) prioritized by search relevance",
+        "Refinement never fabricates attributes (only uses resolved/known values) and respects the existing no-all-caps/no-emoji rules in LISTING_GEN_SYSTEM_PROMPT (ai-listing.ts:100-130)",
+        "Refinement is cheap (reuses already-resolved data; minimal/no extra Claude tokens) and can be toggled per batch",
+        "Title still clamps to 80 chars (ai-listing.ts:335) and degrades to the original AI title on failure",
+        "Tests cover title composition ordering and the 80-char clamp",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 336,
+      "passes": false,
+      "notes": "P2 accuracy. Reuse resolved aspects to build keyword titles. Depends on US-312."
+    },
+    {
+      "id": "US-337",
+      "title": "eBay: Platform Notifications for push order/sold events",
+      "description": "As a reseller, I want orders and sales detected via eBay push notifications instead of polling, so that reconciliation is near-real-time and uses fewer API calls than the periodic doListingsPull.",
+      "acceptanceCriteria": [
+        "An eBay notification/webhook endpoint is added under /api/flipdesk/ebay (or /api/webhooks) that verifies eBay's signature/challenge and ingests order/sold events",
+        "Inbound events upsert into sales and flip item status forward (reuse the SKU-match + forward-only logic from doListingsPull, flipdesk-ebay.ts:467-985)",
+        "Polling-based pull remains as a reconciliation backstop; push and pull are idempotent and don't double-write (dedupe on platform_order_id)",
+        "Endpoint is tenant-safe: events resolve to the owning workspace before any write",
+        "Tests cover signature/challenge verification and dedupe vs pull",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 337,
+      "passes": false,
+      "notes": "Faster reconciliation, fewer calls. Reuse doListingsPull match/forward-only logic. Webhooks served from functions.* per CLAUDE.md."
+    },
+    {
+      "id": "US-338",
+      "title": "eBay: Negotiation API auto-offers to watchers + aged-inventory automation",
+      "description": "As a reseller, I want to automatically send offers to watchers on aged inventory, so that slow-moving items convert without manual price drops. The overview already surfaces aging items.",
+      "acceptanceCriteria": [
+        "A Negotiation API client (eligible-items + sendOfferToInterestedBuyers) is added to ebay-client.ts",
+        "A user-configurable rule (e.g. items aged > N days with watchers) triggers offers at a configurable discount, gated behind a paid tier and an explicit opt-in",
+        "A scheduled job (reuse the FLIPDESK_INTERNAL_JOB_SECRET-gated pattern, flipdesk-ebay.ts:199-239) evaluates eligible aged listings and sends offers, logging outcomes",
+        "All actions tenant-scoped to the owning workspace; offers respect a max-discount floor and rate limits",
+        "Tests cover eligibility selection and discount-floor enforcement (no live APIs)",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 338,
+      "passes": false,
+      "notes": "Revenue: moves aged inventory (tracked in overview.tsx). Reuse scheduled-job gating + aging data. Paid-tier + opt-in gated."
+    },
+    {
+      "id": "US-339",
+      "title": "eBay: Promoted Listings (Marketing API) ad rate at publish",
+      "description": "As a reseller, I want to set a Promoted Listings ad rate when I publish, so that items get more visibility without leaving GradeThread.",
+      "acceptanceCriteria": [
+        "A Marketing API client supports creating/associating a Promoted Listings (general) campaign and setting a per-item ad rate",
+        "The composer and AutoLister bulk-edit expose an optional ad-rate field; publish associates the item with the campaign at the chosen rate",
+        "Ad-rate state persists on listings and is shown in the listings table; absent rate = no promotion (no behavior change)",
+        "Tenant-scoped; campaign association verifies item ownership before any call",
+        "Tests cover rate persistence and the no-promotion default",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 339,
+      "passes": false,
+      "notes": "Revenue/visibility. New Marketing API client + listings column + UI field. Depends on US-321."
+    },
+    {
+      "id": "US-340",
+      "title": "eBay: Recommendation API listing-improvement tips surfaced in-app",
+      "description": "As a reseller, I want eBay's own listing-improvement and promoted-listings recommendations shown next to my listings, so that I can act on platform guidance (missing aspects, better category, suggested ad rate) without leaving GradeThread.",
+      "acceptanceCriteria": [
+        "A Recommendation API client fetches per-listing recommendations (ad rate, listing improvements) and caches them",
+        "The listings detail/table surfaces recommendation badges with a one-click action where applicable (e.g. apply suggested aspects, set suggested ad rate)",
+        "Recommendations are tenant-scoped and refresh on demand / on sync",
+        "Graceful empty state when no recommendations exist or the API is unavailable",
+        "Tests cover recommendation parsing and the empty state",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 340,
+      "passes": false,
+      "notes": "Low-effort visibility win. Pairs with US-339 (ad rate) and US-334 (aspects)."
+    },
+    {
+      "id": "US-341",
+      "title": "Inventory UX: bulk revise for live listings",
+      "description": "As a reseller, I want to revise title/price/description for many live listings at once, so that re-pricing and re-titling don't require opening a dialog per item. Today revision is one-at-a-time via ReviseListingDialog.",
+      "acceptanceCriteria": [
+        "The listings Active tab supports multi-select bulk revise (price %, title find/replace, description append) reusing the single-item revise backend (flipdesk-ebay.ts:1092-1282)",
+        "Bulk revise runs with bounded concurrency + the rate-limit backoff (US-325/335) and reports per-item success/failure",
+        "Each revision is tenant-scoped and uses the existing read-modify-write offer/inventory update (eBay PUT semantics)",
+        "Partial failures are surfaced with a retry-failed action; successes update local listings immediately",
+        "Tests cover the bulk orchestration and partial-failure reporting",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 341,
+      "passes": false,
+      "notes": "Core reseller loop. Reuse single revise endpoint + bulk-publish orchestrator pattern from the AutoLister queue."
+    },
+    {
+      "id": "US-342",
+      "title": "Inventory UX: wire the auto-relist workflow to its existing gate flag",
+      "description": "As a reseller, I want ended-without-sale items to relist automatically (or in bulk), so that I capture the full sell-through loop. The autoRelist gate flag exists (constants.ts:101) but has zero UI.",
+      "acceptanceCriteria": [
+        "A per-item and bulk 'relist' action republishes a previously-ended listing, reusing publishItemForOwner with a fresh offer where eBay requires it",
+        "An optional auto-relist setting (gated by the existing autoRelist flag) republishes items that ended without a sale after a configurable window, via the scheduled-job pattern",
+        "Relisted items are tracked (LISTING_STATUSES already includes 'relisted') and reflected in the pipeline/table",
+        "All relist actions tenant-scoped and idempotent",
+        "Tests cover the relist path and the ended-without-sale eligibility filter",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 342,
+      "passes": false,
+      "notes": "Gate flag exists with no UI (constants.ts:101); LISTING_STATUSES has 'relisted' already. Reuse publishItemForOwner + scheduled job."
+    },
+    {
+      "id": "US-343",
+      "title": "Inventory UX: unify the three publish paths on one validation contract",
+      "description": "As a developer, I want the composer, table bulk action, and AutoLister queue to publish through one shared validation+publish contract, so that users get identical blocker checks and behavior regardless of entry point. Today three flows have subtly different validation.",
+      "acceptanceCriteria": [
+        "All three publish entry points call the same assemblePublishContext-based validation and publishItemForOwner/bulk path (no divergent client-side checks)",
+        "Blocker presentation is consistent (same messages, same 'click to fix' affordances) across composer, table, and queue",
+        "No regression in any existing publish flow; single and bulk both covered",
+        "Shared publish hook/util documented for future entry points",
+        "Tests cover that each entry point produces identical blockers for the same item",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 343,
+      "passes": false,
+      "notes": "Consistency/maintainability. Consolidate on assemblePublishContext (already the source of truth server-side). Depends on US-319/321."
+    },
+    {
+      "id": "US-344",
+      "title": "Inventory UX: eBay-side listing-state column + external-sale indicator",
+      "description": "As a reseller, I want to see each item's true eBay listing state (active/ended/sold-on-platform) and whether a sale was recorded externally vs synced from eBay, so that my pipeline status isn't conflated with the marketplace's own state.",
+      "acceptanceCriteria": [
+        "The listings table shows a distinct eBay listing-state column derived from synced listing data (active/ended/sold) separate from the internal pipeline status",
+        "Items sold via 'mark as listed'/external entry are visually distinguished from eBay-synced sales",
+        "Last-revised / last-synced timestamps are surfaced where available",
+        "Columns populate from existing sync data (doListingsPull) with no new eBay calls required",
+        "Tests cover the state-derivation mapping",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 344,
+      "passes": false,
+      "notes": "Visibility gap from frontend audit. Derive from existing synced listings; no new API calls."
+    },
+    {
+      "id": "US-345",
+      "title": "Inventory UX: listing-performance metrics (views/watchers/promoted)",
+      "description": "As a reseller, I want per-listing views, watchers, and promoted-listing metrics surfaced in-app, so that I can see what's getting traction and prioritize price drops or promotion.",
+      "acceptanceCriteria": [
+        "An eBay Analytics/traffic client fetches per-listing views/watchers (and promoted metrics where available) on sync, cached locally",
+        "The listings table/detail surfaces these metrics with sortable columns (e.g. most-watched, most-viewed)",
+        "Metrics are tenant-scoped and refresh on the existing sync cadence; absent data degrades to an empty/'-' state",
+        "No blocking on the metrics call — listing management works even if analytics is unavailable",
+        "Tests cover metric parsing and the empty state",
+        "Tests pass; typecheck passes"
+      ],
+      "priority": 345,
+      "passes": false,
+      "notes": "Surfacing data eBay already has (Analytics API). Pairs with US-339/340. Depends on US-318 (listings sync)."
     }
   ]
 }

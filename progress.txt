@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-05-27
+# Last updated: 2026-05-30
 
 ## Completed Stories
 
@@ -2124,3 +2124,64 @@ default brand OG image), then US-308 (GSC/Bing verification + Search Analytics
 ingestion: meta-tag/file verification from env, a scheduled edge job + migration
 pulling GSC Search Analytics, admin-only platform data), then US-309 (admin SEO
 dashboard -- depends on 305/306/308).
+
+## Session Notes (2026-05-30) -- Auto-listing/eBay/photo deep dive + US-326
+
+Deep-dived AutoLister, the eBay integration, and the photo-upload pipeline.
+Findings: the publish chain (Inventory PUT -> Offer -> Publish), two-pass AI
+aspect constraint, comp pricing, grade-disclosure injection, and the full
+reconciliation loop (offers + Trading + orders + Finances) are all already
+fully wired -- no 501s. Real leverage is in throughput, pricing accuracy,
+HEIC handling, and inventory-management UX, not net-new plumbing.
+
+Added 20 roadmap stories US-326..US-345 to prd.json, grouped in 3 sprints:
+- Photo (US-326 HEIC convert, 327 drag-drop on AutoLister, 328 consolidate the
+  two upload pipelines, 329 quality presets + per-file progress, 330 pre-AI
+  blur/exposure gate).
+- Listing accuracy/throughput (US-331 Bulk Inventory API publish, 332 sold
+  comps via Marketplace Insights, 333 per-workspace category/aspect cache,
+  334 Catalog/Product aspect autofill, 335 adaptive concurrency/token-bucket,
+  336 keyword-optimized titles).
+- eBay leverage + inventory UX (US-337 Platform Notifications push, 338
+  Negotiation API offers-to-watchers, 339 Promoted Listings ad rate, 340
+  Recommendation API tips, 341 bulk revise, 342 wire auto-relist UI, 343 unify
+  the 3 publish paths, 344 eBay-side listing-state column, 345 listing-perf
+  metrics).
+
+### US-326 -- client-side HEIC/HEIF conversion (DONE, passes=true)
+
+Problem: AutoLister DETECTED and SKIPPED iPhone HEIC with a "change your camera
+settings" toast (old autolister.tsx:152-166) -- silently dropping the majority
+of real-world mobile uploads.
+
+Fix:
+- Added heic2any (dynamic import). Vite code-splits it into its own ~1.35MB
+  chunk (dist/assets/heic2any-*.js) loaded ONLY the first time a HEIC is
+  uploaded -- zero cost to the main bundle.
+- src/lib/image-utils.ts: new isHeicFile() (MIME incl. *-sequence + .heic/.heif
+  extension, handles Safari's empty-MIME case), decodeHeicToJpeg() (libheif wasm
+  -> JPEG File, takes primary frame of multi-image HEIC, throws on no data),
+  normalizeImageFile() (HEIC->JPEG, no-op otherwise). compressImage() now
+  normalizes its input first, so EVERY uploader (AutoLister, item photo-uploader,
+  submission photo-upload) accepts HEIC with no per-call-site change.
+- autolister.tsx: removed the HEIC skip; HEIC flows through compress -> thumbnail
+  -> upload. Only a genuine decode failure is skipped (never falls back to
+  uploading raw HEIC bytes), with an actionable toast.
+
+Tests: src/lib/__tests__/image-utils.test.ts (7) -- HEIC detection by MIME,
+extension, and empty-MIME; non-image guard; pass-through no-op (no decode);
+HEIC->JPEG File with .jpg name; multi-image primary-frame selection; no-data
+throw. heic2any mocked (libheif wasm can't run under jsdom).
+
+Verification: tsc -b exit 0; eslint clean on changed files; vitest 7/7 new +
+full suite green (102 passed/2 skipped; the lone "failure" pre-build is the
+dist smoke test, which passes after npm run build); npm run build green (22
+prerendered pages); heic2any confirmed split into its own lazy chunk.
+
+prd.json: US-326 passes=true.
+
+Recommended next: US-327 (drag-drop on AutoLister upload card -- small, reuses
+handleFiles) and US-328 (consolidate the two upload pipelines now that
+compressImage normalizes HEIC -- unify EXIF + thumbnail path conventions), then
+the throughput lever US-331 (Bulk Inventory API publish, 25 items/call) and the
+pricing-accuracy lever US-332 (sold comps via Marketplace Insights).

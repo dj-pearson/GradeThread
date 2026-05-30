@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { compressImage } from "@/lib/image-utils";
+import { compressImage, isHeicFile } from "@/lib/image-utils";
 import { useStartAutolisterBatch } from "@/hooks/use-autolister";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
@@ -146,25 +146,15 @@ export function FlipdeskAutolisterPage() {
     if (!files || !ownerId) return;
     setUploading((n) => n + files.length);
     const added: StagedPhoto[] = [];
-    let heicSkipped = 0;
+    let heicFailed = 0;
     for (const file of Array.from(files)) {
       try {
-        // iPhone-default HEIC/HEIF: browsers can't decode these in canvas, and
-        // Claude Vision can't read them either. Detect by mime OR extension
-        // (Safari sometimes reports an empty mime for HEIC) and SKIP with a
-        // clear message — uploading the raw bytes makes the AI step fail later
-        // with a confusing "item not found" downstream.
-        const lcName = file.name.toLowerCase();
-        const looksHeic =
-          file.type === "image/heic" ||
-          file.type === "image/heif" ||
-          lcName.endsWith(".heic") ||
-          lcName.endsWith(".heif");
-        if (looksHeic) {
-          heicSkipped++;
-          continue;
-        }
-        if (!file.type.startsWith("image/")) continue;
+        // iPhone-default HEIC/HEIF: browsers can't decode these in a canvas and
+        // Claude Vision can't read them either. compressImage() transcodes them
+        // to JPEG client-side (US-326), so we accept them here. Safari sometimes
+        // reports an empty MIME for HEIC, so allow HEIC through the image/ guard.
+        const heic = isHeicFile(file);
+        if (!heic && !file.type.startsWith("image/")) continue;
         const id = crypto.randomUUID();
         let body: Blob = file;
         let bodyType = file.type || "image/webp";
@@ -185,6 +175,12 @@ export function FlipdeskAutolisterPage() {
           compressed = true;
         } catch (compErr) {
           console.warn("[autolister] compress failed, using original:", compErr);
+        }
+        // HEIC that failed to transcode would upload as raw HEIC bytes (unusable
+        // downstream) — never fall back to the original for those.
+        if (!compressed && heic) {
+          heicFailed++;
+          continue;
         }
         // If compression failed AND the original is huge (>15MB), the AI
         // generation will likely choke too. Skip with a clear message.
@@ -241,13 +237,13 @@ export function FlipdeskAutolisterPage() {
       setStaged((prev) => [...prev, ...added]);
       toast.success(`${added.length} photo${added.length === 1 ? "" : "s"} added.`);
     }
-    if (heicSkipped > 0) {
+    if (heicFailed > 0) {
       toast.warning(
-        `${heicSkipped} iPhone HEIC photo${heicSkipped === 1 ? "" : "s"} skipped.`,
+        `${heicFailed} HEIC photo${heicFailed === 1 ? "" : "s"} couldn't be converted.`,
         {
           description:
-            "On your iPhone: Settings → Camera → Formats → Most Compatible. " +
-            "Re-export the photos as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
+            "These iPhone photos failed to decode in your browser. Try re-exporting " +
+            "them as JPEG (Photos app → Share → Save as Files → JPEG) and upload again.",
           duration: 10_000,
         },
       );
