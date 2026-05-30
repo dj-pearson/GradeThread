@@ -59,6 +59,58 @@ function extForBlobType(mimeType: string): string {
   return "webp";
 }
 
+// US-327: recursively read a dropped directory entry into a flat File list, so
+// dragging a folder of photos works like the file picker's folder support.
+function readEntryFiles(entry: FileSystemEntry): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      (entry as FileSystemFileEntry).file(
+        (f) => resolve([f]),
+        () => resolve([]),
+      );
+    });
+  }
+  if (entry.isDirectory) {
+    const reader = (entry as FileSystemDirectoryEntry).createReader();
+    return new Promise((resolve) => {
+      const all: FileSystemEntry[] = [];
+      // readEntries returns at most ~100 entries per call; loop until drained.
+      const readBatch = () => {
+        reader.readEntries(
+          (batch) => {
+            if (batch.length === 0) {
+              Promise.all(all.map(readEntryFiles)).then((nested) =>
+                resolve(nested.flat()),
+              );
+            } else {
+              all.push(...batch);
+              readBatch();
+            }
+          },
+          () => resolve([]),
+        );
+      };
+      readBatch();
+    });
+  }
+  return Promise.resolve([]);
+}
+
+// Flatten a drop's DataTransferItems (which may include directories) into a
+// File[]. Falls back to dataTransfer.files when the entries API is unavailable.
+async function filesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
+  const items = Array.from(dt.items ?? []);
+  const entries = items
+    .filter((it) => it.kind === "file")
+    .map((it) => it.webkitGetAsEntry?.())
+    .filter((e): e is FileSystemEntry => Boolean(e));
+  if (entries.length > 0) {
+    const nested = await Promise.all(entries.map(readEntryFiles));
+    return nested.flat();
+  }
+  return Array.from(dt.files ?? []);
+}
+
 export function FlipdeskAutolisterPage() {
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
@@ -118,6 +170,10 @@ export function FlipdeskAutolisterPage() {
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
+  // US-327: drag-over visual state. dragDepth counts enter/leave across nested
+  // children so the highlight doesn't flicker as the pointer crosses inner nodes.
+  const [dragActive, setDragActive] = useState(false);
+  const dragDepth = useRef(0);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -142,19 +198,22 @@ export function FlipdeskAutolisterPage() {
   );
   const ungrouped = staged.filter((p) => !groupedIds.has(p.id));
 
-  async function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | File[] | null) {
     if (!files || !ownerId) return;
-    setUploading((n) => n + files.length);
+    const fileList = Array.from(files).filter(
+      (f) => isHeicFile(f) || f.type.startsWith("image/"),
+    );
+    if (fileList.length === 0) return;
+    setUploading((n) => n + fileList.length);
     const added: StagedPhoto[] = [];
     let heicFailed = 0;
-    for (const file of Array.from(files)) {
+    for (const file of fileList) {
       try {
         // iPhone-default HEIC/HEIF: browsers can't decode these in a canvas and
         // Claude Vision can't read them either. compressImage() transcodes them
         // to JPEG client-side (US-326), so we accept them here. Safari sometimes
-        // reports an empty MIME for HEIC, so allow HEIC through the image/ guard.
+        // reports an empty MIME for HEIC (filtered in via isHeicFile above).
         const heic = isHeicFile(file);
-        if (!heic && !file.type.startsWith("image/")) continue;
         const id = crypto.randomUUID();
         let body: Blob = file;
         let bodyType = file.type || "image/webp";
@@ -248,6 +307,31 @@ export function FlipdeskAutolisterPage() {
         },
       );
     }
+  }
+
+  // US-327: drag-and-drop onto the upload card. Folder drops are flattened to
+  // image files; the same handleFiles path (compress → thumbnail → upload) runs.
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    if (!entitled) return;
+    dragDepth.current += 1;
+    setDragActive(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragActive(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragActive(false);
+    if (!entitled) return;
+    void filesFromDataTransfer(e.dataTransfer).then((files) =>
+      handleFiles(files),
+    );
   }
 
   function toggleSelect(id: string) {
@@ -476,7 +560,7 @@ export function FlipdeskAutolisterPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -487,8 +571,15 @@ export function FlipdeskAutolisterPage() {
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
+          onDragEnter={handleDragEnter}
+          onDragOver={(e) => e.preventDefault()}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           disabled={!entitled}
-          className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-input disabled:hover:text-muted-foreground"
+          className={cn(
+            "flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-input disabled:hover:text-muted-foreground",
+            dragActive && "border-primary bg-primary/5 text-foreground",
+          )}
         >
           {uploading > 0 ? (
             <Loader2 className="h-7 w-7 animate-spin" />
@@ -498,10 +589,13 @@ export function FlipdeskAutolisterPage() {
           <span className="text-sm font-medium">
             {uploading > 0
               ? `Uploading ${uploading}…`
-              : "Click to add photos (or pick a whole folder of images)"}
+              : dragActive
+                ? "Drop photos to add them"
+                : "Click or drag photos here (or pick a whole folder)"}
           </span>
           <span className="text-xs">
-            Resized &amp; compressed in your browser before upload.
+            Resized &amp; compressed in your browser before upload. iPhone HEIC
+            supported.
           </span>
         </button>
       </Card>

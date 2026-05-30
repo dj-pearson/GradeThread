@@ -5442,8 +5442,8 @@
         "Typecheck passes; npm run build green"
       ],
       "priority": 327,
-      "passes": false,
-      "notes": "P1 photo. The single-item submission uploader already has drag-drop (submission/photo-upload.tsx:215-225) but the BULK path is click-only — backwards. Reuse existing handleFiles."
+      "passes": true,
+      "notes": "DONE. autolister.tsx upload card now has onDragEnter/Over/Leave/Drop with a depth-counted drag-over highlight (brand tokens) and reuses handleFiles. Folder drops are flattened via webkitGetAsEntry recursion (filesFromDataTransfer/readEntryFiles), falling back to dataTransfer.files when the entries API is unavailable. handleFiles now accepts File[]|FileList and centralizes the image/HEIC filter (isHeicFile || image/*). Input accept widened to image/*,.heic,.heif; helper copy notes HEIC support. tsc clean, eslint clean, vitest 105/105, build green."
     },
     {
       "id": "US-328",
