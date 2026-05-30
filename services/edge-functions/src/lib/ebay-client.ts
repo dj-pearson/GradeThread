@@ -265,10 +265,15 @@ export interface EbayUserRefreshResponse {
 export async function refreshUserToken(
   refreshToken: string
 ): Promise<EbayUserRefreshResponse> {
+  // IMPORTANT: do NOT send `scope` here. Per OAuth 2.0, when scope is omitted
+  // the issued access token inherits the scopes the refresh token already
+  // grants. Adding a new scope to getScopes() (e.g. commerce.identity.readonly
+  // in US-315) without omitting `scope` here breaks every pre-existing
+  // connection with `invalid_scope` — eBay refuses to upgrade scopes during
+  // refresh. New scopes can only be granted by re-consenting at /oauth/start.
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    scope: getScopes(),
   });
   const res = await fetch(`${apiHost()}/identity/v1/oauth2/token`, {
     method: "POST",

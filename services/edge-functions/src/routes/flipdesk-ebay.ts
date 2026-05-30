@@ -2103,15 +2103,30 @@ async function assemblePublishContext(
   try {
     const policyResult = await resolveCachedDefaults(userId);
     if ("missing" in policyResult) {
+      // Include the eBay help URL so the user can jump straight to seller
+      // hub policy setup. resolveCachedDefaults always populates details.helpUrl
+      // on the missing-policies branch.
+      const help = policyResult.details?.helpUrl
+        ? ` (set them up at ${policyResult.details.helpUrl})`
+        : "";
       blockers.push(
-        `Configure eBay business policies on your seller account: ${policyResult.missing.join(", ")}.`
+        `Configure eBay business policies on your seller account: ${policyResult.missing.join(", ")}.${help}`,
       );
     } else {
       policies = policyResult;
     }
   } catch (err) {
+    // Token-refresh / scope errors land here. Surface a hint so the seller
+    // knows reconnecting eBay (re-consenting at /oauth/start) is the fix.
+    const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] policy lookup:", err);
-    blockers.push("Could not load your eBay business policies. Try again.");
+    if (/invalid_scope|token refresh failed/i.test(msg)) {
+      blockers.push(
+        "Your eBay connection needs to be refreshed. Disconnect and reconnect eBay on the Marketplaces page to grant the latest permissions.",
+      );
+    } else {
+      blockers.push("Could not load your eBay business policies. Try again.");
+    }
   }
 
   const description = (listing?.listing_description ?? item.description ?? title).trim() ||
