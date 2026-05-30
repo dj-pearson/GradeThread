@@ -1434,7 +1434,7 @@ export type PublishItemResult =
     offer_id: string;
     sku: string;
   }
-  | { ok: false; status: 400 | 404 | 422 | 502 | 503; body: Record<string, unknown> };
+  | { ok: false; status: 400 | 404 | 422 | 500 | 502 | 503; body: Record<string, unknown> };
 
 // Publish one owned item to eBay (inventory PUT → offer POST → publish POST).
 // Parameterized by ownerId so both the authed /listings/push handler and the
@@ -1926,7 +1926,7 @@ interface PublishContextOk {
 interface PublishContextErr {
   ok: false;
   error: { error: string };
-  status: 400 | 404 | 503;
+  status: 400 | 404 | 500 | 503;
 }
 
 type PublishContext = PublishContextOk | PublishContextErr;
@@ -1960,16 +1960,25 @@ async function assemblePublishContext(
     };
   }
 
-  const { data: itemRow } = await supabaseAdmin
+  const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
       "id, user_id, title, brand, sku, size, description, condition_notes, target_price, list_price, grade_value, grade_label, ebay_category_id, ebay_aspects, status"
     )
     .eq("id", itemId)
     .maybeSingle();
+  if (itemErr) {
+    // PostgREST silently returns data: null when the SELECT column list is
+    // invalid (missing column, etc.) — without this log we'd mis-diagnose
+    // the failure as "row not found". The most common cause is a column
+    // referenced in the select that hasn't been migrated yet.
+    console.error(
+      `[flipdesk-ebay] publish lookup: inventory_items query errored for ${itemId} ` +
+        `— code=${itemErr.code} message=${itemErr.message} details=${itemErr.details ?? ""} hint=${itemErr.hint ?? ""}`,
+    );
+    return { ok: false, error: { error: "Item lookup failed" }, status: 500 };
+  }
   if (!itemRow) {
-    // Distinct logs so the AutoLister "Item not found" debugging path can
-    // tell whether the row was never written vs. an ownership mismatch.
     console.warn(
       `[flipdesk-ebay] publish lookup: inventory_items row ${itemId} does not exist (caller userId=${userId})`,
     );
