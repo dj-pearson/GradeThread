@@ -305,6 +305,16 @@ export interface DetectedStyleAttribute {
   confidence: number;
 }
 
+// Genuine wear/damage the grader identified (NOT intentional design). Persisted
+// on grade_reports.defects_found (migration 00058) — powers the Auto-Disclosure
+// Engine's condition & flaws section + annotated defect photos.
+export interface DefectFound {
+  defect: string;
+  severity: "minor" | "moderate" | "major";
+  location: string;
+  impact_on_grade?: string;
+}
+
 export interface SubmissionImageRow {
   id: string;
   submission_id: string;
@@ -329,6 +339,10 @@ export interface GradeReportRow {
   // Intentional design features the AI recognized (distressing, raw hems, …).
   // These did NOT lower the grade — condition is graded vs. as-manufactured state.
   detected_style_attributes: DetectedStyleAttribute[];
+  // Structured genuine defects (migration 00058). Empty array for historical
+  // grades that never persisted them — the disclosure engine falls back to
+  // detailed_notes.defects_summary in that case.
+  defects_found: DefectFound[];
   // Raw per-image analysis trace (eval/training/dispute explanation). Nullable
   // for historical rows graded before migration 00050.
   per_image_analysis: unknown[] | null;

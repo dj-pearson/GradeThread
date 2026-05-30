@@ -197,6 +197,9 @@ export async function processSubmission(submissionId: string) {
         // Intentional design features the AI judged present (distressing, raw
         // hems, etc.) — these did NOT lower the grade.
         detected_style_attributes: compositeResult.style_attributes,
+        // GENUINE wear/damage (structured) — powers the Auto-Disclosure Engine
+        // (condition & flaws section + annotated defect photos).
+        defects_found: compositeResult.defects_found,
         // Full per-image trace for eval/training + dispute explanation.
         per_image_analysis: perImageResults,
         confidence_score: compositeResult.confidence_score,

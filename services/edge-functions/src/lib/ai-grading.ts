@@ -36,6 +36,12 @@ export interface DetectedIssue {
   // (distressing, deliberate fraying, etc.) rather than genuine wear/damage.
   // Intentional issues are reported for transparency but do NOT lower scores.
   is_intentional: boolean;
+  // Optional normalized bounding box [x, y, w, h], each 0..1 relative to the
+  // image, locating the issue. Powers AI-annotated defect photos (zoom
+  // callouts) for the Auto-Disclosure Engine. Absent on older grades and
+  // whenever the model can't localize the issue — the disclosure degrades to
+  // a text-only callout in that case.
+  bbox?: [number, number, number, number] | null;
 }
 
 export interface StyleAttribute {
@@ -300,7 +306,8 @@ Respond with a JSON object matching this exact schema:
       "issue": "description of the issue",
       "severity": "minor" | "moderate" | "major",
       "location": "where on the garment",
-      "is_intentional": true | false
+      "is_intentional": true | false,
+      "bbox": [x, y, w, h]
     }
   ],
   "style_attributes": [
@@ -326,6 +333,7 @@ Respond with a JSON object matching this exact schema:
 
 Rules:
 - detected_issues: List every visible issue. Set is_intentional=true when the "issue" is a manufactured design feature (distressing, raw hem, etc.), false for genuine wear/damage. Empty array if none found.
+- bbox (within each detected_issue): a tight normalized bounding box [x, y, w, h] around the issue, where x,y is the top-left corner and w,h are the width/height, each a fraction 0.0–1.0 of the image dimensions. Be as precise as you can. Omit the field entirely (or use null) only if you genuinely cannot localize the issue in this image.
 - style_attributes: List intentional design features you observe (the design language of the garment). Empty array if none.
 - estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only, GRADING AGAINST THE AS-MANUFACTURED STATE. Intentional design features (is_intentional=true) must NOT lower any score — only genuine wear/damage and any degradation BEYOND the original design intent counts.
 - condition_signals: List all positive AND negative indicators you observe.
@@ -334,6 +342,28 @@ Rules:
 }
 
 // --- Helpers ---
+
+/**
+ * Coerce a model-supplied bbox into a clean normalized [x, y, w, h] (each
+ * 0..1, box kept inside the image), or null when it's missing/garbage. Defects
+ * are useless to annotate if the coordinates are out of range, so we're strict.
+ */
+function normalizeBbox(raw: unknown): [number, number, number, number] | null {
+  if (!Array.isArray(raw) || raw.length !== 4) return null;
+  const nums = raw.map((n) => (typeof n === "number" && isFinite(n) ? n : NaN));
+  if (nums.some((n) => isNaN(n))) return null;
+  let [x, y, w, h] = nums as [number, number, number, number];
+  // Reject degenerate boxes.
+  if (w <= 0 || h <= 0) return null;
+  // Clamp origin into [0,1] and shrink the box to stay inside the image.
+  x = Math.max(0, Math.min(1, x));
+  y = Math.max(0, Math.min(1, y));
+  w = Math.min(w, 1 - x);
+  h = Math.min(h, 1 - y);
+  if (w <= 0 || h <= 0) return null;
+  const r = (n: number) => Math.round(n * 1000) / 1000;
+  return [r(x), r(y), r(w), r(h)];
+}
 
 type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
@@ -455,10 +485,11 @@ export async function analyzeImage(
       parsed.detected_issues = [];
     }
     // Normalize is_intentional (older/looser responses may omit it → treat as
-    // genuine damage, the safe default).
+    // genuine damage, the safe default) and sanitize the optional bbox.
     parsed.detected_issues = parsed.detected_issues.map((i) => ({
       ...i,
       is_intentional: i.is_intentional === true,
+      bbox: normalizeBbox((i as { bbox?: unknown }).bbox),
     }));
     if (!parsed.style_attributes || !Array.isArray(parsed.style_attributes)) {
       parsed.style_attributes = [];

@@ -26,6 +26,7 @@ import {
   Users,
   Sparkles,
   ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,6 +80,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
       { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
+      { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
       { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },
     ],
   },

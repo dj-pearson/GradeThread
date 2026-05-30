@@ -16,6 +16,8 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskAutolisterRoutes } from "./routes/flipdesk-autolister.ts";
+import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
+import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
@@ -134,6 +136,8 @@ app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
+app.use("/api/flipdesk/disclosure/*", authMiddleware);
+app.use("/api/flipdesk/pricing/*", authMiddleware);
 // Workspace (team) management: auth + workspace context. The route handlers
 // enforce per-action role checks (owner/admin required to invite, etc.).
 app.use("/api/workspace/*", authMiddleware);
@@ -159,6 +163,8 @@ app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
+app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
+app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
 
 // Admin billing: user JWT auth, then admin role check
@@ -192,6 +198,11 @@ app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
 // AutoLister batch enqueue is cheap to call but kicks off heavy background
 // work — cap submissions; per-item AI cost is governed by the quota check.
 app.use("/api/flipdesk/autolister/*", rateLimiter(20, 60_000, "flipdesk-autolister"));
+// Disclosure reads are cheap; the annotated-photo upload writes storage.
+app.use("/api/flipdesk/disclosure/*", rateLimiter(40, 60_000, "flipdesk-disclosure"));
+// A repricing scan fans out to one eBay Browse call per listing — cap tightly.
+app.use("/api/flipdesk/pricing/scan", rateLimiter(6, 60_000, "flipdesk-reprice-scan"));
+app.use("/api/flipdesk/pricing/*", rateLimiter(60, 60_000, "flipdesk-pricing"));
 
 // Broadened coverage: sensitive / abusable surfaces that previously had none.
 app.use("/api/payments/*", rateLimiter(30, 60_000, "payments"));
@@ -244,6 +255,12 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
+app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
+app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
+// Condition-aware repricing cron. OUTSIDE /api/flipdesk so the user-JWT
+// middleware above doesn't intercept it; the handler enforces
+// X-Internal-Job-Secret itself (mirrors the GSC sync cron).
+app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
 app.route("/api/admin", adminBillingRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
