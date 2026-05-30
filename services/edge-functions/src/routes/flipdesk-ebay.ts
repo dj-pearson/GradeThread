@@ -1876,7 +1876,6 @@ interface PublishItem {
   description: string | null;
   condition_notes: string | null;
   target_price: number | null;
-  list_price: number | null;
   grade_value: number | null;
   grade_label: string | null;
   ebay_category_id: string | null;
@@ -1960,10 +1959,15 @@ async function assemblePublishContext(
     };
   }
 
+  // NOTE: list_price is NOT a real column on inventory_items — it only exists
+  // as a derived alias inside the items_full view (l.listing_price AS list_price).
+  // Including it here triggers PostgreSQL 42703 (undefined column) and PostgREST
+  // returns data:null, which the caller used to mis-report as "Item not found".
+  // The publish-time price priority is now listing.listing_price → target_price.
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, list_price, grade_value, grade_label, ebay_category_id, ebay_aspects, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, ebay_category_id, ebay_aspects, status"
     )
     .eq("id", itemId)
     .maybeSingle();
@@ -2081,7 +2085,9 @@ async function assemblePublishContext(
 
   // Price priority: explicit listing edits beat inventory defaults so a user
   // who changed the price in the composer or bulk-edit actually publishes that.
-  const priceNumber = listing?.listing_price ?? item.target_price ?? item.list_price ?? null;
+  // (list_price isn't a real column on inventory_items — only an alias on the
+  // items_full view — so it's not in the fallback chain.)
+  const priceNumber = listing?.listing_price ?? item.target_price ?? null;
   if (!priceNumber || priceNumber <= 0) {
     blockers.push("Set a target price.");
   }
