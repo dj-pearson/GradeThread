@@ -32,6 +32,11 @@ import {
 } from "./ebay-client.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import {
+  buildDisclosure,
+  type DisclosureInput,
+  type PerImageAnalysisLike,
+} from "./disclosure.ts";
 
 // Bump when the prompt or tool schema changes in a way that should be tracked
 // for accuracy/eval attribution. Mirrors PER_IMAGE_PROMPT_VERSION etc.
@@ -565,7 +570,7 @@ export async function generateListing(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, condition_notes, measurements, ebay_category_id",
+      "id, user_id, title, brand, style, size, color, material, condition_notes, measurements, ebay_category_id, grade_report_id",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -574,6 +579,8 @@ export async function generateListing(
     throw new Error(`Item ${itemId} not found for this workspace`);
   }
   const item = itemData as ItemRow;
+  const gradeReportId =
+    (itemData as { grade_report_id?: string | null }).grade_report_id ?? null;
 
   // 2. Photos.
   const photos = await loadItemPhotoUrls(itemId);
@@ -735,15 +742,54 @@ export async function generateListing(
     ? ((firstPhotoRow as { id: string }).id)
     : null;
 
+  // 7b. Auto-Disclosure: if the item is graded, append a documented, AI-verified
+  // "Condition & Flaws" block to the listing body (where HTML renders) and seed
+  // the plain disclosure into the condition field. This is the dispute-defense
+  // artifact — buyers see exactly what the grader found.
+  let listingDescription = listing.description;
+  let conditionDescription = listing.condition_description;
+  if (gradeReportId) {
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select(
+        "overall_score, grade_tier, defects_found, detected_style_attributes, per_image_analysis, detailed_notes, certificate_id",
+      )
+      .eq("id", gradeReportId)
+      .maybeSingle();
+    if (report) {
+      const r = report as Record<string, unknown>;
+      const disclosure = buildDisclosure({
+        overall_score: Number(r.overall_score ?? 0),
+        grade_tier: String(r.grade_tier ?? ""),
+        defects_found: Array.isArray(r.defects_found)
+          ? (r.defects_found as DisclosureInput["defects_found"])
+          : [],
+        detected_style_attributes: Array.isArray(r.detected_style_attributes)
+          ? (r.detected_style_attributes as DisclosureInput["detected_style_attributes"])
+          : [],
+        per_image_analysis: Array.isArray(r.per_image_analysis)
+          ? (r.per_image_analysis as PerImageAnalysisLike[])
+          : [],
+        certificate_id: (r.certificate_id as string | null) ?? null,
+        legacy_defects_summary:
+          (r.detailed_notes as Record<string, string> | null)?.defects_summary ?? null,
+      });
+      listingDescription = `${listingDescription}\n<!--gradethread-disclosure-->${disclosure.html}`;
+      if (!conditionDescription || !conditionDescription.trim()) {
+        conditionDescription = disclosure.plain.slice(0, 990);
+      }
+    }
+  }
+
   // 8. Upsert the eBay draft listing for this item (tenant-safe: item owned).
   const draftFields = {
     listing_title: listing.title,
-    listing_description: listing.description,
+    listing_description: listingDescription,
     listing_status: "draft" as const,
     listing_price: priceDollars,
     platform_category_id: categoryId,
     ebay_condition: listing.ebay_condition,
-    ebay_condition_description: listing.condition_description,
+    ebay_condition_description: conditionDescription,
     item_specifics_override: itemSpecifics,
     price_is_estimated: priceIsEstimated,
     batch_id: opts.batchId ?? null,

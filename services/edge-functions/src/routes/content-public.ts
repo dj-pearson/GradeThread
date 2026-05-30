@@ -355,3 +355,110 @@ contentPublicRoutes.get("/certificates.json", async (c) => {
   });
 });
 
+// ── GradeThread Verified — public seller profiles ─────────────────
+// A seller's public trust page aggregates every CERTIFIED (public) grade they
+// have earned. Two hard filters keep this safe on the RLS-bypassing service
+// client: (1) the profile must be verified_enabled; (2) only reports with a
+// non-null certificate_id are ever counted or exposed (US-268). We never leak
+// a private report, an un-public profile, or the owner's user_id.
+
+// How many recent certificates to surface on the profile page.
+const SELLER_RECENT_CERTS = 12;
+// Stats are computed over (at most) this many of the seller's most recent
+// certified grades — bounds the work per request for prolific sellers.
+const SELLER_STATS_SAMPLE = 1000;
+
+interface SellerCertRow {
+  overall_score: number;
+  grade_tier: string;
+  certificate_id: string;
+  created_at: string;
+  submissions: { user_id: string; title: string | null; brand: string | null } | null;
+}
+
+// ── GET /sellers/:handle ──────────────────────────────────────────
+contentPublicRoutes.get("/sellers/:handle", async (c) => {
+  const handle = c.req.param("handle").trim();
+  if (!handle) return c.json({ error: "Not found" }, 404);
+
+  // Public, enabled profile only. ilike (no wildcards) = case-insensitive exact.
+  const { data: seller, error: sellerErr } = await supabaseAdmin
+    .from("users")
+    .select("id, verified_handle, verified_display_name, verified_bio, verified_since")
+    .ilike("verified_handle", handle)
+    .eq("verified_enabled", true)
+    .maybeSingle();
+  if (sellerErr) return c.json({ error: sellerErr.message }, 500);
+  if (!seller) return c.json({ error: "Not found" }, 404);
+
+  // Certified grades for this seller, newest first. The inner join + the
+  // submissions.user_id filter scope to the owner; the certificate_id filter
+  // keeps it to public reports only.
+  const { data: certRows, error: certErr } = await supabaseAdmin
+    .from("grade_reports")
+    .select(
+      "overall_score, grade_tier, certificate_id, created_at, submissions!inner(user_id, title, brand)",
+    )
+    .eq("submissions.user_id", seller.id)
+    .not("certificate_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(SELLER_STATS_SAMPLE);
+  if (certErr) return c.json({ error: certErr.message }, 500);
+
+  const rows = (certRows ?? []) as unknown as SellerCertRow[];
+  const total = rows.length;
+  const sum = rows.reduce((acc, r) => acc + Number(r.overall_score), 0);
+  const average = total > 0 ? Math.round((sum / total) * 10) / 10 : 0;
+
+  const tierDistribution: Record<string, number> = {};
+  for (const r of rows) {
+    tierDistribution[r.grade_tier] = (tierDistribution[r.grade_tier] ?? 0) + 1;
+  }
+
+  const recent = rows.slice(0, SELLER_RECENT_CERTS).map((r) => ({
+    id: r.certificate_id,
+    title: r.submissions?.title ?? "Graded garment",
+    brand: r.submissions?.brand ?? null,
+    overall_score: r.overall_score,
+    grade_tier: r.grade_tier,
+    created_at: r.created_at,
+  }));
+
+  return c.json({
+    seller: {
+      handle: seller.verified_handle,
+      display_name: seller.verified_display_name ?? seller.verified_handle,
+      bio: seller.verified_bio ?? null,
+      verified_since: seller.verified_since ?? null,
+    },
+    stats: {
+      total_graded: total,
+      // True when we hit the sample ceiling — the page can show "1,000+".
+      total_is_capped: total >= SELLER_STATS_SAMPLE,
+      average_grade: average,
+      tier_distribution: tierDistribution,
+    },
+    recent_certificates: recent,
+  });
+});
+
+// ── GET /sellers.json ─────────────────────────────────────────────
+// Compact list of public seller handles for the sitemap (verified profiles
+// are indexable organic surfaces). Capped; lastmod is the row's updated_at.
+contentPublicRoutes.get("/sellers.json", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("verified_handle, updated_at")
+    .eq("verified_enabled", true)
+    .not("verified_handle", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(5000);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({
+    sellers: (data ?? []).map((r) => ({
+      handle: r.verified_handle,
+      updated_at: r.updated_at,
+    })),
+  });
+});
+

@@ -41,6 +41,9 @@ interface CertSitemap {
   certificates: Array<{ id: string; updated_at: string }>;
   next_cursor: string | null;
 }
+interface SellerSitemap {
+  sellers: Array<{ handle: string; updated_at: string }>;
+}
 
 // Fetch a same-origin static asset (the build-emitted manifest). Falls back to
 // null so the sitemap still renders (blog/cert sections) if it's missing.
@@ -134,6 +137,21 @@ export async function certUrls(env: PagesEnv): Promise<SitemapUrl[]> {
     lastmod: cI.updated_at?.slice(0, 10),
     changefreq: "monthly",
     priority: 0.7,
+  }));
+}
+
+export async function sellerUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<SellerSitemap>(
+    env,
+    "/api/content/public/sellers.json",
+  );
+  if (!data) return [];
+  return data.sellers.map((s) => ({
+    loc: `${base}/verified/${encodeURIComponent(s.handle)}`,
+    lastmod: s.updated_at?.slice(0, 10),
+    changefreq: "weekly",
+    priority: 0.6,
   }));
 }
 

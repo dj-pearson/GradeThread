@@ -25,6 +25,8 @@ import {
   Activity,
   Users,
   Sparkles,
+  ShieldCheck,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,11 +74,13 @@ const navGroups: NavGroup[] = [
       // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
       { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
       { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
+      { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
       { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
+      { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
       { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },
     ],
   },

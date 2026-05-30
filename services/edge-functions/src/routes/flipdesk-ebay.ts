@@ -10,7 +10,6 @@ import {
   exchangeCodeForTokens,
   getCategoryAspects,
   getCategoryName,
-  getDefaultPolicies,
   getMarketplaceId,
   getUserAccessToken,
   getUserIdentityFromToken,

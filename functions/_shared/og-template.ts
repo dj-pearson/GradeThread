@@ -97,6 +97,79 @@ export function buildBlogOgHtml(input: BlogOgInput): string {
 </div>`;
 }
 
+export interface SellerOgInput {
+  displayName: string;
+  totalGraded: number;
+  averageGrade: number; // 0..10
+  totalIsCapped?: boolean;
+}
+
+// 1200x630 share card for a public seller profile (/verified/<handle>).
+export function buildSellerOgHtml(input: SellerOgInput): string {
+  const avg = input.averageGrade > 0 ? input.averageGrade.toFixed(1) : "—";
+  const count = input.totalIsCapped
+    ? `${input.totalGraded.toLocaleString()}+`
+    : input.totalGraded.toLocaleString();
+  return `<div style="display:flex;flex-direction:column;height:630px;width:1200px;background:linear-gradient(135deg, ${BRAND_NIGHT} 0%, ${BRAND_NAVY} 100%);color:${TEXT_LIGHT};font-family:system-ui,sans-serif;padding:60px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:44px;height:44px;border-radius:10px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;color:#fff;">G</div>
+      <div style="font-size:24px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
+    </div>
+    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:8px 16px;border-radius:999px;font-size:18px;font-weight:500;">
+      ✓ Verified Seller
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin-top:20px;">
+    <div style="display:flex;font-size:22px;color:rgba(255,255,255,0.7);margin-bottom:8px;">GradeThread Verified Seller</div>
+    <div style="display:flex;font-size:64px;font-weight:700;line-height:1.1;max-width:1000px;">
+      ${escapeHtml(truncate(input.displayName, 60))}
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:flex-end;gap:56px;width:100%;">
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-size:72px;font-weight:800;color:${BRAND_RED};line-height:1;">${escapeHtml(count)}</div>
+      <div style="font-size:18px;color:rgba(255,255,255,0.6);">items graded</div>
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <div style="font-size:72px;font-weight:800;color:#fff;line-height:1;">${escapeHtml(avg)}</div>
+      <div style="font-size:18px;color:rgba(255,255,255,0.6);">avg grade · out of 10</div>
+    </div>
+    <div style="display:flex;flex:1;justify-content:flex-end;font-size:18px;color:rgba(255,255,255,0.6);align-items:flex-end;height:100%;">gradethread.com</div>
+  </div>
+</div>`;
+}
+
+export interface CertBadgeInput {
+  score: number; // 0..10
+  gradeTier: string;
+  title?: string | null;
+}
+
+// Compact embeddable trust badge (700x180) for a single graded item. Sellers
+// drop this — wrapped in a link to the certificate — into their eBay /
+// Poshmark / Mercari listing description so buyers see a standardized,
+// verifiable condition grade right inside the listing.
+export function buildCertBadgeHtml(input: CertBadgeInput): string {
+  const score = input.score.toFixed(1);
+  return `<div style="display:flex;align-items:center;height:180px;width:700px;background:${BRAND_NAVY};color:${TEXT_LIGHT};font-family:system-ui,sans-serif;border-radius:16px;padding:0 36px;">
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:128px;height:128px;border-radius:50%;background:${BRAND_RED};margin-right:32px;">
+    <div style="font-size:54px;font-weight:800;line-height:1;color:#fff;">${score}</div>
+    <div style="font-size:14px;color:rgba(255,255,255,0.85);">/ 10</div>
+  </div>
+  <div style="display:flex;flex-direction:column;flex:1;">
+    <div style="display:flex;align-items:center;gap:10px;font-size:20px;font-weight:600;color:rgba(255,255,255,0.85);margin-bottom:6px;">
+      <div style="width:26px;height:26px;border-radius:7px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;">G</div>
+      GradeThread Verified
+    </div>
+    <div style="display:flex;font-size:36px;font-weight:800;line-height:1.1;">${escapeHtml(input.gradeTier)}</div>
+    <div style="display:flex;font-size:16px;color:rgba(255,255,255,0.6);margin-top:6px;">AI condition grade · tap to verify</div>
+  </div>
+</div>`;
+}
+
 // 1x1 transparent PNG fallback — last-resort if Satori itself throws. The
 // blog/cert SSR still has its own static `logo_icon_512.png` fallback, so
 // this path is rarely hit in practice.

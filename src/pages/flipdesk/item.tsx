@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
+import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import type { ItemFullRow } from "@/types/database";
 
@@ -97,6 +98,9 @@ export function FlipdeskItemPage() {
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}
       <ItemCanvas item={item} onCancel={goBack} />
+
+      {/* Auto-Disclosure Engine: condition & flaws + annotated defect photos. */}
+      <DisclosurePanel itemId={item.id} />
     </div>
   );
 }
