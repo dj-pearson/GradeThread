@@ -121,6 +121,21 @@ export function SEO({
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={ogImage} />
       {twitterSite && <meta name="twitter:site" content={twitterSite} />}
+
+      {/* US-308: Search Console + Bing Webmaster verification tags. Values
+          come from the build-time env (Vite). The string verification flow
+          for both engines accepts a meta tag on the homepage with no
+          interaction required after verification — keep these site-wide so
+          adding a new public route doesn't break verification. */}
+      {VERIFY_GOOGLE && (
+        <meta name="google-site-verification" content={VERIFY_GOOGLE} />
+      )}
+      {VERIFY_BING && <meta name="msvalidate.01" content={VERIFY_BING} />}
     </Helmet>
   );
 }
+
+// Read once at module load so a render isn't paying the env lookup cost.
+// import.meta.env is statically replaced by Vite at build time.
+const VERIFY_GOOGLE = import.meta.env.VITE_GOOGLE_SITE_VERIFICATION ?? "";
+const VERIFY_BING = import.meta.env.VITE_BING_SITE_VERIFICATION ?? "";

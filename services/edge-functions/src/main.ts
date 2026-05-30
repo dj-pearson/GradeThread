@@ -18,6 +18,7 @@ import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskAutolisterRoutes } from "./routes/flipdesk-autolister.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
+import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
 import { contentTopicsRoutes } from "./routes/content-topics.ts";
@@ -240,6 +241,13 @@ app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/admin", adminBillingRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
+// US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
+// gated by the /api/admin/* middleware groups above.
+app.route("/api/admin/seo", adminSeoRoutes);
+// US-308 GSC daily-sync cron. Lives OUTSIDE /api/admin so the wildcard
+// admin-JWT middleware doesn't intercept it; the handler enforces
+// X-Internal-Job-Secret itself.
+app.post("/api/jobs/gsc-sync", (c) => handleGscSyncCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/social", contentSocialRoutes);
 app.route("/api/content/topics", contentTopicsRoutes);

@@ -81,6 +81,7 @@ const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ def
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
 const AdminReviewsPage = lazy(() => import("@/pages/admin/reviews").then(m => ({ default: m.AdminReviewsPage })));
 const AdminAiModelsPage = lazy(() => import("@/pages/admin/ai-models").then(m => ({ default: m.AdminAiModelsPage })));
+const AdminSeoPage = lazy(() => import("@/pages/admin/seo").then(m => ({ default: m.AdminSeoPage })));
 const AdminUserDetailPage = lazy(() => import("@/pages/admin/user-detail").then(m => ({ default: m.AdminUserDetailPage })));
 const AdminDisputesPage = lazy(() => import("@/pages/admin/disputes").then(m => ({ default: m.AdminDisputesPage })));
 const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
@@ -233,6 +234,7 @@ export const router = createBrowserRouter([
               { path: "/admin/reviews", element: <SuspenseWrapper><AdminReviewsPage /></SuspenseWrapper> },
               { path: "/admin/disputes", element: <SuspenseWrapper><AdminDisputesPage /></SuspenseWrapper> },
               { path: "/admin/ai-models", element: <SuspenseWrapper><AdminAiModelsPage /></SuspenseWrapper> },
+              { path: "/admin/seo", element: <SuspenseWrapper><AdminSeoPage /></SuspenseWrapper> },
               { path: "/admin/system", element: <SuspenseWrapper><AdminSystemPage /></SuspenseWrapper> },
               { path: "/admin/audit-log", element: <SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper> },
               { path: "/admin/coupons", element: <SuspenseWrapper><AdminCouponsPage /></SuspenseWrapper> },

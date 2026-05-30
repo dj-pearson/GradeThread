@@ -5115,7 +5115,7 @@
         "Typecheck passes"
       ],
       "priority": 307,
-      "passes": false,
+      "passes": true,
       "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-294 (cert SSR). Optional-but-recommended; improves CTR from social + AI surfaces."
     },
     {
@@ -5132,7 +5132,7 @@
         "Typecheck passes"
       ],
       "priority": 308,
-      "passes": false,
+      "passes": true,
       "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Bing/Yandex etc. get indexing via IndexNow (US-296); GSC is read-only analytics here."
     },
     {
@@ -5149,7 +5149,7 @@
         "Typecheck passes"
       ],
       "priority": 309,
-      "passes": false,
+      "passes": true,
       "notes": "PRD ref tasks/prd-seo-hardening.md. Hardened SEO & GEO program. Depends on US-305/306/308. Closes the loop: measure → audit → act."
     },
     {

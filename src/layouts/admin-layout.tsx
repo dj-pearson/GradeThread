@@ -12,6 +12,7 @@ import {
   Tag,
   ListChecks,
   ArrowLeft,
+  TrendingUp,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,6 +25,7 @@ const adminNavItems = [
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
   { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
+  { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },

@@ -73,7 +73,12 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const description =
     `Verified GradeThread condition grade: ${score}/10 (${cert.grade_tier})` +
     `${cert.brand ? ` · ${cert.brand}` : ""}. AI-graded across 5 weighted factors.`;
-  const ogImage = cert.hero_image_url ?? `${base}/logo_icon_512.png`;
+  // US-307: dynamic Open Graph image. /og/cert/:id renders a branded
+  // 1200x630 PNG server-side via Satori; the static logo is the last-ditch
+  // fallback if the OG endpoint itself errors (it returns a transparent
+  // pixel which crawlers accept). Hero image is no longer the og:image —
+  // dynamic grade card has higher CTR on social.
+  const ogImage = `${base}/og/cert/${encodeURIComponent(cert.id)}`;
 
   const heroHtml = cert.hero_image_url
     ? `<img class="hero" src="${escape(cert.hero_image_url)}" alt="${escape(cert.title)}">`

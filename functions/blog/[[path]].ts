@@ -246,7 +246,10 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       title,
       description,
       canonicalUrl: canonical,
-      ogImage: post.hero_image_url,
+      // US-307: dynamic OG image with the post's title. /og/blog/:slug
+      // renders a branded 1200x630 PNG via Satori (workers-og). The static
+      // logo is the last-ditch fallback if the OG worker errors.
+      ogImage: `${siteUrl(env)}/og/blog/${encodeURIComponent(post.slug)}`,
       jsonLd: [articleLd, breadcrumbLd, ...(faqLd ? [faqLd] : [])],
       bodyHtml,
     }),

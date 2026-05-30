@@ -114,6 +114,11 @@ export function buildHeadTags(route: PublicRoute): string {
     )
     .join("\n    ");
 
+  // US-308 verification tags. process.env is read at build time by the
+  // prerender script (Node), parallel to import.meta.env in the SPA bundle.
+  const verifyGoogle = process.env.VITE_GOOGLE_SITE_VERIFICATION ?? "";
+  const verifyBing = process.env.VITE_BING_SITE_VERIFICATION ?? "";
+
   return [
     `<title>${title}</title>`,
     `<meta name="description" content="${desc}">`,
@@ -129,6 +134,12 @@ export function buildHeadTags(route: PublicRoute): string {
     `<meta name="twitter:title" content="${title}">`,
     `<meta name="twitter:description" content="${desc}">`,
     `<meta name="twitter:image" content="${DEFAULT_OG_IMAGE}">`,
+    verifyGoogle
+      ? `<meta name="google-site-verification" content="${escapeAttr(verifyGoogle)}">`
+      : "",
+    verifyBing
+      ? `<meta name="msvalidate.01" content="${escapeAttr(verifyBing)}">`
+      : "",
     ld,
   ]
     .filter(Boolean)

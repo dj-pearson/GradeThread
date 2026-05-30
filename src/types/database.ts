@@ -957,6 +957,36 @@ export interface GradingEvalRunRow {
   created_at: string;
 }
 
+// US-308: Google Search Console search-performance ingestion.
+// Admin-only — one row per (date, site_url, page, query, country, device).
+export interface GscPerformanceRow {
+  id: string;
+  date: string;
+  site_url: string;
+  page: string | null;
+  query: string | null;
+  country: string | null;
+  device: string | null;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  position: number;
+  ingested_at: string;
+}
+
+export interface GscPerformanceInsert {
+  date: string;
+  site_url: string;
+  page?: string | null;
+  query?: string | null;
+  country?: string | null;
+  device?: string | null;
+  impressions?: number;
+  clicks?: number;
+  ctr?: number;
+  position?: number;
+}
+
 export interface NotificationRow {
   id: string;
   user_id: string;
@@ -1648,6 +1678,11 @@ export interface Database {
         Row: GradingEvalRunRow;
         Insert: Omit<GradingEvalRunRow, "id" | "created_at">;
         Update: Partial<Omit<GradingEvalRunRow, "id" | "created_at">>;
+      };
+      gsc_performance: {
+        Row: GscPerformanceRow;
+        Insert: GscPerformanceInsert;
+        Update: Partial<GscPerformanceInsert>;
       };
       notifications: {
         Row: NotificationRow;
