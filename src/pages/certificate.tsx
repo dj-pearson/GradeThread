@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Shield, AlertTriangle, Calendar, Cpu } from "lucide-react";
+import { Shield, AlertTriangle, Calendar, Cpu, BadgeCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -12,6 +12,9 @@ import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
+import { VerifiedBadge } from "@/components/verified/verified-badge";
+import { CopyField } from "@/components/verified/copy-field";
+import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
 import type {
   GradeReportRow,
@@ -395,6 +398,42 @@ export function CertificatePage() {
               </CardContent>
             </Card>
           )}
+
+        {/* Embed this badge in your listing — the viral surface of
+            GradeThread Verified. Buyers see a standardized, verifiable grade
+            right inside the marketplace listing and click through to here. */}
+        {id && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BadgeCheck className="h-5 w-5 text-brand-navy" />
+                Add this badge to your listing
+              </CardTitle>
+              <CardDescription>
+                Paste it into your eBay, Poshmark, Mercari, Depop or Grailed
+                listing description. Buyers see the verified grade and can tap to
+                confirm it here.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex justify-center">
+                <VerifiedBadge
+                  score={gradeReport.overall_score}
+                  tier={gradeReport.grade_tier}
+                />
+              </div>
+              <CopyField
+                label="HTML (listing descriptions)"
+                value={certBadgeEmbedHtml(id)}
+                multiline
+              />
+              <CopyField
+                label="Plain text (where HTML isn't allowed)"
+                value={certBadgeEmbedText(id)}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         <Separator />
 

@@ -29,6 +29,7 @@ import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { workspaceRoutes } from "./routes/workspace.ts";
 import { accountRoutes } from "./routes/account.ts";
+import { verifiedRoutes } from "./routes/verified.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
@@ -110,6 +111,9 @@ app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
+// GradeThread Verified — seller manages their OWN public profile. No workspace
+// middleware: the profile is the individual seller's account, not a tenant's.
+app.use("/api/verified/*", authMiddleware);
 // FlipDesk: everything under /api/flipdesk is authed except inbound webhooks
 // and the eBay OAuth callback (eBay redirects the browser there unauthenticated;
 // the `state` token from oauth_states identifies the user) + the scheduled
@@ -203,6 +207,7 @@ app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-reco
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
+app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
 
 // Content AI endpoints — generation, research, image creation. Each
 // call is expensive (multi-thousand-token Claude responses or OpenAI
@@ -261,6 +266,7 @@ app.route("/api/content/public", contentPublicRoutes);
 app.route("/api/content/scheduler", contentSchedulerRoutes);
 app.route("/api/workspace", workspaceRoutes);
 app.route("/api/account", accountRoutes);
+app.route("/api/verified", verifiedRoutes);
 
 // 404
 app.notFound((c) => c.json({ error: "Not found" }, 404));

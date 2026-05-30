@@ -195,6 +195,12 @@ export interface UserRow {
   // Multi-user (US-Team): the workspace this user is currently acting
   // inside. NULL = personal workspace (workspace_owner_id = id).
   active_workspace_owner_id: string | null;
+  // GradeThread Verified — public seller trust profile (migration 00057).
+  verified_handle: string | null;
+  verified_display_name: string | null;
+  verified_bio: string | null;
+  verified_enabled: boolean;
+  verified_since: string | null;
   created_at: string;
   updated_at: string;
 }
