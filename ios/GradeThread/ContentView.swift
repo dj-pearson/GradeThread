@@ -600,16 +600,12 @@ private struct SalesPlaceholder: View {
     @State private var hasRequestedPermission: Bool = false
 
     var body: some View {
-        TabPlaceholder(
-            title: "Sales",
-            subtitle: "Order + payout views land in US-184.",
-            systemImage: "dollarsign.circle"
-        )
-        .task {
-            guard !hasRequestedPermission else { return }
-            hasRequestedPermission = true
-            _ = await PushService.shared.requestPermissionIfNeeded()
-        }
+        SalesView()
+            .task {
+                guard !hasRequestedPermission else { return }
+                hasRequestedPermission = true
+                _ = await PushService.shared.requestPermissionIfNeeded()
+            }
     }
 }
 
