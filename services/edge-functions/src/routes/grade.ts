@@ -137,8 +137,13 @@ gradeRoutes.post("/submit", async (c) => {
 
   const imageFiles: File[] = [];
   const imageTypes: string[] = [];
+  // Parallel to imageFiles: client-computed perceptual hash (US-337). 16 hex
+  // chars when present; "" / invalid is stored as null and simply skipped by
+  // reuse detection.
+  const imagePhashes: (string | null)[] = [];
   const allEntries = formData.getAll("images");
   const allTypes = formData.getAll("image_types");
+  const allPhashes = formData.getAll("phashes");
 
   for (let i = 0; i < allEntries.length; i++) {
     const entry = allEntries[i];
@@ -149,6 +154,8 @@ gradeRoutes.post("/submit", async (c) => {
       } else {
         imageFiles.push(entry);
         imageTypes.push(type);
+        const ph = typeof allPhashes[i] === "string" ? (allPhashes[i] as string).trim() : "";
+        imagePhashes.push(/^[0-9a-f]{16}$/i.test(ph) ? ph.toLowerCase() : null);
       }
     }
   }
@@ -215,6 +222,7 @@ gradeRoutes.post("/submit", async (c) => {
     image_type: string;
     storage_path: string;
     display_order: number;
+    phash: string | null;
   }> = [];
 
   for (let i = 0; i < imageFiles.length; i++) {
@@ -243,6 +251,7 @@ gradeRoutes.post("/submit", async (c) => {
       image_type: imageType,
       storage_path: storagePath,
       display_order: i,
+      phash: imagePhashes[i] ?? null,
     });
   }
 

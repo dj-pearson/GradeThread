@@ -9,6 +9,7 @@ import {
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
+import { detectPhotoReuse } from "./photo-reuse.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -67,7 +68,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order")
+      .select("id, image_type, storage_path, display_order, phash")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -193,6 +194,23 @@ export async function processSubmission(submissionId: string) {
       detailedNotes["authenticity_summary"] = `${authenticity.summary}${tells}${where}`;
     }
 
+    // US-337: photo-reuse detection. The same photo appearing under a DIFFERENT
+    // account is the strong stolen/recycled-listing signal; a same-account match
+    // is just a relist (recorded but not flagged).
+    const reuse = await detectPhotoReuse({
+      submissionId,
+      ownerId: submission.user_id,
+      images: images.map((img) => ({
+        image_type: img.image_type,
+        phash: (img as { phash?: string | null }).phash ?? null,
+      })),
+    });
+    if (reuse.matched) {
+      const closest = Math.min(...reuse.matches.map((m) => m.distance));
+      detailedNotes["photo_reuse"] =
+        `${reuse.summary} (${reuse.matches.length} image(s), closest ${closest} bits).`;
+    }
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -257,6 +275,11 @@ export async function processSubmission(submissionId: string) {
     // the moderation queue too (in addition to needs_human_review on the grade).
     if (authenticity.manipulation_suspected || authenticity.screenshot_or_watermark_detected) {
       flagReasons.push(authenticity.summary);
+    }
+    // US-337: a cross-account photo match is a moderation concern (possible
+    // stolen/recycled listing). Same-account relists are not flagged.
+    if (reuse.cross_user) {
+      flagReasons.push(reuse.summary);
     }
     if (flagReasons.length > 0) {
       submissionUpdate.flagged = true;

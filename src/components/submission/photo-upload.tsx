@@ -16,6 +16,8 @@ export interface PhotoUploadItem {
   file: File;
   imageType: ImageType;
   preview: string;
+  // 64-bit dHash (16 hex chars) of the photo for reuse detection (US-337).
+  phash?: string;
 }
 
 interface UploadSlot {
@@ -99,6 +101,7 @@ interface SlotState {
   preview: string | null;
   errors: string[];
   isProcessing: boolean;
+  phash?: string;
 }
 
 const DEFAULT_SLOT_STATE: SlotState = {
@@ -137,6 +140,7 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
             file: state.file,
             imageType: slot.imageType,
             preview: state.preview,
+            phash: state.phash,
           });
         }
       }
@@ -184,6 +188,7 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
             preview,
             errors: [],
             isProcessing: false,
+            phash: compressed.phash,
           });
           emitChange(next);
           return next;

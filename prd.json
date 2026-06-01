@@ -5596,8 +5596,8 @@
         "Hashing + distance logic is unit-tested with transformed (resized/recompressed) copies; tenant isolation preserved"
       ],
       "priority": 337,
-      "passes": false,
-      "notes": "BUILD-NEW. Stronger 'stolen/stock photo' signal than EXIF and fully under our control. New fingerprint column/table + index for fast Hamming lookup. Beats geolocation for the reuse threat. Coordinate with content moderation (00023) flag pipeline."
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). Client computes a 64-bit dHash on the orientation-corrected canvas (image-utils.computeDHash), threaded through photo-upload + new-submission + bulk-submission as a 'phashes' field; grade.ts validates + stores submission_images.phash (migration 00062). grading-pipeline calls detectPhotoReuse (lib/photo-reuse.ts) — bounded Hamming scan over recent hashed rows; a CROSS-ACCOUNT match flags the submission for moderation, same-account is informational. Pure hammingHex unit-tested (photo-reuse_test.ts). Threshold tunable via GRADING_REUSE_MAX_HAMMING (default 10). NOTE: FlipDesk item_photos use a separate uploader and are out of scope here. BUILD-NEW. Stronger 'stolen/stock photo' signal than EXIF and fully under our control."
     },
     {
       "id": "US-338",
