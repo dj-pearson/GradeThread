@@ -252,8 +252,6 @@ jobs:
             -allowProvisioningUpdates \
             CODE_SIGN_STYLE=Automatic \
             CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGNING_REQUIRED=YES \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             CURRENT_PROJECT_VERSION=${{ steps.build_number.outputs.value }} \
