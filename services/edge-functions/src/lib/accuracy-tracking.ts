@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { evalThresholds } from "./grading-eval.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -643,6 +644,167 @@ export async function computeWeeklyAccuracySummary(): Promise<AccuracySummary> {
     weekAgo.toISOString(),
     now.toISOString()
   );
+}
+
+// ─── Public transparency report (US-326) ───────────────────────────
+//
+// A SAFE, aggregate-only view of grading quality for the public
+// /transparency page. NO per-user, per-item, or per-tenant data leaves this
+// function — only platform-wide counts and rates. This is what substantiates
+// the "leading, trustworthy grading authority" claim with published receipts
+// instead of marketing copy.
+//
+// Honesty rule (matches the brand): when there isn't enough data to state a
+// metric truthfully, the field is null and the page says "not enough data yet"
+// rather than printing a misleading 0%.
+
+// Below this many reviewed/sold items we don't publish a rate — too small to
+// be meaningful, and a single outlier would distort it.
+const PUBLIC_MIN_SAMPLE = 10;
+// Cap the rows scanned for the cheap confidence/review-rate aggregate. At
+// launch scale this is every row; it bounds cost as volume grows. The figure
+// is described as "recent grades" on the page so the cap is truthful.
+const PUBLIC_CONFIDENCE_SCAN_CAP = 10_000;
+
+export interface PublicTransparencyReport {
+  generated_at: string;
+  scale: { min: number; max: number; increment: number; tiers: number };
+  volume: {
+    items_graded: number;
+    human_reviews: number;
+    graded_sales: number;
+  };
+  quality: {
+    // AI grade vs. human reviewer, share within 0.5 points.
+    human_agreement_rate: number | null;
+    mean_absolute_error: number | null;
+    // Share of reviews where a reviewer flagged the AI mistaking intentional
+    // design (e.g. factory distressing) for damage. Lower is better.
+    intentional_misread_rate: number | null;
+    // Mean model confidence across recent grades.
+    avg_confidence: number | null;
+    // Share of grades auto-routed to a human before finalizing.
+    human_review_rate: number | null;
+  };
+  outcomes: {
+    // Share of graded, opted-in sales that drew a buyer condition dispute.
+    dispute_rate: number | null;
+  };
+  // The published activation gate every model version must clear before it can
+  // grade live traffic. Static facts — always safe to publish.
+  gate: { max_mae: number; min_agreement: number };
+  model: {
+    active: Array<{ stage: string; version_name: string }>;
+  };
+  // Recent model versions that cleared the eval gate — a public changelog of
+  // the platform getting measurably better over time.
+  changelog: Array<{
+    version_name: string;
+    model: string;
+    mean_absolute_error: number;
+    agreement_rate: number;
+    passed: boolean;
+    created_at: string;
+  }>;
+}
+
+// Publish a rate only when there's a meaningful sample behind it; otherwise
+// null so the page says "not enough data yet" instead of a misleading number.
+function publishedRate(rate: number, sample: number): number | null {
+  return sample >= PUBLIC_MIN_SAMPLE ? rate : null;
+}
+
+/**
+ * Build the public transparency report. Aggregate-only and safe to expose
+ * unauthenticated. Callers should cache it (it scans reviews/outcomes) — see
+ * routes/public-grading.ts.
+ */
+export async function computePublicTransparency(): Promise<PublicTransparencyReport> {
+  // Exact total graded (cheap head count).
+  const { count: itemsGradedRaw } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id", { count: "exact", head: true });
+  const itemsGraded = itemsGradedRaw ?? 0;
+
+  // Recent confidence + auto-review rate over a bounded window.
+  const { data: recentReports } = await supabaseAdmin
+    .from("grade_reports")
+    .select("confidence_score, needs_human_review")
+    .order("created_at", { ascending: false })
+    .limit(PUBLIC_CONFIDENCE_SCAN_CAP);
+  let avgConfidence: number | null = null;
+  let humanReviewRate: number | null = null;
+  if (recentReports && recentReports.length > 0) {
+    const confs = recentReports
+      .map((r) => Number(r.confidence_score))
+      .filter((n) => Number.isFinite(n));
+    if (confs.length > 0) {
+      avgConfidence = confs.reduce((s, v) => s + v, 0) / confs.length;
+    }
+    const flagged = recentReports.filter((r) => r.needs_human_review === true).length;
+    humanReviewRate = recentReports.length > 0 ? flagged / recentReports.length : null;
+  }
+
+  // Human-review accuracy + post-sale outcomes (reuse the existing engines).
+  const [accuracy, outcomes] = await Promise.all([
+    computeAccuracySummary(),
+    computeOutcomeFeedback(),
+  ]);
+
+  const humanReviews = accuracy.total_reviews;
+  const gradedSales = outcomes.total_graded_sales;
+
+  // Active model versions (safe to name — they're version labels, not prompts).
+  const { data: activeVersions } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("stage, version_name")
+    .eq("is_active", true);
+
+  // Public changelog: recent passing eval runs, newest first.
+  const { data: runs } = await supabaseAdmin
+    .from("grading_eval_runs")
+    .select("prompt_version_name, model, mean_absolute_error, agreement_rate, passed, created_at")
+    .eq("passed", true)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  return {
+    generated_at: new Date().toISOString(),
+    scale: { min: 1, max: 10, increment: 0.5, tiers: 7 },
+    volume: {
+      items_graded: itemsGraded,
+      human_reviews: humanReviews,
+      graded_sales: gradedSales,
+    },
+    quality: {
+      human_agreement_rate: publishedRate(accuracy.global_agreement_rate, humanReviews),
+      mean_absolute_error: publishedRate(accuracy.global_mean_absolute_error, humanReviews),
+      intentional_misread_rate: publishedRate(
+        accuracy.global_intentional_misread_rate,
+        humanReviews,
+      ),
+      avg_confidence: avgConfidence,
+      human_review_rate: humanReviewRate,
+    },
+    outcomes: {
+      dispute_rate: publishedRate(outcomes.overall_dispute_rate, gradedSales),
+    },
+    gate: evalThresholds(),
+    model: {
+      active: (activeVersions ?? []).map((v) => ({
+        stage: String(v.stage),
+        version_name: String(v.version_name),
+      })),
+    },
+    changelog: (runs ?? []).map((r) => ({
+      version_name: String(r.prompt_version_name),
+      model: String(r.model),
+      mean_absolute_error: Number(r.mean_absolute_error),
+      agreement_rate: Number(r.agreement_rate),
+      passed: r.passed === true,
+      created_at: String(r.created_at),
+    })),
+  };
 }
 
 // ─── Sale-outcome feedback (closes the grade_outcomes loop) ─────────

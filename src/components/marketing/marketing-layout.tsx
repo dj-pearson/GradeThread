@@ -126,6 +126,9 @@ export function MarketingLayout({
               <Link to="/faq" className="hover:text-foreground">
                 FAQ
               </Link>
+              <Link to="/transparency" className="hover:text-foreground">
+                Transparency
+              </Link>
             </nav>
           </div>
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">

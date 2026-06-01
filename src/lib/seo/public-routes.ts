@@ -108,6 +108,15 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     jsonLdType: "FAQPage",
   },
   {
+    path: "/transparency",
+    title: "Grading Accuracy & Transparency Report",
+    description:
+      "GradeThread's published grading accuracy: AI-vs-human agreement, mean error against expert reviewers, intentional-design misread rate, model confidence, and buyer dispute rate — plus the eval gate and model changelog behind a self-improving standard.",
+    changefreq: "weekly",
+    priority: 0.8,
+    jsonLdType: "Dataset",
+  },
+  {
     path: "/privacy",
     title: "Privacy Policy",
     description:

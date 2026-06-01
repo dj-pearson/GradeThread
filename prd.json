@@ -5413,6 +5413,160 @@
       "priority": 325,
       "passes": true,
       "notes": "BUILD-NEW. Audit missing: error handling for eBay API rate limits and publication failures with retry backoff and user notification. Reuse: fetchAuthed/token-refresh in ebay-client.ts, the attempts/error columns on listing_generation_jobs (US-310), bounded-concurrency worker (US-313). Toasts via sonner (project standard). Depends on US-313, US-321."
+    },
+    {
+      "id": "US-326",
+      "title": "Public grading accuracy & transparency report",
+      "description": "As a buyer, seller, or AI answer engine evaluating GradeThread's authority, I want a public page that publishes platform-wide grading accuracy and the self-improvement mechanisms behind it, so that the claim of being the trusted clothing-grading standard is backed by visible receipts rather than marketing copy.",
+      "acceptanceCriteria": [
+        "New unauthenticated edge endpoint GET /api/grading/public/transparency returns AGGREGATE-ONLY data (no per-user/per-tenant rows): items graded, human reviews, AI-vs-human agreement rate, mean absolute error, intentional-misread rate, avg confidence, human-review rate, buyer dispute rate, published eval-gate thresholds, active model versions, and a changelog of eval-passing versions",
+        "Rates are suppressed (null becomes 'not enough data yet') below a minimum sample so figures are never misleading",
+        "Endpoint is cached (in-memory TTL + Cache-Control) since it scans reviews/outcomes",
+        "New prerendered public page /transparency renders the static methodology + self-improvement loop + FAQ server-side and hydrates live figures on the client",
+        "Page is registered in PUBLIC_ROUTES, routes/index.tsx, prerender entry-server.tsx, and head-builder MARKETING_LD; SEO/prerender guard tests pass",
+        "Dataset + FAQPage JSON-LD emitted (AI-citable) describing what is measured and how; only static facts in JSON-LD",
+        "Typecheck + build + prerender succeed"
+      ],
+      "priority": 326,
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). Reuses computeAccuracySummary/computeOutcomeFeedback (accuracy-tracking.ts) + grading_eval_runs. New: computePublicTransparency(), routes/public-grading.ts, src/pages/marketing/transparency.tsx, transparencyDatasetLd() in json-ld.ts. Aggregate-only safety contract documented in computePublicTransparency."
+    },
+    {
+      "id": "US-327",
+      "title": "Automated grading regression monitor + alerting",
+      "description": "As the grading team, I want a scheduled job that re-checks the LIVE grader against the golden eval set and against production review/dispute metrics, and alerts us when accuracy drifts below threshold, so that 'self-improving over time' is autonomous and quality regressions are caught before they reach buyers.",
+      "acceptanceCriteria": [
+        "Migration adds grading_monitor_runs (trigger, severity, eval jsonb, production jsonb, alerts jsonb, alert_codes, alerted, created_at) with admin-read RLS",
+        "Cron endpoint POST /api/jobs/grading-monitor (guarded by X-Internal-Job-Secret, mirroring GSC/reprice crons) re-runs the eval gate on the active/seeded live composite prompt version and compares to its previous baseline run",
+        "Run also recomputes production agreement, MAE, intentional-misread rate, graded-sales dispute rate and evaluates them against env-tunable thresholds with sample-size guards",
+        "Threshold logic is a PURE, unit-tested function (evaluateAlerts) covering low-agreement (critical), eval-gate-fail (critical), eval regression / high-misread / high-dispute (warn), and sample-size suppression",
+        "Alerts email the admin address (with a cooldown to avoid duplicate spam) and every run is persisted; eval is skipped cleanly when there are no active golden cases",
+        "Admin endpoints GET /api/admin/grading/monitor/runs and POST /api/admin/grading/monitor/run exist",
+        "Deno unit test passes; edge typechecks"
+      ],
+      "priority": 327,
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). New: migration 00060_grading_monitor.sql, lib/grading-monitor.ts, sendGradingRegressionAlertEmail in email.ts, evalThresholds() exported from grading-eval.ts, tests/grading-monitor_test.ts. OPS: schedule the cron (Make.com/external scheduler) to hit /api/jobs/grading-monitor daily with the internal-job secret; set MONITOR_ALERT_EMAIL (or rely on SMTP_ADMIN_EMAIL)."
+    },
+    {
+      "id": "US-328",
+      "title": "Evidence-linked certificate (defects, locations & confidence visible to buyers)",
+      "description": "As a buyer viewing a public certificate, I want to see the specific defects the AI found (with their locations and severity) and the model's confidence, overlaid on the garment photos, so that I trust WHY a grade was given instead of just the number.",
+      "acceptanceCriteria": [
+        "Certificate page renders defects_found (defect, severity, location, impact_on_grade) from grade_reports, grouped/sorted by severity",
+        "Where a defect/style attribute carries a bounding box, it is visually indicated on the corresponding photo (annotation overlay)",
+        "Confidence score is shown with a plain-language explanation; a 'human-reviewed' badge appears when the grade was checked by a reviewer",
+        "certificateLd JSON-LD remains accurate with the richer visible content (only mark up what is shown)",
+        "No additional per-tenant data is exposed beyond what the certificate already shares; typecheck + tests pass"
+      ],
+      "priority": 328,
+      "passes": false,
+      "notes": "BUILD-NEW. Data already persisted: grade_reports.defects_found (migration 00058), detected_style_attributes + per_image_analysis (00050), needs_human_review (00049). Frontend-heavy: extend src/pages/certificate.tsx. Bounding boxes exist in per-image analysis schema (bbox)."
+    },
+    {
+      "id": "US-329",
+      "title": "Corrections & disputes to candidate golden eval cases pipeline",
+      "description": "As the grading team, I want human-review corrections and resolved disputes to become candidate golden eval cases (pending admin approval), so that the benchmark the model must beat grows automatically from real-world mistakes — especially the intentional-design-misread cases.",
+      "acceptanceCriteria": [
+        "A reviewer correction flagged intentional_misread, or a dispute resolved in the customer's favor, can be promoted into a candidate grading_eval_case carrying the submission images, the corrected expected_score/expected_tier, and tags",
+        "Candidates land in a pending state (is_active=false or a review queue) and require explicit admin approval before they count toward the eval gate",
+        "Image references reuse the existing submission-images storage paths (no re-upload); tenant data is not exposed cross-tenant",
+        "Admin UI lists candidates with the original AI grade vs corrected grade and an approve/reject action",
+        "Duplicate suppression avoids creating many near-identical cases; tests cover the promotion mapping"
+      ],
+      "priority": 329,
+      "passes": false,
+      "notes": "BUILD-NEW. Reuse grading_eval_cases (00050), human_reviews per-factor corrections + intentional_misread, disputes table. Closes the loop between US-071 (review queue) and the eval gate. Net effect: the golden set self-expands toward the cases that previously broke."
+    },
+    {
+      "id": "US-330",
+      "title": "Shadow / A-B grading of candidate prompts on live traffic",
+      "description": "As the grading team, I want to run a candidate prompt version in shadow mode on a sample of real submissions (without affecting the customer's grade) and compare its output to the active version, so that promotion decisions are based on live evidence, not just the golden set.",
+      "acceptanceCriteria": [
+        "A candidate prompt version can be marked 'shadow' and is run asynchronously on a configurable sample of real submissions after the live grade is produced",
+        "Shadow results are stored separately and never shown to the customer or used for the certificate",
+        "Admin can compare shadow vs active on the same submissions: score delta distribution, agreement, and divergence on flagged categories (e.g. distressed denim)",
+        "Shadow grading respects cost guardrails (sample rate, daily cap) and is fully tenant-isolated",
+        "Promotion still requires passing the golden-set eval gate; shadow is advisory evidence"
+      ],
+      "priority": 330,
+      "passes": false,
+      "notes": "BUILD-NEW. Extends the ai_prompt_versions override mechanism (00050) + grading-pipeline.ts. Infra for no-deploy iteration already exists (resolveActivePrompt); this adds parallel candidate execution + comparison storage."
+    },
+    {
+      "id": "US-331",
+      "title": "Confidence calibration measurement & threshold recalibration",
+      "description": "As the grading team, I want to measure whether the model's confidence score actually predicts grading error and recalibrate the human-review threshold accordingly, so that 'confidence' is a truthful, well-calibrated signal rather than a number.",
+      "acceptanceCriteria": [
+        "A calibration report buckets reviewed grades by confidence and reports observed agreement/MAE per bucket (a reliability curve)",
+        "The report surfaces whether the current 0.75 human-review threshold is the right operating point and recommends an adjusted threshold",
+        "The threshold is configurable (env or admin setting) and changing it is auditable",
+        "Calibration appears on the admin AI-models page and (optionally, in aggregate) on the public transparency report",
+        "Pure calibration math is unit-tested"
+      ],
+      "priority": 331,
+      "passes": false,
+      "notes": "BUILD-NEW. Reuse human_reviews + grade_reports.confidence_score. Honesty pillar: confidence must mean something. Pairs with US-326 (could publish a calibration curve)."
+    },
+    {
+      "id": "US-332",
+      "title": "Pre-grade image-quality gate + active abstention",
+      "description": "As a seller, I want GradeThread to detect when my photos are too blurry, dark, or incomplete to grade reliably and ask me for specific better shots BEFORE producing a grade, so that grades are based on truthful inputs and confidence stays high.",
+      "acceptanceCriteria": [
+        "Before composite grading, a lightweight quality check flags blur/low-light/missing-required-angle per image",
+        "When inputs are insufficient, the pipeline abstains from finalizing and returns an actionable request for specific additional photos instead of a low-confidence guess",
+        "Required-photo coverage (front/back/label/detail) is enforced with clear messaging",
+        "Abstention is distinct from a failed grade and does not consume a paid grade credit (or is clearly handled per pricing rules)",
+        "Logic is unit-tested with representative cases; tenant-isolated"
+      ],
+      "priority": 332,
+      "passes": false,
+      "notes": "BUILD-NEW. Extends grading-pipeline.ts + new-submission intake. Truthful-inputs pillar. Coordinate with pricing (US-207 auto-debit) so an abstention doesn't burn a credit."
+    },
+    {
+      "id": "US-333",
+      "title": "Tamper-evident certificates (content hash + signature + public verify)",
+      "description": "As a buyer, I want to verify that a GradeThread certificate hasn't been altered, so that the 'independently verifiable' claim has cryptographic teeth and forged screenshots can be detected.",
+      "acceptanceCriteria": [
+        "At grade finalization, a canonical content hash of the grade report is computed and stored; optionally signed with a server key",
+        "The certificate page shows a verification affordance that recomputes/looks up the hash and confirms authenticity (or flags a mismatch)",
+        "The QR code resolves to the canonical certificate URL whose integrity can be checked server-side",
+        "Verification works with no account; the public verify endpoint exposes only the certificate's already-public fields",
+        "Hashing/signing is unit-tested and stable across serialization"
+      ],
+      "priority": 333,
+      "passes": false,
+      "notes": "BUILD-NEW. Builds on existing certificate_id + QR (certificate.tsx). Adds integrity column on grade_reports + a public verify endpoint. Strengthens the authority/anti-fraud story."
+    },
+    {
+      "id": "US-334",
+      "title": "Inter-rater reliability benchmark (human-vs-human baseline)",
+      "description": "As the grading team, I want a periodic study where multiple human experts grade the same sample so we can compute human-vs-human agreement, so that we can state the AI meets or beats the expert baseline — the strongest possible authority claim.",
+      "acceptanceCriteria": [
+        "A study mode lets 2+ reviewers independently grade the same set of submissions without seeing each other's scores or the AI grade",
+        "Inter-rater reliability is computed (agreement within 0.5, MAE between reviewers, and a reliability coefficient)",
+        "The AI's agreement with the human consensus is compared against the human-vs-human baseline",
+        "Results are available to admins and the headline (AI meets/beats expert agreement) can be cited on the transparency report when the sample is sufficient",
+        "Pure reliability math is unit-tested"
+      ],
+      "priority": 334,
+      "passes": false,
+      "notes": "BUILD-NEW. Extends human_reviews to support blind multi-rater rounds. Provides the denominator that makes US-326's accuracy numbers meaningful ('how good is good?')."
+    },
+    {
+      "id": "US-335",
+      "title": "Admin regression-monitor dashboard",
+      "description": "As an admin, I want to see the automated grading-monitor history, current severity, and active alerts in the AI Models admin page, and trigger a scan on demand, so that I can act on drift without reading emails or logs.",
+      "acceptanceCriteria": [
+        "AI Models admin page shows recent grading_monitor_runs with severity, the metrics snapshot, and the specific alerts raised",
+        "A 'Run monitor now' action calls POST /api/admin/grading/monitor/run and refreshes the view",
+        "Active critical alerts are visually prominent; resolved/ok runs are de-emphasized",
+        "Links jump to the relevant accuracy/eval context (prompt version, category) for the alert",
+        "Typecheck + tests pass"
+      ],
+      "priority": 335,
+      "passes": false,
+      "notes": "BUILD-NEW. Frontend for the US-327 backend (endpoints already exist: GET /api/admin/grading/monitor/runs, POST /monitor/run). Extend src/pages/admin/ai-models.tsx."
     }
   ]
 }

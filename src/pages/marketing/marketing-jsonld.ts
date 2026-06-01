@@ -4,7 +4,13 @@
 // pages use — guaranteeing the prerendered <head> and the runtime SPA emit
 // identical structured data.
 
-import { howToLd, faqPageLd, breadcrumbLd, type JsonLd } from "@/lib/seo/json-ld";
+import {
+  howToLd,
+  faqPageLd,
+  breadcrumbLd,
+  transparencyDatasetLd,
+  type JsonLd,
+} from "@/lib/seo/json-ld";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { glossaryTrail, type GlossaryEntry } from "@/lib/seo/glossary";
@@ -142,6 +148,32 @@ export const GRADING_STANDARD_FAQS = [
 
 export function gradingStandardJsonLd(): JsonLd[] {
   return [faqPageLd(GRADING_STANDARD_FAQS)];
+}
+
+// ── /transparency (US-326) ──────────────────────────────────────────
+// The accuracy report that substantiates "trusted, self-improving grading"
+// with published numbers instead of marketing claims.
+export const TRANSPARENCY_FAQS = [
+  {
+    q: "How accurate is GradeThread's AI grading?",
+    a: "We publish it. Every grade a human reviewer checks is compared to the AI's grade, and we report the agreement rate (share within half a point) and mean absolute error against expert reviewers on this page — updated continuously as more grades are reviewed.",
+  },
+  {
+    q: "How does GradeThread improve over time?",
+    a: "Reviewer corrections and post-sale buyer disputes feed an accuracy loop, and every new grading model version must clear a fixed eval gate — a maximum error and minimum agreement against a golden set of expert-graded garments — before it can grade live items. The model changelog on this page lists versions that passed.",
+  },
+  {
+    q: "What stops a grading model from getting worse?",
+    a: "An automated monitor re-checks the live grader on a schedule against the same golden set and against production reviews and disputes. If accuracy drifts below threshold, the team is alerted before quality slips further.",
+  },
+  {
+    q: "Do buyers have to trust a black box?",
+    a: "No. The rubric and weights are published, every grade carries a confidence score, low-confidence grades are routed to human review, and these platform-wide accuracy figures are public — so the standard is verifiable, not opaque.",
+  },
+];
+
+export function transparencyJsonLd(): JsonLd[] {
+  return [transparencyDatasetLd(), faqPageLd(TRANSPARENCY_FAQS)];
 }
 
 // ── /grading/* glossary hub (US-303) ────────────────────────────────

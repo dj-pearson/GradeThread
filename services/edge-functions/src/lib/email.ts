@@ -654,6 +654,79 @@ export async function sendWorkspaceInvitationEmail(
   });
 }
 
+// ─── Grading regression alert (US-327, internal/admin) ───────────────
+
+interface GradingRegressionAlertData {
+  severity: string; // "warn" | "critical"
+  alerts: Array<{ severity: string; message: string }>;
+  production: {
+    human_reviews: number;
+    agreement_rate: number;
+    mean_absolute_error: number;
+    intentional_misread_rate: number;
+    graded_sales: number;
+    dispute_rate: number;
+  };
+  evalSummary: string;
+}
+
+/**
+ * Internal alert to the grading team when the regression monitor (US-327)
+ * detects the live grader drifting. Not a customer email — sent to the admin
+ * address so a human can investigate before quality slips further.
+ */
+export async function sendGradingRegressionAlertEmail(
+  to: string,
+  data: GradingRegressionAlertData,
+): Promise<boolean> {
+  const isCritical = data.severity === "critical";
+  const banner = isCritical ? BRAND_RED : "#eab308";
+  const p = data.production;
+  const rows = data.alerts
+    .map(
+      (a) => `
+      <tr>
+        <td style="padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px;">
+          <span style="display:inline-block;min-width:64px;font-weight:700;color:${
+            a.severity === "critical" ? BRAND_RED : "#a16207"
+          };text-transform:uppercase;">${escapeHtml(a.severity)}</span>
+          ${escapeHtml(a.message)}
+        </td>
+      </tr>`,
+    )
+    .join("");
+
+  const content = `
+    <div style="background:${banner};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      Grading quality alert — ${escapeHtml(data.severity.toUpperCase())}
+    </div>
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      The grading monitor flagged a regression
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      The scheduled self-check detected one or more grading-quality thresholds
+      were breached. Review the AI Models dashboard and recent reviews.
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 20px;">
+      ${rows}
+    </table>
+    <h3 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 15px;">Current production metrics</h3>
+    <ul style="margin: 0 0 16px; padding-left: 18px; color:#444; font-size: 13px; line-height: 1.7;">
+      <li>AI-vs-human agreement: <strong>${(p.agreement_rate * 100).toFixed(1)}%</strong> (${p.human_reviews} reviews)</li>
+      <li>Mean absolute error: <strong>${p.mean_absolute_error.toFixed(2)}</strong></li>
+      <li>Intentional-misread rate: <strong>${(p.intentional_misread_rate * 100).toFixed(1)}%</strong></li>
+      <li>Buyer dispute rate: <strong>${(p.dispute_rate * 100).toFixed(1)}%</strong> (${p.graded_sales} sales)</li>
+      <li>Live eval: ${escapeHtml(data.evalSummary)}</li>
+    </ul>
+    ${ctaButton("Open AI Models dashboard", `${SITE_URL}/admin/ai-models`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `${isCritical ? "🔴" : "🟡"} GradeThread grading-quality alert (${data.severity})`,
+    html: emailLayout(content),
+  });
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {

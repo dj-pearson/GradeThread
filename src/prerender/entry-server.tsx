@@ -33,6 +33,7 @@ import { ForResellersPage } from "@/pages/marketing/for-resellers";
 import { FaqPage } from "@/pages/marketing/faq";
 import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
+import { TransparencyPage } from "@/pages/marketing/transparency";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 
@@ -45,6 +46,7 @@ const PAGES: Record<string, React.ReactNode> = {
   "/faq": <FaqPage />,
   "/condition-grading": <ConditionGradingPage />,
   "/grading-standard": <GradingStandardPage />,
+  "/transparency": <TransparencyPage />,
   "/privacy": <PrivacyPage />,
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,
