@@ -100,6 +100,36 @@ final class BulkActionTests: XCTestCase {
         XCTAssertEqual(result.summary, "Updated 2 of 3 items; 1 failed.")
     }
 
+    // MARK: - Price-drop math (BulkActionExecutor.droppedPrice)
+
+    func test_droppedPrice_basicReduction() {
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 50, percent: 10), 45, accuracy: 0.001)
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 100, percent: 10), 90, accuracy: 0.001)
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 20, percent: 15), 17, accuracy: 0.001)
+    }
+
+    func test_droppedPrice_roundsToWholeCents() {
+        // 33.33 × 0.9 = 29.997 → 30.00
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 33.33, percent: 10), 30.0, accuracy: 0.001)
+    }
+
+    func test_droppedPrice_floorsAtOneDollar() {
+        // A cheap item dropped below $1 clamps to $1 rather than going to
+        // an invalid sub-dollar (or zero) price.
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 1.05, percent: 10), 1.0, accuracy: 0.001)
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 0.50, percent: 10), 1.0, accuracy: 0.001)
+    }
+
+    func test_droppedPrice_zeroPercent_isUnchanged() {
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 42.50, percent: 0), 42.50, accuracy: 0.001)
+    }
+
+    func test_droppedPrice_extremePercent_clampsMultiplierNotNegative() {
+        // 100% off would be free; the multiplier floors at 0.01 and the
+        // result then floors at $1.
+        XCTAssertEqual(BulkActionExecutor.droppedPrice(from: 50, percent: 100), 1.0, accuracy: 0.001)
+    }
+
     // MARK: - BulkSelectionStore
 
     func test_selectionStore_toggleEditing_clearsSelectionOnDisable() {

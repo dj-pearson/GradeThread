@@ -132,7 +132,6 @@ public struct BulkActionExecutor {
     ) async -> BulkActionResult {
         let listings = await fetchActiveListings(itemIds: items.map(\.id))
         let publish = EbayPublishService()
-        let multiplier = max(0.01, 1.0 - Double(percent) / 100.0)
 
         var succeeded = 0
         var failures: [BulkActionResult.Failure] = []
@@ -142,11 +141,16 @@ public struct BulkActionExecutor {
                 failures.append(.init(itemId: item.id, message: "No active eBay listing found."))
                 continue
             }
-            let newPrice = max(1.0, (listing.listing_price * multiplier * 100).rounded() / 100)
+            let newPrice = Self.droppedPrice(from: listing.listing_price, percent: percent)
             let outcome = await publish.updatePrice(listingId: listing.id, price: newPrice)
             switch outcome {
             case .priceUpdated:
                 succeeded += 1
+                // Optimistic local apply so the grid shows the new price
+                // before the next sync pull (the executor's contract; the
+                // status handlers do the same).
+                item.listingPrice = newPrice
+                item.updatedAt = .now
             case .noOfferId:
                 failures.append(.init(itemId: item.id, message: "Listing isn't linked to an eBay offer."))
             case .failed(let message):
@@ -156,6 +160,14 @@ public struct BulkActionExecutor {
             }
         }
         return BulkActionResult(action: action, succeeded: succeeded, failures: failures)
+    }
+
+    /// Reduces `current` by `percent`, rounds to whole cents, and floors at
+    /// $1 so a price drop can never push a nonsense (zero/negative) number
+    /// to eBay. Pure so the math is unit-testable without the network.
+    static func droppedPrice(from current: Double, percent: Int) -> Double {
+        let multiplier = max(0.01, 1.0 - Double(percent) / 100.0)
+        return max(1.0, (current * multiplier * 100).rounded() / 100)
     }
 
     /// Batched fetch of the active eBay listing per item id. One query

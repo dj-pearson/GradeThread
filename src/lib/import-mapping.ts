@@ -188,23 +188,50 @@ export function parsePrice(raw: string): number | null {
 }
 
 // Parse a date cell to ISO yyyy-mm-dd or null.
-export function parseDate(raw: string): string | null {
+//
+// IMPORTANT: numeric "M/D" and "M/D/Y" forms are handled by an explicit regex
+// BEFORE falling back to `new Date()`. Year-less values like "1/25" must never
+// reach `new Date("1/25")` — V8 silently resolves those to the year 2001
+// (e.g. "2001-01-25"), which is how reseller sheets that list dates as bare
+// "M/D" ended up with year-2001 list_date values and absurd days_to_sell
+// (sale_date − list_date ≈ 9000+ days). When the year is omitted we infer the
+// most recent occurrence of that month/day at or before `referenceDate`.
+export function parseDate(raw: string, referenceDate: Date = new Date()): string | null {
   if (!raw) return null;
   const s = raw.trim();
   if (!s) return null;
-  // Try Date.parse first
+
+  // Numeric M/D or M/D/Y (slash- or dash-separated). Matched first so a
+  // year-less value can't hit the `new Date()` year-2001 quirk.
+  const md = s.match(/^(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?$/);
+  if (md) {
+    const mm = Number(md[1]);
+    const dd = Number(md[2]);
+    if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return null;
+    let year: number;
+    if (md[3]) {
+      year = md[3].length === 2 ? 2000 + Number(md[3]) : Number(md[3]);
+    } else {
+      // Year omitted: assume the most recent occurrence at or before the
+      // reference date (this year, or last year if that date is still ahead).
+      year = referenceDate.getFullYear();
+      if (new Date(year, mm - 1, dd).getTime() > referenceDate.getTime()) {
+        year -= 1;
+      }
+    }
+    const iso = `${year}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+    // Reject impossible calendar dates (e.g. 2/30) — new Date() normalizes
+    // those by rolling over, so compare the round-trip back to the input.
+    const check = new Date(`${iso}T00:00:00Z`);
+    if (isNaN(check.getTime()) || check.getUTCMonth() + 1 !== mm || check.getUTCDate() !== dd) {
+      return null;
+    }
+    return iso;
+  }
+
+  // Full date strings that carry an explicit year (ISO, "Jan 25, 2026", etc.).
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  // M/D/YYYY or M/D/YY explicit fallback
-  const m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
-  if (m) {
-    const mm = m[1];
-    const dd = m[2];
-    const yyRaw = m[3];
-    if (!mm || !dd || !yyRaw) return null;
-    const yy = yyRaw.length === 2 ? `20${yyRaw}` : yyRaw;
-    const iso = `${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-    if (!isNaN(new Date(iso).getTime())) return iso;
-  }
+
   return null;
 }

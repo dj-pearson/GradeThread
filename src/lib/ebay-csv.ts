@@ -5,6 +5,7 @@
 // by a normalized key rather than exact string.
 
 import { parseDelimited, detectDelimiter } from "@/lib/csv";
+import { parseDate as parseFlexibleDate } from "@/lib/import-mapping";
 
 export interface EbayListingParsed {
   ebayItemId: string;
@@ -64,13 +65,11 @@ function parseInteger(v: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+// Delegates to the shared flexible parser so a year-less "M/D" start date in
+// an eBay export can't be silently resolved to year 2001 (the V8 `new Date`
+// quirk). See parseDate in import-mapping.ts.
 function parseDate(v: string | undefined): string | null {
-  if (!v) return null;
-  const t = v.trim();
-  if (!t) return null;
-  const d = new Date(t);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString().slice(0, 10);
+  return v == null ? null : parseFlexibleDate(v);
 }
 
 export function parseEbayListingsCsv(input: string): EbayCsvResult {

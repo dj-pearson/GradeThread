@@ -3,10 +3,12 @@ import Foundation
 /// One bulk action surfaced in the bottom action bar. Stage-appropriate
 /// — `actions(for:)` returns the right set for the active inventory tab.
 ///
-/// `eBay-required` actions (drop price, end listing) ship as visible
-/// buttons but their execute path currently returns a "not yet wired in
-/// iOS" failure. That keeps the action surface honest with the web
-/// (US-138's bottom bar) without depending on US-183/185 to land first.
+/// The eBay-backed actions (drop price, end listing) are wired through
+/// ``BulkActionExecutor`` to the edge publish endpoints (US-185); each
+/// item that has no active eBay listing fails individually with a reason
+/// rather than failing the whole batch. `aiEnrich` is the one action whose
+/// execute path is still a stub (returns a per-item "not yet wired" reason)
+/// pending the AI-batch pass.
 public enum BulkAction: Identifiable, Hashable {
     case createDraft
     case markShipped

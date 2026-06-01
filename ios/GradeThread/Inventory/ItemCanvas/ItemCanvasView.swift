@@ -5,11 +5,12 @@ import SwiftUI
 /// photos, measurements, comps, and notes. Saves via supabase-swift with
 /// optimistic write to the SwiftData cache and rollback on failure.
 ///
-/// Photos / comps sections are read-only this pass; full drag-to-reorder
-/// + add-photo + add-comp wire-up are scoped to follow-up stories. The
-/// view binds to a single `LocalInventoryItem` passed in by the inventory
-/// list — re-renders reactively when SwiftData updates the row after a
-/// sync pull.
+/// The Comps section fetches live eBay comps on demand (category-resolve →
+/// Browse search) and offers a one-tap "use median" into the target price.
+/// The Photos section is still read-only this pass; drag-to-reorder +
+/// add-photo are scoped to a follow-up story. The view binds to a single
+/// `LocalInventoryItem` passed in by the inventory list — re-renders
+/// reactively when SwiftData updates the row after a sync pull.
 struct ItemCanvasView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
@@ -20,6 +21,8 @@ struct ItemCanvasView: View {
     @State private var state: ItemCanvasState?
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
+    @State private var showingPhotoManager = false
+    @State private var compsStore = CompsStore()
     private let currencyFormatter = CurrencyFormatter()
 
     /// Statuses where "Publish to eBay" makes sense — anything pre-list
@@ -115,7 +118,7 @@ struct ItemCanvasView: View {
             pricingSection(state: state)
             photosSection
             measurementsSection
-            compsSection
+            compsSection(state: state)
             notesSection(state: state)
             statusSection(state: state)
             if canPublish {
@@ -138,6 +141,9 @@ struct ItemCanvasView: View {
                 NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
                 _ = response  // listing_id + url are tracked server-side
             }
+        }
+        .sheet(isPresented: $showingPhotoManager) {
+            PhotoManagerView(item: item, photos: allPhotos)
         }
     }
 
@@ -230,11 +236,16 @@ struct ItemCanvasView: View {
             HStack {
                 Text("Photos")
                 Spacer()
+                if !allPhotos.isEmpty {
+                    Button("Manage") { showingPhotoManager = true }
+                        .font(.caption.weight(.semibold))
+                        .textCase(nil)
+                }
                 Text("\(allPhotos.count)").foregroundStyle(.secondary)
             }
         } footer: {
             if !allPhotos.isEmpty {
-                Text("Reorder + add-photo land in a later pass. Edit photos on the web for now.")
+                Text("Tap Manage to reorder, set the cover, or remove photos. Add new photos from the + tab.")
                     .font(.footnote)
             }
         }
@@ -294,13 +305,107 @@ struct ItemCanvasView: View {
         }
     }
 
-    private var compsSection: some View {
+    private func compsSection(state: ItemCanvasState) -> some View {
         Section {
-            Text("Comp editor lands in a later pass (web parity).")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            switch compsStore.phase {
+            case .idle:
+                Button {
+                    AppRouter.haptic()
+                    fetchComps(state: state)
+                } label: {
+                    Label("Get eBay comps", systemImage: "chart.bar.doc.horizontal")
+                }
+                .disabled(state.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            case .loading:
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text("Checking eBay…").foregroundStyle(.secondary)
+                }
+
+            case .loaded(let lookup):
+                compsResults(lookup, state: state)
+
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(message, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Try again") { fetchComps(state: state) }
+                        .font(.subheadline)
+                }
+            }
         } header: {
             Text("Comps")
+        } footer: {
+            if case .idle = compsStore.phase {
+                Text("Searches active eBay listings for similar items to suggest a price.")
+                    .font(.caption)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func compsResults(_ lookup: CompsLookup, state: ItemCanvasState) -> some View {
+        if lookup.stats.count == 0 || lookup.stats.median == nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("No active comps found for this item.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Search again") { fetchComps(state: state) }
+                    .font(.subheadline)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 0) {
+                    compStat("Low", lookup.stats.min)
+                    Divider()
+                    compStat("Median", lookup.stats.median)
+                    Divider()
+                    compStat("High", lookup.stats.max)
+                }
+                Text("Based on \(lookup.stats.count) active eBay listing\(lookup.stats.count == 1 ? "" : "s") · \(lookup.categoryPath)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                if let median = lookup.stats.median {
+                    Button {
+                        AppRouter.haptic()
+                        // Populate the target-price field; the user reviews
+                        // and taps Save (marks the form dirty).
+                        state.draft.targetPriceText = currencyFormatter.formatRaw(median)
+                    } label: {
+                        Label(
+                            "Use median (\(currencyFormatter.formatDisplay(median)))",
+                            systemImage: "arrow.down.circle"
+                        )
+                    }
+                    .font(.subheadline.weight(.semibold))
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func compStat(_ label: String, _ value: Double?) -> some View {
+        VStack(spacing: 3) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value.map { currencyFormatter.formatDisplay($0) } ?? "—")
+                .font(.subheadline.weight(.semibold))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Kicks off a comps lookup from the *draft* values so it reflects any
+    /// unsaved title/brand/size edits on screen.
+    private func fetchComps(state: ItemCanvasState) {
+        Task {
+            await compsStore.fetch(
+                title: state.draft.title,
+                brand: state.draft.brand.nonEmpty,
+                size: state.draft.size.nonEmpty
+            )
         }
     }
 

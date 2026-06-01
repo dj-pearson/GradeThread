@@ -1,0 +1,40 @@
+import Foundation
+import Observation
+
+/// Drives the comps panel on ``ItemCanvasView``. One per canvas; starts
+/// idle and only hits the network when the user taps "Get eBay comps".
+@MainActor
+@Observable
+final class CompsStore {
+    enum Phase: Equatable {
+        case idle
+        case loading
+        case loaded(CompsLookup)
+        case failed(String)
+    }
+
+    var phase: Phase = .idle
+
+    private let service: CompsProviding
+
+    init(service: CompsProviding = CompsService()) {
+        self.service = service
+    }
+
+    func fetch(title: String, brand: String?, size: String?) async {
+        phase = .loading
+        do {
+            if let lookup = try await service.lookup(title: title, brand: brand, size: size) {
+                phase = .loaded(lookup)
+            } else {
+                phase = .failed(
+                    "Couldn't match this to an eBay category. Give the item a clearer title and try again."
+                )
+            }
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
+            phase = .failed(message)
+        }
+    }
+}

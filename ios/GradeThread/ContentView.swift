@@ -306,6 +306,29 @@ private struct TabBarShell: View {
 
     var body: some View {
         TabView(selection: router.tabSelectionBinding) {
+            NavigationStack(path: $router.homePath) {
+                DashboardView(router: router)
+                    .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
+                    .navigationDestination(for: LocalInventoryItem.self) { item in
+                        ItemCanvasView(item: item)
+                    }
+                    .toolbar {
+                        // iPhone has no room for a Settings tab once Home
+                        // lands (5-tab limit), so it rides a gear button
+                        // here — the standard iOS placement.
+                        ToolbarItem(placement: .topBarTrailing) {
+                            NavigationLink {
+                                SettingsPlaceholder()
+                            } label: {
+                                Image(systemName: "gear")
+                            }
+                            .accessibilityLabel("Settings")
+                        }
+                    }
+            }
+            .tabItem { Label("Home", systemImage: "house") }
+            .tag(AppSection.home)
+
             NavigationStack(path: $router.inventoryPath) {
                 InventoryPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
@@ -338,13 +361,6 @@ private struct TabBarShell: View {
             }
             .tabItem { Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right") }
             .tag(AppSection.marketplaces)
-
-            NavigationStack(path: $router.settingsPath) {
-                SettingsPlaceholder()
-                    .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
-            }
-            .tabItem { Label("Settings", systemImage: "gear") }
-            .tag(AppSection.settings)
         }
         .tint(Color.brandNavy)
     }
@@ -382,6 +398,7 @@ private struct SidebarSplitView: View {
     private var sidebar: some View {
         List(selection: router.sidebarSelectionBinding) {
             Section("Workspace") {
+                Label("Home", systemImage: "house").tag(AppSection.home)
                 Label("Inventory", systemImage: "shippingbox").tag(AppSection.inventory)
                 Label("Sales", systemImage: "dollarsign.circle").tag(AppSection.sales)
                 Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right").tag(AppSection.marketplaces)
@@ -410,6 +427,8 @@ private struct SidebarSplitView: View {
     @ViewBuilder
     private var contentColumn: some View {
         switch router.selection {
+        case .home:
+            DashboardView(router: router)
         case .inventory:
             InventoryListView()
         case .sales:
@@ -444,6 +463,7 @@ private struct SidebarSplitView: View {
     /// case; others share the same default path.
     private var detailPathBinding: Binding<NavigationPath> {
         switch router.selection {
+        case .home:         return $router.homePath
         case .inventory:    return $router.inventoryPath
         case .sales:        return $router.salesPath
         case .marketplaces: return $router.marketplacesPath
@@ -472,6 +492,7 @@ private struct SidebarSplitView: View {
 
     private var detailLandingIcon: String {
         switch router.selection {
+        case .home:         return "house"
         case .inventory:    return "shippingbox"
         case .sales:        return "dollarsign.circle"
         case .marketplaces: return "antenna.radiowaves.left.and.right"
@@ -481,11 +502,15 @@ private struct SidebarSplitView: View {
     }
 
     private var detailLandingTitle: String {
-        router.selection == .inventory ? "Pick an item" : "Make a selection"
+        switch router.selection {
+        case .home, .inventory: return "Pick an item"
+        default:                return "Make a selection"
+        }
     }
 
     private var detailLandingSubtitle: String {
         switch router.selection {
+        case .home:         return "Tap an aging item to open its canvas here."
         case .inventory:    return "Tap an item from the list to see its canvas here."
         case .sales:        return "Sales detail view lands when a row is selected."
         case .marketplaces: return "Marketplace setup + sync controls live on the left."
@@ -501,7 +526,7 @@ private struct SidebarSplitView: View {
 /// Add is never the resting selection — tapping it triggers the action
 /// sheet and the previous selection is restored synchronously.
 enum AppSection: Hashable {
-    case inventory, add, sales, marketplaces, settings
+    case home, inventory, add, sales, marketplaces, settings
 }
 
 /// Intake destinations pushed onto the active tab's NavigationStack after
@@ -516,9 +541,10 @@ enum IntakeRoute: Hashable {
 /// resting selection, and the Add-sheet trigger.
 @Observable
 final class AppRouter {
-    var selection: AppSection = .inventory
+    var selection: AppSection = .home
     var showingAddSheet = false
 
+    var homePath = NavigationPath()
     var inventoryPath = NavigationPath()
     var salesPath = NavigationPath()
     var marketplacesPath = NavigationPath()
@@ -565,6 +591,7 @@ final class AppRouter {
     /// `navigationDestination(for: IntakeRoute.self)`.
     func startIntake(_ route: IntakeRoute) {
         switch selection {
+        case .home:         homePath.append(route)
         case .inventory:    inventoryPath.append(route)
         case .sales:        salesPath.append(route)
         case .marketplaces: marketplacesPath.append(route)
@@ -806,29 +833,6 @@ private struct IntakePlaceholder: View {
         case .detailsFirst:
             DetailsIntakeView()
         }
-    }
-}
-
-private struct TabPlaceholder: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: systemImage)
-                .font(.system(size: 56, weight: .light))
-                .foregroundStyle(Color.brandNavy)
-            Text(title).font(.title2.weight(.semibold))
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

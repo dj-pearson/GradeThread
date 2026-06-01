@@ -46,3 +46,5 @@ public/logo_primary_White.psd
 # but the edge container pins Deno 1.46.3, which cannot read v5 and crashes on
 # boot. Versions are already pinned in deno.json import map. See COOLIFY.md.
 services/edge-functions/deno.lock
+flipdesk-items-2026-06-01 (1).csv
+flipdesk-items-2026-06-01-cleaned.csv
