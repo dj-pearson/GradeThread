@@ -17,8 +17,11 @@ final class CompsStore {
 
     private let service: CompsProviding
 
-    init(service: CompsProviding = CompsService()) {
-        self.service = service
+    // Default is nil (not `CompsService()`): a default argument is evaluated
+    // in the caller's isolation, and CompsService's init is @MainActor — so
+    // we construct it inside the (MainActor-isolated) init body instead.
+    init(service: CompsProviding? = nil) {
+        self.service = service ?? CompsService()
     }
 
     func fetch(title: String, brand: String?, size: String?) async {

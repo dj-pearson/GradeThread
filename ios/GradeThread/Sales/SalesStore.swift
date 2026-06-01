@@ -6,24 +6,24 @@ import Observation
 /// reconciliation is the heavier follow-up (US-184).
 @MainActor
 @Observable
-public final class SalesStore {
-    public enum Phase: Equatable {
+final class SalesStore {
+    enum Phase: Equatable {
         case loading
         case ready(sales: [RemoteSale])
         case failed(message: String)
     }
 
-    public var phase: Phase = .loading
+    var phase: Phase = .loading
 
-    public var sales: [RemoteSale] {
+    var sales: [RemoteSale] {
         if case let .ready(sales) = phase { return sales }
         return []
     }
 
     /// Running total of net proceeds (price − fees) across all loaded sales.
-    public var totalNet: Double { sales.reduce(0) { $0 + $1.net } }
+    var totalNet: Double { sales.reduce(0) { $0 + $1.net } }
 
-    public func refresh() async {
+    func refresh() async {
         phase = .loading
         do {
             // RLS on `sales` scopes to the caller via inventory-item ownership;
