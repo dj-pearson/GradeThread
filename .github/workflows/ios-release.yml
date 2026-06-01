@@ -203,10 +203,13 @@ jobs:
             exit 1
           fi
 
-          # Validate it's a real PKCS#8 EC private key (the .p8 Apple issues).
-          # If this fails, the secret is corrupt/wrong; if it passes but the
-          # upload still 401s, the Key ID/Issuer pair is wrong or revoked.
-          if ! openssl pkcs8 -in "$KEY_PATH" -nocrypt -noout 2>/tmp/p8err; then
+          # Validate it's a real EC private key (the .p8 Apple issues is an
+          # unencrypted PKCS#8 EC key). Use `openssl pkey` — the `pkcs8`
+          # subcommand has no -noout, which made an earlier version of this
+          # step fail on a perfectly good key. If this fails, the secret is
+          # corrupt/wrong; if it passes but the upload still 401s, the Key
+          # ID/Issuer pair is wrong or revoked.
+          if ! openssl pkey -in "$KEY_PATH" -noout 2>/tmp/p8err; then
             echo "::error::AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8 is not a valid PKCS#8 key. Verify APP_STORE_CONNECT_API_KEY_BASE64 is the base64 of the .p8 that matches Key ID ${APP_STORE_CONNECT_API_KEY_ID}." >&2
             sed 's/^/  openssl: /' /tmp/p8err >&2 || true
             exit 1
