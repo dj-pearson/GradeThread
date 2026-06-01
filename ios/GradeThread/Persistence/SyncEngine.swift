@@ -277,14 +277,22 @@ actor SyncEngine {
             guard !items.isEmpty else {
                 return .success(PullPayload(items: [], photos: []))
             }
-            let itemIds = items.map(\.id)
-            let photoResponse = try await SupabaseShared.client
+            // Photos are BEST-EFFORT: a failure here must NOT blank the
+            // (already-decoded) inventory. RLS scopes `item_photos` to the
+            // caller via parent-item ownership, so we drop the per-id
+            // `in.(…)` filter — with hundreds of items that filter built a
+            // multi-KB URL that could exceed server limits and throw, taking
+            // the whole pull down. `try?` keeps a photos hiccup from doing so.
+            let photos: [RemoteItemPhoto]
+            if let photoResponse = try? await SupabaseShared.client
                 .from("item_photos")
                 .select(Self.photoColumns)
-                .in("inventory_item_id", values: itemIds)
                 .order("sort_order", ascending: true)
-                .execute()
-            let photos = Self.decodePhotosResiliently(photoResponse.data)
+                .execute() {
+                photos = Self.decodePhotosResiliently(photoResponse.data)
+            } else {
+                photos = []
+            }
             return .success(PullPayload(items: items, photos: photos))
         } catch {
             return .failure(error)

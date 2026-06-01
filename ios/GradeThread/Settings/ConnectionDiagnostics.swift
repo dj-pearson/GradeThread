@@ -11,8 +11,13 @@ import Foundation
 ///   • storage HTTP 4xx          → why photo upload fails
 @MainActor
 struct ConnectionDiagnostics {
-    func run() async -> String {
+    func run(localItemCount: Int) async -> String {
         var lines: [String] = []
+
+        // How many rows actually made it into the on-device SwiftData store
+        // (what the Home/Inventory/Money views @Query). If this is 0 while the
+        // server returns rows, the merge — not the network — is the problem.
+        lines.append("local SwiftData cache: \(localItemCount) items")
 
         // Config actually baked into this build.
         lines.append("supabase: \(AppConfig.supabaseURL.absoluteString)")
@@ -98,7 +103,9 @@ struct ConnectionDiagnostics {
             return
         }
         var components = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
-        components.path = "/storage/v1/object/item-photos/\(userId)/diagnostics/probe.txt"
+        // Lowercase to match auth.uid() (the storage RLS check) — same fix as
+        // the real upload path in PhotoUploadService.
+        components.path = "/storage/v1/object/item-photos/\(userId.lowercased())/diagnostics/probe.txt"
         guard let url = components.url else { lines.append("bad storage url"); return }
 
         var request = URLRequest(url: url)

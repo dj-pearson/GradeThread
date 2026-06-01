@@ -1,9 +1,11 @@
+import SwiftData
 import SwiftUI
 
 /// Temporary diagnostics surface for the empty-data / failed-upload issue.
 /// Runs ``ConnectionDiagnostics`` and shows the raw result so it can be
 /// copied and shared. Safe to remove once the connection issue is resolved.
 struct DiagnosticsSection: View {
+    @Query private var localItems: [LocalInventoryItem]
     @State private var output = ""
     @State private var running = false
 
@@ -12,7 +14,7 @@ struct DiagnosticsSection: View {
             Button {
                 Task {
                     running = true
-                    output = await ConnectionDiagnostics().run()
+                    output = await ConnectionDiagnostics().run(localItemCount: localItems.count)
                     running = false
                 }
             } label: {
