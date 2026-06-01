@@ -652,6 +652,7 @@ private struct SettingsPlaceholder: View {
 
     var body: some View {
         List {
+            ProfileSection()
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
@@ -690,11 +691,6 @@ private struct SettingsPlaceholder: View {
             realtimeSection
             notificationPreferencesSection
             analyticsSection
-            Section {
-                Text("Full settings UI ships in US-194.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
         }
         .navigationTitle("Settings")
         .sheet(isPresented: $showingFeedbackSheet) {
