@@ -278,29 +278,28 @@ actor SyncEngine {
                 return .success(PullPayload(items: [], photos: []))
             }
             let itemIds = items.map(\.id)
-            let photos: [RemoteItemPhoto] = try await SupabaseShared.client
+            let photoResponse = try await SupabaseShared.client
                 .from("item_photos")
                 .select(Self.photoColumns)
                 .in("inventory_item_id", values: itemIds)
                 .order("sort_order", ascending: true)
                 .execute()
-                .value
+            let photos = Self.decodePhotosResiliently(photoResponse.data)
             return .success(PullPayload(items: items, photos: photos))
         } catch {
             return .failure(error)
         }
     }
 
-    private static let itemColumns = """
-    id, user_id, title, brand, sku, size, color, material, status,
-    target_price, acquired_price, grade_value, grade_label,
-    certificate_url, condition_notes, measurements, created_at, updated_at
-    """
+    // Single-line, no embedded whitespace/newlines: PostgREST's `select`
+    // parser does not trim column names, so a multi-line string sent column
+    // names like "\n    brand" → 400 → the whole pull failed silently and
+    // blanked the inventory list.
+    private static let itemColumns =
+        "id,user_id,title,brand,sku,size,color,material,status,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
 
-    private static let photoColumns = """
-    id, inventory_item_id, photo_type, photo_url, thumbnail_url,
-    storage_path, sort_order, bytes, created_at
-    """
+    private static let photoColumns =
+        "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
 
     /// Wrapper that decodes to nil instead of throwing, so one malformed
     /// element can't abort decoding of the whole array.
@@ -325,6 +324,17 @@ actor SyncEngine {
             print("[SyncEngine] skipped \(dropped) undecodable inventory row(s)")
         }
         return items
+    }
+
+    /// Decode photo rows resiliently — same rationale as items. Previously the
+    /// photos fetch used all-or-nothing `.value`, so a SINGLE row with (e.g.)
+    /// a null `photo_url` threw and aborted the ENTIRE pull — blanking
+    /// inventory as well as photos.
+    static func decodePhotosResiliently(_ data: Data) -> [RemoteItemPhoto] {
+        guard let rows = try? JSONDecoder().decode(
+            [Failable<RemoteItemPhoto>].self, from: data
+        ) else { return [] }
+        return rows.compactMap(\.value)
     }
 
     private func merge(payload: PullPayload) async {

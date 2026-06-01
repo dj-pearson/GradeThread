@@ -41,10 +41,35 @@ struct ConnectionDiagnostics {
         }
 
         lines.append("")
+        lines.append("— full pull (real columns + decode) —")
+        await probeFullPull(into: &lines)
+
+        lines.append("")
         lines.append("— storage write —")
         await probeStorage(userId: userId, into: &lines)
 
         return lines.joined(separator: "\n")
+    }
+
+    /// Runs the exact full-column select the sync engine uses + the resilient
+    /// decoder, so the output confirms whether rows actually decode into items.
+    private func probeFullPull(into lines: inout [String]) async {
+        let columns = "id,user_id,title,brand,sku,size,color,material,status,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        do {
+            let response = try await SupabaseShared.client
+                .from("inventory_items")
+                .select(columns)
+                .limit(50)
+                .execute()
+            let decoded = SyncEngine.decodeItemsResiliently(response.data)
+            lines.append("select OK \(response.data.count)b → decoded \(decoded.count) items")
+            if let first = decoded.first {
+                lines.append("first: \(first.title) [\(first.status)]")
+            }
+        } catch {
+            lines.append("FULL PULL ERROR: \(error.localizedDescription)")
+            lines.append(String(reflecting: error).prefix(400).description)
+        }
     }
 
     /// PostgREST read — supabase-swift attaches the session token automatically.

@@ -114,7 +114,11 @@ public final class PhotoUploadService {
         guard let fileURL = writeToTempFile(data: capture.imageData) else { return nil }
 
         let timestamp = Int(Date.now.timeIntervalSince1970 * 1000)
-        let storagePath = "\(userId)/\(inventoryItemId)/\(slot.serverPhotoType)_\(timestamp).jpg"
+        // Lowercase the UUID segments: Swift's `UUID.uuidString` is UPPERCASE,
+        // but Postgres `auth.uid()::text` (which the item-photos storage RLS
+        // policy compares the first path folder against) is lowercase. An
+        // uppercase folder fails the policy → 403 "violates row-level security".
+        let storagePath = "\(userId.lowercased())/\(inventoryItemId.lowercased())/\(slot.serverPhotoType)_\(timestamp).jpg"
 
         let task = PhotoUploadTask(
             inventoryItemId: inventoryItemId,
