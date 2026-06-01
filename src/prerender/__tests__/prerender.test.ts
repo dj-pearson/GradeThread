@@ -68,7 +68,7 @@ const hasDist = existsSync(dist("index.html"));
 describe.skipIf(!hasDist)("prerendered dist output (US-292)", () => {
   it("dist/index.html contains the landing hero as static text (no JS needed)", () => {
     const html = readFileSync(dist("index.html"), "utf8");
-    expect(html).toContain("AI-Powered Clothing");
+    expect(html).toContain("The Trusted Standard for Clothing");
     expect((html.match(/<title>/g) ?? []).length).toBe(1);
     expect(html).toContain("application/ld+json");
     // body actually populated (not the empty SPA shell)

@@ -118,6 +118,32 @@ export function conditionGradingJsonLd(): JsonLd[] {
   return [faqPageLd(CONDITION_GRADING_FAQS)];
 }
 
+// ── /grading-standard ──────────────────────────────────────────────
+// The methodology pillar that substantiates the "the standard" positioning:
+// a published, objective rubric rather than a subjective eyeball judgement.
+export const GRADING_STANDARD_FAQS = [
+  {
+    q: "What makes GradeThread a grading standard rather than an opinion?",
+    a: "Every item is scored against one published rubric: five weighted factors combined into a single 1.0–10.0 grade mapped to seven named tiers. Because the factors and weights are fixed and disclosed, two different items in the same condition receive the same grade — the defining property of a standard.",
+  },
+  {
+    q: "How is the overall grade calculated?",
+    a: "The grade is a weighted blend of five factors — Fabric Condition (30%), Structural Integrity (25%), Cosmetic Appearance (20%), Functional Elements (15%), and Odor & Cleanliness (10%) — expressed on a 1.0–10.0 scale in half-point increments so graders can place an item precisely between tiers.",
+  },
+  {
+    q: "How does GradeThread keep grades consistent and objective?",
+    a: "The same rubric and weights are applied to every submission, and each grade carries a confidence score. When confidence falls below our threshold, the submission is routed for human review before the grade is finalized, so low-confidence cases never ship an unchecked result.",
+  },
+  {
+    q: "Is a GradeThread grade verifiable by buyers?",
+    a: "Yes. Every grade produces a public certificate with a unique URL and QR code showing the overall score, tier, factor-by-factor breakdown, and garment photos — so a buyer can independently confirm the condition against the standard, no account required.",
+  },
+];
+
+export function gradingStandardJsonLd(): JsonLd[] {
+  return [faqPageLd(GRADING_STANDARD_FAQS)];
+}
+
 // ── /grading/* glossary hub (US-303) ────────────────────────────────
 // Absolute breadcrumb trail (GradeThread → Condition grading → <term>) for a
 // glossary entry. Shared by the live page (via MarketingLayout's `breadcrumbs`

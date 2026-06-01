@@ -48,9 +48,9 @@ export interface PublicRoute {
 export const PUBLIC_ROUTES: PublicRoute[] = [
   {
     path: "/",
-    title: "AI-Powered Clothing Condition Grading",
+    title: "The Standard for Clothing Condition Grading",
     description:
-      "Standardize pre-owned clothing grades with AI. Build buyer trust, reduce returns, and sell faster with verified condition certificates.",
+      "The trusted standard for pre-owned clothing condition grading. Get an objective 1.0–10.0 grade and a shareable certificate buyers trust — then run your whole reselling workflow with FlipDesk.",
     changefreq: "weekly",
     priority: 1.0,
     jsonLdType: "WebSite",
@@ -97,6 +97,15 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
       "A complete guide to pre-owned clothing condition grading: the 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted factors graders assess.",
     changefreq: "monthly",
     priority: 0.9,
+  },
+  {
+    path: "/grading-standard",
+    title: "The GradeThread Grading Standard",
+    description:
+      "The objective methodology behind every GradeThread condition grade: a published 1.0–10.0 rubric, five weighted factors, half-point precision, confidence scoring, and human review.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "FAQPage",
   },
   {
     path: "/privacy",

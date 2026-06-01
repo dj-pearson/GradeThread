@@ -484,7 +484,7 @@ export function CertificatePage() {
             >
               GradeThread
             </a>{" "}
-            — AI-Powered Clothing Condition Grading
+            — The Standard for Clothing Condition Grading
           </p>
         </div>
       </div>
