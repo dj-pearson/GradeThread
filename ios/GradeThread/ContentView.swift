@@ -349,10 +349,10 @@ private struct TabBarShell: View {
                 .tag(AppSection.add)
 
             NavigationStack(path: $router.salesPath) {
-                SalesPlaceholder()
+                MoneyPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
             }
-            .tabItem { Label("Sales", systemImage: "dollarsign.circle") }
+            .tabItem { Label("Money", systemImage: "dollarsign.circle") }
             .tag(AppSection.sales)
 
             NavigationStack(path: $router.marketplacesPath) {
@@ -400,7 +400,7 @@ private struct SidebarSplitView: View {
             Section("Workspace") {
                 Label("Home", systemImage: "house").tag(AppSection.home)
                 Label("Inventory", systemImage: "shippingbox").tag(AppSection.inventory)
-                Label("Sales", systemImage: "dollarsign.circle").tag(AppSection.sales)
+                Label("Money", systemImage: "dollarsign.circle").tag(AppSection.sales)
                 Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right").tag(AppSection.marketplaces)
             }
             Section("Account") {
@@ -432,7 +432,7 @@ private struct SidebarSplitView: View {
         case .inventory:
             InventoryListView()
         case .sales:
-            SalesPlaceholder()
+            MoneyPlaceholder()
         case .marketplaces:
             MarketplacesPlaceholder()
         case .settings:
@@ -512,7 +512,7 @@ private struct SidebarSplitView: View {
         switch router.selection {
         case .home:         return "Tap an aging item to open its canvas here."
         case .inventory:    return "Tap an item from the list to see its canvas here."
-        case .sales:        return "Sales detail view lands when a row is selected."
+        case .sales:        return "Tap 'See all' to view every sale here."
         case .marketplaces: return "Marketplace setup + sync controls live on the left."
         case .settings:     return "Account + preferences are on the left."
         case .add:          return ""
@@ -620,14 +620,14 @@ private struct InventoryPlaceholder: View {
     }
 }
 
-private struct SalesPlaceholder: View {
-    /// US-187: first time the user opens the Sales tab, request push
+private struct MoneyPlaceholder: View {
+    /// US-187: first time the user opens the Money tab, request push
     /// permission. Deliberately deferred from app launch so the prompt
-    /// lands at a moment the user's already thinking about sales.
+    /// lands at a moment the user's already thinking about sales + money.
     @State private var hasRequestedPermission: Bool = false
 
     var body: some View {
-        SalesView()
+        MoneyView()
             .task {
                 guard !hasRequestedPermission else { return }
                 hasRequestedPermission = true
