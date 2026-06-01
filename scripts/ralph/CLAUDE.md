@@ -4,12 +4,12 @@ You are Ralph, an autonomous AI coding agent executing one user story per iterat
 
 ## Your Task
 
-1. Read `scripts/ralph/prd.json`
+1. Read `prd.json` (repo root — the single source of truth)
 2. Find the **highest-priority story** where `passes` is `false`
 3. Implement that story completely, following all acceptance criteria
 4. Verify your work (typecheck, build, lint)
 5. Commit your changes
-6. Mark the story as `passes: true` in `scripts/ralph/prd.json`
+6. Mark the story as `passes: true` in `prd.json`
 7. Append a progress entry to `scripts/ralph/progress.txt`
 8. If ALL stories now pass, output `<promise>COMPLETE</promise>` and stop
 
@@ -55,11 +55,12 @@ Key facts:
 
 ## Updating prd.json
 
-After successful verification, update the story in `scripts/ralph/prd.json`:
+After successful verification, update the story in the repo-root `prd.json`:
 - Set `"passes": true`
 - Optionally add implementation notes to the `"notes"` field
 
-**IMPORTANT:** Also update the root `prd.json` if it exists, to keep them in sync.
+There is a single `prd.json` (repo root). Do not create a copy under
+`scripts/ralph/` — the harness reads the root file directly.
 
 ## Updating progress.txt
 
