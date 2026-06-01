@@ -92,7 +92,10 @@
       "PowerShell($env:GIT_EDITOR=\"true\"; $env:GIT_SEQUENCE_EDITOR=\"true\"; git rebase --continue 2>&1; Write-Output \"--- EXIT: $LASTEXITCODE ---\")",
       "PowerShell(git status --porcelain=v2)",
       "PowerShell(git config rerere.enabled)",
-      "PowerShell(Write-Output \"=== index.lock present? ===\"; Test-Path \".git\\\\index.lock\"; Write-Output \"=== set aside unrelated file ===\"; git stash push --keep-index -- \".claude/settings.local.json\" 2>&1; Write-Output \"=== retry continue ===\"; $env:GIT_EDITOR=\"true\"; $env:GIT_SEQUENCE_EDITOR=\"true\"; git rebase --continue 2>&1; Write-Output \"--- EXIT: $LASTEXITCODE ---\")"
+      "PowerShell(Write-Output \"=== index.lock present? ===\"; Test-Path \".git\\\\index.lock\"; Write-Output \"=== set aside unrelated file ===\"; git stash push --keep-index -- \".claude/settings.local.json\" 2>&1; Write-Output \"=== retry continue ===\"; $env:GIT_EDITOR=\"true\"; $env:GIT_SEQUENCE_EDITOR=\"true\"; git rebase --continue 2>&1; Write-Output \"--- EXIT: $LASTEXITCODE ---\")",
+      "Read(//c/c/Users/dpearson/Documents/GradeThread/**)",
+      "Read(//c/c/Users/dpearson/Documents/GradeThread/ios/**)",
+      "Bash(grep -iv \"\\\\.swift:.*//\")"
     ]
   },
   "hooks": {

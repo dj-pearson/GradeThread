@@ -168,6 +168,82 @@ actor SyncEngine {
         let measurements: [String: Double]?
         let created_at: String
         let updated_at: String
+
+        private enum CodingKeys: String, CodingKey {
+            case id, user_id, title, brand, sku, size, color, material, status
+            case target_price, acquired_price, grade_value, grade_label
+            case certificate_url, condition_notes, measurements, created_at, updated_at
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            user_id = try c.decode(String.self, forKey: .user_id)
+            title = try c.decode(String.self, forKey: .title)
+            brand = try c.decodeIfPresent(String.self, forKey: .brand)
+            sku = try c.decodeIfPresent(String.self, forKey: .sku)
+            size = try c.decodeIfPresent(String.self, forKey: .size)
+            color = try c.decodeIfPresent(String.self, forKey: .color)
+            material = try c.decodeIfPresent(String.self, forKey: .material)
+            status = try c.decode(String.self, forKey: .status)
+            target_price = try c.decodeIfPresent(Double.self, forKey: .target_price)
+            acquired_price = try c.decodeIfPresent(Double.self, forKey: .acquired_price)
+            grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
+            grade_label = try c.decodeIfPresent(String.self, forKey: .grade_label)
+            certificate_url = try c.decodeIfPresent(String.self, forKey: .certificate_url)
+            condition_notes = try c.decodeIfPresent(String.self, forKey: .condition_notes)
+            created_at = try c.decode(String.self, forKey: .created_at)
+            updated_at = try c.decode(String.self, forKey: .updated_at)
+            // `measurements` is a free-form jsonb column. Some rows store
+            // values as strings ("20.5") instead of numbers, and a strict
+            // [String: Double] decode throws on those. Because the whole
+            // result array decodes in one shot, a SINGLE such row silently
+            // blanked the ENTIRE inventory list on device. Decode leniently:
+            // keep numbers and numeric strings, drop anything else, never throw.
+            measurements = Self.decodeLenientMeasurements(from: c)
+        }
+
+        /// Non-throwing measurements decode. Returns nil when the key is
+        /// absent/null or the value isn't an object; otherwise a map of only
+        /// the numerically-coercible entries.
+        private static func decodeLenientMeasurements(
+            from c: KeyedDecodingContainer<CodingKeys>
+        ) -> [String: Double]? {
+            guard
+                let outer = try? c.decodeIfPresent([String: MeasurementScalar].self, forKey: .measurements),
+                let raw = outer
+            else { return nil }
+            var out: [String: Double] = [:]
+            for (key, scalar) in raw {
+                if let value = scalar.doubleValue { out[key] = value }
+            }
+            return out
+        }
+    }
+
+    /// Tolerant scalar for the free-form `measurements` jsonb. Accepts a JSON
+    /// number or a numeric string ("20.5"); treats anything else — nested
+    /// object, array, bool, non-numeric string — as "no value" rather than
+    /// throwing, so one odd row can't break the whole inventory decode.
+    private enum MeasurementScalar: Decodable {
+        case number(Double)
+        case string(String)
+        case other
+
+        var doubleValue: Double? {
+            switch self {
+            case .number(let d): return d
+            case .string(let s): return Double(s)
+            case .other: return nil
+            }
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if let d = try? c.decode(Double.self) { self = .number(d); return }
+            if let s = try? c.decode(String.self) { self = .string(s); return }
+            self = .other
+        }
     }
 
     struct RemoteItemPhoto: Decodable {
