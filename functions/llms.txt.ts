@@ -25,6 +25,11 @@ export const onRequestGet: PagesFunction<PagesEnv> = ({ env }) => {
             note: "The 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted grading factors.",
           },
           {
+            title: "The GradeThread grading standard",
+            url: "/grading-standard",
+            note: "The objective, published methodology: weighted factors, half-point scale, confidence scoring, and human review.",
+          },
+          {
             title: "FlipDesk for resellers",
             url: "/for-resellers",
             note: "Run the full reselling workflow — source, catalog, grade, list, sell, reconcile — on top of the grading standard.",

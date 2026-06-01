@@ -27,11 +27,12 @@ import {
   pricingJsonLd,
   faqJsonLd,
   conditionGradingJsonLd,
+  gradingStandardJsonLd,
   glossaryJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 
-const DEFAULT_OG_IMAGE = `${SITE_URL}/logo_icon_512.png`;
+const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.png`;
 
 function escapeAttr(s: string): string {
   return s
@@ -66,6 +67,7 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/pricing": pricingJsonLd,
   "/faq": faqJsonLd,
   "/condition-grading": conditionGradingJsonLd,
+  "/grading-standard": gradingStandardJsonLd,
 };
 
 /** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */

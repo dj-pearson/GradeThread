@@ -28,7 +28,7 @@ interface SEOProps {
 const DEFAULT_TITLE = "GradeThread - The Standard for Clothing Condition Grading";
 const DEFAULT_DESCRIPTION =
   "The trusted standard for pre-owned clothing condition grading. Get an objective 1.0–10.0 grade and a shareable certificate buyers trust — then run your whole reselling workflow with FlipDesk.";
-const DEFAULT_OG_IMAGE = `${SITE_URL}/logo_icon_512.png`;
+const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.png`;
 
 export function SEO({
   title,

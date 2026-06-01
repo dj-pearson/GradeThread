@@ -11,9 +11,6 @@ import {
   Share2,
   Check,
   ChevronDown,
-  Star,
-  TrendingDown,
-  Clock,
   Compass,
   Boxes,
   Tag,
@@ -87,34 +84,6 @@ const howItWorks = [
     title: "Share & Sell",
     description:
       "Share a verifiable certificate link with buyers. Embed it in your listings on eBay, Poshmark, Mercari, and more.",
-  },
-];
-
-const stats = [
-  { value: "5", label: "Grading Factors", icon: BarChart3 },
-  { value: "< 30s", label: "Average Grade Time", icon: Clock },
-  { value: "40%", label: "Fewer Returns", icon: TrendingDown },
-  { value: "4.9", label: "User Rating", icon: Star },
-];
-
-const testimonials = [
-  {
-    name: "Sarah M.",
-    role: "Poshmark Seller",
-    quote:
-      "GradeThread cut my return rate in half. Buyers trust the certificates and I close sales faster.",
-  },
-  {
-    name: "Marcus T.",
-    role: "Vintage Reseller",
-    quote:
-      "I grade 50+ items a week. The AI is incredibly consistent and saves me hours of writing descriptions.",
-  },
-  {
-    name: "Emily R.",
-    role: "eBay Power Seller",
-    quote:
-      "The detailed breakdown reports help me price items accurately. My profit margins are up 20% since I started.",
   },
 ];
 
@@ -465,19 +434,6 @@ export function LandingPage() {
             </Button>
           </a>
         </div>
-
-        {/* Stats bar */}
-        <div className="mt-16 grid w-full max-w-3xl grid-cols-2 gap-6 sm:grid-cols-4">
-          {stats.map((stat) => (
-            <div key={stat.label} className="text-center">
-              <stat.icon className="mx-auto h-5 w-5 text-brand-navy" />
-              <p className="mt-2 text-2xl font-bold text-brand-navy">
-                {stat.value}
-              </p>
-              <p className="text-xs text-muted-foreground">{stat.label}</p>
-            </div>
-          ))}
-        </div>
       </section>
 
       {/* Features */}
@@ -502,6 +458,16 @@ export function LandingPage() {
               </div>
             ))}
           </div>
+          <p className="mt-10 text-center text-sm text-muted-foreground">
+            Every grade follows one published, objective methodology.{" "}
+            <Link
+              to="/grading-standard"
+              className="font-medium text-brand-navy hover:underline"
+            >
+              See the GradeThread grading standard
+            </Link>
+            .
+          </p>
         </div>
       </section>
 
@@ -599,41 +565,6 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Social Proof / Testimonials */}
-      <section className="border-t bg-card px-6 py-20">
-        <div className="mx-auto max-w-5xl">
-          <h2 className="text-center text-3xl font-bold">
-            What Resellers Say
-          </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
-            Hear from sellers who use GradeThread to grow their business.
-          </p>
-          <div className="mt-12 grid gap-6 md:grid-cols-3">
-            {testimonials.map((t) => (
-              <Card key={t.name}>
-                <CardContent className="pt-6">
-                  <div className="mb-3 flex gap-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
-                      <Star
-                        key={s}
-                        className="h-4 w-4 fill-yellow-400 text-yellow-400"
-                      />
-                    ))}
-                  </div>
-                  <p className="text-sm leading-relaxed text-muted-foreground">
-                    &ldquo;{t.quote}&rdquo;
-                  </p>
-                  <div className="mt-4">
-                    <p className="text-sm font-semibold">{t.name}</p>
-                    <p className="text-xs text-muted-foreground">{t.role}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Pricing */}
       <section id="pricing" className="px-6 py-20">
         <div className="mx-auto max-w-6xl space-y-16">
@@ -709,6 +640,15 @@ export function LandingPage() {
               <a href="#pricing" className="hover:text-foreground">
                 Pricing
               </a>
+              <Link to="/condition-grading" className="hover:text-foreground">
+                Condition Grading
+              </Link>
+              <Link to="/grading-standard" className="hover:text-foreground">
+                Grading Standard
+              </Link>
+              <Link to="/for-resellers" className="hover:text-foreground">
+                For Resellers
+              </Link>
               <a href="#faq" className="hover:text-foreground">
                 FAQ
               </a>

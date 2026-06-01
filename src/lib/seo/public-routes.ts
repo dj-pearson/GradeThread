@@ -99,6 +99,15 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     priority: 0.9,
   },
   {
+    path: "/grading-standard",
+    title: "The GradeThread Grading Standard",
+    description:
+      "The objective methodology behind every GradeThread condition grade: a published 1.0–10.0 rubric, five weighted factors, half-point precision, confidence scoring, and human review.",
+    changefreq: "monthly",
+    priority: 0.8,
+    jsonLdType: "FAQPage",
+  },
+  {
     path: "/privacy",
     title: "Privacy Policy",
     description:
