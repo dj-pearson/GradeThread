@@ -58,11 +58,8 @@ struct PublishDialog: View {
             loadingCard(text: "Checking the listing…")
 
         case .readyToPush(let summary):
-            VStack(spacing: 12) {
-                summaryCard(summary)
-                primaryButton(label: "Push to eBay") {
-                    Task { await runPush() }
-                }
+            ComposerForm(summary: summary) { edits in
+                Task { await runPush(edits: edits, priceValue: summary.priceValue) }
             }
 
         case .blocked(let blockers):
@@ -266,9 +263,24 @@ struct PublishDialog: View {
         }
     }
 
-    private func runPush() async {
+    private func runPush(edits: ComposerEdits, priceValue: String) async {
         phase = .pushing
         Telemetry.breadcrumb("Publishing to eBay", category: "publish")
+
+        // Persist composer edits to the listings draft first; the push
+        // re-reads the publish context server-side, so these reach eBay.
+        do {
+            try await ListingDraftService().saveDraft(
+                inventoryItemId: inventoryItemId,
+                priceValue: priceValue,
+                edits: edits
+            )
+        } catch {
+            phase = .failed(message: "Couldn't save your edits: \(error.localizedDescription)")
+            HapticFeedback.error()
+            return
+        }
+
         let outcome = await service.push(inventoryItemId: inventoryItemId)
         switch outcome {
         case .pushed(let response):
@@ -305,5 +317,128 @@ struct PublishDialog: View {
         raw.split(separator: "_")
             .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
             .joined(separator: " ")
+    }
+}
+
+/// Editable publish composer shown in the `readyToPush` phase. Pre-fills
+/// from the server's ``PublishSummary``; lets the user tune the eBay title
+/// (80-char cap), condition, condition note, and description before the
+/// push. The edits flow back to the parent, which persists them to the
+/// listings draft + pushes.
+private struct ComposerForm: View {
+    let summary: PublishSummary
+    let onPush: (ComposerEdits) -> Void
+
+    @State private var title: String
+    @State private var condition: EbayCondition
+    @State private var conditionDescription: String
+    @State private var description: String
+
+    private static let titleLimit = 80
+
+    init(summary: PublishSummary, onPush: @escaping (ComposerEdits) -> Void) {
+        self.summary = summary
+        self.onPush = onPush
+        _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
+        _condition = State(initialValue: EbayCondition.resolve(summary.condition))
+        _conditionDescription = State(initialValue: summary.conditionDescription ?? "")
+        _description = State(initialValue: summary.description)
+    }
+
+    private var trimmedTitle: String {
+        title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                fieldGroup("Title") {
+                    HStack {
+                        Spacer()
+                        Text("\(title.count)/\(Self.titleLimit)")
+                            .font(.caption2)
+                            .foregroundStyle(title.count >= Self.titleLimit ? .orange : .secondary)
+                    }
+                    TextField("Listing title", text: $title, axis: .vertical)
+                        .lineLimit(1...3)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: title) { _, newValue in
+                            if newValue.count > Self.titleLimit {
+                                title = String(newValue.prefix(Self.titleLimit))
+                            }
+                        }
+                }
+
+                fieldGroup("Condition") {
+                    Picker("Condition", selection: $condition) {
+                        ForEach(EbayCondition.allCases) { option in
+                            Text(option.label).tag(option)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Color.brandNavy)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                fieldGroup("Condition note") {
+                    TextField("e.g. light wear at cuffs", text: $conditionDescription, axis: .vertical)
+                        .lineLimit(1...3)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                fieldGroup("Description") {
+                    TextField("Listing description", text: $description, axis: .vertical)
+                        .lineLimit(4...12)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    Text("Price")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(summary.currency ?? "USD") \(summary.priceValue)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandNavy)
+                }
+                Text("Edit price on the item canvas.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    onPush(ComposerEdits(
+                        title: trimmedTitle,
+                        condition: condition,
+                        conditionDescription: conditionDescription,
+                        description: description
+                    ))
+                } label: {
+                    Text("Push to eBay")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(trimmedTitle.isEmpty ? Color.secondary.opacity(0.3) : Color.brandNavy)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+                .disabled(trimmedTitle.isEmpty)
+                .padding(.top, 4)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func fieldGroup<Content: View>(
+        _ label: String, @ViewBuilder _ content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
+        }
     }
 }
