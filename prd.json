@@ -5460,8 +5460,8 @@
         "No additional per-tenant data is exposed beyond what the certificate already shares; typecheck + tests pass"
       ],
       "priority": 328,
-      "passes": false,
-      "notes": "BUILD-NEW. Data already persisted: grade_reports.defects_found (migration 00058), detected_style_attributes + per_image_analysis (00050), needs_human_review (00049). Frontend-heavy: extend src/pages/certificate.tsx. Bounding boxes exist in per-image analysis schema (bbox)."
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). Certificate now shows a Condition & Flaws card (defects_found, worst-first) and a Grade Assurance card (confidence label, human-reviewed badge, and the US-336/338 authenticity-check result). Added grade_reports.human_reviewed (migration 00061), set by the admin review flow (reviews.tsx). Public copy is measured and does NOT expose raw detection tells (kept admin-only to prevent evasion). NOTE: bounding-box defect overlays on photos deferred — the bbox data exists (00050) but the visual overlay is follow-on. BUILD-NEW. Data already persisted: grade_reports.defects_found (migration 00058), detected_style_attributes + per_image_analysis (00050), needs_human_review (00049). Frontend-heavy: extend src/pages/certificate.tsx."
     },
     {
       "id": "US-329",
@@ -5567,6 +5567,96 @@
       "priority": 335,
       "passes": false,
       "notes": "BUILD-NEW. Frontend for the US-327 backend (endpoints already exist: GET /api/admin/grading/monitor/runs, POST /monitor/run). Extend src/pages/admin/ai-models.tsx."
+    },
+    {
+      "id": "US-336",
+      "title": "Photo tamper-suspicion detection (edited-to-hide-defect) via grading vision pass",
+      "description": "As a buyer relying on a grade, I want GradeThread to flag photos that appear digitally edited to conceal a defect (content-aware fill over a hole, clone/heal, localized smoothing inconsistent with the fabric), so that a manipulated photo lowers grade confidence and is reviewed instead of producing a falsely high grade.",
+      "acceptanceCriteria": [
+        "The grading prompt (per-image and/or composite) returns a structured manipulation signal: manipulation_suspected (bool), confidence (0-1), and suspected_regions/tells (e.g. cloned texture, unnatural smoothing near seams/known wear points, mismatched sharpness/noise, halo/warping)",
+        "A suspected-manipulation result reduces the grade confidence and sets needs_human_review=true (reuses the existing low-confidence review routing)",
+        "The signal is persisted on grade_reports (new column/jsonb) and exposed to admins; it is treated as a confidence-lowering signal, NOT a hard 'fake' verdict",
+        "Benign edits explicitly do NOT trigger it (crop, rotation, exposure/levels/white-balance, background removal) — only deception-pattern edits; tuned to keep false positives low",
+        "Golden eval cases include at least one edited-to-hide-defect example so prompt changes can't silently regress the detector",
+        "Edge typecheck + tests pass"
+      ],
+      "priority": 336,
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). Per-image vision pass now returns an authenticity block (manipulation_suspected/confidence/tells); aggregateAuthenticity() synthesizes the garment-level signal, caps confidence below the review threshold, and forces needs_human_review. Persisted to grade_reports.image_authenticity (migration 00061) + moderation flag. Unit-tested (authenticity_test.ts). BUILD-NEW. Highest-value, lowest-effort anti-fraud item: rides existing confidence scoring + human-review queue (00049) + image_validity. NOTE: classic pixel forensics (ELA/noise) are unreliable on our images because the client compresses/re-encodes before upload (src/lib/image-utils.ts), so the vision model is the right detector here. Surface on the certificate via US-328. Extend ai-grading.ts + grading-pipeline.ts."
+    },
+    {
+      "id": "US-337",
+      "title": "Perceptual-hash photo-reuse & duplicate detection",
+      "description": "As the platform, I want to fingerprint every uploaded grading photo with a perceptual hash and detect when the same image is reused across submissions or sellers, so that stolen listings, recycled photos, and stock images are flagged for review instead of being graded as a fresh item.",
+      "acceptanceCriteria": [
+        "A perceptual hash (pHash/dHash) is computed for each grading image at ingest and stored with the image record",
+        "On submission, near-duplicate matches against prior images are detected via Hamming distance within a tunable threshold (robust to our compression/resize)",
+        "A match to a DIFFERENT user/submission flags the submission for review with the matched reference(s); a match to the SAME user's prior item is informational (legit relist)",
+        "Cross-tenant matching is privacy-careful: only an internal flag + reference id is surfaced to admins/owner, never another user's identity or photo to the submitter",
+        "Hashing + distance logic is unit-tested with transformed (resized/recompressed) copies; tenant isolation preserved"
+      ],
+      "priority": 337,
+      "passes": false,
+      "notes": "BUILD-NEW. Stronger 'stolen/stock photo' signal than EXIF and fully under our control. New fingerprint column/table + index for fast Hamming lookup. Beats geolocation for the reuse threat. Coordinate with content moderation (00023) flag pipeline."
+    },
+    {
+      "id": "US-338",
+      "title": "Screenshot / watermark / other-platform-chrome detection",
+      "description": "As a buyer, I want grades to flag when a 'photo' is actually a screenshot of another listing or carries another marketplace's watermark/UI chrome, so that re-photographed or scraped listings don't pass as first-party photos.",
+      "acceptanceCriteria": [
+        "The grading vision pass flags screenshot indicators (UI chrome, status bars, other-platform branding) and visible watermarks/text overlays",
+        "Flagged images lower confidence and route to review; the reason is recorded",
+        "False positives on legitimate on-garment graphics/branding are minimized (distinguish garment print from app/watermark overlay)",
+        "Signal persisted and visible to admins; tests cover representative cases"
+      ],
+      "priority": 338,
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9) alongside US-336: the per-image authenticity block includes screenshot_or_watermark + reason; aggregated into image_authenticity.screenshot_or_watermark_detected, which also lowers confidence + routes to review. BUILD-NEW. Small add-on to US-336 (same vision pass / output schema). Catches scraped-listing fraud the tamper detector misses."
+    },
+    {
+      "id": "US-339",
+      "title": "Original-image + EXIF retention pipeline (forensic/provenance enabler)",
+      "description": "As the platform, I want to optionally retain the original uploaded file and capture its EXIF metadata BEFORE client-side compression, so that forensic analysis and provenance features have the untouched data they need (today the canvas re-encode strips EXIF and forensic signal).",
+      "acceptanceCriteria": [
+        "Client reads EXIF from the original file (camera make/model, DateTimeOriginal, GPS if present) before compression and submits it as structured metadata alongside the compressed image",
+        "Optionally the original (uncompressed) file is uploaded to a restricted, non-public storage path for server-side forensic use, gated by config/plan and a clear privacy disclosure",
+        "EXIF is stored on the image record (nullable; absence is normal and never penalized on its own)",
+        "Privacy: GPS/metadata handling is disclosed, access-controlled, and never exposed publicly or to buyers; retention policy defined",
+        "No regression to the existing fast compressed-upload path; tenant isolation preserved"
+      ],
+      "priority": 339,
+      "passes": false,
+      "notes": "BUILD-NEW. GATING ENABLER for US-340/US-341 — current pipeline (image-utils.ts compressImage) destroys EXIF + forensic artifacts. Add an EXIF reader (e.g. exifr) client-side; store on submission_images/item_photos. Privacy-sensitive: requires policy + disclosure update."
+    },
+    {
+      "id": "US-340",
+      "title": "Verified Capture: opt-in provenance booster + badge",
+      "description": "As a seller who wants maximum buyer trust, I want an opt-in 'verified capture' path (in-app capture or originals with intact, recent, consistent EXIF) that RAISES grade confidence and earns a trust badge, so that controlled provenance is rewarded rather than absence of metadata being punished.",
+      "acceptanceCriteria": [
+        "An opt-in capture flow preserves provenance (in-app capture session and/or original-with-EXIF upload) and verifies recency/consistency (timestamp within window, consistent device, no reuse match from US-337)",
+        "A passing verified-capture submission earns a 'Verified Capture' badge shown on the certificate and (optionally) the verified-seller profile",
+        "Verified capture is a POSITIVE signal that can raise confidence; never required, and missing EXIF alone is never a negative",
+        "Anti-gaming: spoofed/edited EXIF and reused photos do not earn the badge; checks are server-side",
+        "Privacy disclosure covers what provenance data is captured and how it's used"
+      ],
+      "priority": 340,
+      "passes": false,
+      "notes": "BUILD-NEW. The PSA-style 'control the intake' analog: provenance as a booster + badge, not a fraud gate. Depends on US-339. Ties to certificate (US-328) + Verified Seller profile (US-057)."
+    },
+    {
+      "id": "US-341",
+      "title": "Server-side forensic/ML manipulation pass on original images",
+      "description": "As the grading team, I want a server-side forensic/ML analysis (ELA, noise/PRNU consistency, copy-move/clone detection, learned inpainting detectors) run on RETAINED ORIGINAL images, so that manipulation detection has a second, pixel-level line of evidence beyond the vision model — only where originals are available.",
+      "acceptanceCriteria": [
+        "When an original (uncompressed) image is retained (US-339), a forensic pass produces per-region manipulation scores and an overall tamper likelihood",
+        "Forensic output is fused with the US-336 vision signal into a single tamper assessment that adjusts confidence/review routing",
+        "Runs only on originals (skips compressed-only submissions cleanly) and is cost/throughput bounded",
+        "False-positive guardrails: benign global edits don't score as manipulation; thresholds tuned against a labeled set",
+        "Pure scoring/fusion logic is unit-tested"
+      ],
+      "priority": 341,
+      "passes": false,
+      "notes": "BUILD-NEW. Heaviest item; depends on US-339 (originals) and complements US-336. Forensics are unreliable on our compressed images, so this is explicitly originals-only. Watch FP rate + storage/compute cost."
     }
   ]
 }

@@ -423,6 +423,12 @@ export function AdminReviewsPage() {
         .insert(reviewInsert as never);
       if (error) throw error;
 
+      // Mark the grade as human-reviewed (drives the public certificate badge).
+      await supabase
+        .from("grade_reports")
+        .update({ human_reviewed: true } as never)
+        .eq("id", reviewingItem.report.id);
+
       await logAuditAction("approve_grade", "grade_report", reviewingItem.report.id, {
         submission_id: reviewingItem.submission.id,
         original_score: reviewingItem.report.overall_score,
@@ -496,6 +502,7 @@ export function AdminReviewsPage() {
           cosmetic_appearance_score: adjustedScores.cosmetic_appearance_score,
           functional_elements_score: adjustedScores.functional_elements_score,
           odor_cleanliness_score: adjustedScores.odor_cleanliness_score,
+          human_reviewed: true,
         } as never)
         .eq("id", reviewingItem.report.id);
       if (updateError) throw updateError;

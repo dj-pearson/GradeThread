@@ -315,6 +315,18 @@ export interface DefectFound {
   impact_on_grade?: string;
 }
 
+// Aggregated photo-authenticity assessment from the grading vision pass
+// (US-336/US-338). A suspected result forces a human review; surfaced on the
+// public certificate. Null on grades created before migration 00061.
+export interface ImageAuthenticity {
+  manipulation_suspected: boolean;
+  manipulation_confidence: number;
+  screenshot_or_watermark_detected: boolean;
+  tells: string[];
+  flagged_image_types: string[];
+  summary: string;
+}
+
 export interface SubmissionImageRow {
   id: string;
   submission_id: string;
@@ -348,6 +360,11 @@ export interface GradeReportRow {
   per_image_analysis: unknown[] | null;
   confidence_score: number;
   needs_human_review: boolean;
+  // Aggregated photo-authenticity assessment (US-336/US-338). Null for grades
+  // created before migration 00061.
+  image_authenticity: ImageAuthenticity | null;
+  // True once a human reviewer has checked this grade (migration 00061).
+  human_reviewed: boolean;
   model_version: string;
   // First-class prompt version that produced this grade (e.g. "composite_v2").
   prompt_version: string | null;
