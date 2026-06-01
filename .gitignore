@@ -41,3 +41,8 @@ Flip Tracker - Thrift Flip Tracker.csv
 public/logo_primary.psd
 /keys
 public/logo_primary_White.psd
+
+# Deno lockfile: NOT committed — local tooling is Deno 2.x (writes lockfile v5)
+# but the edge container pins Deno 1.46.3, which cannot read v5 and crashes on
+# boot. Versions are already pinned in deno.json import map. See COOLIFY.md.
+services/edge-functions/deno.lock
