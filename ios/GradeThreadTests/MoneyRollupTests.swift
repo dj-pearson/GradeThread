@@ -41,12 +41,14 @@ final class MoneyRollupTests: XCTestCase {
         XCTAssertEqual(m.monthlyRevenue.last?.revenue, 0)
     }
 
-    func test_monthlyRevenue_bucketsSalesByMonth() {
+    func test_monthlyRevenue_bucketsSalesByMonth() throws {
         let nov = makeSale(price: 100, date: now)
         let oct = makeSale(price: 40, date: now.addingTimeInterval(-40 * 86_400))
         let m = MoneyRollup.compute(items: [], sales: [nov, oct], now: now, calendar: cal)
-        XCTAssertEqual(m.monthlyRevenue.last?.revenue, 100, accuracy: 0.001)
-        XCTAssertEqual(m.monthlyRevenue.first(where: { $0.label == "Oct" })?.revenue, 40, accuracy: 0.001)
+        let novBucket = try XCTUnwrap(m.monthlyRevenue.last)
+        XCTAssertEqual(novBucket.revenue, 100, accuracy: 0.001)
+        let octBucket = try XCTUnwrap(m.monthlyRevenue.first(where: { $0.label == "Oct" }))
+        XCTAssertEqual(octBucket.revenue, 40, accuracy: 0.001)
     }
 
     // MARK: - Helpers
