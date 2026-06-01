@@ -209,10 +209,11 @@ actor SyncEngine {
         private static func decodeLenientMeasurements(
             from c: KeyedDecodingContainer<CodingKeys>
         ) -> [String: Double]? {
-            guard
-                let outer = try? c.decodeIfPresent([String: MeasurementScalar].self, forKey: .measurements),
-                let raw = outer
-            else { return nil }
+            // `try?` flattens decodeIfPresent's optional, so absent/null/odd
+            // shapes all funnel to nil here — never a throw.
+            guard let raw = try? c.decodeIfPresent(
+                [String: MeasurementScalar].self, forKey: .measurements
+            ) else { return nil }
             var out: [String: Double] = [:]
             for (key, scalar) in raw {
                 if let value = scalar.doubleValue { out[key] = value }
