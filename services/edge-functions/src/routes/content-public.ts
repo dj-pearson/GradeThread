@@ -32,6 +32,45 @@ const LIST_COLUMNS =
 // Max related posts surfaced on an article (US-304).
 const MAX_RELATED = 3;
 
+// Row shapes for the column lists above. The lists are built by string
+// concatenation, so they widen to `string` and Supabase can't infer the row
+// type from them (it yields GenericStringError) — we cast results to these.
+interface BlogListRow {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  product_focus: string | null;
+  hero_image_url: string | null;
+  primary_keyword: string | null;
+  reading_time_min: number | null;
+  published_at: string | null;
+  updated_at: string | null;
+}
+interface BlogFullRow extends BlogListRow {
+  body_html: string | null;
+  seo_title: string | null;
+  seo_description: string | null;
+  secondary_keywords: string[] | null;
+  jsonld: unknown;
+  author: unknown;
+  key_takeaways: unknown;
+  faqs: unknown;
+}
+interface CertReportRow {
+  overall_score: number;
+  grade_tier: string;
+  fabric_condition_score: number | null;
+  structural_integrity_score: number | null;
+  cosmetic_appearance_score: number | null;
+  functional_elements_score: number | null;
+  odor_cleanliness_score: number | null;
+  ai_summary: string | null;
+  certificate_id: string;
+  created_at: string;
+  submission_id: string;
+}
+
 /**
  * Normalize the jsonb `faqs` column into a clean array of {q,a} string pairs.
  * Defensive: the column is admin-written but feeds public FAQPage JSON-LD, so
@@ -85,14 +124,14 @@ async function fetchRelated(
     .in("id", candidateIds)
     .limit(50);
 
-  return (posts ?? [])
+  return ((posts ?? []) as unknown as BlogListRow[])
     .sort((a, b) => {
-      const sa = shareCount.get((a as { id: string }).id) ?? 0;
-      const sb = shareCount.get((b as { id: string }).id) ?? 0;
+      const sa = shareCount.get(a.id) ?? 0;
+      const sb = shareCount.get(b.id) ?? 0;
       if (sb !== sa) return sb - sa;
       // Tie-break: newest first.
-      const pa = (a as { published_at: string }).published_at ?? "";
-      const pb = (b as { published_at: string }).published_at ?? "";
+      const pa = a.published_at ?? "";
+      const pb = b.published_at ?? "";
       return pb.localeCompare(pa);
     })
     .slice(0, MAX_RELATED);
@@ -121,9 +160,10 @@ contentPublicRoutes.get("/posts", async (c) => {
   const { data, error } = await q;
   if (error) return c.json({ error: error.message }, 500);
 
+  const rows = (data ?? []) as unknown as BlogListRow[];
   const nextCursor =
-    data && data.length === limit ? data[data.length - 1]?.published_at : null;
-  return c.json({ posts: data ?? [], next_cursor: nextCursor });
+    rows.length === limit ? rows[rows.length - 1]?.published_at : null;
+  return c.json({ posts: rows, next_cursor: nextCursor });
 });
 
 // ── GET /posts/:slug ──────────────────────────────────────
@@ -137,21 +177,22 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!post) return c.json({ error: "Not found" }, 404);
+  const row = post as unknown as BlogFullRow;
 
   const { data: tagRows } = await supabaseAdmin
     .from("blog_post_tags")
     .select("tag")
-    .eq("post_id", post.id);
+    .eq("post_id", row.id);
   const tags = (tagRows ?? []).map((r) => r.tag as string);
 
   // GEO enhancements (US-304): normalized FAQs + related posts (by shared tag).
-  const related = await fetchRelated(post.id, tags);
+  const related = await fetchRelated(row.id, tags);
 
   return c.json({
     post: {
-      ...post,
+      ...row,
       tags,
-      faqs: normalizeFaqs((post as { faqs?: unknown }).faqs),
+      faqs: normalizeFaqs(row.faqs),
       related,
     },
   });
@@ -198,18 +239,19 @@ contentPublicRoutes.get("/posts/preview/:token", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!post) return c.json({ error: "Not found" }, 404);
+  const row = post as unknown as BlogFullRow;
 
   const { data: tagRows } = await supabaseAdmin
     .from("blog_post_tags")
     .select("tag")
-    .eq("post_id", post.id);
+    .eq("post_id", row.id);
   const tags = (tagRows ?? []).map((r) => r.tag as string);
 
   return c.json({
     post: {
-      ...post,
+      ...row,
       tags,
-      faqs: normalizeFaqs((post as { faqs?: unknown }).faqs),
+      faqs: normalizeFaqs(row.faqs),
     },
     preview: true,
     expires_at: new Date(verified.expiresAt * 1000).toISOString(),
@@ -279,12 +321,13 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!report) return c.json({ error: "Not found" }, 404);
+  const rep = report as unknown as CertReportRow;
 
   // Garment metadata from the parent submission (title/brand/category).
   const { data: submission } = await supabaseAdmin
     .from("submissions")
     .select("title, brand, garment_type, garment_category")
-    .eq("id", report.submission_id)
+    .eq("id", rep.submission_id)
     .maybeSingle();
 
   // A representative image (front, else lowest display_order) → signed URL so
@@ -293,7 +336,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   const { data: images } = await supabaseAdmin
     .from("submission_images")
     .select("storage_path, image_type, display_order")
-    .eq("submission_id", report.submission_id)
+    .eq("submission_id", rep.submission_id)
     .order("display_order", { ascending: true });
   const hero =
     (images ?? []).find((i) => i.image_type === "front") ?? (images ?? [])[0];
@@ -305,13 +348,13 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   }
 
   // Strip the internal submission_id from the public payload.
-  const publicReport: Record<string, unknown> = { ...report };
+  const publicReport: Record<string, unknown> = { ...rep };
   delete publicReport.submission_id;
 
   return c.json({
     certificate: {
       ...publicReport,
-      id: report.certificate_id,
+      id: rep.certificate_id,
       title: submission?.title ?? "Graded garment",
       brand: submission?.brand ?? null,
       garment_type: submission?.garment_type ?? null,

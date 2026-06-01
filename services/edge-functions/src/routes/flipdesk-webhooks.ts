@@ -77,9 +77,13 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
   }
 
   // Dispatch async. Don't block the 204 — eBay penalizes slow handlers.
-  let parsed: Record<string, unknown> | null = null;
+  let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(rawBody);
+    const json = JSON.parse(rawBody);
+    if (!json || typeof json !== "object") {
+      return c.json({ error: "Invalid JSON" }, 400);
+    }
+    parsed = json as Record<string, unknown>;
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }

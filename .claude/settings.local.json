@@ -95,7 +95,9 @@
       "PowerShell(Write-Output \"=== index.lock present? ===\"; Test-Path \".git\\\\index.lock\"; Write-Output \"=== set aside unrelated file ===\"; git stash push --keep-index -- \".claude/settings.local.json\" 2>&1; Write-Output \"=== retry continue ===\"; $env:GIT_EDITOR=\"true\"; $env:GIT_SEQUENCE_EDITOR=\"true\"; git rebase --continue 2>&1; Write-Output \"--- EXIT: $LASTEXITCODE ---\")",
       "Read(//c/c/Users/dpearson/Documents/GradeThread/**)",
       "Read(//c/c/Users/dpearson/Documents/GradeThread/ios/**)",
-      "Bash(grep -iv \"\\\\.swift:.*//\")"
+      "Bash(grep -iv \"\\\\.swift:.*//\")",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Select-Object -Last 30; Write-Output \"EXIT: $LASTEXITCODE\")",
+      "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; $o = & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Out-String; $ai = [regex]::Matches\\($o, 'ai-\\(extract|grading|listing\\)\\\\.ts'\\).Count; Write-Output \"AI-file error refs: $ai\"; [regex]::Matches\\($o, 'TS\\\\d+'\\) | ForEach-Object { $_.Value } | Group-Object | Format-Table Count,Name -AutoSize | Out-String)"
     ]
   },
   "hooks": {

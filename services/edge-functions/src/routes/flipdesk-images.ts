@@ -77,7 +77,7 @@ flipdeskImageRoutes.post("/remove-bg", async (c) => {
   if (loadErr || !row) {
     return c.json({ error: "Photo not found" }, 404);
   }
-  const photo = row as {
+  const photo = row as unknown as {
     id: string;
     inventory_item_id: string;
     storage_path: string | null;
@@ -248,7 +248,7 @@ flipdeskImageRoutes.post("/archive", async (c) => {
       500,
     );
   }
-  const eligible = (rows ?? []) as Array<
+  const eligible = (rows ?? []) as unknown as Array<
     PhotoToArchive & {
       inventory_items: { user_id: string; status: string; updated_at: string };
     }

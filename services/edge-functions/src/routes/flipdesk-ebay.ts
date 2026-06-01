@@ -844,7 +844,7 @@ async function doListingsPull(
       currency: string;
     }
     const byOrder = new Map<string, OrderAgg>();
-    function upsertAgg(orderId: string): OrderAgg {
+    const upsertAgg = (orderId: string): OrderAgg => {
       const existing = byOrder.get(orderId);
       if (existing) return existing;
       const fresh: OrderAgg = {
@@ -856,7 +856,7 @@ async function doListingsPull(
       };
       byOrder.set(orderId, fresh);
       return fresh;
-    }
+    };
     for (const t of txns) {
       if (!t.orderId) continue;
       const agg = upsertAgg(t.orderId);
@@ -897,7 +897,7 @@ async function doListingsPull(
         )
         .in("platform_order_id", orderIds);
 
-      for (const row of (salesRows ?? []) as Array<{
+      for (const row of (salesRows ?? []) as unknown as Array<{
         id: string;
         inventory_item_id: string;
         sale_price: number | null;
@@ -1304,7 +1304,7 @@ flipdeskEbayRoutes.get("/listings/:id/category-check", async (c) => {
     .eq("id", listingId)
     .maybeSingle();
   if (!row) return c.json({ error: "Listing not found" }, 404);
-  const r = row as {
+  const r = row as unknown as {
     id: string;
     platform_category_id: string | null;
     platform_listing_id: string | null;
@@ -1827,7 +1827,7 @@ async function loadListingOwned(
   if (!data) {
     return { ok: false, error: { error: "Listing not found" }, status: 404 };
   }
-  const row = data as ListingRowForManage & {
+  const row = data as unknown as ListingRowForManage & {
     inventory_items: { user_id: string };
   };
   if (row.inventory_items.user_id !== userId) {

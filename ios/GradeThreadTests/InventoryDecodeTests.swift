@@ -80,4 +80,21 @@ final class InventoryDecodeTests: XCTestCase {
         XCTAssertEqual(items[0].measurements?["width"], 20.0)
         XCTAssertEqual(items[1].measurements?["length"], 27)
     }
+
+    /// Belt-and-suspenders: even a row that fails to decode entirely (here the
+    /// second is missing the required `title`) must not blank the whole list —
+    /// the resilient pull drops only the bad row and keeps the good ones.
+    func test_resilientDecode_dropsBadRow_keepsGoodRows() {
+        let json = #"""
+        [
+          {"id":"a","user_id":"u","title":"good","status":"listed",
+           "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"},
+          {"id":"b","user_id":"u","status":"listed",
+           "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+        ]
+        """#
+        let items = SyncEngine.decodeItemsResiliently(Data(json.utf8))
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.title, "good")
+    }
 }

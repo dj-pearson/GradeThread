@@ -46,7 +46,7 @@ struct MarketplacesView: View {
                 await refreshOrphanCount(userId: userId)
             }
         }
-        .sheet(isPresented: $showingSyncModal) {
+        .sheet(isPresented: $showingSyncModal, onDismiss: { syncStore.reset() }) {
             EbaySyncModal(
                 store: syncStore,
                 onDismiss: { syncStore.reset() }

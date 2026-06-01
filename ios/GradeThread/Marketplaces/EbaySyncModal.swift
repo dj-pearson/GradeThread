@@ -48,10 +48,23 @@ struct EbaySyncModal: View {
         }
     }
 
-    private var canDismissInteractively: Bool {
-        switch store.phase {
-        case .idle, .completed, .timedOut, .connectionFlagged, .failed: return true
-        case .starting, .syncing: return false
+    // Always dismissable. The pull runs server-side (the edge returns 202 and
+    // works in the background); closing the sheet only stops us watching it —
+    // freshly-synced items still arrive via the next list refresh. Trapping
+    // the user behind a 90s spinner with no escape was the bug.
+    private var canDismissInteractively: Bool { true }
+
+    /// Lets the user leave the spinner while the sync keeps running server-side.
+    private var continueInBackgroundButton: some View {
+        Button {
+            onDismiss()
+            dismiss()
+        } label: {
+            Text("Continue in background")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.brandNavy)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
         }
     }
 
@@ -62,6 +75,7 @@ struct EbaySyncModal: View {
             ProgressView().tint(Color.brandNavy)
             Text("Starting sync…")
                 .font(.headline)
+            continueInBackgroundButton
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -71,11 +85,12 @@ struct EbaySyncModal: View {
             ProgressView().tint(Color.brandNavy).scaleEffect(1.3)
             Text(store.phase.stageLabel ?? "Syncing…")
                 .font(.headline)
-            Text("This usually takes 30–60 seconds for an established account.")
+            Text("This usually takes 30–60 seconds for an established account. You can keep using the app while it finishes.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+            continueInBackgroundButton
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

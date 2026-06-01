@@ -1225,7 +1225,9 @@ export async function listOffersForSku(
   }>(userId, `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`);
 
   return (payload.offers ?? [])
-    .filter((o): o is { offerId: string } => typeof o.offerId === "string")
+    .filter((o): o is typeof o & { offerId: string } =>
+      typeof o.offerId === "string"
+    )
     .map((o) => ({
       offerId: o.offerId,
       sku: o.sku ?? sku,

@@ -82,7 +82,7 @@ function siteUrl(): string {
 }
 
 async function loadUser(userId: string) {
-  return supabaseAdmin
+  return await supabaseAdmin
     .from("users")
     .select(
       "id, email, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
@@ -549,6 +549,25 @@ paymentRoutes.get("/billing-summary", async (c) => {
   if (userError || !user) {
     return c.json({ error: "User not found" }, 404);
   }
+  // The select list is concatenated (widens to `string`), so Supabase can't
+  // infer the row type — cast to the shape we selected.
+  const u = user as unknown as {
+    flipdesk_plan: string | null;
+    flipdesk_interval: string | null;
+    subscription_status: string | null;
+    flipdesk_period_end: string | null;
+    flipdesk_pause_until: string | null;
+    flipdesk_cancel_at_period_end: boolean | null;
+    trial_ends_at: string | null;
+    stripe_customer_id: string | null;
+    pending_flipdesk_plan: string | null;
+    pending_flipdesk_interval: string | null;
+    pending_effective_at: string | null;
+    grade_credit_balance: number | null;
+    grades_used_this_month: number | null;
+    ai_actions_used_this_month: number | null;
+    ai_action_limit: number | null;
+  };
 
   const [
     activeListingsResult,
@@ -585,27 +604,27 @@ paymentRoutes.get("/billing-summary", async (c) => {
 
   return c.json({
     subscription: {
-      plan: user.flipdesk_plan,
-      interval: user.flipdesk_interval,
-      status: user.subscription_status,
-      period_end: user.flipdesk_period_end,
-      pause_until: user.flipdesk_pause_until,
-      cancel_at_period_end: user.flipdesk_cancel_at_period_end,
-      trial_ends_at: user.trial_ends_at,
-      stripe_customer_id: user.stripe_customer_id,
-      pending_plan: user.pending_flipdesk_plan,
-      pending_interval: user.pending_flipdesk_interval,
-      pending_effective_at: user.pending_effective_at,
+      plan: u.flipdesk_plan,
+      interval: u.flipdesk_interval,
+      status: u.subscription_status,
+      period_end: u.flipdesk_period_end,
+      pause_until: u.flipdesk_pause_until,
+      cancel_at_period_end: u.flipdesk_cancel_at_period_end,
+      trial_ends_at: u.trial_ends_at,
+      stripe_customer_id: u.stripe_customer_id,
+      pending_plan: u.pending_flipdesk_plan,
+      pending_interval: u.pending_flipdesk_interval,
+      pending_effective_at: u.pending_effective_at,
     },
     grades: {
-      credit_balance: user.grade_credit_balance,
-      included_used_this_month: user.grades_used_this_month,
+      credit_balance: u.grade_credit_balance,
+      included_used_this_month: u.grades_used_this_month,
     },
     usage: {
       active_listings: activeListingsResult.count ?? 0,
       marketplaces_connected: marketplacesResult.count ?? 0,
-      ai_actions_used_this_month: user.ai_actions_used_this_month,
-      ai_action_limit: user.ai_action_limit,
+      ai_actions_used_this_month: u.ai_actions_used_this_month,
+      ai_action_limit: u.ai_action_limit,
     },
     recent_ledger: ledgerResult.data ?? [],
   });
@@ -812,11 +831,13 @@ paymentRoutes.post("/flipdesk/downgrade", async (c) => {
       end_behavior: "release",
       phases: [
         {
-          items: existingPhase.items.map((it) => ({
-            // SDK union: item.price can be string | Price; normalize.
-            price: typeof it.price === "string" ? it.price : it.price.id,
-            quantity: it.quantity ?? 1,
-          })),
+          items: existingPhase.items.map(
+            (it: { price: string | { id: string }; quantity?: number | null }) => ({
+              // SDK union: item.price can be string | Price; normalize.
+              price: typeof it.price === "string" ? it.price : it.price.id,
+              quantity: it.quantity ?? 1,
+            }),
+          ),
           start_date: existingPhase.start_date,
           end_date: existingPhase.end_date ?? undefined,
         },

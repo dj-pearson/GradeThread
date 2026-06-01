@@ -7,7 +7,9 @@ import {
   sendWelcomeEmail,
 } from "../lib/email.ts";
 
-export const notificationRoutes = new Hono();
+type NotifEnv = { Variables: { userId?: string } };
+
+export const notificationRoutes = new Hono<NotifEnv>();
 
 // Simple per-IP rate limit for unauthenticated welcome endpoint
 const welcomeRateLimit = new Map<string, { count: number; resetAt: number }>();

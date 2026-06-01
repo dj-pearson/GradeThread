@@ -1,9 +1,10 @@
 import { createMiddleware } from "hono/factory";
+import type { User } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../lib/supabase.ts";
 
 type AuthEnv = {
   Variables: {
-    user: { id: string; email?: string; [key: string]: unknown };
+    user: User;
     userId: string;
   };
 };

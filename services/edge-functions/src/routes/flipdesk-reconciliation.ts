@@ -212,7 +212,7 @@ flipdeskReconciliationRoutes.get("/queue", async (c) => {
   type SaleRowWithItem = SaleCandidateRow & {
     inventory_items: { user_id: string; title: string | null };
   };
-  const sales = (salesRaw ?? []) as SaleRowWithItem[];
+  const sales = (salesRaw ?? []) as unknown as SaleRowWithItem[];
 
   const queue: QueueEntry[] = payouts.map((p) => {
     const scored: Candidate[] = [];
@@ -308,7 +308,7 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
   type SaleRowWithItem = SaleCandidateRow & {
     inventory_items: { user_id: string };
   };
-  const sales = (salesRaw ?? []) as SaleRowWithItem[];
+  const sales = (salesRaw ?? []) as unknown as SaleRowWithItem[];
 
   // Build a per-payout "claimed sale" set so a single auto-match pass
   // doesn't double-assign one sale to two different payouts.
@@ -449,7 +449,7 @@ flipdeskReconciliationRoutes.post("/match", async (c) => {
   if (saleErr || !sale) {
     return c.json({ error: "Sale not found" }, 404);
   }
-  const s = sale as {
+  const s = sale as unknown as {
     id: string;
     payout_reference: string | null;
     inventory_items: { user_id: string };

@@ -26,7 +26,7 @@
 //
 // Run:  deno task test   (or: deno test --allow-net --allow-env)
 
-import { assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert } from "@std/assert";
 
 const BASE = Deno.env.get("TEST_EDGE_BASE_URL");
 const A_JWT = Deno.env.get("TEST_USER_A_JWT");

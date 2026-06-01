@@ -70,7 +70,7 @@ function base64Encode(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-function base64Decode(b64: string): Uint8Array {
+function base64Decode(b64: string): Uint8Array<ArrayBuffer> {
   const s = atob(b64);
   const out = new Uint8Array(s.length);
   for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);

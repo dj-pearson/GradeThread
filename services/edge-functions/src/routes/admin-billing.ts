@@ -317,7 +317,7 @@ adminBillingRoutes.get("/coupons", async (c) => {
     ]);
 
     return c.json({
-      coupons: coupons.data.map((c) => ({
+      coupons: coupons.data.map((c: Stripe.Coupon) => ({
         id: c.id,
         name: c.name,
         percent_off: c.percent_off,
@@ -331,7 +331,7 @@ adminBillingRoutes.get("/coupons", async (c) => {
         valid: c.valid,
         created: c.created,
       })),
-      promotion_codes: promoCodes.data.map((p) => ({
+      promotion_codes: promoCodes.data.map((p: Stripe.PromotionCode) => ({
         id: p.id,
         code: p.code,
         coupon_id: typeof p.coupon === "string" ? p.coupon : p.coupon.id,
@@ -381,7 +381,7 @@ adminBillingRoutes.get("/users/:id/payments", async (c) => {
     ]);
 
     return c.json({
-      charges: charges.data.map((ch) => ({
+      charges: charges.data.map((ch: Stripe.Charge) => ({
         id: ch.id,
         amount: ch.amount,
         currency: ch.currency,
@@ -399,7 +399,7 @@ adminBillingRoutes.get("/users/:id/payments", async (c) => {
             status: subscription.status,
             current_period_end: subscription.current_period_end,
             cancel_at_period_end: subscription.cancel_at_period_end,
-            items: subscription.items.data.map((it) => ({
+            items: subscription.items.data.map((it: Stripe.SubscriptionItem) => ({
               price_id: it.price.id,
               unit_amount: it.price.unit_amount,
               interval: it.price.recurring?.interval,

@@ -37,9 +37,19 @@ const schedulerAuth = createMiddleware<SchedulerEnv>(async (c, next) => {
   }
   // Fall back to admin JWT auth. We compose the existing middlewares
   // manually so the chain still works.
-  await authMiddleware(c, async () => {
-    await adminAuthMiddleware(c, next);
-  });
+  // The secret path leaves the context without a user, so SchedulerEnv is
+  // looser than the AuthEnv/AdminEnv these middlewares expect. They only read
+  // headers and call c.set, so reusing this context is sound at runtime — cast
+  // to each middleware's own context type to express that.
+  await authMiddleware(
+    c as unknown as Parameters<typeof authMiddleware>[0],
+    async () => {
+      await adminAuthMiddleware(
+        c as unknown as Parameters<typeof adminAuthMiddleware>[0],
+        next,
+      );
+    },
+  );
 });
 
 contentSchedulerRoutes.use("/*", schedulerAuth);
@@ -734,11 +744,11 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     else if (socialToday < settings.post_cadence_per_day_social) surface = "social";
   }
   if (!surface) {
-    return c.json<TickResult>({
+    return c.json({
       skipped: true,
       reason: "cadence already met for today",
       published_scheduled: publishedScheduled,
-    });
+    } satisfies TickResult);
   }
 
   const product: Product = body.force_product ?? (await pickProductFocus(surface));
@@ -761,11 +771,11 @@ contentSchedulerRoutes.post("/tick", async (c) => {
       ? await runBlogTick(product, autoPublish)
       : await runSocialTick(product, autoPublish);
 
-  return c.json<TickResult>({
+  return c.json({
     ...result,
     refilled_topics: refilled,
     published_scheduled: publishedScheduled,
-  });
+  } satisfies TickResult);
 });
 
 // Lightweight ping — useful for Make.com to validate the secret + URL

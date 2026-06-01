@@ -91,9 +91,9 @@ function scoreCase(
   return { titleOk, aspectCoverage, priceOk };
 }
 
-async function loadPhotoUrls(
+function loadPhotoUrls(
   photos: Array<{ storage_path: string; image_type?: string }>,
-): Promise<Array<{ url: string; type?: string }>> {
+): Array<{ url: string; type?: string }> {
   const out: Array<{ url: string; type?: string }> = [];
   for (const p of photos) {
     const url = supabaseAdmin.storage

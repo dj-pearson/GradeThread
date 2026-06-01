@@ -1,7 +1,7 @@
 // Unit tests for the retry/backoff helper (US-325). No live APIs, no real
 // timers — `sleep` and `random` are injected so the suite runs instantly.
 
-import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assert, assertEquals } from "@std/assert";
 import { isRetryableError, withRetry } from "../lib/retry.ts";
 
 const noSleep = () => Promise.resolve();

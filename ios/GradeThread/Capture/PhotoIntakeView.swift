@@ -65,10 +65,15 @@ struct PhotoIntakeView: View {
 
     var body: some View {
         ZStack {
+            // Only the camera preview is full-bleed. The overlay (top close/Done
+            // bar + bottom slot strip and capture button) must respect the safe
+            // area — otherwise on notch / Dynamic Island devices the bars render
+            // under the status bar and home indicator, sitting on top of the
+            // buttons and making them hard to tap.
             cameraLayer
+                .ignoresSafeArea()
             overlay
         }
-        .ignoresSafeArea()
         .navigationBarBackButtonHidden(true)
         .task { await bootstrap() }
         .onDisappear { camera.stop() }

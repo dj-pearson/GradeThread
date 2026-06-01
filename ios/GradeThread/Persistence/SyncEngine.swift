@@ -261,12 +261,16 @@ actor SyncEngine {
 
     private func pullRemote() async -> Result<PullPayload, Error> {
         do {
-            let items: [RemoteInventoryItem] = try await SupabaseShared.client
+            // Decode the rows one-by-one (not as one `[RemoteInventoryItem]`)
+            // so a single malformed row can't abort the whole decode and blank
+            // the entire inventory list. `.value` is all-or-nothing; here we
+            // grab the raw bytes and skip only the bad rows.
+            let response = try await SupabaseShared.client
                 .from("inventory_items")
                 .select(Self.itemColumns)
                 .order("updated_at", ascending: false)
                 .execute()
-                .value
+            let items = Self.decodeItemsResiliently(response.data)
 
             // Without items we don't need the photo fetch — short circuit
             // so a brand-new account doesn't spend a round trip.
@@ -297,6 +301,31 @@ actor SyncEngine {
     id, inventory_item_id, photo_type, photo_url, thumbnail_url,
     storage_path, sort_order, bytes, created_at
     """
+
+    /// Wrapper that decodes to nil instead of throwing, so one malformed
+    /// element can't abort decoding of the whole array.
+    private struct Failable<T: Decodable>: Decodable {
+        let value: T?
+        init(from decoder: Decoder) throws {
+            value = try? decoder.singleValueContainer().decode(T.self)
+        }
+    }
+
+    /// Decode inventory rows resiliently — drop (and log) any that fail so a
+    /// single bad row never blanks the whole list. PostgREST returns columns
+    /// as snake_case verbatim (no key conversion), which matches
+    /// `RemoteInventoryItem`'s CodingKeys, so a plain `JSONDecoder` is correct.
+    static func decodeItemsResiliently(_ data: Data) -> [RemoteInventoryItem] {
+        guard let rows = try? JSONDecoder().decode(
+            [Failable<RemoteInventoryItem>].self, from: data
+        ) else { return [] }
+        let items = rows.compactMap(\.value)
+        let dropped = rows.count - items.count
+        if dropped > 0 {
+            print("[SyncEngine] skipped \(dropped) undecodable inventory row(s)")
+        }
+        return items
+    }
 
     private func merge(payload: PullPayload) async {
         let payload = payload  // capture for the @MainActor block below

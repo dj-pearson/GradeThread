@@ -231,7 +231,7 @@ export async function sendGradeCompleteEmail(
     </p>` : ""}
   `;
 
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `Grade Ready: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
     html: emailLayout(content),
@@ -293,7 +293,7 @@ export async function sendDisputeResolvedEmail(
     ${ctaButton("View Submission", reportUrl)}
   `;
 
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `Dispute ${outcomeLabel}: ${data.submissionTitle}`,
     html: emailLayout(content),
@@ -367,7 +367,7 @@ export async function sendWelcomeEmail(
     ${ctaButton("Go to Dashboard", `${SITE_URL}/dashboard`)}
   `;
 
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: "Welcome to GradeThread — Start Grading with AI",
     html: emailLayout(content, true),
@@ -445,7 +445,7 @@ export async function sendSubscriptionStartedEmail(
 
     ${ctaButton("Go to Billing", `${SITE_URL}/dashboard/billing`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `FlipDesk ${data.plan} active — welcome aboard`,
     html: emailLayout(content),
@@ -468,7 +468,7 @@ export async function sendSubscriptionCanceledEmail(
     </p>
     ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `Your FlipDesk ${data.plan} plan ends ${formatDate(data.endsAt)}`,
     html: emailLayout(content),
@@ -503,7 +503,7 @@ export async function sendSubscriptionPausedEmail(
     </p>
     ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `FlipDesk ${data.plan} paused — resumes ${formatDate(data.resumesAt)}`,
     html: emailLayout(content),
@@ -523,7 +523,7 @@ export async function sendSubscriptionResumedEmail(
     </p>
     ${ctaButton("Go to dashboard", `${SITE_URL}/dashboard`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `FlipDesk ${data.plan} is active again`,
     html: emailLayout(content),
@@ -556,7 +556,7 @@ export async function sendCreditPackPurchasedEmail(
 
     ${ctaButton("Submit a grade", `${SITE_URL}/dashboard/submissions/new`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `Receipt: ${data.credits} GradeThread credits — ${dollars(data.amountCents)}`,
     html: emailLayout(content),
@@ -579,7 +579,7 @@ export async function sendPaymentFailedEmail(
     </p>
     ${ctaButton("Update card", `${SITE_URL}/dashboard/billing`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: "Action needed: update your card to keep FlipDesk active",
     html: emailLayout(content),
@@ -602,7 +602,7 @@ export async function sendTrialExpiringEmail(
     </p>
     ${ctaButton("Add card", `${SITE_URL}/dashboard/billing`)}
   `;
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"} left on your FlipDesk Pro trial`,
     html: emailLayout(content),
@@ -647,7 +647,7 @@ export async function sendWorkspaceInvitationEmail(
     </p>
   `;
 
-  return sendEmail({
+  return await sendEmail({
     to,
     subject: `${data.inviterName} invited you to ${data.workspaceName} on GradeThread`,
     html: emailLayout(content),

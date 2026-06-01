@@ -667,7 +667,7 @@ flipdeskGradingRoutes.get("/submissions/:id", async (c) => {
   if (!row) {
     return c.json({ error: "Submission not found" }, 404);
   }
-  const r = row as {
+  const r = row as unknown as {
     id: string;
     inventory_item_id: string;
     submission_id: string | null;

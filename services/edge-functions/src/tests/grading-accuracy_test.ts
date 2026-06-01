@@ -11,7 +11,7 @@
 import {
   assert,
   assertEquals,
-} from "https://deno.land/std@0.224.0/assert/mod.ts";
+} from "@std/assert";
 
 // Must be set BEFORE the dynamic import so supabase.ts doesn't throw.
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");

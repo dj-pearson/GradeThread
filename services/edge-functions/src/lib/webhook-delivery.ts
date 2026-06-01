@@ -22,7 +22,7 @@ async function computeHmacSignature(payload: string, secret: string): Promise<st
     false,
     ["sign"]
   );
-  const signature = await crypto.subtle.sign("HMAC", encoder.encode(payload), key);
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
   return Array.from(new Uint8Array(signature), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
