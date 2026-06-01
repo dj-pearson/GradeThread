@@ -27,6 +27,13 @@ function minAgreement(): number {
   return Number.isFinite(raw) && raw >= 0 && raw <= 1 ? raw : 0.7;
 }
 
+/** The published activation gate (max MAE / min agreement). Exported so the
+ *  public transparency report and the regression monitor cite the SAME
+ *  thresholds the activation gate enforces. */
+export function evalThresholds(): { max_mae: number; min_agreement: number } {
+  return { max_mae: maxMae(), min_agreement: minAgreement() };
+}
+
 interface EvalCaseRow {
   id: string;
   label: string;

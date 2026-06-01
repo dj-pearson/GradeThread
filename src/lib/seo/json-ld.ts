@@ -121,6 +121,40 @@ export function faqPageLd(faqs: ReadonlyArray<{ q: string; a: string }>): JsonLd
   };
 }
 
+/**
+ * Dataset descriptor for the public transparency report (US-326). Models the
+ * published accuracy figures as a schema.org Dataset so AI answer engines can
+ * cite GradeThread's measured grading quality as a real, maintained data
+ * source — the authority signal behind "trusted, self-improving grading".
+ * Only static facts are encoded (what is measured + how); the live numbers
+ * render on the page itself.
+ */
+export function transparencyDatasetLd(): JsonLd {
+  const canonical = `${SITE_URL}/transparency`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "@id": `${canonical}#dataset`,
+    name: "GradeThread Grading Accuracy & Transparency Report",
+    description:
+      "Platform-wide measures of GradeThread's clothing condition grading quality: AI-vs-human agreement rate, mean absolute error against expert reviewers, intentional-design misread rate, model confidence, and post-sale buyer dispute rate. Updated continuously as new grades and reviews accrue.",
+    url: canonical,
+    creator: { "@id": ORG_ID },
+    publisher: { "@id": ORG_ID },
+    isAccessibleForFree: true,
+    license: "https://gradethread.com/terms",
+    measurementTechnique:
+      "Comparison of AI condition grades against expert human reviewer corrections (agreement within 0.5 points, mean absolute error) plus post-sale buyer dispute tracking on opted-in graded items.",
+    variableMeasured: [
+      "AI-vs-human grade agreement rate",
+      "Mean absolute error vs. expert reviewers",
+      "Intentional-design misread rate",
+      "Average model confidence",
+      "Buyer dispute rate on graded sales",
+    ],
+  };
+}
+
 /** BreadcrumbList for hierarchy/topical-authority signals. */
 export function breadcrumbLd(
   items: ReadonlyArray<{ name: string; url: string }>,

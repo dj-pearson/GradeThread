@@ -35,7 +35,9 @@ if [[ "$TOOL" != "amp" && "$TOOL" != "claude" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PRD_FILE="$SCRIPT_DIR/prd.json"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Single source of truth: the repo-root prd.json (no separate Ralph copy).
+PRD_FILE="$REPO_ROOT/prd.json"
 PROGRESS_FILE="$SCRIPT_DIR/progress.txt"
 ARCHIVE_DIR="$SCRIPT_DIR/archive"
 LAST_BRANCH_FILE="$SCRIPT_DIR/.last-branch"

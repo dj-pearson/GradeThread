@@ -28,6 +28,7 @@ import {
   faqJsonLd,
   conditionGradingJsonLd,
   gradingStandardJsonLd,
+  transparencyJsonLd,
   glossaryJsonLd,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
@@ -68,6 +69,7 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/faq": faqJsonLd,
   "/condition-grading": conditionGradingJsonLd,
   "/grading-standard": gradingStandardJsonLd,
+  "/transparency": transparencyJsonLd,
 };
 
 /** JSON-LD nodes for a given route. Mirrors what each page renders via <SEO>. */

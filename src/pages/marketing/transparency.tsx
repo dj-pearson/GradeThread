@@ -1,0 +1,345 @@
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { ShieldCheck, GitCommitVertical, Gauge, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  MarketingLayout,
+  MarketingCTA,
+} from "@/components/marketing/marketing-layout";
+import { edgeApiUrl } from "@/lib/edge-api";
+import {
+  TRANSPARENCY_FAQS,
+  transparencyJsonLd,
+} from "@/pages/marketing/marketing-jsonld";
+
+// US-326: the public accuracy & transparency report. Substantiates the
+// "trusted, self-improving grading authority" claim with PUBLISHED numbers,
+// pulled live from the edge service's aggregate-only endpoint. The static
+// methodology + FAQ render server-side (prerender); the figures hydrate on the
+// client. When a metric has too little data to be truthful, we say so rather
+// than print a misleading 0%.
+
+interface TransparencyReport {
+  generated_at: string;
+  scale: { min: number; max: number; increment: number; tiers: number };
+  volume: { items_graded: number; human_reviews: number; graded_sales: number };
+  quality: {
+    human_agreement_rate: number | null;
+    mean_absolute_error: number | null;
+    intentional_misread_rate: number | null;
+    avg_confidence: number | null;
+    human_review_rate: number | null;
+  };
+  outcomes: { dispute_rate: number | null };
+  gate: { max_mae: number; min_agreement: number };
+  model: { active: Array<{ stage: string; version_name: string }> };
+  changelog: Array<{
+    version_name: string;
+    model: string;
+    mean_absolute_error: number;
+    agreement_rate: number;
+    passed: boolean;
+    created_at: string;
+  }>;
+}
+
+const PENDING = "Not enough data yet";
+
+function pct(rate: number | null, digits = 1): string {
+  return rate === null || rate === undefined
+    ? PENDING
+    : `${(rate * 100).toFixed(digits)}%`;
+}
+
+function num(n: number | null, digits = 2): string {
+  return n === null || n === undefined ? PENDING : n.toFixed(digits);
+}
+
+function count(n: number | undefined): string {
+  return (n ?? 0).toLocaleString("en-US");
+}
+
+function useTransparencyReport() {
+  return useQuery<TransparencyReport>({
+    queryKey: ["transparency-report"],
+    queryFn: async () => {
+      const res = await fetch(`${edgeApiUrl()}/api/grading/public/transparency`);
+      if (!res.ok) throw new Error(`Transparency report unavailable (${res.status})`);
+      return res.json();
+    },
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+function MetricCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+}) {
+  const pending = value === PENDING;
+  return (
+    <div className="rounded-lg border bg-background p-5">
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p
+        className={
+          pending
+            ? "mt-2 text-base font-medium text-muted-foreground"
+            : "mt-2 text-3xl font-bold tracking-tight text-brand-navy"
+        }
+      >
+        {value}
+      </p>
+      {sub ? <p className="mt-1 text-xs text-muted-foreground">{sub}</p> : null}
+    </div>
+  );
+}
+
+export function TransparencyPage() {
+  const { data, isLoading, isError } = useTransparencyReport();
+  const q = data?.quality;
+
+  return (
+    <MarketingLayout
+      title="Grading Accuracy & Transparency Report"
+      description="GradeThread's published clothing-grading accuracy: AI-vs-human agreement, error against expert reviewers, intentional-design misread rate, confidence, and buyer dispute rate — plus the eval gate and model changelog behind a self-improving standard."
+      canonicalPath="/transparency"
+      jsonLd={transparencyJsonLd()}
+    >
+      {/* Hero */}
+      <section className="px-6 py-16 lg:py-20">
+        <div className="mx-auto max-w-3xl">
+          <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
+            <ShieldCheck className="h-3.5 w-3.5 text-brand-navy" />
+            Published, not promised
+          </div>
+          <h1 className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl">
+            Grading accuracy & transparency report
+          </h1>
+          <p className="mt-6 text-lg text-muted-foreground">
+            A grade is only worth trusting if its accuracy is measured and shown.
+            This page reports, platform-wide, how closely GradeThread's AI grades
+            match expert human reviewers, how confident the model is, and how
+            often buyers dispute a graded item — alongside the eval gate and model
+            changelog that keep the standard improving over time.
+          </p>
+          {data?.generated_at ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Last updated {new Date(data.generated_at).toLocaleString("en-US")}
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Headline metrics */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-5xl">
+          <div className="flex items-center gap-2">
+            <Gauge className="h-5 w-5 text-brand-navy" />
+            <h2 className="text-2xl font-bold">How accurate the grades are</h2>
+          </div>
+          <p className="mt-3 max-w-3xl text-muted-foreground">
+            Whenever a human expert reviews a grade, we compare their score to the
+            AI's. These figures cover every reviewed grade across the platform.
+          </p>
+
+          {isError ? (
+            <p className="mt-8 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              Live figures are temporarily unavailable. The methodology below
+              describes exactly what we measure and how.
+            </p>
+          ) : (
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <MetricCard
+                label="AI-vs-human agreement"
+                value={isLoading ? "…" : pct(q?.human_agreement_rate ?? null)}
+                sub="Grades within half a point of the human reviewer"
+              />
+              <MetricCard
+                label="Mean error vs. reviewers"
+                value={isLoading ? "…" : num(q?.mean_absolute_error ?? null)}
+                sub="Average points of difference (lower is better)"
+              />
+              <MetricCard
+                label="Average model confidence"
+                value={isLoading ? "…" : pct(q?.avg_confidence ?? null)}
+                sub="Across recent grades"
+              />
+              <MetricCard
+                label="Routed to human review"
+                value={isLoading ? "…" : pct(q?.human_review_rate ?? null)}
+                sub="Low-confidence grades checked before finalizing"
+              />
+              <MetricCard
+                label="Intentional-design misread rate"
+                value={isLoading ? "…" : pct(q?.intentional_misread_rate ?? null)}
+                sub="Design (e.g. distressing) mistaken for damage — lower is better"
+              />
+              <MetricCard
+                label="Buyer dispute rate"
+                value={isLoading ? "…" : pct(data?.outcomes.dispute_rate ?? null)}
+                sub="Of opted-in graded sales"
+              />
+            </div>
+          )}
+
+          {/* Volume */}
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <MetricCard
+              label="Items graded"
+              value={isLoading ? "…" : count(data?.volume.items_graded)}
+            />
+            <MetricCard
+              label="Expert reviews"
+              value={isLoading ? "…" : count(data?.volume.human_reviews)}
+            />
+            <MetricCard
+              label="Graded sales tracked"
+              value={isLoading ? "…" : count(data?.volume.graded_sales)}
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* The self-improvement loop */}
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5 text-brand-navy" />
+            <h2 className="text-2xl font-bold">How the standard improves over time</h2>
+          </div>
+          <p className="mt-3 text-muted-foreground">
+            Accuracy isn't a one-time claim — it's maintained by a closed loop.
+          </p>
+          <ol className="mt-8 space-y-6">
+            {[
+              {
+                t: "Every grade is attributed to a model version",
+                d: "So accuracy can be measured per version, per factor, and per garment category — not as a single vague average.",
+              },
+              {
+                t: "Human reviewers correct and the loop learns",
+                d: "Reviewer corrections (including when design was mistaken for damage) and post-sale buyer disputes are fed back as signal on where grading drifts.",
+              },
+              {
+                t: "New models must clear a published eval gate",
+                d: data
+                  ? `A candidate version cannot grade live items until it beats a maximum error of ${data.gate.max_mae.toFixed(
+                      1,
+                    )} and at least ${(data.gate.min_agreement * 100).toFixed(
+                      0,
+                    )}% agreement on a golden set of expert-graded garments.`
+                  : "A candidate version cannot grade live items until it beats a fixed maximum error and minimum agreement on a golden set of expert-graded garments.",
+              },
+              {
+                t: "An automated monitor watches for regressions",
+                d: "On a schedule, the live grader is re-checked against the golden set and against production reviews and disputes. If quality drifts below threshold, the team is alerted before it slips further.",
+              },
+            ].map((step, i) => (
+              <li key={step.t} className="flex gap-4">
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-brand-navy text-sm font-bold text-white">
+                  {i + 1}
+                </span>
+                <div>
+                  <p className="font-medium text-foreground">{step.t}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{step.d}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Model changelog */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <div className="flex items-center gap-2">
+            <GitCommitVertical className="h-5 w-5 text-brand-navy" />
+            <h2 className="text-2xl font-bold">Model changelog</h2>
+          </div>
+          <p className="mt-3 text-muted-foreground">
+            Grading model versions that have cleared the eval gate, newest first.
+            Each row is a version proven against the golden set before it went
+            live.
+          </p>
+          {data && data.changelog.length > 0 ? (
+            <div className="mt-8 overflow-hidden rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-semibold">Version</th>
+                    <th className="px-4 py-3 text-right font-semibold">Error</th>
+                    <th className="px-4 py-3 text-right font-semibold">Agreement</th>
+                    <th className="px-4 py-3 text-right font-semibold">Cleared</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.changelog.map((r, i) => (
+                    <tr key={`${r.version_name}-${i}`} className="border-t">
+                      <td className="px-4 py-3 font-medium">{r.version_name}</td>
+                      <td className="px-4 py-3 text-right">
+                        {r.mean_absolute_error.toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {(r.agreement_rate * 100).toFixed(0)}%
+                      </td>
+                      <td className="px-4 py-3 text-right text-muted-foreground">
+                        {new Date(r.created_at).toLocaleDateString("en-US")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="mt-8 rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
+              Eval-gated model releases will appear here as new grading versions
+              are promoted.
+            </p>
+          )}
+          <p className="mt-6 text-sm text-muted-foreground">
+            For the full rubric and weighting behind every grade, see the{" "}
+            <Link
+              to="/grading-standard"
+              className="font-medium text-brand-navy hover:underline"
+            >
+              grading standard
+            </Link>
+            .
+          </p>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-2xl">
+          <h2 className="text-center text-3xl font-bold">Transparency FAQ</h2>
+          <dl className="mt-10 space-y-6">
+            {TRANSPARENCY_FAQS.map((faq) => (
+              <div key={faq.q} className="border-b pb-6 last:border-b-0">
+                <dt className="font-medium">{faq.q}</dt>
+                <dd className="mt-2 text-sm text-muted-foreground">{faq.a}</dd>
+              </div>
+            ))}
+          </dl>
+          <div className="mt-10 text-center">
+            <Link to="/signup">
+              <Button
+                size="lg"
+                className="bg-brand-navy text-white hover:bg-brand-navy/90"
+              >
+                Grade an item free
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <MarketingCTA />
+    </MarketingLayout>
+  );
+}

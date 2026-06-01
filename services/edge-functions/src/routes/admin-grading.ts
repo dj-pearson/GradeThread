@@ -7,6 +7,7 @@ import {
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
+import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -318,4 +319,35 @@ adminGradingRoutes.get("/eval/runs", async (c) => {
     .limit(50);
   if (error) return c.json({ error: error.message }, 500);
   return c.json({ runs: data ?? [] });
+});
+
+// ── Regression monitor (US-327) ──────────────────────────────────────
+
+// GET /monitor/runs — recent automated quality-monitor runs (drift/alerts).
+adminGradingRoutes.get("/monitor/runs", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("grading_monitor_runs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ runs: data ?? [] });
+});
+
+// POST /monitor/run — trigger a monitor scan on demand (same logic as the cron).
+adminGradingRoutes.post("/monitor/run", async (c) => {
+  const userId = c.get("userId");
+  try {
+    const result = await runGradingRegressionScan("manual");
+    await auditLog(userId, "run_grading_monitor", "grading_monitor", null, {
+      severity: result.severity,
+      alert_count: result.alerts.length,
+    });
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: "Monitor scan failed", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
 });
