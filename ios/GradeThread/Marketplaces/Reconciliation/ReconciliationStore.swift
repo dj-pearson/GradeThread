@@ -14,6 +14,10 @@ public final class ReconciliationStore {
 
     public var phase: Phase = .loading
     public var lastBulkResult: ReconciliationBulkResult?
+    /// Transient error from a single Create/Link action, surfaced as a toast.
+    /// Kept separate from `phase` so a failed action restores the list rather
+    /// than replacing the whole screen with a load-failure banner.
+    public var lastActionError: String?
     public var isWorking: Bool = false
 
     private let service: ReconciliationService
@@ -62,9 +66,12 @@ public final class ReconciliationStore {
 
         let outcome = await action(orphan)
         if !outcome.isSuccess {
-            // Restore the row so the user can try again.
+            // Restore the row so the user can try again, and surface the
+            // error as a toast. We deliberately keep the list in `.ready`
+            // (not `.failed`) — one failed action shouldn't replace the whole
+            // reconciliation screen with a load-failure banner.
             replaceOrphans(snapshot)
-            phase = .failed(message: errorMessage(from: outcome) ?? "Action failed.")
+            lastActionError = errorMessage(from: outcome) ?? "Action failed."
         }
     }
 

@@ -74,6 +74,15 @@ struct ReconciliationView: View {
         ) {
             Button("OK") {}
         }
+        .alert(
+            store.lastActionError ?? "",
+            isPresented: Binding(
+                get: { store.lastActionError != nil },
+                set: { if !$0 { store.lastActionError = nil } }
+            )
+        ) {
+            Button("OK") {}
+        }
     }
 
     // MARK: - States

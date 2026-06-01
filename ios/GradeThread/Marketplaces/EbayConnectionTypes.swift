@@ -2,10 +2,12 @@ import Foundation
 
 /// `GET /api/flipdesk/ebay/oauth/start` response shape. The web returns
 /// the consent URL the SPA opens to send the user through eBay's OAuth
-/// screens. EdgeAPI's shared decoder applies snake-to-camel conversion
-/// so `consent_url` → `consentURL` automatically.
+/// screens. EdgeAPI's shared decoder applies `.convertFromSnakeCase`, which
+/// maps `consent_url` → `consentUrl` (NOT `consentURL` — the strategy
+/// lower-cases acronyms). The property name must match that exactly or the
+/// decode throws keyNotFound and eBay connect silently fails.
 struct ConsentResponse: Decodable, Equatable {
-    let consentURL: String
+    let consentUrl: String
 }
 
 /// Row shape pulled from the `marketplace_connections` table. RLS-filtered

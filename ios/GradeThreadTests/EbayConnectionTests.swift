@@ -7,16 +7,16 @@ final class EbayConnectionTests: XCTestCase {
     // MARK: - ConsentResponse decoding
 
     func test_consentResponse_decodesSnakeCaseConsentUrl() throws {
-        // EdgeAPI's shared decoder applies convertFromSnakeCase, so the
-        // wire's `consent_url` lands on `consentURL` automatically. We
-        // verify with a JSONDecoder configured the same way.
+        // EdgeAPI's shared decoder applies convertFromSnakeCase, which maps
+        // `consent_url` → `consentUrl` (acronyms are lower-cased). We verify
+        // with a JSONDecoder configured the same way.
         let json = #"""
         {"consent_url":"https://signin.ebay.com/authorize?client_id=abc"}
         """#
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let response = try decoder.decode(ConsentResponse.self, from: Data(json.utf8))
-        XCTAssertTrue(response.consentURL.contains("signin.ebay.com"))
+        XCTAssertTrue(response.consentUrl.contains("signin.ebay.com"))
     }
 
     // MARK: - RemoteMarketplaceConnection decoding

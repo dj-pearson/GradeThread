@@ -140,13 +140,14 @@ final class ReconciliationTests: XCTestCase {
         await store.runAction(on: orphans[0]) { o in
             ReconciliationOutcome(orphanId: o.id, kind: .failed(message: "nope"))
         }
-        // Optimistic removal followed by restore — final state has both
-        // rows present, store phase is .failed with the message.
+        // Optimistic removal followed by restore — the list stays visible
+        // (phase remains .ready so one failed action doesn't replace the whole
+        // screen with a load-failure banner) and the error surfaces via
+        // lastActionError for a toast.
         XCTAssertEqual(store.count, 2)
-        if case .failed(let message) = store.phase {
-            XCTAssertEqual(message, "nope")
-        } else {
-            XCTFail("expected failure phase")
+        XCTAssertEqual(store.lastActionError, "nope")
+        if case .failed = store.phase {
+            XCTFail("a failed action must not flip the screen to the load-failure phase")
         }
     }
 

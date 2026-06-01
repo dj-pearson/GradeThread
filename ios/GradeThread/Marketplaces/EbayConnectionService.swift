@@ -145,7 +145,7 @@ public final class EbayConnectionService: NSObject {
             "/api/flipdesk/ebay/oauth/start",
             query: [URLQueryItem(name: "redirect_to", value: Self.callbackURL.absoluteString)]
         )
-        guard let url = URL(string: response.consentURL) else {
+        guard let url = URL(string: response.consentUrl) else {
             throw ConnectionError.network(message: "Server returned an invalid consent URL.")
         }
         return url

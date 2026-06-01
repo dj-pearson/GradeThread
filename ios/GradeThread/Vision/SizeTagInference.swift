@@ -58,15 +58,18 @@ enum SizeTagInference {
     static func detectBrand(in lines: [String]) -> String? {
         // 1. Known-brand whitelist — substring match against the joined
         //    lowercase form so multi-word brands ('the north face') don't
-        //    get split.
+        //    get split. Pick the LONGEST match: `knownBrands` is a Set with
+        //    overlapping entries ('north face' ⊂ 'the north face',
+        //    'levis' ⊂ "levi's"), and iterating it in hash order would return
+        //    a non-deterministic, often-truncated brand.
         let joinedLower = lines.joined(separator: " ").lowercased()
-        for brand in knownBrands {
-            if joinedLower.contains(brand) {
-                return brand
-                    .split(separator: " ")
-                    .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-                    .joined(separator: " ")
-            }
+        if let brand = knownBrands
+            .filter({ joinedLower.contains($0) })
+            .max(by: { $0.count < $1.count }) {
+            return brand
+                .split(separator: " ")
+                .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+                .joined(separator: " ")
         }
 
         // 2. Uppercase heuristic — the first line that's 2–25 chars,
@@ -110,9 +113,12 @@ enum SizeTagInference {
         return nil
     }
 
-    /// "30 x 32", "30x32", "W30 L32" → "30x32".
+    /// "30 x 32", "30x32", "W30 L32", "W30L32" → "30x32". Two separator
+    /// forms: an explicit x/× (optionally with W/L prefixes), or the
+    /// prefix-only jeans form where an `L` stands in for the separator
+    /// ("W34 L32" has no x).
     static func matchWaistLength(_ line: String) -> String? {
-        let pattern = #"(?i)\bW?(\d{2})\s*[xX×]\s*L?(\d{2})\b"#
+        let pattern = #"(?i)\bW?(\d{2})\s*(?:[xX×]\s*L?|L)(\d{2})\b"#
         guard
             let regex = try? NSRegularExpression(pattern: pattern),
             let match = regex.firstMatch(
