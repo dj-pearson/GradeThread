@@ -21,6 +21,10 @@ on:
       - "ios-v*"
   workflow_dispatch:
     inputs:
+      release_version:
+        description: "Release number / marketing version, e.g. 1.0.0 (blank = keep project default; build number always auto-increments)"
+        type: string
+        default: ""
       submit_to_app_store:
         description: "Submit to App Store after upload?"
         type: boolean
@@ -38,7 +42,10 @@ concurrency:
 jobs:
   release:
     name: Archive + TestFlight upload
-    runs-on: macos-14
+    # Needs Xcode 26 (iOS 26 SDK) — App Store Connect rejects anything built
+    # with an older SDK. Xcode 26 requires macOS 15 (Sequoia), so the runner
+    # moved off macos-14.
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
@@ -63,10 +70,21 @@ jobs:
           secret-path: /
 
       - name: Select Xcode
-        # Must be >= 16: XcodeGen 2.45+ writes objectVersion 77 (unreadable by
-        # Xcode 15.4), and App Store Connect rejects uploads built against the
-        # iOS 17 SDK — Xcode 16 builds against iOS 18, which Apple requires.
-        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+        # App Store Connect now rejects any build made with an SDK older than
+        # iOS 26, which ships in Xcode 26. Pin to the newest Xcode 26.x on the
+        # runner image (don't hardcode a point release — the image bumps it),
+        # and fail loudly if the image somehow lacks one.
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26.x found on this runner. Installed Xcodes:" >&2
+            ls -d /Applications/Xcode_*.app >&2 || true
+            exit 1
+          fi
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
 
       - name: Install XcodeGen + xcbeautify
         run: brew install xcodegen xcbeautify
@@ -229,6 +247,26 @@ jobs:
         # repo lifetime — App Store Connect rejects re-used build numbers.
         run: echo "value=$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve marketing version
+        id: marketing
+        # The release number (CFBundleShortVersionString). Priority:
+        #   1. workflow_dispatch "release_version" input (manual run)
+        #   2. an ios-vX.Y.Z tag push  -> X.Y.Z
+        #   3. blank -> the archive keeps the project default (project.yml
+        #      MARKETING_VERSION), so push-to-main builds Just Work.
+        run: |
+          set -euo pipefail
+          MV='${{ inputs.release_version }}'
+          if [ -z "$MV" ] && [[ "$GITHUB_REF" == refs/tags/ios-v* ]]; then
+            MV="${GITHUB_REF#refs/tags/ios-v}"
+          fi
+          echo "value=$MV" >> "$GITHUB_OUTPUT"
+          if [ -n "$MV" ]; then
+            echo "Marketing version override: $MV"
+          else
+            echo "No override — using project default MARKETING_VERSION from project.yml."
+          fi
+
       - name: Archive
         working-directory: ios
         run: |
@@ -240,6 +278,12 @@ jobs:
           # profile, so the export was missing embedded.mobileprovision.
           # CODE_SIGNING_ALLOWED/REQUIRED=YES override the per-target NO in
           # project.yml (which exists so unsigned CI test builds stay fast).
+          #
+          # Only override MARKETING_VERSION when one was resolved; otherwise
+          # leave it unset so the archive uses project.yml's default.
+          VERSION_ARGS=()
+          MV='${{ steps.marketing.outputs.value }}'
+          if [ -n "$MV" ]; then VERSION_ARGS+=("MARKETING_VERSION=$MV"); fi
           xcodebuild \
             -project GradeThread.xcodeproj \
             -scheme GradeThread \
@@ -255,6 +299,7 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             CURRENT_PROJECT_VERSION=${{ steps.build_number.outputs.value }} \
+            "${VERSION_ARGS[@]}" \
             archive | xcbeautify --renderer github-actions
 
       - name: Export .ipa

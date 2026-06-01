@@ -16,6 +16,14 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     SWIFT_EMIT_LOC_STRINGS: YES
     DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}   # set in env or .xcconfig; placeholder for CI
+    # Version source of truth. The Info.plist of every target references
+    # these via $(MARKETING_VERSION)/$(CURRENT_PROJECT_VERSION), so the CI
+    # release workflow can override them: MARKETING_VERSION (the 1.0.0-style
+    # release number) is set manually on workflow_dispatch or derived from an
+    # ios-v* tag; CURRENT_PROJECT_VERSION (the build number) is the GitHub run
+    # number. Bump MARKETING_VERSION here to change the default release number.
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
 
 # Apps are built unsigned in CI for tests; the release workflow injects a
 # code-signing identity via App Store Connect API key + manual provisioning.
@@ -68,8 +76,8 @@ targets:
       path: GradeThread/Info.plist
       properties:
         CFBundleDisplayName: GradeThread
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen:
           UIColorName: AccentColor
         UISupportedInterfaceOrientations:
@@ -162,8 +170,8 @@ targets:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Add to FlipDesk
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Required for the OS to install the appex. XcodeGen regenerates
         # this plist, so the NSExtension dict must live here. Accept up to
         # 8 image attachments; the extension hides on text/URL/video shares.
@@ -199,8 +207,8 @@ targets:
       path: GradeThreadWidget/Info.plist
       properties:
         CFBundleDisplayName: GradeThread
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Required for the OS to install the appex — WidgetKit's extension
         # point. XcodeGen regenerates this plist, so it must live here (not
         # only in the committed Info.plist, which gets overwritten).
