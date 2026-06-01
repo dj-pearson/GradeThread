@@ -48,9 +48,9 @@ export interface PublicRoute {
 export const PUBLIC_ROUTES: PublicRoute[] = [
   {
     path: "/",
-    title: "AI-Powered Clothing Condition Grading",
+    title: "The Standard for Clothing Condition Grading",
     description:
-      "Standardize pre-owned clothing grades with AI. Build buyer trust, reduce returns, and sell faster with verified condition certificates.",
+      "The trusted standard for pre-owned clothing condition grading. Get an objective 1.0–10.0 grade and a shareable certificate buyers trust — then run your whole reselling workflow with FlipDesk.",
     changefreq: "weekly",
     priority: 1.0,
     jsonLdType: "WebSite",

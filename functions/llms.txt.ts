@@ -9,7 +9,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = ({ env }) => {
   const body = buildLlmsTxt({
     siteUrl: base,
     summary:
-      "GradeThread provides standardized, AI-powered condition grading for pre-owned clothing. Sellers upload garment photos and receive a numerical condition grade (1.0–10.0), a detailed condition report, and a shareable verification certificate. Built by Pearson Media LLC.",
+      "GradeThread is the trusted standard for pre-owned clothing condition grading. Sellers upload garment photos and receive an objective numerical condition grade (1.0–10.0), a detailed condition report, and a shareable verification certificate — like a PSA or CGC grade, but for used clothing. Resellers also run their full eBay/Poshmark/Mercari workflow in FlipDesk: source, catalog, grade, list, sell, and reconcile. Built by Pearson Media LLC.",
     sections: [
       {
         heading: "Product",
@@ -17,7 +17,17 @@ export const onRequestGet: PagesFunction<PagesEnv> = ({ env }) => {
           {
             title: "GradeThread home",
             url: "/",
-            note: "AI clothing condition grading for resellers.",
+            note: "The standard for pre-owned clothing condition grading — objective, AI-powered, verifiable.",
+          },
+          {
+            title: "What is clothing condition grading?",
+            url: "/condition-grading",
+            note: "The 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted grading factors.",
+          },
+          {
+            title: "FlipDesk for resellers",
+            url: "/for-resellers",
+            note: "Run the full reselling workflow — source, catalog, grade, list, sell, reconcile — on top of the grading standard.",
           },
         ],
       },

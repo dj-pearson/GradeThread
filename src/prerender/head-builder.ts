@@ -100,7 +100,7 @@ export function buildHeadTags(route: PublicRoute): string {
   const canonical = absoluteUrl(route.path);
   const fullTitle =
     route.path === "/"
-      ? "GradeThread - AI-Powered Clothing Condition Grading"
+      ? "GradeThread - The Standard for Clothing Condition Grading"
       : `${route.title} | GradeThread`;
   const desc = escapeAttr(route.description);
   const title = escapeAttr(fullTitle);

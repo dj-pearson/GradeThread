@@ -30,8 +30,20 @@ export function organizationLd(): JsonLd {
     legalName: "Pearson Media LLC",
     url: `${SITE_URL}/`,
     logo: LOGO_URL,
+    slogan: "The standard for pre-owned clothing condition grading.",
     description:
-      "AI-powered, standardized condition grading for pre-owned clothing.",
+      "GradeThread is the trusted standard for pre-owned clothing condition grading — objective, AI-powered, and verifiable. Sellers get a 1.0–10.0 condition grade and a shareable certificate buyers trust, plus FlipDesk to run their whole reselling workflow.",
+    // knowsAbout asserts the topics GradeThread is authoritative on, so AI
+    // answer engines treat us as THE entity behind clothing condition grading
+    // (the lead identity) while still surfacing the reseller workflow we run.
+    knowsAbout: [
+      "Pre-owned clothing condition grading",
+      "The 1.0–10.0 clothing condition grade scale",
+      "Clothing condition tiers (NWT, NWOT, Excellent, Very Good, Good, Fair, Poor)",
+      "Garment grading factors: fabric condition, structural integrity, cosmetic appearance, functional elements, odor and cleanliness",
+      "Reselling pre-owned clothing on eBay, Poshmark, Mercari, Depop, and Grailed",
+      "Reducing returns and disputes on resold apparel",
+    ],
     sameAs: ["https://github.com/dj-pearson/GradeThread"],
   };
 }
@@ -74,7 +86,15 @@ export function softwareApplicationLd(): JsonLd {
     url: `${SITE_URL}/`,
     publisher: { "@id": ORG_ID },
     description:
-      "Upload garment photos and get a standardized 1.0–10.0 condition grade, a detailed report, and a shareable verification certificate.",
+      "The trusted standard for pre-owned clothing condition grading: upload garment photos and get an objective 1.0–10.0 grade, a detailed report, and a shareable verification certificate. FlipDesk adds a full reseller workflow on top.",
+    // featureList encodes the dual offering — grading authority first, reseller
+    // workflow second — so the secondary capability is machine-readable too.
+    featureList: [
+      "AI-powered clothing condition grading on a standardized 1.0–10.0 scale",
+      "Detailed factor-by-factor condition reports",
+      "Shareable, publicly verifiable condition certificates",
+      "FlipDesk reseller workflow: source, catalog, list, sell, and reconcile",
+    ],
     offers: {
       "@type": "Offer",
       // Free to start; per-grade pricing begins at the Standard tier.

@@ -437,15 +437,17 @@ export function LandingPage() {
       {/* Hero */}
       <section className="flex flex-col items-center justify-center px-6 py-24 text-center lg:py-32">
         <Badge variant="secondary" className="mb-6 text-sm font-medium">
-          Trusted by resellers everywhere
+          The condition-grading standard for resellers
         </Badge>
         <h1 className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
-          AI-Powered Clothing{" "}
+          The Trusted Standard for Clothing{" "}
           <span className="text-brand-red">Condition Grading</span>
         </h1>
         <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-          Standardize pre-owned clothing grades with AI. Build buyer trust,
-          reduce returns, and sell faster with verified condition certificates.
+          GradeThread gives every pre-owned garment an objective 1.0–10.0
+          condition grade and a certificate buyers trust — powered by AI, so you
+          cut returns and sell faster. Run the whole reselling workflow in
+          FlipDesk.
         </p>
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
           <Link to="/signup">
