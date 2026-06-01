@@ -691,6 +691,7 @@ private struct SettingsPlaceholder: View {
             realtimeSection
             notificationPreferencesSection
             analyticsSection
+            DiagnosticsSection()
         }
         .navigationTitle("Settings")
         .sheet(isPresented: $showingFeedbackSheet) {
