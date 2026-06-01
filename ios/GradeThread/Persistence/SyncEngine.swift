@@ -134,6 +134,10 @@ actor SyncEngine {
         /// thumbnail derives from the first entry per item.
         let photos: [RemoteItemPhoto]
 
+        /// The user's sales, merged into `LocalSale` — the Money tab + the
+        /// dashboard's "sold this week" read these from the local cache.
+        let sales: [RemoteSaleRow]
+
         /// Map of inventoryItemId → first photo (sort_order ascending).
         var primaryPhotos: [String: RemoteItemPhoto] {
             var out: [String: RemoteItemPhoto] = [:]
@@ -259,6 +263,43 @@ actor SyncEngine {
         let created_at: String
     }
 
+    /// Wire-shape `sales` row — the minimal proven column set the Money tab
+    /// needs. Decimal columns can arrive as JSON numbers OR numeric strings,
+    /// so money fields decode leniently (same lesson as item measurements).
+    struct RemoteSaleRow: Decodable {
+        let id: String
+        let inventory_item_id: String
+        let sale_price: Double
+        let platform_fees: Double
+        let sale_date: String
+        let buyer_username: String?
+        let created_at: String
+
+        private enum CodingKeys: String, CodingKey {
+            case id, inventory_item_id, sale_price, platform_fees
+            case sale_date, buyer_username, created_at
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(String.self, forKey: .id)
+            inventory_item_id = try c.decode(String.self, forKey: .inventory_item_id)
+            sale_price = Self.lenientDouble(c, .sale_price) ?? 0
+            platform_fees = Self.lenientDouble(c, .platform_fees) ?? 0
+            sale_date = try c.decode(String.self, forKey: .sale_date)
+            buyer_username = try c.decodeIfPresent(String.self, forKey: .buyer_username)
+            created_at = (try? c.decode(String.self, forKey: .created_at)) ?? ""
+        }
+
+        private static func lenientDouble(
+            _ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys
+        ) -> Double? {
+            if let d = try? c.decodeIfPresent(Double.self, forKey: key) { return d }
+            if let s = try? c.decodeIfPresent(String.self, forKey: key) { return Double(s) }
+            return nil
+        }
+    }
+
     private func pullRemote() async -> Result<PullPayload, Error> {
         do {
             // Decode the rows one-by-one (not as one `[RemoteInventoryItem]`)
@@ -275,7 +316,7 @@ actor SyncEngine {
             // Without items we don't need the photo fetch — short circuit
             // so a brand-new account doesn't spend a round trip.
             guard !items.isEmpty else {
-                return .success(PullPayload(items: [], photos: []))
+                return .success(PullPayload(items: [], photos: [], sales: []))
             }
             // Photos are BEST-EFFORT: a failure here must NOT blank the
             // (already-decoded) inventory. RLS scopes `item_photos` to the
@@ -293,7 +334,21 @@ actor SyncEngine {
             } else {
                 photos = []
             }
-            return .success(PullPayload(items: items, photos: photos))
+
+            // Sales — also best-effort + RLS-scoped (no per-id filter). Feeds
+            // LocalSale, which the Money tab + "sold this week" read.
+            let sales: [RemoteSaleRow]
+            if let salesResponse = try? await SupabaseShared.client
+                .from("sales")
+                .select(Self.saleColumns)
+                .order("sale_date", ascending: false)
+                .execute() {
+                sales = Self.decodeSalesResiliently(salesResponse.data)
+            } else {
+                sales = []
+            }
+
+            return .success(PullPayload(items: items, photos: photos, sales: sales))
         } catch {
             return .failure(error)
         }
@@ -308,6 +363,9 @@ actor SyncEngine {
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
+
+    private static let saleColumns =
+        "id,inventory_item_id,sale_price,platform_fees,sale_date,buyer_username,created_at"
 
     /// Wrapper that decodes to nil instead of throwing, so one malformed
     /// element can't abort decoding of the whole array.
@@ -341,6 +399,13 @@ actor SyncEngine {
     static func decodePhotosResiliently(_ data: Data) -> [RemoteItemPhoto] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<RemoteItemPhoto>].self, from: data
+        ) else { return [] }
+        return rows.compactMap(\.value)
+    }
+
+    static func decodeSalesResiliently(_ data: Data) -> [RemoteSaleRow] {
+        guard let rows = try? JSONDecoder().decode(
+            [Failable<RemoteSaleRow>].self, from: data
         ) else { return [] }
         return rows.compactMap(\.value)
     }
@@ -391,7 +456,40 @@ actor SyncEngine {
             }
 
             self.mergePhotos(payload.photos, context: context, parseDate: parseDate)
+            self.mergeSales(payload.sales, context: context, parseDate: parseDate)
             try? context.save()
+        }
+    }
+
+    /// Upserts the user's sales into `LocalSale`. No pruning — a sale that
+    /// disappears server-side is rare and harmless to keep locally.
+    private nonisolated func mergeSales(
+        _ remoteSales: [RemoteSaleRow],
+        context: ModelContext,
+        parseDate: (String) -> Date
+    ) {
+        let existing = (try? context.fetch(FetchDescriptor<LocalSale>())) ?? []
+        var existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+
+        for remote in remoteSales {
+            if let local = existingById[remote.id] {
+                local.salePrice = remote.sale_price
+                local.platformFees = remote.platform_fees
+                local.saleDate = parseDate(remote.sale_date)
+                local.buyerUsername = remote.buyer_username
+            } else {
+                let local = LocalSale(
+                    id: remote.id,
+                    inventoryItemId: remote.inventory_item_id,
+                    salePrice: remote.sale_price,
+                    saleDate: parseDate(remote.sale_date),
+                    platformFees: remote.platform_fees,
+                    createdAt: remote.created_at.isEmpty ? .now : parseDate(remote.created_at)
+                )
+                local.buyerUsername = remote.buyer_username
+                context.insert(local)
+                existingById[remote.id] = local
+            }
         }
     }
 
