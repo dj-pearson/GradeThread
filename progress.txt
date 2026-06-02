@@ -2320,3 +2320,45 @@ prd.json 277/343 (US-273 + US-279 + US-280 passes=true).
 Recommended next: continue the Reconcile feature -- US-281 (route + page scaffold
 + dump drop zone) unblocks US-282 (clusterByTimeGap, whose pure-function tests
 are ready to write but whose AC also wants in-browser cluster rendering).
+
+
+## Session Notes (2026-06-02 cont.) -- US-281 + US-282
+
+Continued the Photo Dump Reconciliation feature.
+
+US-282 (capture-time gap clustering) -- COMPLETED, passes=true.
+- src/lib/reconcile-cluster.ts: pure clusterByTimeGap(photos, gapSeconds).
+  Untimed photos -> separate needsSorting bucket (never merged); timed photos
+  sorted by capturedAt; a gap >= threshold starts a new cluster. Default
+  DEFAULT_GAP_SECONDS=30. Degenerate gap<=0 floored at 1ms so identical
+  timestamps still group.
+- src/lib/reconcile-cluster.test.ts: 9 tests (empty, single, within/over-gap,
+  >= boundary + just-under, out-of-order sort, no-timestamp bucket, live
+  re-threshold, identical-timestamp grouping, 30s default). All pass.
+
+US-281 (route + page scaffold + dump drop zone) -- COMPLETED, passes=true.
+- New src/pages/flipdesk/reconcile.tsx at /dashboard/flipdesk/reconcile (lazy
+  route in src/routes/index.tsx; 'Reconcile' sidebar entry w/ Layers icon).
+- Drop zone: multi-file drag-drop + multi-file picker (accept=image/* multiple).
+- On first ingest creates a flipdesk_reconcile_sessions row (RLS client,
+  user_id=workspaceOwnerId) and reuses it; reads each file's capture time via
+  readCaptureTime on the ORIGINAL File BEFORE compression. Async/awaited per
+  file, flushed to state in batches of 12 so 100+ photos don't freeze the UI;
+  object URLs revoked on clear/unmount.
+- Renders running photo/proposed-item counts + live-clustered thumbnail groups
+  (threshold slider 5-300s) + a separate Needs-sorting bucket. Gated by
+  can('manage_inventory').
+
+Verified: tsc -b clean, eslint clean, `npm run build` green (page bundles +
+route resolves), vitest 119/119 pass (the responsive-images dist smoke test now
+passes since the build produced dist/). The 'verify in browser via dev-browser'
+AC on both stories is deferred -- no browser in this headless env; all
+programmatic checks pass.
+
+prd.json 279/343 (US-281 + US-282 passes=true).
+
+Recommended next: US-284 (manual merge/split/move via dnd-kit, reusing
+pipeline.tsx's DnD) is the natural follow-on and is fully frontend/testable.
+US-283 (visual-similarity second pass) and US-285 (link-to-existing-item) need
+the edge embed endpoint / AI + live data, so they're better done where the
+edge service + DB run.

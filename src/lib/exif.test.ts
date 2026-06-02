@@ -60,7 +60,12 @@ function buildExifJpeg(dateString: string, tag = 0x9003, little = true): Uint8Ar
 }
 
 function fileFrom(bytes: Uint8Array, lastModified = 0): File {
-  return new File([bytes], "test.jpg", { type: "image/jpeg", lastModified });
+  // Pass the backing ArrayBuffer to satisfy the BlobPart type under the
+  // project's strict lib (TS narrows Uint8Array to Uint8Array<ArrayBufferLike>).
+  return new File([bytes.buffer as ArrayBuffer], "test.jpg", {
+    type: "image/jpeg",
+    lastModified,
+  });
 }
 
 describe("readCaptureTime", () => {
