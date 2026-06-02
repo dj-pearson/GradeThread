@@ -5565,8 +5565,8 @@
         "Typecheck + tests pass"
       ],
       "priority": 335,
-      "passes": false,
-      "notes": "BUILD-NEW. Frontend for the US-327 backend (endpoints already exist: GET /api/admin/grading/monitor/runs, POST /monitor/run). Extend src/pages/admin/ai-models.tsx."
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). New GradingMonitorPanel (src/components/admin/grading-monitor-panel.tsx) rendered in the AI Models admin page: shows latest run severity, golden-set eval result, live production metrics, and the specific alerts; lists recent runs; 'Run now' button. Reads/triggers via the edge endpoints GET /api/admin/grading/monitor/runs + POST /monitor/run (grading_monitor_runs isn't in the typed supabase Database, so the edge endpoints are used directly). BUILD-NEW. Frontend for the US-327 backend."
     },
     {
       "id": "US-336",

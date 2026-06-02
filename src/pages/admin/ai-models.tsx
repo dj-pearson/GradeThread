@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { GradingMonitorPanel } from "@/components/admin/grading-monitor-panel";
 import {
   Dialog,
   DialogContent,
@@ -975,6 +976,9 @@ export function AdminAiModelsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Automated quality monitor (US-335 → US-327 backend) */}
+      <GradingMonitorPanel />
 
       {/* Accuracy Feedback Dashboard */}
       <Card>
