@@ -10,6 +10,7 @@ import {
 import { dispatchContentWebhook } from "../lib/content-webhook.ts";
 import { mintPreviewToken } from "../lib/preview-token.ts";
 import { submitUrls } from "../lib/indexnow.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 
 // Submit blog-post URLs to IndexNow (US-296) — best-effort, fire-and-forget.
 // Mirrors the cache-purge sites so Bing/Yandex re-index on publish/edit/archive.
@@ -232,8 +233,20 @@ contentBlogRoutes.patch("/:id", async (c) => {
 // ──────────────────────────────────────────────────────────
 contentBlogRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  // Capture a snapshot for the audit trail before the row is gone.
+  const { data: prior } = await supabaseAdmin
+    .from("blog_posts")
+    .select("id, slug, title, status")
+    .eq("id", id)
+    .maybeSingle();
   const { error } = await supabaseAdmin.from("blog_posts").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 500);
+  await writeAuditLog(c, {
+    action: "content.blog_delete",
+    targetType: "blog_post",
+    targetId: id,
+    before: prior ?? null,
+  });
   return c.json({ ok: true });
 });
 
@@ -268,6 +281,14 @@ contentBlogRoutes.post("/:id/publish", async (c) => {
     .select("*")
     .single();
   if (upErr) return c.json({ error: upErr.message }, 500);
+
+  await writeAuditLog(c, {
+    action: "content.blog_publish",
+    targetType: "blog_post",
+    targetId: id,
+    before: { status: post.status },
+    after: { status: "published", published_at: now, slug: updated.slug },
+  });
 
   // Mark the originating topic as used.
   if (updated.topic_id) {
@@ -353,6 +374,12 @@ contentBlogRoutes.post("/:id/schedule", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!data) return c.json({ error: "Not found" }, 404);
+  await writeAuditLog(c, {
+    action: "content.blog_schedule",
+    targetType: "blog_post",
+    targetId: id,
+    after: { status: "scheduled", scheduled_for: body.scheduled_for },
+  });
   return c.json({ post: data });
 });
 
@@ -369,6 +396,13 @@ contentBlogRoutes.post("/:id/archive", async (c) => {
     .maybeSingle();
   if (error) return c.json({ error: error.message }, 500);
   if (!data) return c.json({ error: "Not found" }, 404);
+
+  await writeAuditLog(c, {
+    action: "content.blog_archive",
+    targetType: "blog_post",
+    targetId: id,
+    after: { status: "archived", slug: data.slug },
+  });
 
   // Archiving a previously-published post needs a purge too — the SSR
   // worker should start returning 404 for the slug.

@@ -40,6 +40,7 @@ import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
+import { bodyLimit } from "./middleware/body-limit.ts";
 import { assertNoProdDebugFlags } from "./lib/env.ts";
 
 const app = new Hono();
@@ -105,6 +106,12 @@ app.use(
 // referrer policy, CORP) + no-store on user-scoped surfaces. Runs after cors()
 // so it can't clobber Access-Control-* headers. (US-263)
 app.use("*", securityHeaders);
+
+// Request body-size guard (US-267) — reject oversized payloads with 413 before
+// the handler buffers them. Per-route caps (15MB for image uploads, 256KB for
+// JSON-only endpoints) are resolved inside the middleware by path. Scoped to
+// /api/* so /health and the OPTIONS preflight never pay for it.
+app.use("/api/*", bodyLimit);
 
 // Auth middleware — applied to protected routes only (not health or webhooks)
 app.use("/api/grade/*", authMiddleware);

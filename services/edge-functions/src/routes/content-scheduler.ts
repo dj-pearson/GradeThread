@@ -13,6 +13,7 @@ import {
   buildBlogPurgeFiles,
   purgeCloudflareCache,
 } from "../lib/cloudflare-purge.ts";
+import { writeSystemAuditLog } from "../lib/audit-log.ts";
 
 // Autonomous scheduler endpoint. Make.com hits this on a cron; the
 // /tick handler decides what (if anything) to publish next.
@@ -168,6 +169,17 @@ async function publishDueScheduledPosts(): Promise<number> {
         .select("*")
         .maybeSingle();
       if (!updated) continue;
+
+      // System-actor audit row: the scheduler (not a human) promoted this
+      // scheduled draft to published. (US-269)
+      await writeSystemAuditLog({
+        action: "content.blog_publish",
+        targetType: "blog_post",
+        targetId: updated.id,
+        before: { status: "scheduled" },
+        after: { status: "published", published_at: nowIso, slug: updated.slug },
+        details: { trigger: "scheduler_tick" },
+      });
 
       if (updated.topic_id) {
         await supabaseAdmin

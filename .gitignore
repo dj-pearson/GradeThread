@@ -5,10 +5,12 @@ node_modules/
 dist/
 dist-ssr/
 
-# Environment variables
+# Environment variables — ignore every .env variant (incl. .env.production,
+# .env.development, services/edge-functions/.env, etc.) but keep the tracked
+# placeholder examples. (US-272)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*

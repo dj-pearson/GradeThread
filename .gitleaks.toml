@@ -8,6 +8,14 @@ description = "Placeholders and known-public example values"
 paths = [
   '''\.env\.example$''',
   '''services/edge-functions/\.env\.example$''',
+  # Lockfile integrity hashes (esm.sh / npm content digests) are public content
+  # addresses, not secrets — the generic-api-key rule trips on them.
+  '''deno\.lock$''',
+  # PEM-handling code: contains the literal -----BEGIN/END PRIVATE KEY-----
+  # boundary markers used to strip a key that is read from an env var at
+  # runtime (never hardcoded). Full-history scan 2026-06-02 confirmed no key
+  # material here — only the boundary literals.
+  '''services/edge-functions/src/lib/gsc-client\.ts$''',
 ]
 regexes = [
   # Generic placeholder tokens used throughout the *.example files.

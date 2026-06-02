@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "setup:stripe": "node scripts/setup-stripe-pricing.mjs"
+    "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "repository": {
     "type": "git",

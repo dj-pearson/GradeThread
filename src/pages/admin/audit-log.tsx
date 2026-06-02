@@ -34,6 +34,7 @@ import {
   ChevronLeft,
   Lock,
   ScrollText,
+  Shield,
 } from "lucide-react";
 
 const PAGE_SIZE = 25;
@@ -66,6 +67,7 @@ export function AdminAuditLogPage() {
 
   const [adminFilter, setAdminFilter] = useState("all");
   const [actionFilter, setActionFilter] = useState("all");
+  const [targetTypeFilter, setTargetTypeFilter] = useState("all");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(0);
@@ -99,7 +101,11 @@ export function AdminAuditLogPage() {
 
   const adminOptions = useMemo(() => {
     if (!data) return [];
-    const ids = new Set(data.logs.map((l) => l.admin_user_id));
+    const ids = new Set(
+      data.logs
+        .map((l) => l.admin_user_id)
+        .filter((id): id is string => !!id)
+    );
     return Array.from(ids).map((id) => ({
       id,
       label:
@@ -114,6 +120,22 @@ export function AdminAuditLogPage() {
     return Array.from(new Set(data.logs.map((l) => l.action))).sort();
   }, [data]);
 
+  const targetTypeOptions = useMemo(() => {
+    if (!data) return [];
+    return Array.from(new Set(data.logs.map((l) => l.target_type))).sort();
+  }, [data]);
+
+  // An entry is super-admin-only if the acting role was super_admin. Prefer the
+  // role stamped on the row at action time (actor_role); fall back to the
+  // actor's current role for older rows written before that column existed.
+  function isSuperAdminEntry(log: AdminAuditLogRow): boolean {
+    if (log.actor_role) return log.actor_role === "super_admin";
+    return (
+      !!log.admin_user_id &&
+      data?.usersById.get(log.admin_user_id)?.role === "super_admin"
+    );
+  }
+
   const filtered = useMemo(() => {
     if (!data) return [];
     const fromMs = fromDate ? new Date(fromDate).getTime() : null;
@@ -125,12 +147,18 @@ export function AdminAuditLogPage() {
       if (actionFilter !== "all" && log.action !== actionFilter) {
         return false;
       }
+      if (
+        targetTypeFilter !== "all" &&
+        log.target_type !== targetTypeFilter
+      ) {
+        return false;
+      }
       const ts = new Date(log.created_at).getTime();
       if (fromMs !== null && ts < fromMs) return false;
       if (toMs !== null && ts >= toMs) return false;
       return true;
     });
-  }, [data, adminFilter, actionFilter, fromDate, toDate]);
+  }, [data, adminFilter, actionFilter, targetTypeFilter, fromDate, toDate]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
@@ -142,6 +170,7 @@ export function AdminAuditLogPage() {
   function resetFilters() {
     setAdminFilter("all");
     setActionFilter("all");
+    setTargetTypeFilter("all");
     setFromDate("");
     setToDate("");
     setPage(0);
@@ -187,7 +216,7 @@ export function AdminAuditLogPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Filters</CardTitle>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <div className="space-y-1.5">
             <Label className="text-xs">Admin User</Label>
             <Select
@@ -228,6 +257,29 @@ export function AdminAuditLogPage() {
                 {actionOptions.map((action) => (
                   <SelectItem key={action} value={action}>
                     {formatAction(action)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Target Type</Label>
+            <Select
+              value={targetTypeFilter}
+              onValueChange={(v) => {
+                setTargetTypeFilter(v);
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All targets</SelectItem>
+                {targetTypeOptions.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {formatAction(t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -313,7 +365,11 @@ export function AdminAuditLogPage() {
                   <TableBody>
                     {pageRows.map((log) => {
                       const isExpanded = expandedId === log.id;
-                      const admin = data?.usersById.get(log.admin_user_id);
+                      const admin = log.admin_user_id
+                        ? data?.usersById.get(log.admin_user_id)
+                        : undefined;
+                      const superAdmin = isSuperAdminEntry(log);
+                      const isSystem = !log.admin_user_id;
                       return (
                         <Fragment key={log.id}>
                           <TableRow
@@ -347,12 +403,29 @@ export function AdminAuditLogPage() {
                             <TableCell className="whitespace-nowrap text-sm">
                               {formatTimestamp(log.created_at)}
                             </TableCell>
-                            <TableCell className="max-w-[180px] truncate text-sm">
-                              {admin?.full_name || admin?.email || (
-                                <span className="text-muted-foreground">
-                                  {log.admin_user_id}
+                            <TableCell className="max-w-[200px] text-sm">
+                              <div className="flex items-center gap-1.5">
+                                <span className="truncate">
+                                  {isSystem ? (
+                                    <span className="text-muted-foreground">
+                                      System
+                                    </span>
+                                  ) : (
+                                    admin?.full_name ||
+                                    admin?.email || (
+                                      <span className="text-muted-foreground">
+                                        {log.admin_user_id}
+                                      </span>
+                                    )
+                                  )}
                                 </span>
-                              )}
+                                {superAdmin && (
+                                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-brand-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-red">
+                                    <Shield className="h-3 w-3" />
+                                    Super
+                                  </span>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium">
@@ -369,7 +442,27 @@ export function AdminAuditLogPage() {
                           {isExpanded && (
                             <TableRow>
                               <TableCell colSpan={6} className="bg-muted/40">
-                                <div className="space-y-1 py-1">
+                                <div className="space-y-2 py-1">
+                                  <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+                                    <span>
+                                      Actor role:{" "}
+                                      <span className="font-medium text-foreground">
+                                        {log.actor_role ?? "—"}
+                                      </span>
+                                    </span>
+                                    <span>
+                                      IP:{" "}
+                                      <span className="font-mono text-foreground">
+                                        {log.ip ?? "—"}
+                                      </span>
+                                    </span>
+                                    <span className="max-w-full truncate">
+                                      User agent:{" "}
+                                      <span className="text-foreground">
+                                        {log.user_agent ?? "—"}
+                                      </span>
+                                    </span>
+                                  </div>
                                   <p className="text-xs font-medium text-muted-foreground">
                                     Details
                                   </p>

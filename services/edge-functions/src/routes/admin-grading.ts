@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 import {
   computeAccuracySummary,
   computeConfidenceCalibration,
@@ -28,21 +30,16 @@ type AdminEnv = {
 
 export const adminGradingRoutes = new Hono<AdminEnv>();
 
-async function auditLog(
-  adminUserId: string,
+// Thin wrapper over the shared writeAuditLog (US-269) for uniform actor_role /
+// ip / user_agent capture. Threads the request Context through.
+function auditLog(
+  c: Context,
   action: string,
   targetType: string,
   targetId: string | null,
   details: Record<string, unknown>,
 ) {
-  const { error } = await supabaseAdmin.from("admin_audit_log").insert({
-    admin_user_id: adminUserId,
-    action,
-    target_type: targetType,
-    target_id: targetId,
-    details,
-  });
-  if (error) console.error("[admin-grading] audit log insert failed:", error.message);
+  return writeAuditLog(c, { action, targetType, targetId, details });
 }
 
 const STAGES = ["per_image", "composite"] as const;
@@ -135,7 +132,6 @@ adminGradingRoutes.get("/prompts", async (c) => {
 // POST /prompts — create a candidate prompt version (inactive until eval-gated).
 // Body: { version_name, prompt_text, stage, garment_scope?, notes? }
 adminGradingRoutes.post("/prompts", async (c) => {
-  const userId = c.get("userId");
   let body: {
     version_name?: string;
     prompt_text?: string;
@@ -174,7 +170,7 @@ adminGradingRoutes.post("/prompts", async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 400);
 
-  await auditLog(userId, "create_prompt_version", "ai_prompt_version", data.id, {
+  await auditLog(c, "create_prompt_version", "ai_prompt_version", data.id, {
     version_name: versionName,
     stage,
     garment_scope: body.garment_scope ?? null,
@@ -188,7 +184,7 @@ adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
   const id = c.req.param("id");
   try {
     const result = await runEval(id, userId);
-    await auditLog(userId, "run_prompt_eval", "ai_prompt_version", id, {
+    await auditLog(c, "run_prompt_eval", "ai_prompt_version", id, {
       passed: result.passed,
       mae: result.mean_absolute_error,
       agreement_rate: result.agreement_rate,
@@ -205,24 +201,22 @@ adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
 
 // POST /prompts/:id/activate — promote to active. Gated: requires a passing eval.
 adminGradingRoutes.post("/prompts/:id/activate", async (c) => {
-  const userId = c.get("userId");
   const id = c.req.param("id");
   const result = await activatePromptVersion(id);
   if (!result.ok) return c.json({ error: result.reason }, 422);
-  await auditLog(userId, "activate_prompt_version", "ai_prompt_version", id, {});
+  await auditLog(c, "activate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
 });
 
 // POST /prompts/:id/deactivate — turn off an active prompt (reverts to code default).
 adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
-  const userId = c.get("userId");
   const id = c.req.param("id");
   const { error } = await supabaseAdmin
     .from("ai_prompt_versions")
     .update({ is_active: false })
     .eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
-  await auditLog(userId, "deactivate_prompt_version", "ai_prompt_version", id, {});
+  await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
 });
 
@@ -285,7 +279,7 @@ adminGradingRoutes.post("/eval/cases", async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 400);
 
-  await auditLog(userId, "create_eval_case", "grading_eval_case", data.id, { label });
+  await auditLog(c, "create_eval_case", "grading_eval_case", data.id, { label });
   return c.json({ case: data }, 201);
 });
 
@@ -400,7 +394,7 @@ adminGradingRoutes.post("/eval/cases/promote", async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 400);
 
-  await auditLog(userId, "promote_eval_candidate", "grading_eval_case", inserted.id, {
+  await auditLog(c, "promote_eval_candidate", "grading_eval_case", inserted.id, {
     source,
     grade_report_id: reportId,
     expected_score: expectedScore,
@@ -411,7 +405,6 @@ adminGradingRoutes.post("/eval/cases/promote", async (c) => {
 
 // PATCH /eval/cases/:id — edit an eval case (whitelist of mutable fields).
 adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
-  const userId = c.get("userId");
   const id = c.req.param("id");
   let body: Record<string, unknown>;
   try {
@@ -441,17 +434,16 @@ adminGradingRoutes.patch("/eval/cases/:id", async (c) => {
     .single();
   if (error) return c.json({ error: error.message }, 400);
 
-  await auditLog(userId, "update_eval_case", "grading_eval_case", id, { fields: Object.keys(update) });
+  await auditLog(c, "update_eval_case", "grading_eval_case", id, { fields: Object.keys(update) });
   return c.json({ case: data });
 });
 
 // DELETE /eval/cases/:id
 adminGradingRoutes.delete("/eval/cases/:id", async (c) => {
-  const userId = c.get("userId");
   const id = c.req.param("id");
   const { error } = await supabaseAdmin.from("grading_eval_cases").delete().eq("id", id);
   if (error) return c.json({ error: error.message }, 400);
-  await auditLog(userId, "delete_eval_case", "grading_eval_case", id, {});
+  await auditLog(c, "delete_eval_case", "grading_eval_case", id, {});
   return c.json({ ok: true });
 });
 
@@ -481,10 +473,9 @@ adminGradingRoutes.get("/monitor/runs", async (c) => {
 
 // POST /monitor/run — trigger a monitor scan on demand (same logic as the cron).
 adminGradingRoutes.post("/monitor/run", async (c) => {
-  const userId = c.get("userId");
   try {
     const result = await runGradingRegressionScan("manual");
-    await auditLog(userId, "run_grading_monitor", "grading_monitor", null, {
+    await auditLog(c, "run_grading_monitor", "grading_monitor", null, {
       severity: result.severity,
       alert_count: result.alerts.length,
     });

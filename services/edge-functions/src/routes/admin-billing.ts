@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 
 // Admin billing routes (US-221). All endpoints require admin role —
 // mounted with both authMiddleware + adminAuthMiddleware in main.ts.
@@ -44,23 +46,17 @@ function getStripe(): Stripe | null {
   return new Stripe(key, { apiVersion: "2024-04-10" });
 }
 
-async function auditLog(
-  adminUserId: string,
+// Thin wrapper over the shared writeAuditLog (US-269) so billing actions get
+// uniform actor_role / ip / user_agent capture. Kept positional to preserve the
+// existing call sites; just threads the request Context through.
+function auditLog(
+  c: Context,
   action: string,
   targetType: string,
   targetId: string | null,
   details: Record<string, unknown>,
 ) {
-  const { error } = await supabaseAdmin.from("admin_audit_log").insert({
-    admin_user_id: adminUserId,
-    action,
-    target_type: targetType,
-    target_id: targetId,
-    details,
-  });
-  if (error) {
-    console.error("[admin-billing] audit log insert failed:", error);
-  }
+  return writeAuditLog(c, { action, targetType, targetId, details });
 }
 
 // ── POST /users/:id/change-plan ──────────────────────────────────
@@ -128,7 +124,7 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
     }
 
     // Webhook will set flipdesk_plan='free' and subscription_status='canceled'.
-    await auditLog(adminId, "admin.change_plan", "user", targetUserId, {
+    await auditLog(c, "admin.change_plan", "user", targetUserId, {
       from_plan: fromPlan,
       to_plan: "free",
       method: "stripe_cancel_immediate",
@@ -171,7 +167,7 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
     }
 
     // Webhook (customer.subscription.updated) will sync the user row.
-    await auditLog(adminId, "admin.change_plan", "user", targetUserId, {
+    await auditLog(c, "admin.change_plan", "user", targetUserId, {
       from_plan: fromPlan,
       to_plan: plan,
       from_interval: targetUser.flipdesk_interval,
@@ -242,7 +238,7 @@ adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
     return c.json({ error: "Failed to grant credits" }, 500);
   }
 
-  await auditLog(adminId, "admin.comp_credits", "user", targetUserId, {
+  await auditLog(c, "admin.comp_credits", "user", targetUserId, {
     credits,
     reason,
     previous_balance: targetUser.grade_credit_balance,
@@ -283,7 +279,7 @@ adminBillingRoutes.post("/charges/:id/refund", async (c) => {
       },
     });
 
-    await auditLog(adminId, "admin.refund_charge", "charge", chargeId, {
+    await auditLog(c, "admin.refund_charge", "charge", chargeId, {
       refund_id: refund.id,
       amount: refund.amount,
       reason: refundReason,
