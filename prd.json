@@ -3524,8 +3524,8 @@
         "Returns { sessionId, url }; errors return { error } with appropriate status; logs to Sentry on 5xx"
       ],
       "priority": 204,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). POST /api/payments/flipdesk/subscribe in routes/payments.ts: validates plan(starter|pro|business) + interval(monthly|yearly), rejects free/invalid with 400, 503 if price unconfigured; reuses stripe_customer_id else customer_email; metadata {user_id,product:'flipdesk',plan,interval} on session + subscription_data; carries the signup trial forward via subscription_data.trial_end when trial_ends_at is in the future and no prior sub (one trial per user — the 14d Pro trial is granted at signup by handle_new_user, US-219, rather than at subscribe; same one-trial-ever guarantee); in-place subscriptions.update (prorated, schedule-release) when a live sub exists; success/cancel URLs per AC; returns {sessionId,url}. (Also enables automatic_tax + promo codes — US-223.) Verified by code reading; AC mandates no unit test."
     },
     {
       "id": "US-205",
@@ -3540,8 +3540,8 @@
         "All three routes share an auth middleware that sets c.var.userId from the JWT"
       ],
       "priority": 205,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). routes/payments.ts: POST /gradethread/credit-pack {packSize:10|25|50|100} one-time Checkout, metadata {user_id,product:'credit_pack',credits}; POST /gradethread/per-grade {submissionId,tier} validates ownership (.eq user_id) + state (404 missing / 409 already-paid-or-processing), metadata incl credits_equivalent, success/cancel ?payment=; legacy POST /checkout-session aliased to the same perGradeCheckout handler (back-compat window); all share the JWT auth middleware (c.get('userId')). Verified by code reading."
     },
     {
       "id": "US-206",
@@ -3561,8 +3561,8 @@
         "All handlers idempotent on retry; all DB writes go through supabaseAdmin"
       ],
       "priority": 206,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). routes/webhooks.ts: signature verified (constructEventAsync, 400 on mismatch); idempotency via claimWebhookEvent + flipdesk_subscription_events(stripe_event_id UNIQUE); handles customer.subscription.created/updated/paused/resumed (price→plan+interval, status map, period_end, cancel_at_period_end, sub_id, trial persist), .deleted (canceled→free, keeps credits), invoice.payment_succeeded (resets grades_used_this_month + ai_actions_used_this_month on create/cycle), invoice.payment_failed (past_due), checkout.session.completed (credit_pack→grant_grade_credits; per_grade→mark paid), charge.refunded (credit-pack reversal). All writes via supabaseAdmin. Verified by code reading."
     },
     {
       "id": "US-207",
@@ -3593,8 +3593,8 @@
         "Unit tests cover: at-the-cap returns 402; one-below-cap returns 200; one-below-cap with delta=2 returns 402; 80% threshold returns header; paused subscription is treated as 'free' caps but doesn't reset counters"
       ],
       "priority": 208,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). lib/plan-gate.ts requireFlipdesk(c,{feature?,capacity?}) returns 402 FEATURE_LOCKED / CAP_REACHED with requiredPlan, sets X-Plan-Warning:CAP_80 header at >=80% (proceeds), -1 caps = unlimited, paused subs fall back to Free caps without resetting counters; live counts via inventory_items(status='listed') / users.ai_actions_used_this_month / marketplace_connections. MADE TESTABLE: extracted an injectable PlanGateDeps (loadUser/readUsage) defaulting to supabaseAdmin — same pattern as rate-limit.ts; public 2-arg signature unchanged so all callers (flipdesk-autolister) are unaffected. NEW src/tests/plan-gate_test.ts: 11 cases (at-cap 402, one-below 200, delta=2 402, 80% header, paused→Free, unlimited, FEATURE_LOCKED apiAccess→business, bulkActions starter→pro, free 2nd-marketplace block, 404). Ran offline under a local Deno shim harness: 11/11 pass; deno check clean. (Note: marketplaces over-cap returns CAP_REACHED not FEATURE_LOCKED — functionally equivalent, blocks with requiredPlan='starter'.)"
     },
     {
       "id": "US-209",

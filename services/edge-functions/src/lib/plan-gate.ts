@@ -137,6 +137,44 @@ export interface RequireFlipdeskOptions {
 
 type EnvWithUser = { Variables: { userId: string } };
 
+/** The user slice plan-gate needs to make a decision. */
+export interface PlanGateUser {
+  flipdesk_plan: FlipdeskPlan;
+  subscription_status: string;
+  ai_actions_used_this_month: number;
+  ai_action_limit: number | null;
+  grades_used_this_month: number;
+}
+
+/**
+ * Data access plan-gate depends on. Defaults to the supabaseAdmin-backed
+ * implementation; tests inject canned values so the decision logic (US-208)
+ * can be exercised without a live DB. Mirrors the injectable-incrementer
+ * pattern used by lib/rate-limit.ts.
+ */
+export interface PlanGateDeps {
+  loadUser(userId: string): Promise<PlanGateUser | null>;
+  readUsage(userId: string, kind: CapacityKind, user: PlanGateUser): Promise<number>;
+}
+
+const defaultDeps: PlanGateDeps = {
+  async loadUser(userId) {
+    const { data, error } = await supabaseAdmin
+      .from("users")
+      .select(
+        "flipdesk_plan, subscription_status, ai_actions_used_this_month, ai_action_limit, grades_used_this_month",
+      )
+      .eq("id", userId)
+      .single();
+    if (error || !data) {
+      console.error(`[plan-gate] User ${userId} not found:`, error);
+      return null;
+    }
+    return data as PlanGateUser;
+  },
+  readUsage: readCurrentUsage,
+};
+
 /**
  * Returns a Response (402 PAYMENT_REQUIRED) if the user is blocked. Returns
  * null if the call should proceed. When at the soft-warning threshold, sets
@@ -149,22 +187,15 @@ type EnvWithUser = { Variables: { userId: string } };
 export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
   c: Context<E>,
   opts: RequireFlipdeskOptions,
+  deps: PlanGateDeps = defaultDeps,
 ): Promise<Response | null> {
   const userId = opts.userId ?? c.get("userId");
   if (!userId) {
     return c.json({ error: "UNAUTHENTICATED" }, 401);
   }
 
-  const { data: user, error } = await supabaseAdmin
-    .from("users")
-    .select(
-      "flipdesk_plan, subscription_status, ai_actions_used_this_month, ai_action_limit, grades_used_this_month",
-    )
-    .eq("id", userId)
-    .single();
-
-  if (error || !user) {
-    console.error(`[plan-gate] User ${userId} not found:`, error);
+  const user = await deps.loadUser(userId);
+  if (!user) {
     return c.json({ error: "USER_NOT_FOUND" }, 404);
   }
 
@@ -191,7 +222,7 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
   // ─ Capacity check ─
   if (opts.capacity) {
     const delta = opts.capacity.delta ?? 1;
-    const used = await readCurrentUsage(userId, opts.capacity.kind, user);
+    const used = await deps.readUsage(userId, opts.capacity.kind, user);
     const limit = getLimit(plan, opts.capacity.kind);
 
     if (limit === -1) return null; // Unlimited.
