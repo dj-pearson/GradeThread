@@ -12,6 +12,7 @@ import {
 import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -202,6 +203,9 @@ adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
 
 // POST /prompts/:id/activate — promote to active. Gated: requires a passing eval.
 adminGradingRoutes.post("/prompts/:id/activate", async (c) => {
+  // US-270: activating a prompt version changes live grading — require step-up.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
   const id = c.req.param("id");
   const result = await activatePromptVersion(id);
   if (!result.ok) return c.json({ error: result.reason }, 422);

@@ -20,6 +20,7 @@ import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
+import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
@@ -273,6 +274,7 @@ app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
 app.route("/api/admin", adminBillingRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
+app.route("/api/admin/users", adminUsersRoutes);
 // US-326 public transparency report. Lives at /api/grading/public (NOT
 // /api/grade/*, which is JWT-gated) so the unauthenticated /transparency page
 // can read platform-wide aggregate accuracy stats. Returns no per-tenant data.

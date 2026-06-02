@@ -16,6 +16,18 @@ export function isProduction(): boolean {
   return edgeEnv() === "production";
 }
 
+// US-270: whether admin endpoints require AAL2 (MFA) and destructive actions
+// require a fresh step-up. Enforced by DEFAULT (fail-closed); set
+// ADMIN_MFA_ENFORCED=false ONLY during the initial enrollment window so the
+// team can enroll TOTP before the gate turns on. Re-enable immediately after.
+export function isAdminMfaEnforced(): boolean {
+  return (Deno.env.get("ADMIN_MFA_ENFORCED") ?? "true").trim().toLowerCase() !==
+    "false";
+}
+
+// Step-up freshness window for destructive super-admin actions (seconds).
+export const STEP_UP_MAX_AGE_SEC = 5 * 60;
+
 // True only when the named flag is "true" AND we are not in production.
 export function isDebugAllowed(flag: string): boolean {
   if (isProduction()) return false;

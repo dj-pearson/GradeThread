@@ -30,6 +30,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GradingMonitorPanel } from "@/components/admin/grading-monitor-panel";
 import { GradingEvalCandidatesPanel } from "@/components/admin/grading-eval-candidates-panel";
 import { GradingCalibrationPanel } from "@/components/admin/grading-calibration-panel";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import {
   Dialog,
   DialogContent,
@@ -208,6 +210,7 @@ export function AdminAiModelsPage() {
   // Activate/Delete confirmation
   const [activateTarget, setActivateTarget] = useState<EnrichedPromptVersion | null>(null);
   const [deactivateTarget, setDeactivateTarget] = useState<EnrichedPromptVersion | null>(null);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<EnrichedPromptVersion | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -477,28 +480,29 @@ export function AdminAiModelsPage() {
     if (!activateTarget) return;
     setActionLoading(true);
     try {
-      // Deactivate all other versions first
-      const { error: deactivateError } = await supabase
-        .from("ai_prompt_versions")
-        .update({ is_active: false } as never)
-        .neq("id", activateTarget.id);
-      if (deactivateError) throw deactivateError;
-
-      // Activate the selected version
-      const { error: activateError } = await supabase
-        .from("ai_prompt_versions")
-        .update({ is_active: true } as never)
-        .eq("id", activateTarget.id);
-      if (activateError) throw activateError;
-
-      await logAuditAction("activate_prompt_version", "ai_prompt_version", activateTarget.id, {
-        version_name: activateTarget.version_name,
-      });
+      // US-270: activation runs server-side (POST /grading/prompts/:id/activate)
+      // — it deactivates others, enforces the passing-eval gate, requires a
+      // fresh MFA step-up, and audits. Not a client-side supabase update.
+      const res = await edgeFetch(
+        `/api/admin/grading/prompts/${activateTarget.id}/activate`,
+        { method: "POST", silentGate: true },
+      );
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.code === "STEP_UP_REQUIRED") {
+          setStepUpOpen(true); // dialog onVerified retries
+          return;
+        }
+        throw new Error(data?.error ?? "Forbidden");
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }
 
       toast.success("Prompt version activated", {
         description: `"${activateTarget.version_name}" is now the active production prompt.`,
       });
-
       queryClient.invalidateQueries({ queryKey: ["admin-ai-models"] });
       setActivateTarget(null);
     } catch (err) {
@@ -1922,6 +1926,15 @@ export function AdminAiModelsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* US-270: step-up re-auth before activating a prompt version, then retry. */}
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          void handleActivate();
+        }}
+      />
     </div>
   );
 }

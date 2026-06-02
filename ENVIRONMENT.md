@@ -198,3 +198,34 @@ MFA enforcement for admin/super_admin accounts is tracked separately in
 **Checklist after applying:** sign-up requires confirmation · a known-breached
 password is rejected · old refresh token is rejected after rotation · an OAuth
 redirect to an unlisted URL is refused.
+
+## Admin MFA + step-up — US-270
+
+Admin and super-admin accounts must use TOTP two-factor auth, enforced
+**server-side** by the edge `adminAuthMiddleware` (rejects any admin call whose
+JWT is not `aal2`) — not just the client gate.
+
+| Var | Where | Default | Notes |
+|---|---|---|---|
+| `ADMIN_MFA_ENFORCED` | edge service env | `true` | Standing AAL2 requirement on `/api/admin/*` + step-up on destructive actions. Set `false` ONLY during the initial enrollment window so the team can enroll before the gate turns on, then set back to `true`. |
+| `GOTRUE_MFA_ENABLED` | Supabase auth container | `true` | Allows TOTP factor enrollment via `supabase.auth.mfa.*`. |
+
+**Enrollment flow (Pearson Media team):**
+1. Deploy with `ADMIN_MFA_ENFORCED=false` (enrollment window).
+2. Each admin signs in and opens any `/admin` page — the **AdminMfaGate**
+   (`src/components/admin/admin-mfa-gate.tsx`) shows a TOTP enroll screen: scan
+   the QR in an authenticator app (Google Authenticator, 1Password, …), enter
+   the 6-digit code to verify. The session becomes `aal2`.
+3. Once every admin has enrolled, set `ADMIN_MFA_ENFORCED=true` and redeploy.
+   From then on, aal1 admin sessions are rejected and the gate prompts a
+   per-session authenticator challenge.
+
+**Step-up (≤5 min) on destructive actions:** role grant/revoke
+(`POST /api/admin/users/:id/role`), manual refund
+(`POST /api/admin/charges/:id/refund`), prompt-version activation
+(`POST /api/admin/grading/prompts/:id/activate`), and privileged-account
+deletion require a *fresh* MFA challenge — the server checks the JWT `amr` for a
+TOTP timestamp within the window (`STEP_UP_MAX_AGE_SEC`, 5 min). The UI re-opens
+the authenticator dialog (`MfaStepUpDialog`) on a `STEP_UP_REQUIRED` 403 and
+retries. Role changes and prompt activation now run through the edge (not a
+client-side Supabase write) so this gate cannot be bypassed.

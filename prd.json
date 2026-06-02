@@ -4510,8 +4510,8 @@
         "MFA enrollment flow documented for the Pearson Media team"
       ],
       "priority": 270,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "DONE (2026-06-02): SERVER-SIDE enforced (not client-only). lib/jwt-claims.ts (pure, 8 tests) decodes the Supabase token aal + amr; isAal2/hasFreshStepUp. adminAuthMiddleware now REJECTS any /api/admin/* call whose JWT isn't aal2 (code MFA_REQUIRED), gated by ADMIN_MFA_ENFORCED (default true; false only for the enrollment window). lib/step-up.ts requireStepUp() requires a fresh (<=5min, STEP_UP_MAX_AGE_SEC) MFA amr timestamp and is applied to the 4 destructive actions: manual refund (admin-billing), prompt-version activation (admin-grading), privileged-account deletion (account /delete, admin-conditional so normal GDPR self-delete still works), and role grant/revoke via a NEW server endpoint POST /api/admin/users/:id/role (super_admin-only, audited). CRITICAL: role-change AND prompt-activation were previously client-side supabase writes that bypassed the server — both now routed through the edge so step-up can't be bypassed. FRONTEND: AdminMfaGate (admin-mfa-gate.tsx) wraps the admin Outlet — TOTP enroll (QR + verify) when no factor, per-session challenge when aal1, renders admin content only at aal2; MfaStepUpDialog re-challenges on a STEP_UP_REQUIRED 403 and retries (wired into role change + prompt activation; refund surfaces the server message). Enrollment flow + ADMIN_MFA_ENFORCED rollout documented in ENVIRONMENT.md. Edge suite 118 passed/0; frontend tsc -b + eslint + build green. passes=true."
     },
     {
       "id": "US-271",

@@ -16,6 +16,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const adminNavItems = [
@@ -126,7 +127,10 @@ export function AdminLayout() {
           tabIndex={-1}
           className="flex-1 overflow-y-auto bg-background p-6 outline-none"
         >
-          <Outlet />
+          {/* US-270: require MFA (AAL2) before any admin content renders. */}
+          <AdminMfaGate>
+            <Outlet />
+          </AdminMfaGate>
         </main>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -100,9 +101,17 @@ accountRoutes.post("/delete", async (c) => {
 
   const { data: user } = await supabaseAdmin
     .from("users")
-    .select("stripe_customer_id")
+    .select("stripe_customer_id, role")
     .eq("id", userId)
     .maybeSingle();
+
+  // US-270: deleting a privileged account is destructive — require a fresh MFA
+  // step-up. Regular users self-deleting (GDPR) are unaffected (they may have
+  // no second factor), so this is gated only for admin/super_admin actors.
+  if (user && (user.role === "admin" || user.role === "super_admin")) {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+  }
 
   // 1. Remove storage objects (no user_id column on storage; derive paths from
   //    the owned DB rows before the cascade deletes them).
