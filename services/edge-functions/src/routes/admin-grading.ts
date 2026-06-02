@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   computeAccuracySummary,
+  computeConfidenceCalibration,
   computeOutcomeFeedback,
   computeWeeklyAccuracySummary,
   exportTrainingDataset,
@@ -72,6 +73,19 @@ adminGradingRoutes.get("/accuracy", async (c) => {
   } catch (err) {
     return c.json(
       { error: "Failed to compute accuracy", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
+// GET /calibration — confidence reliability curve + recommended review
+// threshold (US-331).
+adminGradingRoutes.get("/calibration", async (c) => {
+  try {
+    return c.json(await computeConfidenceCalibration());
+  } catch (err) {
+    return c.json(
+      { error: "Failed to compute calibration", detail: err instanceof Error ? err.message : String(err) },
       500,
     );
   }

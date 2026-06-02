@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GradingMonitorPanel } from "@/components/admin/grading-monitor-panel";
 import { GradingEvalCandidatesPanel } from "@/components/admin/grading-eval-candidates-panel";
+import { GradingCalibrationPanel } from "@/components/admin/grading-calibration-panel";
 import {
   Dialog,
   DialogContent,
@@ -983,6 +984,9 @@ export function AdminAiModelsPage() {
 
       {/* Candidate eval cases auto-promoted from corrections/disputes (US-329) */}
       <GradingEvalCandidatesPanel />
+
+      {/* Confidence calibration / reliability curve (US-331) */}
+      <GradingCalibrationPanel />
 
       {/* Accuracy Feedback Dashboard */}
       <Card>

@@ -5,6 +5,7 @@ import {
   getDefaultModel,
   getGradingCompositeModel,
   isCachingEnabled,
+  reviewConfidenceThreshold,
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
@@ -977,7 +978,8 @@ export async function compositeGrade(
       : confidenceScore;
 
     // Flag for human review if confidence is below threshold or authenticity is suspect.
-    const needsHumanReview = finalConfidence < 0.75 || authenticityFlagged;
+    const needsHumanReview =
+      finalConfidence < reviewConfidenceThreshold() || authenticityFlagged;
 
     if (needsHumanReview) {
       console.log(

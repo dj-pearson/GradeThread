@@ -5505,8 +5505,8 @@
         "Pure calibration math is unit-tested"
       ],
       "priority": 331,
-      "passes": false,
-      "notes": "BUILD-NEW. Reuse human_reviews + grade_reports.confidence_score. Honesty pillar: confidence must mean something. Pairs with US-326 (could publish a calibration curve)."
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). buildCalibration() (pure, unit-tested in calibration_test.ts) buckets reviewed grades by confidence → per-bin agreement/MAE reliability curve + recommends the lowest threshold whose grades clear target agreement (0.9). computeConfidenceCalibration() feeds GET /api/admin/grading/calibration; GradingCalibrationPanel renders the curve + current-vs-recommended threshold in the AI Models page. Threshold is now configurable via GRADING_REVIEW_CONFIDENCE_THRESHOLD (ai-config.reviewConfidenceThreshold, default 0.75), used by compositeGrade's needs_human_review gate. NOTE: publishing the aggregate curve on the public /transparency page (US-326) intentionally deferred. BUILD-NEW. Honesty pillar: confidence must mean something."
     },
     {
       "id": "US-332",
