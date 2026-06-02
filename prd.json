@@ -5550,8 +5550,8 @@
         "Pure reliability math is unit-tested"
       ],
       "priority": 334,
-      "passes": false,
-      "notes": "BUILD-NEW. Extends human_reviews to support blind multi-rater rounds. Provides the denominator that makes US-326's accuracy numbers meaningful ('how good is good?')."
+      "passes": true,
+      "notes": "BUILD-NEW. Extends human_reviews to support blind multi-rater rounds. Provides the denominator that makes US-326's accuracy numbers meaningful ('how good is good?'). DONE (2026-06-02): pure lib/irr.ts — pairwiseAgreement (agreement-within-0.5 + MAE over reviewer pairs), krippendorffAlphaInterval (handles >=2 raters + missing data), consensusScores, compareAiToHumans (AI vs human consensus + ai_meets_human), computeIrrReport (+ sufficient_sample gate). 12 unit tests incl. a hand-computed Krippendorff oracle (alpha ~0.390) and a negative-alpha case. Migration 00070: reliability_studies + reliability_study_items + reliability_ratings (admin RLS, is_admin() read, service-role writes). Admin endpoints on /api/admin/grading/reliability/*: create/list studies, add items, BLIND per-reviewer queue (never returns AI grade or others' ratings), upsert rating (open-study + membership guarded), close, and report (computes IRR via irr.ts incl. AI-vs-consensus). Admin page src/pages/admin/reliability.tsx (create study, add submissions, blind-rate my queue, view report incl. 'AI meets/beats experts' badge) + route + admin-layout nav. Transparency (US-326) public report extended: loadCitableReliability() surfaces the most recent CLOSED study's human baseline + AI comparison only when sufficient_sample, rendered as a new 'How good is good?' section. Edge suite 90 passed/0 failed; frontend tsc -b + eslint + build green."
     },
     {
       "id": "US-335",

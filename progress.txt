@@ -2561,3 +2561,55 @@ New committed test files (run in the existing edge CI against real registries):
 - services/edge-functions/src/tests/env-debug_test.ts
 
 prd.json 290/343 (US-263 + US-266 + US-274 + US-277 -> passes=true).
+
+
+## Session Notes (2026-06-02 cont.) -- Grading-integrity trio (US-332/333/334)
+
+Built the three grading-integrity stories end-to-end, each ending in unit tests
+run under the in-sandbox Deno harness (override import map shims the
+network-blocked registry deps; CI runs the same tests against the real
+registries). Frontend verified via tsc -b + eslint + npm run build.
+
+US-333 (tamper-evident certificates) -- COMPLETED, passes=true.
+- migration 00068: content_hash/content_signature/integrity_version on
+  grade_reports. lib/cert-integrity.ts: deterministic canonicalization (sorted
+  keys, fixed-1-decimal scores stable across PostgREST numeric string/number,
+  NFC summary), SHA-256 hash, optional HMAC-SHA256 signature (CERT_SIGNING_KEY,
+  fail-soft to hash-only), verifyCertIntegrity. Sealed at finalization in
+  grading-pipeline.ts. Public no-auth GET /api/content/public/certificates/:id/
+  verify (RLS-safe, recomputes from stored fields). certificate.tsx auto-runs
+  the check next to the QR (verified / tampered / unverifiable / retry).
+  8 unit tests.
+
+US-332 (pre-grade image-quality gate + active abstention) -- COMPLETED, passes=true.
+- lib/image-quality.ts pure evaluateImageQuality: required-angle coverage +
+  per-image blur/lighting/framing/label-legibility; blocks on CORE shots,
+  warns on supplementary; de-duped actionable photo_requests. Fed by a new
+  PerImageQuality signal on the per-image vision pass (defaults to 'good' so
+  absent data never abstains). grading-pipeline.ts abstains BEFORE compositeGrade
+  -> status 'needs_photos' + quality_feedback, no grade_report. AC#4: abstention
+  reverses the pre-grade charge via the existing idempotent refund_grade RPC
+  (extracted shared reverseChargeForUngradedSubmission). migration 00069
+  (needs_photos enum + quality_feedback). GET /status/:id returns it;
+  submission-detail.tsx renders a 'Better photos needed' card + resubmit CTA.
+  10 unit tests.
+
+US-334 (inter-rater reliability benchmark) -- COMPLETED, passes=true.
+- lib/irr.ts: pairwiseAgreement (within-0.5 + MAE), Krippendorff's alpha
+  (interval; handles >=2 raters + missing data), consensus, AI-vs-consensus +
+  ai_meets_human, computeIrrReport + sufficient_sample. 12 unit tests incl. a
+  hand-computed alpha oracle (~0.390) + negative-alpha case. migration 00070:
+  reliability_studies/_items/_ratings (admin RLS). Admin endpoints on
+  /api/admin/grading/reliability/* incl. a BLIND per-reviewer queue (no AI grade,
+  no other ratings). Admin page src/pages/admin/reliability.tsx + nav. Public
+  transparency report (US-326) extended with the citable human baseline + AI
+  comparison (loadCitableReliability, sufficient-sample gated) and a new
+  'How good is good?' section.
+
+Tooling note: installed Deno 2.8.1 from the GitHub release zip (deno.land/
+esm.sh/jsr are 403-blocked); tests run with --no-check + a /tmp import map
+shimming @std/assert / supabase / anthropic / denomailer / hono(+factory).
+Shims are NOT committed.
+
+Full runnable edge suite: 90 passed / 0 failed / 17 env-gated ignored.
+prd.json 293/343 (US-332 + US-333 + US-334 -> passes=true).
