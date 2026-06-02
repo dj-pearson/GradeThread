@@ -916,11 +916,16 @@ export interface ShipmentRow {
 
 export interface AdminAuditLogRow {
   id: string;
-  admin_user_id: string;
+  // Null for SYSTEM-originated entries (e.g. the content scheduler tick);
+  // actor_role is 'system' in that case. (US-269)
+  admin_user_id: string | null;
+  actor_role: string | null;
   action: string;
   target_type: string;
   target_id: string | null;
   details: Record<string, unknown> | null;
+  ip: string | null;
+  user_agent: string | null;
   created_at: string;
 }
 

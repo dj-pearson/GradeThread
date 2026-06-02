@@ -2186,3 +2186,50 @@ CSP/Stripe/OAuth pass for 264) that this sandbox can't perform; verify those in
 a deployed/networked env and flip them. Otherwise US-269 (admin audit-log
 coverage) and US-275 (GDPR export/deletion -- account.ts already exists) are the
 most self-contained remaining security items.
+
+
+## Session Notes (2026-06-02 cont.) -- US-275 + US-269
+
+US-275 (GDPR/CCPA data export + account deletion) -- COMPLETED, passes=true.
+Export + delete edge endpoints (routes/account.ts) and the Settings UI for both
+were already present from a prior pass; this pass closed the remaining AC gaps:
+- RE-AUTH before deletion: Danger Zone now requires password re-entry (verified
+  via supabase.auth.signInWithPassword) for password users immediately before
+  erasure; OAuth users gated by active session + the typed phrase.
+- NON-PII COMPLIANCE RECORD: migration 00064_account_deletion_log.sql -- a table
+  with NO FK to auth.users (survives the cascade) holding only deleted_user_id
+  (opaque post-deletion) + requested_at + source + stripe_deleted/storage_purged
+  flags; append-only, admin-SELECT-only RLS. The edge /delete writes it right
+  before deleting the auth user.
+- PRIVACY LINKS: both the Export and Delete cards now link to /privacy.
+Verified: tsc + eslint clean, build green, vitest 104/104. Edge /delete +
+migration pending runtime verification (Deno + Supabase).
+
+US-269 (admin/super-admin audit-log coverage) -- COMPLETED, passes=true.
+- Reusable helper lib/audit-log.ts: writeAuditLog(c, {...}) (actor + actor_role
+  + ip + user_agent + before/after) and writeSystemAuditLog(...) (actor='system',
+  NULL admin_user_id). Best-effort, never throws.
+- Migration 00065_admin_audit_extend.sql: adds actor_role/ip/user_agent columns,
+  makes admin_user_id NULLable (system rows), and adds triggers for
+  disputes.status + ai_prompt_versions.is_active (mirrors 00046's users.role/
+  suspended triggers; client-driven only).
+- Wired writeAuditLog into admin-billing (plan/comp/refund) + admin-grading
+  (prompt + eval-case mutations, incl. ai_prompt activate/deactivate) by making
+  their local auditLog() delegate to the shared helper; content-blog
+  publish/schedule/delete/archive; and the content scheduler tick (system actor).
+- Frontend /admin/audit-log: added a Target Type filter; super_admin entries
+  flagged with a Shield badge; null-actor rows render as 'System';
+  actor_role/ip/user_agent shown in the expanded detail. AdminAuditLogRow type
+  updated (nullable admin_user_id + new columns).
+Verified: frontend tsc + eslint clean, build green, vitest 104/104. Edge handler
+wiring + migration 00065 are review-verified (Context-helper + untyped
+supabaseAdmin patterns match rate-limit.ts) but not runtime-run here (egress
+blocks deno.land/esm.sh; no local Postgres). Apply 00064 + 00065 and run the
+edge suite in a networked/DB env to confirm.
+
+prd.json 272/343 (US-275 + US-269 passes=true).
+
+Recommended next: US-272 (secret hygiene) is implemented except the manual
+gitleaks-history scan + enabling the hook; US-278 (SECURITY.md/IR runbook) just
+needs a README to link from. US-263/264/274/277 remain passes=false pending the
+curl/browser runtime checks their ACs require.
