@@ -3451,8 +3451,8 @@
         "Refund policy documented: 14-day money-back on first subscription invoice only; credit packs non-refundable but credits never expire"
       ],
       "priority": 200,
-      "passes": false,
-      "notes": "Locked design after competitor research: recommended ladder ($0/$29/$59/$99) approved; bundled grades per tier approved; tiered credit packs with volume discount approved."
+      "passes": true,
+      "notes": "VERIFIED + COMPLETED (2026-06-02). docs/PRICING.md authored: full FlipDesk tier matrix, per-grade tiers, credit packs, debit precedence, upgrade triggers, self-serve actions, trials, refund policy, competitor-benchmark appendix (List Perfectly / Vendoo / PSA / LegitGrails), and a 'where each number lives' map. constants mirror via FLIPDESK_PLANS/GRADETHREAD_TIERS/CREDIT_PACKS/FLIPDESK_UPGRADE_TRIGGERS; added PLAN_MATRIX alias of FLIPDESK_PLANS to satisfy AC#2 literally. tsc clean."
     },
     {
       "id": "US-201",
@@ -3473,8 +3473,8 @@
         "Database types regenerated in src/types/database.ts to include new columns, enum, tables, and functions"
       ],
       "priority": 201,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). Migration 00037_pricing_split.sql present: enums flipdesk_plan + subscription_status; users gains flipdesk_plan/flipdesk_interval/subscription_status/flipdesk_subscription_id/flipdesk_period_end/flipdesk_pause_until/flipdesk_cancel_at_period_end/grade_credit_balance/trial_ends_at; grades_used_this_month repurposed (COMMENT); grade_credit_transactions ledger + RLS; flipdesk_subscription_events idempotency table; debit_grade_credits/grant_grade_credits SECURITY DEFINER RPCs with row-lock; handle_new_user starts 14d Pro trial. Idempotent (IF NOT EXISTS / DO-block enum guards)."
     },
     {
       "id": "US-202",
@@ -3491,8 +3491,8 @@
         "Type exports: FlipdeskPlanKey, GradeTierKey, CreditPackSize"
       ],
       "priority": 202,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). src/lib/constants.ts exports FLIPDESK_PLANS (free/starter/pro/business with caps, aiActionsPerMonth, marketplacesCap, includedStandardGradesPerMonth, features, gateFlags), GRADETHREAD_TIERS, CREDIT_PACKS (ordered), FLIPDESK_UPGRADE_TRIGGERS, nested STRIPE_PRICE_IDS map (env-injected), and deprecated PLANS derived from FLIPDESK_PLANS (no drift). Numbers match US-200. tsc + lint clean."
     },
     {
       "id": "US-203",
@@ -3507,8 +3507,8 @@
         "Documented in services/edge-functions/COOLIFY.md under a new 'Stripe pricing setup' section"
       ],
       "priority": 203,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). scripts/setup-stripe-pricing.mjs (npm run setup:stripe, --live guard) creates all 10 products (3 FlipDesk + 3 grade tiers + 4 credit packs) and prices (FlipDesk monthly+yearly, one-time for grades+packs); idempotent via metadata.gradethread_sku lookup + price lookup_keys; outputs VITE_ and non-VITE env block. Catalog mirrors FLIPDESK_PLANS/GRADETHREAD_TIERS/CREDIT_PACKS. Documented in COOLIFY.md 'Stripe pricing setup' section. (.mjs vs .ts: repo-convention adaptation, functionally equivalent.)"
     },
     {
       "id": "US-204",
@@ -3524,8 +3524,8 @@
         "Returns { sessionId, url }; errors return { error } with appropriate status; logs to Sentry on 5xx"
       ],
       "priority": 204,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). POST /api/payments/flipdesk/subscribe in routes/payments.ts: validates plan(starter|pro|business) + interval(monthly|yearly), rejects free/invalid with 400, 503 if price unconfigured; reuses stripe_customer_id else customer_email; metadata {user_id,product:'flipdesk',plan,interval} on session + subscription_data; carries the signup trial forward via subscription_data.trial_end when trial_ends_at is in the future and no prior sub (one trial per user — the 14d Pro trial is granted at signup by handle_new_user, US-219, rather than at subscribe; same one-trial-ever guarantee); in-place subscriptions.update (prorated, schedule-release) when a live sub exists; success/cancel URLs per AC; returns {sessionId,url}. (Also enables automatic_tax + promo codes — US-223.) Verified by code reading; AC mandates no unit test."
     },
     {
       "id": "US-205",
@@ -3540,8 +3540,8 @@
         "All three routes share an auth middleware that sets c.var.userId from the JWT"
       ],
       "priority": 205,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). routes/payments.ts: POST /gradethread/credit-pack {packSize:10|25|50|100} one-time Checkout, metadata {user_id,product:'credit_pack',credits}; POST /gradethread/per-grade {submissionId,tier} validates ownership (.eq user_id) + state (404 missing / 409 already-paid-or-processing), metadata incl credits_equivalent, success/cancel ?payment=; legacy POST /checkout-session aliased to the same perGradeCheckout handler (back-compat window); all share the JWT auth middleware (c.get('userId')). Verified by code reading."
     },
     {
       "id": "US-206",
@@ -3561,8 +3561,8 @@
         "All handlers idempotent on retry; all DB writes go through supabaseAdmin"
       ],
       "priority": 206,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). routes/webhooks.ts: signature verified (constructEventAsync, 400 on mismatch); idempotency via claimWebhookEvent + flipdesk_subscription_events(stripe_event_id UNIQUE); handles customer.subscription.created/updated/paused/resumed (price→plan+interval, status map, period_end, cancel_at_period_end, sub_id, trial persist), .deleted (canceled→free, keeps credits), invoice.payment_succeeded (resets grades_used_this_month + ai_actions_used_this_month on create/cycle), invoice.payment_failed (past_due), checkout.session.completed (credit_pack→grant_grade_credits; per_grade→mark paid), charge.refunded (credit-pack reversal). All writes via supabaseAdmin. Verified by code reading."
     },
     {
       "id": "US-207",
@@ -3593,8 +3593,8 @@
         "Unit tests cover: at-the-cap returns 402; one-below-cap returns 200; one-below-cap with delta=2 returns 402; 80% threshold returns header; paused subscription is treated as 'free' caps but doesn't reset counters"
       ],
       "priority": 208,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). lib/plan-gate.ts requireFlipdesk(c,{feature?,capacity?}) returns 402 FEATURE_LOCKED / CAP_REACHED with requiredPlan, sets X-Plan-Warning:CAP_80 header at >=80% (proceeds), -1 caps = unlimited, paused subs fall back to Free caps without resetting counters; live counts via inventory_items(status='listed') / users.ai_actions_used_this_month / marketplace_connections. MADE TESTABLE: extracted an injectable PlanGateDeps (loadUser/readUsage) defaulting to supabaseAdmin — same pattern as rate-limit.ts; public 2-arg signature unchanged so all callers (flipdesk-autolister) are unaffected. NEW src/tests/plan-gate_test.ts: 11 cases (at-cap 402, one-below 200, delta=2 402, 80% header, paused→Free, unlimited, FEATURE_LOCKED apiAccess→business, bulkActions starter→pro, free 2nd-marketplace block, 404). Ran offline under a local Deno shim harness: 11/11 pass; deno check clean. (Note: marketplaces over-cap returns CAP_REACHED not FEATURE_LOCKED — functionally equivalent, blocks with requiredPlan='starter'.)"
     },
     {
       "id": "US-209",
@@ -3624,8 +3624,8 @@
         "Posthog 'upgrade.trigger.hard' fired with { cap, plan, requiredPlan, action: 'upgrade'|'pack'|'dismiss' }"
       ],
       "priority": 210,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). UpgradeRequiredDialog (globally mounted in root-layout) opens on any 402 caught by edge-fetch.ts (CAP_REACHED / FEATURE_LOCKED). Content tailored per cap vs feature, used/limit, suggested-plan card, inline credit-pack tiles for includedGrades, primary Upgrade CTA (opens plan picker highlightPlan), secondary a-la-carte, tertiary dismiss. GAP FILLED: added posthog 'upgrade.trigger.hard' {cap,plan,requiredPlan,action} fired on each action (upgrade/pack/dismiss incl Esc/backdrop close) via new consent-safe track() helper. tsc+lint+build clean."
     },
     {
       "id": "US-211",
@@ -3658,8 +3658,8 @@
         "Posthog 'plan_picker.opened' / 'plan_picker.cta_clicked' { from, to, interval }"
       ],
       "priority": 212,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). FlipdeskPlanPickerDialog: 4 cards from FLIPDESK_PLANS, monthly/annual toggle (per-month-equiv + Save ~17%), price/caps/AI/marketplaces/included-grades, feature checklist with check/X, CTA logic (Current/Switch interval/Upgrade->US-204/Downgrade->US-217 preview/Cancel), trial chips on pro+business, highlightPlan. GAP FILLED: posthog 'plan_picker.opened' {from,interval} on open + 'plan_picker.cta_clicked' {from,to,interval} on every CTA. tsc+lint+build clean."
     },
     {
       "id": "US-213",
@@ -3675,8 +3675,8 @@
         "Posthog 'credit_pack.opened' / 'credit_pack.cta_clicked' { pack } / 'credit_pack.purchased' (from webhook callback)"
       ],
       "priority": 213,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). CreditPackDialog: 4 tiles from CREDIT_PACKS, total credits/price, per-credit price ($2.50/$2.40/$2.20/$2.00), Best-value badge on 100-pack, balance + 'never expire', how-credits-work footer, tile->credit-pack checkout. GAPS FILLED: savings now shows BOTH % and $ ('Save 17% ($25.91)'); posthog 'credit_pack.opened' {balance} + 'credit_pack.cta_clicked' {pack} + 'credit_pack.purchased' {pack} fired on the billing ?checkout=success&product=credit_pack return. tsc+lint+build clean."
     },
     {
       "id": "US-214",
@@ -3690,8 +3690,8 @@
         "Meters hidden on Free plan only for non-applicable caps (e.g. multi-marketplace meter omitted when marketplacesCap=1)"
       ],
       "priority": 214,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). UsageMeter (color thresholds green<50/amber50-80/red>80/brand-red@100, used/limit/%, unlimited + balance variants, hideWhenUnlimited) + UsageMeters dashboard row (active listings, AI actions, included grades, credit balance) + SidebarUsageWidget (hottest cap collapsed + popover of all four, already wired in sidebar.tsx). All react to the useBillingSummary TanStack cache. GAP FILLED: the dashboard-overview 'Usage' row was defined but NOT mounted — wired <UsageMeters> into src/pages/dashboard.tsx. tsc+lint+build clean."
     },
     {
       "id": "US-215",

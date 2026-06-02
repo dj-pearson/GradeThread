@@ -16,6 +16,7 @@ import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-pic
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { CREDIT_PACKS, FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
 import { useBuyCreditPack } from "@/hooks/use-billing-summary";
+import { track } from "@/lib/analytics";
 import type { CreditPackSize } from "@/lib/constants";
 import { ArrowRight, Loader2, Lock, ShoppingCart, Sparkles } from "lucide-react";
 
@@ -77,6 +78,17 @@ export function UpgradeRequiredDialog() {
 
   const requiredPlanConfig = FLIPDESK_PLANS[requiredPlan];
 
+  // US-210 hard-trigger telemetry. `cap` is the capacity kind or feature key
+  // that blocked the action; fired with the action the user ultimately took.
+  const capName = reason.type === "cap" ? reason.kind : reason.feature;
+  const trackHard = (action: "upgrade" | "pack" | "dismiss") =>
+    track("upgrade.trigger.hard", {
+      cap: capName,
+      plan: currentPlan,
+      requiredPlan,
+      action,
+    });
+
   let title: string;
   let body: React.ReactNode;
 
@@ -114,7 +126,15 @@ export function UpgradeRequiredDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && hide()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          trackHard("dismiss");
+          hide();
+        }
+      }}
+    >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -166,9 +186,10 @@ export function UpgradeRequiredDialog() {
                 return (
                   <button
                     key={pack.credits}
-                    onClick={() =>
-                      buyPack.mutate({ packSize: pack.credits as CreditPackSize })
-                    }
+                    onClick={() => {
+                      trackHard("pack");
+                      buyPack.mutate({ packSize: pack.credits as CreditPackSize });
+                    }}
                     disabled={buyPack.isPending}
                     className="group rounded-md border border-border p-3 text-left transition-colors hover:border-brand-navy hover:bg-muted/40 disabled:opacity-60"
                   >
@@ -190,7 +211,13 @@ export function UpgradeRequiredDialog() {
         )}
 
         <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
-          <Button variant="ghost" onClick={hide}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              trackHard("dismiss");
+              hide();
+            }}
+          >
             Not now
           </Button>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -198,6 +225,7 @@ export function UpgradeRequiredDialog() {
               <Button
                 variant="outline"
                 onClick={() => {
+                  trackHard("pack");
                   hide();
                   setCreditPackOpen(true);
                 }}
@@ -209,6 +237,7 @@ export function UpgradeRequiredDialog() {
             <Button
               asChild
               onClick={() => {
+                trackHard("upgrade");
                 hide();
                 setPlanPickerOpen(true);
               }}

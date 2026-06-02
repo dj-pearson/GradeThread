@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CREDIT_PACKS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { CreditPackSize } from "@/lib/constants";
 import { useBillingSummary, useBuyCreditPack } from "@/hooks/use-billing-summary";
+import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { Loader2, Sparkles } from "lucide-react";
 
@@ -30,6 +32,10 @@ function savingsPct(pack: { credits: number; priceCents: number }): number {
   return ((list - pack.priceCents) / list) * 100;
 }
 
+function savingsDollars(pack: { credits: number; priceCents: number }): number {
+  return (pack.credits * STANDARD_PRICE_CENTS - pack.priceCents) / 100;
+}
+
 interface CreditPackDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,6 +46,12 @@ export function CreditPackDialog({ open, onOpenChange }: CreditPackDialogProps) 
   const buyPack = useBuyCreditPack();
 
   const balance = summary?.grades.credit_balance ?? 0;
+
+  // US-213 telemetry: fire once each time the dialog opens.
+  useEffect(() => {
+    if (open) track("credit_pack.opened", { balance });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,13 +105,14 @@ export function CreditPackDialog({ open, onOpenChange }: CreditPackDialogProps) 
                     </div>
                   </div>
                   <Badge variant="secondary" className="self-start">
-                    Save {savingsPct(pack).toFixed(0)}%
+                    Save {savingsPct(pack).toFixed(0)}% (${savingsDollars(pack).toFixed(2)})
                   </Badge>
                   <Button
                     className="mt-auto w-full"
-                    onClick={() =>
-                      buyPack.mutate({ packSize: pack.credits as CreditPackSize })
-                    }
+                    onClick={() => {
+                      track("credit_pack.cta_clicked", { pack: pack.credits });
+                      buyPack.mutate({ packSize: pack.credits as CreditPackSize });
+                    }}
                     disabled={buyPack.isPending}
                   >
                     {isBuying ? (

@@ -1,0 +1,4 @@
+# Local offline test harness: shims for npm:/jsr:/deno.land imports so the Deno
+# suite runs without network (registries are blocked in CI/web sandboxes).
+# Recreated per-session, never committed. See progress.txt for the recipe.
+_shims/

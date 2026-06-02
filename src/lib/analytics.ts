@@ -77,3 +77,22 @@ export function initAnalyticsFromStoredConsent() {
     void startAnalytics();
   }
 }
+
+// ── Product event tracking ──────────────────────────────────────
+//
+// Thin, consent-safe wrapper over PostHog's capture(). posthog-js attaches
+// itself to window.posthog once startAnalytics() initializes it; before
+// consent (or in DEV, where capturing is opted out) this is a silent no-op.
+// Never let analytics throw into product code.
+export function track(event: string, props?: Record<string, unknown>): void {
+  try {
+    const ph = (
+      window as unknown as {
+        posthog?: { capture?: (e: string, p?: Record<string, unknown>) => void };
+      }
+    ).posthog;
+    ph?.capture?.(event, props);
+  } catch {
+    /* analytics must never break the UI */
+  }
+}

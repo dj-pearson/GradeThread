@@ -1,6 +1,7 @@
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { track } from "@/lib/analytics";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import type { FlipdeskPlanKey } from "@/lib/constants";
@@ -137,6 +138,10 @@ function handlePlanWarning(header: string) {
 
   const friendly = FRIENDLY_KIND[kind] ?? kind;
   const pct = Math.round((used / limit) * 100);
+  const suggestedPlan = requiredPlanForCap(kind, limit + 1);
+
+  // US-209 soft trigger telemetry.
+  track("upgrade.trigger.soft", { cap: kind, pct: pct / 100, suggestedPlan });
 
   toast.warning(`You've used ${pct}% of your ${friendly}`, {
     id: `plan_warning_${kind}`,

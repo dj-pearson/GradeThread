@@ -2688,3 +2688,155 @@ US-264 (CSP + HSTS on the SPA) -- COMPLETED, passes=true.
 
 SECURITY CLUSTER COMPLETE: US-263..US-277 all passes=true (0 open).
 prd.json 299/343.
+
+
+## Session Notes (2026-06-02 cont.) -- Pricing-split foundation (US-200..US-203)
+
+Worked the highest-priority *actionable* open stories. The very top of the open
+queue (US-137 e2e + US-146..151 Google Sheets) are all BLOCKED on external creds
+(eBay sandbox / Google Cloud OAuth) per their own notes, so I picked the next
+coherent un-blocked cluster: the pricing-split foundation (US-200..US-225).
+
+Found the cluster largely IMPLEMENTED across prior sessions but never marked
+passes=true. Verified the browser-independent foundation layer against AC and
+closed it out. Frontend verified via `npm ci` + tsc --noEmit (clean) + eslint
+(clean on touched files) + vitest (135/138; the 1 failure is the pre-existing
+responsive-images build-artifact test that needs `npm run build` first --
+unrelated; 2 skipped).
+
+US-200 (pricing model canonical doc) -- COMPLETED, passes=true.
+- Authored docs/PRICING.md: FlipDesk tier matrix (Free/Starter/Pro/Business
+  $0/$29/$59/$99, annual ~17% off), per-grade tiers ($2.99/$7.99/$12.99),
+  credit packs (10/25/50/100 @ $24.99/$59.99/$109.99/$199.99), debit precedence,
+  upgrade triggers (80% soft / 100% hard), self-serve actions, 14d Pro trial,
+  refund policy, competitor-benchmark appendix (List Perfectly / Vendoo / PSA /
+  LegitGrails), and a 'where each number lives' constants->Stripe map.
+- Added PLAN_MATRIX alias of FLIPDESK_PLANS in constants.ts to satisfy AC#2
+  literally (single source of truth -- it's a reference, not a copy).
+
+US-201 (DB pricing split) -- VERIFIED, passes=true.
+- Migration 00037_pricing_split.sql: flipdesk_plan + subscription_status enums;
+  9 new users columns; grades_used_this_month repurposed (COMMENT); append-only
+  grade_credit_transactions ledger (+RLS read-own); flipdesk_subscription_events
+  idempotency table; debit_grade_credits/grant_grade_credits row-locked SECURITY
+  DEFINER RPCs; handle_new_user override -> 14d Pro trial. Fully idempotent.
+
+US-202 (constants restructure) -- VERIFIED, passes=true.
+- FLIPDESK_PLANS / GRADETHREAD_TIERS / CREDIT_PACKS / FLIPDESK_UPGRADE_TRIGGERS +
+  nested env-injected STRIPE_PRICE_IDS map. Legacy PLANS kept @deprecated and
+  DERIVED from FLIPDESK_PLANS (zero drift). Numbers match US-200 exactly.
+
+US-203 (Stripe setup script) -- VERIFIED, passes=true.
+- scripts/setup-stripe-pricing.mjs (npm run setup:stripe, test/--live guard):
+  upserts all 10 products + prices, idempotent via metadata.gradethread_sku +
+  price lookup_keys, emits VITE_ and non-VITE_ env block. COOLIFY.md has the
+  'Stripe pricing setup' section. (.mjs not .ts: matches the repo's script
+  convention; functionally equivalent.)
+
+STILL OPEN in this cluster (NOT marked -- need browser/UI verification or have
+unmet AC): US-204..US-224 (edge routes, webhooks, plan-gate, billing UI, dialogs,
+dunning, trial, landing, admin, emails, Stripe Tax) and US-225 (migration done,
+but backfill-stripe-state script + per-user migration email (US-222) outstanding).
+Much of this exists in code already and is a good candidate for the next pass.
+
+prd.json 303/343.
+
+
+## Session Notes (2026-06-02 cont.) -- Pricing edge layer US-204..208 (+ plan-gate tests)
+
+Continued the pricing cluster. Stood up an OFFLINE Deno harness this session
+(deno.land + esm.sh are 403-blocked by the network policy, so the `deno install`
+script fails; pulled the deno binary from the GitHub release zip instead, then
+recreated the uncommitted shim import-map: _shims/{std_assert,supabase,hono}.ts
++ import_map.test.json). Shims are NOT committed. Baseline: 20 existing pure
+tests (grade-pricing 12 + jwt-claims 8) green under the harness.
+
+US-204 (FlipDesk subscription checkout) -- VERIFIED, passes=true.
+- POST /api/payments/flipdesk/subscribe: plan/interval validation, customer
+  reuse vs email, metadata, trial carry-forward (trial granted at signup per
+  US-219, not at subscribe), in-place prorated upgrade w/ schedule release,
+  automatic_tax + promo codes (US-223). AC mandates no unit test.
+
+US-205 (credit-pack + per-grade checkout) -- VERIFIED, passes=true.
+- /gradethread/credit-pack + /gradethread/per-grade (ownership + 404/409 state
+  guards, credits_equivalent metadata); legacy /checkout-session aliased for
+  back-compat; shared JWT auth.
+
+US-206 (Stripe webhook lifecycle) -- VERIFIED, passes=true.
+- routes/webhooks.ts: signature verify, idempotency (claimWebhookEvent +
+  flipdesk_subscription_events UNIQUE), full subscription lifecycle, counter
+  resets on invoice cycle, credit grants + refund reversals. All via
+  supabaseAdmin. Verified by line-by-line code reading (AC mandates no test).
+
+US-208 (plan-gate middleware) -- COMPLETED, passes=true.
+- Implementation was present but its AC-mandated unit tests were MISSING. Made
+  requireFlipdesk testable by extracting an injectable PlanGateDeps
+  (loadUser/readUsage) defaulting to supabaseAdmin -- mirrors rate-limit.ts;
+  public 2-arg signature unchanged (callers unaffected). NEW
+  src/tests/plan-gate_test.ts (11 cases: at-cap 402, one-below 200, delta=2 402,
+  80% header, paused->Free, unlimited -1, FEATURE_LOCKED apiAccess->business,
+  bulkActions starter->pro, free 2nd-marketplace block, 404). 11/11 pass; deno
+  check clean on the refactor.
+
+Edit footprint: services/edge-functions/src/lib/plan-gate.ts (refactor) +
+src/tests/plan-gate_test.ts (new). Combined harness run: 31/31 pass.
+
+STILL OPEN nearby: US-207 (edge precedence + grade-pricing math DONE & tested,
+but frontend Review-and-Pay copy + posthog grade.paid/pack_upsell events not
+yet verified in src/ -- left open), US-209..224 (UI/billing/dunning/admin/email
+-- mostly exist in code, need browser verification), US-225 (migration done;
+backfill-stripe-state script + migration email outstanding).
+
+prd.json 307/343.
+
+
+## Session Notes (2026-06-02 cont.) -- Pricing frontend cluster US-210/212/213/214
+
+Worked the frontend pricing UI. Found the components ~90% built across prior
+sessions; the consistent gap was PostHog telemetry (no track() helper existed
+at all) plus a couple of small copy/wiring misses. Filled them and closed four
+stories. Verified: tsc --noEmit clean, eslint clean on all touched files,
+vitest 135/138 (the 1 fail is the known responsive-images build-artifact test
+that needs dist/ -- it passes after `npm run build`, confirmed; 2 skipped),
+`npm run build` green (24 prerendered pages).
+
+NEW: src/lib/analytics.ts track(event, props) -- consent-safe wrapper over
+window.posthog.capture (no-op before consent / in DEV / if posthog unloaded;
+never throws into product code). Same window.posthog pattern web-vitals.ts uses.
+
+US-210 (hard-cap UpgradeRequiredDialog) -- COMPLETED, passes=true.
+- Dialog + 402 plumbing (edge-fetch.ts -> upgrade-dialog-store) already done.
+  Added posthog 'upgrade.trigger.hard' {cap,plan,requiredPlan,action} fired on
+  each user action (upgrade/pack/dismiss, incl Esc/backdrop close).
+
+US-212 (FlipDesk plan picker) -- COMPLETED, passes=true.
+- Cards/toggle/feature-checklist/CTA-logic/trial-chips/highlightPlan all done.
+  Added 'plan_picker.opened' {from,interval} + 'plan_picker.cta_clicked'
+  {from,to,interval} on every CTA path.
+
+US-213 (credit pack dialog) -- COMPLETED, passes=true.
+- Tiles/per-credit-price/best-value/balance/footer done. Added the missing
+  $-savings alongside the % ('Save 17% ($25.91)') and 'credit_pack.opened' /
+  '.cta_clicked' / '.purchased' (last fired on the billing success return).
+
+US-214 (usage meters) -- COMPLETED, passes=true.
+- UsageMeter + UsageMeters + SidebarUsageWidget all built; sidebar widget
+  already mounted. GAP: the dashboard-overview 'Usage' row was never mounted --
+  wired <UsageMeters> into src/pages/dashboard.tsx.
+
+STILL OPEN nearby (need more than telemetry, deliberately not marked):
+- US-207 frontend: new-submission.tsx still does a plain submit->navigate; the
+  precedence-aware Review-and-Pay step ('Free with your Pro plan' / 'Used 1
+  credit' / pack-then-retry) + grade.paid/pack_upsell events are NOT built
+  (edge precedence + 12 grade-pricing tests ARE done).
+- US-209 soft triggers: the X-Plan-Warning inline toast + 'upgrade.trigger.soft'
+  event are done (added the event this session), but the proactive dashboard-
+  header watcher (once/cap/month via localStorage + users.last_warning_at), the
+  named usePlanUsage() hook, and the Settings 50/80/95 threshold chooser
+  (users.usage_alert_thresholds) remain -> story stays open.
+
+Edit footprint: analytics.ts (+track), edge-fetch.ts (+soft event),
+upgrade-required-dialog.tsx, flipdesk-plan-picker-dialog.tsx,
+credit-pack-dialog.tsx, billing.tsx, dashboard.tsx (+UsageMeters row).
+
+prd.json 311/343.
