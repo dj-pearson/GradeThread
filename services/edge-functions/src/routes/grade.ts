@@ -393,7 +393,9 @@ gradeRoutes.get("/status/:id", async (c) => {
 
   const { data: submission, error } = await supabaseAdmin
     .from("submissions")
-    .select("id, status, payment_status, paid_at, created_at, updated_at")
+    .select(
+      "id, status, payment_status, paid_at, quality_feedback, created_at, updated_at",
+    )
     .eq("id", id)
     .eq("user_id", ownerId)
     .single();
@@ -418,6 +420,8 @@ gradeRoutes.get("/status/:id", async (c) => {
     payment_status: submission.payment_status,
     paid_at: submission.paid_at,
     grade_report: gradeReport,
+    // US-332: actionable photo requests when the quality gate abstained.
+    quality_feedback: submission.quality_feedback ?? null,
     created_at: submission.created_at,
     updated_at: submission.updated_at,
   });

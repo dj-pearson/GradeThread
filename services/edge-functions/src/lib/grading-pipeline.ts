@@ -11,6 +11,7 @@ import { sendGradeCompleteEmail } from "./email.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { detectPhotoReuse } from "./photo-reuse.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
+import { evaluateImageQuality } from "./image-quality.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -37,6 +38,46 @@ function uint8ToBase64(bytes: Uint8Array): string {
  * 6. Update submission status to 'completed' (or 'failed' on error)
  * 7. Return the created grade report
  */
+// Reverse the charge taken BEFORE the pipeline ran (runPaymentPrecedence in
+// grade.ts / the FlipDesk grading path) whenever a submission ends up WITHOUT a
+// grade — whether the pipeline failed (catch) or the image-quality gate
+// abstained (US-332). Included grades go back to the monthly bundle; credit
+// grades are re-granted. Idempotent via submissions.refunded_at, so calling it
+// for an abstention and again on a later failure is safe. One-time Stripe
+// payments can't be reversed by minting credits — they surface here for manual
+// handling. Never throws — a refund hiccup must not mask the original outcome.
+async function reverseChargeForUngradedSubmission(
+  submissionId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const { data: refundResult, error: refundError } = await supabaseAdmin.rpc(
+      "refund_grade",
+      { p_submission_id: submissionId },
+    );
+    if (refundError) {
+      console.error(
+        `[Pipeline] REFUND FAILED for submission ${submissionId} (${reason}) — manual review needed:`,
+        refundError.message,
+      );
+    } else if (refundResult === "no_refund_paid_stripe") {
+      console.error(
+        `[Pipeline] Submission ${submissionId} was paid via Stripe but not graded (${reason}) — ` +
+          `issue a Stripe refund manually.`,
+      );
+    } else {
+      console.log(
+        `[Pipeline] Refund for submission ${submissionId} (${reason}): ${refundResult}`,
+      );
+    }
+  } catch (refundErr) {
+    console.error(
+      `[Pipeline] Refund error for submission ${submissionId} (${reason}) — manual review needed:`,
+      refundErr instanceof Error ? refundErr.message : String(refundErr),
+    );
+  }
+}
+
 export async function processSubmission(submissionId: string) {
   const startTime = Date.now();
 
@@ -135,6 +176,41 @@ export async function processSubmission(submissionId: string) {
     const perImageResults: PerImageAnalysis[] = await Promise.all(perImagePromises);
 
     console.log(`[Pipeline] Per-image analysis complete for submission ${submissionId}`);
+
+    // --- Step 4b: Pre-grade image-quality gate + active abstention (US-332) ---
+    // If a core photo is unusable (severe blur / too dark / cut off / illegible
+    // label) or a required angle is missing, abstain rather than emit a
+    // low-confidence guess. This is NOT a failed grade and creates no
+    // grade_report — so no paid grade credit is consumed (when auto-debit
+    // US-207 lands it must run AFTER this gate / on a created report only).
+    const qualityGate = evaluateImageQuality(
+      perImageResults.map((r) => ({
+        image_type: r.image_type,
+        quality: r.quality,
+      })),
+    );
+    if (qualityGate.abstain) {
+      console.log(
+        `[Pipeline] Submission ${submissionId} ABSTAINED on image quality: ${qualityGate.summary}`,
+      );
+      await supabaseAdmin
+        .from("submissions")
+        .update({
+          status: "needs_photos",
+          quality_feedback: {
+            summary: qualityGate.summary,
+            photo_requests: qualityGate.photo_requests,
+            issues: qualityGate.issues,
+            assessed_at: new Date().toISOString(),
+          },
+        })
+        .eq("id", submissionId);
+      // AC #4: abstention must not consume a paid grade. Reverse the charge
+      // taken at submit (included grade returned / credits re-granted; a
+      // Stripe per-grade payment is flagged for manual refund).
+      await reverseChargeForUngradedSubmission(submissionId, "quality abstention");
+      return null;
+    }
 
     // --- Step 5: Run compositeGrade() with all per-image results ---
     const garmentInfo: GarmentInfo = {
@@ -287,7 +363,11 @@ export async function processSubmission(submissionId: string) {
 
     // --- Step 7: Update submission status to 'completed' ---
     // Flag for moderation if the AI judged the images not to be clothing.
-    const submissionUpdate: Record<string, unknown> = { status: "completed" };
+    const submissionUpdate: Record<string, unknown> = {
+      status: "completed",
+      // Clear any prior abstention feedback now that a grade was produced.
+      quality_feedback: null,
+    };
     const flagReasons: string[] = [];
     if (!compositeResult.image_validity.is_clothing) {
       flagReasons.push(
@@ -446,35 +526,9 @@ export async function processSubmission(submissionId: string) {
       );
     }
 
-    // Reverse the charge taken before the pipeline ran (runPaymentPrecedence
-    // in grade.ts / the FlipDesk grading path). Included grades go back to the
-    // monthly bundle; credit grades are re-granted. Idempotent via
-    // submissions.refunded_at. One-time Stripe payments can't be refunded by
-    // minting credits — they surface here for manual handling.
-    try {
-      const { data: refundResult, error: refundError } = await supabaseAdmin.rpc(
-        "refund_grade",
-        { p_submission_id: submissionId },
-      );
-      if (refundError) {
-        console.error(
-          `[Pipeline] REFUND FAILED for submission ${submissionId} — manual review needed:`,
-          refundError.message,
-        );
-      } else if (typeof refundResult === "string" && refundResult === "no_refund_paid_stripe") {
-        console.error(
-          `[Pipeline] Submission ${submissionId} was paid via Stripe but grading failed — ` +
-            `issue a Stripe refund manually.`,
-        );
-      } else {
-        console.log(`[Pipeline] Refund for submission ${submissionId}: ${refundResult}`);
-      }
-    } catch (refundErr) {
-      console.error(
-        `[Pipeline] Refund error for submission ${submissionId} — manual review needed:`,
-        refundErr instanceof Error ? refundErr.message : String(refundErr),
-      );
-    }
+    // Reverse the charge taken before the pipeline ran. See
+    // reverseChargeForUngradedSubmission().
+    await reverseChargeForUngradedSubmission(submissionId, "grading failed");
 
     // Mirror failure into the FlipDesk link so the bridge UI doesn't
     // hang at "processing" forever.

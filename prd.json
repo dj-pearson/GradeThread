@@ -5520,8 +5520,8 @@
         "Logic is unit-tested with representative cases; tenant-isolated"
       ],
       "priority": 332,
-      "passes": false,
-      "notes": "BUILD-NEW. Extends grading-pipeline.ts + new-submission intake. Truthful-inputs pillar. Coordinate with pricing (US-207 auto-debit) so an abstention doesn't burn a credit."
+      "passes": true,
+      "notes": "BUILD-NEW. Extends grading-pipeline.ts + new-submission intake. Truthful-inputs pillar. Coordinate with pricing (US-207 auto-debit) so an abstention doesn't burn a credit. DONE (2026-06-02): pure lib/image-quality.ts evaluateImageQuality gate — coverage (front/back/label/detail) + per-image blur/lighting/framing/label-legibility, blocking on CORE shots (front/back/label) and warning on supplementary detail/defect; emits de-duped actionable photo_requests. Fed by a new PerImageQuality signal added to the per-image vision pass (ai-grading.ts prompt + normalizeQuality, defaults to 'good' so missing data never abstains). Wired into grading-pipeline.ts BEFORE compositeGrade: on abstain it sets submissions.status='needs_photos' + quality_feedback and creates NO grade_report. AC#4: abstention reverses the pre-grade charge via the existing idempotent refund_grade RPC (extracted reverseChargeForUngradedSubmission, shared with the failure path) — included grade returned, credits re-granted, Stripe per-grade flagged for manual refund. Migration 00069 adds the 'needs_photos' enum value + submissions.quality_feedback jsonb. GET /status/:id returns quality_feedback; submission-detail.tsx renders a 'Better photos needed' card with the photo_requests + a resubmit CTA, plus a status badge. database.ts types updated. 10 unit tests in image-quality_test.ts. Edge suite 78 passed/0 failed; frontend tsc -b + eslint + build green."
     },
     {
       "id": "US-333",

@@ -25,7 +25,27 @@ export type GarmentCategory =
   | "jacket" | "coat" | "jeans" | "pants" | "shorts"
   | "skirt" | "dress" | "sneakers" | "boots" | "sandals"
   | "hat" | "bag" | "belt" | "scarf" | "other";
-export type SubmissionStatus = "pending" | "processing" | "completed" | "failed" | "disputed";
+export type SubmissionStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "disputed"
+  // US-332: image-quality gate abstained — seller must add better photos.
+  | "needs_photos";
+
+// US-332: actionable feedback recorded when the quality gate abstains.
+export interface QualityFeedback {
+  summary: string;
+  photo_requests: string[];
+  issues: {
+    image_type: string;
+    problem: string;
+    severity: "block" | "warn";
+    message: string;
+  }[];
+  assessed_at: string;
+}
 export type GradeTier = "NWT" | "NWOT" | "Excellent" | "Very Good" | "Good" | "Fair" | "Poor";
 export type ImageType = "front" | "back" | "label" | "detail" | "defect";
 export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
@@ -294,6 +314,8 @@ export interface SubmissionRow {
   flagged: boolean;
   flag_reason: string | null;
   moderation_status: ModerationStatus | null;
+  // US-332: present when status === 'needs_photos' (the quality gate abstained).
+  quality_feedback: QualityFeedback | null;
   created_at: string;
   updated_at: string;
 }
