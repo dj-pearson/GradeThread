@@ -2661,3 +2661,30 @@ Full runnable edge suite: 118 passed / 0 failed / 17 env-gated ignored.
 prd.json 298/343. Only US-264 (CSP enforce) remains open in the security
 cluster -- deliberately in the report-only rollout phase (needs a real-browser
 flip to enforcing).
+
+
+## Session Notes (2026-06-02 cont.) -- US-264 CSP flipped to enforcing (security cluster CLOSED)
+
+US-264 (CSP + HSTS on the SPA) -- COMPLETED, passes=true.
+- Externalized BOTH inline-script blockers into public/head-init.js: the gtag
+  Consent-Mode bootstrap AND the font preload's inline onload= handler (the
+  prior notes only flagged the first). head-init.js sets window.gtag/dataLayer
+  + consent defaults and injects the Inter stylesheet via createElement
+  (CSP-safe, still non-render-blocking). index.html loads it as an external
+  same-origin <script> before the async gtag.js.
+- public/_headers: renamed Content-Security-Policy-Report-Only ->
+  Content-Security-Policy (ENFORCING) and added report-uri /csp-report +
+  report-to csp-endpoint + a Reporting-Endpoints header.
+- New functions/csp-report.ts (Cloudflare Pages Function) logs CSP violation
+  reports so any missed origin surfaces in prod logs after the flip.
+- Full static origin audit: the policy covers every third-party the codebase
+  loads (Stripe, gtag, PostHog us.i + us-assets, Sentry ingest, GA, Google
+  Fonts). Build proof: scanned all 24 prerendered HTML files -> ZERO inline
+  executable scripts; no unsafe-eval.
+- tsc -b + build green; vitest 138/138.
+- RESIDUAL (operator): a post-deploy real-browser smoke test of Stripe Checkout
+  / Google OAuth / Sentry / PostHog / GA is the final confirmation, backstopped
+  by the /csp-report sink. A missed origin is a one-line _headers edit.
+
+SECURITY CLUSTER COMPLETE: US-263..US-277 all passes=true (0 open).
+prd.json 299/343.

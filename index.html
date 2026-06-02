@@ -33,39 +33,21 @@
     <meta name="twitter:image" content="https://gradethread.com/og-image.png" />
     <!-- prerender:head:end -->
 
-    <!-- Inter font (US-305). Loaded non-render-blocking: the stylesheet is
-         fetched as a preload and promoted to a stylesheet onload, so the hero
-         H1 (the LCP element) paints immediately in the system fallback and
-         swaps to Inter when ready (display=swap). <noscript> covers no-JS. -->
+    <!-- Inter font (US-305). The non-render-blocking promotion + Google Consent
+         Mode v2 bootstrap live in /head-init.js (external, same-origin) so the
+         SPA can ship an ENFORCING CSP without 'unsafe-inline' in script-src
+         (US-264). preconnects stay here; <noscript> covers no-JS visitors. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
     <noscript>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet" />
     </noscript>
 
-    <!-- Google tag (gtag.js) with Consent Mode v2 — denied until the user
-         opts in via the cookie banner (GDPR/CCPA). The banner calls
-         gtag('consent','update',{analytics_storage:'granted'}) on accept. -->
+    <!-- Head bootstrap: Consent Mode v2 defaults (denied until the cookie
+         banner opts in) + non-blocking Inter font. Runs before the async
+         gtag.js below so the dataLayer + consent defaults exist first. -->
+    <script src="/head-init.js"></script>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-CMDWCFC275"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('consent', 'default', {
-        ad_storage: 'denied',
-        ad_user_data: 'denied',
-        ad_personalization: 'denied',
-        analytics_storage: 'denied',
-        wait_for_update: 500
-      });
-      gtag('js', new Date());
-      gtag('config', 'G-CMDWCFC275');
-    </script>
   </head>
   <body>
     <div id="root"><!--prerender:body--></div>
