@@ -5672,6 +5672,21 @@
       "priority": 342,
       "passes": true,
       "notes": "BUILT (claude/grading-platform-authority-ornp9). Enriched the EXISTING moderation queue (src/pages/admin/moderation.tsx — it already had approve/reject/ban) to fetch grade_reports and surface per-flag-type badges (Possible photo edit / Screenshot-watermark / Reused photo / May not be clothing), grade+confidence, authenticity tells, and the photo-reuse note, with a link to the certificate. Makes US-336/337/338 flags actionable. BUILD-NEW."
+    },
+    {
+      "id": "US-343",
+      "title": "Submitter grade-dispute path with predefined reasons + status notifications",
+      "description": "As a submitter, I want a clear path to request a review of my grade — picking a predefined reason or writing my own — that goes to the platform admin to approve (with weight adjustment) or deny, and I want to be notified as the status changes; as the admin, I want to be alerted when a dispute is filed.",
+      "acceptanceCriteria": [
+        "Submitter dispute dialog offers predefined reason categories (DISPUTE_REASONS) plus optional free-text details; 'Other' requires details. The composed reason is stored on disputes.reason",
+        "Filing a dispute alerts the platform admin (email to DISPUTE_ALERT_EMAIL/SMTP_ADMIN_EMAIL + in-app notification to all admin/super_admin users)",
+        "Admin can deny (reject) or approve with per-factor weight adjustment to set the final grade (existing handlers)",
+        "Submitter receives an in-app notification on every status change (under_review/resolved/rejected) and an email on resolved/rejected (respecting notification preferences)",
+        "Notification calls target the edge (functions) host correctly; typecheck + build pass"
+      ],
+      "priority": 343,
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). The dispute table + submitter filing UI + admin resolve(with per-factor weight adjustment)/reject already existed. ADDED: predefined reason categories (constants.DISPUTE_REASONS) + Select in submission-detail.tsx; edge POST /api/notifications/dispute-filed (admin email + in-app to admins, US-329-style) called on file; generalized the old /dispute-resolved into POST /api/notifications/dispute-status (in-app on every transition + email on resolve/reject) called from admin resolve/reject AND mark-under-review; sendDisputeFiledAdminEmail in email.ts. Also FIXED a latent bug: admin dispute notifications were POSTing to the Supabase host (api.*) instead of the functions host — now uses edgeApiUrl(). NOTE: the resolved email's original-vs-new score line is a pre-existing limitation (grade row is updated before the email reads it) — left as-is."
     }
   ]
 }

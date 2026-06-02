@@ -2,10 +2,25 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
 import {
+  sendDisputeFiledAdminEmail,
   sendDisputeResolvedEmail,
   sendTrialExpiringEmail,
   sendWelcomeEmail,
 } from "../lib/email.ts";
+
+// Insert an in-app notification (service role bypasses RLS). Best-effort.
+async function notifyInApp(
+  userId: string,
+  type: "grade_complete" | "dispute_update" | "billing" | "system",
+  title: string,
+  message: string,
+  link: string | null,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("notifications")
+    .insert({ user_id: userId, type, title, message, link });
+  if (error) console.error("[Notifications] in-app insert failed:", error.message);
+}
 
 type NotifEnv = { Variables: { userId?: string } };
 
@@ -180,24 +195,110 @@ notificationRoutes.post("/register", async (c) => {
 });
 
 /**
- * POST /dispute-resolved
- * Called by the admin frontend after resolving or rejecting a dispute.
- * Body: { disputeId: string }
- *
- * Admin-only: it emails the dispute owner with resolution details, so any
- * authenticated user must NOT be able to trigger it for an arbitrary
- * disputeId. adminAuthMiddleware runs after the route-group authMiddleware
- * (main.ts) so c.var.userId is already set.
+ * POST /dispute-filed
+ * Called by the submitter's frontend right after they file a dispute, so the
+ * platform admin is alerted (email + in-app) to review it. Authenticated (the
+ * route-group authMiddleware sets userId). We only act on a freshly-OPEN
+ * dispute, and the response carries no dispute data — so it can't be used to
+ * probe other users' disputes.
  */
-notificationRoutes.post("/dispute-resolved", adminAuthMiddleware, async (c) => {
-  const { disputeId } = await c.req.json<{ disputeId: string }>();
+notificationRoutes.post("/dispute-filed", async (c) => {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
+  let body: { disputeId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const disputeId = body.disputeId;
+  if (!disputeId) return c.json({ error: "disputeId is required" }, 400);
+
+  try {
+    const { data: dispute } = await supabaseAdmin
+      .from("disputes")
+      .select("id, status, reason, user_id, grade_report_id")
+      .eq("id", disputeId)
+      .single();
+    if (!dispute) return c.json({ error: "Dispute not found" }, 404);
+    // Only alert on a just-filed dispute (idempotent + not abusable on old ones).
+    if (dispute.status !== "open") return c.json({ ok: true, skipped: "not open" });
+
+    // Resolve the submission title + submitter name for the alert.
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submission_id")
+      .eq("id", dispute.grade_report_id)
+      .single();
+    let submissionTitle = "a graded submission";
+    if (report?.submission_id) {
+      const { data: submission } = await supabaseAdmin
+        .from("submissions")
+        .select("title")
+        .eq("id", report.submission_id)
+        .single();
+      if (submission?.title) submissionTitle = submission.title;
+    }
+    const { data: submitter } = await supabaseAdmin
+      .from("users")
+      .select("full_name, email")
+      .eq("id", dispute.user_id)
+      .single();
+    const submitterName = submitter?.full_name || submitter?.email || "A user";
+
+    // Email the platform admin.
+    const adminEmail =
+      Deno.env.get("DISPUTE_ALERT_EMAIL") || Deno.env.get("SMTP_ADMIN_EMAIL") || "";
+    let emailed = false;
+    if (adminEmail) {
+      emailed = await sendDisputeFiledAdminEmail(adminEmail, {
+        submitterName,
+        submissionTitle,
+        reason: dispute.reason,
+        submissionId: report?.submission_id ?? "",
+      });
+    }
+
+    // In-app notify every admin / super_admin.
+    const { data: admins } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .in("role", ["admin", "super_admin"]);
+    for (const a of admins ?? []) {
+      await notifyInApp(
+        a.id,
+        "system",
+        "New grade dispute filed",
+        `${submitterName} disputed the grade for "${submissionTitle}".`,
+        "/admin/disputes",
+      );
+    }
+
+    return c.json({ ok: true, emailed, admins_notified: (admins ?? []).length });
+  } catch (error) {
+    console.error("[Notifications] dispute-filed error:", error);
+    return c.json({ error: "Failed to send notification" }, 500);
+  }
+});
+
+/**
+ * POST /dispute-status
+ * Called by the admin frontend after a dispute transitions to under_review,
+ * resolved, or rejected. In-app notifies the submitter on every transition and
+ * emails them on resolved/rejected (respecting their preferences).
+ *
+ * Admin-only: it touches the dispute owner's notifications, so any authenticated
+ * user must NOT trigger it. adminAuthMiddleware runs after the route-group
+ * authMiddleware (main.ts) so c.var.userId is already set.
+ */
+notificationRoutes.post("/dispute-status", adminAuthMiddleware, async (c) => {
+  const { disputeId } = await c.req.json<{ disputeId: string }>();
   if (!disputeId) {
     return c.json({ error: "disputeId is required" }, 400);
   }
 
   try {
-    // Fetch dispute with submission and user info
     const { data: dispute, error: disputeError } = await supabaseAdmin
       .from("disputes")
       .select("id, status, resolution_notes, user_id, grade_report_id")
@@ -208,61 +309,69 @@ notificationRoutes.post("/dispute-resolved", adminAuthMiddleware, async (c) => {
       return c.json({ error: "Dispute not found" }, 404);
     }
 
-    if (dispute.status !== "resolved" && dispute.status !== "rejected") {
-      return c.json({ error: "Dispute is not resolved or rejected" }, 400);
+    const status = dispute.status as string;
+    if (!["under_review", "resolved", "rejected"].includes(status)) {
+      return c.json({ error: "Unsupported dispute status" }, 400);
     }
 
-    // Fetch user email, name, and notification preferences
     const { data: user } = await supabaseAdmin
       .from("users")
       .select("email, full_name, notification_preferences")
       .eq("id", dispute.user_id)
       .single();
 
-    if (!user?.email) {
-      console.warn(`[Notifications] No email found for user ${dispute.user_id}`);
-      return c.json({ error: "User email not found" }, 404);
-    }
-
-    // Respect the user's notification preferences (default: enabled).
-    if (user.notification_preferences?.dispute_updates?.email === false) {
-      return c.json({ sent: false, skipped: "user opted out of dispute emails" });
-    }
-
-    // Fetch grade report for scores
+    // Resolve submission title + id for the link/message.
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
       .select("overall_score, submission_id")
       .eq("id", dispute.grade_report_id)
       .single();
-
-    // Fetch submission title
     const submissionId = report?.submission_id;
-    let submissionTitle = "Your submission";
+    let submissionTitle = "your submission";
     if (submissionId) {
       const { data: submission } = await supabaseAdmin
         .from("submissions")
         .select("title")
         .eq("id", submissionId)
         .single();
-      if (submission?.title) {
-        submissionTitle = submission.title;
-      }
+      if (submission?.title) submissionTitle = submission.title;
+    }
+    const link = submissionId ? `/dashboard/submissions/${submissionId}` : "/dashboard/submissions";
+
+    // In-app notification on every transition.
+    const title =
+      status === "under_review"
+        ? "Your dispute is under review"
+        : status === "resolved"
+          ? "Your dispute was resolved"
+          : "Your dispute was reviewed";
+    const message =
+      status === "under_review"
+        ? `We're reviewing your dispute for "${submissionTitle}".`
+        : status === "resolved"
+          ? `Your dispute for "${submissionTitle}" was resolved. Open it to see the outcome.`
+          : `Your dispute for "${submissionTitle}" was reviewed and the original grade stands.`;
+    await notifyInApp(dispute.user_id, "dispute_update", title, message, link);
+
+    // Email only on resolved/rejected, respecting the user's preference.
+    let emailed = false;
+    const emailOptedOut =
+      user?.notification_preferences?.dispute_updates?.email === false;
+    if ((status === "resolved" || status === "rejected") && user?.email && !emailOptedOut) {
+      emailed = await sendDisputeResolvedEmail(user.email, {
+        userName: user.full_name || "there",
+        submissionTitle,
+        outcome: status as "resolved" | "rejected",
+        resolutionNotes: dispute.resolution_notes,
+        originalScore: report?.overall_score ?? 0,
+        newScore: status === "resolved" ? (report?.overall_score ?? null) : null,
+        submissionId: submissionId || "",
+      });
     }
 
-    const sent = await sendDisputeResolvedEmail(user.email, {
-      userName: user.full_name || "there",
-      submissionTitle,
-      outcome: dispute.status as "resolved" | "rejected",
-      resolutionNotes: dispute.resolution_notes,
-      originalScore: report?.overall_score ?? 0,
-      newScore: dispute.status === "resolved" ? (report?.overall_score ?? null) : null,
-      submissionId: submissionId || "",
-    });
-
-    return c.json({ sent });
+    return c.json({ ok: true, notified: true, emailed });
   } catch (error) {
-    console.error("[Notifications] dispute-resolved error:", error);
+    console.error("[Notifications] dispute-status error:", error);
     return c.json({ error: "Failed to send notification" }, 500);
   }
 });

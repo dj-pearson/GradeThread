@@ -82,6 +82,22 @@ export const DISPUTE_STATUSES = [
   "rejected",
 ] as const;
 
+// Predefined dispute reason categories (US: submitter dispute path). A submitter
+// picks one — or "Other" — and can add free-text details. The chosen label is
+// composed into the dispute's `reason` text.
+export const DISPUTE_REASONS = [
+  { value: "grade_too_low", label: "Overall grade is too low" },
+  { value: "design_as_damage", label: "Intentional design counted as damage" },
+  { value: "defect_not_present", label: "A listed defect isn't actually present" },
+  { value: "missed_detail", label: "An important detail or flaw was missed" },
+  { value: "wrong_category", label: "Wrong garment type or category" },
+  { value: "factor_score", label: "A factor score looks wrong" },
+  { value: "other", label: "Other (please explain)" },
+] as const;
+
+export type DisputeReasonValue = (typeof DISPUTE_REASONS)[number]["value"];
+
+
 // ─── Pricing model (US-200) ──────────────────────────────────────
 //
 // Two products billed on one Stripe customer:

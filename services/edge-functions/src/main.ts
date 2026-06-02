@@ -110,7 +110,8 @@ app.use("*", securityHeaders);
 app.use("/api/grade/*", authMiddleware);
 app.use("/api/payments/*", authMiddleware);
 app.use("/api/keys/*", authMiddleware);
-app.use("/api/notifications/dispute-resolved", authMiddleware);
+app.use("/api/notifications/dispute-status", authMiddleware);
+app.use("/api/notifications/dispute-filed", authMiddleware);
 app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
