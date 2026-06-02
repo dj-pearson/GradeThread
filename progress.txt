@@ -2475,3 +2475,33 @@ endpoint review-verified only (no Deno here).
 prd.json 286/343. RECONCILE WEB FEATURE COMPLETE (11/12 stories).
 Only US-289 (iOS batch import) remains -- needs Xcode/simulator (not in this
 sandbox); plan is documented in its prd.json note.
+
+
+## Session Notes (2026-06-02 cont.) -- US-289 iOS plumbing (CI-tested)
+
+US-289 (Reconcile: iOS batch import) -- PARTIAL, passes=false.
+Built the safe, CI-verifiable data-layer pieces (can't build iOS in this
+sandbox, but the existing ios-ci.yml builds+tests on macOS-14/Xcode 16.2):
+- PHAsset.creationDate read in PhotoLibraryPicker.creationDate() and threaded
+  into PhotoCapture.capturedAt (PhotoIntakeView.ingestLibraryPicks) BEFORE
+  PhotoCompressor strips EXIF; falls back to .now.
+- Extracted a testable ItemPhotoInsert (Upload/ItemPhotoInsert.swift): encodes
+  captured_at as ISO-8601, OMITS captured_at + reconcile_session_id when nil so
+  existing single-item uploads are byte-identical.
+- PhotoUploadTask carries capturedAt + reconcileSessionId; enqueueAll/schedule
+  gained an optional reconcileSessionId passthrough; insertPhotoRow stamps both.
+- ios/GradeThreadTests/ReconcileIntakeTests.swift: 8 cases (base encoding,
+  nil-omission, session id, ISO8601 captured_at round-trip, task carries
+  fields/defaults, PhotoCapture preserves capturedAt). Auto-included by the
+  GradeThreadTests dir glob; runs in the existing iOS CI on ios/** PRs.
+
+STILL TODO (needs Xcode + a design call): a true session-targeting intake
+entry point (item_photos requires an inventory_item, so session-only photos
+need a staging model like the web board's pre-commit blobs), the .uploadPhoto
+SyncEngine handler (US-175/178 stub) carrying reconcile_session_id, and on-device
+build/run. Kept passes=false.
+
+NOTE: the iOS CI runs on pull_request (paths: ios/**) -- it will execute these
+new tests once a PR is opened for this branch.
+
+prd.json unchanged count (US-289 stays passes=false; reconcile web = 11/12).
