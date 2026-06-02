@@ -131,13 +131,16 @@ accountRoutes.post("/delete", async (c) => {
 
   await removeAll("submission-images", subImgPaths);
   await removeAll("item-photos", itemPhotoPaths);
+  const storagePurged = true;
 
   // 2. Delete the Stripe customer (this also cancels any active subscriptions).
+  let stripeDeleted = false;
   if (user?.stripe_customer_id) {
     const stripe = getStripe();
     if (stripe) {
       try {
         await stripe.customers.del(user.stripe_customer_id);
+        stripeDeleted = true;
       } catch (err) {
         // Best-effort: a missing/already-deleted customer shouldn't block
         // erasure of the rest of the account.
@@ -149,7 +152,30 @@ accountRoutes.post("/delete", async (c) => {
     }
   }
 
-  // 3. Delete the auth user — cascades every public table keyed to it,
+  // 3. Write the non-PII compliance record BEFORE the cascade (US-275). This
+  //    table has no FK to auth.users, so it survives deletion as proof that
+  //    this account id was erased on this date — with no retained PII.
+  {
+    const { error: logErr } = await supabaseAdmin
+      .from("account_deletion_log")
+      .insert({
+        deleted_user_id: userId,
+        source: "self_serve",
+        had_stripe_customer: !!user?.stripe_customer_id,
+        stripe_deleted: stripeDeleted,
+        storage_purged: storagePurged,
+      });
+    if (logErr) {
+      // Don't abort erasure over a logging failure — the user's right to be
+      // forgotten outranks our audit row. Surface it for ops follow-up.
+      console.error(
+        `[account/delete] deletion-log insert failed for ${userId}:`,
+        logErr.message,
+      );
+    }
+  }
+
+  // 4. Delete the auth user — cascades every public table keyed to it,
   //    including marketplace_connections (our stored eBay OAuth tokens). Live
   //    revocation at eBay isn't performed here; those tokens are short-lived
   //    and our stored copy is destroyed by the cascade.

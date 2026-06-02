@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -645,6 +645,13 @@ export function SettingsPage() {
             )}
             Export My Data
           </Button>
+          <p className="text-xs text-muted-foreground">
+            See our{" "}
+            <Link to="/privacy" className="underline hover:text-foreground">
+              Privacy Policy
+            </Link>{" "}
+            for how we handle and retain your data.
+          </p>
         </CardContent>
       </Card>
 
@@ -711,12 +718,39 @@ export function SettingsPage() {
 
 function DangerZoneCard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [confirmText, setConfirmText] = useState("");
+  const [reauthPassword, setReauthPassword] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  // Re-auth requirement (US-275). Password users must re-enter their password
+  // immediately before erasure; we verify it client-side via a fresh
+  // signInWithPassword so a walk-up attacker on an unlocked session can't nuke
+  // the account. Google/OAuth users have no password — for them the active
+  // session plus the typed confirmation phrase is the gate (re-running the
+  // OAuth dance just to delete would be hostile, and they can revoke our app
+  // from their Google account separately).
+  const isOAuthUser = user?.app_metadata?.provider === "google";
+
   async function handleDelete() {
+    if (confirmText !== DELETE_CONFIRM_PHRASE) return;
     setDeleting(true);
     try {
+      // Step-up re-authentication for password accounts.
+      if (!isOAuthUser) {
+        const email = user?.email;
+        if (!email) {
+          throw new Error("Could not verify your identity. Please sign in again.");
+        }
+        const { error: reauthError } = await supabase.auth.signInWithPassword({
+          email,
+          password: reauthPassword,
+        });
+        if (reauthError) {
+          throw new Error("Incorrect password. Please re-enter it to confirm.");
+        }
+      }
+
       const res = await fetch(`${edgeApiUrl()}/api/account/delete`, {
         method: "POST",
         headers: await edgeAuthHeaders(),
@@ -735,6 +769,10 @@ function DangerZoneCard() {
       setDeleting(false);
     }
   }
+
+  const canDelete =
+    confirmText === DELETE_CONFIRM_PHRASE &&
+    (isOAuthUser || reauthPassword.length > 0);
 
   return (
     <Card className="border-destructive/40">
@@ -762,14 +800,34 @@ function DangerZoneCard() {
             autoComplete="off"
           />
         </div>
+        {!isOAuthUser && (
+          <div className="space-y-2">
+            <Label htmlFor="delete-reauth">Confirm your password</Label>
+            <Input
+              id="delete-reauth"
+              type="password"
+              value={reauthPassword}
+              onChange={(e) => setReauthPassword(e.target.value)}
+              placeholder="Current password"
+              autoComplete="current-password"
+            />
+          </div>
+        )}
         <Button
           variant="destructive"
           onClick={handleDelete}
-          disabled={deleting || confirmText !== DELETE_CONFIRM_PHRASE}
+          disabled={deleting || !canDelete}
         >
           {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Permanently delete my account
         </Button>
+        <p className="text-xs text-muted-foreground">
+          Deletion is permanent and irreversible. See our{" "}
+          <Link to="/privacy" className="underline hover:text-foreground">
+            Privacy Policy
+          </Link>{" "}
+          for details on data retention.
+        </p>
       </CardContent>
     </Card>
   );
