@@ -198,3 +198,61 @@ export function groupsToPairs(groups: number[][], ids: string[]): Array<{ a: str
   }
   return pairs;
 }
+
+const MATCH_HINTS_TOOL: Anthropic.Tool = {
+  name: "item_match_hints",
+  description:
+    "From clothing photos (especially the brand/size tag and front), return the brand and a few short keywords (item type, model, color, distinctive features) that would help match this to an existing catalog entry. Omit anything you can't read confidently.",
+  input_schema: {
+    type: "object",
+    properties: {
+      brand: { type: "string", description: "Brand/maker, or empty if unreadable" },
+      keywords: {
+        type: "array",
+        items: { type: "string" },
+        description: "3-6 short matching keywords",
+      },
+      confidence: { type: "number", description: "0..1 confidence in these hints" },
+    },
+    required: ["keywords", "confidence"],
+  },
+};
+
+export interface MatchHints {
+  brand: string | null;
+  keywords: string[];
+  confidence: number;
+}
+
+/** Extracts brand + keyword hints from a cluster's photos for item matching. */
+export async function extractMatchHints(images: VisionImage[]): Promise<MatchHints> {
+  if (images.length === 0) return { brand: null, keywords: [], confidence: 0 };
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+  const response = await client.messages.create({
+    model: getDefaultModel(),
+    max_tokens: 512,
+    ...(temperature !== undefined ? { temperature } : {}),
+    tools: [MATCH_HINTS_TOOL],
+    tool_choice: { type: "tool", name: "item_match_hints" },
+    messages: [
+      {
+        role: "user",
+        content: captionedContent(
+          images,
+          "Read the brand/size tag and identify this garment. Return brand + short matching keywords.",
+        ),
+      },
+    ],
+  });
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") return { brand: null, keywords: [], confidence: 0 };
+  const raw = toolUse.input as { brand?: unknown; keywords?: unknown; confidence?: unknown };
+  const brand = typeof raw.brand === "string" && raw.brand.trim() ? raw.brand.trim() : null;
+  const keywords = Array.isArray(raw.keywords)
+    ? raw.keywords.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+    : [];
+  const confidence = typeof raw.confidence === "number" ? raw.confidence : 0.5;
+  return { brand, keywords, confidence };
+}
+

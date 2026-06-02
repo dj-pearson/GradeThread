@@ -2453,3 +2453,25 @@ time-gap cluster -> manual merge/split/move/drag -> visual 'group similar' ->
 link or new draft -> set photo types -> commit (upload + item_photos +
 photographed) -> AI classify + generate title/details. Ready to merge; the
 two open items are an AI ranking enhancement (US-285) and the iOS client (US-289).
+
+
+## Session Notes (2026-06-02 cont.) -- US-285 AI-suggest (Reconcile web complete)
+
+US-285 (link cluster to existing item) -- COMPLETED, passes=true.
+- PICKER (was already done): per-cluster Link popover lists owner's photo-less
+  items (sourced/cataloged/drafted, photo_count 0); manual title/brand/SKU
+  search; 'Will link to {title}' marking; ownership re-verified at commit.
+- AI-SUGGEST (new): 'Suggest' button -> downscale tag/front photos -> POST
+  /api/flipdesk/ai/suggest-item-match (ai-reconcile.ts extractMatchHints
+  returns vision brand + keywords; candidate list never leaves the client;
+  quota-gated). Client ranks with PURE rankItemMatches (src/lib/reconcile-match.ts,
+  brand 0.6 + keyword 0.4) and surfaces the top match first with a confidence %
+  badge -- never auto-applied. Falls back to manual picker on any AI failure.
+- 6 unit tests for rankItemMatches; +1 tenant auth test for suggest-item-match.
+
+Verified: vitest 138/138, tsc -b + eslint clean, npm run build green. Edge
+endpoint review-verified only (no Deno here).
+
+prd.json 286/343. RECONCILE WEB FEATURE COMPLETE (11/12 stories).
+Only US-289 (iOS batch import) remains -- needs Xcode/simulator (not in this
+sandbox); plan is documented in its prd.json note.

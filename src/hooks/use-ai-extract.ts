@@ -201,3 +201,17 @@ export function useClassifyPhotos() {
       postJson<ClassifyPhotosResponse>("/api/flipdesk/ai/classify-photos", input),
   });
 }
+
+export interface MatchHintsResponse {
+  brand: string | null;
+  keywords: string[];
+  confidence: number;
+}
+
+export function useSuggestItemMatch() {
+  // Errors handled at the call site (the manual picker still works).
+  return useMutation<MatchHintsResponse, ApiError, { photos: ReconcileVisionPhoto[] }>({
+    mutationFn: (input) =>
+      postJson<MatchHintsResponse>("/api/flipdesk/ai/suggest-item-match", input),
+  });
+}

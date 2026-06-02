@@ -79,8 +79,10 @@ import {
   useBulkExtract,
   useEmbedPhotos,
   useClassifyPhotos,
+  useSuggestItemMatch,
   type BulkExtractResponse,
 } from "@/hooks/use-ai-extract";
+import { rankItemMatches } from "@/lib/reconcile-match";
 import { compressImage } from "@/lib/image-utils";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import type { FlipdeskPhotoType, ReconcileAssignmentSnapshot } from "@/types/database";
@@ -108,6 +110,14 @@ interface CommittedItem {
   itemId: string;
   label: string;
 }
+interface ItemSuggestion {
+  itemId: string;
+  title: string;
+  confidence: number;
+}
+
+// Prefer the tag (brand/size) and front shots when asking AI to match an item.
+const SUGGEST_TYPE_PRIORITY: Record<string, number> = { tag: 0, front: 1, back: 2 };
 
 const ACCEPT = "image/*";
 const NEEDS_SORTING_DROP = "__needs_sorting__";
@@ -134,7 +144,10 @@ export function FlipdeskReconcilePage() {
   const bulkExtract = useBulkExtract();
   const embedPhotos = useEmbedPhotos();
   const classifyPhotos = useClassifyPhotos();
+  const suggestMatch = useSuggestItemMatch();
   const [visualPending, setVisualPending] = useState(false);
+  const [suggestions, setSuggestions] = useState<Record<string, ItemSuggestion>>({});
+  const [suggestingId, setSuggestingId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -439,6 +452,57 @@ export function FlipdeskReconcilePage() {
     }
   }
 
+  // US-285: AI-suggest the most likely existing item for a cluster. Reads the
+  // brand/tag from the cluster's photos, ranks the owner's photo-less items,
+  // and surfaces the top match — never auto-applied (the user must accept it).
+  async function suggestForCluster(clusterId: string, clusterPhotos: DumpPhoto[]) {
+    const withFiles = clusterPhotos.filter((p) => p.file);
+    if (withFiles.length === 0) {
+      toast.info("Re-add this group's photos to use AI suggest.");
+      return;
+    }
+    if (linkableItems.length === 0) {
+      toast.info("No photo-less items to match against.");
+      return;
+    }
+    const ordered = [...withFiles]
+      .sort((a, b) => (SUGGEST_TYPE_PRIORITY[a.photoType] ?? 9) - (SUGGEST_TYPE_PRIORITY[b.photoType] ?? 9))
+      .slice(0, 4);
+    setSuggestingId(clusterId);
+    try {
+      const visionPhotos = [];
+      for (const p of ordered) {
+        const small = await compressImage(p.file!, 512, 0.6);
+        visionPhotos.push({
+          id: p.id,
+          data: await blobToBase64(small.blob),
+          media_type: small.blob.type || "image/jpeg",
+        });
+      }
+      const hints = await suggestMatch.mutateAsync({ photos: visionPhotos });
+      const ranked = rankItemMatches(
+        { brand: hints.brand, keywords: hints.keywords },
+        linkableItems.map((it) => ({ id: it.id, title: it.title, brand: it.brand, sku: it.sku })),
+      );
+      if (ranked.length === 0) {
+        toast.info("No likely match found — search manually.");
+        return;
+      }
+      const top = ranked[0]!;
+      const item = linkableItems.find((it) => it.id === top.id);
+      if (!item) return;
+      setSuggestions((prev) => ({
+        ...prev,
+        [clusterId]: { itemId: item.id, title: item.title, confidence: Math.round(top.score * 100) },
+      }));
+      toast.success(`Suggested match: ${item.title}`);
+    } catch {
+      toast.warning("Couldn't suggest a match — search manually.");
+    } finally {
+      setSuggestingId(null);
+    }
+  }
+
   async function generate(itemIds: string[]) {
     if (itemIds.length === 0) return;
     try {
@@ -684,6 +748,9 @@ export function FlipdeskReconcilePage() {
                       return next;
                     })
                   }
+                  suggestion={suggestions[cluster.clusterId] ?? null}
+                  suggesting={suggestingId === cluster.clusterId}
+                  onSuggest={() => suggestForCluster(cluster.clusterId, cluster.photos)}
                 />
               ))}
               {committed.length === 0 && <NewClusterDropZone />}
@@ -717,6 +784,9 @@ function ClusterCard({
   linkTarget,
   linkableItems,
   onLink,
+  suggestion,
+  suggesting,
+  onSuggest,
 }: {
   clusterId: string;
   index: number;
@@ -730,6 +800,9 @@ function ClusterCard({
   linkTarget: LinkTarget | null;
   linkableItems: PhotolessItem[];
   onLink: (t: LinkTarget | null) => void;
+  suggestion: ItemSuggestion | null;
+  suggesting: boolean;
+  onSuggest: () => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: clusterId, disabled: locked });
   return (
@@ -759,6 +832,9 @@ function ClusterCard({
               items={linkableItems}
               current={linkTarget}
               onLink={onLink}
+              suggestion={suggestion}
+              suggesting={suggesting}
+              onSuggest={onSuggest}
             />
             {otherClusters.length > 0 && (
               <DropdownMenu>
@@ -798,10 +874,16 @@ function LinkPicker({
   items,
   current,
   onLink,
+  suggestion,
+  suggesting,
+  onSuggest,
 }: {
   items: PhotolessItem[];
   current: LinkTarget | null;
   onLink: (t: LinkTarget | null) => void;
+  suggestion: ItemSuggestion | null;
+  suggesting: boolean;
+  onSuggest: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -826,9 +908,40 @@ function LinkPicker({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72 p-2">
-        <div className="mb-2 text-xs font-medium text-muted-foreground">
-          Link this group to a photo-less item
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-xs font-medium text-muted-foreground">
+            Link to a photo-less item
+          </span>
+          <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onSuggest} disabled={suggesting}>
+            {suggesting ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1 h-3 w-3" />
+            )}
+            Suggest
+          </Button>
         </div>
+        {/* AI suggestion, surfaced first and never auto-applied (US-285). */}
+        {suggestion && (
+          <button
+            type="button"
+            onClick={() => {
+              onLink({ itemId: suggestion.itemId, title: suggestion.title });
+              setOpen(false);
+            }}
+            className="mb-2 flex w-full items-center justify-between rounded border border-primary/40 bg-primary/5 px-2 py-1.5 text-left text-sm hover:bg-primary/10"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="flex items-center gap-1 text-xs font-medium text-primary">
+                <Sparkles className="h-3 w-3" /> Suggested match
+              </span>
+              <span className="truncate">{suggestion.title}</span>
+            </span>
+            <Badge variant="secondary" className="ml-1 shrink-0 text-[10px]">
+              {suggestion.confidence}%
+            </Badge>
+          </button>
+        )}
         <Input
           placeholder="Search title / brand / SKU…"
           value={q}

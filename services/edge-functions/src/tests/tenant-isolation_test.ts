@@ -386,3 +386,20 @@ Deno.test({
     );
   },
 });
+
+// suggest-item-match operates only on caller-supplied images (the candidate
+// list never leaves the client), but must still require auth.
+Deno.test({
+  name: "suggest-item-match requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ai/suggest-item-match`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photos: [{ id: "x", url: "https://example.com/a.jpg" }] }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated suggest-item-match should 401, got ${status}`);
+  },
+});

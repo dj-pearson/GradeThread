@@ -11,6 +11,7 @@ import {
 import { getCategoryAspects } from "../lib/ebay-client.ts";
 import {
   classifyPhotoTypes,
+  extractMatchHints,
   groupSimilarPhotos,
   groupsToPairs,
   type VisionImage,
@@ -971,5 +972,43 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
     return c.json({ classifications });
   } catch {
     return c.json({ classifications: ids.map((id) => ({ id, type: "detail", confidence: 0 })) });
+  }
+});
+
+/**
+ * POST /suggest-item-match  (US-285)
+ * Body: { photos: [{ id, data(base64) | url, media_type? }] }
+ * Returns vision-extracted brand + keyword hints for the cluster. The CLIENT
+ * fuzzy-matches these against its own (owner-scoped) photo-less item list — the
+ * server never sees or touches the candidate items, so there's no cross-tenant
+ * surface here beyond the standard workspace-scoped quota. Never auto-applied.
+ */
+flipdeskAiRoutes.post("/suggest-item-match", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const { images } = parseVisionPhotos(body);
+  if (images.length === 0) return c.json({ brand: null, keywords: [], confidence: 0 });
+  if (images.length > 8) {
+    // Matching only needs the tag/front — the board sends a couple of photos.
+    return c.json({ error: "Too many photos (max 8 for match hints)." }, 400);
+  }
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  try {
+    const hints = await extractMatchHints(images);
+    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    return c.json(hints);
+  } catch (err) {
+    return c.json(
+      { error: "Suggestion failed", detail: err instanceof Error ? err.message : String(err) },
+      502,
+    );
   }
 });
