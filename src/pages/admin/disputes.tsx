@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { getImageUrl } from "@/lib/storage";
+import { promoteEvalCandidate } from "@/lib/eval-candidates";
 import { GRADE_FACTORS } from "@/lib/constants";
 import type {
   DisputeRow,
@@ -473,6 +474,10 @@ export function AdminDisputesPage() {
           } as never)
           .eq("id", selectedDispute.report.id);
         if (updateError) throw updateError;
+
+        // US-329: a dispute resolved by adjusting the grade is a high-value
+        // correction — promote it into a pending eval candidate (best-effort).
+        await promoteEvalCandidate(selectedDispute.report.id, "dispute");
       }
 
       // Update dispute status to resolved

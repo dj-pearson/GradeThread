@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { getImageUrl } from "@/lib/storage";
+import { promoteEvalCandidate } from "@/lib/eval-candidates";
 import { GRADE_FACTORS } from "@/lib/constants";
 import type {
   SubmissionRow,
@@ -506,6 +507,10 @@ export function AdminReviewsPage() {
         } as never)
         .eq("id", reviewingItem.report.id);
       if (updateError) throw updateError;
+
+      // US-329: grow the golden eval set from this real correction (best-effort,
+      // lands as a pending candidate for admin approval).
+      await promoteEvalCandidate(reviewingItem.report.id, "human_review");
 
       await logAuditAction("adjust_grade", "grade_report", reviewingItem.report.id, {
         submission_id: reviewingItem.submission.id,

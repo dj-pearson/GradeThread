@@ -47,6 +47,17 @@ async function auditLog(
 const STAGES = ["per_image", "composite"] as const;
 type Stage = (typeof STAGES)[number];
 
+// Map a 1.0–10.0 score to its grade_tier (mirrors ai-grading.scoreToGradeTier).
+function scoreToTier(score: number): string {
+  if (score >= 10.0) return "NWT";
+  if (score >= 9.0) return "NWOT";
+  if (score >= 8.0) return "Excellent";
+  if (score >= 7.0) return "Very Good";
+  if (score >= 6.0) return "Good";
+  if (score >= 5.0) return "Fair";
+  return "Poor";
+}
+
 // ── Accuracy ───────────────────────────────────────────────────────
 
 // GET /accuracy?period=week  — aggregate accuracy metrics.
@@ -262,6 +273,126 @@ adminGradingRoutes.post("/eval/cases", async (c) => {
 
   await auditLog(userId, "create_eval_case", "grading_eval_case", data.id, { label });
   return c.json({ case: data }, 201);
+});
+
+// POST /eval/cases/promote — promote a corrected grade into a CANDIDATE eval
+// case (is_active=false, pending approval). US-329: the self-improvement loop.
+// Body: { grade_report_id, source?: "human_review" | "dispute" }. Idempotent —
+// one candidate per grade report (dedup on source_grade_report_id).
+adminGradingRoutes.post("/eval/cases/promote", async (c) => {
+  const userId = c.get("userId");
+  let body: { grade_report_id?: string; source?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const reportId = (body.grade_report_id ?? "").trim();
+  if (!reportId) return c.json({ error: "grade_report_id is required" }, 400);
+  const source = body.source === "dispute" ? "dispute" : "human_review";
+
+  // Dedup: skip if a candidate already exists for this grade report.
+  const { data: existing } = await supabaseAdmin
+    .from("grading_eval_cases")
+    .select("id")
+    .eq("source_grade_report_id", reportId)
+    .maybeSingle();
+  if (existing) {
+    return c.json({ ok: true, already: true, case_id: (existing as { id: string }).id });
+  }
+
+  const { data: report } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, overall_score, submission_id")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (!report) return c.json({ error: "Grade report not found" }, 404);
+
+  // The corrected truth comes from the most recent human review (if any).
+  const { data: review } = await supabaseAdmin
+    .from("human_reviews")
+    .select("adjusted_score, intentional_misread, reviewed_at")
+    .eq("grade_report_id", reportId)
+    .order("reviewed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const r = report as { overall_score: number; submission_id: string };
+  const rv = review as { adjusted_score: number | null; intentional_misread: boolean | null } | null;
+  const expectedScore =
+    rv && typeof rv.adjusted_score === "number" ? rv.adjusted_score : r.overall_score;
+  const intentionalMisread = rv?.intentional_misread === true;
+
+  const { data: submission } = await supabaseAdmin
+    .from("submissions")
+    .select("garment_type, garment_category, brand, title, description, style_attributes")
+    .eq("id", r.submission_id)
+    .maybeSingle();
+  if (!submission) return c.json({ error: "Submission not found" }, 404);
+  const s = submission as {
+    garment_type: string;
+    garment_category: string;
+    brand: string | null;
+    title: string;
+    description: string | null;
+    style_attributes: string[] | null;
+  };
+
+  const { data: imgs } = await supabaseAdmin
+    .from("submission_images")
+    .select("image_type, storage_path")
+    .eq("submission_id", r.submission_id)
+    .order("display_order", { ascending: true });
+  const images = (imgs ?? []).map((i) => ({
+    image_type: (i as { image_type: string }).image_type,
+    storage_path: (i as { storage_path: string }).storage_path,
+  }));
+  if (images.length === 0) {
+    return c.json({ error: "Submission has no images to build a case from" }, 422);
+  }
+
+  const label = `${s.brand ? s.brand + " " : ""}${s.title}`.slice(0, 120).trim();
+  const tags = [
+    s.garment_category,
+    ...(intentionalMisread ? ["intentional_misread"] : []),
+    source,
+  ];
+  const notes =
+    `Auto-promoted from ${source} (${new Date().toISOString().slice(0, 10)}). ` +
+    `AI ${r.overall_score} → corrected ${expectedScore}.` +
+    (intentionalMisread ? " Flagged intentional-design misread." : "") +
+    " Pending approval before it counts toward the eval gate.";
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from("grading_eval_cases")
+    .insert({
+      label,
+      garment_type: s.garment_type,
+      garment_category: s.garment_category,
+      brand: s.brand,
+      description: s.description,
+      style_attributes: Array.isArray(s.style_attributes) ? s.style_attributes : [],
+      images,
+      expected_score: expectedScore,
+      expected_tier: scoreToTier(expectedScore),
+      tags,
+      is_active: false,
+      notes,
+      source_grade_report_id: reportId,
+      source,
+      created_by: userId,
+    })
+    .select("id")
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+
+  await auditLog(userId, "promote_eval_candidate", "grading_eval_case", inserted.id, {
+    source,
+    grade_report_id: reportId,
+    expected_score: expectedScore,
+    intentional_misread: intentionalMisread,
+  });
+  return c.json({ ok: true, case_id: inserted.id }, 201);
 });
 
 // PATCH /eval/cases/:id — edit an eval case (whitelist of mutable fields).

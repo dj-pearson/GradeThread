@@ -5475,8 +5475,8 @@
         "Duplicate suppression avoids creating many near-identical cases; tests cover the promotion mapping"
       ],
       "priority": 329,
-      "passes": false,
-      "notes": "BUILD-NEW. Reuse grading_eval_cases (00050), human_reviews per-factor corrections + intentional_misread, disputes table. Closes the loop between US-071 (review queue) and the eval gate. Net effect: the golden set self-expands toward the cases that previously broke."
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). Edge POST /api/admin/grading/eval/cases/promote builds a CANDIDATE eval case (is_active=false) from a corrected grade — pulls submission images (storage paths, no re-upload), expected_score/tier from the latest human_review, tags incl. intentional_misread + source. Dedup via grading_eval_cases.source_grade_report_id (migration 00063, unique index). Auto-called best-effort after a reviewer adjusts a grade (reviews.tsx) or resolves a dispute by adjusting (disputes.tsx). New GradingEvalCandidatesPanel (admin ai-models page) lists pending candidates with expected score/tier + provenance and Approve (PATCH is_active=true → counts toward the eval gate) / Reject (DELETE). BUILD-NEW. Closes the loop between US-071 (review queue) and the eval gate."
     },
     {
       "id": "US-330",
