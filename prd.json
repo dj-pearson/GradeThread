@@ -4600,8 +4600,8 @@
         "Per-user folder storage RLS re-verified against the {userId}/{submissionId}/{imageType}_{timestamp} path convention"
       ],
       "priority": 276,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": " DONE (2026-06-02): NEW lib/upload-validation.ts (magic-byte sniff for jpeg/png/webp/heic — never the client MIME/ext; SVG/PDF/GIF/exe rejected; byte-size + pixel-dimension caps; allowlist subset) + lib/image-metadata.ts (strips EXIF/GPS — JPEG APP1/APP13, PNG eXIf/tEXt/zTXt/iTXt/tIME, WebP EXIF/XMP + clears VP8X flags; pixels preserved). Both wired BEFORE storage.upload in grade.ts /submit and api-v1 (validate->reject 400->strip->upload sniffed type). 19 unit tests (upload-validation_test.ts) incl. crafted JPEG/PNG/WebP EXIF fixtures proving GPS bytes are removed. AC#1: confirmed submission-images bucket private; FIXED a private-bucket getPublicUrl leak in listing-eval.ts (-> 15min signed URLs) and tightened every submission-images signed-URL TTL to <=15min (content-public cert 6h->15m, flipdesk-disclosure 1h->15m, certificate.tsx/submission-detail/admin-moderation 1h->15m). AC#2: item-photos (the only public bucket) audited — holds only seller listing imagery; private grading labels stay in submission-images. AC#5: per-user-folder RLS ((storage.foldername(name))[1]=auth.uid()) re-verified on both buckets vs the {userId}/{submissionId}/... convention. Hardening summary added to CLAUDE.md. Edge suite 110 passed/0; frontend tsc -b + eslint + build green. passes=true."
     },
     {
       "id": "US-277",

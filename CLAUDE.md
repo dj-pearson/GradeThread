@@ -268,6 +268,7 @@ The full product roadmap is in `prd.json` (Ralph AI format). 100 user stories ac
 - `eslint-plugin-react-hooks` v5 required for eslint 9 compatibility (v7+ needs eslint 10)
 - Supabase client throws if `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY` env vars are missing
 - Storage paths use format `{userId}/{submissionId}/{imageType}_{timestamp}.{ext}`
+- **Storage & upload hardening (US-276):** server uploads MUST go through `validateImageUpload()` (magic-byte sniff, not the client MIME/extension; SVG/non-images rejected; size + dimension caps) then `stripImageMetadata()` (drops EXIF/GPS) before `storage.upload()` — see `lib/upload-validation.ts` + `lib/image-metadata.ts`, wired in `grade.ts` and `api-v1.ts`. `submission-images` is PRIVATE: read it only via `createSignedUrl` with a TTL ≤ 15 min (900s) — NEVER `getPublicUrl`. `item-photos` is the only public bucket and holds only seller-intended listing imagery (front/back/tag/detail/defect/flatlay) — never private grading `label`s (those go to `submission-images`), receipts, or PII docs. Per-user-folder RLS (`(storage.foldername(name))[1] = auth.uid()::text`) is verified on both buckets against the `{userId}/...` path convention.
 - The `handle_new_user()` trigger runs as `SECURITY DEFINER` to bypass RLS when creating profiles
 
 ## SEO / GEO (US-291..US-309)

@@ -306,7 +306,10 @@ const CERT_REPORT_COLUMNS =
 // Signed-URL TTL for certificate images (seconds). Long enough for an edge
 // cache window; the cert SSR caches the HTML, not the URL, so this just needs
 // to outlive a render.
-const CERT_IMAGE_TTL = 60 * 60 * 6;
+// submission-images is private; reads use short-lived signed URLs (US-276,
+// ≤15 min). The cert SSR/OG HTML is itself CDN-cached, so the URL only needs to
+// outlive a single render.
+const CERT_IMAGE_TTL = 15 * 60;
 
 // ── GET /certificates/:id ─────────────────────────────────────────
 // Public certificate by certificate_id. Returns 404 for any id that doesn't

@@ -233,7 +233,8 @@ export function SubmissionDetailPage() {
         for (const img of sorted) {
           const { data: urlData } = await supabase.storage
             .from("submission-images")
-            .createSignedUrl(img.storage_path, 3600);
+            // private bucket — short-lived signed URL (US-276)
+            .createSignedUrl(img.storage_path, 900);
           if (urlData?.signedUrl) {
             urls[img.id] = urlData.signedUrl;
           }

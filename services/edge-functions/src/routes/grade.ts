@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import { validateImageUpload } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
 import {
   GRADE_TIERS,
   type GradeTier,
@@ -229,14 +231,29 @@ gradeRoutes.post("/submit", async (c) => {
     const file = imageFiles[i];
     const imageType = imageTypes[i];
     const timestamp = Date.now();
-    const ext = file.name.split(".").pop() || "jpg";
-    const storagePath = `${ownerId}/${submissionId}/${imageType}_${timestamp}.${ext}`;
 
-    const arrayBuffer = await file.arrayBuffer();
+    // US-276: never trust the client extension/MIME. Sniff the real bytes,
+    // reject SVG/non-images, cap size + dimensions; the private bucket accepts
+    // only jpeg/png/webp. Then strip EXIF/GPS before the bytes ever land.
+    const rawBytes = new Uint8Array(await file.arrayBuffer());
+    const verdict = validateImageUpload(rawBytes, {
+      allow: ["jpeg", "png", "webp"],
+    });
+    if (!verdict.ok) {
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return c.json(
+        { error: `Invalid image (${imageType}): ${verdict.reason}` },
+        400,
+      );
+    }
+    const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+    const storagePath =
+      `${ownerId}/${submissionId}/${imageType}_${timestamp}.${verdict.ext}`;
+
     const { error: uploadError } = await supabaseAdmin.storage
       .from("submission-images")
-      .upload(storagePath, arrayBuffer, {
-        contentType: file.type || "image/jpeg",
+      .upload(storagePath, cleanBytes, {
+        contentType: verdict.contentType,
         upsert: false,
       });
 
