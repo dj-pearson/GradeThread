@@ -1,6 +1,5 @@
 import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
-import { supabaseAdmin } from "../lib/supabase.ts";
 
 // Distributed fixed-window rate limiter (US-265). Backed by the shared
 // rate_limit_counters table + increment_rate_limit() RPC, so limits hold across
@@ -15,6 +14,34 @@ type RateLimitEnv = {
   Variables: {
     userId?: string;
   };
+};
+
+// Atomically increment the counter for (bucketKey, windowStart) and return the
+// new count. Injectable so the middleware is unit-testable without a database
+// (the test passes an in-memory counter). Throwing signals a store error → the
+// caller fails open.
+export type RateLimitIncrementer = (
+  bucketKey: string,
+  windowStartIso: string,
+) => Promise<number>;
+
+// Default store: the shared Postgres counter via increment_rate_limit(). The
+// supabase client is imported LAZILY (and cached by the module loader) so this
+// middleware module stays import-safe in test/CI runs that don't configure a
+// database — only the production call path touches Supabase.
+const defaultIncrement: RateLimitIncrementer = async (
+  bucketKey,
+  windowStartIso,
+) => {
+  const { supabaseAdmin } = await import("../lib/supabase.ts");
+  const { data, error } = await supabaseAdmin.rpc("increment_rate_limit", {
+    p_bucket_key: bucketKey,
+    p_window_start: windowStartIso,
+  });
+  if (error || typeof data !== "number") {
+    throw error ?? new Error("increment_rate_limit returned non-number");
+  }
+  return data as number;
 };
 
 // Trust order: Cloudflare's CF-Connecting-IP (set by CF, can't be spoofed by
@@ -33,7 +60,12 @@ function clientIp(c: Context): string | null {
 // `scope` groups requests that should share one budget (e.g. all /api/grade/*
 // calls). Distinct scopes get distinct counters so a user's grade budget isn't
 // drained by their flipdesk-ai calls.
-export function rateLimiter(maxRequests = 60, windowMs = 60_000, scope = "default") {
+export function rateLimiter(
+  maxRequests = 60,
+  windowMs = 60_000,
+  scope = "default",
+  increment: RateLimitIncrementer = defaultIncrement,
+) {
   return createMiddleware<RateLimitEnv>(async (c, next) => {
     const userId = c.get("userId");
     const subject = userId ? `user:${userId}` : (() => {
@@ -52,14 +84,7 @@ export function rateLimiter(maxRequests = 60, windowMs = 60_000, scope = "defaul
 
     let count: number;
     try {
-      const { data, error } = await supabaseAdmin.rpc("increment_rate_limit", {
-        p_bucket_key: bucketKey,
-        p_window_start: windowStart.toISOString(),
-      });
-      if (error || typeof data !== "number") {
-        throw error ?? new Error("increment_rate_limit returned non-number");
-      }
-      count = data;
+      count = await increment(bucketKey, windowStart.toISOString());
     } catch (err) {
       console.error(
         "[rate-limit] store unavailable — allowing request (fail-open):",
@@ -77,7 +102,10 @@ export function rateLimiter(maxRequests = 60, windowMs = 60_000, scope = "defaul
     if (count > maxRequests) {
       const retryAfter = Math.max(1, resetAtSec - Math.ceil(Date.now() / 1000));
       c.header("Retry-After", String(retryAfter));
-      return c.json({ error: "Too many requests. Please try again later." }, 429);
+      return c.json(
+        { error: "Too many requests. Please try again later." },
+        429,
+      );
     }
 
     await next();

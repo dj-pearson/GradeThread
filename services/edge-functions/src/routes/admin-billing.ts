@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 
 // Admin billing routes (US-221). All endpoints require admin role —
 // mounted with both authMiddleware + adminAuthMiddleware in main.ts.
@@ -253,6 +254,10 @@ adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
 // Refunds a Stripe charge. If the charge was a credit pack, the
 // charge.refunded webhook handler will write a ledger reversal.
 adminBillingRoutes.post("/charges/:id/refund", async (c) => {
+  // US-270: manual refund is destructive — require a fresh MFA step-up.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
   const adminId = c.get("userId");
   const chargeId = c.req.param("id");
 

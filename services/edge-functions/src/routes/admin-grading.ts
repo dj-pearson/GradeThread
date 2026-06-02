@@ -11,6 +11,8 @@ import {
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
+import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
+import { requireStepUp } from "../lib/step-up.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -201,6 +203,9 @@ adminGradingRoutes.post("/prompts/:id/eval", async (c) => {
 
 // POST /prompts/:id/activate — promote to active. Gated: requires a passing eval.
 adminGradingRoutes.post("/prompts/:id/activate", async (c) => {
+  // US-270: activating a prompt version changes live grading — require step-up.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
   const id = c.req.param("id");
   const result = await activatePromptVersion(id);
   if (!result.ok) return c.json({ error: result.reason }, 422);
@@ -486,4 +491,245 @@ adminGradingRoutes.post("/monitor/run", async (c) => {
       500,
     );
   }
+});
+
+// ── Inter-rater reliability studies (US-334) ──────────────────────
+// Blind multi-rater rounds: 2+ reviewers grade the same submissions without
+// seeing the AI grade or one another's scores. We then compute the
+// human-vs-human baseline + Krippendorff's alpha and compare the AI's agreement
+// with the human consensus against it.
+
+// POST /reliability/studies — create a study. Body: { name, tolerance? }.
+adminGradingRoutes.post("/reliability/studies", async (c) => {
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => ({}));
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) return c.json({ error: "name is required" }, 400);
+  const tolerance = typeof body.tolerance === "number" && body.tolerance > 0 &&
+      body.tolerance <= 5
+    ? body.tolerance
+    : 0.5;
+
+  const { data, error } = await supabaseAdmin
+    .from("reliability_studies")
+    .insert({ name, tolerance, created_by: userId })
+    .select()
+    .single();
+  if (error) return c.json({ error: error.message }, 500);
+  await auditLog(c, "create_reliability_study", "reliability_study", data.id, {
+    name,
+    tolerance,
+  });
+  return c.json({ study: data }, 201);
+});
+
+// GET /reliability/studies — list studies with item/rating/reviewer counts.
+adminGradingRoutes.get("/reliability/studies", async (c) => {
+  const { data: studies, error } = await supabaseAdmin
+    .from("reliability_studies")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return c.json({ error: error.message }, 500);
+
+  const ids = (studies ?? []).map((s) => s.id);
+  const counts: Record<string, { items: number; ratings: number; reviewers: number }> = {};
+  for (const id of ids) counts[id] = { items: 0, ratings: 0, reviewers: 0 };
+
+  if (ids.length > 0) {
+    const { data: items } = await supabaseAdmin
+      .from("reliability_study_items")
+      .select("study_id")
+      .in("study_id", ids);
+    for (const r of items ?? []) counts[r.study_id].items++;
+
+    const { data: ratings } = await supabaseAdmin
+      .from("reliability_ratings")
+      .select("study_id, reviewer_id")
+      .in("study_id", ids);
+    const reviewerSets: Record<string, Set<string>> = {};
+    for (const r of ratings ?? []) {
+      counts[r.study_id].ratings++;
+      (reviewerSets[r.study_id] ??= new Set()).add(r.reviewer_id);
+    }
+    for (const id of ids) counts[id].reviewers = reviewerSets[id]?.size ?? 0;
+  }
+
+  return c.json({
+    studies: (studies ?? []).map((s) => ({ ...s, counts: counts[s.id] })),
+  });
+});
+
+// POST /reliability/studies/:id/items — add submissions to the sample.
+// Body: { submission_ids: string[] }.
+adminGradingRoutes.post("/reliability/studies/:id/items", async (c) => {
+  const studyId = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+  const subIds: string[] = Array.isArray(body.submission_ids)
+    ? body.submission_ids.filter((s: unknown): s is string => typeof s === "string")
+    : [];
+  if (subIds.length === 0) return c.json({ error: "submission_ids required" }, 400);
+
+  // Only certified-gradeable submissions make sense; we don't restrict tenant
+  // here because reliability studies are a platform-admin function over the
+  // whole grade corpus.
+  const rows = subIds.map((submission_id) => ({ study_id: studyId, submission_id }));
+  const { error } = await supabaseAdmin
+    .from("reliability_study_items")
+    .upsert(rows, { onConflict: "study_id,submission_id", ignoreDuplicates: true });
+  if (error) return c.json({ error: error.message }, 500);
+  await auditLog(c, "add_reliability_items", "reliability_study", studyId, {
+    count: subIds.length,
+  });
+  return c.json({ added: subIds.length });
+});
+
+// GET /reliability/studies/:id/queue — the BLIND rating queue for the current
+// reviewer: study submissions they haven't rated yet, with NO AI grade and NO
+// other reviewers' scores. This is what enforces blindness.
+adminGradingRoutes.get("/reliability/studies/:id/queue", async (c) => {
+  const studyId = c.req.param("id");
+  const userId = c.get("userId");
+
+  const { data: items } = await supabaseAdmin
+    .from("reliability_study_items")
+    .select("submission_id")
+    .eq("study_id", studyId);
+  const allIds = (items ?? []).map((i) => i.submission_id);
+
+  const { data: mine } = await supabaseAdmin
+    .from("reliability_ratings")
+    .select("submission_id")
+    .eq("study_id", studyId)
+    .eq("reviewer_id", userId);
+  const ratedByMe = new Set((mine ?? []).map((r) => r.submission_id));
+  const todo = allIds.filter((id) => !ratedByMe.has(id));
+
+  // Return only the garment metadata + images needed to grade — never the
+  // grade_report (AI score) or anyone else's rating.
+  let queue: unknown[] = [];
+  if (todo.length > 0) {
+    const { data: subs } = await supabaseAdmin
+      .from("submissions")
+      .select("id, garment_type, garment_category, brand, title, description")
+      .in("id", todo);
+    queue = subs ?? [];
+  }
+  return c.json({ remaining: todo.length, total: allIds.length, queue });
+});
+
+// POST /reliability/studies/:id/ratings — submit/update the current reviewer's
+// blind rating of one submission. Body: { submission_id, overall_score, ... }.
+adminGradingRoutes.post("/reliability/studies/:id/ratings", async (c) => {
+  const studyId = c.req.param("id");
+  const userId = c.get("userId");
+  const body = await c.req.json().catch(() => ({}));
+
+  const submissionId = typeof body.submission_id === "string" ? body.submission_id : "";
+  const overall = Number(body.overall_score);
+  if (!submissionId) return c.json({ error: "submission_id required" }, 400);
+  if (!Number.isFinite(overall) || overall < 1 || overall > 10) {
+    return c.json({ error: "overall_score must be 1.0–10.0" }, 400);
+  }
+
+  // Guard: the study must be open and contain this submission.
+  const { data: study } = await supabaseAdmin
+    .from("reliability_studies")
+    .select("status")
+    .eq("id", studyId)
+    .maybeSingle();
+  if (!study) return c.json({ error: "Study not found" }, 404);
+  if (study.status !== "open") return c.json({ error: "Study is closed" }, 409);
+
+  const { data: item } = await supabaseAdmin
+    .from("reliability_study_items")
+    .select("id")
+    .eq("study_id", studyId)
+    .eq("submission_id", submissionId)
+    .maybeSingle();
+  if (!item) return c.json({ error: "Submission is not in this study" }, 400);
+
+  const optionalScore = (v: unknown): number | null => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
+  };
+
+  const { error } = await supabaseAdmin
+    .from("reliability_ratings")
+    .upsert({
+      study_id: studyId,
+      submission_id: submissionId,
+      reviewer_id: userId,
+      overall_score: overall,
+      fabric_condition_score: optionalScore(body.fabric_condition_score),
+      structural_integrity_score: optionalScore(body.structural_integrity_score),
+      cosmetic_appearance_score: optionalScore(body.cosmetic_appearance_score),
+      functional_elements_score: optionalScore(body.functional_elements_score),
+      odor_cleanliness_score: optionalScore(body.odor_cleanliness_score),
+      notes: typeof body.notes === "string" ? body.notes : null,
+    }, { onConflict: "study_id,submission_id,reviewer_id" });
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ ok: true });
+});
+
+// POST /reliability/studies/:id/close — close a study to further ratings.
+adminGradingRoutes.post("/reliability/studies/:id/close", async (c) => {
+  const studyId = c.req.param("id");
+  const { error } = await supabaseAdmin
+    .from("reliability_studies")
+    .update({ status: "closed" })
+    .eq("id", studyId);
+  if (error) return c.json({ error: error.message }, 500);
+  await auditLog(c, "close_reliability_study", "reliability_study", studyId, {});
+  return c.json({ ok: true });
+});
+
+// GET /reliability/studies/:id/report — compute the IRR report: human baseline,
+// Krippendorff's alpha, and AI-vs-human-consensus comparison.
+adminGradingRoutes.get("/reliability/studies/:id/report", async (c) => {
+  const studyId = c.req.param("id");
+
+  const { data: study, error: studyErr } = await supabaseAdmin
+    .from("reliability_studies")
+    .select("*")
+    .eq("id", studyId)
+    .maybeSingle();
+  if (studyErr) return c.json({ error: studyErr.message }, 500);
+  if (!study) return c.json({ error: "Study not found" }, 404);
+
+  const { data: itemRows } = await supabaseAdmin
+    .from("reliability_study_items")
+    .select("submission_id")
+    .eq("study_id", studyId);
+  const submissionIds = (itemRows ?? []).map((r) => r.submission_id);
+
+  const { data: ratingRows } = await supabaseAdmin
+    .from("reliability_ratings")
+    .select("submission_id, overall_score")
+    .eq("study_id", studyId);
+
+  // Group ratings by submission into the ItemRatings matrix irr.ts expects.
+  const byItem = new Map<string, number[]>();
+  for (const id of submissionIds) byItem.set(id, []);
+  for (const r of ratingRows ?? []) {
+    byItem.get(r.submission_id)?.push(Number(r.overall_score));
+  }
+  const items: ItemRatings[] = [...byItem.entries()].map(([item_id, scores]) => ({
+    item_id,
+    scores,
+  }));
+
+  // AI score per submission (the latest grade_report overall_score).
+  const aiScores = new Map<string, number>();
+  if (submissionIds.length > 0) {
+    const { data: reports } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submission_id, overall_score")
+      .in("submission_id", submissionIds);
+    for (const r of reports ?? []) {
+      aiScores.set(r.submission_id, Number(r.overall_score));
+    }
+  }
+
+  const report = computeIrrReport(items, aiScores, Number(study.tolerance));
+  return c.json({ study, report });
 });

@@ -25,7 +25,27 @@ export type GarmentCategory =
   | "jacket" | "coat" | "jeans" | "pants" | "shorts"
   | "skirt" | "dress" | "sneakers" | "boots" | "sandals"
   | "hat" | "bag" | "belt" | "scarf" | "other";
-export type SubmissionStatus = "pending" | "processing" | "completed" | "failed" | "disputed";
+export type SubmissionStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed"
+  | "disputed"
+  // US-332: image-quality gate abstained — seller must add better photos.
+  | "needs_photos";
+
+// US-332: actionable feedback recorded when the quality gate abstains.
+export interface QualityFeedback {
+  summary: string;
+  photo_requests: string[];
+  issues: {
+    image_type: string;
+    problem: string;
+    severity: "block" | "warn";
+    message: string;
+  }[];
+  assessed_at: string;
+}
 export type GradeTier = "NWT" | "NWOT" | "Excellent" | "Very Good" | "Good" | "Fair" | "Poor";
 export type ImageType = "front" | "back" | "label" | "detail" | "defect";
 export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
@@ -294,6 +314,8 @@ export interface SubmissionRow {
   flagged: boolean;
   flag_reason: string | null;
   moderation_status: ModerationStatus | null;
+  // US-332: present when status === 'needs_photos' (the quality gate abstained).
+  quality_feedback: QualityFeedback | null;
   created_at: string;
   updated_at: string;
 }
@@ -369,6 +391,11 @@ export interface GradeReportRow {
   // First-class prompt version that produced this grade (e.g. "composite_v2").
   prompt_version: string | null;
   certificate_id: string | null;
+  // US-333 tamper-evident integrity (migration 00068). Null for grades
+  // finalized before the integrity scheme — they verify as "unverifiable".
+  content_hash: string | null;
+  content_signature: string | null;
+  integrity_version: number | null;
   created_at: string;
 }
 
@@ -1139,6 +1166,9 @@ export interface GradeReportInsert {
   model_version: string;
   prompt_version?: string | null;
   certificate_id?: string | null;
+  content_hash?: string | null;
+  content_signature?: string | null;
+  integrity_version?: number | null;
 }
 
 export interface DisputeInsert {

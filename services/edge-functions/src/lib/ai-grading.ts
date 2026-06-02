@@ -31,6 +31,20 @@ export interface PerImageAnalysis {
   // pass is the only one that sees pixels). Optional for back-compat with
   // historical/eval traces.
   authenticity?: PerImageAuthenticity;
+  // US-332: lightweight image-quality assessment for THIS image, feeding the
+  // pre-grade quality gate (lib/image-quality.ts). Optional for back-compat;
+  // a missing field defaults to "good" so the gate never abstains on absent data.
+  quality?: PerImageQuality;
+}
+
+// US-332: per-image quality signals used by the pre-grade gate. blur/lighting/
+// framing are coarse buckets (the model judges them from the pixels); legible
+// is only meaningful for label shots.
+export interface PerImageQuality {
+  blur: "none" | "mild" | "severe";
+  lighting: "ok" | "dim" | "dark";
+  framing: "full" | "partial";
+  legible: boolean;
 }
 
 // Signs that a photo was digitally edited to CONCEAL a defect (clone/heal over
@@ -371,6 +385,12 @@ Respond with a JSON object matching this exact schema:
     "tells": ["specific visual evidence, e.g. 'cloned/repeated texture near left knee', 'unnaturally smooth patch inconsistent with the surrounding weave'"],
     "screenshot_or_watermark": true | false,
     "screenshot_watermark_reason": "brief note if this looks like a screenshot of another listing or carries a watermark/app UI"
+  },
+  "quality": {
+    "blur": "none" | "mild" | "severe",
+    "lighting": "ok" | "dim" | "dark",
+    "framing": "full" | "partial",
+    "legible": true | false
   }
 }
 
@@ -382,6 +402,7 @@ Rules:
 - condition_signals: List all positive AND negative indicators you observe.
 - For factors not assessable from this image type, score 7.0 (neutral) and note it in condition_signals.
 - authenticity: Inspect for signs the photo was DIGITALLY EDITED TO CONCEAL A DEFECT — content-aware fill / clone / heal over a hole, stain, or worn area; localized smoothing or blur inconsistent with the surrounding fabric or weave; repeated (cloned) texture patches; warped or "melted" patterns; or halos/soft edges around an edited region (pay special attention near seams, hems, and high-wear points). Set manipulation_suspected=true with manipulation_confidence reflecting how sure you are, and list concrete tells. CRITICAL — do NOT flag benign, non-deceptive edits: cropping, rotation, exposure/brightness/contrast/white-balance or color adjustment, background removal, and ordinary compression are NOT manipulation. Separately, set screenshot_or_watermark=true if the image is clearly a screenshot of another listing (UI chrome, status bar, other-platform branding) or carries a visible watermark/overlay — but distinguish that from a garment's own printed graphic/logo, which is NOT a watermark. When nothing is suspicious, set both booleans false, manipulation_confidence 0, and tells [].
+- quality: Assess whether THIS photo is good enough to grade from. blur: "none" if sharp, "mild" if slightly soft, "severe" if too out-of-focus to judge condition. lighting: "ok" if well-lit, "dim" if noticeably underexposed, "dark" if too dark to see detail. framing: "full" if the intended subject is fully in frame (the whole garment for front/back shots), "partial" if it's cut off. legible: for a label/tag photo, true if the brand/size/care text is readable, false if not; for non-label photos set legible=true. Judge quality independently of condition — a pristine garment shot badly is still low quality, and a worn garment shot well is high quality.
 - Be precise and objective. Do not guess about things not visible in the image.`;
 }
 
@@ -438,6 +459,25 @@ function normalizeAuthenticity(raw: unknown): PerImageAuthenticity {
   if (clean.manipulation_suspected && clean.manipulation_confidence === 0) {
     clean.manipulation_confidence = 0.5;
   }
+  return clean;
+}
+
+// US-332: coerce a model-supplied quality object into a clean PerImageQuality.
+// Defaults to "good" on any missing/garbled field so the gate never abstains on
+// absent data (a model that doesn't return quality => no spurious block).
+function normalizeQuality(raw: unknown): PerImageQuality {
+  const clean: PerImageQuality = {
+    blur: "none",
+    lighting: "ok",
+    framing: "full",
+    legible: true,
+  };
+  if (!raw || typeof raw !== "object") return clean;
+  const q = raw as Record<string, unknown>;
+  if (q.blur === "mild" || q.blur === "severe") clean.blur = q.blur;
+  if (q.lighting === "dim" || q.lighting === "dark") clean.lighting = q.lighting;
+  if (q.framing === "partial") clean.framing = "partial";
+  if (q.legible === false) clean.legible = false;
   return clean;
 }
 
@@ -550,6 +590,7 @@ export async function analyzeImage(
       condition_signals: ConditionSignal[];
       estimated_scores: FactorScores;
       authenticity?: unknown;
+      quality?: unknown;
     };
 
     try {
@@ -604,6 +645,7 @@ export async function analyzeImage(
       condition_signals: parsed.condition_signals,
       estimated_scores: parsed.estimated_scores,
       authenticity: normalizeAuthenticity(parsed.authenticity),
+      quality: normalizeQuality(parsed.quality),
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;

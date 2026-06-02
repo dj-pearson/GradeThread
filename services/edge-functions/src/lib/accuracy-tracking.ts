@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { evalThresholds } from "./grading-eval.ts";
 import { reviewConfidenceThreshold } from "./ai-config.ts";
+import { computeIrrReport, type ItemRatings } from "./irr.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -707,6 +708,81 @@ export interface PublicTransparencyReport {
     passed: boolean;
     created_at: string;
   }>;
+  // US-334: human-vs-human reliability baseline from the most recent closed
+  // study with a sufficient sample, and how the AI compares against it. null
+  // until such a study exists — never publish a baseline below the sample bar.
+  reliability: {
+    study_name: string;
+    pairable_items: number;
+    tolerance: number;
+    human_agreement_rate: number;
+    human_mae: number;
+    krippendorff_alpha: number | null;
+    ai_agreement_rate: number | null;
+    ai_meets_human: boolean | null;
+  } | null;
+}
+
+// US-334: load the human-vs-human baseline + AI comparison from the most recent
+// CLOSED reliability study that meets the citable-sample bar. Returns null when
+// none qualifies (so the public report omits the section rather than show a
+// weak baseline). Aggregate-only; safe to publish.
+async function loadCitableReliability(): Promise<
+  PublicTransparencyReport["reliability"]
+> {
+  const { data: studies } = await supabaseAdmin
+    .from("reliability_studies")
+    .select("id, name, tolerance")
+    .eq("status", "closed")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  for (const study of studies ?? []) {
+    const { data: itemRows } = await supabaseAdmin
+      .from("reliability_study_items")
+      .select("submission_id")
+      .eq("study_id", study.id);
+    const submissionIds = (itemRows ?? []).map((r) => r.submission_id);
+    if (submissionIds.length === 0) continue;
+
+    const { data: ratingRows } = await supabaseAdmin
+      .from("reliability_ratings")
+      .select("submission_id, overall_score")
+      .eq("study_id", study.id);
+
+    const byItem = new Map<string, number[]>();
+    for (const id of submissionIds) byItem.set(id, []);
+    for (const r of ratingRows ?? []) {
+      byItem.get(r.submission_id)?.push(Number(r.overall_score));
+    }
+    const items: ItemRatings[] = [...byItem.entries()].map((
+      [item_id, scores],
+    ) => ({ item_id, scores }));
+
+    const aiScores = new Map<string, number>();
+    const { data: reports } = await supabaseAdmin
+      .from("grade_reports")
+      .select("submission_id, overall_score")
+      .in("submission_id", submissionIds);
+    for (const r of reports ?? []) {
+      aiScores.set(r.submission_id, Number(r.overall_score));
+    }
+
+    const report = computeIrrReport(items, aiScores, Number(study.tolerance));
+    if (!report.sufficient_sample) continue;
+
+    return {
+      study_name: String(study.name),
+      pairable_items: report.pairable_item_count,
+      tolerance: Number(study.tolerance),
+      human_agreement_rate: report.human.agreement_within,
+      human_mae: report.human.mae,
+      krippendorff_alpha: report.krippendorff_alpha,
+      ai_agreement_rate: report.ai_vs_human?.ai_agreement_within ?? null,
+      ai_meets_human: report.ai_vs_human?.ai_meets_human ?? null,
+    };
+  }
+  return null;
 }
 
 // Publish a rate only when there's a meaningful sample behind it; otherwise
@@ -805,6 +881,7 @@ export async function computePublicTransparency(): Promise<PublicTransparencyRep
       passed: r.passed === true,
       created_at: String(r.created_at),
     })),
+    reliability: await loadCitableReliability(),
   };
 }
 

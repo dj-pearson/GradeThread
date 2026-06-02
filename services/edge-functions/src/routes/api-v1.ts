@@ -8,6 +8,8 @@ import {
   runPaymentPrecedence,
 } from "../lib/grade-billing.ts";
 import { decodeBase64Image } from "../lib/validation.ts";
+import { validateImageUpload } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -193,7 +195,6 @@ apiV1Routes.post("/grades", async (c) => {
     const img = images![i];
     const timestamp = Date.now();
     let imageData: ArrayBuffer;
-    let contentType: string;
 
     try {
       if (img.base64) {
@@ -208,7 +209,6 @@ apiV1Routes.post("/grades", async (c) => {
           decoded.image.bytes.byteOffset,
           decoded.image.bytes.byteOffset + decoded.image.bytes.byteLength,
         ) as ArrayBuffer;
-        contentType = decoded.image.mime;
       } else {
         // Fetch from URL
         const response = await fetch(img.url!);
@@ -216,7 +216,6 @@ apiV1Routes.post("/grades", async (c) => {
           throw new Error(`HTTP ${response.status} fetching image from URL`);
         }
         imageData = await response.arrayBuffer();
-        contentType = response.headers.get("content-type") || "image/jpeg";
       }
     } catch (err) {
       console.error(`[API v1] Failed to process image ${i}:`, err);
@@ -232,19 +231,34 @@ apiV1Routes.post("/grades", async (c) => {
       }, 400);
     }
 
-    // Determine file extension from content type
-    const extMap: Record<string, string> = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
-    };
-    const ext = extMap[contentType] || "jpg";
-    const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${ext}`;
+    // US-276: magic-byte validation (not the declared content-type) + EXIF/GPS
+    // strip before storage. Catches a mislabeled URL fetch or a smuggled SVG
+    // that the per-base64 MIME check above can't see.
+    const rawBytes = new Uint8Array(imageData);
+    const verdict = validateImageUpload(rawBytes, {
+      allow: ["jpeg", "png", "webp"],
+    });
+    if (!verdict.ok) {
+      for (const record of imageRecords) {
+        await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      }
+      await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
+      return c.json({
+        data: null,
+        error: {
+          message: `Invalid image (${img.image_type}): ${verdict.reason}`,
+          details: [],
+        },
+        meta: null,
+      }, 400);
+    }
+    const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+    const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from("submission-images")
-      .upload(storagePath, imageData, {
-        contentType,
+      .upload(storagePath, cleanBytes, {
+        contentType: verdict.contentType,
         upsert: false,
       });
 

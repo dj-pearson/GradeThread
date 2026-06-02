@@ -11,6 +11,7 @@ import {
   Loader2,
   Upload,
   Package,
+  Camera,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
@@ -232,7 +233,8 @@ export function SubmissionDetailPage() {
         for (const img of sorted) {
           const { data: urlData } = await supabase.storage
             .from("submission-images")
-            .createSignedUrl(img.storage_path, 3600);
+            // private bucket — short-lived signed URL (US-276)
+            .createSignedUrl(img.storage_path, 900);
           if (urlData?.signedUrl) {
             urls[img.id] = urlData.signedUrl;
           }
@@ -468,6 +470,8 @@ export function SubmissionDetailPage() {
                 "border-blue-200 bg-blue-100 text-blue-800",
               submission.status === "pending" &&
                 "border-yellow-200 bg-yellow-100 text-yellow-800",
+              submission.status === "needs_photos" &&
+                "border-amber-200 bg-amber-100 text-amber-800",
               submission.status === "failed" &&
                 "border-red-200 bg-red-100 text-red-800"
             )}
@@ -904,6 +908,32 @@ export function SubmissionDetailPage() {
                   Something went wrong while grading this submission. Please try
                   again.
                 </p>
+              </>
+            ) : submission.status === "needs_photos" ? (
+              <>
+                <Camera className="h-12 w-12 text-amber-500/70" />
+                <h3 className="mt-4 text-lg font-medium">Better photos needed</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {submission.quality_feedback?.summary ??
+                    "Some photos weren’t clear enough to grade reliably. We didn’t produce a grade so you’re not charged — please retake the photos below and resubmit."}
+                </p>
+                {submission.quality_feedback?.photo_requests &&
+                  submission.quality_feedback.photo_requests.length > 0 && (
+                    <ul className="mt-4 w-full max-w-md space-y-2 text-left">
+                      {submission.quality_feedback.photo_requests.map((req, i) => (
+                        <li
+                          key={i}
+                          className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"
+                        >
+                          <Camera className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>{req}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                <Button asChild className="mt-6">
+                  <Link to="/dashboard/submissions/new">Start a new submission</Link>
+                </Button>
               </>
             ) : (
               <>

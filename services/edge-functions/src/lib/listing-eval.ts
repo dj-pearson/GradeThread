@@ -91,15 +91,20 @@ function scoreCase(
   return { titleOk, aspectCoverage, priceOk };
 }
 
-function loadPhotoUrls(
+// submission-images is PRIVATE (US-276) — reads must use short-lived signed
+// URLs, never getPublicUrl (which yields an unfetchable/leaky link on a private
+// bucket). 15-minute TTL is plenty for an eval run's vision calls.
+const EVAL_SIGNED_URL_TTL = 15 * 60;
+
+async function loadPhotoUrls(
   photos: Array<{ storage_path: string; image_type?: string }>,
-): Array<{ url: string; type?: string }> {
+): Promise<Array<{ url: string; type?: string }>> {
   const out: Array<{ url: string; type?: string }> = [];
   for (const p of photos) {
-    const url = supabaseAdmin.storage
+    const { data } = await supabaseAdmin.storage
       .from("submission-images")
-      .getPublicUrl(p.storage_path).data.publicUrl;
-    if (url) out.push({ url, type: p.image_type });
+      .createSignedUrl(p.storage_path, EVAL_SIGNED_URL_TTL);
+    if (data?.signedUrl) out.push({ url: data.signedUrl, type: p.image_type });
   }
   return out;
 }

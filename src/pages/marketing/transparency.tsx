@@ -41,6 +41,17 @@ interface TransparencyReport {
     passed: boolean;
     created_at: string;
   }>;
+  // US-334: human-vs-human reliability baseline (when a sufficient study exists).
+  reliability: {
+    study_name: string;
+    pairable_items: number;
+    tolerance: number;
+    human_agreement_rate: number;
+    human_mae: number;
+    krippendorff_alpha: number | null;
+    ai_agreement_rate: number | null;
+    ai_meets_human: boolean | null;
+  } | null;
 }
 
 const PENDING = "Not enough data yet";
@@ -204,6 +215,58 @@ export function TransparencyPage() {
           </div>
         </div>
       </section>
+
+      {/* US-334: human-vs-human reliability baseline */}
+      {data?.reliability && (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-5xl">
+            <h2 className="text-2xl font-bold">
+              How good is “good”? The expert baseline
+            </h2>
+            <p className="mt-3 max-w-3xl text-muted-foreground">
+              In a blind study, multiple expert reviewers graded the same{" "}
+              {data.reliability.pairable_items} items without seeing the AI grade
+              or one another’s scores. That tells us how often two experts even
+              agree with each other — the fair bar to hold the AI to.
+              {data.reliability.ai_meets_human && (
+                <>
+                  {" "}
+                  <strong className="text-foreground">
+                    The AI agrees with the expert consensus at least as often as
+                    the experts agree with each other.
+                  </strong>
+                </>
+              )}
+            </p>
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <MetricCard
+                label="Expert-vs-expert agreement"
+                value={pct(data.reliability.human_agreement_rate)}
+                sub={`within ±${data.reliability.tolerance}`}
+              />
+              <MetricCard
+                label="AI-vs-expert agreement"
+                value={pct(data.reliability.ai_agreement_rate)}
+                sub="vs the human consensus"
+              />
+              <MetricCard
+                label="Expert-vs-expert error"
+                value={num(data.reliability.human_mae)}
+                sub="mean points apart"
+              />
+              <MetricCard
+                label="Reliability (Krippendorff α)"
+                value={
+                  data.reliability.krippendorff_alpha === null
+                    ? PENDING
+                    : data.reliability.krippendorff_alpha.toFixed(2)
+                }
+                sub="1.0 = perfect agreement"
+              />
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* The self-improvement loop */}
       <section className="px-6 py-16">

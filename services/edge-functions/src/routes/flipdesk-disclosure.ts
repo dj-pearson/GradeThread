@@ -16,7 +16,8 @@ export const flipdeskDisclosureRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
 }>();
 
-const SIGNED_URL_TTL = 60 * 60; // 1h — long enough for the panel + canvas render.
+// submission-images is private — short-lived signed URLs only (US-276, ≤15 min).
+const SIGNED_URL_TTL = 15 * 60;
 
 interface OwnedItem {
   id: string;

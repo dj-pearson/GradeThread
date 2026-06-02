@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -26,11 +26,27 @@ import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { CopyField } from "@/components/verified/copy-field";
 import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
+import { edgeApiUrl } from "@/lib/edge-api";
+import { Button } from "@/components/ui/button";
 import type {
   GradeReportRow,
   SubmissionRow,
   SubmissionImageRow,
 } from "@/types/database";
+
+// US-333: result of the public tamper-evident integrity check.
+type IntegrityVerify = {
+  status: "verified" | "mismatch" | "unverifiable";
+  verified: boolean;
+  signed: boolean;
+  algorithm: string;
+  content_hash: string | null;
+};
+type VerifyState =
+  | { phase: "idle" }
+  | { phase: "checking" }
+  | { phase: "done"; result: IntegrityVerify }
+  | { phase: "error" };
 
 function getScoreColor(score: number): string {
   if (score > 7) return "text-green-600";
@@ -80,6 +96,91 @@ function confidenceLabel(score: number): string {
   return "Reviewed"; // below threshold → was routed to human review
 }
 
+// US-333: renders the tamper-evident integrity verdict for the certificate.
+function IntegrityPanel({
+  state,
+  onRetry,
+}: {
+  state: VerifyState;
+  onRetry: () => void;
+}) {
+  if (state.phase === "checking" || state.phase === "idle") {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+        <Shield className="h-4 w-4 animate-pulse" />
+        <span>Verifying certificate integrity…</span>
+      </div>
+    );
+  }
+
+  if (state.phase === "error") {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-center text-sm text-muted-foreground sm:flex-row sm:justify-between sm:text-left">
+        <span className="flex items-center gap-2">
+          <Shield className="h-4 w-4" />
+          Integrity check couldn’t reach the verification service.
+        </span>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+
+  const { result } = state;
+
+  if (result.status === "verified") {
+    return (
+      <div className="rounded-lg border border-green-600/30 bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30">
+        <div className="flex items-center gap-2 font-medium text-green-700 dark:text-green-400">
+          <ShieldCheck className="h-5 w-5" />
+          Authentic — integrity verified
+        </div>
+        <p className="mt-1 text-xs text-green-800/80 dark:text-green-300/80">
+          The grade data on this certificate matches what GradeThread sealed at
+          finalization{result.signed ? " and carries a valid signature" : ""}.
+          {" "}
+          {result.algorithm}.
+        </p>
+        {result.content_hash && (
+          <p className="mt-1 break-all font-mono text-[10px] text-green-800/60 dark:text-green-300/60">
+            {result.content_hash}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (result.status === "mismatch") {
+    return (
+      <div className="rounded-lg border border-red-600/40 bg-red-50 px-4 py-3 text-sm dark:bg-red-950/30">
+        <div className="flex items-center gap-2 font-medium text-red-700 dark:text-red-400">
+          <ShieldAlert className="h-5 w-5" />
+          Integrity check failed — do not trust this certificate
+        </div>
+        <p className="mt-1 text-xs text-red-800/80 dark:text-red-300/80">
+          The grade data does not match GradeThread’s sealed record. This
+          certificate may have been altered or forged.
+        </p>
+      </div>
+    );
+  }
+
+  // unverifiable — legacy grade issued before the integrity scheme.
+  return (
+    <div className="rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+      <div className="flex items-center gap-2 font-medium">
+        <Shield className="h-5 w-5" />
+        Integrity record not available
+      </div>
+      <p className="mt-1 text-xs">
+        This certificate predates GradeThread’s tamper-evident integrity scheme,
+        so a cryptographic check isn’t available. The grade itself remains valid.
+      </p>
+    </div>
+  );
+}
+
 function CertificateLoadingSkeleton() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-6">
@@ -103,11 +204,36 @@ export function CertificatePage() {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
 
   const certificateUrl =
     typeof window !== "undefined"
       ? `${window.location.origin}/cert/${id}`
       : "";
+
+  // US-333: ask the edge service to re-derive the certificate's content hash
+  // from the stored grade fields and confirm it matches (and that the HMAC
+  // signature validates, when signed). No auth — the verify endpoint exposes
+  // only the public verdict. Network/transport failures degrade to "error"
+  // (try again), never to a false "verified".
+  const runVerify = useCallback(async () => {
+    if (!id) return;
+    setVerify({ phase: "checking" });
+    try {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/content/public/certificates/${encodeURIComponent(id)}/verify`,
+      );
+      if (!res.ok) throw new Error(`verify failed: ${res.status}`);
+      const data = (await res.json()) as IntegrityVerify;
+      setVerify({ phase: "done", result: data });
+    } catch {
+      setVerify({ phase: "error" });
+    }
+  }, [id]);
+
+  useEffect(() => {
+    void runVerify();
+  }, [runVerify]);
 
   useEffect(() => {
     if (!id) return;
@@ -167,7 +293,8 @@ export function CertificatePage() {
         for (const img of sorted) {
           const { data: urlData } = await supabase.storage
             .from("submission-images")
-            .createSignedUrl(img.storage_path, 3600);
+            // submission-images is private — short-lived signed URL (US-276).
+            .createSignedUrl(img.storage_path, 900);
           if (urlData?.signedUrl) {
             urls[img.id] = urlData.signedUrl;
           }
@@ -634,6 +761,9 @@ export function CertificatePage() {
             <p className="text-xs text-muted-foreground">Scan to verify</p>
           </div>
         </div>
+
+        {/* US-333: tamper-evident integrity verdict */}
+        <IntegrityPanel state={verify} onRetry={runVerify} />
 
         {/* Powered by footer */}
         <div className="pb-4 text-center">

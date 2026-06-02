@@ -57,6 +57,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-700",
@@ -130,6 +132,7 @@ export function AdminUserDetailPage() {
   const [pendingRole, setPendingRole] = useState<UserRole | null>(null);
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-user-detail", id],
@@ -230,37 +233,39 @@ export function AdminUserDetailPage() {
     }
   }
 
+  // US-270: role changes run server-side (POST /api/admin/users/:id/role) where
+  // they're gated by a fresh MFA step-up + audited — not a client-side supabase
+  // update. On STEP_UP_REQUIRED we open the authenticator dialog and retry.
   async function handleRoleChange() {
-    if (!targetUser || !pendingRole || !adminProfile) return;
+    if (!targetUser || !pendingRole) return;
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from("users")
-        .update({ role: pendingRole } as never)
-        .eq("id", targetUser.id);
-      if (error) throw error;
-
-      await createAuditLog({
-        admin_user_id: adminProfile.id,
-        action: "change_role",
-        target_type: "user",
-        target_id: targetUser.id,
-        details: {
-          previous_role: targetUser.role,
-          new_role: pendingRole,
-        },
-      });
-
+      const res = await edgeFetch(
+        `/api/admin/users/${targetUser.id}/role`,
+        { method: "POST", json: { role: pendingRole }, silentGate: true },
+      );
+      if (res.status === 403) {
+        const data = await res.json().catch(() => ({}));
+        if (data?.code === "STEP_UP_REQUIRED") {
+          setStepUpOpen(true); // dialog's onVerified retries
+          return;
+        }
+        throw new Error(data?.error ?? "Forbidden");
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error ?? `HTTP ${res.status}`);
+      }
       toast.success(`Role changed to ${formatRole(pendingRole)}`);
       queryClient.invalidateQueries({ queryKey: ["admin-user-detail", id] });
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      setRoleDialogOpen(false);
+      setPendingRole(null);
     } catch (err) {
-      toast.error("Failed to change role");
+      toast.error(err instanceof Error ? err.message : "Failed to change role");
       console.error(err);
     } finally {
       setActionLoading(false);
-      setRoleDialogOpen(false);
-      setPendingRole(null);
     }
   }
 
@@ -749,6 +754,15 @@ export function AdminUserDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* US-270: step-up re-auth for the role change, then retry. */}
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          void handleRoleChange();
+        }}
+      />
     </div>
   );
 }
