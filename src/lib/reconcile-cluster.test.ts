@@ -78,3 +78,108 @@ describe("clusterByTimeGap", () => {
     expect(clusters.map(ids)).toEqual([["a", "b"], ["c"]]);
   });
 });
+
+import {
+  autoAssign,
+  reapplyThreshold,
+  moveToNewCluster,
+  moveToCluster,
+  mergeClusters,
+  splitCluster,
+  groupAssignments,
+  type AssignmentMap,
+} from "./reconcile-cluster";
+
+// Deterministic id factory for manual ops.
+function seqIds(prefix = "n") {
+  let n = 0;
+  return () => `${prefix}${++n}`;
+}
+
+describe("autoAssign", () => {
+  it("assigns timed photos to clusters and untimed to null, all non-manual", () => {
+    const photos = [photo("a", 0), photo("b", 10), photo("c", 100), photo("x", null)];
+    const map = autoAssign(photos, 30);
+    expect(map["a"]!.clusterId).toBe(map["b"]!.clusterId);
+    expect(map["a"]!.clusterId).not.toBe(map["c"]!.clusterId);
+    expect(map["x"]!.clusterId).toBeNull();
+    expect(Object.values(map).every((a) => !a.manual)).toBe(true);
+  });
+});
+
+describe("manual edit ops", () => {
+  const photos = [photo("a", 0), photo("b", 10), photo("c", 20)];
+  const baseMap = (): AssignmentMap => autoAssign(photos, 30); // a,b,c all one cluster
+
+  it("moveToNewCluster pulls photos into a fresh manual cluster", () => {
+    const map = moveToNewCluster(baseMap(), ["c"], seqIds());
+    expect(map["c"]!.clusterId).toBe("manual-n1");
+    expect(map["c"]!.manual).toBe(true);
+    expect(map["a"]!.clusterId).not.toBe(map["c"]!.clusterId);
+  });
+
+  it("moveToCluster moves photos to a named cluster (or null for needs-sorting)", () => {
+    const moved = moveToCluster(baseMap(), ["a"], null);
+    expect(moved["a"]!.clusterId).toBeNull();
+    expect(moved["a"]!.manual).toBe(true);
+  });
+
+  it("mergeClusters folds one cluster's photos into another", () => {
+    let map = moveToNewCluster(baseMap(), ["c"], seqIds()); // c -> manual-n1
+    const target = map["a"]!.clusterId!;
+    map = mergeClusters(map, target, "manual-n1");
+    expect(map["c"]!.clusterId).toBe(target);
+    expect(map["c"]!.manual).toBe(true);
+  });
+
+  it("splitCluster behaves like moveToNewCluster for a subset", () => {
+    const map = splitCluster(baseMap(), ["a", "b"], seqIds("s"));
+    expect(map["a"]!.clusterId).toBe("manual-s1");
+    expect(map["b"]!.clusterId).toBe("manual-s1");
+    expect(map["c"]!.clusterId).not.toBe("manual-s1");
+  });
+
+  it("empty selections are no-ops", () => {
+    const map = baseMap();
+    expect(moveToNewCluster(map, [])).toBe(map);
+    expect(moveToCluster(map, [], "x")).toBe(map);
+  });
+});
+
+describe("reapplyThreshold", () => {
+  it("re-clusters non-manual photos but preserves manual edits", () => {
+    const photos = [photo("a", 0), photo("b", 10), photo("c", 20)];
+    // Manually pull c into its own cluster at the 30s threshold.
+    const edited = moveToNewCluster(autoAssign(photos, 30), ["c"], seqIds());
+    const cCluster = edited["c"]!.clusterId;
+
+    // Tighten the slider to 5s — a/b would now split, but c must stay put.
+    const next = reapplyThreshold(edited, photos, 5);
+    expect(next["c"]!.clusterId).toBe(cCluster); // manual preserved
+    expect(next["c"]!.manual).toBe(true);
+    expect(next["a"]!.clusterId).not.toBe(next["b"]!.clusterId); // a,b re-split
+  });
+
+  it("auto-assigns brand-new photos added after manual edits", () => {
+    const photos = [photo("a", 0), photo("b", 10)];
+    const edited = moveToNewCluster(autoAssign(photos, 30), ["a"], seqIds());
+    const withNew = [...photos, photo("d", 12)];
+    const next = reapplyThreshold(edited, withNew, 30);
+    expect(next["d"]).toBeDefined();
+    expect(next["d"]!.manual).toBe(false);
+  });
+});
+
+describe("groupAssignments", () => {
+  it("orders clusters by earliest capture time and splits out needs-sorting", () => {
+    const photos = [photo("a", 100), photo("b", 0), photo("x", null)];
+    const map: AssignmentMap = {
+      a: { clusterId: "late", manual: false },
+      b: { clusterId: "early", manual: false },
+      x: { clusterId: null, manual: false },
+    };
+    const { clusters, needsSorting } = groupAssignments(photos, map);
+    expect(clusters.map((c) => c.clusterId)).toEqual(["early", "late"]);
+    expect(needsSorting.map((p) => p.id)).toEqual(["x"]);
+  });
+});

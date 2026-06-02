@@ -550,11 +550,23 @@ export interface ItemPhotoRow {
 
 export type ReconcileSessionStatus = "open" | "committed" | "abandoned";
 
+// One entry of the persisted assignment snapshot (00067) — enough to restore
+// the cluster grouping on reload. Photo blobs themselves are re-bound client-side.
+export interface ReconcileAssignmentSnapshot {
+  id: string;
+  capturedAt: string | null;
+  name: string;
+  clusterId: string | null;
+  manual: boolean;
+}
+
 export interface ReconcileSessionRow {
   id: string;
   user_id: string;
   photo_count: number;
   status: ReconcileSessionStatus;
+  assignments: ReconcileAssignmentSnapshot[];
+  gap_seconds: number;
   created_at: string;
   updated_at: string;
 }
@@ -563,6 +575,8 @@ export interface ReconcileSessionInsert {
   user_id: string;
   photo_count?: number;
   status?: ReconcileSessionStatus;
+  assignments?: ReconcileAssignmentSnapshot[];
+  gap_seconds?: number;
 }
 
 export type ReconcileSessionUpdate = Partial<

@@ -2362,3 +2362,41 @@ pipeline.tsx's DnD) is the natural follow-on and is fully frontend/testable.
 US-283 (visual-similarity second pass) and US-285 (link-to-existing-item) need
 the edge embed endpoint / AI + live data, so they're better done where the
 edge service + DB run.
+
+
+## Session Notes (2026-06-02 cont.) -- US-284
+
+US-284 (Reconcile: manual merge, split, move) -- COMPLETED, passes=true.
+- Pure edit model in src/lib/reconcile-cluster.ts: AssignmentMap
+  (photoId -> {clusterId|null, manual}) + moveToNewCluster / moveToCluster /
+  mergeClusters / splitCluster (all mark touched photos manual=true),
+  reapplyThreshold (re-clusters only NON-manual photos so the slider never
+  undoes a manual edit; auto-assigns newly added photos), autoAssign, and
+  groupAssignments (render projection ordered by earliest capture time).
+- reconcile.tsx rebuilt on the model: per-thumbnail multi-select checkboxes ->
+  sticky action bar (Move to new item / Move to… dropdown incl. Needs sorting),
+  per-cluster Merge dropdown, split = move-subset-to-new. dnd-kit
+  (Pointer+Touch, same config as pipeline.tsx) drags a single photo between
+  item cards, to a 'new item' drop zone, or to Needs-sorting.
+- PERSISTENCE: migration 00067_reconcile_assignments.sql adds assignments jsonb
+  + gap_seconds to flipdesk_reconcile_sessions; page debounce-saves an
+  assignment snapshot + threshold and restores the latest open session on mount
+  (structure returns as thumbnail-less placeholders that re-bind on re-drop --
+  blobs can't survive a reload pre-commit; real upload is US-287). database.ts:
+  ReconcileAssignmentSnapshot + assignments/gap_seconds on the session type.
+- Unit tests (reconcile-cluster.test.ts, 18 total): move/merge/split/empty-noop,
+  reapplyThreshold preserves manual + auto-assigns new, group ordering.
+
+Verified: vitest 128/128, tsc -b + eslint clean, npm run build green. The
+'verify in browser via dev-browser' AC is deferred (no browser/DB in this
+headless env) -- DnD + reload round-trip are real code, not runtime-exercised
+here; the pure model is fully covered.
+
+prd.json 280/343 (US-284 passes=true).
+
+Recommended next: US-283 (visual-similarity second pass), US-285 (link cluster
+to existing item), US-286 (AI photo-type classification), US-287 (commit
+clusters -> inventory_items + item_photos upload), US-288 (AI title/details per
+cluster) -- all need the edge embed/AI endpoints + live DB, so best done where
+the Deno service + Supabase run. US-289 (iOS batch import) and US-290
+(cross-tenant isolation tests) round out the Reconcile feature.

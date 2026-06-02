@@ -77,3 +77,173 @@ export function clusterByTimeGap<T extends ClusterablePhoto>(
 
   return { clusters, needsSorting };
 }
+
+// ---------------------------------------------------------------------------
+// Manual cluster editing (US-284 / RC-006)
+//
+// Auto time-gap clustering is only a first guess. The reseller needs to fix it
+// by hand: move photos into a new or existing cluster, merge two clusters, or
+// split a subset out. Those manual edits must (a) survive a threshold change so
+// the slider's live re-clustering doesn't undo them, and (b) be flagged so the
+// optional visual-similarity pass (US-283) leaves them alone.
+//
+// The model below is a pure, side-effect-free assignment map keyed by photo id;
+// the page holds one of these in state and the reconcile session persists it.
+// ---------------------------------------------------------------------------
+
+/** Where a single photo currently lives. clusterId === null ⇒ Needs sorting. */
+export interface PhotoAssignment {
+  clusterId: string | null;
+  /** True once a user explicitly placed this photo; protected from re-cluster. */
+  manual: boolean;
+}
+
+/** photo id → its assignment. */
+export type AssignmentMap = Record<string, PhotoAssignment>;
+
+/** A rendered group: a cluster id and the photos in it, in capture order. */
+export interface AssignedGroup<T extends ClusterablePhoto> {
+  clusterId: string;
+  photos: T[];
+}
+
+export interface GroupedAssignments<T extends ClusterablePhoto> {
+  clusters: AssignedGroup<T>[];
+  needsSorting: T[];
+}
+
+/** Deterministic-friendly id factory (override in tests). */
+export type IdFactory = () => string;
+const defaultIdFactory: IdFactory = () => crypto.randomUUID();
+
+/** Stable cluster id derived from the earliest photo in an auto cluster. */
+function autoClusterId(photos: ClusterablePhoto[]): string {
+  return `auto-${photos[0]!.id}`;
+}
+
+/**
+ * Builds a fresh assignment map purely from time-gap clustering — every entry
+ * is non-manual. Photos with no capture time map to clusterId null.
+ */
+export function autoAssign<T extends ClusterablePhoto>(
+  photos: T[],
+  gapSeconds: number = DEFAULT_GAP_SECONDS,
+): AssignmentMap {
+  const { clusters, needsSorting } = clusterByTimeGap(photos, gapSeconds);
+  const map: AssignmentMap = {};
+  for (const cluster of clusters) {
+    const id = autoClusterId(cluster);
+    for (const p of cluster) map[p.id] = { clusterId: id, manual: false };
+  }
+  for (const p of needsSorting) map[p.id] = { clusterId: null, manual: false };
+  return map;
+}
+
+/**
+ * Re-runs auto-clustering at a new threshold while PRESERVING manual edits:
+ * photos flagged manual keep their assignment; everything else is re-clustered
+ * among itself. New photos not yet in the map are auto-assigned too.
+ */
+export function reapplyThreshold<T extends ClusterablePhoto>(
+  prev: AssignmentMap,
+  photos: T[],
+  gapSeconds: number,
+): AssignmentMap {
+  const manualIds = new Set(
+    Object.entries(prev)
+      .filter(([, a]) => a.manual)
+      .map(([id]) => id),
+  );
+  const autoPhotos = photos.filter((p) => !manualIds.has(p.id));
+  const next: AssignmentMap = autoAssign(autoPhotos, gapSeconds);
+  // Re-attach the preserved manual assignments.
+  for (const id of manualIds) {
+    if (prev[id]) next[id] = prev[id];
+  }
+  return next;
+}
+
+function withManual(prev: AssignmentMap, ids: string[], clusterId: string | null): AssignmentMap {
+  const next: AssignmentMap = { ...prev };
+  for (const id of ids) next[id] = { clusterId, manual: true };
+  return next;
+}
+
+/** Move the given photos into a brand-new cluster (also covers "split out"). */
+export function moveToNewCluster(
+  prev: AssignmentMap,
+  ids: string[],
+  newId: IdFactory = defaultIdFactory,
+): AssignmentMap {
+  if (ids.length === 0) return prev;
+  return withManual(prev, ids, `manual-${newId()}`);
+}
+
+/** Move the given photos into an existing cluster (or Needs sorting if null). */
+export function moveToCluster(
+  prev: AssignmentMap,
+  ids: string[],
+  clusterId: string | null,
+): AssignmentMap {
+  if (ids.length === 0) return prev;
+  return withManual(prev, ids, clusterId);
+}
+
+/** Merge cluster `from` into cluster `into`: every photo of `from` joins `into`. */
+export function mergeClusters(
+  prev: AssignmentMap,
+  into: string,
+  from: string,
+): AssignmentMap {
+  const ids = Object.entries(prev)
+    .filter(([, a]) => a.clusterId === from)
+    .map(([id]) => id);
+  return withManual(prev, ids, into);
+}
+
+/** Split a subset of photos out of their cluster into a new one. */
+export function splitCluster(
+  prev: AssignmentMap,
+  ids: string[],
+  newId: IdFactory = defaultIdFactory,
+): AssignmentMap {
+  return moveToNewCluster(prev, ids, newId);
+}
+
+/**
+ * Projects photos + an assignment map into render-ready groups. Clusters are
+ * ordered by their earliest capture time (untimed clusters last); photos within
+ * a cluster are in capture order, with untimed ones appended.
+ */
+export function groupAssignments<T extends ClusterablePhoto>(
+  photos: T[],
+  map: AssignmentMap,
+): GroupedAssignments<T> {
+  const byCluster = new Map<string, T[]>();
+  const needsSorting: T[] = [];
+  for (const p of photos) {
+    const a = map[p.id];
+    const clusterId = a?.clusterId ?? null;
+    if (clusterId === null) {
+      needsSorting.push(p);
+      continue;
+    }
+    const arr = byCluster.get(clusterId);
+    if (arr) arr.push(p);
+    else byCluster.set(clusterId, [p]);
+  }
+
+  const timeOf = (p: T) =>
+    p.capturedAt instanceof Date && !Number.isNaN(p.capturedAt.getTime())
+      ? p.capturedAt.getTime()
+      : Number.POSITIVE_INFINITY;
+
+  const clusters: AssignedGroup<T>[] = [...byCluster.entries()].map(([clusterId, ps]) => {
+    const sorted = [...ps].sort((a, b) => timeOf(a) - timeOf(b));
+    return { clusterId, photos: sorted };
+  });
+  // Earliest-first; untimed-only clusters (Infinity) sink to the bottom.
+  clusters.sort((a, b) => timeOf(a.photos[0]!) - timeOf(b.photos[0]!));
+
+  return { clusters, needsSorting };
+}
