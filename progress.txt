@@ -2233,3 +2233,39 @@ Recommended next: US-272 (secret hygiene) is implemented except the manual
 gitleaks-history scan + enabling the hook; US-278 (SECURITY.md/IR runbook) just
 needs a README to link from. US-263/264/274/277 remain passes=false pending the
 curl/browser runtime checks their ACs require.
+
+
+## Session Notes (2026-06-02 cont.) -- US-272 + US-278
+
+US-272 (secret hygiene + secret scanning) -- COMPLETED, passes=true.
+- Both .env.example files verified placeholder-only.
+- FULL HISTORY SCAN: gitleaks v8.18.4 over all 63 commits found NO real
+  secrets. Two false positives allowlisted in .gitleaks.toml: the private-key
+  rule hitting the literal -----BEGIN/END PRIVATE KEY----- markers in
+  gsc-client.ts (PEM-parsing code; key comes from env), and a deno.lock esm.sh
+  integrity hash. Re-scan clean (no leaks). No rotation required.
+- Pre-commit hook .githooks/pre-commit made executable (100755) and
+  auto-enabled via a package.json "prepare" script (git config core.hooksPath
+  .githooks on npm install). CI job already present (secret-scan.yml).
+- .gitignore tightened to `.env` + `.env.*` with `!.env.example` negation;
+  verified with git check-ignore (variants ignored, examples tracked).
+- KEY_ROTATION.md already documents EDGE_ENCRYPTION_KEY v1:->v2: re-encryption.
+
+US-278 (SECURITY.md + incident-response runbook) -- COMPLETED, passes=true.
+- SECURITY.md + docs/INCIDENT_RESPONSE.md (severity, notification chain,
+  key-rotation link, mass token revoke, emergency consoles, quarterly review
+  checklist) were already in place.
+- FINAL GAP CLOSED: repo had no README to link them from -> created README.md
+  (overview/stack/getting-started/layout + a Security section linking
+  SECURITY.md, INCIDENT_RESPONSE.md, KEY_ROTATION.md).
+- Operational follow-up: create the security@gradethread.com alias.
+
+Verified: gitleaks full-history + staged scans clean; git check-ignore checks;
+no src changes so frontend build/tests unaffected.
+
+prd.json 274/343 (US-272 + US-278 passes=true).
+
+Recommended next: US-263/264/274/277 are implemented but await runtime checks
+(curl -I header dump; browser CSP/Stripe/OAuth pass) their ACs require -- best
+flipped from a deployed env. US-273 (CI for dependency + static analysis) is a
+natural follow-on to US-272's secret-scan workflow.
