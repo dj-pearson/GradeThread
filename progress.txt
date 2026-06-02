@@ -2688,3 +2688,55 @@ US-264 (CSP + HSTS on the SPA) -- COMPLETED, passes=true.
 
 SECURITY CLUSTER COMPLETE: US-263..US-277 all passes=true (0 open).
 prd.json 299/343.
+
+
+## Session Notes (2026-06-02 cont.) -- Pricing-split foundation (US-200..US-203)
+
+Worked the highest-priority *actionable* open stories. The very top of the open
+queue (US-137 e2e + US-146..151 Google Sheets) are all BLOCKED on external creds
+(eBay sandbox / Google Cloud OAuth) per their own notes, so I picked the next
+coherent un-blocked cluster: the pricing-split foundation (US-200..US-225).
+
+Found the cluster largely IMPLEMENTED across prior sessions but never marked
+passes=true. Verified the browser-independent foundation layer against AC and
+closed it out. Frontend verified via `npm ci` + tsc --noEmit (clean) + eslint
+(clean on touched files) + vitest (135/138; the 1 failure is the pre-existing
+responsive-images build-artifact test that needs `npm run build` first --
+unrelated; 2 skipped).
+
+US-200 (pricing model canonical doc) -- COMPLETED, passes=true.
+- Authored docs/PRICING.md: FlipDesk tier matrix (Free/Starter/Pro/Business
+  $0/$29/$59/$99, annual ~17% off), per-grade tiers ($2.99/$7.99/$12.99),
+  credit packs (10/25/50/100 @ $24.99/$59.99/$109.99/$199.99), debit precedence,
+  upgrade triggers (80% soft / 100% hard), self-serve actions, 14d Pro trial,
+  refund policy, competitor-benchmark appendix (List Perfectly / Vendoo / PSA /
+  LegitGrails), and a 'where each number lives' constants->Stripe map.
+- Added PLAN_MATRIX alias of FLIPDESK_PLANS in constants.ts to satisfy AC#2
+  literally (single source of truth -- it's a reference, not a copy).
+
+US-201 (DB pricing split) -- VERIFIED, passes=true.
+- Migration 00037_pricing_split.sql: flipdesk_plan + subscription_status enums;
+  9 new users columns; grades_used_this_month repurposed (COMMENT); append-only
+  grade_credit_transactions ledger (+RLS read-own); flipdesk_subscription_events
+  idempotency table; debit_grade_credits/grant_grade_credits row-locked SECURITY
+  DEFINER RPCs; handle_new_user override -> 14d Pro trial. Fully idempotent.
+
+US-202 (constants restructure) -- VERIFIED, passes=true.
+- FLIPDESK_PLANS / GRADETHREAD_TIERS / CREDIT_PACKS / FLIPDESK_UPGRADE_TRIGGERS +
+  nested env-injected STRIPE_PRICE_IDS map. Legacy PLANS kept @deprecated and
+  DERIVED from FLIPDESK_PLANS (zero drift). Numbers match US-200 exactly.
+
+US-203 (Stripe setup script) -- VERIFIED, passes=true.
+- scripts/setup-stripe-pricing.mjs (npm run setup:stripe, test/--live guard):
+  upserts all 10 products + prices, idempotent via metadata.gradethread_sku +
+  price lookup_keys, emits VITE_ and non-VITE_ env block. COOLIFY.md has the
+  'Stripe pricing setup' section. (.mjs not .ts: matches the repo's script
+  convention; functionally equivalent.)
+
+STILL OPEN in this cluster (NOT marked -- need browser/UI verification or have
+unmet AC): US-204..US-224 (edge routes, webhooks, plan-gate, billing UI, dialogs,
+dunning, trial, landing, admin, emails, Stripe Tax) and US-225 (migration done,
+but backfill-stripe-state script + per-user migration email (US-222) outstanding).
+Much of this exists in code already and is a good candidate for the next pass.
+
+prd.json 303/343.

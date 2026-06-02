@@ -305,6 +305,12 @@ export const CREDIT_PACKS: readonly CreditPackConfig[] = [
 
 export type CreditPackSize = (typeof CREDIT_PACKS)[number]["credits"];
 
+// Canonical machine-readable mirror of the FlipDesk tier matrix in
+// docs/PRICING.md (US-200 AC). Alias of FLIPDESK_PLANS so there is exactly one
+// source of truth — any change here changes both. Prefer FLIPDESK_PLANS in new
+// code; PLAN_MATRIX exists so the pricing doc can reference a stable name.
+export const PLAN_MATRIX = FLIPDESK_PLANS;
+
 // Thresholds at which the frontend fires upgrade modals. Tweakable per-user
 // via users.usage_alert_thresholds in US-209.
 export const FLIPDESK_UPGRADE_TRIGGERS = {

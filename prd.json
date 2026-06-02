@@ -3451,8 +3451,8 @@
         "Refund policy documented: 14-day money-back on first subscription invoice only; credit packs non-refundable but credits never expire"
       ],
       "priority": 200,
-      "passes": false,
-      "notes": "Locked design after competitor research: recommended ladder ($0/$29/$59/$99) approved; bundled grades per tier approved; tiered credit packs with volume discount approved."
+      "passes": true,
+      "notes": "VERIFIED + COMPLETED (2026-06-02). docs/PRICING.md authored: full FlipDesk tier matrix, per-grade tiers, credit packs, debit precedence, upgrade triggers, self-serve actions, trials, refund policy, competitor-benchmark appendix (List Perfectly / Vendoo / PSA / LegitGrails), and a 'where each number lives' map. constants mirror via FLIPDESK_PLANS/GRADETHREAD_TIERS/CREDIT_PACKS/FLIPDESK_UPGRADE_TRIGGERS; added PLAN_MATRIX alias of FLIPDESK_PLANS to satisfy AC#2 literally. tsc clean."
     },
     {
       "id": "US-201",
@@ -3473,8 +3473,8 @@
         "Database types regenerated in src/types/database.ts to include new columns, enum, tables, and functions"
       ],
       "priority": 201,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). Migration 00037_pricing_split.sql present: enums flipdesk_plan + subscription_status; users gains flipdesk_plan/flipdesk_interval/subscription_status/flipdesk_subscription_id/flipdesk_period_end/flipdesk_pause_until/flipdesk_cancel_at_period_end/grade_credit_balance/trial_ends_at; grades_used_this_month repurposed (COMMENT); grade_credit_transactions ledger + RLS; flipdesk_subscription_events idempotency table; debit_grade_credits/grant_grade_credits SECURITY DEFINER RPCs with row-lock; handle_new_user starts 14d Pro trial. Idempotent (IF NOT EXISTS / DO-block enum guards)."
     },
     {
       "id": "US-202",
@@ -3491,8 +3491,8 @@
         "Type exports: FlipdeskPlanKey, GradeTierKey, CreditPackSize"
       ],
       "priority": 202,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). src/lib/constants.ts exports FLIPDESK_PLANS (free/starter/pro/business with caps, aiActionsPerMonth, marketplacesCap, includedStandardGradesPerMonth, features, gateFlags), GRADETHREAD_TIERS, CREDIT_PACKS (ordered), FLIPDESK_UPGRADE_TRIGGERS, nested STRIPE_PRICE_IDS map (env-injected), and deprecated PLANS derived from FLIPDESK_PLANS (no drift). Numbers match US-200. tsc + lint clean."
     },
     {
       "id": "US-203",
@@ -3507,8 +3507,8 @@
         "Documented in services/edge-functions/COOLIFY.md under a new 'Stripe pricing setup' section"
       ],
       "priority": 203,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "VERIFIED, passes=true (2026-06-02). scripts/setup-stripe-pricing.mjs (npm run setup:stripe, --live guard) creates all 10 products (3 FlipDesk + 3 grade tiers + 4 credit packs) and prices (FlipDesk monthly+yearly, one-time for grades+packs); idempotent via metadata.gradethread_sku lookup + price lookup_keys; outputs VITE_ and non-VITE env block. Catalog mirrors FLIPDESK_PLANS/GRADETHREAD_TIERS/CREDIT_PACKS. Documented in COOLIFY.md 'Stripe pricing setup' section. (.mjs vs .ts: repo-convention adaptation, functionally equivalent.)"
     },
     {
       "id": "US-204",
