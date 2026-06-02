@@ -3624,8 +3624,8 @@
         "Posthog 'upgrade.trigger.hard' fired with { cap, plan, requiredPlan, action: 'upgrade'|'pack'|'dismiss' }"
       ],
       "priority": 210,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). UpgradeRequiredDialog (globally mounted in root-layout) opens on any 402 caught by edge-fetch.ts (CAP_REACHED / FEATURE_LOCKED). Content tailored per cap vs feature, used/limit, suggested-plan card, inline credit-pack tiles for includedGrades, primary Upgrade CTA (opens plan picker highlightPlan), secondary a-la-carte, tertiary dismiss. GAP FILLED: added posthog 'upgrade.trigger.hard' {cap,plan,requiredPlan,action} fired on each action (upgrade/pack/dismiss incl Esc/backdrop close) via new consent-safe track() helper. tsc+lint+build clean."
     },
     {
       "id": "US-211",
@@ -3658,8 +3658,8 @@
         "Posthog 'plan_picker.opened' / 'plan_picker.cta_clicked' { from, to, interval }"
       ],
       "priority": 212,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). FlipdeskPlanPickerDialog: 4 cards from FLIPDESK_PLANS, monthly/annual toggle (per-month-equiv + Save ~17%), price/caps/AI/marketplaces/included-grades, feature checklist with check/X, CTA logic (Current/Switch interval/Upgrade->US-204/Downgrade->US-217 preview/Cancel), trial chips on pro+business, highlightPlan. GAP FILLED: posthog 'plan_picker.opened' {from,interval} on open + 'plan_picker.cta_clicked' {from,to,interval} on every CTA. tsc+lint+build clean."
     },
     {
       "id": "US-213",
@@ -3675,8 +3675,8 @@
         "Posthog 'credit_pack.opened' / 'credit_pack.cta_clicked' { pack } / 'credit_pack.purchased' (from webhook callback)"
       ],
       "priority": 213,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). CreditPackDialog: 4 tiles from CREDIT_PACKS, total credits/price, per-credit price ($2.50/$2.40/$2.20/$2.00), Best-value badge on 100-pack, balance + 'never expire', how-credits-work footer, tile->credit-pack checkout. GAPS FILLED: savings now shows BOTH % and $ ('Save 17% ($25.91)'); posthog 'credit_pack.opened' {balance} + 'credit_pack.cta_clicked' {pack} + 'credit_pack.purchased' {pack} fired on the billing ?checkout=success&product=credit_pack return. tsc+lint+build clean."
     },
     {
       "id": "US-214",
@@ -3690,8 +3690,8 @@
         "Meters hidden on Free plan only for non-applicable caps (e.g. multi-marketplace meter omitted when marketplacesCap=1)"
       ],
       "priority": 214,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). UsageMeter (color thresholds green<50/amber50-80/red>80/brand-red@100, used/limit/%, unlimited + balance variants, hideWhenUnlimited) + UsageMeters dashboard row (active listings, AI actions, included grades, credit balance) + SidebarUsageWidget (hottest cap collapsed + popover of all four, already wired in sidebar.tsx). All react to the useBillingSummary TanStack cache. GAP FILLED: the dashboard-overview 'Usage' row was defined but NOT mounted — wired <UsageMeters> into src/pages/dashboard.tsx. tsc+lint+build clean."
     },
     {
       "id": "US-215",

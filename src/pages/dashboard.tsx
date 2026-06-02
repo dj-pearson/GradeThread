@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { GradeCharts } from "@/components/dashboard/grade-charts";
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
 import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
+import { UsageMeters } from "@/components/billing/usage-meter";
 
 interface RecentSubmission extends SubmissionRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
@@ -219,6 +220,12 @@ export function DashboardPage() {
             </span>
           </span>
         </Button>
+      </div>
+
+      {/* Plan usage meters (US-214) */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground">Usage</h2>
+        <UsageMeters />
       </div>
 
       {/* FlipDesk cross-promotion (zero-inventory users only) */}

@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
+import { track } from "@/lib/analytics";
 import { FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import {
@@ -92,6 +93,12 @@ export function BillingPage() {
   useEffect(() => {
     if (searchParams.get("checkout") !== "success") return;
     const product = searchParams.get("product");
+    if (product === "credit_pack") {
+      const credits = Number.parseInt(searchParams.get("credits") ?? "", 10);
+      track("credit_pack.purchased", {
+        pack: Number.isFinite(credits) ? credits : undefined,
+      });
+    }
     toast.success(
       product === "credit_pack"
         ? "Payment received — adding your credits…"

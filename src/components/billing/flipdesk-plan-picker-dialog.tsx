@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
   useBillingPortal,
 } from "@/hooks/use-billing-summary";
 import { DowngradePreviewDialog } from "@/components/billing/downgrade-preview-dialog";
+import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { Check, X, Crown, Loader2, Sparkles } from "lucide-react";
 
@@ -85,6 +86,12 @@ export function FlipdeskPlanPickerDialog({
   const [downgradeTarget, setDowngradeTarget] = useState<
     Exclude<FlipdeskPlanKey, "free"> | null
   >(null);
+
+  // US-212 telemetry: fire once each time the dialog opens.
+  useEffect(() => {
+    if (open) track("plan_picker.opened", { from: currentPlan, interval });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Show trial CTAs only when the user hasn't used their one-trial-ever yet.
   const trialEligible =
@@ -281,13 +288,30 @@ export function FlipdeskPlanPickerDialog({
                     isLoading,
                     onSubscribe: () => {
                       if (planKey === "free") return;
+                      track("plan_picker.cta_clicked", {
+                        from: currentPlan,
+                        to: planKey,
+                        interval,
+                      });
                       subscribe.mutate({ plan: planKey, interval });
                     },
                     onDowngrade: () => {
                       if (planKey === "free") return;
+                      track("plan_picker.cta_clicked", {
+                        from: currentPlan,
+                        to: planKey,
+                        interval,
+                      });
                       setDowngradeTarget(planKey);
                     },
-                    onOpenPortal: () => portal.mutate(),
+                    onOpenPortal: () => {
+                      track("plan_picker.cta_clicked", {
+                        from: currentPlan,
+                        to: planKey,
+                        interval,
+                      });
+                      portal.mutate();
+                    },
                   })}
                 </CardFooter>
               </Card>

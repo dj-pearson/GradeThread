@@ -2788,3 +2788,55 @@ yet verified in src/ -- left open), US-209..224 (UI/billing/dunning/admin/email
 backfill-stripe-state script + migration email outstanding).
 
 prd.json 307/343.
+
+
+## Session Notes (2026-06-02 cont.) -- Pricing frontend cluster US-210/212/213/214
+
+Worked the frontend pricing UI. Found the components ~90% built across prior
+sessions; the consistent gap was PostHog telemetry (no track() helper existed
+at all) plus a couple of small copy/wiring misses. Filled them and closed four
+stories. Verified: tsc --noEmit clean, eslint clean on all touched files,
+vitest 135/138 (the 1 fail is the known responsive-images build-artifact test
+that needs dist/ -- it passes after `npm run build`, confirmed; 2 skipped),
+`npm run build` green (24 prerendered pages).
+
+NEW: src/lib/analytics.ts track(event, props) -- consent-safe wrapper over
+window.posthog.capture (no-op before consent / in DEV / if posthog unloaded;
+never throws into product code). Same window.posthog pattern web-vitals.ts uses.
+
+US-210 (hard-cap UpgradeRequiredDialog) -- COMPLETED, passes=true.
+- Dialog + 402 plumbing (edge-fetch.ts -> upgrade-dialog-store) already done.
+  Added posthog 'upgrade.trigger.hard' {cap,plan,requiredPlan,action} fired on
+  each user action (upgrade/pack/dismiss, incl Esc/backdrop close).
+
+US-212 (FlipDesk plan picker) -- COMPLETED, passes=true.
+- Cards/toggle/feature-checklist/CTA-logic/trial-chips/highlightPlan all done.
+  Added 'plan_picker.opened' {from,interval} + 'plan_picker.cta_clicked'
+  {from,to,interval} on every CTA path.
+
+US-213 (credit pack dialog) -- COMPLETED, passes=true.
+- Tiles/per-credit-price/best-value/balance/footer done. Added the missing
+  $-savings alongside the % ('Save 17% ($25.91)') and 'credit_pack.opened' /
+  '.cta_clicked' / '.purchased' (last fired on the billing success return).
+
+US-214 (usage meters) -- COMPLETED, passes=true.
+- UsageMeter + UsageMeters + SidebarUsageWidget all built; sidebar widget
+  already mounted. GAP: the dashboard-overview 'Usage' row was never mounted --
+  wired <UsageMeters> into src/pages/dashboard.tsx.
+
+STILL OPEN nearby (need more than telemetry, deliberately not marked):
+- US-207 frontend: new-submission.tsx still does a plain submit->navigate; the
+  precedence-aware Review-and-Pay step ('Free with your Pro plan' / 'Used 1
+  credit' / pack-then-retry) + grade.paid/pack_upsell events are NOT built
+  (edge precedence + 12 grade-pricing tests ARE done).
+- US-209 soft triggers: the X-Plan-Warning inline toast + 'upgrade.trigger.soft'
+  event are done (added the event this session), but the proactive dashboard-
+  header watcher (once/cap/month via localStorage + users.last_warning_at), the
+  named usePlanUsage() hook, and the Settings 50/80/95 threshold chooser
+  (users.usage_alert_thresholds) remain -> story stays open.
+
+Edit footprint: analytics.ts (+track), edge-fetch.ts (+soft event),
+upgrade-required-dialog.tsx, flipdesk-plan-picker-dialog.tsx,
+credit-pack-dialog.tsx, billing.tsx, dashboard.tsx (+UsageMeters row).
+
+prd.json 311/343.
