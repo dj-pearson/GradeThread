@@ -320,6 +320,27 @@ export function useBillingPortal() {
 
 // ── Derived helpers ─────────────────────────────────────────────
 
+// Human label for a grade-credit ledger reason (US-211). Shared by the Billing
+// page's recent-activity list and the full-history dialog.
+export function ledgerLabel(reason: string): string {
+  switch (reason) {
+    case "pack_purchase":
+      return "Credit pack purchase";
+    case "grade_debit":
+      return "Grade submitted";
+    case "included_grant":
+      return "Included grade used";
+    case "admin_grant":
+      return "Admin comp";
+    case "refund":
+      return "Refund";
+    case "expiration":
+      return "Expired";
+    default:
+      return reason;
+  }
+}
+
 export function planLabel(plan: FlipdeskPlan): string {
   return {
     free: "Free",

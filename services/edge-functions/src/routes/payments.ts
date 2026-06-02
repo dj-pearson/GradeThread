@@ -671,6 +671,34 @@ paymentRoutes.get("/billing-summary", async (c) => {
   });
 });
 
+// ── GET /ledger (US-211) ─────────────────────────────────────────
+//
+// Full grade-credit transaction history for the "View all activity" dialog on
+// the Billing page (the billing-summary only carries the last 5). User-scoped.
+// Capped + paginated to keep the payload bounded.
+paymentRoutes.get("/ledger", async (c) => {
+  const userId = c.get("userId");
+
+  const limitRaw = Number.parseInt(c.req.query("limit") ?? "50", 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 50;
+  const offsetRaw = Number.parseInt(c.req.query("offset") ?? "0", 10);
+  const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? offsetRaw : 0;
+
+  const { data, error } = await supabaseAdmin
+    .from("grade_credit_transactions")
+    .select("id, delta, reason, balance_after, submission_id, notes, created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) {
+    console.error("[ledger] query failed:", error);
+    return c.json({ error: "Failed to load activity" }, 500);
+  }
+
+  return c.json({ entries: data ?? [], limit, offset });
+});
+
 // ── POST /usage-alerts (US-209) ──────────────────────────────────
 //
 // Body: { thresholds: number[] } — the percentages (out of 100) at which the

@@ -3641,8 +3641,8 @@
         "All actions show optimistic UI then reconcile against the webhook-updated server state"
       ],
       "priority": 211,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). src/pages/billing.tsx already had most of the rebuild from earlier passes (two side-by-side cards: FlipDesk Subscription w/ plan+interval+period-end+pause/cancel/change-plan, GradeThread Credits w/ balance+included meter+last-5 ledger+Buy credits; Stripe portal demoted to an overflow MoreVertical menu; trialing/past-due/paused/downgrade/canceling banners; optimistic+pollBillingSummary reconcile). THIS PASS closed the AC gaps: (1) NEW read-only <FlipdeskPlanComparison/> 4-card grid (src/components/billing/flipdesk-plan-comparison.tsx) with monthly/annual toggle + current-plan badge + per-card 'Choose <plan>' CTA opening the US-212 picker — replaced the old single 'Compare plans' button; (2) subscription card now shows the next-charge AMOUNT (not just date) + a 'Switch to annual/monthly' button (opens picker on current plan); (3) grades card gained a 'Buy single grade' CTA → /dashboard/submissions/new (the submission Review&Pay picker); (4) 'View all' link on recent activity opens NEW <ActivityHistoryDialog/> backed by NEW user-scoped GET /api/payments/ledger (last 100 grade_credit_transactions, paginated). ledgerLabel moved to use-billing-summary.ts as the shared helper. NOTE: interval switch routes through the picker's existing in-place prorated Stripe update; a live proration-amount preview modal was deferred (adjacent to US-217). tsc+lint+build clean; edge deno check clean."
     },
     {
       "id": "US-212",

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -27,13 +27,16 @@ import {
   useBillingPortal,
   isTrialing,
   planLabel,
+  ledgerLabel,
   pollBillingSummary,
 } from "@/hooks/use-billing-summary";
 import { UsageMeter, UsageMeters } from "@/components/billing/usage-meter";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
+import { FlipdeskPlanComparison } from "@/components/billing/flipdesk-plan-comparison";
 import { PauseSubscriptionDialog } from "@/components/billing/pause-subscription-dialog";
 import { CancelSubscriptionDialog } from "@/components/billing/cancel-subscription-dialog";
+import { ActivityHistoryDialog } from "@/components/billing/activity-history-dialog";
 import {
   useResumeSubscription,
   useUncancelSubscription,
@@ -43,12 +46,12 @@ import {
   AlertCircle,
   ArrowDown,
   Calendar,
-  CreditCard,
   ExternalLink,
   Info,
   MoreVertical,
   Pause,
   Play,
+  RefreshCw,
   ShoppingCart,
   Sparkles,
   TrendingUp,
@@ -79,11 +82,13 @@ export function BillingPage() {
   const [creditPackOpen, setCreditPackOpen] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
   const [highlightPlan, setHighlightPlan] = useState<FlipdeskPlanKey | undefined>(
     undefined,
   );
 
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
 
   // Returning from Stripe Checkout: the webhook that grants credits / activates
@@ -307,8 +312,21 @@ export function BillingPage() {
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Calendar className="h-4 w-4" />
                 <span>
-                  {canceling ? "Ends" : "Next charge"} on{" "}
-                  {dateLabel(subscription.period_end)}
+                  {canceling ? (
+                    <>Ends on {dateLabel(subscription.period_end)}</>
+                  ) : (
+                    <>
+                      Next charge{" "}
+                      <span className="font-medium text-foreground">
+                        {dollars(
+                          subscription.interval === "yearly"
+                            ? plan.priceYearlyCents
+                            : plan.priceMonthlyCents,
+                        )}
+                      </span>{" "}
+                      on {dateLabel(subscription.period_end)}
+                    </>
+                  )}
                 </span>
               </div>
             )}
@@ -346,6 +364,15 @@ export function BillingPage() {
                 <TrendingUp className="mr-2 h-4 w-4" />
                 Change plan
               </Button>
+              {subscription.plan !== "free" && !paused && !canceling && (
+                <Button
+                  variant="outline"
+                  onClick={() => openPlanPicker(subscription.plan as FlipdeskPlanKey)}
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Switch to {subscription.interval === "yearly" ? "monthly" : "annual"}
+                </Button>
+              )}
               {subscription.plan !== "free" && !paused && !canceling && (
                 <Button variant="outline" onClick={() => setPauseOpen(true)}>
                   <Pause className="mr-2 h-4 w-4" />
@@ -411,14 +438,31 @@ export function BillingPage() {
                 <ShoppingCart className="mr-2 h-4 w-4" />
                 Buy credits
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => navigate("/dashboard/submissions/new")}
+              >
+                <Sparkles className="mr-2 h-4 w-4" />
+                Buy single grade
+              </Button>
             </div>
 
             {summary.recent_ledger.length > 0 && (
               <>
                 <Separator />
                 <div className="space-y-2">
-                  <div className="text-xs font-semibold uppercase text-muted-foreground">
-                    Recent activity
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-semibold uppercase text-muted-foreground">
+                      Recent activity
+                    </div>
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto p-0 text-xs"
+                      onClick={() => setActivityOpen(true)}
+                    >
+                      View all
+                    </Button>
                   </div>
                   <ul className="space-y-1.5 text-sm">
                     {summary.recent_ledger.map((entry) => (
@@ -464,22 +508,12 @@ export function BillingPage() {
         <UsageMeters />
       </div>
 
-      {/* Plan comparison footer link */}
-      <div className="rounded-md border border-dashed border-border bg-muted/20 p-4 text-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="font-medium">Want to see what each plan unlocks?</p>
-            <p className="text-muted-foreground">
-              Open the plan picker to compare Free, Starter, Pro, and Business
-              side by side.
-            </p>
-          </div>
-          <Button variant="outline" onClick={() => openPlanPicker()}>
-            <CreditCard className="mr-2 h-4 w-4" />
-            Compare plans
-          </Button>
-        </div>
-      </div>
+      {/* Read-only plan comparison grid (US-211 AC #2) */}
+      <FlipdeskPlanComparison
+        currentPlan={subscription.plan as FlipdeskPlanKey}
+        currentInterval={subscription.interval}
+        onChoosePlan={(p) => openPlanPicker(p)}
+      />
 
       {/* Dialogs */}
       <CreditPackDialog open={creditPackOpen} onOpenChange={setCreditPackOpen} />
@@ -494,6 +528,7 @@ export function BillingPage() {
         onOpenChange={setCancelOpen}
         periodEnd={subscription.period_end}
       />
+      <ActivityHistoryDialog open={activityOpen} onOpenChange={setActivityOpen} />
     </div>
   );
 }
@@ -503,18 +538,6 @@ function effectiveAiLimit(planLimit: number, userLimit: number | null): number {
   if (planLimit === -1) return userLimit ?? -1;
   if (userLimit == null) return planLimit;
   return Math.min(planLimit, userLimit);
-}
-
-function ledgerLabel(reason: string): string {
-  switch (reason) {
-    case "pack_purchase": return "Credit pack purchase";
-    case "grade_debit":   return "Grade submitted";
-    case "included_grant": return "Included grade used";
-    case "admin_grant":   return "Admin comp";
-    case "refund":        return "Refund";
-    case "expiration":    return "Expired";
-    default:              return reason;
-  }
 }
 
 function TierPriceTile({ tierName, tier }: { tierName: string; tier: keyof typeof GRADETHREAD_TIERS }) {
