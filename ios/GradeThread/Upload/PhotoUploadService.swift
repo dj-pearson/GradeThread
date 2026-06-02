@@ -81,7 +81,8 @@ public final class PhotoUploadService {
     public func enqueueAll(
         photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
         inventoryItemId: String,
-        userId: String
+        userId: String,
+        reconcileSessionId: String? = nil
     ) {
         // Stable sort_order across re-uploads: required slots in canonical
         // order first, then defects.
@@ -96,7 +97,8 @@ public final class PhotoUploadService {
                 slot: entry.slot,
                 inventoryItemId: inventoryItemId,
                 userId: userId,
-                sortOrder: offset
+                sortOrder: offset,
+                reconcileSessionId: reconcileSessionId
             )
         }
     }
@@ -109,7 +111,8 @@ public final class PhotoUploadService {
         slot: PhotoSlotType,
         inventoryItemId: String,
         userId: String,
-        sortOrder: Int
+        sortOrder: Int,
+        reconcileSessionId: String? = nil
     ) -> UUID? {
         guard let fileURL = writeToTempFile(data: capture.imageData) else { return nil }
 
@@ -126,7 +129,9 @@ public final class PhotoUploadService {
             slot: slot,
             storagePath: storagePath,
             localFileURL: fileURL,
-            bytes: Int64(capture.imageData.count)
+            bytes: Int64(capture.imageData.count),
+            capturedAt: capture.capturedAt,
+            reconcileSessionId: reconcileSessionId
         )
         store.upsert(task)
         sortOrderByUploadId[task.id] = sortOrder
@@ -276,14 +281,6 @@ public final class PhotoUploadService {
     // MARK: - DB insert
 
     private func insertPhotoRow(for task: PhotoUploadTask, sortOrder: Int) async {
-        struct ItemPhotoInsert: Encodable {
-            let inventory_item_id: String
-            let photo_type: String
-            let storage_path: String
-            let photo_url: String
-            let sort_order: Int
-            let bytes: Int64
-        }
         let publicURL = storagePublicURL(for: task.storagePath)
         let row = ItemPhotoInsert(
             inventory_item_id: task.inventoryItemId,
@@ -291,7 +288,9 @@ public final class PhotoUploadService {
             storage_path: task.storagePath,
             photo_url: publicURL,
             sort_order: sortOrder,
-            bytes: task.bytes
+            bytes: task.bytes,
+            captured_at: task.capturedAt,
+            reconcile_session_id: task.reconcileSessionId
         )
         do {
             try await supabaseClient

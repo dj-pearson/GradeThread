@@ -528,10 +528,14 @@ struct PhotoIntakeView: View {
         for result in results {
             guard let image = await result.loadImage() else { continue }
             guard let output = PhotoCompressor.compress(image) else { continue }
+            // Read the original PHAsset capture time before compression strips
+            // EXIF (US-289); fall back to now if the library isn't readable.
+            let capturedAt = result.creationDate() ?? .now
             staged.append(
                 PhotoCapture(
                     imageData: output.imageData,
                     thumbnail: output.thumbnail,
+                    capturedAt: capturedAt,
                     source: .library
                 )
             )

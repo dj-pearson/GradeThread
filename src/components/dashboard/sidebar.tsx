@@ -27,6 +27,7 @@ import {
   Sparkles,
   ShieldCheck,
   TrendingUp,
+  Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,6 +77,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
+      { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },

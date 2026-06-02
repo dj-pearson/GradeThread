@@ -162,3 +162,56 @@ export function useBulkExtract() {
     onError: aiErrorToast,
   });
 }
+
+// ── Reconcile vision endpoints (US-283 embed, US-286 classify) ──────────
+
+export interface ReconcileVisionPhoto {
+  id: string;
+  /** base64 (no data: prefix) for pre-commit blobs … */
+  data?: string;
+  media_type?: string;
+  /** … or a public URL post-commit. */
+  url?: string;
+}
+
+export interface EmbedPhotosResponse {
+  pairs: Array<{ a: string; b: string }>;
+}
+
+export function useEmbedPhotos() {
+  // Errors are handled at the call site — the board keeps its time-gap
+  // clustering and tells the user the visual pass was skipped.
+  return useMutation<EmbedPhotosResponse, ApiError, { photos: ReconcileVisionPhoto[] }>({
+    mutationFn: (input) => postJson<EmbedPhotosResponse>("/api/flipdesk/ai/embed-photos", input),
+  });
+}
+
+export interface ClassifyPhotosResponse {
+  classifications: Array<{ id: string; type: string; confidence: number }>;
+}
+
+export function useClassifyPhotos() {
+  // Best-effort: classification failures fall back to 'detail' and never block.
+  return useMutation<
+    ClassifyPhotosResponse,
+    ApiError,
+    { item_id: string } | { photos: ReconcileVisionPhoto[] }
+  >({
+    mutationFn: (input) =>
+      postJson<ClassifyPhotosResponse>("/api/flipdesk/ai/classify-photos", input),
+  });
+}
+
+export interface MatchHintsResponse {
+  brand: string | null;
+  keywords: string[];
+  confidence: number;
+}
+
+export function useSuggestItemMatch() {
+  // Errors handled at the call site (the manual picker still works).
+  return useMutation<MatchHintsResponse, ApiError, { photos: ReconcileVisionPhoto[] }>({
+    mutationFn: (input) =>
+      postJson<MatchHintsResponse>("/api/flipdesk/ai/suggest-item-match", input),
+  });
+}

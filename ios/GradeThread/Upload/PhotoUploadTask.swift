@@ -17,6 +17,14 @@ public struct PhotoUploadTask: Identifiable, Equatable {
     public let bytes: Int64
     public let createdAt: Date
 
+    /// Original capture time (PHAsset.creationDate for library picks),
+    /// stamped onto `item_photos.captured_at`. nil when unknown.
+    public let capturedAt: Date?
+
+    /// Set when this photo was ingested through a Photo Dump Reconciliation
+    /// session (US-289). nil for the normal per-item intake flow.
+    public let reconcileSessionId: String?
+
     public var phase: Phase
     public var retryCount: Int
 
@@ -43,6 +51,8 @@ public struct PhotoUploadTask: Identifiable, Equatable {
         localFileURL: URL,
         bytes: Int64,
         createdAt: Date = .now,
+        capturedAt: Date? = nil,
+        reconcileSessionId: String? = nil,
         phase: Phase = .queued,
         retryCount: Int = 0,
         sessionTaskId: Int? = nil
@@ -55,6 +65,8 @@ public struct PhotoUploadTask: Identifiable, Equatable {
         self.localFileURL = localFileURL
         self.bytes = bytes
         self.createdAt = createdAt
+        self.capturedAt = capturedAt
+        self.reconcileSessionId = reconcileSessionId
         self.phase = phase
         self.retryCount = retryCount
         self.sessionTaskId = sessionTaskId

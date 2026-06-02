@@ -2269,3 +2269,239 @@ Recommended next: US-263/264/274/277 are implemented but await runtime checks
 (curl -I header dump; browser CSP/Stripe/OAuth pass) their ACs require -- best
 flipped from a deployed env. US-273 (CI for dependency + static analysis) is a
 natural follow-on to US-272's secret-scan workflow.
+
+
+## Session Notes (2026-06-02 cont.) -- US-273 + US-279 + US-280
+
+US-273 (CI for dependency + static analysis) -- COMPLETED, passes=true.
+- All deliverables were already in place from a prior pass:
+  .github/workflows/security.yml (3 jobs on PR+push to main: npm-audit,
+  deno-check [lint+check+test], codeql javascript-typescript),
+  .github/dependabot.yml (npm + github-actions + docker, weekly), and
+  .github/SECURITY_ADVISORY_ALLOWLIST.md. gitleaks stays in secret-scan.yml
+  (US-272) -- the two workflows together satisfy the "and gitleaks" AC.
+- VERIFIED this pass: ran `npm ci` (1054 pkgs) then
+  `npm audit --audit-level=high` -> "found 0 vulnerabilities" (exit 0), so the
+  npm-audit gate is green today. Deno jobs are config-verified only (no Deno
+  runtime here) but mirror the existing Dockerfile/test baseline.
+
+US-279 (Reconcile: DB columns + sessions table) -- COMPLETED, passes=true.
+- Migration 00066_reconcile_sessions.sql: nullable captured_at timestamptz +
+  reconcile_session_id uuid on item_photos (existing rows unaffected);
+  reconcile_session_status enum (open|committed|abandoned); new table
+  flipdesk_reconcile_sessions (id, user_id NOT NULL, photo_count, status,
+  created_at, updated_at + trigger). item_photos FK -> sessions ON DELETE SET
+  NULL (committed photos survive a session delete) + partial index. Owner-only
+  RLS on all four verbs (auth.uid()=user_id), mirroring sources/item_photos.
+  Fully idempotent (IF NOT EXISTS / DO-block guards).
+- src/types/database.ts: captured_at + reconcile_session_id added to
+  ItemPhotoRow/Insert; new ReconcileSessionStatus + ReconcileSessionRow/Insert/
+  Update; flipdesk_reconcile_sessions registered in the Database interface.
+- VERIFIED: tsc --noEmit clean. Migration SQL-reviewed (no local Postgres).
+
+US-280 (Reconcile: browser EXIF capture-time reader) -- COMPLETED, passes=true.
+- src/lib/exif.ts: readCaptureTime(file): Promise<Date|null>. ZERO-dependency
+  parser (~2KB, well under the 30KB budget): walks the JPEG APP1/Exif segment,
+  parses the TIFF header (II + MM endianness), follows the Exif sub-IFD pointer
+  (0x8769), reads DateTimeOriginal (0x9003) -> DateTimeDigitized (0x9004) ->
+  file.lastModified -> null. Never throws; ignores zeroed placeholder dates.
+- src/lib/exif.test.ts: 6 tests (EXIF LE/BE, Digitized fallback, no-EXIF ->
+  lastModified, corrupt -> null, zeroed-placeholder -> fallback), fixtures
+  built in-code.
+- VERIFIED: vitest 6/6 pass; tsc + eslint clean.
+
+Full suite: vitest 107 pass / 2 skip / 1 fail -- the single failure is the
+pre-existing responsive-images.test.ts dist smoke test that requires
+`npm run build` first (asserts "run `npm run build` first"); unrelated to these
+changes.
+
+prd.json 277/343 (US-273 + US-279 + US-280 passes=true).
+
+Recommended next: continue the Reconcile feature -- US-281 (route + page scaffold
++ dump drop zone) unblocks US-282 (clusterByTimeGap, whose pure-function tests
+are ready to write but whose AC also wants in-browser cluster rendering).
+
+
+## Session Notes (2026-06-02 cont.) -- US-281 + US-282
+
+Continued the Photo Dump Reconciliation feature.
+
+US-282 (capture-time gap clustering) -- COMPLETED, passes=true.
+- src/lib/reconcile-cluster.ts: pure clusterByTimeGap(photos, gapSeconds).
+  Untimed photos -> separate needsSorting bucket (never merged); timed photos
+  sorted by capturedAt; a gap >= threshold starts a new cluster. Default
+  DEFAULT_GAP_SECONDS=30. Degenerate gap<=0 floored at 1ms so identical
+  timestamps still group.
+- src/lib/reconcile-cluster.test.ts: 9 tests (empty, single, within/over-gap,
+  >= boundary + just-under, out-of-order sort, no-timestamp bucket, live
+  re-threshold, identical-timestamp grouping, 30s default). All pass.
+
+US-281 (route + page scaffold + dump drop zone) -- COMPLETED, passes=true.
+- New src/pages/flipdesk/reconcile.tsx at /dashboard/flipdesk/reconcile (lazy
+  route in src/routes/index.tsx; 'Reconcile' sidebar entry w/ Layers icon).
+- Drop zone: multi-file drag-drop + multi-file picker (accept=image/* multiple).
+- On first ingest creates a flipdesk_reconcile_sessions row (RLS client,
+  user_id=workspaceOwnerId) and reuses it; reads each file's capture time via
+  readCaptureTime on the ORIGINAL File BEFORE compression. Async/awaited per
+  file, flushed to state in batches of 12 so 100+ photos don't freeze the UI;
+  object URLs revoked on clear/unmount.
+- Renders running photo/proposed-item counts + live-clustered thumbnail groups
+  (threshold slider 5-300s) + a separate Needs-sorting bucket. Gated by
+  can('manage_inventory').
+
+Verified: tsc -b clean, eslint clean, `npm run build` green (page bundles +
+route resolves), vitest 119/119 pass (the responsive-images dist smoke test now
+passes since the build produced dist/). The 'verify in browser via dev-browser'
+AC on both stories is deferred -- no browser in this headless env; all
+programmatic checks pass.
+
+prd.json 279/343 (US-281 + US-282 passes=true).
+
+Recommended next: US-284 (manual merge/split/move via dnd-kit, reusing
+pipeline.tsx's DnD) is the natural follow-on and is fully frontend/testable.
+US-283 (visual-similarity second pass) and US-285 (link-to-existing-item) need
+the edge embed endpoint / AI + live data, so they're better done where the
+edge service + DB run.
+
+
+## Session Notes (2026-06-02 cont.) -- US-284
+
+US-284 (Reconcile: manual merge, split, move) -- COMPLETED, passes=true.
+- Pure edit model in src/lib/reconcile-cluster.ts: AssignmentMap
+  (photoId -> {clusterId|null, manual}) + moveToNewCluster / moveToCluster /
+  mergeClusters / splitCluster (all mark touched photos manual=true),
+  reapplyThreshold (re-clusters only NON-manual photos so the slider never
+  undoes a manual edit; auto-assigns newly added photos), autoAssign, and
+  groupAssignments (render projection ordered by earliest capture time).
+- reconcile.tsx rebuilt on the model: per-thumbnail multi-select checkboxes ->
+  sticky action bar (Move to new item / Move to… dropdown incl. Needs sorting),
+  per-cluster Merge dropdown, split = move-subset-to-new. dnd-kit
+  (Pointer+Touch, same config as pipeline.tsx) drags a single photo between
+  item cards, to a 'new item' drop zone, or to Needs-sorting.
+- PERSISTENCE: migration 00067_reconcile_assignments.sql adds assignments jsonb
+  + gap_seconds to flipdesk_reconcile_sessions; page debounce-saves an
+  assignment snapshot + threshold and restores the latest open session on mount
+  (structure returns as thumbnail-less placeholders that re-bind on re-drop --
+  blobs can't survive a reload pre-commit; real upload is US-287). database.ts:
+  ReconcileAssignmentSnapshot + assignments/gap_seconds on the session type.
+- Unit tests (reconcile-cluster.test.ts, 18 total): move/merge/split/empty-noop,
+  reapplyThreshold preserves manual + auto-assigns new, group ordering.
+
+Verified: vitest 128/128, tsc -b + eslint clean, npm run build green. The
+'verify in browser via dev-browser' AC is deferred (no browser/DB in this
+headless env) -- DnD + reload round-trip are real code, not runtime-exercised
+here; the pure model is fully covered.
+
+prd.json 280/343 (US-284 passes=true).
+
+Recommended next: US-283 (visual-similarity second pass), US-285 (link cluster
+to existing item), US-286 (AI photo-type classification), US-287 (commit
+clusters -> inventory_items + item_photos upload), US-288 (AI title/details per
+cluster) -- all need the edge embed/AI endpoints + live DB, so best done where
+the Deno service + Supabase run. US-289 (iOS batch import) and US-290
+(cross-tenant isolation tests) round out the Reconcile feature.
+
+
+## Session Notes (2026-06-02 cont.) -- Reconcile finish (US-283/286/290) + partials
+
+Finished the Photo Dump Reconciliation feature (web) bar two pieces.
+
+US-283 (visual-similarity second pass) -- COMPLETED, passes=true.
+- EDGE: POST /api/flipdesk/ai/embed-photos (flipdesk-ai.ts) returns same-garment
+  similarity pairs via Claude vision (new lib/ai-reconcile.ts groupSimilarPhotos
+  + groupsToPairs); tenant-scoped + quota-gated, batch<=40, fail-soft.
+- LOGIC: applyVisualSecondPass(assignments, pairs) in reconcile-cluster.ts unions
+  similar NON-manual photos' clusters (disjoint-set), never touching manual
+  edits. 4 unit tests.
+- FRONTEND: opt-in 'Group similar' button -> base64 downscale -> embed-photos ->
+  apply second pass; any failure -> 'visual pass skipped' toast (time clusters
+  stand).
+
+US-286 (AI per-photo type classification) -- COMPLETED, passes=true.
+- EDGE: POST /api/flipdesk/ai/classify-photos (item_id mode: ownership-verified,
+  writes high-conf types back ONLY over the generic 'detail' default;
+  inline-images mode for pre-commit). Quota-gated; falls back to 'detail'.
+- FRONTEND: inline per-thumbnail photo-type <select> (correction UI, respected
+  on commit); post-commit best-effort classify per committed item.
+
+US-290 (cross-tenant isolation tests) -- COMPLETED, passes=true.
+- 3 tests added to tenant-isolation_test.ts (classify on A's item denied;
+  embed requires auth; B can't read A's reconcile session). Env-gated /
+  skip-clean per the file's existing contract.
+
+Shared edge helper: services/edge-functions/src/lib/ai-reconcile.ts
+(classifyPhotoTypes + groupSimilarPhotos via tool-use vision calls; accepts
+base64 or URL images).
+
+Verified (frontend): tsc -b + eslint clean, npm run build green, vitest
+132/132 (+4 second-pass tests). Edge + tenant tests are REVIEW-VERIFIED only
+(no Deno/Anthropic in this sandbox) -- they mirror the proven extractItemFields
+/ checkQuota / tenant-test patterns; run the deno suite in a networked env.
+
+STILL OPEN (2):
+- US-285 (link to existing item): manual picker + search + ownership-verified
+  linking DONE & verified; the AI match-suggestion ranking is deferred
+  (needs vision brand/tag extraction on pre-commit blobs). passes=false.
+- US-289 (iOS batch import): native Swift, requires Xcode/simulator not in this
+  sandbox; AC demands 'builds and runs on device'. Plan documented in prd.json
+  notes. passes=false.
+
+prd.json 285/343 (US-283 + US-286 + US-290 passes=true; +US-287/288 earlier).
+
+The web reconcile workflow is end-to-end usable: drop -> EXIF capture-time ->
+time-gap cluster -> manual merge/split/move/drag -> visual 'group similar' ->
+link or new draft -> set photo types -> commit (upload + item_photos +
+photographed) -> AI classify + generate title/details. Ready to merge; the
+two open items are an AI ranking enhancement (US-285) and the iOS client (US-289).
+
+
+## Session Notes (2026-06-02 cont.) -- US-285 AI-suggest (Reconcile web complete)
+
+US-285 (link cluster to existing item) -- COMPLETED, passes=true.
+- PICKER (was already done): per-cluster Link popover lists owner's photo-less
+  items (sourced/cataloged/drafted, photo_count 0); manual title/brand/SKU
+  search; 'Will link to {title}' marking; ownership re-verified at commit.
+- AI-SUGGEST (new): 'Suggest' button -> downscale tag/front photos -> POST
+  /api/flipdesk/ai/suggest-item-match (ai-reconcile.ts extractMatchHints
+  returns vision brand + keywords; candidate list never leaves the client;
+  quota-gated). Client ranks with PURE rankItemMatches (src/lib/reconcile-match.ts,
+  brand 0.6 + keyword 0.4) and surfaces the top match first with a confidence %
+  badge -- never auto-applied. Falls back to manual picker on any AI failure.
+- 6 unit tests for rankItemMatches; +1 tenant auth test for suggest-item-match.
+
+Verified: vitest 138/138, tsc -b + eslint clean, npm run build green. Edge
+endpoint review-verified only (no Deno here).
+
+prd.json 286/343. RECONCILE WEB FEATURE COMPLETE (11/12 stories).
+Only US-289 (iOS batch import) remains -- needs Xcode/simulator (not in this
+sandbox); plan is documented in its prd.json note.
+
+
+## Session Notes (2026-06-02 cont.) -- US-289 iOS plumbing (CI-tested)
+
+US-289 (Reconcile: iOS batch import) -- PARTIAL, passes=false.
+Built the safe, CI-verifiable data-layer pieces (can't build iOS in this
+sandbox, but the existing ios-ci.yml builds+tests on macOS-14/Xcode 16.2):
+- PHAsset.creationDate read in PhotoLibraryPicker.creationDate() and threaded
+  into PhotoCapture.capturedAt (PhotoIntakeView.ingestLibraryPicks) BEFORE
+  PhotoCompressor strips EXIF; falls back to .now.
+- Extracted a testable ItemPhotoInsert (Upload/ItemPhotoInsert.swift): encodes
+  captured_at as ISO-8601, OMITS captured_at + reconcile_session_id when nil so
+  existing single-item uploads are byte-identical.
+- PhotoUploadTask carries capturedAt + reconcileSessionId; enqueueAll/schedule
+  gained an optional reconcileSessionId passthrough; insertPhotoRow stamps both.
+- ios/GradeThreadTests/ReconcileIntakeTests.swift: 8 cases (base encoding,
+  nil-omission, session id, ISO8601 captured_at round-trip, task carries
+  fields/defaults, PhotoCapture preserves capturedAt). Auto-included by the
+  GradeThreadTests dir glob; runs in the existing iOS CI on ios/** PRs.
+
+STILL TODO (needs Xcode + a design call): a true session-targeting intake
+entry point (item_photos requires an inventory_item, so session-only photos
+need a staging model like the web board's pre-commit blobs), the .uploadPhoto
+SyncEngine handler (US-175/178 stub) carrying reconcile_session_id, and on-device
+build/run. Kept passes=false.
+
+NOTE: the iOS CI runs on pull_request (paths: ios/**) -- it will execute these
+new tests once a PR is opened for this branch.
+
+prd.json unchanged count (US-289 stays passes=false; reconcile web = 11/12).

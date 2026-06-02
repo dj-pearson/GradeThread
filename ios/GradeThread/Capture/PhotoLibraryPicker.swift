@@ -1,3 +1,4 @@
+import Photos
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -63,5 +64,17 @@ extension PHPickerResult {
                 cont.resume(returning: object as? UIImage)
             }
         }
+    }
+
+    /// The picked asset's ORIGINAL capture time (US-289). PHPicker supplies an
+    /// `assetIdentifier` when configured with `.shared()`; we look the asset up
+    /// to read `creationDate` — the real time the photo was taken — BEFORE
+    /// PhotoCompressor strips EXIF. Best-effort: returns nil if there's no
+    /// identifier or the library isn't readable, and the caller falls back to
+    /// `.now`.
+    func creationDate() -> Date? {
+        guard let id = assetIdentifier else { return nil }
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
+        return assets.firstObject?.creationDate
     }
 }
