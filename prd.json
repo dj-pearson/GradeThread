@@ -5535,8 +5535,8 @@
         "Hashing/signing is unit-tested and stable across serialization"
       ],
       "priority": 333,
-      "passes": false,
-      "notes": "BUILD-NEW. Builds on existing certificate_id + QR (certificate.tsx). Adds integrity column on grade_reports + a public verify endpoint. Strengthens the authority/anti-fraud story."
+      "passes": true,
+      "notes": "BUILD-NEW. Builds on existing certificate_id + QR (certificate.tsx). Adds integrity column on grade_reports + a public verify endpoint. Strengthens the authority/anti-fraud story. DONE (2026-06-02): migration 00068 adds content_hash/content_signature/integrity_version to grade_reports. New lib/cert-integrity.ts: deterministic canonicalizeCertificate (sorted keys, fixed-1-decimal scores so it's stable across PostgREST string-vs-number numeric serialization, NFC-normalized summary), SHA-256 content hash, optional HMAC-SHA256 signature (CERT_SIGNING_KEY, fail-soft to hash-only), and verifyCertIntegrity (verified/mismatch/unverifiable). Wired into grading-pipeline.ts at finalization. Public no-auth GET /api/content/public/certificates/:id/verify recomputes from stored fields (RLS-safe: by certificate_id, certified-only) and returns the verdict + non-secret recomputed hash. certificate.tsx auto-runs the check (QR is the verify entry point) and renders a verified / tampered / unverifiable / retry panel. database.ts types updated; CERT_SIGNING_KEY documented in .env.example. 8 unit tests in cert-integrity_test.ts (determinism, serialization-stability, key-order independence, tamper + signed-tamper-with-recomputed-hash detection, legacy unverifiable). Edge suite 68 passed/0 failed; frontend tsc -b + eslint + npm run build all green."
     },
     {
       "id": "US-334",

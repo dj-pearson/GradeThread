@@ -10,6 +10,7 @@ import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { detectPhotoReuse } from "./photo-reuse.ts";
+import { buildCertIntegrity } from "./cert-integrity.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -211,6 +212,25 @@ export async function processSubmission(submissionId: string) {
         `${reuse.summary} (${reuse.matches.length} image(s), closest ${closest} bits).`;
     }
 
+    // US-333: tamper-evident integrity. Hash the canonical (already-public)
+    // grade fields and sign the hash if CERT_SIGNING_KEY is set. The public
+    // /cert/:id/verify endpoint re-derives this from the stored row to confirm
+    // the certificate hasn't been altered (or a screenshot forged).
+    const integrity = await buildCertIntegrity({
+      certificate_id: certificateId,
+      overall_score: compositeResult.overall_score,
+      grade_tier: compositeResult.grade_tier,
+      fabric_condition_score: compositeResult.factor_scores.fabric_condition,
+      structural_integrity_score:
+        compositeResult.factor_scores.structural_integrity,
+      cosmetic_appearance_score:
+        compositeResult.factor_scores.cosmetic_appearance,
+      functional_elements_score:
+        compositeResult.factor_scores.functional_elements,
+      odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
+      ai_summary: compositeResult.ai_summary,
+    });
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -244,6 +264,10 @@ export async function processSubmission(submissionId: string) {
         model_version: `${compositeResult.model}|${compositeResult.prompt_version}`,
         prompt_version: compositeResult.prompt_version,
         certificate_id: certificateId,
+        // US-333: tamper-evident integrity columns (migration 00068).
+        content_hash: integrity.content_hash,
+        content_signature: integrity.content_signature,
+        integrity_version: integrity.integrity_version,
       })
       .select()
       .single();

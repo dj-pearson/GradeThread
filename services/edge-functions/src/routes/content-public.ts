@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
+import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
 
 // Anonymous read endpoints powering the public blog SSR worker. No
 // auth middleware: every query is constrained server-side to
@@ -361,6 +362,77 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       garment_category: submission?.garment_category ?? null,
       hero_image_url: heroImageUrl,
     },
+  });
+});
+
+// ── GET /certificates/:id/verify ──────────────────────────────────
+// Public, no-auth integrity check (US-333). Re-derives the canonical content
+// hash from the stored grade fields and confirms it matches what was sealed at
+// finalization (and, when signed, that the HMAC validates). Detects a tampered
+// DB row or a forged certificate screenshot — the QR points here, so a buyer
+// can confirm authenticity without an account. Exposes only public fields:
+// the verification verdict, algorithm, and the (non-secret) recomputed hash.
+contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
+  const certId = c.req.param("id");
+
+  // Same RLS-safe access as the cert endpoint: BY certificate_id, and only
+  // certified (public) reports. A private report must stay unreachable (US-268).
+  const { data: report, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select(
+      "certificate_id, overall_score, grade_tier, fabric_condition_score, " +
+        "structural_integrity_score, cosmetic_appearance_score, " +
+        "functional_elements_score, odor_cleanliness_score, ai_summary, " +
+        "content_hash, content_signature, integrity_version, created_at",
+    )
+    .eq("certificate_id", certId)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+  if (error) return c.json({ error: error.message }, 500);
+  if (!report) return c.json({ error: "Not found" }, 404);
+
+  const r = report as unknown as {
+    certificate_id: string;
+    overall_score: number | string;
+    grade_tier: string;
+    fabric_condition_score: number | string;
+    structural_integrity_score: number | string;
+    cosmetic_appearance_score: number | string;
+    functional_elements_score: number | string;
+    odor_cleanliness_score: number | string;
+    ai_summary: string | null;
+    content_hash: string | null;
+    content_signature: string | null;
+    integrity_version: number | null;
+    created_at: string;
+  };
+
+  const result = await verifyCertIntegrity(
+    {
+      certificate_id: r.certificate_id,
+      overall_score: r.overall_score,
+      grade_tier: r.grade_tier,
+      fabric_condition_score: r.fabric_condition_score,
+      structural_integrity_score: r.structural_integrity_score,
+      cosmetic_appearance_score: r.cosmetic_appearance_score,
+      functional_elements_score: r.functional_elements_score,
+      odor_cleanliness_score: r.odor_cleanliness_score,
+      ai_summary: r.ai_summary ?? "",
+    },
+    r.content_hash,
+    r.content_signature,
+    r.integrity_version,
+  );
+
+  return c.json({
+    certificate_id: r.certificate_id,
+    status: result.status,
+    verified: result.verified,
+    signed: result.signed,
+    algorithm: result.algorithm,
+    integrity_version: result.integrity_version,
+    content_hash: result.content_hash,
+    issued_at: r.created_at,
   });
 });
 

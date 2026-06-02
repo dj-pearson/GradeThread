@@ -369,6 +369,11 @@ export interface GradeReportRow {
   // First-class prompt version that produced this grade (e.g. "composite_v2").
   prompt_version: string | null;
   certificate_id: string | null;
+  // US-333 tamper-evident integrity (migration 00068). Null for grades
+  // finalized before the integrity scheme — they verify as "unverifiable".
+  content_hash: string | null;
+  content_signature: string | null;
+  integrity_version: number | null;
   created_at: string;
 }
 
@@ -1139,6 +1144,9 @@ export interface GradeReportInsert {
   model_version: string;
   prompt_version?: string | null;
   certificate_id?: string | null;
+  content_hash?: string | null;
+  content_signature?: string | null;
+  integrity_version?: number | null;
 }
 
 export interface DisputeInsert {
