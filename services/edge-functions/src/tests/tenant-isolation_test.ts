@@ -320,3 +320,69 @@ Deno.test({
     );
   },
 });
+
+// ── Photo Dump Reconciliation (US-290) ──────────────────────────────────
+//
+// New surfaces: /api/flipdesk/ai/classify-photos (item-scoped), the reconcile
+// commit path (linking a cluster to an existing item), and
+// flipdesk_reconcile_sessions visibility. Additional env:
+//   TEST_USER_A_ITEM_ID            an inventory_items.id owned by A (reused)
+//   TEST_USER_A_RECONCILE_SESSION  a flipdesk_reconcile_sessions.id owned by A
+
+// B must not be able to AI-classify (and thereby read/mutate) A's item photos.
+Deno.test({
+  name: "B cannot classify photos on A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ai/classify-photos`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_id: itemId }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST classify-photos (A's item)");
+  },
+});
+
+// The embed endpoint operates on caller-supplied images (no cross-tenant
+// resource), but must still require auth — an unauthenticated call is rejected.
+Deno.test({
+  name: "embed-photos requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ai/embed-photos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photos: [{ id: "x", url: "https://example.com/a.jpg" }] }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated embed-photos should 401, got ${status}`);
+  },
+});
+
+// A reconcile session owned by A must not be visible to B through PostgREST
+// (RLS on flipdesk_reconcile_sessions). This hits Supabase directly with B's
+// JWT, mirroring how the reconcile board reads its own session.
+Deno.test({
+  name: "B cannot read A's reconcile session row",
+  ignore:
+    !CONFIGURED ||
+    !Deno.env.get("TEST_USER_A_RECONCILE_SESSION") ||
+    !Deno.env.get("SUPABASE_URL"),
+  fn: async () => {
+    const sessionId = Deno.env.get("TEST_USER_A_RECONCILE_SESSION")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/flipdesk_reconcile_sessions?id=eq.${sessionId}&select=id`,
+      { headers: { Authorization: `Bearer ${B_JWT!}`, apikey: anon } },
+    );
+    const rows = (await res.json().catch(() => [])) as unknown[];
+    assert(
+      Array.isArray(rows) && rows.length === 0,
+      `B should see 0 of A's reconcile sessions, got ${JSON.stringify(rows)}`,
+    );
+  },
+});

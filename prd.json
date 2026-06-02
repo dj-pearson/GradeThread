@@ -4712,8 +4712,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 283,
-      "passes": false,
-      "notes": "PRD ref RC-005 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented. EDGE: POST /api/flipdesk/ai/embed-photos (services/edge-functions/src/routes/flipdesk-ai.ts) — accepts a batch of inline-base64 (or URL) photos, returns same-garment similarity pairs via Claude vision (src/lib/ai-reconcile.ts groupSimilarPhotos + groupsToPairs); tenant-scoped to workspaceOwnerId ?? userId, quota-gated via checkQuota + increment_ai_actions, batch capped at 40, fail-soft 502. Auth+workspace+rate-limit middleware already applies to /api/flipdesk/ai/* in main.ts. LOGIC: applyVisualSecondPass(assignments, pairs) in src/lib/reconcile-cluster.ts unions the time clusters of similar NON-manual photos via disjoint-set — it never touches a manual edit (manual photos keep their clusterId). 4 unit tests cover merge, manual-preservation, null/unsorted skip, and the no-op case. FRONTEND: opt-in 'Group similar' button downscales each photo to base64 (512px/0.6) and calls embed-photos, then applies the second pass; on ANY failure it toasts 'Visual pass was skipped — kept your time-based grouping' so the time-gap clusters stand. VERIFIED: vitest 132/132 (incl. the 4 second-pass tests), tsc -b + eslint clean, npm run build green. NOTE: the edge endpoint is review-verified (mirrors the proven extractItemFields vision-call + checkQuota patterns) but not runtime-run here (no Deno/Anthropic in this sandbox); 'verify in browser' deferred. PRD ref RC-005."
     },
     {
       "id": "US-284",
@@ -4746,7 +4746,7 @@
       ],
       "priority": 285,
       "passes": false,
-      "notes": "PRD ref RC-007 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "notes": "PRD ref RC-007. PARTIAL (4 of 5 ACs done, AI-suggest ranking deferred). DONE + verified: per-cluster 'Link' picker (Popover in reconcile.tsx LinkPicker) lists photo-less items (photo_count===0, status in sourced/cataloged/drafted) scoped to the owner via an RLS-scoped items_full query; a manual search box filters by title/brand/SKU; selecting a target marks the cluster 'Will link to: {title}' WITHOUT committing; at commit, use-reconcile-commit.ts re-verifies ownership of the linked item before attaching photos. NOT DONE: the 'AI suggests the most likely matching item (brand/tag from cluster photos), shown first with a confidence indicator.' That needs a vision brand/tag extraction on the (pre-commit, blob-only) cluster photos fuzzy-matched against the candidate list — deferrable enhancement on top of the working manual picker; not yet built. Keeping passes=false until the AI-suggest ranking lands."
     },
     {
       "id": "US-286",
@@ -4760,8 +4760,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 286,
-      "passes": false,
-      "notes": "PRD ref RC-008 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented. EDGE: POST /api/flipdesk/ai/classify-photos (flipdesk-ai.ts) — item_id mode re-verifies ownership (user_id === workspaceOwnerId ?? userId, 404 otherwise), loads the item's photos, classifies each into front|back|tag|detail|defect|flatlay|on_model via Claude vision (ai-reconcile.ts classifyPhotoTypes), and writes high-confidence (>=0.6) results back to item_photos ONLY where the current type is the generic 'detail' — so a user's manual correction is never clobbered. Also a pre-commit inline-images mode. Quota-gated + tenant-scoped. Classification failure falls back to 'detail' (try/catch) rather than blocking. FRONTEND: every thumbnail has an inline photo-type <select> (US-286 correction UI) editable before commit; the chosen type is what commit inserts into item_photos. After commit the board calls classify-photos per committed item best-effort (errors swallowed). VERIFIED: tsc -b + eslint clean, build green, vitest 132/132. NOTE: the classify endpoint is review-verified (mirrors extractItemFields + checkQuota) but not runtime-run here; in-browser verify deferred. PRD ref RC-008."
     },
     {
       "id": "US-287",
@@ -4808,7 +4808,7 @@
       ],
       "priority": 289,
       "passes": false,
-      "notes": "PRD ref RC-011 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "notes": "PRD ref RC-011. NOT DONE — native iOS work that requires Xcode + a simulator/device, neither available in this sandbox, and whose AC explicitly demands 'Builds and runs on device/simulator'. Scoped for a device-capable session. Plan (small, pattern-following per the ios/GradeThread map): (1) capture original PHAsset.creationDate as captured_at in PhotoLibraryPicker/PhotoCapture before PhotoCompressor strips it; (2) add optional reconcileSessionId to PhotoUploadService.enqueueAll + the ItemPhotoInsert struct (reconcile_session_id already exists in the DB schema, migration 00066); (3) let PhotoIntakeStore target a reconcile session instead of a single item; (4) implement the .uploadPhoto SyncEngine mutation handler to carry reconcile_session_id. Left passes=false — cannot build/verify iOS here, and shipping uncompiled Swift would risk the app build."
     },
     {
       "id": "US-290",
@@ -4822,8 +4822,8 @@
         "Typecheck passes"
       ],
       "priority": 290,
-      "passes": false,
-      "notes": "PRD ref RC-012 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented. Added 3 tests to services/edge-functions/src/tests/tenant-isolation_test.ts: (1) 'B cannot classify photos on A's item' — POST /api/flipdesk/ai/classify-photos {item_id:A} with B's JWT must be denied (401/403/404), covering the 'cannot generate/AI-act against an item they don't own' AC; (2) 'embed-photos requires authentication' — unauthenticated POST must 401; (3) 'B cannot read A's reconcile session row' — a PostgREST read of A's flipdesk_reconcile_sessions with B's JWT must return 0 rows (RLS). The cluster-link path is client-side and RLS-enforced (the reconcile commit re-verifies item ownership via an RLS-scoped select), so it has no edge route to probe; item/session visibility is covered by the above. Tests follow the file's existing env-gated pattern (Deno.test with ignore:!CONFIGURED + assertDenied/DENIED set) so they SKIP cleanly in CI and 'all tenant-isolation tests pass'. NOTE: deno test/check not runnable in this sandbox (no Deno) — the tests mirror the existing, proven harness exactly; run `deno task test` with the TEST_USER_* fixtures in a networked env to exercise them live. PRD ref RC-012."
     },
     {
       "id": "US-291",

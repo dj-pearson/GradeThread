@@ -2400,3 +2400,56 @@ clusters -> inventory_items + item_photos upload), US-288 (AI title/details per
 cluster) -- all need the edge embed/AI endpoints + live DB, so best done where
 the Deno service + Supabase run. US-289 (iOS batch import) and US-290
 (cross-tenant isolation tests) round out the Reconcile feature.
+
+
+## Session Notes (2026-06-02 cont.) -- Reconcile finish (US-283/286/290) + partials
+
+Finished the Photo Dump Reconciliation feature (web) bar two pieces.
+
+US-283 (visual-similarity second pass) -- COMPLETED, passes=true.
+- EDGE: POST /api/flipdesk/ai/embed-photos (flipdesk-ai.ts) returns same-garment
+  similarity pairs via Claude vision (new lib/ai-reconcile.ts groupSimilarPhotos
+  + groupsToPairs); tenant-scoped + quota-gated, batch<=40, fail-soft.
+- LOGIC: applyVisualSecondPass(assignments, pairs) in reconcile-cluster.ts unions
+  similar NON-manual photos' clusters (disjoint-set), never touching manual
+  edits. 4 unit tests.
+- FRONTEND: opt-in 'Group similar' button -> base64 downscale -> embed-photos ->
+  apply second pass; any failure -> 'visual pass skipped' toast (time clusters
+  stand).
+
+US-286 (AI per-photo type classification) -- COMPLETED, passes=true.
+- EDGE: POST /api/flipdesk/ai/classify-photos (item_id mode: ownership-verified,
+  writes high-conf types back ONLY over the generic 'detail' default;
+  inline-images mode for pre-commit). Quota-gated; falls back to 'detail'.
+- FRONTEND: inline per-thumbnail photo-type <select> (correction UI, respected
+  on commit); post-commit best-effort classify per committed item.
+
+US-290 (cross-tenant isolation tests) -- COMPLETED, passes=true.
+- 3 tests added to tenant-isolation_test.ts (classify on A's item denied;
+  embed requires auth; B can't read A's reconcile session). Env-gated /
+  skip-clean per the file's existing contract.
+
+Shared edge helper: services/edge-functions/src/lib/ai-reconcile.ts
+(classifyPhotoTypes + groupSimilarPhotos via tool-use vision calls; accepts
+base64 or URL images).
+
+Verified (frontend): tsc -b + eslint clean, npm run build green, vitest
+132/132 (+4 second-pass tests). Edge + tenant tests are REVIEW-VERIFIED only
+(no Deno/Anthropic in this sandbox) -- they mirror the proven extractItemFields
+/ checkQuota / tenant-test patterns; run the deno suite in a networked env.
+
+STILL OPEN (2):
+- US-285 (link to existing item): manual picker + search + ownership-verified
+  linking DONE & verified; the AI match-suggestion ranking is deferred
+  (needs vision brand/tag extraction on pre-commit blobs). passes=false.
+- US-289 (iOS batch import): native Swift, requires Xcode/simulator not in this
+  sandbox; AC demands 'builds and runs on device'. Plan documented in prd.json
+  notes. passes=false.
+
+prd.json 285/343 (US-283 + US-286 + US-290 passes=true; +US-287/288 earlier).
+
+The web reconcile workflow is end-to-end usable: drop -> EXIF capture-time ->
+time-gap cluster -> manual merge/split/move/drag -> visual 'group similar' ->
+link or new draft -> set photo types -> commit (upload + item_photos +
+photographed) -> AI classify + generate title/details. Ready to merge; the
+two open items are an AI ranking enhancement (US-285) and the iOS client (US-289).

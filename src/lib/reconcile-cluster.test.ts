@@ -183,3 +183,45 @@ describe("groupAssignments", () => {
     expect(needsSorting.map((p) => p.id)).toEqual(["x"]);
   });
 });
+
+import { applyVisualSecondPass, type SimilarPair } from "./reconcile-cluster";
+
+describe("applyVisualSecondPass", () => {
+  it("merges the clusters of two visually-similar non-manual photos", () => {
+    const map: AssignmentMap = {
+      a: { clusterId: "c1", manual: false },
+      b: { clusterId: "c1", manual: false },
+      c: { clusterId: "c2", manual: false },
+    };
+    const pairs: SimilarPair[] = [{ a: "a", b: "c" }];
+    const next = applyVisualSecondPass(map, pairs);
+    // a and c were in different clusters; now all three share one root.
+    expect(next["a"]!.clusterId).toBe(next["c"]!.clusterId);
+    expect(next["b"]!.clusterId).toBe(next["a"]!.clusterId);
+  });
+
+  it("never overrides a manual edit", () => {
+    const map: AssignmentMap = {
+      a: { clusterId: "c1", manual: false },
+      c: { clusterId: "c2", manual: true }, // user placed c by hand
+    };
+    const next = applyVisualSecondPass(map, [{ a: "a", b: "c" }]);
+    expect(next["c"]!.clusterId).toBe("c2"); // untouched
+    expect(next["c"]!.manual).toBe(true);
+  });
+
+  it("ignores pairs involving unsorted (null) photos", () => {
+    const map: AssignmentMap = {
+      a: { clusterId: "c1", manual: false },
+      x: { clusterId: null, manual: false },
+    };
+    const next = applyVisualSecondPass(map, [{ a: "a", b: "x" }]);
+    expect(next["x"]!.clusterId).toBeNull();
+    expect(next["a"]!.clusterId).toBe("c1");
+  });
+
+  it("returns the same map when there are no actionable pairs", () => {
+    const map: AssignmentMap = { a: { clusterId: "c1", manual: false } };
+    expect(applyVisualSecondPass(map, [])).toBe(map);
+  });
+});

@@ -247,3 +247,76 @@ export function groupAssignments<T extends ClusterablePhoto>(
 
   return { clusters, needsSorting };
 }
+
+// ---------------------------------------------------------------------------
+// Visual-similarity second pass (US-283 / RC-005)
+//
+// Time-gap clustering misses photos of the same garment shot out of order. An
+// optional, opt-in pass asks the edge embed endpoint for pairwise visual
+// similarity, then MERGES the time clusters those photos sit in — but only for
+// photos the user hasn't manually placed, so it can never undo a manual edit.
+// ---------------------------------------------------------------------------
+
+/** A similar pair as returned (already thresholded) by the embed endpoint. */
+export interface SimilarPair {
+  a: string;
+  b: string;
+}
+
+/** Minimal disjoint-set for unioning cluster ids. */
+function findRoot(parent: Map<string, string>, x: string): string {
+  let root = x;
+  while (parent.get(root) !== undefined && parent.get(root) !== root) {
+    root = parent.get(root)!;
+  }
+  // Path-compress.
+  let cur = x;
+  while (parent.get(cur) !== undefined && parent.get(cur) !== cur) {
+    const next = parent.get(cur)!;
+    parent.set(cur, root);
+    cur = next;
+  }
+  return root;
+}
+
+/**
+ * Applies a visual-similarity second pass: for each similar pair where NEITHER
+ * photo was manually placed, the two photos' clusters are merged. Manual
+ * assignments are left exactly as-is. Returns a new AssignmentMap.
+ */
+export function applyVisualSecondPass(
+  prev: AssignmentMap,
+  pairs: SimilarPair[],
+): AssignmentMap {
+  // Union the clusters of non-manual, currently-clustered photos.
+  const parent = new Map<string, string>();
+  const union = (x: string, y: string) => {
+    const rx = findRoot(parent, x);
+    const ry = findRoot(parent, y);
+    if (rx !== ry) parent.set(ry, rx);
+  };
+
+  for (const { a, b } of pairs) {
+    const aa = prev[a];
+    const bb = prev[b];
+    if (!aa || !bb) continue;
+    if (aa.manual || bb.manual) continue; // never override a manual edit
+    if (aa.clusterId === null || bb.clusterId === null) continue; // skip unsorted
+    if (aa.clusterId === bb.clusterId) continue;
+    if (!parent.has(aa.clusterId)) parent.set(aa.clusterId, aa.clusterId);
+    if (!parent.has(bb.clusterId)) parent.set(bb.clusterId, bb.clusterId);
+    union(aa.clusterId, bb.clusterId);
+  }
+
+  if (parent.size === 0) return prev;
+
+  const next: AssignmentMap = {};
+  for (const [id, a] of Object.entries(prev)) {
+    if (!a.manual && a.clusterId !== null && parent.has(a.clusterId)) {
+      next[id] = { clusterId: findRoot(parent, a.clusterId), manual: false };
+    } else {
+      next[id] = a;
+    }
+  }
+  return next;
+}

@@ -26,6 +26,7 @@ import {
   XCircle,
   Sparkles,
   PackageCheck,
+  ScanSearch,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -65,6 +66,7 @@ import {
   moveToNewCluster,
   moveToCluster,
   mergeClusters,
+  applyVisualSecondPass,
   type AssignmentMap,
   type ClusterablePhoto,
 } from "@/lib/reconcile-cluster";
@@ -73,7 +75,13 @@ import {
   type CommitCluster,
   type CommitResult,
 } from "@/hooks/use-reconcile-commit";
-import { useBulkExtract, type BulkExtractResponse } from "@/hooks/use-ai-extract";
+import {
+  useBulkExtract,
+  useEmbedPhotos,
+  useClassifyPhotos,
+  type BulkExtractResponse,
+} from "@/hooks/use-ai-extract";
+import { compressImage } from "@/lib/image-utils";
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import type { FlipdeskPhotoType, ReconcileAssignmentSnapshot } from "@/types/database";
 import { cn } from "@/lib/utils";
@@ -124,6 +132,9 @@ export function FlipdeskReconcilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const bulkExtract = useBulkExtract();
+  const embedPhotos = useEmbedPhotos();
+  const classifyPhotos = useClassifyPhotos();
+  const [visualPending, setVisualPending] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -374,8 +385,57 @@ export function FlipdeskReconcilePage() {
       const failed = res.filter((r) => !r.ok).length;
       if (failed === 0) toast.success(`Committed ${res.length} item(s) to your pipeline.`);
       else toast.warning(`${res.length - failed} committed, ${failed} failed — see details.`);
+
+      // US-286: classify each committed item's photos (best-effort; failures
+      // leave photos as 'detail' and never block). User corrections made before
+      // commit are respected — the server only overwrites the generic default.
+      for (const it of okItems) {
+        try {
+          await classifyPhotos.mutateAsync({ item_id: it.itemId });
+        } catch {
+          /* fall back to existing photo types */
+        }
+      }
     } finally {
       setCommitting(false);
+    }
+  }
+
+  // US-283: opt-in visual second pass. Downscales each photo, asks the edge for
+  // same-garment pairs, then merges those time clusters — never touching manual
+  // edits. On any failure the time-gap grouping stands and the user is told.
+  async function runVisualPass() {
+    const withFiles = photos.filter((p) => p.file);
+    if (withFiles.length < 2) {
+      toast.info("Need at least 2 photos with image data for the visual pass.");
+      return;
+    }
+    if (withFiles.length > 40) {
+      toast.info("The visual pass handles up to 40 photos at a time.");
+      return;
+    }
+    setVisualPending(true);
+    try {
+      const visionPhotos = [];
+      for (const p of withFiles) {
+        const small = await compressImage(p.file!, 512, 0.6);
+        visionPhotos.push({
+          id: p.id,
+          data: await blobToBase64(small.blob),
+          media_type: small.blob.type || "image/jpeg",
+        });
+      }
+      const resp = await embedPhotos.mutateAsync({ photos: visionPhotos });
+      if (resp.pairs.length === 0) {
+        toast.info("Visual pass found no additional same-item photos.");
+        return;
+      }
+      setAssignments((prev) => applyVisualSecondPass(prev, resp.pairs));
+      toast.success(`Visual pass grouped ${resp.pairs.length} similar pair(s).`);
+    } catch {
+      toast.warning("Visual pass was skipped — kept your time-based grouping.");
+    } finally {
+      setVisualPending(false);
     }
   }
 
@@ -491,14 +551,30 @@ export function FlipdeskReconcilePage() {
                     className="h-2 w-44 cursor-pointer accent-primary"
                   />
                   {committable && (
-                    <Button size="sm" onClick={commit} disabled={committing}>
-                      {committing ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <PackageCheck className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      Commit {clusters.length} item{clusters.length === 1 ? "" : "s"}
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={runVisualPass}
+                        disabled={visualPending}
+                        title="Use AI to group same-item photos shot out of order"
+                      >
+                        {visualPending ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <ScanSearch className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        Group similar
+                      </Button>
+                      <Button size="sm" onClick={commit} disabled={committing}>
+                        {committing ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <PackageCheck className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        Commit {clusters.length} item{clusters.length === 1 ? "" : "s"}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -993,6 +1069,17 @@ function CommitResultsDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
 }
 
 function formatRange(cluster: DumpPhoto[]): string {

@@ -9,6 +9,12 @@ import {
   type ExtractPhoto,
 } from "../lib/ai-extract.ts";
 import { getCategoryAspects } from "../lib/ebay-client.ts";
+import {
+  classifyPhotoTypes,
+  groupSimilarPhotos,
+  groupsToPairs,
+  type VisionImage,
+} from "../lib/ai-reconcile.ts";
 
 const MAX_PHOTOS = 8;
 
@@ -809,4 +815,161 @@ flipdeskAiRoutes.patch("/log/:id", async (c) => {
     return c.json({ error: "Failed to record acceptance" }, 500);
   }
   return c.json({ ok: true });
+});
+
+// Shared body parser for the reconcile vision endpoints: accepts either a list
+// of inline images [{id, data(base64), media_type?}] or {url}.
+function parseVisionPhotos(body: unknown): { ids: string[]; images: VisionImage[] } {
+  const ids: string[] = [];
+  const images: VisionImage[] = [];
+  const arr = (body as { photos?: unknown })?.photos;
+  if (Array.isArray(arr)) {
+    for (const p of arr) {
+      if (!p || typeof p !== "object") continue;
+      const o = p as { id?: unknown; data?: unknown; media_type?: unknown; url?: unknown };
+      const id = typeof o.id === "string" ? o.id : crypto.randomUUID();
+      if (typeof o.data === "string" && o.data.length > 0) {
+        ids.push(id);
+        images.push({
+          data: o.data,
+          mediaType: typeof o.media_type === "string" ? o.media_type : "image/jpeg",
+        });
+      } else if (typeof o.url === "string" && o.url.length > 0) {
+        ids.push(id);
+        images.push({ url: o.url });
+      }
+    }
+  }
+  return { ids, images };
+}
+
+/**
+ * POST /embed-photos  (US-283)
+ * Body: { photos: [{ id, data(base64) | url, media_type? }] }
+ * Returns same-garment similarity pairs for an opt-in visual second pass.
+ * Tenant-scoped to the workspace owner and quota-gated like other AI actions.
+ */
+flipdeskAiRoutes.post("/embed-photos", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const { ids, images } = parseVisionPhotos(body);
+  if (images.length < 2) return c.json({ pairs: [] });
+  // Cap the batch — vision over a huge dump is costly; the board can chunk.
+  if (images.length > 40) {
+    return c.json({ error: "Too many photos in one batch (max 40)." }, 400);
+  }
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  try {
+    const groups = await groupSimilarPhotos(images);
+    const pairs = groupsToPairs(groups, ids);
+    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    return c.json({ pairs });
+  } catch (err) {
+    // Fail soft: the board keeps its time-gap clusters and tells the user.
+    return c.json(
+      { error: "Visual pass failed", detail: err instanceof Error ? err.message : String(err) },
+      502,
+    );
+  }
+});
+
+/**
+ * POST /classify-photos  (US-286)
+ * Body: { item_id }  OR  { photos: [{ id, data(base64) | url, media_type? }] }
+ * Classifies each photo into a reconcile photo type. When item_id is given the
+ * caller's ownership is re-verified and high-confidence types are written back
+ * to item_photos (only over the generic 'detail' default, so user corrections
+ * are respected). Classification failures fall back to 'detail'.
+ */
+flipdeskAiRoutes.post("/classify-photos", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { item_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // Mode A: classify a committed item's photos (verify ownership, write back).
+  if (typeof body.item_id === "string") {
+    const itemId = body.item_id;
+    const { data: item } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, user_id")
+      .eq("id", itemId)
+      .maybeSingle();
+    if (!item || (item as { user_id: string }).user_id !== userId) {
+      return c.json({ error: "Item not found" }, 404);
+    }
+    const { data: rows } = await supabaseAdmin
+      .from("item_photos")
+      .select("id, storage_path, photo_type")
+      .eq("inventory_item_id", itemId)
+      .order("sort_order", { ascending: true });
+    const photos = (rows ?? []) as { id: string; storage_path: string; photo_type: string }[];
+    if (photos.length === 0) return c.json({ classifications: [] });
+
+    const images: VisionImage[] = photos.map((p) => ({
+      url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path).data.publicUrl,
+    }));
+
+    let classifications: { id: string; type: string; confidence: number }[];
+    try {
+      const result = await classifyPhotoTypes(images);
+      const byIndex = new Map(result.map((r) => [r.index, r]));
+      classifications = photos.map((p, i) => {
+        const r = byIndex.get(i);
+        return { id: p.id, type: r?.type ?? "detail", confidence: r?.confidence ?? 0 };
+      });
+    } catch {
+      // Fall back to 'detail' rather than blocking the commit.
+      classifications = photos.map((p) => ({ id: p.id, type: "detail", confidence: 0 }));
+    }
+
+    // Write back high-confidence types, but only over the generic 'detail'
+    // default so a user's manual correction is never clobbered.
+    for (let i = 0; i < classifications.length; i++) {
+      const cl = classifications[i]!;
+      const current = photos[i]!.photo_type;
+      if (cl.confidence >= 0.6 && cl.type !== current && current === "detail") {
+        await supabaseAdmin
+          .from("item_photos")
+          .update({ photo_type: cl.type })
+          .eq("id", cl.id)
+          .eq("inventory_item_id", itemId);
+      }
+    }
+    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    return c.json({ classifications });
+  }
+
+  // Mode B: classify caller-supplied inline images (pre-commit).
+  const { ids, images } = parseVisionPhotos(body);
+  if (images.length === 0) return c.json({ classifications: [] });
+  if (images.length > 40) {
+    return c.json({ error: "Too many photos in one batch (max 40)." }, 400);
+  }
+  try {
+    const result = await classifyPhotoTypes(images);
+    const byIndex = new Map(result.map((r) => [r.index, r]));
+    const classifications = ids.map((id, i) => {
+      const r = byIndex.get(i);
+      return { id, type: r?.type ?? "detail", confidence: r?.confidence ?? 0 };
+    });
+    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    return c.json({ classifications });
+  } catch {
+    return c.json({ classifications: ids.map((id) => ({ id, type: "detail", confidence: 0 })) });
+  }
 });
