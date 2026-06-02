@@ -39,9 +39,26 @@ function savingsDollars(pack: { credits: number; priceCents: number }): number {
 interface CreditPackDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * US-207: same-origin path to return to after Stripe Checkout instead of
+   * Billing. Used by the new-submission flow so the submission can auto-retry
+   * the payment precedence once the pack lands.
+   */
+  returnPath?: string;
+  /**
+   * Fired when a pack tile is clicked (before the Stripe redirect). Lets the
+   * caller layer its own telemetry — e.g. the submission flow's pack upsell
+   * conversion event.
+   */
+  onPackClicked?: (packSize: CreditPackSize) => void;
 }
 
-export function CreditPackDialog({ open, onOpenChange }: CreditPackDialogProps) {
+export function CreditPackDialog({
+  open,
+  onOpenChange,
+  returnPath,
+  onPackClicked,
+}: CreditPackDialogProps) {
   const { data: summary } = useBillingSummary();
   const buyPack = useBuyCreditPack();
 
@@ -111,7 +128,11 @@ export function CreditPackDialog({ open, onOpenChange }: CreditPackDialogProps) 
                     className="mt-auto w-full"
                     onClick={() => {
                       track("credit_pack.cta_clicked", { pack: pack.credits });
-                      buyPack.mutate({ packSize: pack.credits as CreditPackSize });
+                      onPackClicked?.(pack.credits as CreditPackSize);
+                      buyPack.mutate({
+                        packSize: pack.credits as CreditPackSize,
+                        returnPath,
+                      });
                     }}
                     disabled={buyPack.isPending}
                   >

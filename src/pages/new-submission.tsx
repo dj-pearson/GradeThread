@@ -21,12 +21,16 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
-import { PLANS } from "@/lib/constants";
-import type { PlanKey } from "@/lib/constants";
+import { GRADETHREAD_TIERS } from "@/lib/constants";
+import type { GradeTierKey } from "@/lib/constants";
 import type { InventoryItemRow } from "@/types/database";
-import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { useBillingSummary, planLabel } from "@/hooks/use-billing-summary";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
+import { track } from "@/lib/analytics";
 
 // Item statuses from which a submission moves the item into 'grading'.
 const PRE_GRADE_STATUSES = new Set([
@@ -50,6 +54,15 @@ const STEPS = [
   { label: "Photos", description: "Upload garment photos" },
   { label: "Review & Pay", description: "Confirm and submit" },
 ] as const;
+
+// US-207: the payment state returned by /api/grade/submit when included grades
+// and credits are both exhausted and a one-time charge is required.
+interface CheckoutRequiredState {
+  submissionId: string;
+  tier: GradeTierKey;
+  tierPriceCents: number;
+  suggestedPack: { credits: number; priceCents: number } | null;
+}
 
 function formatLabel(value: string): string {
   return value
@@ -112,13 +125,20 @@ function StepIndicator({
 }
 
 export function NewSubmissionPage() {
-  const { profile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [currentStep, setCurrentStep] = useState(0);
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
   const [photos, setPhotos] = useState<PhotoUploadItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // US-207: chosen grade tier + the post-submit payment state when a one-time
+  // charge is required (included grades + credits both exhausted).
+  const [tier, setTier] = useState<GradeTierKey>("standard");
+  const [checkoutState, setCheckoutState] = useState<CheckoutRequiredState | null>(
+    null
+  );
+  const [packDialogOpen, setPackDialogOpen] = useState(false);
+  const [checkingOut, setCheckingOut] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<InventoryItemRow[]>([]);
   const [linkedItemId, setLinkedItemId] = useState<string>(
     () => searchParams.get("item") ?? "none"
@@ -158,12 +178,24 @@ export function NewSubmissionPage() {
     setGarmentInfo(null);
   }
 
-  const plan = profile?.plan ?? "free";
-  const planConfig = PLANS[plan as PlanKey];
-  const pricePerGrade =
-    planConfig.priceMonthly === null || planConfig.priceMonthly === 0
-      ? 0
-      : planConfig.priceMonthly;
+  // US-207 pricing context — driven by the billing summary (plan + credit
+  // balance + included-grade counter), not the legacy per-plan price.
+  const { data: summary } = useBillingSummary();
+  const usage = usePlanUsage();
+  const creditBalance = summary?.grades.credit_balance ?? 0;
+  const includedUsed = usage.includedGrades.used;
+  const includedLimit = usage.includedGrades.limit;
+  const tierConfig = GRADETHREAD_TIERS[tier];
+  // Mirrors the server precedence (grade-billing.ts): Standard grades draw from
+  // the monthly included bundle first, then credits, then a one-time charge.
+  const includedAvailable =
+    tier === "standard" && includedLimit > 0 && includedUsed < includedLimit;
+  const hasEnoughCredits = creditBalance >= tierConfig.creditCost;
+  const estimatedMethod: "included" | "credits" | "checkout" = includedAvailable
+    ? "included"
+    : hasEnoughCredits
+      ? "credits"
+      : "checkout";
 
   const requiredPhotosUploaded = photos.filter((p) =>
     ["front", "back", "label", "detail"].includes(p.imageType)
@@ -193,6 +225,26 @@ export function NewSubmissionPage() {
     }
   }
 
+  // Link the freshly-created submission to the selected inventory item, if any.
+  // Non-fatal: the submission stands on its own if linking fails.
+  async function linkInventoryItem(submissionId: string) {
+    if (!linkedItem) return;
+    try {
+      const updates: Record<string, unknown> = { submission_id: submissionId };
+      if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
+        updates.status = "grading";
+      }
+      await supabase
+        .from("inventory_items")
+        .update(updates as never)
+        .eq("id", linkedItem.id);
+    } catch {
+      toast.warning(
+        "Submission created, but linking to the inventory item failed."
+      );
+    }
+  }
+
   async function handleSubmit() {
     if (!garmentInfo || photos.length === 0) return;
     setIsSubmitting(true);
@@ -210,6 +262,7 @@ export function NewSubmissionPage() {
       formData.append("garment_type", garmentInfo.garmentType);
       formData.append("garment_category", garmentInfo.garmentCategory);
       formData.append("title", garmentInfo.title);
+      formData.append("tier", tier);
       if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
       if (garmentInfo.description) formData.append("description", garmentInfo.description);
 
@@ -252,39 +305,79 @@ export function NewSubmissionPage() {
         return;
       }
 
-      // Link the submission to an inventory item if one was selected.
-      if (linkedItem && result.submissionId) {
-        try {
-          const updates: Record<string, unknown> = {
-            submission_id: result.submissionId,
-          };
-          if (PRE_GRADE_STATUSES.has(linkedItem.status)) {
-            updates.status = "grading";
-          }
-          await supabase
-            .from("inventory_items")
-            .update(updates as never)
-            .eq("id", linkedItem.id);
-        } catch {
-          // Linking is non-fatal — the submission was still created.
-          toast.warning(
-            "Submission created, but linking to the inventory item failed."
+      const submissionId: string = result.submissionId;
+      const payment = result.payment ?? {};
+
+      // Link the inventory item regardless of the payment outcome — the
+      // submission row now exists either way.
+      await linkInventoryItem(submissionId);
+
+      // ── Payment precedence outcome (US-207) ──
+      if (payment.paid) {
+        track("grade.paid", { method: payment.method, tier });
+        if (payment.method === "included") {
+          const planName = planLabel(usage.plan);
+          toast.success(
+            `Free with your ${planName} plan — ${payment.newIncludedUsed} of ${includedLimit} included grades used.`
+          );
+        } else {
+          toast.success(
+            `Used ${tierConfig.creditCost} credit${tierConfig.creditCost === 1 ? "" : "s"} (balance ${payment.newBalance}). Your garment is being graded.`
           );
         }
+        navigate(`/dashboard/submissions/${submissionId}`);
+        return;
       }
 
-      toast.success("Submission created! Your garment is being graded.", {
-        description: "You'll be redirected to the submission details.",
-      });
+      // Not paid — a one-time charge is required. Surface the pay/pack picker
+      // inline rather than navigating away.
+      if (payment.checkoutRequired) {
+        setCheckoutState({
+          submissionId,
+          tier: (payment.tier as GradeTierKey) ?? tier,
+          tierPriceCents: payment.tierPriceCents ?? tierConfig.priceCents,
+          suggestedPack: payment.suggestedPack ?? null,
+        });
+        track("grade.pack_upsell_shown", {
+          tier: payment.tier ?? tier,
+          suggestedPack: payment.suggestedPack?.credits ?? null,
+        });
+        return;
+      }
 
-      // Navigate to the submission detail page
-      navigate(`/dashboard/submissions/${result.submissionId}`);
+      // Unexpected shape — fall back to the detail page so the user isn't stuck.
+      navigate(`/dashboard/submissions/${submissionId}`);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to submit. Please try again."
       );
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  // ── One-time per-grade Stripe Checkout (US-207 checkout path) ──
+  async function startPerGradeCheckout() {
+    if (!checkoutState) return;
+    setCheckingOut(true);
+    try {
+      const res = await edgeFetch("/api/payments/gradethread/per-grade", {
+        method: "POST",
+        json: {
+          submissionId: checkoutState.submissionId,
+          tier: checkoutState.tier,
+        },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.url) {
+        throw new Error(json.error || "Failed to start checkout.");
+      }
+      window.location.href = json.url;
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to start checkout."
+      );
+      setCheckingOut(false);
     }
   }
 
@@ -430,44 +523,191 @@ export function NewSubmissionPage() {
 
               <Separator />
 
-              {/* Price */}
-              <div className="space-y-3">
-                <h3 className="text-sm font-medium text-muted-foreground">
-                  Pricing
-                </h3>
-                <div className="rounded-lg bg-muted/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm">AI Condition Grade</span>
-                    <span className="font-medium">
-                      {pricePerGrade === 0
-                        ? "Included in plan"
-                        : `$${pricePerGrade}/mo (${planConfig.name} plan)`}
-                    </span>
+              {/* Grade tier + pricing (US-207) */}
+              {!checkoutState ? (
+                <>
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-medium text-muted-foreground">
+                      Grade Tier
+                    </h3>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {(
+                        Object.keys(GRADETHREAD_TIERS) as GradeTierKey[]
+                      ).map((key) => {
+                        const t = GRADETHREAD_TIERS[key];
+                        const selected = tier === key;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => setTier(key)}
+                            aria-pressed={selected}
+                            className={cn(
+                              "rounded-lg border p-3 text-left transition-colors",
+                              selected
+                                ? "border-primary ring-2 ring-primary/30"
+                                : "border-border hover:border-primary/40"
+                            )}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium">
+                                {t.label}
+                              </span>
+                              <span className="text-sm font-semibold tabular-nums">
+                                ${(t.priceCents / 100).toFixed(2)}
+                              </span>
+                            </div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {t.slaHours <= 1
+                                ? "~1 hour"
+                                : `~${t.slaHours} hours`}{" "}
+                              · {t.creditCost} credit
+                              {t.creditCost === 1 ? "" : "s"}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Payment estimate — mirrors the server precedence */}
+                  <div className="rounded-lg bg-muted/50 p-4 text-sm">
+                    {estimatedMethod === "included" ? (
+                      <p className="font-medium text-emerald-600 dark:text-emerald-400">
+                        Free with your {planLabel(usage.plan)} plan —{" "}
+                        {includedUsed} of {includedLimit} included grades used
+                        this month.
+                      </p>
+                    ) : estimatedMethod === "credits" ? (
+                      <p className="font-medium">
+                        Uses {tierConfig.creditCost} credit
+                        {tierConfig.creditCost === 1 ? "" : "s"} (balance{" "}
+                        {creditBalance}).
+                      </p>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <span>One-time {tierConfig.label} grade</span>
+                        <span className="font-semibold tabular-nums">
+                          ${(tierConfig.priceCents / 100).toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center justify-between pt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleBack}
+                      disabled={isSubmitting}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Back
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit for Grading"
+                      )}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                /* Checkout required — included grades + credits exhausted.
+                   Offer a single grade or a discounted pack (US-207). */
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <h3 className="text-sm font-medium">Payment required</h3>
+                    <p className="text-sm text-muted-foreground">
+                      You're out of included grades and credits for a{" "}
+                      {GRADETHREAD_TIERS[checkoutState.tier].label} grade. Pick
+                      how you'd like to pay — your submission is saved and will
+                      proceed as soon as it's covered.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {/* Single grade */}
+                    <div className="flex flex-col rounded-lg border p-4">
+                      <p className="text-sm font-medium">Pay for this grade</p>
+                      <p className="mt-1 text-2xl font-bold tabular-nums">
+                        ${(checkoutState.tierPriceCents / 100).toFixed(2)}
+                      </p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        One-time {GRADETHREAD_TIERS[checkoutState.tier].label}{" "}
+                        grade
+                      </p>
+                      <Button
+                        type="button"
+                        className="mt-auto w-full"
+                        onClick={startPerGradeCheckout}
+                        disabled={checkingOut}
+                      >
+                        {checkingOut && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        Pay $
+                        {(checkoutState.tierPriceCents / 100).toFixed(2)}
+                      </Button>
+                    </div>
+
+                    {/* Buy a pack & save */}
+                    <div className="flex flex-col rounded-lg border border-primary/40 bg-primary/5 p-4">
+                      <p className="text-sm font-medium">Buy a pack &amp; save</p>
+                      <p className="mt-1 text-2xl font-bold">17%+</p>
+                      <p className="mb-3 text-xs text-muted-foreground">
+                        Credits never expire. 1 credit = 1 Standard grade.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="mt-auto w-full"
+                        onClick={() => setPackDialogOpen(true)}
+                        disabled={checkingOut}
+                      >
+                        See credit packs
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCheckoutState(null)}
+                      disabled={checkingOut}
+                    >
+                      <ChevronLeft className="mr-1 h-4 w-4" />
+                      Change tier
+                    </Button>
                   </div>
                 </div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-between pt-4">
-                <Button type="button" variant="outline" onClick={handleBack} disabled={isSubmitting}>
-                  <ChevronLeft className="mr-1 h-4 w-4" />
-                  Back
-                </Button>
-                <Button type="button" onClick={handleSubmit} disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Submitting...
-                    </>
-                  ) : (
-                    "Submit for Grading"
-                  )}
-                </Button>
-              </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Mid-flow credit-pack purchase. On return, the submission auto-retries
+          the payment precedence (?pay_retry) so it proceeds without a second
+          click (US-207). */}
+      {checkoutState && (
+        <CreditPackDialog
+          open={packDialogOpen}
+          onOpenChange={setPackDialogOpen}
+          returnPath={`/dashboard/submissions/${checkoutState.submissionId}?pay_retry=1&tier=${checkoutState.tier}`}
+        />
+      )}
     </div>
   );
 }

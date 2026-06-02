@@ -215,6 +215,12 @@ export interface UserRow {
   // Multi-user (US-Team): the workspace this user is currently acting
   // inside. NULL = personal workspace (workspace_owner_id = id).
   active_workspace_owner_id: string | null;
+  // Soft upgrade triggers (US-209, migration 00071). usage_alert_thresholds:
+  // percentages (out of 100) the user wants to be warned at — default [80],
+  // Settings offers 50/80/95. last_warning_at: dedup ledger keyed
+  // "<cap>:<threshold>" → "YYYY-MM" so each trigger fires once per month.
+  usage_alert_thresholds: number[];
+  last_warning_at: Record<string, string>;
   // GradeThread Verified — public seller trust profile (migration 00057).
   verified_handle: string | null;
   verified_display_name: string | null;

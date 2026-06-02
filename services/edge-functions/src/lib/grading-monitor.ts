@@ -368,10 +368,9 @@ async function dispatchAlert(
   evalResult: MonitorEvalResult,
 ): Promise<boolean> {
   const to = Deno.env.get("MONITOR_ALERT_EMAIL") || Deno.env.get("SMTP_ADMIN_EMAIL") || "";
-  let sent = false;
   if (to) {
     try {
-      sent = await sendGradingRegressionAlertEmail(to, {
+      await sendGradingRegressionAlertEmail(to, {
         severity,
         alerts: alerts.map((a) => ({ severity: a.severity, message: a.message })),
         production,

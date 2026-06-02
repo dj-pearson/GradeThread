@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import {
   ArrowLeft,
   Share2,
@@ -41,6 +41,8 @@ import { cn } from "@/lib/utils";
 import { GRADE_FACTORS, DISPUTE_REASONS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { track } from "@/lib/analytics";
 import {
   Select,
   SelectContent,
@@ -122,6 +124,7 @@ function LoadingSkeleton() {
 
 export function SubmissionDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const { workspaceOwnerId } = useWorkspace();
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
@@ -157,6 +160,84 @@ export function SubmissionDetailPage() {
       .single();
     if (reportData) setGradeReport(reportData);
   }, [id]);
+
+  // ── Auto-retry payment after a mid-flow credit-pack purchase (US-207) ──
+  //
+  // The new-submission flow sends the user to a pack Checkout with a
+  // returnPath of ?pay_retry=1&tier=… on this page. On return we re-run the
+  // payment precedence (/api/grade/pay/:id) so the grade proceeds without a
+  // second click. The credit-grant webhook lands a beat after Stripe redirects,
+  // so we retry a few times before giving up.
+  const payRetryDone = useRef(false);
+  useEffect(() => {
+    if (!id) return;
+    if (searchParams.get("pay_retry") !== "1") return;
+    if (payRetryDone.current) return;
+    payRetryDone.current = true;
+
+    const checkout = searchParams.get("checkout");
+    const tier = searchParams.get("tier") ?? "standard";
+
+    // Strip the flow params so a refresh doesn't re-trigger.
+    const clearParams = () => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          ["pay_retry", "tier", "checkout", "product", "credits"].forEach((k) =>
+            next.delete(k),
+          );
+          return next;
+        },
+        { replace: true },
+      );
+    };
+
+    if (checkout === "cancelled") {
+      toast.info("Payment cancelled — your submission is saved as unpaid.");
+      clearParams();
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      toast.loading("Applying your new credits…", { id: "pay-retry" });
+      // Up to ~16s of retries to outrun the credit-grant webhook.
+      for (let attempt = 0; attempt < 8 && !cancelled; attempt++) {
+        try {
+          const res = await edgeFetch(`/api/grade/pay/${id}`, {
+            method: "POST",
+            json: { tier },
+            silentGate: true,
+          });
+          const json = await res.json().catch(() => ({}));
+          if (res.ok && json.payment?.paid) {
+            track("grade.pack_upsell_converted", { tier });
+            track("grade.paid", { method: json.payment.method, tier });
+            toast.success("Grade unlocked with your new credits.", {
+              id: "pay-retry",
+            });
+            await refetchData();
+            clearParams();
+            return;
+          }
+        } catch {
+          /* transient — keep retrying */
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      if (!cancelled) {
+        toast.info(
+          "Credits are being added — this grade will start automatically in a moment.",
+          { id: "pay-retry" },
+        );
+        clearParams();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, searchParams, setSearchParams, refetchData]);
 
   // Re-fetch when submission status changes via realtime. We only care
   // about `.status` here — read it into a local so the deps array is

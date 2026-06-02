@@ -6,6 +6,7 @@ import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
+import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -37,6 +38,8 @@ export function DashboardLayout() {
       <CommandPalette />
       {/* First-login onboarding */}
       <OnboardingFlow />
+      {/* Soft upgrade triggers — toasts when a plan cap crosses threshold (US-209) */}
+      <UsageAlertWatcher />
     </div>
   );
 }

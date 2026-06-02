@@ -81,6 +81,22 @@ function siteUrl(): string {
   return Deno.env.get("SITE_URL") || "https://gradethread.com";
 }
 
+// Accept only same-origin relative paths ("/dashboard/...") for checkout
+// return URLs. Rejects absolute URLs, protocol-relative ("//evil.com"), and
+// anything not starting with a single "/" to prevent open-redirects.
+function sanitizeReturnPath(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const path = raw.trim();
+  if (!path.startsWith("/") || path.startsWith("//")) return null;
+  if (path.includes("\\") || /[\r\n]/.test(path)) return null;
+  return path;
+}
+
+// Append query params to a path that may already carry a query string.
+function appendQuery(path: string, query: string): string {
+  return path.includes("?") ? `${path}&${query}` : `${path}?${query}`;
+}
+
 async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
@@ -256,7 +272,7 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
 paymentRoutes.post("/gradethread/credit-pack", async (c) => {
   const userId = c.get("userId");
 
-  let body: { packSize?: unknown };
+  let body: { packSize?: unknown; returnPath?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -284,6 +300,19 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
+  // Optional caller-supplied return path (US-207 mid-flow pack purchase): when
+  // the user buys a pack from inside the new-submission flow we send them back
+  // to the submission so it can auto-retry the payment precedence. Restricted
+  // to same-origin relative paths to prevent open-redirects; falls back to the
+  // standard Billing return (US-213) otherwise.
+  const returnPath = sanitizeReturnPath(body.returnPath);
+  const successUrl = returnPath
+    ? `${siteUrl()}${appendQuery(returnPath, `checkout=success&product=credit_pack&credits=${packSize}`)}`
+    : `${siteUrl()}/dashboard/billing?checkout=success&product=credit_pack&credits=${packSize}`;
+  const cancelUrl = returnPath
+    ? `${siteUrl()}${appendQuery(returnPath, "checkout=cancelled")}`
+    : `${siteUrl()}/dashboard/billing?checkout=cancelled`;
+
   try {
     const sessionParams: Stripe.Checkout.SessionCreateParams = {
       mode: "payment",
@@ -301,8 +330,8 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
           credits: packSize,
         },
       },
-      success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=credit_pack&credits=${packSize}`,
-      cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       automatic_tax: { enabled: true },
       allow_promotion_codes: true,
     };
@@ -541,7 +570,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
         "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
         "trial_ends_at, grade_credit_balance, grades_used_this_month, " +
         "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, " +
-        "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at",
+        "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
+        "usage_alert_thresholds, last_warning_at",
     )
     .eq("id", userId)
     .single();
@@ -567,6 +597,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
     grades_used_this_month: number | null;
     ai_actions_used_this_month: number | null;
     ai_action_limit: number | null;
+    usage_alert_thresholds: number[] | null;
+    last_warning_at: Record<string, string> | null;
   };
 
   const [
@@ -626,8 +658,124 @@ paymentRoutes.get("/billing-summary", async (c) => {
       ai_actions_used_this_month: u.ai_actions_used_this_month,
       ai_action_limit: u.ai_action_limit,
     },
+    // Soft-upgrade-trigger config (US-209). thresholds default to [80] when the
+    // user hasn't customized; last_warning is the per-(cap:threshold) month
+    // dedup ledger so the frontend watcher won't re-toast within a month.
+    alerts: {
+      thresholds: Array.isArray(u.usage_alert_thresholds) && u.usage_alert_thresholds.length > 0
+        ? u.usage_alert_thresholds
+        : [80],
+      last_warning: u.last_warning_at ?? {},
+    },
     recent_ledger: ledgerResult.data ?? [],
   });
+});
+
+// ── POST /usage-alerts (US-209) ──────────────────────────────────
+//
+// Body: { thresholds: number[] } — the percentages (out of 100) at which the
+// user wants a soft upgrade toast. The Settings chooser offers 50 / 80 / 95.
+// We validate the set, dedupe + sort, and persist to users.usage_alert_thresholds.
+// An empty array falls back to the default [80] on read.
+const ALLOWED_THRESHOLDS = new Set([50, 80, 95]);
+
+paymentRoutes.post("/usage-alerts", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { thresholds?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (!Array.isArray(body.thresholds)) {
+    return c.json({ error: "thresholds must be an array of numbers" }, 400);
+  }
+
+  const cleaned = Array.from(
+    new Set(
+      body.thresholds
+        .map((t) => Math.round(Number(t)))
+        .filter((t) => Number.isFinite(t) && ALLOWED_THRESHOLDS.has(t)),
+    ),
+  ).sort((a, b) => a - b);
+
+  if (body.thresholds.length > 0 && cleaned.length === 0) {
+    return c.json(
+      { error: "thresholds must each be one of: 50, 80, 95" },
+      400,
+    );
+  }
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({ usage_alert_thresholds: cleaned } as never)
+    .eq("id", userId);
+
+  if (error) {
+    console.error("[usage-alerts] update failed:", error);
+    return c.json({ error: "Failed to save usage alert settings" }, 500);
+  }
+
+  return c.json({ ok: true, thresholds: cleaned.length > 0 ? cleaned : [80] });
+});
+
+// ── POST /usage-alerts/fired (US-209) ────────────────────────────
+//
+// Body: { cap: string, threshold: number }
+// Records that the soft toast for (cap, threshold) fired this calendar month so
+// it won't re-fire across devices. The frontend mirrors this to localStorage
+// for instant dedup; this server write is the cross-device source of truth.
+// Idempotent — re-recording the same (cap, threshold) in the same month is a
+// no-op that just rewrites the same value.
+paymentRoutes.post("/usage-alerts/fired", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { cap?: unknown; threshold?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const cap = typeof body.cap === "string" ? body.cap : "";
+  const threshold = Math.round(Number(body.threshold));
+  if (!cap || !Number.isFinite(threshold)) {
+    return c.json({ error: "cap and threshold are required" }, 400);
+  }
+
+  // Read-modify-write the JSON map. Concurrent firings for *different* caps in
+  // the same request window could race, but the dedup is best-effort (the
+  // localStorage mirror is the primary guard) so a lost write only risks one
+  // extra toast — acceptable, and far simpler than a jsonb_set RPC.
+  const { data: row, error: readError } = await supabaseAdmin
+    .from("users")
+    .select("last_warning_at")
+    .eq("id", userId)
+    .single();
+
+  if (readError || !row) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const now = new Date();
+  const month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const existing =
+    (row as { last_warning_at: Record<string, string> | null }).last_warning_at ?? {};
+  const next = { ...existing, [`${cap}:${threshold}`]: month };
+
+  const { error: writeError } = await supabaseAdmin
+    .from("users")
+    .update({ last_warning_at: next } as never)
+    .eq("id", userId);
+
+  if (writeError) {
+    console.error("[usage-alerts/fired] update failed:", writeError);
+    return c.json({ error: "Failed to record warning" }, 500);
+  }
+
+  return c.json({ ok: true, month });
 });
 
 // ── POST /flipdesk/pause (US-215) ────────────────────────────────

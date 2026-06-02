@@ -3576,8 +3576,8 @@
         "Telemetry: posthog events 'grade.paid' with method label; 'grade.pack_upsell_shown' / 'grade.pack_upsell_converted'"
       ],
       "priority": 207,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). Backend precedence (included→credits→checkout) was already built in grade-billing.ts runPaymentPrecedence + grade.ts POST /submit and /pay/:id retry (returns payment:{paid,method,newIncludedUsed|newBalance} or {checkoutRequired,tier,tierPriceCents,suggestedPack}); verified by code reading. THIS PASS added the Review-and-Pay FRONTEND (src/pages/new-submission.tsx): tier picker (Standard/Premium/Express w/ price+SLA+credit cost), live precedence estimate (green 'Free with your <Plan> plan (X of Y used)' / 'Uses N credit(s) (balance M)' / one-time $X.XX) from useBillingSummary+usePlanUsage; submit now sends tier and branches on result — paid shows method toast + navigates, checkoutRequired flips to an inline two-option panel (single grade $X.XX via per-grade checkout / 'Buy a pack & save 17%+' opening CreditPackDialog). Mid-flow pack purchase: credit-pack endpoint + useBuyCreditPack + CreditPackDialog now take an optional same-origin returnPath (sanitizeReturnPath guards open-redirects); the dialog returns to /dashboard/submissions/:id?pay_retry=1&tier=… where submission-detail auto-retries POST /api/grade/pay/:id (bounded ~16s loop to outrun the credit-grant webhook) and proceeds without a second click. Telemetry: grade.paid{method,tier}, grade.pack_upsell_shown, grade.pack_upsell_converted (fired on the pay_retry success). tsc+lint+build clean; 143/143 edge tests pass."
     },
     {
       "id": "US-208",
@@ -3609,8 +3609,8 @@
         "Settings page has a 'Notify me at 50% / 80% / 95%' chooser so power users can set their own thresholds (writes to users.usage_alert_thresholds jsonb, falls back to default 80%)"
       ],
       "priority": 209,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "COMPLETED, passes=true (2026-06-02). The X-Plan-Warning reactive path was already in edge-fetch.ts (toast + upgrade.trigger.soft on the request that crossed 80%). THIS PASS added the rest. Migration 00071: users.usage_alert_thresholds jsonb DEFAULT '[80]' + users.last_warning_at jsonb DEFAULT '{}' (per-'cap:threshold'→'YYYY-MM' dedup map; name kept per AC though it stores month-stamps). Edge: billing-summary now returns alerts{thresholds,last_warning}; POST /api/payments/usage-alerts (validate subset of 50/80/95, dedupe/sort, persist) for the Settings chooser; POST /api/payments/usage-alerts/fired (record cap:threshold→month) for cross-device dedup. Frontend: usePlanUsage() (src/hooks/use-plan-usage.ts) derives the 4 caps {used,limit,pct,unlimited} from the single billing-summary cache + FLIPDESK_PLANS. UsageAlertWatcher (mounted in dashboard-layout) polls usePlanUsage and fires a dismissible upgrade toast at the highest crossed configured threshold, deduped once-per-(cap,threshold)-per-month via localStorage + server ledger; CTA opens the plan picker via new plan-picker-store + globally-mounted GlobalPlanPicker (root-layout) pre-highlighting suggestedPlanForCap; fires upgrade.trigger.soft{cap,pct,threshold,plan,suggestedPlan}. edge-fetch soft-toast CTA repointed from the hard-cap dialog to the plan picker per AC. Settings: 'Notify me at 50/80/95%' multi-select chooser writing usage_alert_thresholds via the endpoint (default 80% when cleared). NOTE: dedup is per-(cap,threshold) so opting into multiple thresholds re-alerts at each crossing; with the default [80] this is exactly 'once per cap per month'. unlimited caps (-1) never trigger. tsc+lint+build clean; 143/143 edge tests pass."
     },
     {
       "id": "US-210",

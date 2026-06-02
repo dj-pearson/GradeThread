@@ -22,7 +22,7 @@ import { toast } from "sonner";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
 import { edgeApiUrl } from "@/lib/edge-api";
-import { edgeAuthHeaders } from "@/lib/edge-fetch";
+import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
 import { signOut } from "@/lib/auth";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
@@ -84,6 +84,15 @@ export function SettingsPage() {
     profile?.share_sale_outcomes ?? false
   );
   const [savingShareOutcomes, setSavingShareOutcomes] = useState(false);
+
+  // Usage-alert thresholds (US-209). Percentages of any plan cap at which a
+  // soft upgrade toast fires. Default [80]; the chooser offers 50/80/95.
+  const [alertThresholds, setAlertThresholds] = useState<number[]>(() =>
+    profile?.usage_alert_thresholds && profile.usage_alert_thresholds.length > 0
+      ? profile.usage_alert_thresholds
+      : [80]
+  );
+  const [savingAlerts, setSavingAlerts] = useState(false);
 
   // FlipDesk plan drives the AI allowance (US-202). Fall back to the legacy
   // PLANS shim for users that haven't been backfilled yet — the shim derives
@@ -251,6 +260,38 @@ export function SettingsPage() {
       );
     } finally {
       setSavingPrefs(false);
+    }
+  }
+
+  function toggleAlertThreshold(t: number) {
+    setAlertThresholds((prev) =>
+      prev.includes(t)
+        ? prev.filter((x) => x !== t)
+        : [...prev, t].sort((a, b) => a - b)
+    );
+  }
+
+  async function handleSaveAlertThresholds() {
+    setSavingAlerts(true);
+    try {
+      const res = await edgeFetch("/api/payments/usage-alerts", {
+        method: "POST",
+        json: { thresholds: alertThresholds },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to save usage alert settings.");
+      }
+      // Server normalizes (dedupes/sorts, empty → default 80).
+      if (Array.isArray(json.thresholds)) setAlertThresholds(json.thresholds);
+      await refreshProfile();
+      toast.success("Usage alert settings saved.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save usage alert settings."
+      );
+    } finally {
+      setSavingAlerts(false);
     }
   }
 
@@ -489,6 +530,49 @@ export function SettingsPage() {
           <Button onClick={handleSavePreferences} disabled={savingPrefs}>
             {savingPrefs && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save Preferences
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Usage Alerts Section (US-209) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Usage Alerts</CardTitle>
+          <CardDescription>
+            Get a heads-up before you hit a plan cap. We'll show a non-blocking
+            upgrade tip when any cap (listings, AI actions, included grades,
+            marketplaces) reaches the percentages you pick.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Notify me at</p>
+            <div className="flex gap-2">
+              {[50, 80, 95].map((t) => {
+                const active = alertThresholds.includes(t);
+                return (
+                  <Button
+                    key={t}
+                    type="button"
+                    size="sm"
+                    variant={active ? "default" : "outline"}
+                    aria-pressed={active}
+                    onClick={() => toggleAlertThreshold(t)}
+                  >
+                    {t}%
+                  </Button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Defaults to 80%. Each alert fires at most once per cap per month.
+              Clear all to keep just the 80% default.
+            </p>
+          </div>
+
+          <Button onClick={handleSaveAlertThresholds} disabled={savingAlerts}>
+            {savingAlerts && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Alert Settings
           </Button>
         </CardContent>
       </Card>

@@ -50,6 +50,13 @@ export interface BillingSummary {
     ai_actions_used_this_month: number;
     ai_action_limit: number | null;
   };
+  // Soft upgrade triggers (US-209). thresholds: percentages (out of 100) the
+  // user opted into (default [80]); last_warning: per-(cap:threshold) month
+  // dedup ledger so the watcher won't re-toast within a calendar month.
+  alerts: {
+    thresholds: number[];
+    last_warning: Record<string, string>;
+  };
   recent_ledger: BillingLedgerEntry[];
 }
 
@@ -125,12 +132,15 @@ export function useBuyCreditPack() {
   return useMutation<
     { sessionId: string; url: string },
     Error,
-    { packSize: CreditPackSize }
+    // returnPath (US-207): when buying a pack mid-submission, the Stripe
+    // success/cancel URLs come back to the submission so it can auto-retry the
+    // payment precedence. Omitted → the standard Billing return (US-213).
+    { packSize: CreditPackSize; returnPath?: string }
   >({
-    mutationFn: async ({ packSize }) => {
+    mutationFn: async ({ packSize, returnPath }) => {
       const res = await edgeFetch("/api/payments/gradethread/credit-pack", {
         method: "POST",
-        json: { packSize },
+        json: returnPath ? { packSize, returnPath } : { packSize },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to start checkout.");

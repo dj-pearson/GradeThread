@@ -97,7 +97,9 @@
       "Read(//c/c/Users/dpearson/Documents/GradeThread/ios/**)",
       "Bash(grep -iv \"\\\\.swift:.*//\")",
       "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Select-Object -Last 30; Write-Output \"EXIT: $LASTEXITCODE\")",
-      "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; $o = & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Out-String; $ai = [regex]::Matches\\($o, 'ai-\\(extract|grading|listing\\)\\\\.ts'\\).Count; Write-Output \"AI-file error refs: $ai\"; [regex]::Matches\\($o, 'TS\\\\d+'\\) | ForEach-Object { $_.Value } | Group-Object | Format-Table Count,Name -AutoSize | Out-String)"
+      "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; $o = & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Out-String; $ai = [regex]::Matches\\($o, 'ai-\\(extract|grading|listing\\)\\\\.ts'\\).Count; Write-Output \"AI-file error refs: $ai\"; [regex]::Matches\\($o, 'TS\\\\d+'\\) | ForEach-Object { $_.Value } | Group-Object | Format-Table Count,Name -AutoSize | Out-String)",
+      "Bash(ls src/components/billing)",
+      "Bash(ls src/components/pricing)"
     ]
   },
   "hooks": {

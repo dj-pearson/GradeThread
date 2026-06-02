@@ -4,6 +4,7 @@ import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import { useAuthStore } from "@/stores/auth-store";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
+import { usePlanPickerStore } from "@/stores/plan-picker-store";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 
 // ── edgeFetch (US-209 + US-210) ─────────────────────────────────
@@ -150,13 +151,9 @@ function handlePlanWarning(header: string) {
     action: {
       label: "Upgrade",
       onClick: () => {
-        // Defer import to avoid circular dep at module load.
-        import("@/stores/upgrade-dialog-store").then((m) => {
-          m.useUpgradeDialogStore.getState().show({
-            reason: { type: "cap", kind: kind as never, used, limit },
-            requiredPlan: requiredPlanForCap(kind, limit + 1),
-          });
-        });
+        // US-209: the soft-trigger CTA opens the plan picker pre-scrolled to the
+        // next-higher tier (US-212), not the hard-cap dialog.
+        usePlanPickerStore.getState().show({ highlightPlan: suggestedPlan });
       },
     },
   });
