@@ -263,7 +263,7 @@
         "index.html has charset, viewport, title, description, OG tags, Twitter card tags, Inter font link",
         "public/_redirects has /* /index.html 200",
         "public/_headers has X-Frame-Options DENY, X-Content-Type-Options nosniff, cache headers for /assets/*",
-        "wrangler.toml configured with name='gradethread' and site.bucket='./dist'",
+        "wrangler.toml configured with name='gradethread' and pages_build_output_dir='./dist' (Pages config; NOT the Workers-Sites '[site].bucket' key, which the Pages build rejects and which prevents the functions/ directory from deploying)",
         "Typecheck passes"
       ],
       "priority": 16,
