@@ -2269,3 +2269,54 @@ Recommended next: US-263/264/274/277 are implemented but await runtime checks
 (curl -I header dump; browser CSP/Stripe/OAuth pass) their ACs require -- best
 flipped from a deployed env. US-273 (CI for dependency + static analysis) is a
 natural follow-on to US-272's secret-scan workflow.
+
+
+## Session Notes (2026-06-02 cont.) -- US-273 + US-279 + US-280
+
+US-273 (CI for dependency + static analysis) -- COMPLETED, passes=true.
+- All deliverables were already in place from a prior pass:
+  .github/workflows/security.yml (3 jobs on PR+push to main: npm-audit,
+  deno-check [lint+check+test], codeql javascript-typescript),
+  .github/dependabot.yml (npm + github-actions + docker, weekly), and
+  .github/SECURITY_ADVISORY_ALLOWLIST.md. gitleaks stays in secret-scan.yml
+  (US-272) -- the two workflows together satisfy the "and gitleaks" AC.
+- VERIFIED this pass: ran `npm ci` (1054 pkgs) then
+  `npm audit --audit-level=high` -> "found 0 vulnerabilities" (exit 0), so the
+  npm-audit gate is green today. Deno jobs are config-verified only (no Deno
+  runtime here) but mirror the existing Dockerfile/test baseline.
+
+US-279 (Reconcile: DB columns + sessions table) -- COMPLETED, passes=true.
+- Migration 00066_reconcile_sessions.sql: nullable captured_at timestamptz +
+  reconcile_session_id uuid on item_photos (existing rows unaffected);
+  reconcile_session_status enum (open|committed|abandoned); new table
+  flipdesk_reconcile_sessions (id, user_id NOT NULL, photo_count, status,
+  created_at, updated_at + trigger). item_photos FK -> sessions ON DELETE SET
+  NULL (committed photos survive a session delete) + partial index. Owner-only
+  RLS on all four verbs (auth.uid()=user_id), mirroring sources/item_photos.
+  Fully idempotent (IF NOT EXISTS / DO-block guards).
+- src/types/database.ts: captured_at + reconcile_session_id added to
+  ItemPhotoRow/Insert; new ReconcileSessionStatus + ReconcileSessionRow/Insert/
+  Update; flipdesk_reconcile_sessions registered in the Database interface.
+- VERIFIED: tsc --noEmit clean. Migration SQL-reviewed (no local Postgres).
+
+US-280 (Reconcile: browser EXIF capture-time reader) -- COMPLETED, passes=true.
+- src/lib/exif.ts: readCaptureTime(file): Promise<Date|null>. ZERO-dependency
+  parser (~2KB, well under the 30KB budget): walks the JPEG APP1/Exif segment,
+  parses the TIFF header (II + MM endianness), follows the Exif sub-IFD pointer
+  (0x8769), reads DateTimeOriginal (0x9003) -> DateTimeDigitized (0x9004) ->
+  file.lastModified -> null. Never throws; ignores zeroed placeholder dates.
+- src/lib/exif.test.ts: 6 tests (EXIF LE/BE, Digitized fallback, no-EXIF ->
+  lastModified, corrupt -> null, zeroed-placeholder -> fallback), fixtures
+  built in-code.
+- VERIFIED: vitest 6/6 pass; tsc + eslint clean.
+
+Full suite: vitest 107 pass / 2 skip / 1 fail -- the single failure is the
+pre-existing responsive-images.test.ts dist smoke test that requires
+`npm run build` first (asserts "run `npm run build` first"); unrelated to these
+changes.
+
+prd.json 277/343 (US-273 + US-279 + US-280 passes=true).
+
+Recommended next: continue the Reconcile feature -- US-281 (route + page scaffold
++ dump drop zone) unblocks US-282 (clusterByTimeGap, whose pure-function tests
+are ready to write but whose AC also wants in-browser cluster rendering).

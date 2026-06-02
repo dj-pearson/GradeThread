@@ -543,7 +543,31 @@ export interface ItemPhotoRow {
   width: number | null;
   height: number | null;
   bytes: number | null;
+  // 00066 — photo-dump reconciliation: original EXIF capture time + session.
+  captured_at: string | null;
+  reconcile_session_id: string | null;
 }
+
+export type ReconcileSessionStatus = "open" | "committed" | "abandoned";
+
+export interface ReconcileSessionRow {
+  id: string;
+  user_id: string;
+  photo_count: number;
+  status: ReconcileSessionStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReconcileSessionInsert {
+  user_id: string;
+  photo_count?: number;
+  status?: ReconcileSessionStatus;
+}
+
+export type ReconcileSessionUpdate = Partial<
+  Omit<ReconcileSessionRow, "id" | "user_id" | "created_at" | "updated_at">
+>;
 
 export interface MarketplaceConnectionRow {
   id: string;
@@ -1233,6 +1257,8 @@ export interface ItemPhotoInsert {
   used_for_grading?: boolean;
   ebay_uploaded?: boolean;
   archived_to_r2?: boolean;
+  captured_at?: string | null;
+  reconcile_session_id?: string | null;
 }
 
 export interface MarketplaceConnectionInsert {
@@ -1745,6 +1771,11 @@ export interface Database {
         Row: MarketplaceConnectionRow;
         Insert: MarketplaceConnectionInsert;
         Update: MarketplaceConnectionUpdate;
+      };
+      flipdesk_reconcile_sessions: {
+        Row: ReconcileSessionRow;
+        Insert: ReconcileSessionInsert;
+        Update: ReconcileSessionUpdate;
       };
       listing_generation_batches: {
         Row: ListingGenerationBatchRow;

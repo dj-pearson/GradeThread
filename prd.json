@@ -4556,8 +4556,8 @@
         "An allowlist file documents any accepted advisories / false positives so the build stays green deliberately, not by disabling the scan"
       ],
       "priority": 273,
-      "passes": false,
-      "notes": "Implemented: .github/workflows/security.yml with 3 jobs on PR+push to main — npm-audit (npm ci + npm audit --audit-level=high), deno-check (deno lint + deno check src/main.ts on Deno 2.8.0, matching the Dockerfile baseline), and codeql (javascript-typescript, security-events: write). gitleaks intentionally NOT duplicated here — it stays in secret-scan.yml (US-272). Added .github/dependabot.yml (npm + github-actions + docker base image, weekly) and .github/SECURITY_ADVISORY_ALLOWLIST.md (human-tracked advisory exceptions; npm audit has no native ignore file). CAVEAT: first CI run may surface PRE-EXISTING high/critical npm advisories or deno lint/type issues in code not touched this session — that's the intended signal; triage by upgrading or documenting in the allowlist. Could not run locally (no Deno/full npm CI here)."
+      "passes": true,
+      "notes": "Implemented + verified. .github/workflows/security.yml runs 3 jobs on PR+push to main — npm-audit (npm ci + npm audit --audit-level=high), deno-check (deno lint + deno check src/main.ts + deno test on Deno 2.8.0, matching the Dockerfile baseline), and codeql (javascript-typescript, security-events: write). gitleaks intentionally NOT duplicated here — it stays in secret-scan.yml (US-272), which together with this file satisfies the 'and gitleaks' AC. .github/dependabot.yml configures npm + github-actions (weekly) + docker base image. .github/SECURITY_ADVISORY_ALLOWLIST.md documents accepted advisories (npm audit has no native ignore file). VERIFIED THIS PASS: ran `npm ci` (1054 pkgs) + `npm audit --audit-level=high` locally → 'found 0 vulnerabilities' (exit 0), so the npm-audit gate is green today. deno jobs are config-verified (no Deno runtime here, but the commands mirror the existing passing Dockerfile/test setup)."
     },
     {
       "id": "US-274",
@@ -4645,8 +4645,8 @@
         "Typecheck passes"
       ],
       "priority": 279,
-      "passes": false,
-      "notes": "PRD ref RC-001 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented. Migration supabase/migrations/00066_reconcile_sessions.sql: ADD COLUMN IF NOT EXISTS captured_at timestamptz (nullable) and reconcile_session_id uuid (nullable) on item_photos — existing rows unaffected; new public.reconcile_session_status enum (open|committed|abandoned); new table public.flipdesk_reconcile_sessions (id, user_id NOT NULL FK→users ON DELETE CASCADE, photo_count int default 0, status default 'open', created_at, updated_at + set_updated_at trigger). FK item_photos.reconcile_session_id→sessions ON DELETE SET NULL (so deleting a session doesn't cascade-delete committed photos), plus partial index. RLS owner-only on all four verbs (select/insert/update/delete via auth.uid()=user_id), mirroring the sources/item_photos per-user pattern. Idempotent (IF NOT EXISTS / DO-block guards). src/types/database.ts: added captured_at + reconcile_session_id to ItemPhotoRow/Insert, new ReconcileSessionStatus + ReconcileSessionRow/Insert/Update, and registered flipdesk_reconcile_sessions in the Database interface. VERIFIED: tsc --noEmit clean. Migration is SQL-reviewed (no local Postgres to apply); PRD ref RC-001 (tasks/prd-photo-dump-reconciliation.md)."
     },
     {
       "id": "US-280",
@@ -4661,8 +4661,8 @@
         "Typecheck passes"
       ],
       "priority": 280,
-      "passes": false,
-      "notes": "PRD ref RC-002 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented + verified. src/lib/exif.ts exposes readCaptureTime(file: File): Promise<Date | null>. ZERO-DEPENDENCY parser (no EXIF lib added → ~2KB of our own code, trivially under the 30KB budget and tree-shakeable as a single named export): walks the JPEG APP1/'Exif\\0\\0' segment, parses the TIFF header (both II little- and MM big-endian), follows the Exif sub-IFD pointer (0x8769), and reads DateTimeOriginal (0x9003) → falls back to DateTimeDigitized (0x9004) → file.lastModified → null. Robust: parsing never throws (try/catch → treat as no-EXIF), ignores zeroed '0000:00:00' placeholders, returns null when lastModified is 0/unavailable. src/lib/exif.test.ts (6 tests) covers EXIF little- and big-endian, Digitized fallback, no-EXIF→lastModified fallback, corrupt→null, and zeroed-placeholder→fallback; fixtures are built in-code (no binary files). VERIFIED: vitest 6/6 pass, tsc --noEmit clean, eslint clean. PRD ref RC-002 (tasks/prd-photo-dump-reconciliation.md)."
     },
     {
       "id": "US-281",
