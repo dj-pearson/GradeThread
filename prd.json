@@ -5657,6 +5657,21 @@
       "priority": 341,
       "passes": false,
       "notes": "BUILD-NEW. Heaviest item; depends on US-339 (originals) and complements US-336. Forensics are unreliable on our compressed images, so this is explicitly originals-only. Watch FP rate + storage/compute cost."
+    },
+    {
+      "id": "US-342",
+      "title": "Moderation queue: surface fraud-signal context for flagged submissions",
+      "description": "As a moderator, I want the moderation queue to show WHY each submission was flagged — non-clothing, suspected photo editing, screenshot/watermark, or cross-account photo reuse — along with the grade and the specific signals, so that the new automated fraud flags (US-336/337/338) are actionable instead of an undifferentiated pile.",
+      "acceptanceCriteria": [
+        "The existing /admin/moderation queue (flagged=true, moderation_status null) loads each submission's grade_report and derives per-flag-type badges from image_authenticity + detailed_notes + flag_reason",
+        "Each entry shows the grade (score/tier/confidence), the authenticity tells + flagged image types when present, and the photo-reuse note when present, plus a link to view the grade",
+        "Header copy reflects all flag sources, not just 'not clothing'",
+        "Approve / Reject & refund / Ban actions continue to work; tenant data is not exposed beyond the admin scope",
+        "Typecheck + build pass"
+      ],
+      "priority": 342,
+      "passes": true,
+      "notes": "BUILT (claude/grading-platform-authority-ornp9). Enriched the EXISTING moderation queue (src/pages/admin/moderation.tsx — it already had approve/reject/ban) to fetch grade_reports and surface per-flag-type badges (Possible photo edit / Screenshot-watermark / Reused photo / May not be clothing), grade+confidence, authenticity tells, and the photo-reuse note, with a link to the certificate. Makes US-336/337/338 flags actionable. BUILD-NEW."
     }
   ]
 }

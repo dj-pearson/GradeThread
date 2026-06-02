@@ -6,6 +6,7 @@ import type {
   SubmissionRow,
   UserRow,
   SubmissionImageRow,
+  GradeReportRow,
 } from "@/types/database";
 import {
   Card,
@@ -31,13 +32,51 @@ import {
   XCircle,
   Ban,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
 
 interface FlaggedSubmission {
   submission: SubmissionRow;
   user: UserRow | null;
+  report: GradeReportRow | null;
   images: { id: string; url: string }[];
+}
+
+interface FlagType {
+  label: string;
+  cls: string;
+}
+
+// Derive the specific reasons a submission is in the queue from the structured
+// grade signals (US-336/337/338) + the free-text flag reason, so a reviewer
+// sees WHAT to check rather than a generic "flagged".
+function deriveFlagTypes(
+  submission: SubmissionRow,
+  report: GradeReportRow | null,
+): FlagType[] {
+  const types: FlagType[] = [];
+  const auth = report?.image_authenticity ?? null;
+  const notes = report?.detailed_notes ?? {};
+  const reason = (submission.flag_reason ?? "").toLowerCase();
+  const red = "border-red-200 bg-red-100 text-red-800";
+  const amber = "border-yellow-200 bg-yellow-100 text-yellow-800";
+  const slate = "border-slate-200 bg-slate-100 text-slate-700";
+
+  if (auth?.manipulation_suspected) {
+    types.push({ label: "Possible photo edit", cls: red });
+  }
+  if (auth?.screenshot_or_watermark_detected) {
+    types.push({ label: "Screenshot / watermark", cls: amber });
+  }
+  if (notes["photo_reuse"] || reason.includes("match an image")) {
+    types.push({ label: "Reused photo", cls: red });
+  }
+  if (reason.includes("clothing")) {
+    types.push({ label: "May not be clothing", cls: slate });
+  }
+  if (types.length === 0) types.push({ label: "Flagged", cls: slate });
+  return types;
 }
 
 export function AdminModerationPage() {
@@ -68,6 +107,18 @@ export function AdminModerationPage() {
       }
 
       const submissionIds = submissions.map((s) => s.id);
+
+      // Grade reports carry the structured fraud signals (authenticity, reuse
+      // notes, confidence) we surface for each flagged item.
+      const { data: reportsRaw } = await supabase
+        .from("grade_reports")
+        .select("*")
+        .in("submission_id", submissionIds);
+      const reportBySubmission = new Map<string, GradeReportRow>();
+      for (const r of (reportsRaw ?? []) as GradeReportRow[]) {
+        reportBySubmission.set(r.submission_id, r);
+      }
+
       const { data: imagesRaw } = await supabase
         .from("submission_images")
         .select("*")
@@ -94,6 +145,7 @@ export function AdminModerationPage() {
         result.push({
           submission,
           user: usersById.get(submission.user_id) ?? null,
+          report: reportBySubmission.get(submission.id) ?? null,
           images: signed,
         });
       }
@@ -177,9 +229,7 @@ export function AdminModerationPage() {
       setBanTarget(null);
       await refetch();
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to ban user."
-      );
+      toast.error(err instanceof Error ? err.message : "Failed to ban user.");
     } finally {
       setBusyId(null);
     }
@@ -194,7 +244,8 @@ export function AdminModerationPage() {
         <div>
           <h1 className="text-2xl font-bold">Content Moderation</h1>
           <p className="text-sm text-muted-foreground">
-            Submissions flagged because their images may not depict clothing.
+            Submissions flagged for review — non-clothing images, suspected photo
+            editing, screenshots/watermarks, or photos reused across accounts.
           </p>
         </div>
       </div>
@@ -219,6 +270,10 @@ export function AdminModerationPage() {
         <div className="space-y-4">
           {entries.map((entry) => {
             const busy = busyId === entry.submission.id;
+            const report = entry.report;
+            const flagTypes = deriveFlagTypes(entry.submission, report);
+            const auth = report?.image_authenticity ?? null;
+            const reuseNote = report?.detailed_notes?.["photo_reuse"] ?? null;
             return (
               <Card key={entry.submission.id}>
                 <CardHeader>
@@ -244,14 +299,21 @@ export function AdminModerationPage() {
                         ).toLocaleDateString()}
                       </CardDescription>
                     </div>
-                    {entry.user?.suspended && (
-                      <Badge
-                        variant="outline"
-                        className="border-red-200 bg-red-100 text-red-800"
-                      >
-                        User suspended
-                      </Badge>
-                    )}
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
+                      {flagTypes.map((t) => (
+                        <Badge key={t.label} variant="outline" className={t.cls}>
+                          {t.label}
+                        </Badge>
+                      ))}
+                      {entry.user?.suspended && (
+                        <Badge
+                          variant="outline"
+                          className="border-red-200 bg-red-100 text-red-800"
+                        >
+                          User suspended
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -263,6 +325,55 @@ export function AdminModerationPage() {
                         "Images may not depict an item of clothing."}
                     </span>
                   </div>
+
+                  {/* Grade + fraud-signal context */}
+                  {report && (
+                    <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                        <span>
+                          <span className="text-muted-foreground">Grade: </span>
+                          <span className="font-semibold">
+                            {report.overall_score.toFixed(1)}
+                          </span>{" "}
+                          ({report.grade_tier})
+                        </span>
+                        <span>
+                          <span className="text-muted-foreground">Confidence: </span>
+                          <span className="font-medium">
+                            {Math.round(report.confidence_score * 100)}%
+                          </span>
+                        </span>
+                        {report.certificate_id && (
+                          <Link
+                            to={`/cert/${report.certificate_id}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-medium text-brand-navy hover:underline"
+                          >
+                            View grade
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Link>
+                        )}
+                      </div>
+                      {auth &&
+                        (auth.manipulation_suspected ||
+                          auth.screenshot_or_watermark_detected) &&
+                        auth.tells.length > 0 && (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            <span className="font-medium">Authenticity tells: </span>
+                            {auth.tells.join("; ")}
+                            {auth.flagged_image_types.length > 0 &&
+                              ` (images: ${auth.flagged_image_types.join(", ")})`}
+                          </p>
+                        )}
+                      {reuseNote && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          <span className="font-medium">Photo reuse: </span>
+                          {reuseNote}
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {entry.images.length > 0 && (
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
