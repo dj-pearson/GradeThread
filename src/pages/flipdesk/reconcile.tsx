@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   DndContext,
   type DragEndEvent,
@@ -20,6 +21,11 @@ import {
   Scissors,
   Merge,
   MoveRight,
+  Link2,
+  CheckCircle2,
+  XCircle,
+  Sparkles,
+  PackageCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -32,6 +38,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,6 +47,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { readCaptureTime } from "@/lib/exif";
@@ -53,20 +68,44 @@ import {
   type AssignmentMap,
   type ClusterablePhoto,
 } from "@/lib/reconcile-cluster";
-import type { ReconcileAssignmentSnapshot } from "@/types/database";
+import {
+  commitClusters,
+  type CommitCluster,
+  type CommitResult,
+} from "@/hooks/use-reconcile-commit";
+import { useBulkExtract, type BulkExtractResponse } from "@/hooks/use-ai-extract";
+import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
+import type { FlipdeskPhotoType, ReconcileAssignmentSnapshot } from "@/types/database";
 import { cn } from "@/lib/utils";
 
-// A photo as held in the reconcile UI before it's committed to inventory.
-// `previewUrl` is empty for entries restored from a persisted session (the blob
-// is gone on reload) until the same file is re-dropped.
 interface DumpPhoto extends ClusterablePhoto {
   name: string;
   previewUrl: string;
+  file: File | null;
+  photoType: FlipdeskPhotoType;
+}
+
+interface LinkTarget {
+  itemId: string;
+  title: string;
+}
+interface PhotolessItem {
+  id: string;
+  title: string;
+  brand: string | null;
+  sku: string | null;
+  status: string;
+}
+interface CommittedItem {
+  itemId: string;
+  label: string;
 }
 
 const ACCEPT = "image/*";
 const NEEDS_SORTING_DROP = "__needs_sorting__";
 const NEW_CLUSTER_DROP = "__new_cluster__";
+// item statuses eligible to receive a linked cluster (no photos yet)
+const LINKABLE_STATUSES = new Set(["sourced", "cataloged", "drafted"]);
 
 export function FlipdeskReconcilePage() {
   const { workspaceOwnerId, can } = useWorkspace();
@@ -78,15 +117,52 @@ export function FlipdeskReconcilePage() {
   const [dragOver, setDragOver] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [restored, setRestored] = useState(false);
+  const [linkTargets, setLinkTargets] = useState<Record<string, LinkTarget>>({});
+  const [committing, setCommitting] = useState(false);
+  const [results, setResults] = useState<CommitResult[] | null>(null);
+  const [committed, setCommitted] = useState<CommittedItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const bulkExtract = useBulkExtract();
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
   );
 
-  // Restore an in-progress (open) session on mount so a reload brings the
-  // cluster structure back. Photos come back as thumbnail-less placeholders.
+  // Photo-less items the user can link a cluster to (US-285).
+  const { data: linkableItems = [] } = useQuery({
+    queryKey: ["reconcile_linkable_items", workspaceOwnerId],
+    enabled: !!workspaceOwnerId && photos.length > 0,
+    staleTime: 60_000,
+    queryFn: async (): Promise<PhotolessItem[]> => {
+      const { data, error } = await supabase
+        .from("items_full")
+        .select("id, item_title, brand, item_number, status, photo_count")
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      const rows = (data ?? []) as Array<{
+        id: string;
+        item_title: string;
+        brand: string | null;
+        item_number: string | null;
+        status: string;
+        photo_count: number;
+      }>;
+      return rows
+        .filter((r) => r.photo_count === 0 && LINKABLE_STATUSES.has(r.status))
+        .map((r) => ({
+          id: r.id,
+          title: r.item_title,
+          brand: r.brand,
+          sku: r.item_number,
+          status: r.status,
+        }));
+    },
+  });
+
+  // Restore an in-progress session on mount.
   useEffect(() => {
     if (!workspaceOwnerId || restored) return;
     let cancelled = false;
@@ -115,6 +191,8 @@ export function FlipdeskReconcilePage() {
           name: a.name,
           capturedAt: a.capturedAt ? new Date(a.capturedAt) : null,
           previewUrl: "",
+          file: null,
+          photoType: "detail",
         });
         map[a.id] = { clusterId: a.clusterId, manual: a.manual };
       }
@@ -127,7 +205,6 @@ export function FlipdeskReconcilePage() {
     };
   }, [workspaceOwnerId, restored]);
 
-  // Release object URLs on unmount.
   useEffect(() => {
     return () => {
       for (const p of photos) if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
@@ -140,7 +217,7 @@ export function FlipdeskReconcilePage() {
     [photos, assignments],
   );
 
-  // Persist the assignment snapshot + threshold (best-effort, debounced).
+  // Persist assignment snapshot + threshold (debounced, best-effort).
   useEffect(() => {
     if (!sessionId || photos.length === 0) return;
     const snapshot: ReconcileAssignmentSnapshot[] = photos.map((p) => ({
@@ -153,11 +230,7 @@ export function FlipdeskReconcilePage() {
     const t = setTimeout(() => {
       void supabase
         .from("flipdesk_reconcile_sessions")
-        .update({
-          assignments: snapshot,
-          gap_seconds: gapSeconds,
-          photo_count: photos.length,
-        } as never)
+        .update({ assignments: snapshot, gap_seconds: gapSeconds, photo_count: photos.length } as never)
         .eq("id", sessionId);
     }, 600);
     return () => clearTimeout(t);
@@ -191,13 +264,9 @@ export function FlipdeskReconcilePage() {
       }
       const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
       if (files.length === 0) return;
-
       setIngesting(true);
       await ensureSession(sessionId);
       try {
-        // Read EXIF capture time from the ORIGINAL file before compression
-        // strips it. Awaiting per file yields to the event loop; flush in
-        // batches so a 100+ photo drop fills progressively without freezing.
         let batch: DumpPhoto[] = [];
         const flush = () => {
           if (batch.length === 0) return;
@@ -216,6 +285,8 @@ export function FlipdeskReconcilePage() {
             name: file.name,
             capturedAt,
             previewUrl: URL.createObjectURL(file),
+            file,
+            photoType: "detail",
           });
           if (batch.length >= 12) flush();
         }
@@ -227,7 +298,6 @@ export function FlipdeskReconcilePage() {
     [can, ensureSession, sessionId, gapSeconds],
   );
 
-  // Re-cluster non-manual photos live when the slider moves.
   function onGapChange(next: number) {
     setGapSeconds(next);
     setAssignments((prev) => reapplyThreshold(prev, photos, next));
@@ -240,6 +310,10 @@ export function FlipdeskReconcilePage() {
       else next.add(id);
       return next;
     });
+  }
+
+  function setPhotoType(id: string, type: FlipdeskPhotoType) {
+    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, photoType: type } : p)));
   }
 
   const selectedIds = useMemo(() => [...selected], [selected]);
@@ -260,13 +334,9 @@ export function FlipdeskReconcilePage() {
     const photoId = String(e.active.id);
     const over = e.over?.id;
     if (over == null) return;
-    if (over === NEW_CLUSTER_DROP) {
-      setAssignments((prev) => moveToNewCluster(prev, [photoId]));
-    } else if (over === NEEDS_SORTING_DROP) {
-      setAssignments((prev) => moveToCluster(prev, [photoId], null));
-    } else {
-      setAssignments((prev) => moveToCluster(prev, [photoId], String(over)));
-    }
+    if (over === NEW_CLUSTER_DROP) setAssignments((prev) => moveToNewCluster(prev, [photoId]));
+    else if (over === NEEDS_SORTING_DROP) setAssignments((prev) => moveToCluster(prev, [photoId], null));
+    else setAssignments((prev) => moveToCluster(prev, [photoId], String(over)));
   }
 
   function reset() {
@@ -274,12 +344,57 @@ export function FlipdeskReconcilePage() {
     setPhotos([]);
     setAssignments({});
     setSelected(new Set());
+    setLinkTargets({});
+    setCommitted([]);
     setSessionId(null);
+  }
+
+  async function commit() {
+    if (!workspaceOwnerId || clusters.length === 0) return;
+    setCommitting(true);
+    try {
+      const payload: CommitCluster[] = clusters.map((c, i) => ({
+        clusterId: c.clusterId,
+        label: linkTargets[c.clusterId]?.title ?? `Item ${i + 1}`,
+        linkItemId: linkTargets[c.clusterId]?.itemId ?? null,
+        titleHint: undefined,
+        photos: c.photos.map((p) => ({
+          id: p.id,
+          file: p.file,
+          capturedAt: p.capturedAt,
+          photoType: p.photoType,
+        })),
+      }));
+      const res = await commitClusters(payload, workspaceOwnerId, sessionId);
+      setResults(res);
+      const okItems = res
+        .filter((r) => r.ok && r.itemId)
+        .map((r) => ({ itemId: r.itemId!, label: r.title }));
+      setCommitted(okItems);
+      const failed = res.filter((r) => !r.ok).length;
+      if (failed === 0) toast.success(`Committed ${res.length} item(s) to your pipeline.`);
+      else toast.warning(`${res.length - failed} committed, ${failed} failed — see details.`);
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  async function generate(itemIds: string[]) {
+    if (itemIds.length === 0) return;
+    try {
+      const resp: BulkExtractResponse = await bulkExtract.mutateAsync({ item_ids: itemIds });
+      toast.success(
+        `Generated: ${resp.summary.enriched} applied, ${resp.summary.needs_review} need review.`,
+      );
+    } catch {
+      /* useBulkExtract surfaces its own error toast */
+    }
   }
 
   const timedCount = photos.length - needsSorting.length;
   const clusterLabel = (clusterId: string) =>
     `Item ${clusters.findIndex((c) => c.clusterId === clusterId) + 1}`;
+  const committable = clusters.length > 0 && committed.length === 0;
 
   return (
     <div className="space-y-6">
@@ -290,9 +405,8 @@ export function FlipdeskReconcilePage() {
             Photo Dump Reconcile
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Drop a whole haul at once. We group photos into proposed items by
-            capture time — adjust the gap, then fix grouping by hand (select, move,
-            merge, split, or drag).
+            Drop a whole haul at once, fix the grouping, set photo types, then commit
+            each group as an inventory item.
           </p>
         </div>
         {photos.length > 0 && (
@@ -351,7 +465,7 @@ export function FlipdeskReconcilePage() {
 
       {photos.length > 0 && (
         <>
-          {/* Counts + threshold slider */}
+          {/* Counts + slider + commit */}
           <Card>
             <CardHeader className="pb-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -376,18 +490,69 @@ export function FlipdeskReconcilePage() {
                     onChange={(e) => onGapChange(Number(e.target.value))}
                     className="h-2 w-44 cursor-pointer accent-primary"
                   />
+                  {committable && (
+                    <Button size="sm" onClick={commit} disabled={committing}>
+                      {committing ? (
+                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PackageCheck className="mr-1 h-3.5 w-3.5" />
+                      )}
+                      Commit {clusters.length} item{clusters.length === 1 ? "" : "s"}
+                    </Button>
+                  )}
                 </div>
               </div>
               <CardDescription>
                 A gap of {gapSeconds}s or more starts a new item group. {timedCount} of{" "}
-                {photos.length} photos have a capture time. Manual edits are kept when
-                you change the gap.
+                {photos.length} photos have a capture time. Manual edits survive a gap change.
               </CardDescription>
             </CardHeader>
           </Card>
 
+          {/* Committed items → generate title/details (US-288) */}
+          {committed.length > 0 && (
+            <Card className="border-green-300/60">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    Committed {committed.length} item{committed.length === 1 ? "" : "s"}
+                  </CardTitle>
+                  <CardDescription>Generate titles &amp; details with AI, or do it later.</CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => generate(committed.map((c) => c.itemId))}
+                  disabled={bulkExtract.isPending}
+                >
+                  {bulkExtract.isPending ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  Generate all
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-1">
+                {committed.map((c) => (
+                  <div key={c.itemId} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
+                    <span>{c.label}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => generate([c.itemId])}
+                      disabled={bulkExtract.isPending}
+                    >
+                      <Sparkles className="mr-1 h-3.5 w-3.5" /> Generate
+                    </Button>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Selection action bar */}
-          {selected.size > 0 && (
+          {selected.size > 0 && committed.length === 0 && (
             <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
               <span className="text-sm font-medium">{selected.size} selected</span>
               <Button size="sm" variant="outline" onClick={applyMoveToNew}>
@@ -404,14 +569,11 @@ export function FlipdeskReconcilePage() {
                   <DropdownMenuSeparator />
                   {clusters.map((c, i) => (
                     <DropdownMenuItem key={c.clusterId} onClick={() => applyMoveTo(c.clusterId)}>
-                      Item {i + 1}{" "}
-                      <span className="ml-1 text-muted-foreground">· {c.photos.length}</span>
+                      Item {i + 1} <span className="ml-1 text-muted-foreground">· {c.photos.length}</span>
                     </DropdownMenuItem>
                   ))}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => applyMoveTo(null)}>
-                    Needs sorting
-                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => applyMoveTo(null)}>Needs sorting</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
@@ -421,7 +583,6 @@ export function FlipdeskReconcilePage() {
           )}
 
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-            {/* Proposed clusters */}
             <div className="space-y-4">
               {clusters.map((cluster, i) => (
                 <ClusterCard
@@ -431,26 +592,38 @@ export function FlipdeskReconcilePage() {
                   photos={cluster.photos}
                   selected={selected}
                   onToggleSelect={toggleSelect}
+                  onSetPhotoType={setPhotoType}
+                  locked={committed.length > 0}
                   otherClusters={clusters
                     .filter((c) => c.clusterId !== cluster.clusterId)
                     .map((c) => ({ id: c.clusterId, label: clusterLabel(c.clusterId) }))}
                   onMerge={(from) => applyMerge(cluster.clusterId, from)}
+                  linkTarget={linkTargets[cluster.clusterId] ?? null}
+                  linkableItems={linkableItems}
+                  onLink={(t) =>
+                    setLinkTargets((prev) => {
+                      const next = { ...prev };
+                      if (t) next[cluster.clusterId] = t;
+                      else delete next[cluster.clusterId];
+                      return next;
+                    })
+                  }
                 />
               ))}
-
-              {/* Drop target to spin off a new cluster */}
-              <NewClusterDropZone />
+              {committed.length === 0 && <NewClusterDropZone />}
             </div>
 
-            {/* Needs-sorting bucket */}
             <NeedsSortingZone
               photos={needsSorting}
               selected={selected}
               onToggleSelect={toggleSelect}
+              onSetPhotoType={setPhotoType}
             />
           </DndContext>
         </>
       )}
+
+      <CommitResultsDialog results={results} onClose={() => setResults(null)} />
     </div>
   );
 }
@@ -461,18 +634,28 @@ function ClusterCard({
   photos,
   selected,
   onToggleSelect,
+  onSetPhotoType,
+  locked,
   otherClusters,
   onMerge,
+  linkTarget,
+  linkableItems,
+  onLink,
 }: {
   clusterId: string;
   index: number;
   photos: DumpPhoto[];
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType) => void;
+  locked: boolean;
   otherClusters: Array<{ id: string; label: string }>;
   onMerge: (fromClusterId: string) => void;
+  linkTarget: LinkTarget | null;
+  linkableItems: PhotolessItem[];
+  onLink: (t: LinkTarget | null) => void;
 }) {
-  const { isOver, setNodeRef } = useDroppable({ id: clusterId });
+  const { isOver, setNodeRef } = useDroppable({ id: clusterId, disabled: locked });
   return (
     <Card
       ref={setNodeRef}
@@ -486,31 +669,134 @@ function ClusterCard({
               · {photos.length} photo{photos.length === 1 ? "" : "s"}
             </span>
           </CardTitle>
-          <CardDescription>{formatRange(photos)}</CardDescription>
+          <CardDescription>
+            {linkTarget ? (
+              <span className="text-primary">Will link to: {linkTarget.title}</span>
+            ) : (
+              formatRange(photos)
+            )}
+          </CardDescription>
         </div>
-        {otherClusters.length > 0 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="ghost">
-                <Merge className="mr-1 h-3.5 w-3.5" /> Merge
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuLabel>Merge another item into this one</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {otherClusters.map((c) => (
-                <DropdownMenuItem key={c.id} onClick={() => onMerge(c.id)}>
-                  {c.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {!locked && (
+          <div className="flex items-center gap-1">
+            <LinkPicker
+              items={linkableItems}
+              current={linkTarget}
+              onLink={onLink}
+            />
+            {otherClusters.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost">
+                    <Merge className="mr-1 h-3.5 w-3.5" /> Merge
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Merge another item into this one</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {otherClusters.map((c) => (
+                    <DropdownMenuItem key={c.id} onClick={() => onMerge(c.id)}>
+                      {c.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         )}
       </CardHeader>
       <CardContent>
-        <ThumbGrid photos={photos} selected={selected} onToggleSelect={onToggleSelect} />
+        <ThumbGrid
+          photos={photos}
+          selected={selected}
+          onToggleSelect={onToggleSelect}
+          onSetPhotoType={onSetPhotoType}
+          editable={!locked}
+        />
       </CardContent>
     </Card>
+  );
+}
+
+function LinkPicker({
+  items,
+  current,
+  onLink,
+}: {
+  items: PhotolessItem[];
+  current: LinkTarget | null;
+  onLink: (t: LinkTarget | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return items.slice(0, 50);
+    return items
+      .filter(
+        (it) =>
+          it.title.toLowerCase().includes(needle) ||
+          (it.brand ?? "").toLowerCase().includes(needle) ||
+          (it.sku ?? "").toLowerCase().includes(needle),
+      )
+      .slice(0, 50);
+  }, [items, q]);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="ghost">
+          <Link2 className="mr-1 h-3.5 w-3.5" /> {current ? "Linked" : "Link"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-2">
+        <div className="mb-2 text-xs font-medium text-muted-foreground">
+          Link this group to a photo-less item
+        </div>
+        <Input
+          placeholder="Search title / brand / SKU…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="mb-2 h-8"
+        />
+        {current && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mb-1 w-full justify-start text-destructive"
+            onClick={() => {
+              onLink(null);
+              setOpen(false);
+            }}
+          >
+            Unlink (create new draft instead)
+          </Button>
+        )}
+        <div className="max-h-56 space-y-1 overflow-y-auto">
+          {filtered.length === 0 && (
+            <div className="px-2 py-3 text-center text-xs text-muted-foreground">
+              No photo-less items match.
+            </div>
+          )}
+          {filtered.map((it) => (
+            <button
+              key={it.id}
+              type="button"
+              onClick={() => {
+                onLink({ itemId: it.id, title: it.title });
+                setOpen(false);
+              }}
+              className="flex w-full flex-col rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+            >
+              <span className="truncate font-medium">{it.title}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {[it.brand, it.sku, it.status].filter(Boolean).join(" · ")}
+              </span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -533,20 +819,19 @@ function NeedsSortingZone({
   photos,
   selected,
   onToggleSelect,
+  onSetPhotoType,
 }: {
   photos: DumpPhoto[];
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: NEEDS_SORTING_DROP });
   if (photos.length === 0 && !isOver) return null;
   return (
     <Card
       ref={setNodeRef}
-      className={cn(
-        "mt-4 border-amber-300/60 transition-colors",
-        isOver && "border-primary ring-2 ring-primary/40",
-      )}
+      className={cn("mt-4 border-amber-300/60 transition-colors", isOver && "border-primary ring-2 ring-primary/40")}
     >
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
@@ -561,7 +846,13 @@ function NeedsSortingZone({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <ThumbGrid photos={photos} selected={selected} onToggleSelect={onToggleSelect} />
+        <ThumbGrid
+          photos={photos}
+          selected={selected}
+          onToggleSelect={onToggleSelect}
+          onSetPhotoType={onSetPhotoType}
+          editable
+        />
       </CardContent>
     </Card>
   );
@@ -571,10 +862,14 @@ function ThumbGrid({
   photos,
   selected,
   onToggleSelect,
+  onSetPhotoType,
+  editable,
 }: {
   photos: DumpPhoto[];
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType) => void;
+  editable: boolean;
 }) {
   return (
     <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-8">
@@ -584,6 +879,8 @@ function ThumbGrid({
           photo={p}
           selected={selected.has(p.id)}
           onToggleSelect={() => onToggleSelect(p.id)}
+          onSetPhotoType={(t) => onSetPhotoType(p.id, t)}
+          editable={editable}
         />
       ))}
     </div>
@@ -594,47 +891,107 @@ function Thumb({
   photo,
   selected,
   onToggleSelect,
+  onSetPhotoType,
+  editable,
 }: {
   photo: DumpPhoto;
   selected: boolean;
   onToggleSelect: () => void;
+  onSetPhotoType: (t: FlipdeskPhotoType) => void;
+  editable: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: photo.id });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: photo.id,
+    disabled: !editable,
+  });
   return (
-    <div
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className={cn(
-        "relative aspect-square cursor-grab overflow-hidden rounded-md border bg-muted",
-        selected && "ring-2 ring-primary",
-        isDragging && "opacity-30",
-      )}
-    >
+    <div className={cn("space-y-1", isDragging && "opacity-30")}>
       <div
-        className="absolute left-1 top-1 z-10"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => e.stopPropagation()}
+        ref={setNodeRef}
+        {...(editable ? attributes : {})}
+        {...(editable ? listeners : {})}
+        className={cn(
+          "relative aspect-square overflow-hidden rounded-md border bg-muted",
+          editable && "cursor-grab",
+          selected && "ring-2 ring-primary",
+        )}
       >
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={onToggleSelect}
-          aria-label="Select photo"
-          className="h-4 w-4 cursor-pointer accent-primary"
-        />
+        {editable && (
+          <div
+            className="absolute left-1 top-1 z-10"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={onToggleSelect}
+              aria-label="Select photo"
+              className="h-4 w-4 cursor-pointer accent-primary"
+            />
+          </div>
+        )}
+        {photo.previewUrl ? (
+          <img src={photo.previewUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-1 text-center">
+            <ImageOff className="h-4 w-4 text-muted-foreground" />
+            <span className="line-clamp-2 text-[9px] leading-tight text-muted-foreground">{photo.name}</span>
+          </div>
+        )}
       </div>
-      {photo.previewUrl ? (
-        <img src={photo.previewUrl} alt="" loading="lazy" className="h-full w-full object-cover" />
-      ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-1 p-1 text-center">
-          <ImageOff className="h-4 w-4 text-muted-foreground" />
-          <span className="line-clamp-2 text-[9px] leading-tight text-muted-foreground">
-            {photo.name}
-          </span>
-        </div>
-      )}
+      {/* Inline photo-type correction (US-286). */}
+      <select
+        value={photo.photoType}
+        disabled={!editable}
+        onChange={(e) => onSetPhotoType(e.target.value as FlipdeskPhotoType)}
+        onPointerDown={(e) => e.stopPropagation()}
+        className="w-full rounded border bg-background px-1 py-0.5 text-[10px]"
+        aria-label="Photo type"
+      >
+        {FLIPDESK_PHOTO_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {PHOTO_TYPE_LABELS[t]}
+          </option>
+        ))}
+      </select>
     </div>
+  );
+}
+
+function CommitResultsDialog({
+  results,
+  onClose,
+}: {
+  results: CommitResult[] | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={!!results} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Commit results</DialogTitle>
+          <DialogDescription>
+            {results?.filter((r) => r.ok).length ?? 0} of {results?.length ?? 0} items committed.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="max-h-80 space-y-1 overflow-y-auto">
+          {results?.map((r) => (
+            <div key={r.clusterId} className="flex items-start gap-2 rounded border px-3 py-2 text-sm">
+              {r.ok ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+              ) : (
+                <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
+              )}
+              <div>
+                <div className="font-medium">{r.title}</div>
+                <div className="text-xs text-muted-foreground">{r.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -645,7 +1002,5 @@ function formatRange(cluster: DumpPhoto[]): string {
   if (!first || !last) return "Capture time unknown";
   const fmt = (d: Date) =>
     d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  return first.getTime() === last.getTime()
-    ? `Shot at ${fmt(first)}`
-    : `Shot ${fmt(first)} – ${fmt(last)}`;
+  return first.getTime() === last.getTime() ? `Shot at ${fmt(first)}` : `Shot ${fmt(first)} – ${fmt(last)}`;
 }

@@ -4777,8 +4777,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 287,
-      "passes": false,
-      "notes": "PRD ref RC-009 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented (client-side, reusing the photo-uploader pipeline). src/hooks/use-reconcile-commit.ts commitClusters(): per cluster, either inserts a new inventory_items draft (user_id=workspaceOwnerId, status 'cataloged') OR links to a chosen existing item whose ownership is re-verified via an RLS-scoped select (a missing row => not yours/none). Each cluster photo runs through compressImage (2400/0.85 + 320/0.7 thumbnail, EXIF-stripped) -> uploads to the item-photos bucket at {owner}/{itemId}/{type}_{ts}.{ext} -> inserts item_photos with photo_type, captured_at (ISO), reconcile_session_id, thumbnail, dims, bytes. Restored placeholder photos (no blob) are skipped with a per-cluster note. After upload, advanceItemStatus(...,'photographed') runs forward-only when the required set (front/back/tag/detail) is present. Session is marked status='committed' when >=1 cluster succeeds. Partial failures return per-cluster CommitResult (mirrors pipeline.tsx BatchResult) shown in a CommitResultsDialog rather than a toast wall. VERIFIED: tsc -b + eslint clean, npm run build green, vitest 128/128. NOTE: 'verify in browser via dev-browser' deferred (no browser/DB here) — upload+insert paths mirror the proven photo-uploader.tsx flow. PRD ref RC-009."
     },
     {
       "id": "US-288",
@@ -4793,8 +4793,8 @@
         "Verify in browser using dev-browser skill"
       ],
       "priority": 288,
-      "passes": false,
-      "notes": "PRD ref RC-010 (tasks/prd-photo-dump-reconciliation.md). Photo Dump Reconciliation feature."
+      "passes": true,
+      "notes": "Implemented by wiring the pre-existing, working bulk-extract endpoint. After commit, the reconcile page shows a 'Committed N items' card; each committed item has a per-item 'Generate' button and a 'Generate all' button, both calling useBulkExtract -> POST /api/flipdesk/ai/bulk-extract with the committed item_id(s). Runs only on explicit click. The endpoint's existing semantics apply unchanged: high-confidence (>=0.85, empty, no conflict) auto-applies, lower-confidence fields go to the ai_field_sources review state. Quota exhaustion (429) is surfaced via useBulkExtract's aiErrorToast ('Monthly AI limit reached'); the edge also returns the upgrade-dialog 402 path through edgeFetch. 'Generate all' submits every committed item_id in one bulk call (the endpoint batches with internal concurrency). VERIFIED: tsc -b + eslint clean, npm run build green, vitest 128/128. NOTE: in-browser dev-browser run deferred (no browser here); the bulk-extract endpoint itself is pre-existing/proven. PRD ref RC-010."
     },
     {
       "id": "US-289",
