@@ -1,5 +1,16 @@
+# Cloudflare PAGES configuration.
+#
+# This is a Pages project (static SPA in ./dist + Pages Functions in ./functions),
+# NOT a Workers Sites project. Pages REQUIRES `pages_build_output_dir`; the old
+# `[site].bucket` key is Workers-Sites-only and is rejected by the Pages build
+# validator, which silently skips deploying the `functions/` directory. That is
+# why every dynamic route served by a Pages Function — /sitemap.xml, /robots.txt,
+# /llms.txt, /rss.xml, the blog SSR (/blog, /blog/*), certificate SSR (/cert/*),
+# OG images, etc. — was returning 404 and the site could not be indexed.
+#
+# With `pages_build_output_dir` set, Cloudflare auto-detects ./functions, builds
+# it into Pages Functions, and auto-generates the _routes.json so those paths
+# invoke the Functions instead of falling through to the SPA `_redirects` splat.
 name = "gradethread"
 compatibility_date = "2024-09-25"
-
-[site]
-bucket = "./dist"
+pages_build_output_dir = "./dist"
