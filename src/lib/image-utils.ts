@@ -152,6 +152,49 @@ export interface CompressResult {
   blob: Blob;
   width: number;
   height: number;
+  // 64-bit difference-hash (dHash) as 16 hex chars, computed from the
+  // orientation-corrected pixels. Used server-side (US-337) to detect the same
+  // photo being reused across submissions/sellers (stolen/recycled listings).
+  // Empty string if hashing failed (never blocks the upload).
+  phash: string;
+}
+
+/**
+ * Compute a 64-bit difference hash (dHash) from an already-rendered canvas.
+ * Downscales to 9x8 grayscale and emits one bit per horizontal neighbor
+ * comparison (8 per row x 8 rows = 64 bits), returned as 16 hex chars. dHash is
+ * robust to the resize/recompression our upload pipeline applies, so the same
+ * photo hashes to a near-identical value even after processing. Returns "" on
+ * any failure so it can never break an upload.
+ */
+function computeDHash(source: CanvasImageSource): string {
+  try {
+    const W = 9;
+    const H = 8;
+    const c = document.createElement("canvas");
+    c.width = W;
+    c.height = H;
+    const cx = c.getContext("2d");
+    if (!cx) return "";
+    cx.drawImage(source, 0, 0, W, H);
+    const { data } = cx.getImageData(0, 0, W, H);
+
+    let bits = "";
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W - 1; x++) {
+        const i = (y * W + x) * 4;
+        const j = (y * W + x + 1) * 4;
+        const left =
+          0.299 * (data[i] ?? 0) + 0.587 * (data[i + 1] ?? 0) + 0.114 * (data[i + 2] ?? 0);
+        const right =
+          0.299 * (data[j] ?? 0) + 0.587 * (data[j + 1] ?? 0) + 0.114 * (data[j + 2] ?? 0);
+        bits += left > right ? "1" : "0";
+      }
+    }
+    return BigInt("0b" + bits).toString(16).padStart(16, "0");
+  } catch {
+    return "";
+  }
 }
 
 export async function compressImage(
@@ -232,5 +275,9 @@ export async function compressImage(
     );
   });
 
-  return { blob, width: canvas.width, height: canvas.height };
+  // Hash the orientation-corrected canvas (matches the pixels we actually
+  // store) so reuse detection is stable across orientation/resize.
+  const phash = computeDHash(canvas);
+
+  return { blob, width: canvas.width, height: canvas.height, phash };
 }

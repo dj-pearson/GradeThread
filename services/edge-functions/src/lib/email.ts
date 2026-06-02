@@ -727,6 +727,48 @@ export async function sendGradingRegressionAlertEmail(
   });
 }
 
+// ─── Grade dispute filed (internal/admin alert) ─────────────────────
+
+interface DisputeFiledData {
+  submitterName: string;
+  submissionTitle: string;
+  reason: string;
+  submissionId: string;
+}
+
+/**
+ * Alert the platform admin that a submitter filed a grade dispute, so it's
+ * reviewed without polling the disputes table.
+ */
+export async function sendDisputeFiledAdminEmail(
+  to: string,
+  data: DisputeFiledData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      New grade dispute filed
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      <strong>${escapeHtml(data.submitterName)}</strong> disputed the grade for
+      <strong>${escapeHtml(data.submissionTitle)}</strong> and is requesting a review.
+    </p>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 8px;">
+      <tr>
+        <td style="padding: 12px; background:${BRAND_GRAY}; border-radius: 8px; font-size: 14px; color:#333;">
+          <span style="color:#666;font-size:12px;">Reason</span><br>
+          ${escapeHtml(data.reason)}
+        </td>
+      </tr>
+    </table>
+    ${ctaButton("Review dispute", `${SITE_URL}/admin/disputes`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `New grade dispute: ${data.submissionTitle}`,
+    html: emailLayout(content),
+  });
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {

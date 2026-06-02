@@ -5,6 +5,7 @@ import {
   getDefaultModel,
   getGradingCompositeModel,
   isCachingEnabled,
+  reviewConfidenceThreshold,
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
@@ -26,6 +27,23 @@ export interface PerImageAnalysis {
   // must not reduce estimated_scores.
   style_attributes: StyleAttribute[];
   estimated_scores: FactorScores;
+  // US-336/US-338: photo-authenticity assessment for THIS image (the per-image
+  // pass is the only one that sees pixels). Optional for back-compat with
+  // historical/eval traces.
+  authenticity?: PerImageAuthenticity;
+}
+
+// Signs that a photo was digitally edited to CONCEAL a defect (clone/heal over
+// a hole, localized smoothing inconsistent with the fabric, repeated texture),
+// or is a screenshot of another listing / carries a watermark. This is a
+// confidence-lowering, route-to-review signal — never a definitive "fake"
+// verdict, and benign edits (crop, exposure, background removal) don't count.
+export interface PerImageAuthenticity {
+  manipulation_suspected: boolean;
+  manipulation_confidence: number; // 0.0–1.0
+  tells: string[];
+  screenshot_or_watermark: boolean;
+  screenshot_watermark_reason: string;
 }
 
 export interface DetectedIssue {
@@ -92,6 +110,22 @@ export interface ImageValidity {
   reason: string;
 }
 
+// Aggregated, garment-level authenticity assessment synthesized (in code) from
+// the per-image PerImageAuthenticity flags. Persisted on grade_reports and
+// surfaced on the certificate so a buyer sees an authenticity check ran.
+export interface ImageAuthenticity {
+  manipulation_suspected: boolean;
+  // Max per-image manipulation confidence among the images that were flagged.
+  manipulation_confidence: number; // 0.0–1.0
+  screenshot_or_watermark_detected: boolean;
+  // Concrete visual tells, merged across images (deduped).
+  tells: string[];
+  // Which image types tripped a flag (e.g. ["front", "defect"]).
+  flagged_image_types: string[];
+  // Plain-language one-liner for the certificate.
+  summary: string;
+}
+
 export interface CompositeGradeResult {
   overall_score: number;
   grade_tier: string;
@@ -105,6 +139,8 @@ export interface CompositeGradeResult {
   confidence_score: number;
   needs_human_review: boolean;
   image_validity: ImageValidity;
+  // US-336/US-338: aggregated photo-authenticity assessment.
+  image_authenticity: ImageAuthenticity;
   prompt_version: string;
   // Actual model that produced the composite grade. Recorded so the
   // accuracy tracker can attribute error rates per model, not just per
@@ -328,6 +364,13 @@ Respond with a JSON object matching this exact schema:
     "cosmetic_appearance": <1.0-10.0>,
     "functional_elements": <1.0-10.0>,
     "odor_cleanliness": <1.0-10.0>
+  },
+  "authenticity": {
+    "manipulation_suspected": true | false,
+    "manipulation_confidence": <0.0-1.0>,
+    "tells": ["specific visual evidence, e.g. 'cloned/repeated texture near left knee', 'unnaturally smooth patch inconsistent with the surrounding weave'"],
+    "screenshot_or_watermark": true | false,
+    "screenshot_watermark_reason": "brief note if this looks like a screenshot of another listing or carries a watermark/app UI"
   }
 }
 
@@ -338,6 +381,7 @@ Rules:
 - estimated_scores: Score each factor 1.0-10.0 based on what is visible in THIS image only, GRADING AGAINST THE AS-MANUFACTURED STATE. Intentional design features (is_intentional=true) must NOT lower any score — only genuine wear/damage and any degradation BEYOND the original design intent counts.
 - condition_signals: List all positive AND negative indicators you observe.
 - For factors not assessable from this image type, score 7.0 (neutral) and note it in condition_signals.
+- authenticity: Inspect for signs the photo was DIGITALLY EDITED TO CONCEAL A DEFECT — content-aware fill / clone / heal over a hole, stain, or worn area; localized smoothing or blur inconsistent with the surrounding fabric or weave; repeated (cloned) texture patches; warped or "melted" patterns; or halos/soft edges around an edited region (pay special attention near seams, hems, and high-wear points). Set manipulation_suspected=true with manipulation_confidence reflecting how sure you are, and list concrete tells. CRITICAL — do NOT flag benign, non-deceptive edits: cropping, rotation, exposure/brightness/contrast/white-balance or color adjustment, background removal, and ordinary compression are NOT manipulation. Separately, set screenshot_or_watermark=true if the image is clearly a screenshot of another listing (UI chrome, status bar, other-platform branding) or carries a visible watermark/overlay — but distinguish that from a garment's own printed graphic/logo, which is NOT a watermark. When nothing is suspicious, set both booleans false, manipulation_confidence 0, and tells [].
 - Be precise and objective. Do not guess about things not visible in the image.`;
 }
 
@@ -363,6 +407,38 @@ function normalizeBbox(raw: unknown): [number, number, number, number] | null {
   if (w <= 0 || h <= 0) return null;
   const r = (n: number) => Math.round(n * 1000) / 1000;
   return [r(x), r(y), r(w), r(h)];
+}
+
+// Coerce a model-supplied authenticity object into a clean PerImageAuthenticity.
+// Defaults to "nothing suspicious" so a missing/garbled field never fabricates a
+// manipulation flag.
+function normalizeAuthenticity(raw: unknown): PerImageAuthenticity {
+  const clean: PerImageAuthenticity = {
+    manipulation_suspected: false,
+    manipulation_confidence: 0,
+    tells: [],
+    screenshot_or_watermark: false,
+    screenshot_watermark_reason: "",
+  };
+  if (!raw || typeof raw !== "object") return clean;
+  const a = raw as Record<string, unknown>;
+  clean.manipulation_suspected = a.manipulation_suspected === true;
+  if (typeof a.manipulation_confidence === "number" && isFinite(a.manipulation_confidence)) {
+    clean.manipulation_confidence = Math.max(0, Math.min(1, a.manipulation_confidence));
+  }
+  if (Array.isArray(a.tells)) {
+    clean.tells = a.tells.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+  }
+  clean.screenshot_or_watermark = a.screenshot_or_watermark === true;
+  if (typeof a.screenshot_watermark_reason === "string") {
+    clean.screenshot_watermark_reason = a.screenshot_watermark_reason;
+  }
+  // If the model says "suspected" but gives zero confidence, treat the boolean
+  // as the source of truth with a modest floor so it isn't silently dropped.
+  if (clean.manipulation_suspected && clean.manipulation_confidence === 0) {
+    clean.manipulation_confidence = 0.5;
+  }
+  return clean;
 }
 
 type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -426,7 +502,9 @@ export async function analyzeImage(
   try {
     const response = await client.messages.create({
       model: getDefaultModel(),
-      max_tokens: 1024,
+      // Headroom so the added authenticity block can't truncate the JSON
+      // (truncation → parse failure → grade fails).
+      max_tokens: 1536,
       ...(temperature !== undefined ? { temperature } : {}),
       system: [systemBlock],
       messages: [
@@ -471,6 +549,7 @@ export async function analyzeImage(
       style_attributes?: StyleAttribute[];
       condition_signals: ConditionSignal[];
       estimated_scores: FactorScores;
+      authenticity?: unknown;
     };
 
     try {
@@ -524,6 +603,7 @@ export async function analyzeImage(
       style_attributes: parsed.style_attributes,
       condition_signals: parsed.condition_signals,
       estimated_scores: parsed.estimated_scores,
+      authenticity: normalizeAuthenticity(parsed.authenticity),
     };
   } catch (error) {
     const latencyMs = Date.now() - startTime;
@@ -652,6 +732,57 @@ Rules:
 - style_attributes: consolidate all intentional design features observed (empty array if none). These do not lower the grade.
 - confidence_score: lower if images are blurry, incomplete coverage, conflicting signals, ambiguous design-vs-damage calls, or unusual garment
 - image_validity: set is_clothing to false if the images do not depict an actual item of clothing (e.g. blank, unrelated objects, inappropriate content)`;
+}
+
+// A per-image manipulation flag below this confidence is treated as noise and
+// not escalated to the garment-level signal (keeps false positives in check).
+const MANIPULATION_MIN_CONFIDENCE = 0.5;
+
+/**
+ * Synthesize the garment-level authenticity assessment from per-image flags.
+ * Pure + deterministic (the visual judgment already happened per-image), so the
+ * thresholds are unit-testable. Exported for that reason.
+ */
+export function aggregateAuthenticity(results: PerImageAnalysis[]): ImageAuthenticity {
+  let manipulationSuspected = false;
+  let maxConfidence = 0;
+  let screenshot = false;
+  const tells = new Set<string>();
+  const flaggedTypes = new Set<string>();
+
+  for (const r of results) {
+    const a = r.authenticity;
+    if (!a) continue;
+    if (a.manipulation_suspected && a.manipulation_confidence >= MANIPULATION_MIN_CONFIDENCE) {
+      manipulationSuspected = true;
+      maxConfidence = Math.max(maxConfidence, a.manipulation_confidence);
+      flaggedTypes.add(r.image_type);
+      for (const t of a.tells) tells.add(t);
+    }
+    if (a.screenshot_or_watermark) {
+      screenshot = true;
+      flaggedTypes.add(r.image_type);
+      if (a.screenshot_watermark_reason) tells.add(a.screenshot_watermark_reason);
+    }
+  }
+
+  const parts = [
+    manipulationSuspected ? "possible photo editing over a flaw" : null,
+    screenshot ? "a screenshot or watermarked image" : null,
+  ].filter(Boolean);
+  const summary =
+    parts.length > 0
+      ? `Authenticity check flagged ${parts.join(" and ")} — this grade was routed for human review.`
+      : "Authenticity check passed: no signs of photo manipulation or reused/screenshot images.";
+
+  return {
+    manipulation_suspected: manipulationSuspected,
+    manipulation_confidence: Number(maxConfidence.toFixed(2)),
+    screenshot_or_watermark_detected: screenshot,
+    tells: [...tells],
+    flagged_image_types: [...flaggedTypes],
+    summary,
+  };
 }
 
 function scoreToGradeTier(score: number): string {
@@ -834,13 +965,27 @@ export async function compositeGrade(
           : "",
     };
 
-    // Flag for human review if confidence is below threshold
-    const needsHumanReview = confidenceScore < 0.75;
+    // US-336/US-338: aggregate the per-image authenticity flags. A suspected
+    // manipulation or screenshot/watermark is a CONFIDENCE-LOWERING signal — we
+    // cap confidence below the review threshold so the grade is always routed
+    // to a human rather than shipped, but we never auto-declare it fake.
+    const imageAuthenticity = aggregateAuthenticity(perImageResults);
+    const authenticityFlagged =
+      imageAuthenticity.manipulation_suspected ||
+      imageAuthenticity.screenshot_or_watermark_detected;
+    const finalConfidence = authenticityFlagged
+      ? Math.min(confidenceScore, 0.6)
+      : confidenceScore;
+
+    // Flag for human review if confidence is below threshold or authenticity is suspect.
+    const needsHumanReview =
+      finalConfidence < reviewConfidenceThreshold() || authenticityFlagged;
 
     if (needsHumanReview) {
       console.log(
         `[AI Grading] compositeGrade FLAGGED for human review | ` +
-          `confidence=${confidenceScore} | overall_score=${overallScore}`
+          `confidence=${finalConfidence} | overall_score=${overallScore} | ` +
+          `authenticity_flagged=${authenticityFlagged}`
       );
     }
 
@@ -851,9 +996,10 @@ export async function compositeGrade(
       ai_summary: aiSummary,
       defects_found: defectsFound,
       style_attributes: styleAttributes,
-      confidence_score: confidenceScore,
+      confidence_score: finalConfidence,
       needs_human_review: needsHumanReview,
       image_validity: imageValidity,
+      image_authenticity: imageAuthenticity,
       prompt_version: promptVersion,
       model: compositeModel,
     };

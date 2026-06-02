@@ -232,12 +232,15 @@ export function BulkSubmissionPage() {
   async function buildPhotoFile(
     entry: ZipEntry,
     name: string
-  ): Promise<File> {
+  ): Promise<{ file: File; phash: string }> {
     const raw = new File([entry.data as BlobPart], name, {
       type: mimeForName(name),
     });
     const compressed = await compressImage(raw);
-    return new File([compressed.blob], name, { type: compressed.blob.type });
+    return {
+      file: new File([compressed.blob], name, { type: compressed.blob.type }),
+      phash: compressed.phash,
+    };
   }
 
   async function handleSubmit() {
@@ -273,11 +276,12 @@ export function BulkSubmissionPage() {
             const fileName = row.photoFilenames[p]!;
             const entry = zipEntries.get(baseName(fileName));
             if (!entry) throw new Error(`Photo missing: ${fileName}`);
-            const photoFile = await buildPhotoFile(entry, fileName);
+            const { file: photoFile, phash } = await buildPhotoFile(entry, fileName);
             const imageType =
               IMAGE_TYPE_BY_INDEX[p] ?? ("detail" as ImageType);
             formData.append("images", photoFile);
             formData.append("image_types", imageType);
+            formData.append("phashes", phash);
           }
 
           const headers: Record<string, string> = {

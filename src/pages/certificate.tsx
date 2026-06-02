@@ -1,7 +1,17 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
-import { Shield, AlertTriangle, Calendar, Cpu, BadgeCheck } from "lucide-react";
+import {
+  Shield,
+  ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
+  Calendar,
+  Cpu,
+  BadgeCheck,
+  Gauge,
+  UserCheck,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -51,6 +61,23 @@ function formatLabel(value: string): string {
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+// Order defects worst-first so the most grade-relevant flaws lead.
+const SEVERITY_RANK: Record<string, number> = { major: 0, moderate: 1, minor: 2 };
+
+function severityBadgeClasses(severity: string): string {
+  if (severity === "major") return "bg-red-100 text-red-800 border-red-200";
+  if (severity === "moderate") return "bg-yellow-100 text-yellow-800 border-yellow-200";
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+// Plain-language confidence label from the 0–1 model confidence.
+function confidenceLabel(score: number): string {
+  if (score >= 0.9) return "Very high";
+  if (score >= 0.75) return "High";
+  if (score >= 0.6) return "Moderate";
+  return "Reviewed"; // below threshold → was routed to human review
 }
 
 function CertificateLoadingSkeleton() {
@@ -198,6 +225,22 @@ export function CertificatePage() {
       score: gradeReport.odor_cleanliness_score,
     },
   ];
+
+  // US-328: genuine defects, worst-first. Empty for clean items / historical
+  // grades that never persisted structured defects.
+  const defects = [...(gradeReport.defects_found ?? [])].sort(
+    (a, b) =>
+      (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3)
+  );
+
+  // US-336/US-338: authenticity check result (null for grades before the check
+  // existed). We surface a measured, buyer-facing line — not the raw detection
+  // tells, which stay in the admin view so they can't be used to evade it.
+  const authenticity = gradeReport.image_authenticity;
+  const authenticityFlagged =
+    !!authenticity &&
+    (authenticity.manipulation_suspected ||
+      authenticity.screenshot_or_watermark_detected);
 
   return (
     <div className="min-h-screen bg-background">
@@ -368,6 +411,124 @@ export function CertificatePage() {
             <p className="whitespace-pre-wrap text-sm leading-relaxed">
               {gradeReport.ai_summary}
             </p>
+          </CardContent>
+        </Card>
+
+        {/* Condition & Flaws — the genuine defects behind the grade, so a buyer
+            sees exactly WHY the score is what it is. */}
+        {defects.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Condition &amp; Flaws</CardTitle>
+              <CardDescription>
+                Genuine wear and damage the grade accounts for. Intentional
+                design features are listed separately and don&apos;t lower the
+                grade.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3">
+                {defects.map((d, i) => (
+                  <li
+                    key={i}
+                    className="flex flex-col gap-1 border-b pb-3 last:border-b-0 last:pb-0"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-xs capitalize",
+                          severityBadgeClasses(d.severity)
+                        )}
+                      >
+                        {d.severity}
+                      </Badge>
+                      <span className="text-sm font-medium">{d.defect}</span>
+                      {d.location && (
+                        <span className="text-xs text-muted-foreground">
+                          · {d.location}
+                        </span>
+                      )}
+                    </div>
+                    {d.impact_on_grade && (
+                      <p className="text-xs text-muted-foreground">
+                        {d.impact_on_grade}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Grade Assurance — confidence, human review, and the authenticity
+            check, so a buyer can trust HOW the grade was produced, not just the
+            number. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Grade Assurance</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {/* Confidence */}
+            <div className="flex items-start gap-3">
+              <Gauge className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy" />
+              <div>
+                <p className="text-sm font-medium">
+                  Grade confidence: {confidenceLabel(gradeReport.confidence_score)}{" "}
+                  <span className="text-muted-foreground">
+                    ({Math.round(gradeReport.confidence_score * 100)}%)
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Low-confidence grades are routed to a human reviewer before
+                  they&apos;re finalized.
+                </p>
+              </div>
+            </div>
+
+            {/* Human review */}
+            {gradeReport.human_reviewed && (
+              <div className="flex items-start gap-3">
+                <UserCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                <div>
+                  <p className="text-sm font-medium">Human-reviewed</p>
+                  <p className="text-xs text-muted-foreground">
+                    A GradeThread reviewer checked this grade.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Authenticity check — only shown when the check actually ran. */}
+            {authenticity &&
+              (authenticityFlagged ? (
+                <div className="flex items-start gap-3">
+                  <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600" />
+                  <div>
+                    <p className="text-sm font-medium">
+                      Authenticity check: routed for review
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Our photo-authenticity check flagged this submission, so it
+                      received additional human review
+                      {gradeReport.human_reviewed ? " and was confirmed" : ""}.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                  <div>
+                    <p className="text-sm font-medium">
+                      Authenticity check passed
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      No signs of photo manipulation or reused/screenshot images.
+                    </p>
+                  </div>
+                </div>
+              ))}
           </CardContent>
         </Card>
 

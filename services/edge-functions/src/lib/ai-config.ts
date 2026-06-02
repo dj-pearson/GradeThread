@@ -73,6 +73,14 @@ export function isCachingEnabled(): boolean {
   return readBool("AI_ENABLE_CACHING", DEFAULTS.enableCaching);
 }
 
+// Confidence below which a grade is routed to human review. Configurable
+// (US-331) so the calibration report's recommended operating point can be
+// applied without a code change. Defaults to 0.75. Clamped to (0, 1].
+export function reviewConfidenceThreshold(): number {
+  const raw = Number(Deno.env.get("GRADING_REVIEW_CONFIDENCE_THRESHOLD"));
+  return Number.isFinite(raw) && raw > 0 && raw <= 1 ? raw : 0.75;
+}
+
 let anthropicClient: Anthropic | null = null;
 
 export function getAnthropicClient(): Anthropic {

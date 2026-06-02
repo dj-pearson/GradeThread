@@ -213,10 +213,13 @@ export function NewSubmissionPage() {
       if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
       if (garmentInfo.description) formData.append("description", garmentInfo.description);
 
-      // Append images and their types as parallel arrays
+      // Append images, their types, and perceptual hashes as parallel arrays.
+      // phashes power server-side photo-reuse detection (US-337); empty when
+      // hashing failed client-side.
       for (const photo of photos) {
         formData.append("images", photo.file);
         formData.append("image_types", photo.imageType);
+        formData.append("phashes", photo.phash ?? "");
       }
 
       // Send the active workspace owner so the submission lands in the

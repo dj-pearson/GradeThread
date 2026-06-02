@@ -37,8 +37,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { GRADE_FACTORS } from "@/lib/constants";
+import { GRADE_FACTORS, DISPUTE_REASONS } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { edgeApiUrl } from "@/lib/edge-api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
@@ -124,6 +132,7 @@ export function SubmissionDetailPage() {
   const [dispute, setDispute] = useState<DisputeRow | null>(null);
   const [linkedItem, setLinkedItem] = useState<InventoryItemRow | null>(null);
   const [disputeDialogOpen, setDisputeDialogOpen] = useState(false);
+  const [disputeCategory, setDisputeCategory] = useState("");
   const [disputeReason, setDisputeReason] = useState("");
   const [disputePhotos, setDisputePhotos] = useState<File[]>([]);
   const [submittingDispute, setSubmittingDispute] = useState(false);
@@ -265,10 +274,26 @@ export function SubmissionDetailPage() {
   async function handleSubmitDispute() {
     if (!user || !gradeReport) return;
 
-    if (disputeReason.trim().length < 20) {
-      toast.error("Please provide a reason of at least 20 characters.");
+    if (!disputeCategory) {
+      toast.error("Please choose a reason for the dispute.");
       return;
     }
+    const details = disputeReason.trim();
+    // Free-text details are required for "Other", optional otherwise.
+    if (disputeCategory === "other" && details.length < 20) {
+      toast.error("Please describe the issue in at least 20 characters.");
+      return;
+    }
+
+    // Compose the stored reason from the chosen category + optional details.
+    const categoryLabel =
+      DISPUTE_REASONS.find((r) => r.value === disputeCategory)?.label ?? "Other";
+    const composedReason =
+      disputeCategory === "other"
+        ? details
+        : details
+          ? `${categoryLabel} — ${details}`
+          : categoryLabel;
 
     setSubmittingDispute(true);
 
@@ -291,7 +316,7 @@ export function SubmissionDetailPage() {
         .insert({
           grade_report_id: gradeReport.id,
           user_id: workspaceOwnerId ?? user.id,
-          reason: disputeReason.trim(),
+          reason: composedReason,
         } as never)
         .select()
         .single();
@@ -304,11 +329,31 @@ export function SubmissionDetailPage() {
         .update({ status: "disputed" } as never)
         .eq("id", submission!.id);
 
+      // Alert the platform admin to review (best-effort — never blocks filing).
+      void (async () => {
+        try {
+          const { data: sess } = await supabase.auth.getSession();
+          const token = sess.session?.access_token;
+          if (!token) return;
+          await fetch(`${edgeApiUrl()}/api/notifications/dispute-filed`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ disputeId: (newDispute as DisputeRow).id }),
+          });
+        } catch {
+          /* best-effort */
+        }
+      })();
+
       setDispute(newDispute as DisputeRow);
       setSubmission((prev) =>
         prev ? { ...prev, status: "disputed" as const } : prev
       );
       setDisputeDialogOpen(false);
+      setDisputeCategory("");
       setDisputeReason("");
       setDisputePhotos([]);
       toast.success("Dispute submitted successfully. We'll review it shortly.");
@@ -455,22 +500,44 @@ export function SubmissionDetailPage() {
                 </DialogHeader>
                 <div className="space-y-4">
                   <div className="space-y-2">
+                    <Label htmlFor="dispute-category">Reason for dispute</Label>
+                    <Select
+                      value={disputeCategory}
+                      onValueChange={setDisputeCategory}
+                    >
+                      <SelectTrigger id="dispute-category">
+                        <SelectValue placeholder="Choose a reason…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {DISPUTE_REASONS.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="dispute-reason">
-                      Reason for dispute{" "}
+                      Details{" "}
                       <span className="text-muted-foreground">
-                        (min 20 characters)
+                        {disputeCategory === "other"
+                          ? "(required, min 20 characters)"
+                          : "(optional)"}
                       </span>
                     </Label>
                     <Textarea
                       id="dispute-reason"
-                      placeholder="Describe why you believe this grade is inaccurate..."
+                      placeholder="Add any specifics that will help us review this grade…"
                       value={disputeReason}
                       onChange={(e) => setDisputeReason(e.target.value)}
                       rows={4}
                     />
-                    <p className="text-xs text-muted-foreground">
-                      {disputeReason.length}/20 characters minimum
-                    </p>
+                    {disputeCategory === "other" && (
+                      <p className="text-xs text-muted-foreground">
+                        {disputeReason.trim().length}/20 characters minimum
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Additional evidence (optional)</Label>
@@ -537,7 +604,10 @@ export function SubmissionDetailPage() {
                   <Button
                     onClick={handleSubmitDispute}
                     disabled={
-                      submittingDispute || disputeReason.trim().length < 20
+                      submittingDispute ||
+                      !disputeCategory ||
+                      (disputeCategory === "other" &&
+                        disputeReason.trim().length < 20)
                     }
                   >
                     {submittingDispute && (

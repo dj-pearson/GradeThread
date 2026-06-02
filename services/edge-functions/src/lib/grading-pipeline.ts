@@ -9,6 +9,7 @@ import {
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
+import { detectPhotoReuse } from "./photo-reuse.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -67,7 +68,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order")
+      .select("id, image_type, storage_path, display_order, phash")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -181,6 +182,35 @@ export async function processSubmission(submissionId: string) {
         .join("; ");
     }
 
+    // Add an authenticity note when the photo-authenticity check (US-336/338)
+    // flagged anything, so admins/reviewers see why the grade was held.
+    const authenticity = compositeResult.image_authenticity;
+    if (authenticity.manipulation_suspected || authenticity.screenshot_or_watermark_detected) {
+      const tells = authenticity.tells.length > 0 ? ` Tells: ${authenticity.tells.join("; ")}.` : "";
+      const where =
+        authenticity.flagged_image_types.length > 0
+          ? ` Images: ${authenticity.flagged_image_types.join(", ")}.`
+          : "";
+      detailedNotes["authenticity_summary"] = `${authenticity.summary}${tells}${where}`;
+    }
+
+    // US-337: photo-reuse detection. The same photo appearing under a DIFFERENT
+    // account is the strong stolen/recycled-listing signal; a same-account match
+    // is just a relist (recorded but not flagged).
+    const reuse = await detectPhotoReuse({
+      submissionId,
+      ownerId: submission.user_id,
+      images: images.map((img) => ({
+        image_type: img.image_type,
+        phash: (img as { phash?: string | null }).phash ?? null,
+      })),
+    });
+    if (reuse.matched) {
+      const closest = Math.min(...reuse.matches.map((m) => m.distance));
+      detailedNotes["photo_reuse"] =
+        `${reuse.summary} (${reuse.matches.length} image(s), closest ${closest} bits).`;
+    }
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -204,6 +234,9 @@ export async function processSubmission(submissionId: string) {
         per_image_analysis: perImageResults,
         confidence_score: compositeResult.confidence_score,
         needs_human_review: compositeResult.needs_human_review,
+        // US-336/US-338: aggregated photo-authenticity assessment (manipulation /
+        // screenshot / watermark). Surfaced on the certificate + admin review.
+        image_authenticity: compositeResult.image_authenticity,
         // Record the real model + prompt version (e.g.
         // "claude-sonnet-4-6|composite_v2") so accuracy-tracking can
         // distinguish model changes, not just prompt revisions. prompt_version
@@ -231,11 +264,26 @@ export async function processSubmission(submissionId: string) {
     // --- Step 7: Update submission status to 'completed' ---
     // Flag for moderation if the AI judged the images not to be clothing.
     const submissionUpdate: Record<string, unknown> = { status: "completed" };
+    const flagReasons: string[] = [];
     if (!compositeResult.image_validity.is_clothing) {
-      submissionUpdate.flagged = true;
-      submissionUpdate.flag_reason =
+      flagReasons.push(
         compositeResult.image_validity.reason ||
-        "Submitted images may not depict an item of clothing.";
+          "Submitted images may not depict an item of clothing."
+      );
+    }
+    // US-336/US-338: route suspected-manipulation / screenshot submissions into
+    // the moderation queue too (in addition to needs_human_review on the grade).
+    if (authenticity.manipulation_suspected || authenticity.screenshot_or_watermark_detected) {
+      flagReasons.push(authenticity.summary);
+    }
+    // US-337: a cross-account photo match is a moderation concern (possible
+    // stolen/recycled listing). Same-account relists are not flagged.
+    if (reuse.cross_user) {
+      flagReasons.push(reuse.summary);
+    }
+    if (flagReasons.length > 0) {
+      submissionUpdate.flagged = true;
+      submissionUpdate.flag_reason = flagReasons.join(" ");
       console.warn(
         `[Pipeline] Submission ${submissionId} FLAGGED for moderation: ${submissionUpdate.flag_reason}`
       );

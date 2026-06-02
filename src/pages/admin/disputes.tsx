@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { getImageUrl } from "@/lib/storage";
+import { promoteEvalCandidate } from "@/lib/eval-candidates";
+import { edgeApiUrl } from "@/lib/edge-api";
 import { GRADE_FACTORS } from "@/lib/constants";
 import type {
   DisputeRow,
@@ -68,17 +70,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-const EDGE_URL = import.meta.env.VITE_SUPABASE_URL
-  ? `${import.meta.env.VITE_SUPABASE_URL.replace(/\/$/, "")}`
-  : "";
-
+// Notify the submitter of a dispute status change (in-app always, email on
+// resolve/reject). Best-effort — never blocks the admin action. Uses the edge
+// (functions) host, not the Supabase host.
 async function sendDisputeNotification(disputeId: string): Promise<void> {
   try {
     const { data } = await supabase.auth.getSession();
     const token = data.session?.access_token;
-    if (!token || !EDGE_URL) return;
+    if (!token) return;
 
-    await fetch(`${EDGE_URL}/api/notifications/dispute-resolved`, {
+    await fetch(`${edgeApiUrl()}/api/notifications/dispute-status`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -87,7 +88,7 @@ async function sendDisputeNotification(disputeId: string): Promise<void> {
       body: JSON.stringify({ disputeId }),
     });
   } catch (err) {
-    console.error("[Disputes] Failed to send notification email:", err);
+    console.error("[Disputes] Failed to send status notification:", err);
   }
 }
 
@@ -421,6 +422,9 @@ export function AdminDisputesPage() {
         grade_report_id: item.report.id,
       });
 
+      // Notify the submitter their dispute is being reviewed.
+      sendDisputeNotification(item.dispute.id);
+
       toast.success("Dispute marked as under review");
       queryClient.invalidateQueries({ queryKey: ["admin-disputes"] });
       setSelectedDispute(null);
@@ -473,6 +477,10 @@ export function AdminDisputesPage() {
           } as never)
           .eq("id", selectedDispute.report.id);
         if (updateError) throw updateError;
+
+        // US-329: a dispute resolved by adjusting the grade is a high-value
+        // correction — promote it into a pending eval candidate (best-effort).
+        await promoteEvalCandidate(selectedDispute.report.id, "dispute");
       }
 
       // Update dispute status to resolved

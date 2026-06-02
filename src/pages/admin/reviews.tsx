@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { getImageUrl } from "@/lib/storage";
+import { promoteEvalCandidate } from "@/lib/eval-candidates";
 import { GRADE_FACTORS } from "@/lib/constants";
 import type {
   SubmissionRow,
@@ -423,6 +424,12 @@ export function AdminReviewsPage() {
         .insert(reviewInsert as never);
       if (error) throw error;
 
+      // Mark the grade as human-reviewed (drives the public certificate badge).
+      await supabase
+        .from("grade_reports")
+        .update({ human_reviewed: true } as never)
+        .eq("id", reviewingItem.report.id);
+
       await logAuditAction("approve_grade", "grade_report", reviewingItem.report.id, {
         submission_id: reviewingItem.submission.id,
         original_score: reviewingItem.report.overall_score,
@@ -496,9 +503,14 @@ export function AdminReviewsPage() {
           cosmetic_appearance_score: adjustedScores.cosmetic_appearance_score,
           functional_elements_score: adjustedScores.functional_elements_score,
           odor_cleanliness_score: adjustedScores.odor_cleanliness_score,
+          human_reviewed: true,
         } as never)
         .eq("id", reviewingItem.report.id);
       if (updateError) throw updateError;
+
+      // US-329: grow the golden eval set from this real correction (best-effort,
+      // lands as a pending candidate for admin approval).
+      await promoteEvalCandidate(reviewingItem.report.id, "human_review");
 
       await logAuditAction("adjust_grade", "grade_report", reviewingItem.report.id, {
         submission_id: reviewingItem.submission.id,

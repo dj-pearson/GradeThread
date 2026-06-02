@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { evalThresholds } from "./grading-eval.ts";
+import { reviewConfidenceThreshold } from "./ai-config.ts";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -805,6 +806,145 @@ export async function computePublicTransparency(): Promise<PublicTransparencyRep
       created_at: String(r.created_at),
     })),
   };
+}
+
+// ─── Confidence calibration (US-331) ────────────────────────────────
+//
+// Is the model's confidence score actually predictive of grading error? We
+// bucket reviewed grades by confidence and report observed agreement/MAE per
+// bucket (a reliability curve), then recommend the lowest confidence threshold
+// at which the grades the AI ships unreviewed still clear a target agreement.
+// This makes "confidence" a calibrated, defensible signal instead of a number.
+
+export interface CalibrationBin {
+  lo: number;
+  hi: number;
+  count: number;
+  mean_confidence: number;
+  agreement_rate: number; // within 0.5 of the human grade
+  mean_absolute_error: number;
+}
+
+export interface CalibrationReport {
+  bins: CalibrationBin[];
+  total: number;
+  current_threshold: number;
+  // Lowest confidence at which grades >= it meet the target agreement with a
+  // meaningful sample; null if no threshold reaches the target yet.
+  recommended_threshold: number | null;
+  // Agreement actually observed among grades AT/ABOVE the current threshold —
+  // i.e. how trustworthy the grades we currently SHIP unreviewed really are.
+  agreement_at_current: number | null;
+  target_agreement: number;
+  generated_at: string;
+}
+
+const CALIBRATION_MIN_SUBSET = 10;
+
+/**
+ * Pure reliability-curve builder. Exported + unit-tested. `pairs` are
+ * {confidence, error} from reviewed grades; error is |ai - human| (<=0.5 means
+ * agreed). Recommends the lowest bin edge T where the grades with confidence>=T
+ * (and a meaningful sample) reach targetAgreement.
+ */
+export function buildCalibration(
+  pairs: Array<{ confidence: number; error: number }>,
+  currentThreshold: number,
+  targetAgreement = 0.9,
+  binCount = 10,
+): Omit<CalibrationReport, "generated_at"> {
+  const bins: CalibrationBin[] = [];
+  for (let b = 0; b < binCount; b++) {
+    const lo = b / binCount;
+    const hi = (b + 1) / binCount;
+    const inBin = pairs.filter((p) =>
+      b === binCount - 1
+        ? p.confidence >= lo && p.confidence <= hi
+        : p.confidence >= lo && p.confidence < hi,
+    );
+    const count = inBin.length;
+    const agreed = inBin.filter((p) => p.error <= 0.5).length;
+    bins.push({
+      lo,
+      hi,
+      count,
+      mean_confidence: count > 0 ? inBin.reduce((s, p) => s + p.confidence, 0) / count : 0,
+      agreement_rate: count > 0 ? agreed / count : 0,
+      mean_absolute_error: count > 0 ? inBin.reduce((s, p) => s + p.error, 0) / count : 0,
+    });
+  }
+
+  // Agreement among grades at/above a threshold.
+  const agreementAtOrAbove = (t: number): number | null => {
+    const subset = pairs.filter((p) => p.confidence >= t);
+    if (subset.length < CALIBRATION_MIN_SUBSET) return null;
+    return subset.filter((p) => p.error <= 0.5).length / subset.length;
+  };
+
+  let recommended: number | null = null;
+  for (let b = 0; b < binCount; b++) {
+    const t = b / binCount;
+    const ar = agreementAtOrAbove(t);
+    if (ar !== null && ar >= targetAgreement) {
+      recommended = Number(t.toFixed(2));
+      break;
+    }
+  }
+
+  return {
+    bins,
+    total: pairs.length,
+    current_threshold: currentThreshold,
+    recommended_threshold: recommended,
+    agreement_at_current: agreementAtOrAbove(currentThreshold),
+    target_agreement: targetAgreement,
+  };
+}
+
+/**
+ * Compute the confidence calibration report from reviewed grades. The error is
+ * |ai overall - human final| per reviewed grade; confidence is the grade's
+ * stored confidence_score.
+ */
+export async function computeConfidenceCalibration(): Promise<CalibrationReport> {
+  const generated_at = new Date().toISOString();
+  const threshold = reviewConfidenceThreshold();
+
+  const { data: reviews, error: reviewsError } = await supabaseAdmin
+    .from("human_reviews")
+    .select("grade_report_id, original_score, adjusted_score");
+  if (reviewsError) throw new Error(`Failed to fetch reviews: ${reviewsError.message}`);
+  if (!reviews || reviews.length === 0) {
+    return { ...buildCalibration([], threshold), generated_at };
+  }
+
+  const reportIds = [...new Set(reviews.map((r) => r.grade_report_id))];
+  const { data: reports, error: reportsError } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, overall_score, confidence_score")
+    .in("id", reportIds);
+  if (reportsError) throw new Error(`Failed to fetch grade reports: ${reportsError.message}`);
+
+  const reportById = new Map<string, { overall_score: number; confidence_score: number }>();
+  for (const r of reports ?? []) {
+    reportById.set(r.id, {
+      overall_score: Number(r.overall_score),
+      confidence_score: Number(r.confidence_score),
+    });
+  }
+
+  const pairs: Array<{ confidence: number; error: number }> = [];
+  for (const review of reviews) {
+    const report = reportById.get(review.grade_report_id);
+    if (!report || !Number.isFinite(report.confidence_score)) continue;
+    const humanFinal = review.adjusted_score ?? review.original_score;
+    pairs.push({
+      confidence: report.confidence_score,
+      error: Math.abs(report.overall_score - humanFinal),
+    });
+  }
+
+  return { ...buildCalibration(pairs, threshold), generated_at };
 }
 
 // ─── Sale-outcome feedback (closes the grade_outcomes loop) ─────────
