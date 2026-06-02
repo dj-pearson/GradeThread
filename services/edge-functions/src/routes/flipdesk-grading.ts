@@ -1,11 +1,11 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
+import { validateJson, z } from "../lib/validation.ts";
 import {
   computeBatchCredits,
   effectivePlanFor,
   INCLUDED_STANDARD_PER_MONTH,
-  isGradeTier,
   runPaymentPrecedence,
   tierPriceDollars,
   type GradeTier,
@@ -257,59 +257,34 @@ async function buildValidation(
   };
 }
 
-function parseSubmitBody(
-  raw: unknown,
-):
-  | { ok: true; items: SubmitItemInput[] }
-  | { ok: false; error: string } {
-  if (!raw || typeof raw !== "object") {
-    return { ok: false, error: "Body must be JSON object" };
-  }
-  const items = (raw as { items?: unknown }).items;
-  if (!Array.isArray(items)) {
-    return { ok: false, error: "items must be an array" };
-  }
-  const parsed: SubmitItemInput[] = [];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    if (!it || typeof it !== "object") {
-      return { ok: false, error: `items[${i}] must be an object` };
-    }
-    const id = (it as { inventory_item_id?: unknown }).inventory_item_id;
-    const tier = (it as { tier?: unknown }).tier;
-    if (typeof id !== "string" || !id) {
-      return {
-        ok: false,
-        error: `items[${i}].inventory_item_id must be a non-empty string`,
-      };
-    }
-    if (!isGradeTier(tier)) {
-      return {
-        ok: false,
-        error: `items[${i}].tier must be one of: standard, premium, express`,
-      };
-    }
-    parsed.push({ inventory_item_id: id, tier });
-  }
-  return { ok: true, items: parsed };
-}
+// Request schema for /validate and /submit (US-267). `.strict()` rejects any
+// extra fields so nothing unexpected can ride into a service-role query.
+const submitBodySchema = z.object({
+  items: z
+    .array(
+      z
+        .object({
+          inventory_item_id: z.string().uuid({
+            message: "inventory_item_id must be a UUID",
+          }),
+          tier: z.enum(["standard", "premium", "express"]),
+        })
+        .strict(),
+    )
+    .min(1, "items must be a non-empty array")
+    .max(200, "a batch may contain at most 200 items"),
+}).strict();
 
 // Pre-flight validation. Returns per-item readiness + total cost + plan
 // remaining without creating any records. UI calls this before /submit so
 // it can grey-out unready items and warn about plan limits.
 flipdeskGradingRoutes.post("/validate", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-  const parsed = parseSubmitBody(body);
+  const parsed = await validateJson(c, submitBodySchema);
   if (!parsed.ok) {
-    return c.json({ error: parsed.error }, 400);
+    return c.json({ error: parsed.error, details: parsed.details }, parsed.status);
   }
-  const result = await buildValidation(ownerId, parsed.items);
+  const result = await buildValidation(ownerId, parsed.data.items);
   if (!result.ok) {
     return c.json(
       { error: result.error, details: result.details },
@@ -355,18 +330,12 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-  const parsed = parseSubmitBody(body);
+  const parsed = await validateJson(c, submitBodySchema);
   if (!parsed.ok) {
-    return c.json({ error: parsed.error }, 400);
+    return c.json({ error: parsed.error, details: parsed.details }, parsed.status);
   }
 
-  const validation = await buildValidation(ownerId, parsed.items);
+  const validation = await buildValidation(ownerId, parsed.data.items);
   if (!validation.ok) {
     return c.json(
       { error: validation.error, details: validation.details },

@@ -1,0 +1,125 @@
+// Unit tests for the request body-size guard + input validation helpers
+// (US-267). Pure functions only — no live APIs, no network.
+
+import { assert, assertEquals } from "@std/assert";
+import {
+  capForPath,
+  JSON_MAX_BYTES,
+  UPLOAD_MAX_BYTES,
+} from "../middleware/body-limit.ts";
+import {
+  ALLOWED_IMAGE_MIME,
+  decodeBase64Image,
+  MAX_DECODED_IMAGE_BYTES,
+  zodErrorDetails,
+  z,
+} from "../lib/validation.ts";
+
+// ── body-limit: per-path caps ───────────────────────────────────────────────
+
+Deno.test("capForPath: upload paths get the 15MB cap", () => {
+  assertEquals(capForPath("/api/grade/submit"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/v1/grades"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/images/upload"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/disclosure/annotated"), UPLOAD_MAX_BYTES);
+});
+
+Deno.test("capForPath: JSON-only paths get the 256KB cap", () => {
+  assertEquals(capForPath("/api/payments/checkout"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/keys"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/workspace/invite"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/pricing/scan"), JSON_MAX_BYTES);
+});
+
+Deno.test("capForPath: prefix match is boundary-safe", () => {
+  // A path that merely starts with the same letters as an upload prefix but is
+  // a different segment must NOT inherit the upload cap.
+  assertEquals(capForPath("/api/gradebook"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/grade"), UPLOAD_MAX_BYTES); // exact prefix is fine
+});
+
+// ── zod error flattening ─────────────────────────────────────────────────────
+
+Deno.test("zodErrorDetails: flattens issues to field:message strings", () => {
+  const schema = z.object({
+    items: z.array(z.object({ tier: z.enum(["standard", "premium"]) })),
+  });
+  const res = schema.safeParse({ items: [{ tier: "bogus" }] });
+  assert(!res.success);
+  const details = zodErrorDetails(res.error);
+  assertEquals(details.length, 1);
+  assert(details[0].startsWith("items.0.tier:"));
+});
+
+// ── base64 image validation ──────────────────────────────────────────────────
+
+// Smallest valid PNG (1x1) + its raw bytes for size assertions.
+const PNG_1X1_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+// JPEG SOI + APP0 header bytes, base64-encoded (enough to sniff as image/jpeg).
+const JPEG_HEADER_B64 = btoa(
+  String.fromCharCode(0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46),
+);
+
+Deno.test("decodeBase64Image: accepts a valid PNG with matching MIME", () => {
+  const res = decodeBase64Image(PNG_1X1_B64, "image/png");
+  assert(res.ok);
+  assertEquals(res.image.mime, "image/png");
+  assert(res.image.bytes.length > 0);
+});
+
+Deno.test("decodeBase64Image: reads MIME from a data URL", () => {
+  const res = decodeBase64Image(`data:image/png;base64,${PNG_1X1_B64}`, undefined);
+  assert(res.ok);
+  assertEquals(res.image.mime, "image/png");
+});
+
+Deno.test("decodeBase64Image: accepts a JPEG header", () => {
+  const res = decodeBase64Image(JPEG_HEADER_B64, "image/jpeg");
+  assert(res.ok);
+  assertEquals(res.image.mime, "image/jpeg");
+});
+
+Deno.test("decodeBase64Image: rejects declared/actual MIME mismatch", () => {
+  // PNG bytes declared as JPEG.
+  const res = decodeBase64Image(PNG_1X1_B64, "image/jpeg");
+  assert(!res.ok);
+  assert(res.error.includes("does not match"));
+});
+
+Deno.test("decodeBase64Image: rejects a disallowed MIME", () => {
+  const res = decodeBase64Image(PNG_1X1_B64, "image/svg+xml");
+  assert(!res.ok);
+  assert(res.error.includes("content_type must be one of"));
+});
+
+Deno.test("decodeBase64Image: rejects missing content_type", () => {
+  const res = decodeBase64Image(PNG_1X1_B64, undefined);
+  assert(!res.ok);
+  assert(res.error.includes("content_type is required"));
+});
+
+Deno.test("decodeBase64Image: rejects malformed base64", () => {
+  const res = decodeBase64Image("not*valid*base64!!", "image/png");
+  assert(!res.ok);
+  assert(res.error.includes("malformed"));
+});
+
+Deno.test("decodeBase64Image: rejects non-image bytes", () => {
+  const res = decodeBase64Image(btoa("hello world, not an image"), "image/png");
+  assert(!res.ok);
+});
+
+Deno.test("decodeBase64Image: enforces the byte-size cap", () => {
+  // A base64 string whose decoded size exceeds a tiny cap is rejected up front.
+  const big = "A".repeat(2048); // ~1536 decoded bytes
+  const res = decodeBase64Image(big, "image/png", 512);
+  assert(!res.ok);
+  assert(res.error.includes("exceeds"));
+});
+
+Deno.test("constants: allowlist + default cap are sane", () => {
+  assert(ALLOWED_IMAGE_MIME.includes("image/jpeg"));
+  assert(ALLOWED_IMAGE_MIME.includes("image/png"));
+  assertEquals(MAX_DECODED_IMAGE_BYTES, 10 * 1024 * 1024);
+});

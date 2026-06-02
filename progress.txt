@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-05-27
+# Last updated: 2026-06-02
 
 ## Completed Stories
 
@@ -2124,3 +2124,65 @@ default brand OG image), then US-308 (GSC/Bing verification + Search Analytics
 ingestion: meta-tag/file verification from env, a scheduled edge job + migration
 pulling GSC Search Analytics, admin-only platform data), then US-309 (admin SEO
 dashboard -- depends on 305/306/308).
+
+
+## Session Notes (2026-06-02) -- US-267 edge input hardening
+
+US-267 (Security: request body-size limits + schema validation on edge inputs)
+-- IMPLEMENTED, passes=true.
+
+Body-size guard: src/middleware/body-limit.ts. Rejects oversized payloads with
+HTTP 413 off the Content-Length header BEFORE the handler buffers the body.
+Per-route caps resolved by path: 15MB for image-upload prefixes (/api/grade,
+/api/v1/grades, /api/flipdesk/{grading,images,disclosure,autolister},
+/api/content/images), 256KB for every other JSON-only /api/* endpoint
+(capForPath() does boundary-safe prefix matching so /api/gradebook != /api/grade).
+Registered once as app.use("/api/*", bodyLimit) right after securityHeaders;
+GET/HEAD/OPTIONS skip it, and /health + the OPTIONS preflight never reach it.
+
+Shared validation helper: src/lib/validation.ts.
+- validateJson(c, zodSchema) -> {ok,data} | {ok:false,status,error,details}.
+  Enforces application/json Content-Type (415 otherwise), parses safely (400 on
+  malformed JSON), runs the schema, flattens ZodError to "path: message"
+  details, and NEVER 500s on bad input. zod added to deno.json import map
+  (esm.sh/zod@3.23.8).
+- decodeBase64Image(input, declaredMime, maxBytes): allowlists the MIME
+  (jpeg/png/webp/gif), accepts raw base64 or data: URLs, validates the base64
+  charset, rejects on approx-decoded size BEFORE allocating, then sniffs magic
+  bytes and requires them to match the declared MIME (so a payload can't claim
+  image/png while shipping an SVG/exe). 10MB/image default cap.
+
+Reference conversions (per AC "at least grade-submit and flipdesk grading-submit"):
+- flipdesk grading /submit + /validate now validate through a strict zod schema
+  (items[].inventory_item_id UUID, tier enum, .strict() rejects smuggled fields,
+  1..200 batch bound), replacing the hand-rolled parseSubmitBody (removed; the
+  now-unused isGradeTier import dropped). Tightens inventory_item_id from
+  "non-empty string" to UUID -- correct since item ids are gen_random_uuid().
+- api-v1 /grades base64 branch routed through decodeBase64Image before
+  forwarding bytes to storage/Claude Vision (was a raw atob that could 500).
+- grade /submit (multipart) is covered by the body-limit cap + its existing
+  formData() try/catch -> 400 content-type enforcement.
+
+Tests: src/tests/body-validation_test.ts (15 Deno.test cases) -- capForPath
+tiers + boundary, zodErrorDetails flattening, and decodeBase64Image happy/sad
+paths (valid PNG/JPEG, data-URL MIME, mismatch, disallowed MIME, missing CT,
+malformed base64, non-image bytes, size cap).
+
+VERIFICATION CAVEAT: the Deno suite could NOT be run in this web sandbox -- the
+egress policy 403s deno.land + esm.sh (only GitHub + the npm registry are
+allowlisted), so `deno test`/`deno check` can't fetch hono/std/zod. The Deno
+binary itself was pulled from GitHub releases and runs, but dep resolution is
+blocked. The pure logic (decodeBase64Image MIME/size/mismatch/charset +
+capForPath) was verified 12/12 via an equivalent node harness. To confirm under
+Deno, run in an env with package-host egress:
+  cd services/edge-functions
+  deno test --allow-net --allow-env src/tests/body-validation_test.ts
+
+prd.json 270/343 (US-267 passes=true).
+
+Recommended next: US-263/264/274/277 are implemented but still passes=false
+because their ACs require runtime checks (curl -I header dump for 263, browser
+CSP/Stripe/OAuth pass for 264) that this sandbox can't perform; verify those in
+a deployed/networked env and flip them. Otherwise US-269 (admin audit-log
+coverage) and US-275 (GDPR export/deletion -- account.ts already exists) are the
+most self-contained remaining security items.

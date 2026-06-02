@@ -7,6 +7,7 @@ import {
   type PrecedenceResult,
   runPaymentPrecedence,
 } from "../lib/grade-billing.ts";
+import { decodeBase64Image } from "../lib/validation.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -196,15 +197,18 @@ apiV1Routes.post("/grades", async (c) => {
 
     try {
       if (img.base64) {
-        // Decode base64 data
-        const raw = img.base64.includes(",") ? img.base64.split(",")[1]! : img.base64;
-        const binaryString = atob(raw);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let j = 0; j < binaryString.length; j++) {
-          bytes[j] = binaryString.charCodeAt(j);
+        // Validate declared MIME + decoded byte size before forwarding the
+        // bytes to storage / Claude Vision (US-267). Rejects mismatched or
+        // oversized payloads with a 400 instead of letting a bad decode 500.
+        const decoded = decodeBase64Image(img.base64, img.content_type);
+        if (!decoded.ok) {
+          throw new Error(decoded.error);
         }
-        imageData = bytes.buffer;
-        contentType = img.content_type || "image/jpeg";
+        imageData = decoded.image.bytes.buffer.slice(
+          decoded.image.bytes.byteOffset,
+          decoded.image.bytes.byteOffset + decoded.image.bytes.byteLength,
+        ) as ArrayBuffer;
+        contentType = decoded.image.mime;
       } else {
         // Fetch from URL
         const response = await fetch(img.url!);
