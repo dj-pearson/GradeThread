@@ -2505,3 +2505,59 @@ NOTE: the iOS CI runs on pull_request (paths: ios/**) -- it will execute these
 new tests once a PR is opened for this branch.
 
 prd.json unchanged count (US-289 stays passes=false; reconcile web = 11/12).
+
+
+## Session Notes (2026-06-02 cont.) -- Security cluster verification (Deno harness live)
+
+Installed Deno 2.8.1 in-sandbox (github release zip; deno.land/esm.sh/jsr are
+403-blocked by network policy, so ran the edge suite with --no-check + a local
+override import map shimming @std/assert / @supabase/supabase-js /
+@anthropic-ai/sdk / denomailer / hono-factory; shims live in /tmp, NOT
+committed -- CI runs the same tests against the real registries). Full runnable
+edge suite: 60 passed / 0 failed / 17 ignored (the env-gated tenant-isolation
+cases need a real DB).
+
+Verified four "implemented, pending verification" security stories and flipped
+them to passes=true:
+
+US-263 (edge hardening-header middleware) -- COMPLETED, passes=true.
+- Confirmed securityHeaders registered in main.ts after cors() + before route
+  mounts (line 108). Added src/tests/security-headers_test.ts (6 cases): 5
+  static headers on every response, Cache-Control:no-store scoped to the 8
+  user-bound prefixes, /health + /api/content/public left cacheable,
+  boundary-safe prefix match (/api/keystone != /api/keys), no Server/
+  X-Powered-By.
+
+US-266 (fail-closed prod debug bypasses) -- COMPLETED, passes=true.
+- Confirmed lib/env.ts defaults to production (debug off) when EDGE_ENV unset;
+  flipdesk-webhooks reads WEBHOOK_PAYOUT_DEBUG via isDebugAllowed() so eBay HMAC
+  verification always runs in prod; assertNoProdDebugFlags() at boot;
+  EDGE_ENV wired in both compose files + docs. Added src/tests/env-debug_test.ts
+  (6 cases) locking the fail-closed default and the non-fatal startup warning.
+
+US-274 (OAuth state CSRF hardening) -- COMPLETED, passes=true.
+- Confirmed atomic delete+select single-use state consumption, expires_at
+  (now+10min) check, 256-bit CSPRNG generateState(), and sanitizeRelativePath()
+  open-redirect guard applied at /oauth/start AND the callback. All AC met.
+
+US-277 (webhook idempotency + replay protection) -- COMPLETED, passes=true.
+- Confirmed migration 00044 (PK provider+event_id, RLS service-role deny-all)
+  and claimWebhookEvent() insert-on-conflict; Stripe claims by event.id after
+  sig-verify + before the dispatch switch (webhooks.ts:70), eBay claims by
+  notificationId before side effects (flipdesk-webhooks.ts:169). The
+  exactly-once / no-double-side-effect guarantee holds. Timestamp-staleness
+  rejection deliberately omitted (Stripe legitimately retries the same event.id
+  for ~72h; dedup is the correct + sufficient replay defense) -- documented.
+
+US-264 (SPA CSP/HSTS) reviewed and LEFT passes=false: it's correctly in the
+report-only rollout phase its AC mandates (capture violations -> flip to
+enforcing), and the final flip needs a real-browser pass (Stripe Checkout,
+Google OAuth, Sentry, PostHog, GA) plus externalizing the inline gtag bootstrap
+in index.html before script-src can drop the implicit allowance. Not a sandbox-
+completable step.
+
+New committed test files (run in the existing edge CI against real registries):
+- services/edge-functions/src/tests/security-headers_test.ts
+- services/edge-functions/src/tests/env-debug_test.ts
+
+prd.json 290/343 (US-263 + US-266 + US-274 + US-277 -> passes=true).

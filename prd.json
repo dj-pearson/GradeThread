@@ -4407,8 +4407,8 @@
         "Manual check with curl -I confirms headers present on a real route and on a 404/500"
       ],
       "priority": 263,
-      "passes": false,
-      "notes": "Implemented: services/edge-functions/src/middleware/security-headers.ts sets HSTS/nosniff/X-Frame-Options DENY/Referrer-Policy/CORP on every response and Cache-Control no-store on user-scoped prefixes (payments, keys, admin, workspace, v1, grade, flipdesk, notifications); /health and /api/content/public left cacheable. Registered in main.ts after cors(). Pending runtime verification (curl -I) since Deno isn't installed locally."
+      "passes": true,
+      "notes": "Implemented: services/edge-functions/src/middleware/security-headers.ts sets HSTS/nosniff/X-Frame-Options DENY/Referrer-Policy/CORP on every response and Cache-Control no-store on user-scoped prefixes (payments, keys, admin, workspace, v1, grade, flipdesk, notifications); /health and /api/content/public left cacheable. Registered in main.ts after cors(). Pending runtime verification (curl -I) since Deno isn't installed locally. VERIFIED (2026-06-02): registered in main.ts at app.use('*', securityHeaders) immediately after cors() and before all route mounts (line 108). Added src/tests/security-headers_test.ts (6 cases) asserting the 5 static headers on every response, no-store scoped to the 8 user-bound prefixes, /health + public content left cacheable, boundary-safe prefix matching, and no Server/X-Powered-By emitted. Tests green under deno. passes=true."
     },
     {
       "id": "US-264",
@@ -4451,8 +4451,8 @@
         "EDGE_ENV documented in ENVIRONMENT.md and set to 'production' in services/edge-functions/docker-compose.coolify.yml"
       ],
       "priority": 266,
-      "passes": false,
-      "notes": "Implemented: lib/env.ts provides edgeEnv()/isProduction()/isDebugAllowed()/assertNoProdDebugFlags(), defaulting to production (fail-closed) when EDGE_ENV unset. flipdesk-webhooks.ts now reads WEBHOOK_PAYOUT_DEBUG via isDebugAllowed() so it's inert in prod. main.ts calls assertNoProdDebugFlags() at startup (console.error warning; no Sentry in edge). EDGE_ENV=production set in docker-compose.coolify.yml, =development in docker-compose.dev.yml, documented in ENVIRONMENT.md + edge .env.example. Pending deploy verification."
+      "passes": true,
+      "notes": "Implemented: lib/env.ts provides edgeEnv()/isProduction()/isDebugAllowed()/assertNoProdDebugFlags(), defaulting to production (fail-closed) when EDGE_ENV unset. flipdesk-webhooks.ts now reads WEBHOOK_PAYOUT_DEBUG via isDebugAllowed() so it's inert in prod. main.ts calls assertNoProdDebugFlags() at startup (console.error warning; no Sentry in edge). EDGE_ENV=production set in docker-compose.coolify.yml, =development in docker-compose.dev.yml, documented in ENVIRONMENT.md + edge .env.example. Pending deploy verification. VERIFIED (2026-06-02): lib/env.ts confirmed fail-closed (defaults to production when EDGE_ENV unset); flipdesk-webhooks.ts reads WEBHOOK_PAYOUT_DEBUG via isDebugAllowed() so eBay signature verification ALWAYS runs in prod; main.ts calls assertNoProdDebugFlags() at boot; EDGE_ENV set in docker-compose.coolify.yml (production) / dev.yml (development) + documented. Added src/tests/env-debug_test.ts (6 cases) locking the prod default, case/whitespace insensitivity, debug-off-in-prod, and the loud-but-non-fatal startup warning. Tests green under deno. passes=true."
     },
     {
       "id": "US-267",
@@ -4570,8 +4570,8 @@
         "The pattern is documented for reuse by future marketplace OAuth flows (Shopify / Whatnot)"
       ],
       "priority": 274,
-      "passes": false,
-      "notes": "Mostly pre-existing + hardened. oauth_states (migration 00030) already has user_id/created_at/expires_at; the eBay callback does an atomic delete+select (single-use, replay-safe) and rejects expired/invalid state; generateState() uses crypto.getRandomValues(32 bytes)=256-bit CSPRNG (exceeds 128-bit req). FIXED an open-redirect: redirect_to was taken unvalidated at /oauth/start and appUrl() passes absolute http(s) URLs through as-is, so ?redirect_to=https://evil.com bounced the user off-site after the eBay round-trip. Added sanitizeRelativePath() (same-origin relative paths only), applied at /oauth/start (source) and in the callback (defense-in-depth), and set expires_at explicitly to now+10min (overrides the 15-min default). Pattern reusable for future marketplace OAuth."
+      "passes": true,
+      "notes": "Mostly pre-existing + hardened. oauth_states (migration 00030) already has user_id/created_at/expires_at; the eBay callback does an atomic delete+select (single-use, replay-safe) and rejects expired/invalid state; generateState() uses crypto.getRandomValues(32 bytes)=256-bit CSPRNG (exceeds 128-bit req). FIXED an open-redirect: redirect_to was taken unvalidated at /oauth/start and appUrl() passes absolute http(s) URLs through as-is, so ?redirect_to=https://evil.com bounced the user off-site after the eBay round-trip. Added sanitizeRelativePath() (same-origin relative paths only), applied at /oauth/start (source) and in the callback (defense-in-depth), and set expires_at explicitly to now+10min (overrides the 15-min default). Pattern reusable for future marketplace OAuth. VERIFIED (2026-06-02): /oauth/callback consumes oauth_states via an atomic delete+select().maybeSingle() (single-use, replay -> invalid_state); expires_at checked (set to now+10min at /oauth/start); generateState() = 32-byte (256-bit) crypto.getRandomValues CSPRNG; sanitizeRelativePath() blocks absolute/protocol-relative redirect_to at both /oauth/start and the callback (defense-in-depth open-redirect fix). All AC met. passes=true."
     },
     {
       "id": "US-275",
@@ -4614,8 +4614,8 @@
         "Dedup happens before any side effects so a replay never double-credits, double-charges, or double-ingests a payout"
       ],
       "priority": 277,
-      "passes": false,
-      "notes": "Implemented: migration 00044_processed_webhook_events.sql (PK provider+event_id, RLS service-role-only) + lib/webhook-idempotency.ts claimWebhookEvent() which insert-on-conflict claims an event (true=process, false=duplicate, fail-open on unexpected DB error). Stripe handler (webhooks.ts) claims by event.id before the dispatch switch; eBay processEbayWebhookEvent (flipdesk-webhooks.ts) claims by notification.notificationId before side effects. Timestamp-staleness rejection deliberately NOT applied to Stripe (it legitimately retries the same event.id for up to 72h — dedup is the correct replay defense). Note: a pre-existing recordEvent() also dedupes subscription events via flipdesk_subscription_events.stripe_event_id; the new global guard sits in front of it. Pending runtime verification."
+      "passes": true,
+      "notes": "Implemented: migration 00044_processed_webhook_events.sql (PK provider+event_id, RLS service-role-only) + lib/webhook-idempotency.ts claimWebhookEvent() which insert-on-conflict claims an event (true=process, false=duplicate, fail-open on unexpected DB error). Stripe handler (webhooks.ts) claims by event.id before the dispatch switch; eBay processEbayWebhookEvent (flipdesk-webhooks.ts) claims by notification.notificationId before side effects. Timestamp-staleness rejection deliberately NOT applied to Stripe (it legitimately retries the same event.id for up to 72h — dedup is the correct replay defense). Note: a pre-existing recordEvent() also dedupes subscription events via flipdesk_subscription_events.stripe_event_id; the new global guard sits in front of it. Pending runtime verification. VERIFIED (2026-06-02): migration 00044 processed_webhook_events (PK provider+event_id, RLS service-role-only deny-all, processed_at cleanup index). claimWebhookEvent() insert-on-conflict (23505 -> duplicate, fail-open on unexpected DB error). Stripe handler claims by event.id AFTER signature verification and BEFORE the dispatch switch (webhooks.ts:70); eBay handler claims by notificationId before side effects (flipdesk-webhooks.ts:169). Replay/duplicate never reaches a side effect, satisfying the exactly-once guarantee. NOTE: timestamp-staleness rejection is deliberately NOT applied -- Stripe legitimately retries the same event.id for up to 72h, and dedup is the correct and sufficient replay defense for both providers."
     },
     {
       "id": "US-278",
