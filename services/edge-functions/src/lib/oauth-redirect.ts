@@ -21,6 +21,7 @@ export function sanitizeRelativePath(
 ): string | null {
   if (!input) return null;
   // Control chars (NUL..US + DEL), incl. \t \n \r.
+  // deno-lint-ignore no-control-regex -- matching control chars is the intent.
   if (/[\u0000-\u001F\u007F]/.test(input)) return null;
   if (!input.startsWith("/")) return null;
   if (input.startsWith("//")) return null;
