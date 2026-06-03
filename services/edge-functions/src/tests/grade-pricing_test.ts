@@ -64,6 +64,18 @@ Deno.test("effectivePlanFor caps an EXPIRED trial at Free (US-383)", () => {
   assertEquals(effectivePlanFor("pro", "trialing", null, now), "pro");
 });
 
+Deno.test("effectivePlanFor does NOT entitle unpaid/lapsed subs (US-392)", () => {
+  // `incomplete` maps to 'none' (mapSubscriptionStatus) — must not grant caps
+  // before the first payment clears.
+  assertEquals(effectivePlanFor("pro", "none"), "free");
+  assertEquals(effectivePlanFor("business", "canceled"), "free");
+  // Verified-paid + grace states stay entitled.
+  assertEquals(effectivePlanFor("pro", "active"), "pro");
+  assertEquals(effectivePlanFor("pro", "past_due"), "pro");
+  // Legacy null status remains entitling (column is NOT NULL in practice).
+  assertEquals(effectivePlanFor("business", null), "business");
+});
+
 Deno.test("included caps mirror the plan model", () => {
   assertEquals(INCLUDED_STANDARD_PER_MONTH.free, 3);
   assertEquals(INCLUDED_STANDARD_PER_MONTH.starter, 10);

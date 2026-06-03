@@ -3568,3 +3568,42 @@ US-383 Add trial-expiry job (stop perpetual free Pro) [P0][Billing]:
   + plan-gate_test.ts (expired-trial Pro capped at Free 25; live trial keeps Pro).
 
 prd.json 371/524.
+
+
+## Session Notes (2026-06-03 cont.) -- AI-quota correctness + subscription entitlement US-386/US-392/US-396
+
+US-386 Fix AI-action quota: correct plan column + enforce self-cap [P1][Billing]:
+- flipdesk-ai.ts checkQuota read the DEPRECATED users.plan enum
+  (free/starter/professional/enterprise) -> every paid FlipDesk tier silently
+  got the Free cap of 25; ai_action_limit was selected but never applied.
+- checkQuota now resolves the cap from users.flipdesk_plan via effectivePlanFor
+  (paused + expired-trial + non-entitling subs -> Free, shared with US-383/392),
+  then applies min(planLimit, ai_action_limit) via plan-gate's effectiveAiCap.
+  AI_ACTION_LIMITS re-keyed to flipdesk_plan (free 25/starter 200/pro 1000/
+  business 5000) to mirror PLAN_MATRIX.aiActionsPerMonth.
+- Test: tests/ai-quota_test.ts pins AI_ACTION_LIMITS == PLAN_MATRIX (anti-drift)
+  + self-cap min() behavior.
+- NOT done: US-387 (atomic check+increment / TOCTOU) -- needs a behavior-changing
+  consume-up-front refactor across ~8 call sites + a concurrency test, best done
+  when Deno is available to run the suite. Left for a follow-up.
+
+US-392 Don't entitle incomplete subscriptions [P2][Billing]:
+- webhooks.ts mapSubscriptionStatus mapped `incomplete` + unknown default to
+  'active' -> Pro caps granted before any money moved. Now both map to the
+  non-entitling 'none'. effectivePlanFor demotes 'none'/'canceled'/'incomplete'
+  to Free (NON_ENTITLING_STATUSES); safe because a paid flipdesk_plan only ever
+  comes from a real Stripe sub (admin-billing refuses cardless free->paid).
+  Entitlement keys off invoice.payment_succeeded -> 'active'; legacy null stays
+  entitling. Tests in grade-pricing_test.ts + subscription-mapping_test.ts.
+
+US-396 Make plan mapping interval-aware and fail-closed [P2][Billing]:
+- mapSubscriptionToFlipdeskPlan's amount>=9900 heuristic mapped every YEARLY
+  price to Business and defaulted unknowns to a paid tier. Removed: the mapper
+  now resolves only from metadata.plan then price lookup_key (both
+  interval-independent) and returns null when unmappable. handleSubscription
+  Change fails CLOSED on null -> Free (no entitlement) + console.error +
+  'billing.unmappable_price' PostHog alert + skips the paid welcome email.
+- Test: subscription-mapping_test.ts (yearly Pro/Starter map right; bare large
+  yearly amount -> null).
+
+prd.json 374/524.

@@ -6238,8 +6238,8 @@
         "Test: upgraded user gets the new tier limit; self-cap blocks at the lower value"
       ],
       "priority": 386,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. flipdesk-ai.ts checkQuota reads deprecated plan column; self-cap selected but unused."
+      "passes": true,
+      "notes": "DONE 2026-06-03. flipdesk-ai.ts checkQuota was reading the DEPRECATED users.plan enum (free/starter/professional/enterprise) -> every paid FlipDesk tier silently fell through to the Free cap of 25; and it selected ai_action_limit but never applied the self-cap. Fix: checkQuota now resolves the cap from users.flipdesk_plan via effectivePlanFor (paused + expired-trial + non-entitling subs all fall back to Free, shared with US-383/US-392), then applies min(planLimit, ai_action_limit) via plan-gate's effectiveAiCap. AI_ACTION_LIMITS re-keyed to flipdesk_plan (free 25 / starter 200 / pro 1000 / business 5000) to mirror PLAN_MATRIX.aiActionsPerMonth. Test: tests/ai-quota_test.ts pins AI_ACTION_LIMITS==PLAN_MATRIX (anti-drift) + self-cap min() behavior. NOTE: US-387 (atomic check+increment / TOCTOU) deliberately NOT done here -- it needs a behavior-changing multi-callsite consume-up-front refactor + concurrency test best done with Deno available."
     },
     {
       "id": "US-387",
@@ -6315,8 +6315,8 @@
         "Test: incomplete->canceled never grants Pro caps"
       ],
       "priority": 392,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts maps incomplete->active."
+      "passes": true,
+      "notes": "DONE 2026-06-03. webhooks.ts mapSubscriptionStatus mapped `incomplete` (and the unknown default) to 'active', entitling Pro caps before the first payment cleared. Fix: incomplete + unknown statuses now map to the non-entitling 'none'; effectivePlanFor (grade-pricing.ts) demotes 'none'/'canceled'/'incomplete' to Free via a NON_ENTITLING_STATUSES set (safe: a paid flipdesk_plan only ever comes from a real Stripe sub -- admin-billing.ts refuses cardless free->paid). Entitlement now keys off a verified-paid status (invoice.payment_succeeded -> 'active'); legacy null stays entitling. Tests: grade-pricing_test.ts (none/canceled->free, active/past_due->plan) + subscription-mapping_test.ts (incomplete/unknown->none)."
     },
     {
       "id": "US-393",
@@ -6367,8 +6367,8 @@
         "Yearly prices map to the correct tier (test)"
       ],
       "priority": 396,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts amount>=9900 heuristic maps all yearly prices to business."
+      "passes": true,
+      "notes": "DONE 2026-06-03. mapSubscriptionToFlipdeskPlan's amount>=9900 last-resort heuristic mapped EVERY yearly price to Business and defaulted unknowns to a paid tier. Removed it: the mapper now resolves the tier ONLY from metadata.plan (set at checkout, US-204) then price lookup_key -- both interval-independent -- and returns null when unmappable. handleSubscriptionChange fails CLOSED on null: grants Free (no entitlement), logs + emits a 'billing.unmappable_price' alert, and skips the paid welcome email, so a price-config gap is fixed rather than silently mis-entitled. Test: subscription-mapping_test.ts (yearly Pro via metadata + yearly Starter via lookup_key map correctly; bare large yearly amount -> null)."
     },
     {
       "id": "US-397",

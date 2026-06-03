@@ -194,7 +194,22 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   if (!user) user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const plan = mapSubscriptionToFlipdeskPlan(sub);
+  // US-396: fail closed on an unmappable price — grant NO paid caps (treat as
+  // 'free') and alert so the missing metadata.plan / lookup_key gets fixed,
+  // instead of silently mis-entitling via an amount heuristic.
+  const resolvedPlan = mapSubscriptionToFlipdeskPlan(sub);
+  if (!resolvedPlan) {
+    const priceId = sub.items?.data?.[0]?.price?.id ?? "unknown";
+    console.error(
+      `[Webhook] Unmappable subscription price ${priceId} on sub ${sub.id} ` +
+        `(no metadata.plan / lookup_key) — failing closed to Free, no entitlement`,
+    );
+    void captureServer(user.id, "billing.unmappable_price", {
+      subscription_id: sub.id,
+      price_id: priceId,
+    });
+  }
+  const plan: FlipdeskPlan = resolvedPlan ?? "free";
   const interval = mapSubscriptionInterval(sub);
   // pause_collection pauses billing but leaves Stripe's status as "active", so
   // mapSubscriptionStatus(sub.status) would never report "paused". Derive it
@@ -287,8 +302,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
     const name = userDisplayName(user.email, user.full_name);
 
-    // First-time subscription → welcome-to-paid email.
-    if (event.type === "customer.subscription.created" && status !== "trialing") {
+    // First-time subscription → welcome-to-paid email (skip when the price was
+    // unmappable — we didn't entitle a paid plan, so don't send a paid welcome).
+    if (event.type === "customer.subscription.created" && status !== "trialing" && resolvedPlan) {
       const priceCents = sub.items?.data?.[0]?.price?.unit_amount ?? 0;
       safeSendEmail(
         sendSubscriptionStartedEmail(user.email, {
@@ -733,25 +749,24 @@ async function handleChargeRefunded(event: Stripe.Event) {
 
 // ── Mappers ──────────────────────────────────────────────────────
 
-function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): FlipdeskPlan {
-  // Prefer the metadata.plan we set at checkout (US-204).
+// US-396: resolve the tier from explicit, interval-independent signals only —
+// the metadata.plan we set at checkout (US-204), then the price lookup_key.
+// Returns null when neither resolves; the old amount>=9900 heuristic mapped
+// EVERY yearly price (e.g. $59/yr pro = 5900¢… or $590 = 59000¢ ≥ 9900) to
+// business and defaulted unknowns to a paid tier. Unmappable now FAILS CLOSED
+// (no entitlement + alert) so a price-config gap is fixed, not silently
+// mis-entitled.
+export function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): FlipdeskPlan | null {
   const meta = sub.metadata?.plan;
   if (meta === "starter" || meta === "pro" || meta === "business") return meta;
 
-  // Fall back to lookup_key on the first price.
   const item = sub.items?.data?.[0];
   const lookupKey = item?.price?.lookup_key ?? "";
   if (lookupKey.startsWith("flipdesk_business")) return "business";
   if (lookupKey.startsWith("flipdesk_pro")) return "pro";
   if (lookupKey.startsWith("flipdesk_starter")) return "starter";
 
-  // Last resort: amount-based heuristic.
-  const amount = item?.price?.unit_amount ?? 0;
-  if (amount >= 9900) return "business";
-  if (amount >= 5900) return "pro";
-  if (amount >= 2900) return "starter";
-  console.warn(`[Webhook] Unmapped subscription price ${item?.price?.id} (amount=${amount}); defaulting to starter`);
-  return "starter";
+  return null;
 }
 
 function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly" {
@@ -759,7 +774,7 @@ function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly"
   return intvl === "year" ? "yearly" : "monthly";
 }
 
-function mapSubscriptionStatus(
+export function mapSubscriptionStatus(
   status: Stripe.Subscription.Status,
 ): "none" | "trialing" | "active" | "past_due" | "paused" | "canceled" {
   switch (status) {
@@ -770,7 +785,12 @@ function mapSubscriptionStatus(
     case "paused": return "paused";
     case "canceled":
     case "incomplete_expired": return "canceled";
+    // US-392: `incomplete` = checkout created but the first payment hasn't
+    // cleared. Do NOT entitle it (the old `→ active` fallback granted paid caps
+    // before any money moved). Map to the non-entitling 'none' — effectivePlanFor
+    // treats it as Free; invoice.payment_succeeded flips it to 'active'. Unknown
+    // future statuses fail closed the same way rather than silently entitling.
     case "incomplete":
-    default: return "active"; // Stripe will transition this shortly.
+    default: return "none";
   }
 }
