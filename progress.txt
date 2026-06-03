@@ -3607,3 +3607,35 @@ US-396 Make plan mapping interval-aware and fail-closed [P2][Billing]:
   yearly amount -> null).
 
 prd.json 374/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Per-grade refunds + Stripe Tax + checkout idempotency US-385/US-389/US-394
+
+US-385 Handle per-grade refunds/chargebacks [P1][Billing]:
+- handleChargeRefunded logged 'no DB change' for product=per_grade -> a refunded
+  grade + its public certificate stayed live. Added refundPerGrade: sets
+  submissions.refunded_at (new col, migration 00084) + flagged/flag_reason=
+  'payment_refunded' (tenant-scoped by user_id), and clears
+  grade_reports.certificate_id so the public_grade_reports view (US-348) stops
+  resolving the cert. Grade row retained for human review.
+- charge.dispute.created -> handleChargeDisputeCreated: records event, flags
+  per_grade submissions 'payment_disputed', emits 'billing.dispute_created'
+  alert. NO auto-revoke (disputes can be won) -- reconciliation documented.
+- Admin runbook: docs/BILLING_REFUNDS.md.
+
+US-389 Make Stripe Tax checkout robust (collect address) [P1][Billing]:
+- automatic_tax was enabled with only customer_email/no address -> tax couldn't
+  compute for new customers. Added billing_address_collection:'required' to all
+  automatic_tax sessions (FlipDesk subscribe, credit-pack, legacy subscribe) and
+  conditionally on per-grade (gated on priceId like its automatic_tax).
+- Live end-to-end tax verification remains an ops step (needs live Stripe).
+
+US-394 Add idempotency key to per-grade checkout [P2][Billing]:
+- perGradeCheckout had no idempotency key -> double-click/retry could mint two
+  payable sessions. Now passes idempotencyKey =
+  perGradeIdempotencyKey(userId, submissionId, tier) (pure, exported); duplicates
+  reuse ONE session. Double-payment fallback: submission is single-use
+  (idempotent paid flip) + any second charge handled by the US-385 refund path.
+- Test: tests/per-grade-idempotency_test.ts.
+
+prd.json 377/524.

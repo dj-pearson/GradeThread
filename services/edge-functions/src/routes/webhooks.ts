@@ -102,6 +102,10 @@ webhookRoutes.post("/stripe", async (c) => {
         await handleChargeRefunded(event);
         break;
 
+      case "charge.dispute.created":
+        await handleChargeDisputeCreated(event);
+        break;
+
       default:
         console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
@@ -684,6 +688,12 @@ async function handleChargeRefunded(event: Stripe.Event) {
   const userId = charge.metadata?.user_id;
   const product = charge.metadata?.product;
 
+  // US-385: a refunded per-grade purchase must withhold the grade it paid for.
+  if (userId && product === "per_grade") {
+    await refundPerGrade(event, charge, userId);
+    return;
+  }
+
   if (!userId || product !== "credit_pack") {
     // Subscription refunds: Stripe handles them; we just log the event.
     console.log(`[Webhook] charge.refunded product=${product ?? "?"} user=${userId ?? "?"} — no DB change`);
@@ -745,6 +755,118 @@ async function handleChargeRefunded(event: Stripe.Event) {
         `(balance_after=${result.balance_after ?? 0})`,
     );
   }
+}
+
+// US-385: a refunded per-grade purchase. Mark the submission refunded, flag it
+// for review, and WITHHOLD its public certificate (clearing certificate_id makes
+// the public_grade_reports view stop resolving it — US-348). The grade row is
+// retained so a human can reconcile; we don't hard-delete a paid artifact.
+async function refundPerGrade(
+  event: Stripe.Event,
+  charge: Stripe.Charge,
+  userId: string,
+) {
+  const submissionId = charge.metadata?.submission_id;
+  if (!submissionId) {
+    console.error(`[Webhook] per_grade refund missing submission_id (charge=${charge.id})`);
+    return;
+  }
+
+  const proceed = await recordEvent(
+    userId,
+    event.type,
+    event.id,
+    null,
+    null,
+    { product: "per_grade", submission_id: submissionId, charge_id: charge.id },
+  );
+  if (!proceed) return;
+
+  // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
+  // submission actually belongs to this user before we touch its grade.
+  const { data: updated, error } = await supabaseAdmin
+    .from("submissions")
+    .update({
+      refunded_at: new Date().toISOString(),
+      flagged: true,
+      flag_reason: "payment_refunded",
+    })
+    .eq("id", submissionId)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[Webhook] per_grade refund: submission update failed (${submissionId}):`, error);
+    return;
+  }
+  if (!updated) {
+    console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
+    return;
+  }
+
+  // Withhold the public certificate. The submission was just verified as owned,
+  // so updating its grade_reports by submission_id is tenant-safe.
+  const { error: certErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update({ certificate_id: null })
+    .eq("submission_id", submissionId);
+  if (certErr) {
+    console.error(`[Webhook] per_grade refund: certificate withhold failed (${submissionId}):`, certErr);
+  }
+
+  console.log(
+    `[Webhook] per_grade refund: submission ${submissionId} marked refunded, flagged, cert withheld`,
+  );
+}
+
+// US-385: chargeback/dispute opened. A dispute can still be WON, so we don't
+// auto-revoke here — we record it, flag the submission for review, and surface
+// a clear alert for manual handling (evidence submission / decide whether to
+// withhold). charge.dispute.closed reconciliation is handled out-of-band by
+// ops per the billing runbook.
+async function handleChargeDisputeCreated(event: Stripe.Event) {
+  const dispute = event.data.object as Stripe.Dispute;
+  const charge = dispute.charge;
+  const chargeId = typeof charge === "string" ? charge : charge?.id ?? null;
+
+  // The dispute carries the PaymentIntent; its metadata mirrors the charge's.
+  const meta = (dispute.payment_intent &&
+      typeof dispute.payment_intent !== "string"
+    ? dispute.payment_intent.metadata
+    : undefined) ?? {};
+  const userId = meta.user_id;
+  const product = meta.product;
+  const submissionId = meta.submission_id;
+
+  console.warn(
+    `[Webhook] charge.dispute.created reason=${dispute.reason} amount=${dispute.amount} ` +
+      `product=${product ?? "?"} user=${userId ?? "?"} charge=${chargeId ?? "?"} — needs manual review`,
+  );
+
+  if (userId && product === "per_grade" && submissionId) {
+    const proceed = await recordEvent(
+      userId,
+      event.type,
+      event.id,
+      null,
+      null,
+      { product, submission_id: submissionId, dispute_id: dispute.id, reason: dispute.reason },
+    );
+    if (!proceed) return;
+
+    await supabaseAdmin
+      .from("submissions")
+      .update({ flagged: true, flag_reason: "payment_disputed" })
+      .eq("id", submissionId)
+      .eq("user_id", userId);
+  }
+
+  void captureServer(userId ?? "unknown", "billing.dispute_created", {
+    product: product ?? null,
+    dispute_id: dispute.id,
+    reason: dispute.reason,
+  });
 }
 
 // ── Mappers ──────────────────────────────────────────────────────

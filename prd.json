@@ -6225,8 +6225,8 @@
         "Admin runbook covers reconciling a paid_stripe refund"
       ],
       "priority": 385,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. handleChargeRefunded logs 'no DB change' for per_grade."
+      "passes": true,
+      "notes": "DONE 2026-06-03. handleChargeRefunded previously logged 'no DB change' for product=per_grade, leaving the grade + public certificate live after a refund. Added refundPerGrade: marks submissions.refunded_at (new col, migration 00084) + flagged/flag_reason='payment_refunded' (tenant-scoped by user_id), and clears grade_reports.certificate_id so the public_grade_reports view (US-348) stops resolving the cert (grade row retained for review). charge.dispute.created now has handleChargeDisputeCreated: records the event, flags per_grade submissions 'payment_disputed', and emits a 'billing.dispute_created' alert -- NO auto-revoke (a dispute can be won), reconciliation documented. Admin runbook: docs/BILLING_REFUNDS.md (refund + shortfall + dispute reconciliation). recordEvent idempotency guards replays."
     },
     {
       "id": "US-386",
@@ -6276,8 +6276,8 @@
         "tax_code/tax_behavior coverage for one-time products matches setup"
       ],
       "priority": 389,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. payments.ts enables automatic_tax with only customer_email and no address."
+      "passes": true,
+      "notes": "DONE 2026-06-03. payments.ts enabled automatic_tax with only customer_email and no address, so tax couldn't be computed for a brand-new customer. Added billing_address_collection:'required' to ALL automatic_tax Checkout sessions (FlipDesk subscribe, credit-pack, legacy subscribe) and conditionally on per-grade (gated on priceId like its automatic_tax). Existing customers already pass customer_update:{address:'auto'}; new ones now collect it at checkout. tax_id_collection already enabled on subscriptions. NOTE: live end-to-end subscribe+credit-pack-with-tax verification is an ops step (needs live Stripe)."
     },
     {
       "id": "US-390",
@@ -6341,8 +6341,8 @@
         "Concurrent per-grade checkout test passes"
       ],
       "priority": 394,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. payments.ts perGradeCheckout guards on status but not concurrent sessions."
+      "passes": true,
+      "notes": "DONE 2026-06-03. perGradeCheckout created a Checkout Session with no idempotency key -> a double-click/retry could mint two payable sessions for one grade. Now passes a deterministic idempotencyKey = perGradeIdempotencyKey(userId, submissionId, tier) (pure, exported), so concurrent/duplicate requests reuse ONE session (Stripe replays the response 24h). Double-payment fallback is defined: the submission is single-use (handlePerGradePurchase flips payment_status off 'unpaid' idempotently) and any second charge is handled by the US-385 per-grade refund path. Test: tests/per-grade-idempotency_test.ts (key stable for same inputs, distinct across user/submission/tier)."
     },
     {
       "id": "US-395",

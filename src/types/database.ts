@@ -322,6 +322,9 @@ export interface SubmissionRow {
   moderation_status: ModerationStatus | null;
   // US-332: present when status === 'needs_photos' (the quality gate abstained).
   quality_feedback: QualityFeedback | null;
+  // US-385: set when a per-grade charge was refunded/disputed — the grade's
+  // public certificate is withheld and the submission is flagged for review.
+  refunded_at: string | null;
   created_at: string;
   updated_at: string;
 }

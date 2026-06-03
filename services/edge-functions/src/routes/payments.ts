@@ -11,6 +11,18 @@ type PaymentsEnv = {
 
 export const paymentRoutes = new Hono<PaymentsEnv>();
 
+// US-394: deterministic idempotency key for per-grade Checkout. A submission is
+// single-use (status leaves 'pending' once paid), so keying on
+// (user, submission, tier) makes a double-click or retry within Stripe's 24h
+// window reuse ONE session instead of creating duplicate payable sessions.
+export function perGradeIdempotencyKey(
+  userId: string,
+  submissionId: string,
+  tier: string,
+): string {
+  return `per-grade:${userId}:${submissionId}:${tier}`;
+}
+
 // ── Catalog (mirrors src/lib/constants.ts US-202 / scripts/setup-stripe-pricing.mjs US-203) ──
 
 const FLIPDESK_PRICE_IDS: Record<
@@ -245,6 +257,9 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=flipdesk`,
       cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
       automatic_tax: { enabled: true },
+      // US-389: automatic_tax needs a customer address to compute tax. A brand
+      // new customer has none on file, so require it at checkout.
+      billing_address_collection: "required",
       allow_promotion_codes: true,
       tax_id_collection: { enabled: true },
     };
@@ -333,6 +348,8 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
       success_url: successUrl,
       cancel_url: cancelUrl,
       automatic_tax: { enabled: true },
+      // US-389: collect a billing address so automatic_tax can be computed.
+      billing_address_collection: "required",
       allow_promotion_codes: true,
     };
 
@@ -438,6 +455,9 @@ async function perGradeCheckout(c: Ctx) {
       success_url: `${siteUrl()}/dashboard/submissions/${submissionId}?payment=success`,
       cancel_url: `${siteUrl()}/dashboard/submissions?payment=cancelled`,
       automatic_tax: priceId ? { enabled: true } : undefined,
+      // US-389: when tax is computed, require a billing address so a new
+      // customer's tax can be calculated.
+      ...(priceId ? { billing_address_collection: "required" as const } : {}),
       allow_promotion_codes: true,
     };
 
@@ -448,7 +468,14 @@ async function perGradeCheckout(c: Ctx) {
       sessionParams.customer_email = user.email;
     }
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    // US-394: key the session on (submission, tier) so a double-click or retry
+    // reuses ONE Checkout Session instead of creating duplicates that could
+    // each be paid. Stripe replays the original response for 24h on the same
+    // key. The submission is single-use (status flips off 'pending' once paid),
+    // so the key never needs to outlive that window.
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: perGradeIdempotencyKey(userId, submissionId, tier),
+    });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
     console.error("Per-grade checkout failed:", err);
@@ -532,6 +559,8 @@ paymentRoutes.post("/subscribe", async (c) => {
       success_url: `${siteUrl()}/dashboard/billing?checkout=success&product=flipdesk`,
       cancel_url: `${siteUrl()}/dashboard/billing?checkout=cancelled`,
       automatic_tax: { enabled: true },
+      // US-389: collect a billing address so automatic_tax can be computed.
+      billing_address_collection: "required",
       allow_promotion_codes: true,
     };
 
