@@ -1,8 +1,10 @@
-# US-264: CSP is now ENFORCING (was Report-Only). All inline scripts were
-# externalized to /head-init.js, so script-src needs no 'unsafe-inline'.
-# Violations are reported to /csp-report (Pages Function) — watch the Pages logs
-# after deploy and smoke-test Stripe Checkout, Google OAuth, Sentry, PostHog,
-# and GA. A missed origin is a one-line add to the directive below.
+# US-264: CSP is now ENFORCING (was Report-Only). The one inline <head> script
+# (Consent Mode + font + deferred GA bootstrap in index.html) is allowed by its
+# sha256 hash below — NOT 'unsafe-inline'. If you edit that inline script, you
+# MUST recompute the hash (see the comment above it in index.html) or it stops
+# executing. Violations are reported to /csp-report (Pages Function) — watch the
+# Pages logs after deploy and smoke-test Stripe Checkout, Google OAuth, Sentry,
+# PostHog, and GA. A missed origin is a one-line add to the directive below.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
@@ -11,7 +13,7 @@
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   Cross-Origin-Opener-Policy: same-origin
   Reporting-Endpoints: csp-endpoint="/csp-report"
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://js.stripe.com https://www.googletagmanager.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://api.gradethread.com wss://api.gradethread.com https://functions.gradethread.com https://*.stripe.com https://*.ingest.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src https://js.stripe.com https://hooks.stripe.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report; report-to csp-endpoint
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-79rFJF9W1WmuW2ynG7+8bgWSgcgbohhmRmGDEV6pttw=' https://js.stripe.com https://www.googletagmanager.com https://us-assets.i.posthog.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self' https://api.gradethread.com wss://api.gradethread.com https://functions.gradethread.com https://*.stripe.com https://*.ingest.sentry.io https://us.i.posthog.com https://us-assets.i.posthog.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com; frame-src https://js.stripe.com https://hooks.stripe.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report; report-to csp-endpoint
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable

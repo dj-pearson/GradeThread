@@ -8,6 +8,13 @@ export interface PagesEnv {
   EDGE_API_URL?: string;
   // Public site URL used in canonical links + OG metadata
   PUBLIC_SITE_URL?: string;
+  // "true" once Cloudflare Image Resizing/Transformations is enabled on the
+  // zone. Until then /cdn-cgi/image/ 404s, so the blog SSR must NOT emit a
+  // resize srcset (a failed candidate renders broken — no fallback to src).
+  // Cloudflare Pages exposes dashboard env vars to BOTH the Vite build (as
+  // import.meta.env.VITE_CF_IMAGE_RESIZING) and Functions runtime (here), so
+  // it's the same single toggle the React <Image> component reads.
+  VITE_CF_IMAGE_RESIZING?: string;
 }
 
 export interface PublicPostListItem {
@@ -53,6 +60,11 @@ export function edgeApi(env: PagesEnv): string {
 
 export function siteUrl(env: PagesEnv): string {
   return env.PUBLIC_SITE_URL ?? DEFAULT_PUBLIC_SITE_URL;
+}
+
+/** True only when Cloudflare Image Resizing is confirmed enabled on the zone. */
+export function imageResizingEnabled(env: PagesEnv): boolean {
+  return env.VITE_CF_IMAGE_RESIZING === "true";
 }
 
 // Cache-Control we serve on every SSR response. Short browser cache + an

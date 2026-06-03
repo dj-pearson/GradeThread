@@ -18,6 +18,7 @@ import {
 import { useAuth } from "@/hooks/use-auth";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
 
 const adminNavItems = [
   { to: "/admin", icon: LayoutDashboard, label: "Dashboard", end: true, superAdminOnly: false },
@@ -133,6 +134,9 @@ export function AdminLayout() {
           </AdminMfaGate>
         </main>
       </div>
+      {/* Billing dialogs — also mounted here so admin routes (their own layout)
+          still get the 402 hard-trigger; only one layout is ever live at once. */}
+      <AppBillingDialogs />
     </div>
   );
 }

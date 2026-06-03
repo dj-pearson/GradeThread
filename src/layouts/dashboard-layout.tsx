@@ -7,6 +7,7 @@ import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
+import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -40,6 +41,9 @@ export function DashboardLayout() {
       <OnboardingFlow />
       {/* Soft upgrade triggers — toasts when a plan cap crosses threshold (US-209) */}
       <UsageAlertWatcher />
+      {/* Billing dialogs — moved here from RootLayout so their weight stays off
+          public pages (402 hard-trigger + usage watcher are authed-only). */}
+      <AppBillingDialogs />
     </div>
   );
 }

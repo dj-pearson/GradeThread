@@ -5,12 +5,18 @@
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";
-import { AuthLayout } from "@/layouts/auth-layout";
-import { DashboardLayout } from "@/layouts/dashboard-layout";
-import { AdminLayout } from "@/layouts/admin-layout";
-import { ProtectedRoute } from "@/components/auth/protected-route";
-import { AdminRoute } from "@/components/auth/admin-route";
 import { RouteErrorFallback } from "@/components/error-boundary";
+
+// RootLayout stays eager (it renders on the first paint of every route). The
+// authenticated layouts + auth guards are lazy: they pull Supabase, react-query
+// and radix, and none of that is needed to render the public/landing pages —
+// keeping them out of the eager entry chunk is the big mobile-LCP win (the
+// landing page was shipping ~80KB gz of supabase+radix it never used).
+const AuthLayout = lazy(() => import("@/layouts/auth-layout").then(m => ({ default: m.AuthLayout })));
+const DashboardLayout = lazy(() => import("@/layouts/dashboard-layout").then(m => ({ default: m.DashboardLayout })));
+const AdminLayout = lazy(() => import("@/layouts/admin-layout").then(m => ({ default: m.AdminLayout })));
+const ProtectedRoute = lazy(() => import("@/components/auth/protected-route").then(m => ({ default: m.ProtectedRoute })));
+const AdminRoute = lazy(() => import("@/components/auth/admin-route").then(m => ({ default: m.AdminRoute })));
 
 // Lazy-loaded pages for code splitting
 const LandingPage = lazy(() => import("@/pages/landing").then(m => ({ default: m.LandingPage })));
@@ -144,7 +150,7 @@ export const router = createBrowserRouter([
 
       // Auth routes (guest only)
       {
-        element: <AuthLayout />,
+        element: <SuspenseWrapper><AuthLayout /></SuspenseWrapper>,
         children: [
           { path: "/login", element: <SuspenseWrapper><LoginPage /></SuspenseWrapper> },
           { path: "/signup", element: <SuspenseWrapper><SignupPage /></SuspenseWrapper> },
@@ -162,10 +168,10 @@ export const router = createBrowserRouter([
 
       // Protected dashboard routes
       {
-        element: <ProtectedRoute />,
+        element: <SuspenseWrapper><ProtectedRoute /></SuspenseWrapper>,
         children: [
           {
-            element: <DashboardLayout />,
+            element: <SuspenseWrapper><DashboardLayout /></SuspenseWrapper>,
             children: [
               { path: "/dashboard", element: <SuspenseWrapper><DashboardPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions", element: <SuspenseWrapper><SubmissionsPage /></SuspenseWrapper> },
@@ -219,7 +225,7 @@ export const router = createBrowserRouter([
               // wraps the content children so non-admins land back at
               // /dashboard with the standard "Access denied" toast.
               {
-                element: <AdminRoute />,
+                element: <SuspenseWrapper><AdminRoute /></SuspenseWrapper>,
                 children: [
                   { path: "/dashboard/content/blog", element: <SuspenseWrapper><BlogListPage /></SuspenseWrapper> },
                   { path: "/dashboard/content/blog/editor/:id", element: <SuspenseWrapper><BlogEditorPage /></SuspenseWrapper> },
@@ -238,10 +244,10 @@ export const router = createBrowserRouter([
 
       // Admin routes (admin/super_admin only)
       {
-        element: <AdminRoute />,
+        element: <SuspenseWrapper><AdminRoute /></SuspenseWrapper>,
         children: [
           {
-            element: <AdminLayout />,
+            element: <SuspenseWrapper><AdminLayout /></SuspenseWrapper>,
             children: [
               { path: "/admin", element: <SuspenseWrapper><AdminDashboardPage /></SuspenseWrapper> },
               { path: "/admin/users", element: <SuspenseWrapper><AdminUsersPage /></SuspenseWrapper> },

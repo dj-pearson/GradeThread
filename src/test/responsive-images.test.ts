@@ -97,17 +97,26 @@ describe("rewriteContentImages (blog SSR)", () => {
   });
 });
 
-// Smoke test (AC#5): the prerendered landing logo carries a srcset. Requires a
-// prior `npm run build` (same precondition as the prerender dist tests).
+// Smoke test (AC#5): the prerendered landing logo. Requires a prior
+// `npm run build` (same precondition as the prerender dist tests). The srcset is
+// gated behind VITE_CF_IMAGE_RESIZING (the <Image> component only emits a
+// /cdn-cgi/image srcset once Cloudflare Transformations is enabled), so this
+// asserts the behavior that matches the flag the build ran with.
 describe("landing responsive image smoke test (US-306)", () => {
   const distIndex = resolve(process.cwd(), "dist", "index.html");
-  it("landing logo ships a Cloudflare-resized srcset", () => {
+  const resizingEnabled = process.env.VITE_CF_IMAGE_RESIZING === "true";
+  it(`landing logo ${resizingEnabled ? "ships a Cloudflare-resized srcset" : "ships the original (resizing off)"}`, () => {
     expect(existsSync(distIndex), "run `npm run build` first").toBe(true);
     // HTML attributes are case-insensitive; React's SSR emits `srcSet` (camel),
     // which browsers parse identically to `srcset`. Lowercase before matching.
     const html = readFileSync(distIndex, "utf8").toLowerCase();
-    expect(html).toContain("srcset=");
-    expect(html).toContain("/cdn-cgi/image/");
     expect(html).toContain("logo_primary.png");
+    if (resizingEnabled) {
+      expect(html).toContain("srcset=");
+      expect(html).toContain("/cdn-cgi/image/");
+    } else {
+      // Off → plain original, no 404-ing resize URLs in the prerendered HTML.
+      expect(html).not.toContain("/cdn-cgi/image/");
+    }
   });
 });

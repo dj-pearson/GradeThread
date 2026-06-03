@@ -99,7 +99,10 @@
       "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Select-Object -Last 30; Write-Output \"EXIT: $LASTEXITCODE\")",
       "PowerShell(Set-Location \"C:\\\\Users\\\\dpearson\\\\Documents\\\\GradeThread\\\\services\\\\edge-functions\"; $o = & deno check src/lib/ai-extract.ts src/lib/ai-grading.ts src/lib/ai-listing.ts 2>&1 | Out-String; $ai = [regex]::Matches\\($o, 'ai-\\(extract|grading|listing\\)\\\\.ts'\\).Count; Write-Output \"AI-file error refs: $ai\"; [regex]::Matches\\($o, 'TS\\\\d+'\\) | ForEach-Object { $_.Value } | Group-Object | Format-Table Count,Name -AutoSize | Out-String)",
       "Bash(ls src/components/billing)",
-      "Bash(ls src/components/pricing)"
+      "Bash(ls src/components/pricing)",
+      "WebFetch(domain:gradethread.com)",
+      "PowerShell(npx vitest run src/test/responsive-images.test.ts 2>&1 | Select-Object -Last 30)",
+      "PowerShell(npx eslint src/routes/index.tsx src/layouts/root-layout.tsx src/layouts/dashboard-layout.tsx src/layouts/admin-layout.tsx src/components/billing/app-billing-dialogs.tsx src/components/responsive-image.tsx 2>&1 | Select-Object -Last 30)"
     ]
   },
   "hooks": {

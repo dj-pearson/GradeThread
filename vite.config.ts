@@ -109,8 +109,14 @@ export default defineConfig({
           if (id.includes("@stripe")) return "vendor-stripe";
           if (id.includes("@sentry")) return "vendor-sentry";
           if (id.includes("posthog-js")) return "vendor-posthog";
-          if (id.includes("@radix-ui")) return "vendor-radix";
           if (id.includes("@tanstack")) return "vendor-query";
+          // NOTE: @radix-ui is deliberately NOT grouped. Button pulls
+          // @radix-ui/react-slot, and Button renders on the public/landing
+          // pages — forcing all of radix into one "vendor-radix" chunk meant
+          // ~37KB gz of Dialog/Select/Popover/etc. downloaded on the landing
+          // page that never uses them (a PageSpeed "unused JS" hit). Letting
+          // Rollup split radix per-route keeps react-slot tiny on public pages
+          // and loads the heavy primitives only on the dashboard chunks.
           // Everything else: let Rollup decide so lazily-imported heavy libs
           // (recharts, TipTap) stay in their own route chunks instead of being
           // forced into an eager vendor bundle.

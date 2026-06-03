@@ -22,10 +22,21 @@ interface ImageProps {
   className?: string;
 }
 
-// Reusable responsive image (US-306). Emits a Cloudflare Image Resizing srcset
-// (AVIF/WebP via format=auto) while keeping the original as the plain `src`
-// fallback, always carries width/height to prevent layout shift, and lazy-loads
-// unless marked `priority`. Used across the public marketing/landing pages.
+// Cloudflare Image Resizing only works when Transformations is enabled on the
+// zone (a one-time dashboard toggle — see docs/SEO_PERFORMANCE.md). When it's
+// OFF, every `/cdn-cgi/image/...` URL 404s, and because a failed `srcset`
+// candidate does NOT fall back to `src`, the image renders broken. So we gate
+// the srcset behind an explicit build flag: only emit it once the infra is
+// confirmed on (VITE_CF_IMAGE_RESIZING="true"). Off → ship the plain original,
+// which always 200s (just unoptimized). width/height are kept either way (CLS).
+const CF_IMAGE_RESIZING_ENABLED =
+  import.meta.env.VITE_CF_IMAGE_RESIZING === "true";
+
+// Reusable responsive image (US-306). When resizing is enabled, emits a
+// Cloudflare Image Resizing srcset (AVIF/WebP via format=auto) while keeping the
+// original as the plain `src` fallback. Always carries width/height to prevent
+// layout shift, and lazy-loads unless marked `priority`. Used across the public
+// marketing/landing pages.
 export function Image({
   src,
   alt,
@@ -37,12 +48,15 @@ export function Image({
   className,
 }: ImageProps) {
   const candidateWidths = widths ?? [width, width * 2];
-  const srcSet = buildSrcSet(src, candidateWidths);
+  const srcSet = CF_IMAGE_RESIZING_ENABLED
+    ? buildSrcSet(src, candidateWidths) || undefined
+    : undefined;
   return (
     <img
       src={src}
-      srcSet={srcSet || undefined}
-      sizes={sizes ?? `${width}px`}
+      srcSet={srcSet}
+      // `sizes` is only meaningful alongside a `w`-descriptor srcset.
+      sizes={srcSet ? (sizes ?? `${width}px`) : undefined}
       alt={alt}
       width={width}
       height={height}
