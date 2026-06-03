@@ -5687,6 +5687,2310 @@
       "priority": 343,
       "passes": true,
       "notes": "BUILT (claude/grading-platform-authority-ornp9). The dispute table + submitter filing UI + admin resolve(with per-factor weight adjustment)/reject already existed. ADDED: predefined reason categories (constants.DISPUTE_REASONS) + Select in submission-detail.tsx; edge POST /api/notifications/dispute-filed (admin email + in-app to admins, US-329-style) called on file; generalized the old /dispute-resolved into POST /api/notifications/dispute-status (in-app on every transition + email on resolve/reject) called from admin resolve/reject AND mark-under-review; sendDisputeFiledAdminEmail in email.ts. Also FIXED a latent bug: admin dispute notifications were POSTing to the Supabase host (api.*) instead of the functions host — now uses edgeApiUrl(). NOTE: the resolved email's original-vs-new score line is a pre-existing limitation (grade row is updated before the email reads it) — left as-is."
+    },
+    {
+      "id": "US-344",
+      "title": "Block SSRF in public API image-URL fetch",
+      "description": "As the platform, I must not fetch attacker-controlled URLs server-side, so an API-key holder cannot pivot to internal services or cloud metadata via the grade-submission image URL.",
+      "acceptanceCriteria": [
+        "POST /api/v1/grades (api-v1.ts ~L214) rejects non-https URLs and resolves+validates the target IP is public (block RFC1918/loopback/link-local/169.254.169.254) before fetching",
+        "Redirects are disabled or re-validated against private ranges; response size and timeout are capped",
+        "Regression test fetching http://169.254.169.254 and an RFC1918 host asserts rejection"
+      ],
+      "priority": 344,
+      "passes": false,
+      "notes": "[P0][Security] Prod-readiness audit 2026-06-03. SSRF sink: edge runs service-role + internal network. File: services/edge-functions/src/routes/api-v1.ts:214."
+    },
+    {
+      "id": "US-345",
+      "title": "Validate/allowlist outbound webhook delivery URLs (SSRF)",
+      "description": "As the platform, I must validate user-registered webhook URLs so the grade-delivery webhook cannot be used as an internal SSRF relay.",
+      "acceptanceCriteria": [
+        "Webhook URL is validated at set-time (PATCH /webhook) and delivery-time: require https in prod, reject private/loopback/link-local/metadata target IPs",
+        "Delivery does not follow redirects to private ranges; stored response bodies are capped/redacted",
+        "Test asserts an internal-host webhook is refused"
+      ],
+      "priority": 345,
+      "passes": false,
+      "notes": "[P1][Security] Audit 2026-06-03. Files: services/edge-functions/src/lib/webhook-delivery.ts, routes/api-v1.ts:519."
+    },
+    {
+      "id": "US-346",
+      "title": "Defend grading prompt against seller prompt injection",
+      "description": "As a buyer, I need grades to be trustworthy, so a seller cannot inject instructions via title/brand/description to inflate their own grade.",
+      "acceptanceCriteria": [
+        "Seller fields are fenced/escaped as untrusted reference data in buildCompositeUserPrompt and the per-image prompt; a system instruction states the GARMENT INFO block must never alter scoring",
+        "Fields are length-capped and control directives stripped",
+        "Adversarial test (injection string in title/description) asserts the grade is not driven to 10.0"
+      ],
+      "priority": 346,
+      "passes": false,
+      "notes": "[P0][Security/Grading] Audit 2026-06-03. File: services/edge-functions/src/lib/ai-grading.ts:725-727."
+    },
+    {
+      "id": "US-347",
+      "title": "Add WITH CHECK + column guards to users self-update RLS (stop privilege escalation)",
+      "description": "As the platform, I must prevent a user from editing protected columns on their own users row, so they cannot self-escalate to super_admin, unsuspend, or zero their usage counters from the browser.",
+      "acceptanceCriteria": [
+        "role, suspended, grades_used_this_month, plan/billing/flipdesk_plan columns are not writable by authenticated users (column GRANTs and/or a protected-column trigger and/or a split table)",
+        "The 'Users can update own profile' policy gains a WITH CHECK",
+        "Test: an authenticated user cannot set their own role to super_admin or clear suspended/usage"
+      ],
+      "priority": 347,
+      "passes": false,
+      "notes": "[P0][Security] Audit 2026-06-03. 00001 self-update policy has USING but no WITH CHECK and no column restriction."
+    },
+    {
+      "id": "US-348",
+      "title": "Stop public RLS exposing full grade_reports row",
+      "description": "As the platform, I must expose only public certificate columns to anonymous viewers, so anti-fraud signals and internal fields are not leaked to anyone holding a certificate_id.",
+      "acceptanceCriteria": [
+        "Public certificate reads go through a column-restricted edge endpoint or a SECURITY DEFINER view; the broad 'certificate_id IS NOT NULL' SELECT-* policy is removed/narrowed",
+        "Anon select('*') on a certified report no longer returns image_authenticity.tells, per_image_analysis, detailed_notes, confidence_score, content_signature, needs_human_review",
+        "Test: anon client cannot read authenticity tells for any certificate"
+      ],
+      "priority": 348,
+      "passes": false,
+      "notes": "[P0][Security] Audit 2026-06-03. 00001:230-232; src/pages/certificate.tsx fetches select('*'). CERT_REPORT_COLUMNS allowlist is defeated by direct table access."
+    },
+    {
+      "id": "US-349",
+      "title": "Authenticate + dedup the eBay account-deletion webhook",
+      "description": "As a seller, my eBay connection must not be disconnectable by an unauthenticated request, so an attacker cannot mass-disconnect sellers or flood the DB.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/webhooks/ebay/account-deletion verifies eBay's signature/token before any mutation; unsigned requests return 401 with no DB write",
+        "Events are deduped via claimWebhookEvent and a compliance row is written to account_deletion_log",
+        "Regression test asserts a forged/unsigned deletion cannot deactivate a connection"
+      ],
+      "priority": 349,
+      "passes": false,
+      "notes": "[P0][Security] Audit 2026-06-03 (flagged by 3 agents; likely source of the observed deletion flood). File: services/edge-functions/src/routes/flipdesk-webhooks.ts:326-374."
+    },
+    {
+      "id": "US-350",
+      "title": "Run the tenant-isolation regression suite in CI",
+      "description": "As the platform, the US-268 tenant-isolation guarantee must be CI-enforced, so a missing .eq(user_id) scoping cannot ship silently.",
+      "acceptanceCriteria": [
+        "A seeded two-tenant fixture lets tenant-isolation_test.ts run on every PR; the merge gate fails if the suite SKIPs",
+        "Cross-tenant cases added for revise, category-check, reconciliation commit, disclosure upload, and sync-runs",
+        "CI fails on any cross-tenant read/write"
+      ],
+      "priority": 350,
+      "passes": false,
+      "notes": "[P1][Security] Audit 2026-06-03. tenant-isolation_test.ts is env-gated (ignore:!CONFIGURED) and almost certainly never runs in CI."
+    },
+    {
+      "id": "US-351",
+      "title": "Cap workspace role assignment to prevent escalation",
+      "description": "As a workspace owner, I need role grants bounded by the actor's own role, so a non-owner cannot grant a role at or above their own level via invite or role-change.",
+      "acceptanceCriteria": [
+        "Invite and role-change endpoints enforce that the assigned role is <= the actor's role (admins may assign up to admin, never owner), server-side",
+        "The cap is applied on invite create, resend, and accept",
+        "Test: a workspace admin inviting/assigning owner is rejected"
+      ],
+      "priority": 351,
+      "passes": false,
+      "notes": "[P1][Security] Audit 2026-06-03. Consistent with the approved model (admins manage members incl. admins) but closes 'assign above own level'. File: services/edge-functions/src/routes/workspace.ts:80."
+    },
+    {
+      "id": "US-352",
+      "title": "Harden eBay OAuth-token encryption (AAD binding + rotation)",
+      "description": "As the platform, stored eBay tokens must be bound to their owner and the key must be rotatable, so a single key leak or swapped ciphertext is contained.",
+      "acceptanceCriteria": [
+        "AES-GCM additionalData binds ciphertext to the owning user_id",
+        "A documented key-rotation path exists (key id beyond the literal v1 prefix; re-encrypt procedure)",
+        "EDGE_ENCRYPTION_KEY is stored only in the secrets manager and is rotatable"
+      ],
+      "priority": 352,
+      "passes": false,
+      "notes": "[P2][Security] Audit 2026-06-03. File: services/edge-functions/src/lib/crypto-aes.ts."
+    },
+    {
+      "id": "US-353",
+      "title": "Replace regex HTML sanitizer with an allowlist DOM sanitizer",
+      "description": "As the platform, admin/AI blog HTML must be sanitized with a parser-based allowlist, so a regex bypass cannot become stored XSS on the marketing domain.",
+      "acceptanceCriteria": [
+        "content-sanitize.ts replaced with a real allowlist sanitizer (or parser-based pipeline) used at publish + render",
+        "Blog SSR responses inherit the enforcing CSP (no unsafe-inline script; object-src none)",
+        "Bypass-corpus tests (nested broken tags, javascript:/data: URIs) pass"
+      ],
+      "priority": 353,
+      "passes": false,
+      "notes": "[P2][Security] Audit 2026-06-03. Files: services/edge-functions/src/lib/content-sanitize.ts, functions/_shared/blog-render.ts."
+    },
+    {
+      "id": "US-354",
+      "title": "Make the rate limiter trustworthy (CF-only origin; fail-closed on abusable routes)",
+      "description": "As the platform, rate limiting must not be bypassable via spoofed IP or disabled by a DB blip, so abuse of webhooks, OAuth start, and the public API is actually throttled.",
+      "acceptanceCriteria": [
+        "Origin is reachable only via Cloudflare so CF-Connecting-IP is trusted, or X-Forwarded-For is no longer trusted",
+        "The most abusable unauthenticated routes fail-closed (or use a local fallback) when the counter store is down",
+        "Traefik/Coolify direct reachability is verified closed"
+      ],
+      "priority": 354,
+      "passes": false,
+      "notes": "[P2][Security] Audit 2026-06-03. File: services/edge-functions/src/middleware/rate-limit.ts (fails open; spoofable subject)."
+    },
+    {
+      "id": "US-355",
+      "title": "Add a CI guard that every tenant table has restrictive RLS",
+      "description": "As the platform, I need automated proof that all client-readable tenant tables are RLS-protected, so a new table can't ship world-readable.",
+      "acceptanceCriteria": [
+        "A test/assertion verifies every public.* table with user_id (or tenant parent FK) has RLS enabled and at least one restrictive policy",
+        "No policy uses USING(true) or authenticated-only without a tenant predicate",
+        "Runs as a CI guard"
+      ],
+      "priority": 355,
+      "passes": false,
+      "notes": "[P2][Security] Audit 2026-06-03. SPA reads PostgREST with anon key, so RLS is the sole client boundary."
+    },
+    {
+      "id": "US-356",
+      "title": "Add scopes + rotation to API keys; verify plan column",
+      "description": "As an API consumer, I need scoped keys, so a leaked read-only key cannot submit grades or rewrite my webhook URL.",
+      "acceptanceCriteria": [
+        "Per-key scopes (read vs submit vs webhook-manage) enforced in api-v1.ts",
+        "Key rotation supported; the plan gate uses the intended column (flipdesk_plan vs legacy plan confirmed)",
+        "Consider HMAC-with-server-pepper over plain SHA-256"
+      ],
+      "priority": 356,
+      "passes": false,
+      "notes": "[P2][Security] Audit 2026-06-03. Files: middleware/api-key-auth.ts, routes/api-keys.ts (bare SHA-256, no scopes, plan===professional|enterprise gate)."
+    },
+    {
+      "id": "US-357",
+      "title": "Guard admin MFA enforcement flag + claims-decode coupling",
+      "description": "As the platform, admin MFA must not be silently disabled by a misconfigured flag, and step-up must only trust verified token claims.",
+      "acceptanceCriteria": [
+        "Startup assertion fails loud if ADMIN_MFA_ENFORCED is false in production",
+        "aal/amr are read only from the token getUser()/JWKS actually verified; every call site is documented/guarded",
+        "Test: an aal1 admin token cannot reach admin routes"
+      ],
+      "priority": 357,
+      "passes": false,
+      "notes": "[P1][Security] Audit 2026-06-03. Files: middleware/admin-auth.ts:46, lib/step-up.ts, lib/jwt-claims.ts."
+    },
+    {
+      "id": "US-358",
+      "title": "Tighten CSP and remove the inline-hash footgun",
+      "description": "As the platform, the CSP should minimize exfiltration surface and not break when the inline head script changes, so XSS is harder and Consent Mode/GA don't silently break.",
+      "acceptanceCriteria": [
+        "img-src scoped tighter than bare https: where feasible",
+        "Inline bootstrap moved to an external hashed/nonced file (removes hash-drift), or a CI check asserts the _headers hash matches index.html",
+        "Add static.cloudflareinsights.com/cloudflareinsights.com only as needed (already added)"
+      ],
+      "priority": 358,
+      "passes": false,
+      "notes": "[P3][Security] Audit 2026-06-03. File: public/_headers; MEMORY notes the hash-drift footgun."
+    },
+    {
+      "id": "US-359",
+      "title": "Standardize edge error responses and redact logs",
+      "description": "As the platform, clients must receive safe generic errors and logs must not leak PII/secrets, so internal details and customer data are not disclosed.",
+      "acceptanceCriteria": [
+        "A shared helper returns a consistent {error, code?} shape; raw DB/provider text is logged server-side only, never returned",
+        "A redaction layer scrubs emails/tokens/handles/signatures from logs; the access logger never captures auth headers",
+        "Routes returning error.message are migrated to the helper"
+      ],
+      "priority": 359,
+      "passes": false,
+      "notes": "[P2][Security/Obs] Audit 2026-06-03. e.g. flipdesk-pricing.ts:201/234/269, verified.ts, sync-runs all return raw error.message."
+    },
+    {
+      "id": "US-360",
+      "title": "Harden internal job-secret auth",
+      "description": "As the platform, cron/maintenance endpoints must use a constant-time, rotatable, scoped secret, so one leaked env var can't unlock all destructive jobs.",
+      "acceptanceCriteria": [
+        "Secret comparison is constant-time",
+        "Dual-secret overlap rotation documented; consider signed short-lived job tokens",
+        "These /api/jobs/* paths are not reachable publicly without the secret and are not log-leaked"
+      ],
+      "priority": 360,
+      "passes": false,
+      "notes": "[P3][Security] Audit 2026-06-03. FLIPDESK_INTERNAL_JOB_SECRET via plain !== across many jobs."
+    },
+    {
+      "id": "US-361",
+      "title": "Verify open-redirect safety of OAuth relative-path sanitizer",
+      "description": "As a user, the eBay OAuth redirect must never send me off-site, so the flow can't be chained into an open redirect.",
+      "acceptanceCriteria": [
+        "sanitizeRelativePath rejects //host, /\\host, absolute URLs, and tab/newline/control chars; only a single leading / plus known prefixes allowed",
+        "Unit tests cover each bypass vector"
+      ],
+      "priority": 361,
+      "passes": false,
+      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/routes/flipdesk-ebay.ts (oauth start/callback)."
+    },
+    {
+      "id": "US-362",
+      "title": "Enforce a real request-body byte cap",
+      "description": "As the platform, body-size limits must hold even when Content-Length is omitted/lied about, so a chunked upload can't pressure container memory.",
+      "acceptanceCriteria": [
+        "The body is byte-counted while read and aborts on overflow (not header-only)",
+        "Traefik/Coolify has a documented hard maxRequestBodyBytes"
+      ],
+      "priority": 362,
+      "passes": false,
+      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/middleware/body-limit.ts."
+    },
+    {
+      "id": "US-363",
+      "title": "Lock down CORS preflight reflection",
+      "description": "As the platform, CORS should echo a fixed allowlist rather than reflecting requested headers, and only trust first-party origins.",
+      "acceptanceCriteria": [
+        "OPTIONS returns a fixed Access-Control-Allow-Headers allowlist (no reflection)",
+        "Every allowlisted origin is confirmed first-party; localhost dropped in production builds"
+      ],
+      "priority": 363,
+      "passes": false,
+      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/main.ts:86-89 (reflects request headers; flipdesk.com + localhost allowed)."
+    },
+    {
+      "id": "US-364",
+      "title": "Revoke eBay tokens upstream on disconnect/deletion",
+      "description": "As a seller, disconnecting should invalidate my tokens at eBay too, so long-lived refresh tokens aren't left valid after I remove the connection.",
+      "acceptanceCriteria": [
+        "Disconnect/account-deletion calls eBay's token-revocation endpoint where supported",
+        "Deletion matches a verified eBay payload, not a free-text handle"
+      ],
+      "priority": 364,
+      "passes": false,
+      "notes": "[P2][Security] Audit 2026-06-03. Deletion currently only clears stored tokens, matched on guessable account_handle."
+    },
+    {
+      "id": "US-365",
+      "title": "Verify eBay notification signature scheme is implemented correctly",
+      "description": "As the platform, eBay webhook verification must match eBay's actual signature algorithm, so valid events aren't rejected and forged ones aren't accepted.",
+      "acceptanceCriteria": [
+        "Confirm eBay's documented scheme for subscribed topics (likely X.509/ECDSA x-ebay-signature, not shared-secret HMAC) and implement exactly that",
+        "Remove the accept-hex-or-base64 leniency once pinned; the debug bypass cannot run in prod",
+        "A fixture test with a real eBay-signed sample passes"
+      ],
+      "priority": 365,
+      "passes": false,
+      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/routes/flipdesk-webhooks.ts:103-132 (verifyEbayHmac is non-standard)."
+    },
+    {
+      "id": "US-366",
+      "title": "Enforce email verification before app + edge access",
+      "description": "As the platform, an unconfirmed signup must not reach the dashboard or edge APIs, so unverified/attacker-created accounts can't consume trials or call endpoints.",
+      "acceptanceCriteria": [
+        "authMiddleware and ProtectedRoute reject sessions where email_confirmed_at is null, with a clear 'confirm your email' state and a resend path",
+        "GoTrue is configured so unconfirmed users cannot obtain a usable access token (or the gate compensates), verified by a test",
+        "The trial/credit grant in handle_new_user is not exploitable by unverified signups"
+      ],
+      "priority": 366,
+      "passes": false,
+      "notes": "[P0][Auth] Audit 2026-06-03. No code checks email_confirmed_at anywhere; signup UI claims verification but nothing enforces it."
+    },
+    {
+      "id": "US-367",
+      "title": "Server-side password policy + breached-password check",
+      "description": "As the platform, password strength must be enforced server-side, so weak/reused-breached passwords can't be set by calling the API directly.",
+      "acceptanceCriteria": [
+        "GoTrue config sets minimum length + complexity (minimum_password_length, password_requirements)",
+        "Breached-password (HIBP) rejection enabled, or documented exception",
+        "Client shows a strength meter but the server is authoritative"
+      ],
+      "priority": 367,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. Only an 8-char client check exists (signup.tsx/reset-password.tsx)."
+    },
+    {
+      "id": "US-368",
+      "title": "Add CAPTCHA + auth-endpoint rate limits",
+      "description": "As the platform, signup/login/reset must be bot-protected and throttled, so trial-farming, credential-stuffing, and reset-email floods are prevented.",
+      "acceptanceCriteria": [
+        "Turnstile/hCaptcha enabled for signup, login, and password reset via GoTrue captcha config",
+        "GoTrue email-send and per-IP signup rate limits configured",
+        "Verified a script can't create N trial accounts or trigger N reset emails per minute"
+      ],
+      "priority": 368,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. No captcha; edge limiter doesn't cover GoTrue auth endpoints."
+    },
+    {
+      "id": "US-369",
+      "title": "Generic auth errors + brute-force lockout",
+      "description": "As the platform, login/signup failures must not reveal account existence and repeated failures must lock out, so enumeration and brute force are mitigated.",
+      "acceptanceCriteria": [
+        "Auth failures show a single generic message; signup never reveals an email is already registered",
+        "Temporary lockout/backoff after N failed logins per account/IP",
+        "Verified no enumeration via differing error text"
+      ],
+      "priority": 369,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. login.tsx surfaces raw Supabase errors (Invalid credentials vs Email not confirmed)."
+    },
+    {
+      "id": "US-370",
+      "title": "Fix OAuth callback error + race handling",
+      "description": "As a user, a cancelled/failed Google sign-in must show an actionable error instead of an infinite spinner.",
+      "acceptanceCriteria": [
+        "auth-callback parses error/error_description params and shows a clear error with a back-to-login path",
+        "A timeout fallback navigates away from the spinner; the listener also checks the current session on mount so an already-completed sign-in isn't missed"
+      ],
+      "priority": 370,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. File: src/pages/auth-callback.tsx."
+    },
+    {
+      "id": "US-371",
+      "title": "Harden password-reset update flow",
+      "description": "As a user, resetting my password must require a valid recovery session and invalidate other sessions, so resets are safe and single-use.",
+      "acceptanceCriteria": [
+        "The update form confirms a recovery session exists before submit; otherwise shows link-expired",
+        "On success, all other sessions are revoked (global sign-out)",
+        "Reset link is single-use and short-TTL (verified)"
+      ],
+      "priority": 371,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. File: src/pages/reset-password.tsx (UpdatePasswordForm)."
+    },
+    {
+      "id": "US-372",
+      "title": "Protect workspace data on owner account deletion",
+      "description": "As a workspace member, the owner deleting their account must not silently destroy our shared data, so team workspaces aren't wiped without warning or transfer.",
+      "acceptanceCriteria": [
+        "Deletion detects existing members and blocks or requires ownership transfer first",
+        "Members are notified before/at owner deletion and their access is gracefully removed",
+        "Optional grace/soft-delete window before the hard cascade; covered by a test"
+      ],
+      "priority": 372,
+      "passes": false,
+      "notes": "[P0][Auth] Audit 2026-06-03. ON DELETE CASCADE on workspace_members.owner_id wipes the whole shared workspace with zero notice."
+    },
+    {
+      "id": "US-373",
+      "title": "Account deletion grace period + confirmation email",
+      "description": "As a user, account deletion should be recoverable for a window and confirmed by email, so accidental/coerced deletions aren't instantly irreversible.",
+      "acceptanceCriteria": [
+        "Deletion is staged (soft-delete + scheduled purge) with a documented recovery window, or immediate hard-delete is explicitly signed off",
+        "A confirmation email is sent on deletion",
+        "A defined support recovery procedure exists within the window"
+      ],
+      "priority": 373,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. File: services/edge-functions/src/routes/account.ts (immediate hard cascade)."
+    },
+    {
+      "id": "US-374",
+      "title": "Self-serve MFA (TOTP) for all users + workspace enforcement",
+      "description": "As any user (especially workspace admins/managers), I need to enable 2FA, so high-value reseller and workspace accounts have a second factor.",
+      "acceptanceCriteria": [
+        "Self-serve TOTP enrollment in Settings for all users, with recovery codes",
+        "Workspace owners can require MFA for members above a role threshold",
+        "Lost-device recovery documented"
+      ],
+      "priority": 374,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. MFA is admin-only today (AdminMfaGate); no enterprise SSO/SAML."
+    },
+    {
+      "id": "US-375",
+      "title": "Sign-out-everywhere + refresh-token rotation + re-auth for sensitive actions",
+      "description": "As a user, I need to terminate all sessions, and tokens should rotate/expire, so a stolen refresh token isn't valid indefinitely.",
+      "acceptanceCriteria": [
+        "Settings has 'Sign out of all devices' (global scope)",
+        "GoTrue refresh-token rotation and an absolute refresh-token TTL configured; password/MFA changes revoke other sessions",
+        "Sensitive actions (reveal API key, change email) require recent re-authentication; idle-timeout considered"
+      ],
+      "priority": 375,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. signOut is local-scope only; autoRefresh + persistSession give effectively unbounded sessions."
+    },
+    {
+      "id": "US-376",
+      "title": "Make handle_new_user resilient + sanitize full_name",
+      "description": "As the platform, profile-row creation must never block/corrupt signup, so a trigger failure or malicious full_name can't break or poison accounts.",
+      "acceptanceCriteria": [
+        "Trigger is exception-safe / ON CONFLICT DO NOTHING so profile issues never abort auth signup or duplicate on retry",
+        "full_name is length-capped and treated as untrusted everywhere it renders",
+        "Verified for retried/duplicate signups"
+      ],
+      "priority": 376,
+      "passes": false,
+      "notes": "[P1][Auth] Audit 2026-06-03. handle_new_user (00001) copies raw full_name and aborts signup on any insert failure."
+    },
+    {
+      "id": "US-377",
+      "title": "Capture explicit ToS/Privacy acceptance at signup (clickwrap)",
+      "description": "As the company, I must record affirmative ToS/Privacy consent with version + timestamp, so agreement is provable and enforceable (incl. OAuth signups).",
+      "acceptanceCriteria": [
+        "Signup requires an affirmative checkbox/clickwrap before account creation",
+        "Acceptance persisted server-side with ToS/Privacy version + timestamp; OAuth signups capture it before first dashboard access",
+        "A re-acceptance flow exists for future material changes; record is exportable"
+      ],
+      "priority": 377,
+      "passes": false,
+      "notes": "[P1][Auth/Legal] Audit 2026-06-03. signup.tsx uses passive browsewrap text; nothing recorded; OAuth bypasses it."
+    },
+    {
+      "id": "US-378",
+      "title": "Make onboarding essentials non-skippable + design new-user empty states",
+      "description": "As a new user, I should be guided through essential setup and never land in a broken empty state, while the tour itself stays skippable.",
+      "acceptanceCriteria": [
+        "Essential steps (verify email, accept terms) are non-skippable; the tour remains skippable and re-openable from Settings",
+        "Brand-new-account empty states (no submissions/inventory) are designed and verified",
+        "use_case capture handled even when the tour is skipped"
+      ],
+      "priority": 378,
+      "passes": false,
+      "notes": "[P2][Auth/UX] Audit 2026-06-03. Files: src/components/onboarding/onboarding-flow.tsx."
+    },
+    {
+      "id": "US-379",
+      "title": "Correct OAuth/reset redirect allow-list for production",
+      "description": "As the platform, all used redirect targets must be allow-listed and localhost excluded in prod, so resets/OAuth don't silently break and the redirect surface stays minimal.",
+      "acceptanceCriteria": [
+        "/auth/callback, /auth/reset-password, and accept-invite targets are present in the prod allow-list; localhost entries excluded from prod",
+        "Allow-list is exact-match and reviewed for open-redirect safety",
+        "A staging check confirms reset and OAuth redirects resolve"
+      ],
+      "priority": 379,
+      "passes": false,
+      "notes": "[P2][Auth] Audit 2026-06-03. File: supabase/config.toml additional_redirect_urls."
+    },
+    {
+      "id": "US-380",
+      "title": "Handle duplicate-account / identity-linking across OAuth and password",
+      "description": "As a user, signing in with a different method for the same email should guide me to the right account, so I don't create duplicate/orphaned accounts.",
+      "acceptanceCriteria": [
+        "GoTrue account-linking policy configured/verified",
+        "Login/signup detect a method mismatch and show 'use your original sign-in method' instead of a raw error"
+      ],
+      "priority": 380,
+      "passes": false,
+      "notes": "[P3][Auth] Audit 2026-06-03."
+    },
+    {
+      "id": "US-381",
+      "title": "Make GDPR data export complete and discoverable",
+      "description": "As a user, my data export must include all my PII and be easy to find, so it satisfies a GDPR subject-access request.",
+      "acceptanceCriteria": [
+        "Export covers all tables holding the user's PII/records (disputes, api_keys metadata, notifications, workspace memberships/invitations, marketplace_connections metadata, payout_imports, feedback) and offers their uploaded images or documents the exclusion",
+        "Export is discoverable in Settings next to deletion",
+        "Validated against a GDPR SAR checklist"
+      ],
+      "priority": 381,
+      "passes": false,
+      "notes": "[P1][Auth/Legal] Audit 2026-06-03. /api/account/export omits several PII tables; settings says images not included."
+    },
+    {
+      "id": "US-382",
+      "title": "Enforce FlipDesk plan caps + feature gates server-side",
+      "description": "As the platform, plan limits must be enforced on the server, so plan caps and Pro/Business features aren't UI-only bypassable.",
+      "acceptanceCriteria": [
+        "requireFlipdesk capacity gates enforced on listing publish/offer-create and marketplace connect",
+        "Feature gates (bulkActions, reconciliation, apiAccess, subAccounts, etc.) enforced on their endpoints",
+        "Integration tests assert 402 CAP_REACHED/FEATURE_LOCKED for a Free user on each path"
+      ],
+      "priority": 382,
+      "passes": false,
+      "notes": "[P0][Billing] Audit 2026-06-03. requireFlipdesk is wired ONLY into flipdesk-autolister.ts; caps are effectively UI-only. File: lib/plan-gate.ts."
+    },
+    {
+      "id": "US-383",
+      "title": "Add trial-expiry job (stop perpetual free Pro)",
+      "description": "As the platform, expired trials must downgrade to Free, so a signup that never adds a card doesn't keep Pro caps forever.",
+      "acceptanceCriteria": [
+        "A scheduled job flips trialing users with trial_ends_at<now and no subscription to free/none",
+        "plan-gate and effectivePlanFor treat an expired trial as Free even before the job runs",
+        "Test covers an expired-trial user being capped at Free"
+      ],
+      "priority": 383,
+      "passes": false,
+      "notes": "[P0][Billing] Audit 2026-06-03. handle_new_user (00037) grants 14d Pro trial; the promised daily downgrade cron does not exist."
+    },
+    {
+      "id": "US-384",
+      "title": "Fix credit-pack refund to debit the wallet",
+      "description": "As the platform, a refunded credit pack must actually remove the credits, so customers can't keep credits after a refund.",
+      "acceptanceCriteria": [
+        "Refund reversal goes through a row-locked RPC that subtracts credits and writes a correct balance_after",
+        "Behavior is defined when credits were already spent (flag/negative reconciliation) instead of a silent no-op",
+        "Test: pack purchase -> refund -> balance reduced and ledger balance_after consistent"
+      ],
+      "priority": 384,
+      "passes": false,
+      "notes": "[P0][Billing] Audit 2026-06-03 (flagged by 2 agents). webhooks.ts handleChargeRefunded inserts -credits, balance_after:0 but never touches grade_credit_balance."
+    },
+    {
+      "id": "US-385",
+      "title": "Handle per-grade refunds/chargebacks",
+      "description": "As the platform, a refunded/charged-back per-grade purchase must revoke or withhold the deliverable, so customers can't keep a grade they were refunded for.",
+      "acceptanceCriteria": [
+        "charge.refunded for product=per_grade marks the submission refunded and revokes/withholds the report or flags for review",
+        "charge.dispute.created is handled or explicitly documented",
+        "Admin runbook covers reconciling a paid_stripe refund"
+      ],
+      "priority": 385,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03. handleChargeRefunded logs 'no DB change' for per_grade."
+    },
+    {
+      "id": "US-386",
+      "title": "Fix AI-action quota: correct plan column + enforce self-cap",
+      "description": "As the platform, AI-action limits must read the active plan and the user's self-cap, so limits aren't stale after upgrades and the self-cap is honored.",
+      "acceptanceCriteria": [
+        "checkQuota reads flipdesk_plan (paused->free fallback) or uses requireFlipdesk aiActions",
+        "ai_action_limit self-cap enforced via min(planLimit, userLimit)",
+        "Test: upgraded user gets the new tier limit; self-cap blocks at the lower value"
+      ],
+      "priority": 386,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03. flipdesk-ai.ts checkQuota reads deprecated plan column; self-cap selected but unused."
+    },
+    {
+      "id": "US-387",
+      "title": "Make AI-action quota check+increment atomic",
+      "description": "As the platform, the AI-action cap must be enforced atomically, so concurrent requests can't exceed the monthly limit.",
+      "acceptanceCriteria": [
+        "A single RPC increments-and-checks (or a conditional CAS) so over-limit is rejected atomically",
+        "Concurrency test confirms N parallel requests at the boundary cannot exceed the cap"
+      ],
+      "priority": 387,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03. flipdesk-ai.ts does check-then-increment (TOCTOU)."
+    },
+    {
+      "id": "US-388",
+      "title": "Gate + bound team seats by plan",
+      "description": "As the platform, team membership must respect the subAccounts feature and a seat cap, so members aren't unlimited and free.",
+      "acceptanceCriteria": [
+        "Member invite/accept enforces requireFlipdesk subAccounts",
+        "A per-plan seat cap is enforced (active members vs cap), or seat-based pricing (quantity) with proration is implemented",
+        "Test: Free/Starter/Pro blocked from inviting beyond limits; Business allowed up to its cap"
+      ],
+      "priority": 388,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03. workspace.ts invite only checks role; billing is flat quantity:1; extra seats cost nothing."
+    },
+    {
+      "id": "US-389",
+      "title": "Make Stripe Tax checkout robust (collect address)",
+      "description": "As a customer, checkout with automatic tax must not fail for lack of an address, so subscribe and credit-pack purchases complete and are taxed correctly.",
+      "acceptanceCriteria": [
+        "billing_address_collection: required (or equivalent) on all automatic_tax sessions",
+        "A brand-new customer can complete subscribe AND credit-pack checkout with tax enabled (verified end-to-end)",
+        "tax_code/tax_behavior coverage for one-time products matches setup"
+      ],
+      "priority": 389,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03. payments.ts enables automatic_tax with only customer_email and no address."
+    },
+    {
+      "id": "US-390",
+      "title": "Single-source, fail-closed webhook idempotency for money events",
+      "description": "As the platform, billing webhooks must be processed exactly once, so transient errors can't double-apply credits/resets or drop state.",
+      "acceptanceCriteria": [
+        "One authoritative idempotency claim; money-moving side effects are idempotent on the Stripe object id",
+        "Critical events fail-closed (return non-2xx so Stripe retries) on transient DB error; redundant recordEvent demoted to audit-only",
+        "Duplicate-delivery tests for charge.refunded and checkout.session.completed"
+      ],
+      "priority": 390,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03 (3 agents). Two idempotency systems; claimWebhookEvent fails open; handlers 200-anyway."
+    },
+    {
+      "id": "US-391",
+      "title": "Ensure a single Stripe customer with idempotency keys",
+      "description": "As the platform, each user must map to exactly one Stripe customer, so concurrent first checkouts don't create duplicates and lose the link.",
+      "acceptanceCriteria": [
+        "Lazily ensure/persist one Stripe customer before the first Checkout, reused on all sessions",
+        "checkout.sessions.create uses a stable idempotency key",
+        "Webhook customer-link backfill reconciles multiple customers for one user"
+      ],
+      "priority": 391,
+      "passes": false,
+      "notes": "[P1][Billing] Audit 2026-06-03. Customer id is back-filled post-checkout via update .is(null)."
+    },
+    {
+      "id": "US-392",
+      "title": "Don't entitle incomplete subscriptions",
+      "description": "As the platform, an incomplete subscription must not grant paid caps, so access isn't given before payment succeeds.",
+      "acceptanceCriteria": [
+        "mapSubscriptionStatus maps incomplete (and unknown) to a non-entitling status until invoice.payment_succeeded",
+        "Entitlement keys off a verified-paid signal, not a default-active fallback",
+        "Test: incomplete->canceled never grants Pro caps"
+      ],
+      "priority": 392,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts maps incomplete->active."
+    },
+    {
+      "id": "US-393",
+      "title": "Reset Free monthly included-grade counter",
+      "description": "As a Free user, my monthly included-grade counter must reset reliably, so the meter and reset date are correct across months.",
+      "acceptanceCriteria": [
+        "A scheduled monthly reset (or consistent grade_reset_at check) covers Free users",
+        "Billing UI shows a correct reset date for Free",
+        "plan-gate includedGrades reads honor the rollover"
+      ],
+      "priority": 393,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. Reset only fires on invoice.payment_succeeded (Free never gets one)."
+    },
+    {
+      "id": "US-394",
+      "title": "Add idempotency key to per-grade checkout",
+      "description": "As a customer, double-clicking pay must not charge me twice for one submission.",
+      "acceptanceCriteria": [
+        "Session creation passes an idempotency key derived from (submissionId, tier) so duplicates reuse one session",
+        "Double-payment behavior (refund the second) is defined",
+        "Concurrent per-grade checkout test passes"
+      ],
+      "priority": 394,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. payments.ts perGradeCheckout guards on status but not concurrent sessions."
+    },
+    {
+      "id": "US-395",
+      "title": "Downgrade entitlement on exhausted dunning",
+      "description": "As the platform, a permanently-failing card must lose paid caps after a grace window, so past_due users don't keep Pro access forever.",
+      "acceptanceCriteria": [
+        "plan-gate/effectivePlanFor treat past_due beyond a grace window as Free caps (or block)",
+        "The Stripe dunning end-state (cancel vs unpaid) is defined and downgrades entitlement",
+        "Test: a subscription stuck in past_due loses paid caps after grace"
+      ],
+      "priority": 395,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. Only paused is special-cased; past_due keeps paid caps."
+    },
+    {
+      "id": "US-396",
+      "title": "Make plan mapping interval-aware and fail-closed",
+      "description": "As the platform, subscription->plan mapping must not misclassify yearly prices, so customers get the tier they paid for.",
+      "acceptanceCriteria": [
+        "The amount heuristic is removed or made interval-aware; unmappable prices fail closed (alert, no entitlement)",
+        "metadata.plan presence is monitored; fallback firing alerts",
+        "Yearly prices map to the correct tier (test)"
+      ],
+      "priority": 396,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts amount>=9900 heuristic maps all yearly prices to business."
+    },
+    {
+      "id": "US-397",
+      "title": "Retry critical webhook handlers on DB write failure",
+      "description": "As the platform, a transient DB failure on a critical billing event must trigger a Stripe retry, so subscription state transitions aren't permanently lost.",
+      "acceptanceCriteria": [
+        "Critical handlers return non-2xx on DB write failure (with the idempotency claim not yet committed) so Stripe retries",
+        "Transient vs code-bug failures are distinguished; dropped billing events alert"
+      ],
+      "priority": 397,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts returns 200 and only console-logs DB failures."
+    },
+    {
+      "id": "US-398",
+      "title": "Make all credit-ledger writes balance-consistent",
+      "description": "As the platform, every ledger row that reflects balance must be computed atomically, so the ledger can't drift from grade_credit_balance.",
+      "acceptanceCriteria": [
+        "All balance-affecting ledger writes go through one row-locking RPC, or balance_after is derived/nullable for zero-delta audit rows",
+        "A reconciliation query proves ledger sum == grade_credit_balance for all users",
+        "Concurrent debit + included-grant consistency test passes"
+      ],
+      "priority": 398,
+      "passes": false,
+      "notes": "[P2][Billing] Audit 2026-06-03. runPaymentPrecedence + refund_grade snapshot balance_after from non-atomic reads."
+    },
+    {
+      "id": "US-399",
+      "title": "Require step-up MFA + proration on admin billing mutations",
+      "description": "As the platform, admin billing changes must be MFA-gated and proration-aware, so support actions are safe and customers aren't silently uncredited.",
+      "acceptanceCriteria": [
+        "change-plan, comp-credits, set-trial require requireStepUp like refunds do",
+        "Immediate paid->free cancel surfaces/automates the proration decision",
+        "Audit log captures the proration/refund outcome"
+      ],
+      "priority": 399,
+      "passes": false,
+      "notes": "[P3][Billing] Audit 2026-06-03. File: admin-billing.ts."
+    },
+    {
+      "id": "US-400",
+      "title": "Show the real upcoming Stripe charge in billing UI",
+      "description": "As a customer, the billing page must show what Stripe will actually bill, so grandfathered/coupon prices aren't misrepresented.",
+      "acceptanceCriteria": [
+        "Billing UI displays the subscription's actual upcoming-invoice amount (Stripe upcoming invoice), not the static FLIPDESK_PLANS table",
+        "Grandfathered/coupon prices render correctly; graceful degradation if Stripe is unavailable"
+      ],
+      "priority": 400,
+      "passes": false,
+      "notes": "[P3][Billing] Audit 2026-06-03. billing.tsx shows the hardcoded plan price."
+    },
+    {
+      "id": "US-401",
+      "title": "Prevent the per-grade price_data fallback from bypassing tax in prod",
+      "description": "As the platform, a missing grade price ID in production must not create an untaxed one-off, so tax compliance holds.",
+      "acceptanceCriteria": [
+        "In production a missing GRADE_PRICE_IDS[tier] returns 503 (like subscribe), not an untaxed inline price",
+        "The dev-only fallback is gated behind an explicit non-prod flag; monitoring alerts if it executes"
+      ],
+      "priority": 401,
+      "passes": false,
+      "notes": "[P3][Billing] Audit 2026-06-03. payments.ts perGradeCheckout inline price_data disables tax."
+    },
+    {
+      "id": "US-402",
+      "title": "Key pending-downgrade clearing on the schedule, not plan-string",
+      "description": "As a customer, a scheduled downgrade must clear reliably, so I don't see a perpetual 'downgrade scheduled' banner.",
+      "acceptanceCriteria": [
+        "pending-downgrade clearing is keyed on the Stripe schedule id / phase transition",
+        "Stale pending state is reconciled once pending_effective_at passes and the schedule is gone",
+        "Test: downgrade to a yearly plan clears pending state"
+      ],
+      "priority": 402,
+      "passes": false,
+      "notes": "[P3][Billing] Audit 2026-06-03. webhooks.ts clears pending only on exact plan-string match."
+    },
+    {
+      "id": "US-403",
+      "title": "Stop loading entire datasets into the browser on Finances",
+      "description": "As a reseller with large history, the Finances page must not download my whole account, so it stays fast and usable at scale.",
+      "acceptanceCriteria": [
+        "Period filter is pushed to the query (gte sale_date etc.), not applied in JS",
+        "Aggregations computed via a Postgres RPC/view/endpoint returning summary rows, not raw tables",
+        "Verified with a 10k-sale account: payload under a few hundred KB, interaction under 200ms"
+      ],
+      "priority": 403,
+      "passes": false,
+      "notes": "[P0][Performance] Audit 2026-06-03. finances.tsx fires 4 unbounded select('*') and aggregates in the browser."
+    },
+    {
+      "id": "US-404",
+      "title": "Paginate/summarize the items_full inventory loads",
+      "description": "As a reseller, the Inventory/Listings/Analytics/Grid pages must paginate, so the wide items_full view isn't fully loaded each render.",
+      "acceptanceCriteria": [
+        "Server-side pagination (range) or useInfiniteQuery on the inventory table; tab counts come from a grouped count query",
+        "select() lists only rendered columns (the view is wide)",
+        "Verified responsive (<1s) with 5k+ items"
+      ],
+      "priority": 404,
+      "passes": false,
+      "notes": "[P0][Performance] Audit 2026-06-03. listings.tsx:444, analytics.tsx:90, grid.tsx:145 do items_full select('*') with no limit."
+    },
+    {
+      "id": "US-405",
+      "title": "Eliminate the per-row N+1 in the eBay sync",
+      "description": "As the platform, the eBay sync must batch its DB writes, so a large seller syncs in seconds not minutes.",
+      "acceptanceCriteria": [
+        "Per-row select+insert/update replaced with bulk upsert on natural keys over batched arrays",
+        "Existing listings pre-loaded into a map (like the SKU map); status flips done with a single .in('id',[...]) update per terminal status",
+        "Benchmarked: 1,000 offers sync in seconds"
+      ],
+      "priority": 405,
+      "passes": false,
+      "notes": "[P0][Performance] Audit 2026-06-03. flipdesk-ebay.ts doListingsPull does thousands of sequential PostgREST round-trips."
+    },
+    {
+      "id": "US-406",
+      "title": "Bound eBay API fan-out + honor rate limits",
+      "description": "As the platform, a sync must not exhaust eBay's daily quota or run for many minutes, so large accounts and shared quota are protected.",
+      "acceptanceCriteria": [
+        "Per-sync SKU/item ceiling with documented incremental continuation; eBay bulk endpoints used where available",
+        "Retry-After and rate-limit headers honored with backoff; concurrency tuned to documented Sell-API limits",
+        "A run that hit limits is marked partial with a rate-limit-specific error, not a silently truncated catalog"
+      ],
+      "priority": 406,
+      "passes": false,
+      "notes": "[P1][Performance] Audit 2026-06-03. listAllOffers fans out one listOffersForSku per SKU up to 5,000 with no cap/backoff."
+    },
+    {
+      "id": "US-407",
+      "title": "Move long-running sync/publish/autolister to a durable job queue",
+      "description": "As the platform, long background work must survive container restarts and be resumable, so syncs/publishes don't silently stall mid-run.",
+      "acceptanceCriteria": [
+        "Sync/publish/autolister run via a DB-backed job queue with claim+heartbeat, processed by a worker, resumable after restart",
+        "publish-due claims a small idempotent batch per invocation; cron drains the backlog",
+        "A crashed/redeployed container does not strand a job at status=running"
+      ],
+      "priority": 407,
+      "passes": false,
+      "notes": "[P1][Performance/Reliability] Audit 2026-06-03 (3 agents). doListingsPull/processBatch are fire-and-forget detached promises."
+    },
+    {
+      "id": "US-408",
+      "title": "Lazy-load recharts at the chart boundary",
+      "description": "As a user viewing Finances/Analytics, the heavy chart library should load only when a chart is shown, so route-entry JS is smaller.",
+      "acceptanceCriteria": [
+        "Chart components wrapped in React.lazy+Suspense (or an intersection-observer/ClientOnly gate)",
+        "Finances route initial JS drops materially; consider a lighter lib for simple bar/line"
+      ],
+      "priority": 408,
+      "passes": false,
+      "notes": "[P1][Performance] Audit 2026-06-03. recharts (~346KB) statically imported in 8+ finance components."
+    },
+    {
+      "id": "US-409",
+      "title": "Add composite indexes for hot sync lookups",
+      "description": "As the platform, the sync's hottest queries must be index-backed, so per-row lookups don't scan and sort.",
+      "acceptanceCriteria": [
+        "Composite index listings(inventory_item_id, platform, created_at DESC) added",
+        "EXPLAIN ANALYZE shows an ordered/index scan on the sync lookup",
+        "Partial index added for the publish-due filter (draft + not-synced + scheduled<=now)"
+      ],
+      "priority": 409,
+      "passes": false,
+      "notes": "[P1][Performance/DB] Audit 2026-06-03. Only single-column indexes exist (00002)."
+    },
+    {
+      "id": "US-410",
+      "title": "Add tenant key + indexes to sales/listings",
+      "description": "As the platform, per-user reporting on sales/listings must be index-backed, so finances/analytics don't join-then-scan across tenants.",
+      "acceptanceCriteria": [
+        "user_id denormalized onto sales/listings (kept in sync) with (user_id, sale_date)/(user_id, listing_status) indexes, OR server endpoints use an indexed join verified by EXPLAIN",
+        "Finances/analytics queries filter by the tenant key server-side"
+      ],
+      "priority": 410,
+      "passes": false,
+      "notes": "[P1][Performance/DB] Audit 2026-06-03. sales/listings have no user_id; tenant scope is via inventory_items join (00002)."
+    },
+    {
+      "id": "US-411",
+      "title": "Cap and column-select the dashboard inventory query",
+      "description": "As a user, the dashboard must load fast regardless of inventory size.",
+      "acceptanceCriteria": [
+        "Dashboard query selects only needed columns and limits to a small candidate set (status-filtered + limit), or uses a server summary",
+        "Dashboard load time is independent of inventory size"
+      ],
+      "priority": 411,
+      "passes": false,
+      "notes": "[P2][Performance] Audit 2026-06-03. dashboard.tsx loads ALL inventory_items select('*')."
+    },
+    {
+      "id": "US-412",
+      "title": "Self-host/preload the Inter font off the critical path",
+      "description": "As a first-time visitor, the font must not cost two third-party round-trips on the LCP path, so LCP/CLS improve.",
+      "acceptanceCriteria": [
+        "Inter woff2 self-hosted with @font-face font-display:swap and rel=preload for the regular weight (no JS-driven font injection)",
+        "Verified reduced LCP and no layout shift on first paint"
+      ],
+      "priority": 412,
+      "passes": false,
+      "notes": "[P2][Performance/SEO] Audit 2026-06-03. index.html loads Inter from Google Fonts via a blocking inline script."
+    },
+    {
+      "id": "US-413",
+      "title": "Guarantee resized/thumbnail images in grid views",
+      "description": "As a user, list/grid views must not download full-resolution originals, so image weight stays bounded.",
+      "acceptanceCriteria": [
+        "Enable Cloudflare Transformations (set VITE_CF_IMAGE_RESIZING=true) or guarantee every grid/card path uses the stored thumbnail, never photo_url, with loading=lazy",
+        "Listing/grid pages verified to not download originals for off-screen cards"
+      ],
+      "priority": 413,
+      "passes": false,
+      "notes": "[P2][Performance] Audit 2026-06-03. CF Image Resizing disabled; some paths fall back to full-res photo_url."
+    },
+    {
+      "id": "US-414",
+      "title": "Add a global Claude concurrency + cost ceiling",
+      "description": "As the platform, simultaneous AI calls must be bounded with a spend ceiling, so concurrent grading/autolister can't spike Anthropic cost or trip rate limits.",
+      "acceptanceCriteria": [
+        "A process-wide semaphore/token-bucket limits concurrent Anthropic calls across all requests",
+        "Per-account and global daily cost/volume ceilings enforced; over-limit queues or 429s",
+        "Anthropic 429s trigger backoff/retry (retry.ts wired into the vision calls)"
+      ],
+      "priority": 414,
+      "passes": false,
+      "notes": "[P1][Performance/AI] Audit 2026-06-03 (2 agents). grading-pipeline Promise.all per image with no global cap."
+    },
+    {
+      "id": "US-415",
+      "title": "Paginate admin list endpoints",
+      "description": "As an admin, admin lists must paginate server-side, so dashboards don't time out as the platform grows.",
+      "acceptanceCriteria": [
+        "Admin list endpoints paginate and column-select; aggregates use count/group queries",
+        "Verified against a large seeded dataset"
+      ],
+      "priority": 415,
+      "passes": false,
+      "notes": "[P2][Performance] Audit 2026-06-03. admin/system.tsx, admin/ai-models.tsx use select('*') on growing tables."
+    },
+    {
+      "id": "US-416",
+      "title": "Virtualize large lists/tables",
+      "description": "As a user with big hauls, large lists must virtualize, so the UI doesn't jank on low-end devices.",
+      "acceptanceCriteria": [
+        "Unbounded lists (autolister queue, editable grid, bulk intake) virtualized (e.g. @tanstack/react-virtual)",
+        "Keyboard nav and sticky headers preserved; smooth scroll at 1k+ rows"
+      ],
+      "priority": 416,
+      "passes": false,
+      "notes": "[P2][Performance/UX] Audit 2026-06-03 (2 agents). No virtualization anywhere."
+    },
+    {
+      "id": "US-417",
+      "title": "Add a CI bundle-size budget + verify code-splitting",
+      "description": "As the platform, a bundle budget must guard the landing/entry chunks, so a shared import can't silently regress them.",
+      "acceptanceCriteria": [
+        "CI asserts the landing/entry chunk gz size budget",
+        "Build report confirms radix Dialog/Select/Popover and TipTap stay out of eager/landing chunks; blog-editor TipTap deps are lazy"
+      ],
+      "priority": 417,
+      "passes": false,
+      "notes": "[P3][Performance] Audit 2026-06-03. manualChunks leaves radix/recharts to Rollup; no size guard."
+    },
+    {
+      "id": "US-418",
+      "title": "Back analytics with DB-side aggregation",
+      "description": "As a user, analytics (sell-through, grading-ROI) should be computed in Postgres, so payload size is constant w.r.t. inventory.",
+      "acceptanceCriteria": [
+        "Analytics backed by SQL views/RPCs returning pre-aggregated buckets",
+        "Client receives summary rows; payload independent of inventory size"
+      ],
+      "priority": 418,
+      "passes": false,
+      "notes": "[P2][Performance] Audit 2026-06-03. analytics.tsx computes sell-through/ROI client-side over full items_full."
+    },
+    {
+      "id": "US-419",
+      "title": "Dedupe shared heavy TanStack queries + tune cache",
+      "description": "As a user navigating Finances<->Analytics, the shared dataset should be reused, so it isn't fetched twice.",
+      "acceptanceCriteria": [
+        "Finances and Analytics share a query key (or a single source endpoint)",
+        "gcTime/staleTime set deliberately for large payloads; no redundant per-call overrides"
+      ],
+      "priority": 419,
+      "passes": false,
+      "notes": "[P3][Performance] Audit 2026-06-03. items_full/sales loaded under different keys across routes."
+    },
+    {
+      "id": "US-420",
+      "title": "Parallelize the build-time prerender",
+      "description": "As the team, prerender should run with bounded concurrency, so build time stays flat as marketing/GEO pages multiply.",
+      "acceptanceCriteria": [
+        "Routes rendered with bounded concurrency (chunked Promise.all)",
+        "Prerender duration measured and kept flat as routes grow"
+      ],
+      "priority": 420,
+      "passes": false,
+      "notes": "[P3][Performance] Audit 2026-06-03. scripts/prerender.mjs renders routes sequentially."
+    },
+    {
+      "id": "US-421",
+      "title": "Stop the service worker serving the stale SPA shell over prerendered/SSR pages",
+      "description": "As a visitor/crawler, navigations must get the per-route prerendered/SSR HTML, so the service worker doesn't bypass the entire prerender/SSR investment with a generic cached shell.",
+      "acceptanceCriteria": [
+        "navigateFallback excludes prerendered routes and all Pages-Function paths (/cert/*, /blog/*, /verified/*, /og/*, /sitemap*, /rss.xml, /robots.txt, /llms.txt), or navigations always hit the network/edge",
+        "Precaching of .html is restricted so per-route shells aren't overwritten by the generic shell; a deploy busts a stale shell",
+        "With SW installed, hard-navigating to /pricing, /cert/<id>, /blog/<slug> serves the correct per-route head"
+      ],
+      "priority": 421,
+      "passes": false,
+      "notes": "[P0][SEO] Audit 2026-06-03. vite.config.ts navigateFallback:/index.html + precache **/*.html."
+    },
+    {
+      "id": "US-422",
+      "title": "Return real 404s for unknown routes (fix soft 404)",
+      "description": "As a crawler, unknown URLs must return HTTP 404, so junk/deleted URLs aren't soft-404 indexed and crawl budget isn't wasted.",
+      "acceptanceCriteria": [
+        "Unknown non-prerendered, non-SSR paths return HTTP 404 (e.g. a catch-all Pages Function or 404.html), with meta robots noindex",
+        "Genuine authenticated SPA deep links still 200",
+        "curl -I /nonexistent returns 404"
+      ],
+      "priority": 422,
+      "passes": false,
+      "notes": "[P1][SEO] Audit 2026-06-03. public/_redirects /* /index.html 200 makes every unknown path a soft 404."
+    },
+    {
+      "id": "US-423",
+      "title": "Fix SEO JSON-LD prerender coverage + misleading comment",
+      "description": "As a crawler (incl. JS-less AI bots), structured data must be in the served HTML, so it isn't dependent on a headless prerender that doesn't exist.",
+      "acceptanceCriteria": [
+        "The misleading 'headless-browser prerender' comment in seo.tsx is corrected to the string-based prerender + head-builder mirroring requirement",
+        "Every page shipping <SEO jsonLd> is a prerendered route with a mirrored jsonLdForRoute entry, or is edge-SSR'd with LD inlined; no indexable page relies solely on useEffect-injected LD",
+        "A guard/test asserts runtime LD matches head-builder LD"
+      ],
+      "priority": 423,
+      "passes": false,
+      "notes": "[P1][SEO] Audit 2026-06-03. seo.tsx injects LD via useEffect; prerender.mjs is string-based and never runs it."
+    },
+    {
+      "id": "US-424",
+      "title": "Add _routes.json for Pages Function precedence",
+      "description": "As the platform, dynamic SSR/data routes must reliably invoke their Pages Function, so the SPA shell or a static asset can't shadow them.",
+      "acceptanceCriteria": [
+        "An explicit _routes.json includes /cert/*, /verified/*, /blog/*, /og/*, /sitemap*.xml, /rss.xml, /robots.txt, /llms.txt, /csp-report and excludes /assets/* and prerendered static HTML",
+        "Verified /cert/<id> returns Function-rendered HTML (Product+Review JSON-LD) in production, not the SPA shell",
+        "Post-deploy smoke check asserts these endpoints return non-SPA content"
+      ],
+      "priority": 424,
+      "passes": false,
+      "notes": "[P1][SEO] Audit 2026-06-03 (2 agents). No _routes.json; SPA fallback could shadow Functions."
+    },
+    {
+      "id": "US-425",
+      "title": "Make cert SSR/SPA markup consistent",
+      "description": "As a crawler, the certificate URL must render consistent structured data and og:type from both code paths, so markup doesn't drift.",
+      "acceptanceCriteria": [
+        "og:type is consistent with the primary entity across SSR and SPA",
+        "SPA and SSR cert pages emit equivalent Product JSON-LD (same fields incl. images), or the SPA path is non-indexable so only SSR is canonical",
+        "A test pins the shared cert JSON-LD shape"
+      ],
+      "priority": 425,
+      "passes": false,
+      "notes": "[P2][SEO] Audit 2026-06-03. og:type=article while entity is Product; SPA omits images in LD."
+    },
+    {
+      "id": "US-426",
+      "title": "Define a trailing-slash canonical policy",
+      "description": "As a crawler, each page should have one canonical URL form, so slash variants aren't duplicate-crawled.",
+      "acceptanceCriteria": [
+        "A single trailing-slash policy enforced by a 301 redirect",
+        "Client <SEO> normalizes the pathname (strip trailing slash) so its canonical matches the prerendered canonical",
+        "hreflang/x-default decision recorded (omit for single-locale) so it's intentional"
+      ],
+      "priority": 426,
+      "passes": false,
+      "notes": "[P2][SEO] Audit 2026-06-03. Both /pricing and /pricing/ resolve 200; client canonical derives from window.location."
+    },
+    {
+      "id": "US-427",
+      "title": "Complete OG image coverage + metadata",
+      "description": "As a sharer, marketing pages should have correct, ideally per-page social images, so shares render well and stand out.",
+      "acceptanceCriteria": [
+        "og-image.png confirmed/created at 1200x630; og:image:width/height/alt/type emitted in head-builder and seo.tsx",
+        "High-value marketing routes get distinct OG images or a dynamic /og/page/:route generator",
+        "Validated via the X card validator / Slack unfurl"
+      ],
+      "priority": 427,
+      "passes": false,
+      "notes": "[P2][SEO] Audit 2026-06-03. Single static og-image.png for all routes; no width/height/alt."
+    },
+    {
+      "id": "US-428",
+      "title": "Add twitter:site + Organization social profiles",
+      "description": "As a search/answer engine, entity disambiguation should be strong, so the brand resolves in Knowledge Graph and AI answers.",
+      "acceptanceCriteria": [
+        "twitter:site (and creator where applicable) added to prerender head + SSR layout",
+        "organizationLd().sameAs includes real X/LinkedIn/Instagram/Crunchbase profiles (only live URLs); contactPoint/foundingDate considered"
+      ],
+      "priority": 428,
+      "passes": false,
+      "notes": "[P3][SEO] Audit 2026-06-03. No twitter:site; sameAs only lists GitHub."
+    },
+    {
+      "id": "US-429",
+      "title": "Use real content-change dates for static sitemap lastmod",
+      "description": "As a crawler, static-page lastmod should reflect real changes, so the lastmod signal stays trustworthy.",
+      "acceptanceCriteria": [
+        "Static-route lastmod uses a per-route lastModified field, not the build timestamp",
+        "Unchanged routes keep a stable lastmod across deploys"
+      ],
+      "priority": 429,
+      "passes": false,
+      "notes": "[P3][SEO] Audit 2026-06-03. _shared/sitemap.ts sets every static lastmod to manifest.generatedAt."
+    },
+    {
+      "id": "US-430",
+      "title": "Decide and scope the AI-crawler policy",
+      "description": "As the company, training-bot vs citation-bot access should be a deliberate decision, so proprietary content isn't unintentionally free training data.",
+      "acceptanceCriteria": [
+        "An explicit decision separates training crawlers (Google-Extended/Applebot-Extended/GPTBot) from citation crawlers, with training configurable to disallow if desired",
+        "BLOCKED_AI_AGENTS populated with scrapers to block (or a documented allow-all decision)",
+        "Reflected in robots.txt and llms.txt; stakeholder-reviewed"
+      ],
+      "priority": 430,
+      "passes": false,
+      "notes": "[P2][SEO/Legal] Audit 2026-06-03. seo-config.ts grants Allow:/ to training + citation bots identically."
+    },
+    {
+      "id": "US-431",
+      "title": "Generate llms.txt from the route registry",
+      "description": "As an AI crawler, llms.txt should enumerate high-value pages and stay in sync, so the GEO surface is complete.",
+      "acceptanceCriteria": [
+        "llms.txt generated from (or CI-checked against) PUBLIC_ROUTES so new pages auto-appear",
+        "Includes /transparency, /faq, /pricing, /how-it-works, glossary pillar+spokes, and representative cert/verified URLs",
+        "A CI guard fails if a registry route is missing"
+      ],
+      "priority": 431,
+      "passes": false,
+      "notes": "[P3][SEO] Audit 2026-06-03. functions/llms.txt.ts hand-curates ~10 links and drifts from the registry."
+    },
+    {
+      "id": "US-432",
+      "title": "Validate prerendered head integrity in CI",
+      "description": "As the platform, each prerendered page must have exactly one title/canonical and no head tags leaked into the body, so invalid markup can't ship.",
+      "acceptanceCriteria": [
+        "A post-prerender validation asserts each dist/<route>/index.html has exactly one <title>, one canonical, and no <meta name=description> in <body>",
+        "The Helmet strip logic is hardened (or SEO is SSR-aware to emit nothing server-side)",
+        "Validation runs in CI and fails the build on violation"
+      ],
+      "priority": 432,
+      "passes": false,
+      "notes": "[P2][SEO] Audit 2026-06-03. head-builder.stripHeadTagsFromBody uses brittle regexes; no assertion."
+    },
+    {
+      "id": "US-433",
+      "title": "Render visible breadcrumbs + internal links",
+      "description": "As a crawler/user, breadcrumbs and pillar<->spoke links should be visible in HTML, so internal linking and breadcrumb signals are real.",
+      "acceptanceCriteria": [
+        "Visible breadcrumb nav on marketing, glossary, blog, cert, and verified pages, matching the BreadcrumbList JSON-LD",
+        "Pillar<->spoke and related internal links present in rendered HTML, with URLs matching canonical paths"
+      ],
+      "priority": 433,
+      "passes": false,
+      "notes": "[P3][SEO] Audit 2026-06-03. breadcrumbLd emitted but no visible breadcrumb UI."
+    },
+    {
+      "id": "US-434",
+      "title": "Enforce content image alt + dimensions",
+      "description": "As a crawler/AT user, content images must have alt and explicit dimensions, so image SEO and CLS are handled.",
+      "acceptanceCriteria": [
+        "In-body content images without alt are flagged at publish time (editor validation) or given a sensible fallback; hero alt is descriptive",
+        "SSR <img> carry explicit width/height (or guaranteed aspect-ratio)"
+      ],
+      "priority": 434,
+      "passes": false,
+      "notes": "[P3][SEO/A11y] Audit 2026-06-03. blog-render rewriteContentImages never backfills missing alt; no width/height."
+    },
+    {
+      "id": "US-435",
+      "title": "Add a CI guard for title/description length + uniqueness",
+      "description": "As the platform, page titles/descriptions should be unique and within SERP limits, so they aren't truncated or rewritten.",
+      "acceptanceCriteria": [
+        "CI test asserts every PublicRoute title <= ~60 chars (incl suffix) and unique, and description within ~110-160 chars and unique",
+        "Over-length descriptions trimmed; glossary-generated titles/descriptions validated"
+      ],
+      "priority": 435,
+      "passes": false,
+      "notes": "[P3][SEO] Audit 2026-06-03. No length/uniqueness guard; some descriptions exceed 160 chars."
+    },
+    {
+      "id": "US-436",
+      "title": "Show distinct error states on data pages (not empty states)",
+      "description": "As a user, a failed fetch should show an error with retry, so an outage isn't disguised as 'no data'.",
+      "acceptanceCriteria": [
+        "Every data-fetching page renders a distinct error state (retry + support copy) when isError, separate from empty state",
+        "The error state offers refetch() and does not show the create-your-first CTA",
+        "A shared QueryStateBoundary/hook standardizes loading/error/empty"
+      ],
+      "priority": 436,
+      "passes": false,
+      "notes": "[P1][UX] Audit 2026-06-03. Most pages only branch on isLoading (dashboard, submissions, inventory, finances, flipdesk/*)."
+    },
+    {
+      "id": "US-437",
+      "title": "Replace window.confirm with AlertDialog",
+      "description": "As a user, destructive confirmations should use the branded, focus-managed dialog, so they're consistent and accessible.",
+      "acceptanceCriteria": [
+        "All native window.confirm destructive flows replaced with <AlertDialog> (destructive variant for deletes)",
+        "Confirm buttons are action-labeled (Delete post, Discard haul), not OK",
+        "Focus is trapped and returns to the trigger"
+      ],
+      "priority": 437,
+      "passes": false,
+      "notes": "[P1][UX] Audit 2026-06-03. window.confirm in blog-list, social-editor, blog-editor, bulk-intake, ebay-sku-match."
+    },
+    {
+      "id": "US-438",
+      "title": "Support prefers-reduced-motion",
+      "description": "As a motion-sensitive user, animations should reduce when I request it, so the app meets WCAG 2.3.3.",
+      "acceptanceCriteria": [
+        "A global @media (prefers-reduced-motion: reduce) rule neutralizes non-essential animation/transition",
+        "Still-working indicators remain perceivable (non-animated/opacity)",
+        "Verified on landing + dialogs with OS reduce-motion on"
+      ],
+      "priority": 438,
+      "passes": false,
+      "notes": "[P1][A11y] Audit 2026-06-03. Zero prefers-reduced-motion handling; animations in 106 files."
+    },
+    {
+      "id": "US-439",
+      "title": "Fix dark-mode colors + contrast to AA",
+      "description": "As a user, status colors and brand text must be legible in both themes and meet AA contrast, so nothing is invisible or low-contrast.",
+      "acceptanceCriteria": [
+        "Status/severity pastels (bg-*-100/text-*-800) centralized/tokenized with dark: variants; no raw light pastel without a dark counterpart",
+        "text-brand-navy on themeable surfaces (incl. .prose-legal h2) replaced with inverting tokens",
+        "Red CTA/destructive text and muted-foreground meet >=4.5:1 in both themes (documented contrast check)"
+      ],
+      "priority": 439,
+      "passes": false,
+      "notes": "[P1][A11y/Dark mode] Audit 2026-06-03. ~135 light pastels w/ only 18 dark: variants; navy text on #1A1A2E ~1.4:1; red #E94560 on white ~3.3:1."
+    },
+    {
+      "id": "US-440",
+      "title": "Standardize loading skeletons with aria-busy",
+      "description": "As a user, loading states should be consistent skeletons/spinners and announced, so the experience is polished and accessible.",
+      "acceptanceCriteria": [
+        "Bare 'Loading…' replaced with <Skeleton> rows matching the layout, or the standard spinner",
+        "Loading regions wrapped in aria-busy / role=status",
+        "Consistent treatment within each page type"
+      ],
+      "priority": 440,
+      "passes": false,
+      "notes": "[P2][UX] Audit 2026-06-03. Bare 'Loading…' across flipdesk/*, content/*, admin/audit-log, ebay-sku-match."
+    },
+    {
+      "id": "US-441",
+      "title": "Add combobox/listbox ARIA to the command palette",
+      "description": "As a screen-reader user, the Cmd/Ctrl-K palette must announce options and active selection, so it's usable.",
+      "acceptanceCriteria": [
+        "Input gets role=combobox, aria-expanded, aria-controls, aria-activedescendant",
+        "Results container role=listbox; each row role=option with aria-selected and a stable id",
+        "Active option announced as focus moves with arrows"
+      ],
+      "priority": 441,
+      "passes": false,
+      "notes": "[P1][A11y] Audit 2026-06-03. File: src/components/flipdesk/command-palette.tsx."
+    },
+    {
+      "id": "US-442",
+      "title": "Wrap data tables for mobile horizontal scroll",
+      "description": "As a mobile user, wide tables must scroll within their container, so they don't clip/overflow the viewport.",
+      "acceptanceCriteria": [
+        "Every <Table> is inside a div.overflow-x-auto",
+        "No horizontal page scroll at 375px; tables scroll within their container",
+        "Consider a stacked/card layout for the most critical tables on small screens"
+      ],
+      "priority": 442,
+      "passes": false,
+      "notes": "[P1][Responsive] Audit 2026-06-03. api-keys, admin/*, team, flipdesk/analytics/sources/expenses tables not wrapped."
+    },
+    {
+      "id": "US-443",
+      "title": "Add in-shell 404s and noindex the root 404",
+      "description": "As a user, an unknown authed path should keep app navigation, so I don't get a full-screen navless 404.",
+      "acceptanceCriteria": [
+        "Dashboard and admin layouts get their own catch-all rendering an in-shell 404 (keeps sidebar/header), using content-relative min-height",
+        "Root 404 carries <SEO noindex>"
+      ],
+      "priority": 443,
+      "passes": false,
+      "notes": "[P2][UX] Audit 2026-06-03. Only a root-level path:* exists; renders min-h-screen NotFoundPage with no shell."
+    },
+    {
+      "id": "US-444",
+      "title": "Add inline field-level validation with ARIA",
+      "description": "As a user, form errors should appear at the field and be screen-reader-associated, so I can fix them without relying on transient toasts.",
+      "acceptanceCriteria": [
+        "Validation errors render inline with aria-invalid and aria-describedby; they persist until corrected",
+        "Submit-time errors move focus to the first invalid field"
+      ],
+      "priority": 444,
+      "passes": false,
+      "notes": "[P2][UX/A11y] Audit 2026-06-03. Auth/most forms rely on native validation + toast only."
+    },
+    {
+      "id": "US-445",
+      "title": "Prevent double-submit on mutation buttons",
+      "description": "As a user, action buttons should disable while in flight, so I can't create duplicates or double charges.",
+      "acceptanceCriteria": [
+        "Every button triggering a network write is disabled (with a spinner) while pending via isPending/local busy state",
+        "Spot-check create/list/sale/payment actions for idempotency on rapid double-click"
+      ],
+      "priority": 445,
+      "passes": false,
+      "notes": "[P2][UX] Audit 2026-06-03. Disable-while-pending coverage is partial; several inline onClick handlers fire immediately."
+    },
+    {
+      "id": "US-446",
+      "title": "Add accessible names to icon-only controls",
+      "description": "As a screen-reader/touch user, icon-only buttons must have accessible names, so their purpose is clear.",
+      "acceptanceCriteria": [
+        "All icon-only controls expose aria-label (title may remain for tooltip)",
+        "Tiptap toolbar buttons have aria-label and aria-pressed for toggle state",
+        "jsx-a11y verifies no interactive control lacks an accessible name"
+      ],
+      "priority": 446,
+      "passes": false,
+      "notes": "[P2][A11y] Audit 2026-06-03. api-keys copy, blog-list, tiptap-toolbar rely on title/nothing."
+    },
+    {
+      "id": "US-447",
+      "title": "Standardize guided empty states",
+      "description": "As a user, empty lists should guide me with an icon, heading, copy, and CTA, so the experience feels finished and distinct from errors.",
+      "acceptanceCriteria": [
+        "Primary list/table pages use the icon+heading+copy+CTA empty-state pattern; copy is action-oriented and on-brand",
+        "Empty state is distinguished from the error state"
+      ],
+      "priority": 447,
+      "passes": false,
+      "notes": "[P2][UX] Audit 2026-06-03. Many surfaces show terse 'No rows.'/'No matches.'"
+    },
+    {
+      "id": "US-448",
+      "title": "Verify focus management for custom overlays",
+      "description": "As a keyboard user, custom (non-Radix) overlays must trap focus, close on ESC, and restore focus, so they're navigable.",
+      "acceptanceCriteria": [
+        "Photo editor, item canvas, annotated-photo, disclosure panel trap focus, support ESC, and restore focus to the opener",
+        "Background content is inert/aria-hidden while a modal is open; tab order doesn't escape"
+      ],
+      "priority": 448,
+      "passes": false,
+      "notes": "[P2][A11y] Audit 2026-06-03. Raw-div overlays need focus-trap verification."
+    },
+    {
+      "id": "US-449",
+      "title": "Add grid semantics + visible focus to the editable inventory grid",
+      "description": "As a keyboard user, the spreadsheet-style grid must show the active cell clearly and expose grid roles, so I can navigate it.",
+      "acceptanceCriteria": [
+        "Active cell has an AA-contrast focus indicator in both themes",
+        "Grid exposes role=grid/gridcell with row/column context; current cell coordinates announced or visibly emphasized"
+      ],
+      "priority": 449,
+      "passes": false,
+      "notes": "[P2][A11y] Audit 2026-06-03. grid.tsx cells are bare inputs with low-contrast navy focus ring, no grid roles."
+    },
+    {
+      "id": "US-450",
+      "title": "Make 404/error pages on-brand and clear",
+      "description": "As a user, error pages should be branded with a clear primary action, so recovery is obvious.",
+      "acceptanceCriteria": [
+        "404 page includes logo, friendly copy, and 2-3 helpful links; marked noindex",
+        "Error-boundary has a single clear primary action; secondary actions de-emphasized; consistent styling across RouteErrorFallback/ErrorBoundary/404"
+      ],
+      "priority": 450,
+      "passes": false,
+      "notes": "[P3][UX] Audit 2026-06-03. not-found.tsx minimal; error-boundary has 3 equal buttons."
+    },
+    {
+      "id": "US-451",
+      "title": "Audit hardcoded surface utilities for dark mode",
+      "description": "As a user, themeable surfaces should use semantic tokens, so no stray light panels appear in dark mode.",
+      "acceptanceCriteria": [
+        "Themeable bg-white/gray utilities replaced with bg-card/bg-muted/text-foreground/border-border",
+        "Intentional fixed-color regions (navy sidebar) documented; verified no stray light panels in dark mode"
+      ],
+      "priority": 451,
+      "passes": false,
+      "notes": "[P3][Dark mode] Audit 2026-06-03. 15 occurrences across 9 files."
+    },
+    {
+      "id": "US-452",
+      "title": "Announce async status via live regions",
+      "description": "As a screen-reader user, processing/completion and realtime status should be announced, so I'm aware of progress.",
+      "acceptanceCriteria": [
+        "Inline loading/processing indicators use role=status + aria-live=polite; critical errors use aria-live=assertive",
+        "Realtime submission status changes surface an SR-announced toast"
+      ],
+      "priority": 452,
+      "passes": false,
+      "notes": "[P3][A11y] Audit 2026-06-03."
+    },
+    {
+      "id": "US-453",
+      "title": "Improve microcopy consistency",
+      "description": "As a user, copy should be consistent and human, so the product feels polished.",
+      "acceptanceCriteria": [
+        "Terse/system strings replaced with brand-consistent copy; redundant per-link tooltips removed",
+        "A small copy style guide (sentence case, action-first); confirm/cancel labels describe the action"
+      ],
+      "priority": 453,
+      "passes": false,
+      "notes": "[P3][UX] Audit 2026-06-03."
+    },
+    {
+      "id": "US-454",
+      "title": "Ensure color is never the sole status indicator",
+      "description": "As a color-blind user, status/score must not rely on color alone, so meaning is conveyed by text/icon too (WCAG 1.4.1).",
+      "acceptanceCriteria": [
+        "Status/score pairs color with text or an icon (score cells include the tier label/icon, not just colored numerals)",
+        "Validated under a color-blindness simulator"
+      ],
+      "priority": 454,
+      "passes": false,
+      "notes": "[P3][A11y] Audit 2026-06-03. getScoreColor conveys grade via color alone in some cells."
+    },
+    {
+      "id": "US-455",
+      "title": "Add workspace-member RLS to repricing_suggestions + flipdesk_sync_runs",
+      "description": "As a workspace member, I should see the owner's repricing suggestions and sync history, so those surfaces aren't empty for teams.",
+      "acceptanceCriteria": [
+        "00059 and 00073 gain an additive member SELECT policy using is_workspace_member(user_id) (or _with_role viewer), consistent with 00042",
+        "A workspace viewer can read the owner's pending suggestions and sync runs; apply/price-change stays Manager+",
+        "Cross-tenant test confirms a non-member still sees nothing"
+      ],
+      "priority": 455,
+      "passes": false,
+      "notes": "[P1][FlipDesk/RLS] Audit 2026-06-03 (and prior discussion). Both tables are owner-only auth.uid()=user_id."
+    },
+    {
+      "id": "US-456",
+      "title": "Add a concurrency guard + stuck-run reaper to the eBay sync",
+      "description": "As the platform, only one sync per tenant should run at a time and stalled runs must be reaped, so overlapping syncs don't race writes and the UI never hangs forever.",
+      "acceptanceCriteria": [
+        "A run is claimed (running flipdesk_sync_runs row or connection lock) before work; a concurrent pull returns already-running",
+        "The lock is released/finalized on success, partial, and failure (incl. the early fetch-failure path)",
+        "A run stuck in running past N minutes is reaped to failed so the UI unblocks"
+      ],
+      "priority": 456,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. /listings/pull has no in-flight lock; 00073 reserves a 'running' status the code never writes."
+    },
+    {
+      "id": "US-457",
+      "title": "Surface sync failures in the UI with retry",
+      "description": "As a seller, I must see when a sync failed and be able to retry, so I'm not stuck on a perpetual 'syncing' state.",
+      "acceptanceCriteria": [
+        "The frontend surfaces the latest flipdesk_sync_runs status (failed/partial + error summary), not just last_synced_at",
+        "Failed runs are retryable (at least a manual button) and per-phase errors are shown",
+        "A stuck run unblocks the UI"
+      ],
+      "priority": 457,
+      "passes": false,
+      "notes": "[P1][FlipDesk/UX] Audit 2026-06-03. last_synced_at is never stamped on the fetch-failure path."
+    },
+    {
+      "id": "US-458",
+      "title": "Reconcile multi-marketplace promise vs eBay-only reality",
+      "description": "As a customer, plan copy must match what works, so I don't pay for marketplaces that aren't built.",
+      "acceptanceCriteria": [
+        "Either plan copy/marketplacesCap is corrected to eBay-only for launch, OR at least one additional marketplace is implemented end-to-end",
+        "The Marketplaces UI doesn't present connect flows for unimplemented platforms (or labels them coming soon)",
+        "No code path silently treats a non-eBay platform as eBay"
+      ],
+      "priority": 458,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. Plans advertise Poshmark/Mercari/Depop/Etsy; only eBay is implemented."
+    },
+    {
+      "id": "US-459",
+      "title": "Handle eBay returns and cancellations",
+      "description": "As a seller, cancelled/returned orders must reverse sold-state and profit, so my inventory and books are accurate.",
+      "acceptanceCriteria": [
+        "Cancelled/returned orders flip the item out of sold and void/mark the sales row",
+        "net_profit reflects refunds/returns (revenue reversed, not just fee-adjusted)",
+        "A sync run reports counts of cancellations/returns handled"
+      ],
+      "priority": 459,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. Orders pass only forwards to sold; no return/cancellation handling."
+    },
+    {
+      "id": "US-460",
+      "title": "Add sold-price comps (or surface the limitation)",
+      "description": "As a seller, repricing should use realized sale prices, so suggestions aren't biased toward asking prices.",
+      "acceptanceCriteria": [
+        "Sold/realized comps (Marketplace Insights or approved equivalent) feed comps.stats, or the UI clearly states 'based on active listings'",
+        "Suggestion confidence/messaging reflects whether sold data was available",
+        "Callers degrade gracefully when sold data is unavailable"
+      ],
+      "priority": 460,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. searchBrowseComps uses active listings; sold comps explicitly deferred."
+    },
+    {
+      "id": "US-461",
+      "title": "Include shipping-label cost in reconciliation matching",
+      "description": "As a seller, payout matching must account for the seller-paid label, so correct matches aren't pushed to the manual queue.",
+      "acceptanceCriteria": [
+        "Candidate-net computation accounts for shipping_cost/label when payout_amount is absent, or reconciliation prefers enriched sales",
+        "Auto-match recall validated against a fixture of real multi-cost payouts",
+        "Unenriched sales are flagged rather than mis-scored"
+      ],
+      "priority": 461,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. flipdesk-reconciliation.ts saleNet ignores label cost."
+    },
+    {
+      "id": "US-462",
+      "title": "Make reconciliation two-table writes atomic",
+      "description": "As the platform, linking a payout must update both tables atomically, so a partial failure can't leave a payout reconciled with an unlinked sale.",
+      "acceptanceCriteria": [
+        "The payout_imports + sales writes are atomic via a Postgres RPC, or a reconciler detects+repairs the half-linked state",
+        "Re-running /run over a partially-linked row is idempotent"
+      ],
+      "priority": 462,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. /run and /match do non-atomic two-table writes; second-write failure only logged."
+    },
+    {
+      "id": "US-463",
+      "title": "Deactivate + notify on permanent eBay token-refresh failure",
+      "description": "As a seller, a revoked/expired eBay connection should tell me to reconnect, so I'm not left with silently-failing operations.",
+      "acceptanceCriteria": [
+        "Permanent refresh failures (invalid_grant/revoked) deactivate the connection and set a clear refresh_error",
+        "The seller is notified (email/in-app banner) to reconnect",
+        "Transient failures (5xx/network) are distinguished and don't deactivate"
+      ],
+      "priority": 463,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. getUserAccessToken rethrows but leaves is_active=true; cron only counts failures."
+    },
+    {
+      "id": "US-464",
+      "title": "Make eBay publish idempotent",
+      "description": "As a seller, retrying a publish must not create duplicate live listings, so a partial failure is safe.",
+      "acceptanceCriteria": [
+        "Before publishing, the flow checks for an already-published offer/listing for the SKU and adopts it instead of re-publishing",
+        "A publish that succeeded remotely but failed to persist locally is reconciled (no duplicate)",
+        "Covered by a post-publish-crash + retry test"
+      ],
+      "priority": 464,
+      "passes": false,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. publishItemForOwner persists the listings row only after publishOffer; publish-due cron retries that window."
+    },
+    {
+      "id": "US-465",
+      "title": "Let users link orphaned eBay listings to inventory",
+      "description": "As a seller, I should be able to associate an unmatched eBay listing with a FlipDesk item, so orphans don't accumulate forever.",
+      "acceptanceCriteria": [
+        "An endpoint links an orphaned flipdesk_ebay_listings row to an inventory item (creating/updating the listings row, flipping match_status)",
+        "Re-syncs don't resurrect a manually-linked orphan as unmatched",
+        "The UI exposes the link action"
+      ],
+      "priority": 465,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orphans are snapshotted but no link path exists; SKU-less listings are unlinkable."
+    },
+    {
+      "id": "US-466",
+      "title": "Stop silent truncation of large eBay catalogs/histories",
+      "description": "As a large seller, the sync must not silently drop listings/orders beyond a hard page cap, so my whole catalog syncs.",
+      "acceptanceCriteria": [
+        "Pagination loops page to completion (using total/next) or explicitly record truncation into the sync-run errors at the ceiling",
+        "The inventory ceiling no longer silently caps the listings sync",
+        "Large-catalog behavior documented and tested"
+      ],
+      "priority": 466,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Fixed caps: items 5,000 / orders 10,000 / transactions 20,000."
+    },
+    {
+      "id": "US-467",
+      "title": "Don't mark a repricing suggestion applied when the eBay push fails",
+      "description": "As a seller, a failed price push must not silently desync local vs eBay, so I'm not shown a price that was never applied.",
+      "acceptanceCriteria": [
+        "On eBay-push failure the suggestion is not marked applied (or marked apply_failed) and the local price isn't silently desynced",
+        "A listing whose remote update failed is flagged and retryable",
+        "The next sync reconciling local<->eBay price doesn't mask a failed apply"
+      ],
+      "priority": 467,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. /suggestions/:id/apply marks applied even when updateOfferPrice throws."
+    },
+    {
+      "id": "US-468",
+      "title": "Handle multi-quantity / multi-line eBay orders",
+      "description": "As a seller, orders with quantity>1 or multiple lines for a SKU must record correct units/revenue, so sales aren't under-counted.",
+      "acceptanceCriteria": [
+        "Multi-quantity/multi-line orders recorded with correct unit counts and revenue, or explicitly flagged as unsupported",
+        "sale_price reflects line quantity; dedupe key disambiguates multiple line items in one order"
+      ],
+      "priority": 468,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orders pass dedupes on (item, order) and assumes single-unit items."
+    },
+    {
+      "id": "US-469",
+      "title": "Triage missing reseller features",
+      "description": "As a reseller, core store features should be available or clearly out of scope, so I'm not forced back to Seller Hub.",
+      "acceptanceCriteria": [
+        "A prioritized gap list is triaged; at minimum Best Offer responses and returns/cancellations are scoped",
+        "The UI doesn't imply unhandled features are handled",
+        "Deferred features documented as out-of-scope for launch"
+      ],
+      "priority": 469,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. No best-offer respond, messages, returns workflow, promoted listings, send-offer-to-watchers."
+    },
+    {
+      "id": "US-470",
+      "title": "Classify and resolve 501-stub FlipDesk handlers",
+      "description": "As the platform, every stubbed handler must be implemented, hidden, or documented, so no UI control hits a 501 with no fallback.",
+      "acceptanceCriteria": [
+        "Each 501/optional-503 handler (images/process, grading/webhook, remove-bg, archive, sheets) is classified: implemented, intentionally stubbed-and-hidden, or removed",
+        "No UI control calls a 501 endpoint without graceful fallback",
+        "The stub list in CLAUDE.md is updated to match reality"
+      ],
+      "priority": 470,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. flipdesk-images.ts /process, flipdesk-grading.ts /webhook return 501; sheets 502."
+    },
+    {
+      "id": "US-471",
+      "title": "Process eBay order/sale/return webhook topics",
+      "description": "As a seller, sold/returned state should update in near-real-time, so I'm not dependent solely on polling.",
+      "acceptanceCriteria": [
+        "Order/sale topics drive an incremental update (or trigger a targeted sync); return/cancellation topics feed the returns handling",
+        "Unhandled topics are tracked as a metric, not only console-logged"
+      ],
+      "priority": 471,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. processEbayWebhookEvent handles only FINANCES_PAYOUT topics."
+    },
+    {
+      "id": "US-472",
+      "title": "Make eBay webhook/payout user-linkage reliable",
+      "description": "As a seller, payout/deletion events must reliably resolve to my account, so events aren't silently dropped when the handle is missing.",
+      "acceptanceCriteria": [
+        "Connect reliably captures account_handle (retry identity lookup) or also stores a stable key (eBay userId/eiasToken) and matches on it",
+        "Events dropped for a missing handle are retried/back-processed once it hydrates, or fall back to CSV without data loss",
+        "A metric tracks dropped-for-no-handle events"
+      ],
+      "priority": 472,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. account_handle is best-effort/NULL on connect; webhooks match only on it."
+    },
+    {
+      "id": "US-473",
+      "title": "Validate publish images (12-image cap + reachability)",
+      "description": "As a seller, publishing must respect eBay's image limit and reachable URLs, so listings don't fail with raw errors.",
+      "acceptanceCriteria": [
+        "Publish caps/orders images to eBay's 12-image limit and reports any dropped",
+        "Pre-publish validation flags unreachable image URLs as blockers with actionable messages",
+        "Image-count/URL issues appear as blockers, not raw 502s"
+      ],
+      "priority": 473,
+      "passes": false,
+      "notes": "[P3][FlipDesk] Audit 2026-06-03. Publish sends item-photos public URLs with no count/reachability validation."
+    },
+    {
+      "id": "US-474",
+      "title": "Fix admin grade-correction/dispute writes (RLS or move to edge)",
+      "description": "As an admin, my grade corrections and dispute resolutions must actually persist, so human review isn't silently dropped.",
+      "acceptanceCriteria": [
+        "A migration adds an is_reviewer_or_admin() FOR UPDATE policy on grade_reports with WITH CHECK, OR these writes move to a service-role edge route",
+        "Adjust-and-approve and dispute-adjust verify the row count changed and surface a real error on 0 rows",
+        "Regression test asserts an admin adjustment is readable back from the DB"
+      ],
+      "priority": 474,
+      "passes": false,
+      "notes": "[P0][Admin/Grading] Audit 2026-06-03. No grade_reports UPDATE policy exists; client UPDATEs no-op (RLS) but report success."
+    },
+    {
+      "id": "US-475",
+      "title": "Reseal certificate integrity on any score change",
+      "description": "As a buyer, a human-corrected certificate must still verify as authentic, so legitimate corrections aren't branded as forged.",
+      "acceptanceCriteria": [
+        "Any code path that mutates a graded report's scored fields recomputes buildCertIntegrity (hash/signature/version) atomically with the change, server-side",
+        "Verify endpoint returns verified for a freshly human-adjusted certificate (test)"
+      ],
+      "priority": 475,
+      "passes": false,
+      "notes": "[P0][Certificates] Audit 2026-06-03. content_hash computed once at finalization; adjustments don't reseal -> verify shows 'do not trust'."
+    },
+    {
+      "id": "US-476",
+      "title": "Move admin moderation/suspend/refund to audited service-role routes",
+      "description": "As an admin, moderation actions must take effect and be audited, so suspension/rejection/refund aren't silent no-ops or unsafe.",
+      "acceptanceCriteria": [
+        "Suspend / reject-submission / refund move to service-role admin edge routes with server-side audit (and step-up for suspend)",
+        "Refunds route through the refund_grade RPC, not ad-hoc grades_used_this_month math",
+        "Test confirms suspending another user actually flips users.suspended"
+      ],
+      "priority": 476,
+      "passes": false,
+      "notes": "[P0][Admin] Audit 2026-06-03. moderation.tsx updates users/submissions via the authenticated client; RLS makes them no-op."
+    },
+    {
+      "id": "US-477",
+      "title": "Write admin grade/dispute/moderation audit logs server-side",
+      "description": "As the platform, audit entries for sensitive admin actions must be server-derived, so they can't be forged or omitted.",
+      "acceptanceCriteria": [
+        "Grade-adjust/dispute-resolve/moderation audit rows are written via writeAuditLog with server-derived actor, IP, UA, role",
+        "Client INSERT into admin_audit_log is removed/locked so admin_user_id can't be spoofed"
+      ],
+      "priority": 477,
+      "passes": false,
+      "notes": "[P1][Admin] Audit 2026-06-03. reviews.tsx/disputes.tsx insert audit rows from the browser with client-supplied actor."
+    },
+    {
+      "id": "US-478",
+      "title": "Enforce the >1.5-point super_admin grade rule server-side",
+      "description": "As the platform, large grade changes must require super_admin on the server, so the threshold can't be bypassed via a direct API call.",
+      "acceptanceCriteria": [
+        "Grade adjustments apply via an edge route enforcing the >1.5-point -> super_admin rule (and step-up)",
+        "The rule cannot be bypassed by a direct DB/API call",
+        "Test: a non-super_admin adjustment >1.5 is rejected by the server"
+      ],
+      "priority": 478,
+      "passes": false,
+      "notes": "[P1][Admin] Audit 2026-06-03. The 1.5-pt gate is client-side (button disabled) only."
+    },
+    {
+      "id": "US-479",
+      "title": "Make reject-and-regrade actually re-run the pipeline",
+      "description": "As an admin, rejecting a grade must trigger a fresh grade, so submissions don't hang in processing forever.",
+      "acceptanceCriteria": [
+        "Reject-and-regrade is a server endpoint that re-invokes (or enqueues) the grading pipeline and supersedes the prior report",
+        "Submissions can't be left stuck in processing with no worker",
+        "Test: rejecting produces a new report and a terminal status"
+      ],
+      "priority": 479,
+      "passes": false,
+      "notes": "[P1][Grading] Audit 2026-06-03. handleRejectAndRegrade sets status=processing but nothing re-runs the pipeline."
+    },
+    {
+      "id": "US-480",
+      "title": "Compute the photo-reuse perceptual hash server-side",
+      "description": "As the platform, fraud detection must not trust a client-supplied hash, so stolen/stock-photo reuse can't be bypassed by sending a fake hash.",
+      "acceptanceCriteria": [
+        "The perceptual hash is computed server-side from the validated upload bytes (or recomputed and compared), not taken from the client",
+        "Reuse detection runs on the server-derived hash",
+        "Test: identical image bytes from two accounts are flagged regardless of submitted phash"
+      ],
+      "priority": 480,
+      "passes": false,
+      "notes": "[P1][Grading/Fraud] Audit 2026-06-03. submission_images.phash is a client-submitted field (grade.ts), trivially spoofable."
+    },
+    {
+      "id": "US-481",
+      "title": "Lower grading model temperature for reproducibility",
+      "description": "As the platform, grading must be reproducible, so the same garment doesn't score differently on re-grade/dispute.",
+      "acceptanceCriteria": [
+        "Vision + composite grading default to a low temperature (e.g. 0-0.2) regardless of the env var being set",
+        "A documented justification exists for any non-zero temperature",
+        "The reliability harness measures AI self-consistency (same input repeated) and gates on it"
+      ],
+      "priority": 481,
+      "passes": false,
+      "notes": "[P1][Grading] Audit 2026-06-03. getAiTemperature returns undefined -> SDK default 1.0; contradicts the 'standardized' value prop."
+    },
+    {
+      "id": "US-482",
+      "title": "Validate the grading composite model against an allowlist",
+      "description": "As the platform, the model deciding final scores must meet a capability floor, so a typo/cheap model can't silently degrade grades.",
+      "acceptanceCriteria": [
+        "The active composite model is recorded (already) AND validated against an allowlist at startup; a bad value fails loudly",
+        "The accuracy monitor alerts on model changes"
+      ],
+      "priority": 482,
+      "passes": false,
+      "notes": "[P2][Grading] Audit 2026-06-03. GRADING_COMPOSITE_MODEL silently falls back to default."
+    },
+    {
+      "id": "US-483",
+      "title": "Cap confidence when grading factors were defaulted",
+      "description": "As the platform, a partially-hallucinated grading response must route to human review, so garbled output doesn't ship a confident grade.",
+      "acceptanceCriteria": [
+        "When any factor is defaulted due to invalid model output, confidence is capped below the review threshold (or the grade abstains)",
+        "A counter tracks default-substitution frequency per model/prompt version",
+        "Test covers a malformed-factor response"
+      ],
+      "priority": 483,
+      "passes": false,
+      "notes": "[P2][Grading] Audit 2026-06-03. compositeGrade defaults invalid factors to 7.0 with no confidence penalty."
+    },
+    {
+      "id": "US-484",
+      "title": "Atomic report+status+moderation; withhold suspect certificates",
+      "description": "As the platform, a grade pending moderation must not be publicly verifiable, so flagged/suspect grades aren't citable before review.",
+      "acceptanceCriteria": [
+        "Report creation + submission status + moderation flags are written in one transaction (RPC), or the certificate is made public only after flags are evaluated",
+        "A manipulation/moderation-flagged grade is not resolvable on the public cert endpoint until reviewed (cert_status gate + RLS)",
+        "Test: a flagged grade 404s on the public cert endpoint until cleared"
+      ],
+      "priority": 484,
+      "passes": false,
+      "notes": "[P2][Grading/Certificates] Audit 2026-06-03. report insert and status update are separate; flagged grades still get a live certificate_id."
+    },
+    {
+      "id": "US-485",
+      "title": "Allow partial-success grading on a single image failure",
+      "description": "As a paying user, one flaky image shouldn't fail my whole paid grade, so transient errors don't waste the work and charge.",
+      "acceptanceCriteria": [
+        "A single non-critical image failure degrades gracefully (grade from the remaining images with lowered confidence)",
+        "Required-image failures are distinguished from optional-image failures; retries/timeouts tuned for vision latency",
+        "Surfaced in logs/metrics"
+      ],
+      "priority": 485,
+      "passes": false,
+      "notes": "[P2][Grading] Audit 2026-06-03. analyzeImage inside Promise.all -> one image failure fails the whole submission + refunds."
+    },
+    {
+      "id": "US-486",
+      "title": "Gate content auto-publish behind approval/safety",
+      "description": "As the company, AI-written content must pass a human/safety gate before going live, so hallucinated or off-brand/unsafe claims aren't auto-published and indexed.",
+      "acceptanceCriteria": [
+        "Auto-publish is gated behind an explicit human-approval state, OR a content-safety/claims check runs before publish with hold-on-fail",
+        "A kill-switch and rate ceiling exist beyond per-day cadence",
+        "Published AI content is attributable and reversible"
+      ],
+      "priority": 486,
+      "passes": false,
+      "notes": "[P2][Content] Audit 2026-06-03. content-scheduler auto_publish publishes AI drafts live with only sanitizeHtml."
+    },
+    {
+      "id": "US-487",
+      "title": "Rotate content-scheduler secret + retry content webhooks",
+      "description": "As the platform, content automation auth should be rotatable and webhook deliveries durable, so a leaked secret is contained and syndication isn't silently lost.",
+      "acceptanceCriteria": [
+        "The job secret is rotatable and ideally a signed timestamped request (replay rejected)",
+        "Webhook deliveries retried with backoff and recorded to content_webhook_log with success state + alerting on failure",
+        "Settings loaded once per tick"
+      ],
+      "priority": 487,
+      "passes": false,
+      "notes": "[P3][Content] Audit 2026-06-03. Static CONTENT_INTERNAL_JOB_SECRET; dispatchContentWebhook is best-effort .catch(log)."
+    },
+    {
+      "id": "US-488",
+      "title": "Minimize + consent for reliability-study access to customer photos",
+      "description": "As a seller, my private submission photos used for QA must be minimized, consented, and access-logged, so platform-wide reviewer access isn't a privacy gap.",
+      "acceptanceCriteria": [
+        "Reviewer QA access is documented in the privacy policy/DPA and minimized (exclude PII-bearing fields, access-logged)",
+        "Reliability sampling access is audit-logged per item viewed",
+        "A data-retention/consent stance for QA use of customer photos is defined"
+      ],
+      "priority": 488,
+      "passes": false,
+      "notes": "[P3][Admin/Privacy] Audit 2026-06-03. admin-grading reliability queue exposes arbitrary users' submissions+images to reviewers."
+    },
+    {
+      "id": "US-489",
+      "title": "Extend the certificate hash to all certified claims",
+      "description": "As a buyer, everything shown as verified must be in the integrity envelope, so defects/attributes/photos can't be altered undetected.",
+      "acceptanceCriteria": [
+        "The canonical hash covers all buyer-facing certified claims (defects_found, detected_style_attributes, authenticity verdict), integrity_version bumped",
+        "Photo content hashes are included, or the UI clarifies precisely what verified covers",
+        "Verify result distinguishes scores-verified from full-certificate-verified if scope is intentionally narrow"
+      ],
+      "priority": 489,
+      "passes": false,
+      "notes": "[P3][Certificates] Audit 2026-06-03. canonicalizeCertificate hashes only scores+tier+id+ai_summary."
+    },
+    {
+      "id": "US-490",
+      "title": "Backfill certificate integrity + assert signing key in prod",
+      "description": "As a buyer, existing certificates should verify and the signing key must be present, so the tamper-evident story holds at launch.",
+      "acceptanceCriteria": [
+        "A backfill computes integrity for all existing certified reports",
+        "Production startup asserts CERT_SIGNING_KEY is present (or the trust UI is honest that signatures are off)",
+        "Monitoring tracks signed vs hash-only vs unverifiable certificate share"
+      ],
+      "priority": 490,
+      "passes": false,
+      "notes": "[P3][Certificates] Audit 2026-06-03. Pre-US-333 rows verify as 'unverifiable'; no backfill; no signing-key boot check."
+    },
+    {
+      "id": "US-491",
+      "title": "Add error tracking to the edge service",
+      "description": "As the team, the edge service must report exceptions to a tracker, so grading/payment/webhook failures aren't invisible.",
+      "acceptanceCriteria": [
+        "The edge initializes an exception tracker (Sentry Deno SDK or equivalent) at boot, gated on a DSN env var",
+        "app.onError and all fire-and-forget .catch() handlers capture with request/user/route context, tagged with a release/commit SHA",
+        "Verified by triggering a forced 500 and seeing it in the tracker"
+      ],
+      "priority": 491,
+      "passes": false,
+      "notes": "[P0][Observability] Audit 2026-06-03. env.ts:42 documents 'No Sentry in the edge service'; only console.error exists."
+    },
+    {
+      "id": "US-492",
+      "title": "Make /health a real readiness check",
+      "description": "As the platform, the health endpoint must probe critical dependencies, so a broken container doesn't keep receiving traffic.",
+      "acceptanceCriteria": [
+        "A readiness probe checks DB connectivity and critical env presence; returns non-200 when a hard dependency is unreachable",
+        "A separate cheap liveness route is used for the restart probe; documented which probe Coolify/Traefik uses"
+      ],
+      "priority": 492,
+      "passes": false,
+      "notes": "[P1][Observability] Audit 2026-06-03. health.ts returns a static {status:ok}."
+    },
+    {
+      "id": "US-493",
+      "title": "Establish a production database migration process",
+      "description": "As the platform, migrations must be applied to prod reliably, so the schema can't drift behind the code and cause 500s.",
+      "acceptanceCriteria": [
+        "A documented, repeatable mechanism applies migrations to prod (CI step or a gated runbook with verification)",
+        "A check (CI or boot-time) detects when deployed code expects a migration the DB lacks and blocks/flags the deploy; migrations validate by applying cleanly on a fresh schema in CI",
+        "Confirm 00057 through 00074 are applied to prod; re-test /verified/* and /flipdesk/pricing/* return 200"
+      ],
+      "priority": 493,
+      "passes": false,
+      "notes": "[P0][Ops/Data] Audit 2026-06-03 (2 agents). CI only builds the frontend; no db push anywhere. This is the root cause of the verified/profile + pricing/suggestions 500s. Bundle 00057-00074 into one idempotent script."
+    },
+    {
+      "id": "US-494",
+      "title": "Document and test self-hosted Supabase backups/PITR",
+      "description": "As the platform, the self-hosted DB and storage must be backed up and restorable, so a volume failure or bad migration isn't unrecoverable.",
+      "acceptanceCriteria": [
+        "Automated Postgres + Storage backups on a defined schedule, stored offsite/cross-region, with documented retention",
+        "PITR or frequent base+WAL backups configured; RPO/RTO targets stated",
+        "A restore is actually tested and the runbook records the verified procedure"
+      ],
+      "priority": 494,
+      "passes": false,
+      "notes": "[P0][Data/Ops] Audit 2026-06-03. DATA_RETENTION.md only references a 'backup rotation' with no mechanism/restore test."
+    },
+    {
+      "id": "US-495",
+      "title": "Add stuck-submission recovery for fire-and-forget grading",
+      "description": "As a paying user, a submission stranded by a crash/restart must be recovered, so I get a grade or a refund.",
+      "acceptanceCriteria": [
+        "A scheduled job re-evaluates submissions stuck in processing beyond a threshold and re-enqueues or marks failed + refunds",
+        "The job is added to the Coolify cron table and reports failures to the error tracker",
+        "A metric/alert for submissions in processing older than N minutes"
+      ],
+      "priority": 495,
+      "passes": false,
+      "notes": "[P1][Reliability] Audit 2026-06-03. grade.ts calls processSubmission(...).catch() without awaiting; no orphan recovery."
+    },
+    {
+      "id": "US-496",
+      "title": "Schedule the reprice-scan and grading-monitor crons",
+      "description": "As the platform, the repricing and grading-regression jobs must actually run, so repricing nudges and the quality alarm function.",
+      "acceptanceCriteria": [
+        "Both jobs added to the Coolify scheduled-task list with schedules and the X-Internal-Job-Secret curl command",
+        "Both configured as Coolify Scheduled Tasks; Run Now returns 200",
+        "Expected cadence and MONITOR_ALERT_EMAIL documented"
+      ],
+      "priority": 496,
+      "passes": false,
+      "notes": "[P1][Ops] Audit 2026-06-03. /api/jobs/reprice-scan and /api/jobs/grading-monitor are mounted but absent from COOLIFY.md cron table."
+    },
+    {
+      "id": "US-497",
+      "title": "Centralize structured edge logs with correlation IDs",
+      "description": "As the team, edge logs must be queryable and correlated, so incidents can be diagnosed across fan-out paths.",
+      "acceptanceCriteria": [
+        "Edge logs ship to an aggregator with retention; structured JSON with a per-request correlation id propagated through fire-and-forget tasks",
+        "Sensitive fields (tokens, PII, signatures) are redacted"
+      ],
+      "priority": 497,
+      "passes": false,
+      "notes": "[P1][Observability] Audit 2026-06-03. 312 unstructured console.* across 54 files to ephemeral stdout."
+    },
+    {
+      "id": "US-498",
+      "title": "Add durable retry/dead-letter for transactional email",
+      "description": "As a user, critical emails must not be silently lost on a transient SMTP failure, so I hear that my grade is ready or my card failed.",
+      "acceptanceCriteria": [
+        "Failed sends are persisted and retried with backoff, with a dead-letter state after N attempts",
+        "Send failures are reported to the error tracker; critical emails (payment-failed, grade-ready) covered",
+        "Verified a forced SMTP failure is retried and eventually surfaced"
+      ],
+      "priority": 498,
+      "passes": false,
+      "notes": "[P1][Reliability] Audit 2026-06-03. email.ts sends once, logs+returns false on failure; callers ignore the boolean."
+    },
+    {
+      "id": "US-499",
+      "title": "Add timeouts + circuit breakers to external calls",
+      "description": "As the platform, calls to eBay/Stripe/Anthropic must have deadlines and breakers, so a hung dependency can't pile up requests.",
+      "acceptanceCriteria": [
+        "Every eBay fetch uses an AbortController with a bounded timeout; calls go through withRetry AND a circuit breaker",
+        "The reprice/sync crons honor the breaker to avoid hammering during an outage",
+        "Timeouts/breaker trips are logged to the error tracker"
+      ],
+      "priority": 499,
+      "passes": false,
+      "notes": "[P1][Reliability] Audit 2026-06-03. ebay-client.ts has no AbortController/timeout; withRetry not wired into eBay calls."
+    },
+    {
+      "id": "US-500",
+      "title": "Stand up uptime monitoring, alerting, and a status page",
+      "description": "As the team, outages must page us and be visible to customers, so we find out before users do.",
+      "acceptanceCriteria": [
+        "External uptime checks on the SPA, edge /health, and Supabase, with alerting to a real on-call channel",
+        "Alert thresholds and escalation documented in the incident runbook",
+        "A status page reflecting component health"
+      ],
+      "priority": 500,
+      "passes": false,
+      "notes": "[P1][Ops] Audit 2026-06-03. No synthetic monitors/paging/status page."
+    },
+    {
+      "id": "US-501",
+      "title": "Run multiple edge replicas + define graceful degradation",
+      "description": "As the platform, the edge should not be a single point of failure and should degrade gracefully, so deploys are zero-downtime and dependency outages don't hard-fail.",
+      "acceptanceCriteria": [
+        "Run >=2 edge replicas behind Traefik for zero-downtime deploys, or document the accepted single-instance risk + recovery",
+        "Define degraded-mode behavior per dependency (queue grading on Anthropic outage; maintenance banners; preserve idempotency)",
+        "Supabase failover/capacity plan documented"
+      ],
+      "priority": 501,
+      "passes": false,
+      "notes": "[P2][Reliability] Audit 2026-06-03. Single Coolify container; deploy is a brief full outage."
+    },
+    {
+      "id": "US-502",
+      "title": "Make grading-monitor alerting reliable + multi-channel",
+      "description": "As the team, a grading regression must reliably page us, so a real regression isn't silently suppressed.",
+      "acceptanceCriteria": [
+        "Alerts go to a reliable channel (PagerDuty/Slack/webhook) in addition to email",
+        "The cooldown does not engage when no alert was actually delivered",
+        "Failure to deliver an alert is itself reported"
+      ],
+      "priority": 502,
+      "passes": false,
+      "notes": "[P2][Ops] Audit 2026-06-03. grading-monitor sets alerted:true even when no MONITOR_ALERT_EMAIL is set -> 12h suppression."
+    },
+    {
+      "id": "US-503",
+      "title": "Add overlap locks/idempotency to scheduled jobs",
+      "description": "As the platform, overlapping cron runs must not double-apply work, so slow runs don't race the next invocation.",
+      "acceptanceCriteria": [
+        "Each mutating cron acquires a lock (advisory lock / claim row) so overlapping invocations no-op",
+        "Publish/sync operations are idempotent at the resource level (dedup on platform_offer_id/order id)",
+        "A test asserts a second concurrent run is a no-op"
+      ],
+      "priority": 503,
+      "passes": false,
+      "notes": "[P2][Reliability] Audit 2026-06-03. orders-sync (30m) and publish-due (5m) have no overlap guard."
+    },
+    {
+      "id": "US-504",
+      "title": "Add DB CHECK constraints/enums + an integrity scan",
+      "description": "As the platform, the DB must enforce fixed-value columns, so app bugs can't persist invalid status/reason rows that silently vanish from filters.",
+      "acceptanceCriteria": [
+        "CHECK constraints (or enums) added for fixed-value text columns (status, reason_code) on new tables like repricing_suggestions",
+        "FK ON DELETE behavior and unique constraints audited across 00057-00074 for orphan risk",
+        "A periodic integrity check (orphan/invalid-status scan) reports anomalies"
+      ],
+      "priority": 504,
+      "passes": false,
+      "notes": "[P2][Data] Audit 2026-06-03. repricing_suggestions status/reason_code are free-text with no CHECK."
+    },
+    {
+      "id": "US-505",
+      "title": "Document secrets management + rotation",
+      "description": "As the platform, the shared job secret and provider keys must be rotatable with a documented cadence, so a leak is recoverable without downtime.",
+      "acceptanceCriteria": [
+        "KEY_ROTATION.md covers FLIPDESK_INTERNAL_JOB_SECRET rotation with a dual-secret overlap window (zero-downtime)",
+        "Rotation cadence/procedure documented for Stripe/eBay/Anthropic and the Supabase service-role key",
+        "Confirmed rotation doesn't break in-flight crons"
+      ],
+      "priority": 505,
+      "passes": false,
+      "notes": "[P2][Ops] Audit 2026-06-03. One static long-lived job secret across all crons; no rotation story."
+    },
+    {
+      "id": "US-506",
+      "title": "Write incident runbooks + define on-call",
+      "description": "As the team, we need per-scenario runbooks and escalation, so incidents have a documented recovery path.",
+      "acceptanceCriteria": [
+        "Runbook adds procedures for top failure modes (DB outage + restore, edge crashloop, webhook backlog, stuck submissions, eBay token mass-refresh failure)",
+        "On-call/escalation contacts and severities defined",
+        "Links the uptime/alerting and backup/restore procedures"
+      ],
+      "priority": 506,
+      "passes": false,
+      "notes": "[P2][Ops] Audit 2026-06-03. INCIDENT_RESPONSE.md lacks on-call/escalation/per-scenario runbooks."
+    },
+    {
+      "id": "US-507",
+      "title": "Add server-side feature flags / kill-switches",
+      "description": "As the team, expensive/external-dependent flows must be toggleable without a redeploy, so we can disable them during an outage or cost spike.",
+      "acceptanceCriteria": [
+        "A lightweight flag mechanism (DB-backed settings or env-backed flags) gates grading, AutoLister, content AI, and repricing",
+        "Flipping a flag disables a flow without redeploy and returns a graceful 503/degraded response",
+        "Admin UI or documented procedure to toggle flags"
+      ],
+      "priority": 507,
+      "passes": false,
+      "notes": "[P3][Reliability] Audit 2026-06-03. Only static env presence checks; no runtime kill-switch."
+    },
+    {
+      "id": "US-508",
+      "title": "Add APM/tracing + business metrics on the edge",
+      "description": "As the team, key flows need latency/error/throughput telemetry, so regressions and capacity issues are visible.",
+      "acceptanceCriteria": [
+        "Emit latency/error/throughput metrics for grading, webhooks, eBay calls, and crons to a metrics backend",
+        "Basic distributed-trace context propagated across fan-out paths",
+        "Dashboards + alerts on grading p95 latency, cron failure, and external-call error rate"
+      ],
+      "priority": 508,
+      "passes": false,
+      "notes": "[P3][Observability] Audit 2026-06-03. No APM/tracing; PostHog server capture is product analytics only."
+    },
+    {
+      "id": "US-509",
+      "title": "Make webhook fail-open observable / fail-closed for high-risk events",
+      "description": "As the platform, a fail-open idempotency decision must be visible and high-risk events must fail-closed, so duplicate processing is caught.",
+      "acceptanceCriteria": [
+        "Fail-open events are reported to the error tracker with a metric",
+        "Every side effect downstream of fail-open is provably idempotent, or high-risk events (payments/account-deletion) fail-closed"
+      ],
+      "priority": 509,
+      "passes": false,
+      "notes": "[P3][Reliability] Audit 2026-06-03. webhook-idempotency.ts fails open on any non-unique DB error with only console.error."
+    },
+    {
+      "id": "US-510",
+      "title": "Wire the frontend Vitest suite into the CI gate",
+      "description": "As the team, frontend tests must run in CI, so a tested-code regression can't merge green.",
+      "acceptanceCriteria": [
+        "A CI job runs npm test (vitest) on PRs and pushes to main and fails on any test failure",
+        "The job is a required status check on the main branch protection rule",
+        "Runs alongside lint/type-check so all gates report together"
+      ],
+      "priority": 510,
+      "passes": false,
+      "notes": "[P0][CI] Audit 2026-06-03. ci.yml runs only lint/tsc/build; 16 frontend test files never run."
+    },
+    {
+      "id": "US-511",
+      "title": "Add E2E tests for critical user flows",
+      "description": "As the team, the money/auth-critical happy and failure paths must be E2E-verified, so launch isn't shipped on unit tests alone.",
+      "acceptanceCriteria": [
+        "Playwright (or equivalent) covers at least: signup+login, image submission->grade display, billing checkout entry, and public certificate view",
+        "Auth-guard redirects (ProtectedRoute, AuthLayout) covered",
+        "E2E runs in CI against a preview/ephemeral environment (or mocked Supabase/Stripe)"
+      ],
+      "priority": 511,
+      "passes": false,
+      "notes": "[P0][Testing] Audit 2026-06-03. Zero E2E tooling; all tests are unit-level."
+    },
+    {
+      "id": "US-512",
+      "title": "Add automated tests for the Stripe webhook handler",
+      "description": "As the team, every billing mutation path must be tested, so webhook bugs can't silently grant/deny features or corrupt the ledger.",
+      "acceptanceCriteria": [
+        "Unit/integration tests cover each event.type branch with signed fixtures, including duplicate-delivery idempotency",
+        "Tests assert plan mapping, counter reset, and credit grant/refund ledger correctness; signature-failure 400 and internal-error 200 asserted",
+        "The refund balance_after bug has a regression test"
+      ],
+      "priority": 512,
+      "passes": false,
+      "notes": "[P0][Testing] Audit 2026-06-03. webhooks.ts (700+ lines) has no test."
+    },
+    {
+      "id": "US-513",
+      "title": "Document a production rollback strategy + pin edge images",
+      "description": "As the team, both surfaces must be quickly revertible, so a bad merge to main is recoverable.",
+      "acceptanceCriteria": [
+        "Written rollback runbook for Cloudflare Pages (redeploy prior) and Coolify edge (rollback to a prior image/commit)",
+        "Edge images tagged with the commit SHA so a specific prior build can be redeployed deterministically",
+        "Rollback procedure validated once in staging"
+      ],
+      "priority": 513,
+      "passes": false,
+      "notes": "[P0][DevOps] Audit 2026-06-03. Both deploy paths auto-on-push; edge image is unpinned; no rollback docs."
+    },
+    {
+      "id": "US-514",
+      "title": "Add an AI-generated disclosure to certificates + grade reports",
+      "description": "As a buyer, I must be clearly told the grade is AI-generated and not a guaranteed appraisal, so the product meets AI-transparency/consumer-protection expectations.",
+      "acceptanceCriteria": [
+        "Visible 'AI-generated condition estimate - not a professional appraisal/guarantee' disclosure on the public certificate page and in-app grade report",
+        "Confidence/limitation language shown alongside the verdict",
+        "Wording consistent with Terms section 5"
+      ],
+      "priority": 514,
+      "passes": false,
+      "notes": "[P1][Legal] Audit 2026-06-03. Disclosure only buried in terms.tsx; the public certificate doesn't show it."
+    },
+    {
+      "id": "US-515",
+      "title": "Publish an accessibility statement + add axe to CI",
+      "description": "As the company, we need a published accessibility posture and automated a11y checks, so ADA/WCAG exposure is reduced and claims are backed.",
+      "acceptanceCriteria": [
+        "A public /accessibility statement (target WCAG 2.1 AA, known limitations, remediation contact), linked from the footer",
+        "At least one automated a11y check (axe) added to CI or the E2E suite"
+      ],
+      "priority": 515,
+      "passes": false,
+      "notes": "[P1][Legal/A11y] Audit 2026-06-03. No accessibility statement; no automated a11y check."
+    },
+    {
+      "id": "US-516",
+      "title": "Make marketing email CAN-SPAM compliant",
+      "description": "As the company, commercial email must have a no-login unsubscribe and a physical address, so we comply with CAN-SPAM/CASL.",
+      "acceptanceCriteria": [
+        "Marketing emails include a no-login-required unsubscribe honored within 10 business days",
+        "The email footer includes Pearson Media LLC's valid physical postal address",
+        "Transactional vs marketing types distinguished so transactional mail isn't over-suppressed"
+      ],
+      "priority": 516,
+      "passes": false,
+      "notes": "[P1][Legal] Audit 2026-06-03. email.ts footer links to login-gated settings and has no postal address."
+    },
+    {
+      "id": "US-517",
+      "title": "Pin + scan edge (Deno) dependencies",
+      "description": "As the platform, the edge dependency tree must be lockfile-verified and vuln-scanned, so a tampered/vulnerable dep can't slip into the tier holding service-role keys.",
+      "acceptanceCriteria": [
+        "CI runs a frozen/lockfile-verified Deno install so a changed esm.sh artifact fails the build",
+        "A vulnerability scan covers the edge dependency tree (or a documented manual review cadence)",
+        "The Deno base image is scanned (Trivy/Grype)"
+      ],
+      "priority": 517,
+      "passes": false,
+      "notes": "[P1][DevOps/Security] Audit 2026-06-03. Edge deps via mutable esm.sh; npm audit only covers the frontend; Dependabot can't update Deno."
+    },
+    {
+      "id": "US-518",
+      "title": "Fix the known edge lint error so the lint gate is clean",
+      "description": "As the team, the edge lint must pass clean, so the gate is trustworthy and new issues aren't masked.",
+      "acceptanceCriteria": [
+        "The prefer-const finding in ai-grading.ts is fixed (or narrowly suppressed with justification)",
+        "deno lint passes clean on services/edge-functions/; CI fails on any new lint error"
+      ],
+      "priority": 518,
+      "passes": false,
+      "notes": "[P2][CI] Audit 2026-06-03 (and project memory). Pre-existing prefer-const in ai-grading.ts."
+    },
+    {
+      "id": "US-519",
+      "title": "Add code-coverage measurement + thresholds",
+      "description": "As the team, coverage must be measured with a minimum threshold, so it doesn't silently erode.",
+      "acceptanceCriteria": [
+        "Vitest configured with a coverage provider; CI reports coverage with a failing minimum threshold",
+        "Coverage reported separately for frontend and edge (deno test --coverage)"
+      ],
+      "priority": 519,
+      "passes": false,
+      "notes": "[P2][Testing] Audit 2026-06-03. No coverage block/threshold; CI doesn't run vitest."
+    },
+    {
+      "id": "US-520",
+      "title": "Stand up staging/preview environments",
+      "description": "As the team, changes must be validated in a pre-prod environment, so migrations/webhooks/auth aren't first exercised in production.",
+      "acceptanceCriteria": [
+        "A staging environment (Supabase + edge + Stripe test mode) exists and is documented",
+        "PRs get a preview deploy (Pages preview + an edge preview, or the gap documented)",
+        "E2E/smoke tests run against staging before promotion to main"
+      ],
+      "priority": 520,
+      "passes": false,
+      "notes": "[P2][DevOps] Audit 2026-06-03. Only production exists; changes ship straight to prod."
+    },
+    {
+      "id": "US-521",
+      "title": "Add a data-retention policy + automated PII purge",
+      "description": "As the company, stale grading PII must be purged on a schedule, so we meet storage-limitation/minimization requirements.",
+      "acceptanceCriteria": [
+        "Documented retention periods per data category in the privacy policy",
+        "A scheduled job anonymizes/deletes data past its retention window (incl. storage objects)",
+        "Retention windows reflected in Privacy Policy + subprocessor docs"
+      ],
+      "priority": 521,
+      "passes": false,
+      "notes": "[P2][Legal/Data] Audit 2026-06-03. No retention/purge job; submission-images accumulate indefinitely."
+    },
+    {
+      "id": "US-522",
+      "title": "Harden CI workflow permissions + inventory secrets",
+      "description": "As the platform, CI must follow least privilege and have a documented secret inventory, so a compromised workflow has minimal blast radius.",
+      "acceptanceCriteria": [
+        "All workflows reviewed for least-privilege permissions and no untrusted-input injection (esp. ios-release.yml, lighthouse.yml)",
+        "A CI secret inventory + rotation cadence documented; branch protection requires the secret-scan + security jobs",
+        "Note the local gitleaks hook is best-effort; CI is the hard gate"
+      ],
+      "priority": 522,
+      "passes": false,
+      "notes": "[P2][DevOps] Audit 2026-06-03."
+    },
+    {
+      "id": "US-523",
+      "title": "Publish a DPA + complete subprocessor list",
+      "description": "As an enterprise/GDPR customer, I need a DPA and an enumerated subprocessor list, so data-processing obligations are met.",
+      "acceptanceCriteria": [
+        "A published, dated subprocessor list covering every third party processing personal data (Supabase, Stripe, Cloudflare, PostHog, Sentry, email/SMTP, eBay, Anthropic, R2/AWS), cross-checked against deps",
+        "A DPA available for customers, linked from Privacy/Terms",
+        "A subprocessor-change notification mechanism"
+      ],
+      "priority": 523,
+      "passes": false,
+      "notes": "[P3][Legal] Audit 2026-06-03. privacy.tsx names only Anthropic; no DPA/complete subprocessor list."
+    },
+    {
+      "id": "US-524",
+      "title": "Add a content-moderation / DMCA takedown process",
+      "description": "As the platform hosting UGC (certificates, AI listings, user images), I need a takedown/abuse process and DMCA agent, so safe-harbor is preserved and violating content can be removed.",
+      "acceptanceCriteria": [
+        "Published abuse/takedown contact and DMCA designated-agent info",
+        "A documented process to remove violating UGC (certificates, listings, images)",
+        "Acceptable-use policy references the enforcement/takedown path"
+      ],
+      "priority": 524,
+      "passes": false,
+      "notes": "[P3][Legal] Audit 2026-06-03. acceptable-use.tsx exists but no takedown/DMCA process."
     }
   ]
 }
