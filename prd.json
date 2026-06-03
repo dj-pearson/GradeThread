@@ -6532,8 +6532,8 @@
         "Partial index added for the publish-due filter (draft + not-synced + scheduled<=now)"
       ],
       "priority": 409,
-      "passes": false,
-      "notes": "[P1][Performance/DB] Audit 2026-06-03. Only single-column indexes exist (00002)."
+      "passes": true,
+      "notes": "[P1][Performance/DB] Audit 2026-06-03. Only single-column indexes exist (00002). DONE 2026-06-03: migration 00080_listings_sync_indexes.sql adds (1) composite idx_listings_item_platform_created ON listings(inventory_item_id, platform, created_at DESC) so the sync's per-item newest-first lookup is served from the index with no sort/heap scan, and (2) partial idx_listings_publish_due ON listings(scheduled_publish_at) WHERE synced_to_ebay_at IS NULL AND listing_status='draft' — matching the /jobs/publish-due filter exactly (the prior 00052 index omitted the draft predicate). EXPLAIN ANALYZE confirmations documented inline in the migration for operator post-deploy verification (no DB available in CI here)."
     },
     {
       "id": "US-410",
@@ -7578,8 +7578,8 @@
         "A separate cheap liveness route is used for the restart probe; documented which probe Coolify/Traefik uses"
       ],
       "priority": 492,
-      "passes": false,
-      "notes": "[P1][Observability] Audit 2026-06-03. health.ts returns a static {status:ok}."
+      "passes": true,
+      "notes": "[P1][Observability] Audit 2026-06-03. health.ts returns a static {status:ok}. DONE 2026-06-03: split health into two probes (routes/health.ts). GET /health stays a cheap dependency-free LIVENESS/restart probe (Dockerfile HEALTHCHECK + Coolify healthcheckPath keep using it; restarting can't fix a DB outage). New GET /health/ready READINESS probe checks DB connectivity (tiny HEAD count on users.id) + critical env presence (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY/CLAUDE_API_KEY) and returns 503 when a hard dependency is down. Pure summarizeReadiness() helper unit-tested (tests/health_test.ts). Documented which probe Coolify/Traefik uses in COOLIFY.md."
     },
     {
       "id": "US-493",

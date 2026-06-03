@@ -3431,3 +3431,29 @@ US-361 Verify open-redirect safety of the OAuth relative-path sanitizer [P3][Sec
   built via String.fromCharCode so the source carries no literal control bytes).
 
 prd.json 362/524.
+
+
+## Session Notes (2026-06-03 cont.) -- DB sync indexes + health readiness US-409/US-492
+
+US-409 Add composite indexes for hot sync lookups [P1][Performance/DB]:
+- Migration 00080_listings_sync_indexes.sql:
+  - idx_listings_item_platform_created ON listings(inventory_item_id, platform,
+    created_at DESC) — the sync's per-item, newest-first listing lookup is now
+    served from the index (no Sort node, no heap scan for ordering).
+  - idx_listings_publish_due ON listings(scheduled_publish_at) WHERE
+    synced_to_ebay_at IS NULL AND listing_status='draft' — matches the
+    /jobs/publish-due filter EXACTLY (the prior 00052 partial index omitted the
+    draft predicate). EXPLAIN ANALYZE confirmations are documented inline for
+    operator post-deploy verification (no DB in CI here).
+
+US-492 Make /health a real readiness check [P1][Observability]:
+- routes/health.ts split into two probes. GET /health stays a cheap,
+  dependency-free LIVENESS/restart probe (Dockerfile HEALTHCHECK + Coolify keep
+  using it — restarting can't fix a DB outage, so it must not flap on deps). New
+  GET /health/ready READINESS probe checks DB connectivity (tiny HEAD count on
+  users.id) + critical env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  ANTHROPIC_API_KEY/CLAUDE_API_KEY) and returns 503 when a hard dep is down.
+- Pure summarizeReadiness() helper unit-tested (tests/health_test.ts); the
+  route's I/O stays trivial. Documented the two probes in COOLIFY.md.
+
+prd.json 364/524.

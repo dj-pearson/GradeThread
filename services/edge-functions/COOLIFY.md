@@ -72,8 +72,20 @@ value changes.
 
 ## Healthcheck
 
-Docker healthcheck and Coolify both hit `GET /health`. The container is marked
-unhealthy after 3 consecutive failures (90 s window, 15 s startup grace).
+Two probes (US-492):
+
+- **`GET /health` — liveness (restart probe).** Cheap, dependency-free. The
+  Dockerfile `HEALTHCHECK` and Coolify (`coolify.healthcheckPath=/health`) hit
+  this; the container is marked unhealthy after 3 consecutive failures (90 s
+  window, 15 s startup grace) and restarted. It deliberately does NOT touch the
+  DB — restarting can't fix a DB outage, and a dependency blip must not
+  crash-loop a healthy process.
+- **`GET /health/ready` — readiness.** Probes hard dependencies (Postgres
+  reachable via a tiny HEAD query + critical env present) and returns **503**
+  when one is down, so a load balancer / orchestrator can stop routing traffic
+  to a container that's up but can't serve. Use this (not `/health`) for any
+  traffic-gating or deploy-gating readiness check; keep the restart probe on
+  `/health`.
 
 ## Updating
 
