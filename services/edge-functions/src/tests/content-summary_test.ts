@@ -3,9 +3,9 @@
 //   deno test src/tests/content-summary_test.ts
 
 import { assertEquals, assert } from "@std/assert";
-import { buildContentSummary } from "../lib/content-summary.ts";
+import { buildContentSummary, type SummaryInput } from "../lib/content-summary.ts";
 
-const BASE = {
+const BASE: SummaryInput = {
   windowDays: 7,
   generatedAt: "2026-06-01T00:00:00.000Z",
   blogPublished: [],
@@ -16,7 +16,7 @@ const BASE = {
   bankLevels: [],
   webhookLog: [],
   minTopicsInBank: 3,
-} as const;
+};
 
 Deno.test("counts published posts per surface and product", () => {
   const s = buildContentSummary({
