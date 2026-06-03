@@ -14,3 +14,29 @@
 name = "gradethread"
 compatibility_date = "2024-09-25"
 pages_build_output_dir = "./dist"
+
+# ── Pages Functions RUNTIME environment variables ──────────────────────────
+# IMPORTANT: `[vars]` here are exposed to the Pages Functions in ./functions/ at
+# RUNTIME (via context.env) ONLY. They are NOT available during the build, so
+# the React app's build-time `VITE_*` vars (VITE_SUPABASE_URL,
+# VITE_SUPABASE_ANON_KEY, etc., baked into the JS bundle by Vite) DO NOT belong
+# here — those live in `.env.production` (committed) or the Pages dashboard
+# build env vars. See https://developers.cloudflare.com/pages/functions/wrangler-configuration/
+#
+# Only NON-SECRET values may go here as plaintext (this file is committed).
+# Server secrets (service-role keys, Stripe secret, etc.) must be set as Pages
+# *secrets* (`npx wrangler pages secret put NAME`) or in the dashboard — never
+# here. The Functions read these via the PagesEnv interface in
+# functions/_shared/blog-render.ts.
+[vars]
+PUBLIC_SITE_URL = "https://gradethread.com"
+EDGE_API_URL = "https://functions.gradethread.com"
+# Flip to "true" only after enabling Image Resizing/Transformations on the zone
+# (gates the blog SSR /cdn-cgi/image srcset — see imageResizingEnabled()).
+VITE_CF_IMAGE_RESIZING = "false"
+
+# Preview deployments inherit the same non-secret runtime config.
+[env.preview.vars]
+PUBLIC_SITE_URL = "https://gradethread.com"
+EDGE_API_URL = "https://functions.gradethread.com"
+VITE_CF_IMAGE_RESIZING = "false"

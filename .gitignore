@@ -5,12 +5,20 @@ node_modules/
 dist/
 dist-ssr/
 
-# Environment variables — ignore every .env variant (incl. .env.production,
-# .env.development, services/edge-functions/.env, etc.) but keep the tracked
-# placeholder examples. (US-272)
+# Environment variables — ignore every .env variant (incl. .env.development,
+# services/edge-functions/.env, etc.) but keep the tracked placeholder examples.
+# (US-272)
 .env
 .env.*
 !.env.example
+# EXCEPTION: .env.production is committed on purpose — it holds the React app's
+# build-time VITE_* vars for the Cloudflare Pages build (Pages can't read them
+# from wrangler.toml). Every VITE_* value is PUBLIC by design (it's baked into
+# the browser JS bundle), so committing it exposes nothing new. NEVER put a
+# server secret (service-role key, Stripe secret, Anthropic key, webhook
+# secrets) in this file — secrets must NOT be VITE_-prefixed and belong in the
+# edge service env / Pages secrets only.
+!.env.production
 
 # Editor directories and files
 .vscode/*
