@@ -63,11 +63,11 @@ describe("buildSrcSet", () => {
 
 describe("renderHeroImage (blog SSR)", () => {
   it("renders nothing without a hero", () => {
-    expect(renderHeroImage(null, "x")).toBe("");
-    expect(renderHeroImage(undefined, "x")).toBe("");
+    expect(renderHeroImage(null, "x", true)).toBe("");
+    expect(renderHeroImage(undefined, "x", true)).toBe("");
   });
-  it("renders an eager, high-priority responsive hero", () => {
-    const html = renderHeroImage("https://cdn/hero.jpg", "My Post");
+  it("renders an eager, high-priority responsive hero when resizing is on", () => {
+    const html = renderHeroImage("https://cdn/hero.jpg", "My Post", true);
     expect(html).toContain('class="hero"');
     expect(html).toContain('src="https://cdn/hero.jpg"'); // original fallback
     expect(html).toContain("srcset=");
@@ -76,24 +76,40 @@ describe("renderHeroImage (blog SSR)", () => {
     expect(html).toContain('fetchpriority="high"');
     expect(html).toContain('alt="My Post"');
   });
+  it("omits the resize srcset when resizing is off (default)", () => {
+    const html = renderHeroImage("https://cdn/hero.jpg", "My Post");
+    expect(html).toContain('src="https://cdn/hero.jpg"');
+    expect(html).not.toContain("srcset=");
+    expect(html).not.toContain("/cdn-cgi/image/");
+    expect(html).toContain('loading="eager"'); // still the LCP hero
+    expect(html).toContain('fetchpriority="high"');
+  });
 });
 
 describe("rewriteContentImages (blog SSR)", () => {
-  it("adds srcset + lazy loading to a plain content image", () => {
-    const out = rewriteContentImages('<p><img src="https://cdn/in.jpg" alt="x"></p>');
+  it("adds srcset + lazy loading to a plain content image when resizing is on", () => {
+    const out = rewriteContentImages('<p><img src="https://cdn/in.jpg" alt="x"></p>', true);
     expect(out).toContain("srcset=");
     expect(out).toContain("/cdn-cgi/image/");
     expect(out).toContain('loading="lazy"');
     expect(out).toContain('decoding="async"');
     expect(out).toContain('alt="x"'); // original attrs preserved
   });
+  it("adds lazy/decoding but NO resize srcset when resizing is off", () => {
+    const out = rewriteContentImages('<p><img src="https://cdn/in.jpg" alt="x"></p>');
+    expect(out).not.toContain("/cdn-cgi/image/");
+    expect(out).not.toContain("srcset=");
+    expect(out).toContain('loading="lazy"');
+    expect(out).toContain('decoding="async"');
+    expect(out).toContain('alt="x"');
+  });
   it("is idempotent — skips images that already have a srcset", () => {
     const already = '<img src="/a.png" srcset="/a.png 1x">';
-    expect(rewriteContentImages(already)).toBe(already);
+    expect(rewriteContentImages(already, true)).toBe(already);
   });
   it("skips data: URIs and leaves non-image markup alone", () => {
-    expect(rewriteContentImages('<img src="data:abc">')).toBe('<img src="data:abc">');
-    expect(rewriteContentImages("<p>no images</p>")).toBe("<p>no images</p>");
+    expect(rewriteContentImages('<img src="data:abc">', true)).toBe('<img src="data:abc">');
+    expect(rewriteContentImages("<p>no images</p>", true)).toBe("<p>no images</p>");
   });
 });
 

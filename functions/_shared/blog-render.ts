@@ -404,10 +404,19 @@ export function buildSrcSet(src: string, widths: number[], quality = IMG_QUALITY
 const BLOG_IMG_WIDTHS = [640, 1024, 1600];
 const BLOG_IMG_SIZES = "(max-width: 720px) 100vw, 720px";
 
-/** Hero <img> with responsive srcset. Eager + high priority (it's the LCP). */
-export function renderHeroImage(src: string | null | undefined, alt: string): string {
+/**
+ * Hero <img>. Eager + high priority (it's the LCP). A responsive `/cdn-cgi`
+ * srcset is only emitted when `resize` is true (Cloudflare Image Resizing
+ * confirmed on the zone — see imageResizingEnabled). Off → plain original,
+ * which always loads; a 404-ing resize candidate would render broken instead.
+ */
+export function renderHeroImage(
+  src: string | null | undefined,
+  alt: string,
+  resize = false,
+): string {
   if (!src) return "";
-  const srcset = buildSrcSet(src, BLOG_IMG_WIDTHS);
+  const srcset = resize ? buildSrcSet(src, BLOG_IMG_WIDTHS) : "";
   return (
     `<img class="hero" src="${escape(src)}"` +
     (srcset ? ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"` : "") +
@@ -416,22 +425,26 @@ export function renderHeroImage(src: string | null | undefined, alt: string): st
 }
 
 /**
- * Rewrite in-body content <img> tags to add a responsive srcset/sizes + lazy
- * loading. Idempotent: skips data: URIs and images that already carry a srcset
- * or a cdn-cgi transform. Body HTML is sanitized upstream, so this only adds
- * attributes — it never introduces new tags.
+ * Rewrite in-body content <img> tags to add lazy loading + (when `resize` is
+ * true) a responsive srcset/sizes. Idempotent: skips data: URIs and images that
+ * already carry a srcset or a cdn-cgi transform. Body HTML is sanitized
+ * upstream, so this only adds attributes — it never introduces new tags. The
+ * srcset is gated on `resize` because /cdn-cgi/image/ 404s until Image Resizing
+ * is enabled; lazy/decoding hints are always safe so they apply either way.
  */
-export function rewriteContentImages(html: string): string {
+export function rewriteContentImages(html: string, resize = false): string {
   return html.replace(/<img\b([^>]*?)>/gi, (full, attrs: string) => {
     if (/\bsrcset=/i.test(attrs) || /\/cdn-cgi\/image\//i.test(attrs)) return full;
     const src = attrs.match(/\bsrc="([^"]+)"/i)?.[1];
     if (!src || src.startsWith("data:")) return full;
-    const srcset = buildSrcSet(src, BLOG_IMG_WIDTHS);
-    if (!srcset) return full;
-    let extra = ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"`;
+    let extra = "";
+    if (resize) {
+      const srcset = buildSrcSet(src, BLOG_IMG_WIDTHS);
+      if (srcset) extra += ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"`;
+    }
     if (!/\bloading=/i.test(attrs)) extra += ` loading="lazy"`;
     if (!/\bdecoding=/i.test(attrs)) extra += ` decoding="async"`;
-    return `<img${attrs}${extra}>`;
+    return extra ? `<img${attrs}${extra}>` : full;
   });
 }
 

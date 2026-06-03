@@ -24,6 +24,7 @@ import {
   renderRelatedPosts,
   renderHeroImage,
   rewriteContentImages,
+  imageResizingEnabled,
   articleAuthorLd,
   wasUpdatedAfterPublish,
   type PagesEnv,
@@ -162,8 +163,10 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
           .join("")}</div>`
       : "";
 
-  // Responsive hero image (US-306): srcset via Cloudflare Image Resizing.
-  const heroHtml = renderHeroImage(post.hero_image_url, post.title);
+  // Responsive hero image (US-306): srcset via Cloudflare Image Resizing, only
+  // when the zone has Transformations enabled (else plain original).
+  const resizeImages = imageResizingEnabled(env);
+  const heroHtml = renderHeroImage(post.hero_image_url, post.title, resizeImages);
 
   // CTA tailored to the post's product focus.
   const ctaText =
@@ -186,7 +189,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
     : "";
   const { html: bodyWithAnchors, toc } = buildTableOfContents(post.body_html);
   // Add responsive srcset + lazy loading to in-body content images (US-306).
-  const articleHtml = rewriteContentImages(bodyWithAnchors);
+  const articleHtml = rewriteContentImages(bodyWithAnchors, resizeImages);
 
   const bodyHtml = `<main class="container">
   ${heroHtml}
@@ -287,7 +290,11 @@ async function renderPreview(env: PagesEnv, token: string): Promise<Response> {
   const post = data.post;
   const canonical = `${siteUrl(env)}/blog/${post.slug}`;
 
-  const heroHtml = renderHeroImage(post.hero_image_url, post.title);
+  const heroHtml = renderHeroImage(
+    post.hero_image_url,
+    post.title,
+    imageResizingEnabled(env),
+  );
   const banner = `<div style="background:#FEF3C7;border:1px solid #F59E0B;color:#92400E;padding:12px 16px;border-radius:6px;margin-bottom:24px;font-size:0.9rem">
     <strong>Preview mode</strong> &middot; This is an unpublished draft.
     ${data.expires_at ? `Link expires ${escape(formatDateTime(data.expires_at))}.` : ""}
