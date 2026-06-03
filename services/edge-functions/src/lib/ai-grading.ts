@@ -994,6 +994,46 @@ export function applyGradingConfidencePolicy(
   return { finalConfidence, needsHumanReview };
 }
 
+// US-485: partial-success grading. One flaky image (transient vision API error)
+// shouldn't fail a whole paid grade. We analyze images with allSettled and
+// partition the outcomes: a failure of a REQUIRED core angle (front/back/label)
+// still fails the grade (can't grade reliably without it — the charge is
+// reversed as before), but a failure of any OPTIONAL image (extra detail /
+// defect shots) is tolerated — we grade from the images that succeeded and
+// lower confidence. Pure + unit-tested.
+export const PARTIAL_IMAGE_CONFIDENCE_CAP = 0.6;
+
+export interface SettledImage {
+  imageType: string;
+  // The analysis result, or null when analyzeImage() rejected for this image.
+  result: PerImageAnalysis | null;
+}
+
+export interface PartitionedImages {
+  usable: PerImageAnalysis[];
+  failedRequired: string[];
+  failedOptional: string[];
+}
+
+export function partitionImageResults(
+  items: SettledImage[],
+  requiredTypes: readonly string[],
+): PartitionedImages {
+  const usable: PerImageAnalysis[] = [];
+  const failedRequired: string[] = [];
+  const failedOptional: string[] = [];
+  for (const it of items) {
+    if (it.result) {
+      usable.push(it.result);
+    } else if (requiredTypes.includes(it.imageType)) {
+      failedRequired.push(it.imageType);
+    } else {
+      failedOptional.push(it.imageType);
+    }
+  }
+  return { usable, failedRequired, failedOptional };
+}
+
 export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,

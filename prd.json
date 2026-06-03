@@ -7104,8 +7104,8 @@
         "Cross-tenant test confirms a non-member still sees nothing"
       ],
       "priority": 455,
-      "passes": false,
-      "notes": "[P1][FlipDesk/RLS] Audit 2026-06-03 (and prior discussion). Both tables are owner-only auth.uid()=user_id."
+      "passes": true,
+      "notes": "[P1][FlipDesk/RLS] Audit 2026-06-03 (and prior discussion). Both tables are owner-only auth.uid()=user_id. DONE 2026-06-03: migration 00081_workspace_member_read_flipdesk.sql adds additive SELECT-only RLS policies to repricing_suggestions (00059) and flipdesk_sync_runs (00073) using is_workspace_member_with_role(user_id,'viewer'), consistent with the 00042 convention (previously owner-only auth.uid()=user_id). Mutations stay owner-scoped. A non-member non-owner matches no SELECT policy -> sees nothing. The edge already scopes reads by workspaceOwnerId (service-role bypasses RLS), so this is defense-in-depth + RLS/edge consistency. Cross-tenant API-boundary assertion added to tenant-isolation_test.ts (B's /pricing/suggestions never contains A's id)."
     },
     {
       "id": "US-456",
@@ -7488,8 +7488,8 @@
         "Surfaced in logs/metrics"
       ],
       "priority": 485,
-      "passes": false,
-      "notes": "[P2][Grading] Audit 2026-06-03. analyzeImage inside Promise.all -> one image failure fails the whole submission + refunds."
+      "passes": true,
+      "notes": "[P2][Grading] Audit 2026-06-03. analyzeImage inside Promise.all -> one image failure fails the whole submission + refunds. DONE 2026-06-03: grading-pipeline.ts now runs per-image analysis with Promise.allSettled (not all). New pure, unit-tested partitionImageResults() (ai-grading.ts) splits outcomes by REQUIRED_IMAGE_TYPES (front/back/label, reused from image-quality.ts): a REQUIRED core-angle failure (or zero usable images) still throws -> existing charge-reversal path (behavior unchanged, bounds risk); an OPTIONAL image failure (extra detail/defect) is tolerated — the grade proceeds on the images that succeeded with confidence capped to PARTIAL_IMAGE_CONFIDENCE_CAP (0.6) and needs_human_review forced true. Per-failure console.error + a 'grading.partial_success' PostHog metric surface it. Retries/timeout already bounded via the Anthropic SDK (getAiMaxRetries/getAiTimeoutMs). Tests: tests/grading-partial_test.ts."
     },
     {
       "id": "US-486",

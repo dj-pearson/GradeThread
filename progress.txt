@@ -3457,3 +3457,32 @@ US-492 Make /health a real readiness check [P1][Observability]:
   route's I/O stays trivial. Documented the two probes in COOLIFY.md.
 
 prd.json 364/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Partial-success grading + FlipDesk member RLS US-485/US-455
+
+US-485 Allow partial-success grading on a single image failure [P2][Grading]:
+- grading-pipeline.ts runs per-image analysis with Promise.allSettled (was
+  Promise.all -> one rejection failed the whole paid grade). New pure,
+  unit-tested partitionImageResults() (ai-grading.ts) splits settled outcomes by
+  REQUIRED_IMAGE_TYPES (front/back/label, reused from image-quality.ts):
+  - REQUIRED core-angle failure (or zero usable images) still throws -> the
+    existing catch reverses the charge (behavior UNCHANGED -> bounds risk);
+  - OPTIONAL image failure (extra detail/defect shots) is tolerated: grade
+    proceeds on the images that succeeded, confidence capped to
+    PARTIAL_IMAGE_CONFIDENCE_CAP (0.6) + needs_human_review forced true.
+- Surfaced via per-failure console.error + a 'grading.partial_success' PostHog
+  metric. Retries/timeout already bounded by the Anthropic SDK
+  (getAiMaxRetries/getAiTimeoutMs). Tests: tests/grading-partial_test.ts.
+
+US-455 Add workspace-member RLS to repricing_suggestions + flipdesk_sync_runs [P1][RLS]:
+- Migration 00081 adds additive SELECT-only policies using
+  is_workspace_member_with_role(user_id,'viewer') (consistent with 00042);
+  previously both tables were owner-only. Mutations stay owner-scoped; a
+  non-member non-owner matches no SELECT policy -> sees nothing.
+- The edge already scopes reads by workspaceOwnerId (service-role bypasses RLS),
+  so this is defense-in-depth + RLS/edge consistency. Cross-tenant API-boundary
+  assertion added to tenant-isolation_test.ts (B's /pricing/suggestions never
+  contains A's suggestion id).
+
+prd.json 366/524.

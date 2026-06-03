@@ -2,6 +2,9 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   analyzeImage,
   compositeGrade,
+  partitionImageResults,
+  PARTIAL_IMAGE_CONFIDENCE_CAP,
+  type SettledImage,
   type PerImageAnalysis,
   type GarmentInfo,
   type CompositeGradeResult,
@@ -11,7 +14,8 @@ import { sendGradeCompleteEmail } from "./email.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { detectPhotoReuse } from "./photo-reuse.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
-import { evaluateImageQuality } from "./image-quality.ts";
+import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
+import { captureServer } from "./posthog.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -173,7 +177,53 @@ export async function processSubmission(submissionId: string) {
       )
     );
 
-    const perImageResults: PerImageAnalysis[] = await Promise.all(perImagePromises);
+    // US-485: allSettled (not all) so one flaky image doesn't fail the whole
+    // paid grade. analyzeImage already retries + has a bounded timeout via the
+    // Anthropic SDK (getAiMaxRetries / getAiTimeoutMs).
+    const settled = await Promise.allSettled(perImagePromises);
+    const settledImages: SettledImage[] = settled.map((s, i) => ({
+      imageType: imageData[i].imageType,
+      result: s.status === "fulfilled" ? s.value : null,
+    }));
+    settled.forEach((s, i) => {
+      if (s.status === "rejected") {
+        console.error(
+          `[Pipeline] analyzeImage failed for ${imageData[i].imageType} ` +
+            `(submission ${submissionId}): ${s.reason}`,
+        );
+      }
+    });
+
+    const { usable, failedRequired, failedOptional } = partitionImageResults(
+      settledImages,
+      REQUIRED_IMAGE_TYPES,
+    );
+
+    // A core angle's analysis failed (or nothing succeeded) — can't grade
+    // reliably. Preserve prior behavior: throw so the catch reverses the charge.
+    if (failedRequired.length > 0 || usable.length === 0) {
+      throw new Error(
+        `Required image analysis failed for submission ${submissionId}: ` +
+          (failedRequired.join(", ") || "no images analyzed"),
+      );
+    }
+
+    // Only optional images failed — degrade gracefully (US-485).
+    const partialSuccess = failedOptional.length > 0;
+    if (partialSuccess) {
+      console.warn(
+        `[Pipeline] partial-success grade for ${submissionId}: dropped ` +
+          `${failedOptional.length} optional image(s): ${failedOptional.join(", ")}`,
+      );
+      void captureServer("grading-engine", "grading.partial_success", {
+        submission_id: submissionId,
+        dropped_count: failedOptional.length,
+        dropped_types: failedOptional,
+        graded_count: usable.length,
+      });
+    }
+
+    const perImageResults: PerImageAnalysis[] = usable;
 
     console.log(`[Pipeline] Per-image analysis complete for submission ${submissionId}`);
 
@@ -228,6 +278,17 @@ export async function processSubmission(submissionId: string) {
       perImageResults,
       garmentInfo
     );
+
+    // US-485: a grade produced from an incomplete image set must not ship
+    // confidently — cap confidence below the review threshold and route to a
+    // human so the dropped angle is checked.
+    if (partialSuccess) {
+      compositeResult.confidence_score = Math.min(
+        compositeResult.confidence_score,
+        PARTIAL_IMAGE_CONFIDENCE_CAP,
+      );
+      compositeResult.needs_human_review = true;
+    }
 
     // --- Step 6: Create grade report record ---
     const certificateId = crypto.randomUUID();
