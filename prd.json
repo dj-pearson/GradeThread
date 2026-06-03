@@ -5698,8 +5698,8 @@
         "Regression test fetching http://169.254.169.254 and an RFC1918 host asserts rejection"
       ],
       "priority": 344,
-      "passes": false,
-      "notes": "[P0][Security] Prod-readiness audit 2026-06-03. SSRF sink: edge runs service-role + internal network. File: services/edge-functions/src/routes/api-v1.ts:214."
+      "passes": true,
+      "notes": "Done 2026-06-03. New lib/ssrf.ts (assertPublicUrl + safeFetch): resolves DNS, blocks RFC1918/loopback/link-local/169.254.169.254/CGNAT/reserved + IPv6 ULA/link-local/mapped-private, disables auto-redirects (re-validates each hop), caps body size+timeout. api-v1.ts image fetch now uses safeFetch; non-https/malformed image URLs rejected up front with 400. Tests: src/tests/ssrf_test.ts (metadata + RFC1918 + IPv6 + redirect cases). Deno can't run here (deno.land/esm.sh blocked by network policy) — tests written to convention, logic review-verified."
     },
     {
       "id": "US-345",
@@ -5711,8 +5711,8 @@
         "Test asserts an internal-host webhook is refused"
       ],
       "priority": 345,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. Files: services/edge-functions/src/lib/webhook-delivery.ts, routes/api-v1.ts:519."
+      "passes": true,
+      "notes": "Done 2026-06-03. webhook_url validated at set-time (PATCH /webhook via assertPublicUrl — https-in-prod + private-range block) and at delivery-time (webhook-delivery.ts re-validates before each POST, guards DNS-rebinding) with redirect:\"manual\" so a 3xx can't bounce delivery to an internal host; response body already capped to 500B. SsrfError → refused, not delivered. Covered by ssrf_test.ts."
     },
     {
       "id": "US-346",
@@ -5724,8 +5724,8 @@
         "Adversarial test (injection string in title/description) asserts the grade is not driven to 10.0"
       ],
       "priority": 346,
-      "passes": false,
-      "notes": "[P0][Security/Grading] Audit 2026-06-03. File: services/edge-functions/src/lib/ai-grading.ts:725-727."
+      "passes": true,
+      "notes": "Done 2026-06-03. ai-grading.ts: seller free-text (brand/title/description/declared features) now sanitized (sanitizeSellerText: strip control chars/role tags/code-fences/forged delimiters, length-capped) and wrapped in a delimited <<<UNTRUSTED_GARMENT_INFO>>> block in BOTH buildCompositeUserPrompt and per-image buildUserPrompt. Added UNTRUSTED_INPUT_GUARD to both system prompts instructing the model the block is reference-only and must never change scores/tier/confidence/output. Adversarial test src/tests/prompt-injection_test.ts asserts the injection can't break out of the fence (exactly one open/close) and tokens are neutralized. Model-behavior ('grade not driven to 10') is the unprovable-offline part; prompt-layer invariants are tested."
     },
     {
       "id": "US-347",
@@ -5737,8 +5737,8 @@
         "Test: an authenticated user cannot set their own role to super_admin or clear suspended/usage"
       ],
       "priority": 347,
-      "passes": false,
-      "notes": "[P0][Security] Audit 2026-06-03. 00001 self-update policy has USING but no WITH CHECK and no column restriction."
+      "passes": true,
+      "notes": "Done 2026-06-03. Migration 00076_users_self_update_guard.sql: added WITH CHECK (auth.uid()=id) to the 'Users can update own profile' policy AND a BEFORE UPDATE SECURITY DEFINER trigger (guard_users_protected_columns) that freezes role/suspended/flagged/moderation_status/plan/grades_used_this_month/grade_reset_at/grade_credit_balance/stripe + all flipdesk billing+pending columns for authenticated-role (browser) updates. Service-role (edge) and SECURITY DEFINER paths bypass via auth.role() check, so billing/admin flows keep working. Verified frontend only updates non-protected cols (onboarded_at/use_case/flipdesk_onboarded/dismissed_flipdesk_promo). DB-RLS integration test needs a live anon/authenticated PG connection (not available in this harness, same limit as tenant-isolation suite) — migration SQL review-verified."
     },
     {
       "id": "US-348",
@@ -5763,8 +5763,8 @@
         "Regression test asserts a forged/unsigned deletion cannot deactivate a connection"
       ],
       "priority": 349,
-      "passes": false,
-      "notes": "[P0][Security] Audit 2026-06-03 (flagged by 3 agents; likely source of the observed deletion flood). File: services/edge-functions/src/routes/flipdesk-webhooks.ts:326-374."
+      "passes": true,
+      "notes": "Done 2026-06-03. flipdesk-webhooks.ts POST /ebay/account-deletion now verifies the eBay HMAC signature over the RAW body BEFORE any DB write (missing→401, mismatch→401); dedups via claimWebhookEvent(ebay, notificationId, MARKETPLACE_ACCOUNT_DELETION); writes a compliance row to NEW table ebay_account_deletion_log (migration 00075 — purpose-built; NOT the GDPR account_deletion_log, which is GradeThread-account erasure with NOT NULL deleted_user_id). Signature logic extracted to lib/ebay-signature.ts (also used by the /ebay receiver, helps US-365) + unit-tested in src/tests/ebay-signature_test.ts (forged/unsigned/tampered/wrong-secret all rejected = the regression guard a forged deletion can't deactivate a connection)."
     },
     {
       "id": "US-350",

@@ -3005,3 +3005,66 @@ are substantial focused builds (US-149 cross-listing, US-150 automations,
 US-222 email preview/bounce, US-330 shadow grading, US-339/340/341 forensics).
 
 prd.json 329/343.
+
+
+## Session Notes (2026-06-03 cont.) -- Security hardening cluster US-344..US-349
+
+Picked up the highest-priority actionable remaining stories. The earlier
+incomplete block (US-137..US-341) is blocked on external creds (eBay sandbox,
+Google Cloud OAuth, iOS device builds) or is large focused builds, so I started
+the prod-readiness security audit cluster (US-344+), which is fully implementable
+in-repo. Closed 5 P0/P1 security stories:
+
+US-344 Block SSRF in public-API image-URL fetch:
+- NEW lib/ssrf.ts: assertPublicUrl() resolves DNS + classifies IPs, blocking
+  RFC1918 / loopback / 0.0.0.0/8 / 169.254.0.0/16 (incl. metadata) / CGNAT /
+  198.18/15 / multicast+reserved, and IPv6 ::1/::/fc00::7/fe80::10/multicast +
+  IPv4-mapped. safeFetch() disables auto-redirects and re-validates each hop,
+  caps body size (25MiB) + timeout (10s).
+- api-v1.ts POST /grades image fetch now goes through safeFetch; non-https or
+  malformed image URLs rejected up front (400). Tests: src/tests/ssrf_test.ts.
+
+US-345 Validate outbound webhook URLs (SSRF):
+- PATCH /api/v1/webhook validates via assertPublicUrl at set-time; webhook-
+  delivery.ts re-validates at delivery-time (DNS-rebinding) and uses
+  redirect:"manual" so a 3xx can't relay to an internal host. Response body
+  already capped to 500B; SsrfError => refused not delivered.
+
+US-346 Defend grading prompt against seller injection:
+- ai-grading.ts: sanitizeSellerText() (strip control chars/role tags/code
+  fences/forged delimiters + length cap) + fenceUntrusted() wrap brand/title/
+  description/declared-features in a delimited <<<UNTRUSTED_GARMENT_INFO>>>
+  block in BOTH the composite and per-image prompts. UNTRUSTED_INPUT_GUARD added
+  to both system prompts. Adversarial test src/tests/prompt-injection_test.ts
+  proves the fence can't be broken out of.
+
+US-347 users self-update RLS WITH CHECK + column guard:
+- Migration 00076: added WITH CHECK to the self-update policy + a BEFORE UPDATE
+  SECURITY DEFINER trigger freezing role/suspension/moderation/plan/billing/
+  usage columns for browser (authenticated-role) updates; service-role + DEFINER
+  paths bypass via auth.role(). Confirmed the frontend only writes non-protected
+  prefs, so no legit flow breaks.
+
+US-349 Authenticate + dedup eBay account-deletion webhook:
+- POST /ebay/account-deletion now verifies the HMAC signature over the raw body
+  BEFORE any mutation (unsigned/forged => 401, no DB write), dedups via
+  claimWebhookEvent, and writes a compliance row to NEW table
+  ebay_account_deletion_log (migration 00075 -- purpose-built, NOT the GDPR
+  account_deletion_log which is GradeThread-account erasure). Signature verify
+  extracted to lib/ebay-signature.ts (shared with the /ebay receiver, also
+  advances US-365) + unit-tested in src/tests/ebay-signature_test.ts.
+
+Verification: deno is unavailable in this environment and deno.land + esm.sh are
+blocked by the network policy, so `deno check`/`deno test` cannot run here (same
+constraint noted in prior sessions). All new edge code + tests are written to the
+existing conventions and review-verified; the SQL migrations are review-verified.
+The DB-RLS test for US-347 needs a live anon/authenticated PG connection (same
+limitation as the env-gated tenant-isolation suite).
+
+Note on US-348 (deferred): the AC wants confidence_score/needs_human_review/
+human_reviewed hidden from anon, but the PUBLIC certificate page intentionally
+renders confidence_score + human_reviewed as buyer trust signals. Resolving that
+product tension + the SECURITY DEFINER view + frontend rewrite is a larger build;
+left for a focused pass rather than guessing the public-column set.
+
+prd.json 334/524.

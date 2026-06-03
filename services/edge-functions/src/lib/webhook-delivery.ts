@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { assertPublicUrl, SsrfError } from "./ssrf.ts";
 
 const RETRY_DELAYS_MS = [5_000, 30_000, 120_000]; // 5s, 30s, 120s
 const DELIVERY_TIMEOUT_MS = 10_000; // 10 second timeout per attempt
@@ -39,6 +40,13 @@ async function attemptDelivery(
   const timeoutId = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
 
   try {
+    // US-345: re-validate the target at delivery time — a host that was public
+    // when the webhook was registered can later resolve to a private address
+    // (DNS rebinding), so the set-time check is not sufficient on its own.
+    await assertPublicUrl(url);
+
+    // redirect: "manual" so the delivery cannot be bounced to an internal host
+    // via a 3xx Location; a redirect is treated as a (non-2xx) delivery result.
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -48,15 +56,23 @@ async function attemptDelivery(
       },
       body,
       signal: controller.signal,
+      redirect: "manual",
     });
 
     const responseBody = await response.text().catch(() => "");
     return {
-      success: response.ok,
+      success: response.status >= 200 && response.status < 300,
       statusCode: response.status,
       responseBody: responseBody.slice(0, 500), // Limit stored response body
     };
   } catch (error) {
+    if (error instanceof SsrfError) {
+      return {
+        success: false,
+        statusCode: 0,
+        responseBody: `Delivery refused: ${error.message}`,
+      };
+    }
     const message = error instanceof Error ? error.message : String(error);
     return {
       success: false,

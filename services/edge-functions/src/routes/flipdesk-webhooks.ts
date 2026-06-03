@@ -4,6 +4,7 @@ import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
+import { verifyEbayHmac } from "../lib/ebay-signature.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -97,48 +98,8 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
   return c.body(null, 204);
 });
 
-// Constant-time HMAC-SHA256 verification using the verification token as
-// the shared secret. eBay's spec is hex-encoded; we also accept base64 in
-// case a future schema flips formats.
-async function verifyEbayHmac(
-  body: string,
-  presented: string,
-  secret: string,
-): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sigBytes = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(body),
-  );
-  const expectedHex = Array.from(new Uint8Array(sigBytes))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  const expectedB64 = btoa(
-    String.fromCharCode(...new Uint8Array(sigBytes)),
-  );
-  // Trim a common `sha256=` prefix some webhook senders use.
-  const cleaned = presented.replace(/^sha256=/i, "").trim();
-  return (
-    constantTimeEqual(cleaned.toLowerCase(), expectedHex.toLowerCase()) ||
-    constantTimeEqual(cleaned, expectedB64)
-  );
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < a.length; i++) {
-    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return mismatch === 0;
-}
+// Signature verification lives in lib/ebay-signature.ts so it can be unit-
+// tested without importing this route module (and its service-role client).
 
 // Dispatches a verified eBay notification by topic. Currently handles the
 // FINANCES_PAYOUT_* family — initiated, paid, failed. All other topics
@@ -324,6 +285,47 @@ flipdeskWebhookRoutes.get("/ebay/account-deletion", async (c) => {
 });
 
 flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
+  // US-349: this endpoint is public (no auth middleware) and performs a
+  // destructive mutation (deactivating a seller's eBay connection + nulling
+  // tokens). It MUST authenticate the request BEFORE any DB write — an
+  // unauthenticated POST previously let anyone mass-disconnect sellers (and
+  // flood the table). Verify the signature/token over the RAW body first.
+  const verificationToken = Deno.env.get("EBAY_VERIFICATION_TOKEN");
+  if (!verificationToken) {
+    console.error(
+      "[flipdesk-webhooks] EBAY_VERIFICATION_TOKEN is not set; refusing account-deletion notification",
+    );
+    return c.json({ error: "Webhook not configured" }, 503);
+  }
+
+  // Raw bytes are required for HMAC verification (re-serializing JSON would
+  // change the bytes and break the signature).
+  const rawBody = await c.req.text();
+  // Signature-bypass is honored ONLY outside production (sandbox testing),
+  // identical to the /ebay receiver. In prod this is always false.
+  const debug = isDebugAllowed("WEBHOOK_PAYOUT_DEBUG");
+  const signatureHeader =
+    c.req.header("x-ebay-signature") ??
+    c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ??
+    "";
+
+  if (!debug) {
+    if (!signatureHeader) {
+      console.warn(
+        "[flipdesk-webhooks] eBay account-deletion rejected: missing signature header",
+      );
+      return c.json({ error: "Missing signature" }, 401);
+    }
+    const ok = await verifyEbayHmac(rawBody, signatureHeader, verificationToken);
+    if (!ok) {
+      console.warn(
+        "[flipdesk-webhooks] eBay account-deletion rejected: signature mismatch",
+      );
+      return c.json({ error: "Invalid signature" }, 401);
+    }
+  }
+
+  // Only AFTER verification do we parse + mutate.
   let body: {
     metadata?: { topic?: string; schemaVersion?: string };
     notification?: {
@@ -334,24 +336,35 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
     };
   };
   try {
-    body = await c.req.json();
+    body = JSON.parse(rawBody);
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
   const username = body.notification?.data?.username;
-  const userId = body.notification?.data?.userId;
+  const ebayUserId = body.notification?.data?.userId;
   const notificationId = body.notification?.notificationId;
 
   console.log(
-    `[flipdesk-webhooks] eBay account-deletion notification id=${notificationId} username=${username} userId=${userId}`
+    `[flipdesk-webhooks] eBay account-deletion notification id=${notificationId} username=${username} userId=${ebayUserId}`
   );
 
-  // Best-effort cleanup. The eBay username is stored as account_handle on
-  // marketplace_connections when we hydrate it (currently null on first
-  // connect, populated later by an identity-API call).
+  // Idempotency: a verified re-delivery must not run the mutation or write a
+  // second compliance row. Dedupe by eBay's notificationId before side effects.
+  if (notificationId) {
+    if (!(await claimWebhookEvent("ebay", notificationId, "MARKETPLACE_ACCOUNT_DELETION"))) {
+      console.log(
+        `[flipdesk-webhooks] duplicate eBay account-deletion id=${notificationId} — skipping`,
+      );
+      return c.body(null, 204);
+    }
+  }
+
+  // Deactivate any connection whose handle matches the deleted eBay account.
+  // The username is stored as account_handle when we hydrate it.
+  let connectionsDeactivated = 0;
   if (username) {
-    const { error } = await supabaseAdmin
+    const { data: updated, error } = await supabaseAdmin
       .from("marketplace_connections")
       .update({
         is_active: false,
@@ -360,13 +373,34 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
         refresh_error: "account_deleted",
       })
       .eq("marketplace", "ebay")
-      .eq("account_handle", username);
+      .eq("account_handle", username)
+      .select("id");
     if (error) {
       console.error(
         "[flipdesk-webhooks] failed to deactivate eBay connection on deletion:",
         error
       );
+    } else {
+      connectionsDeactivated = updated?.length ?? 0;
     }
+  }
+
+  // Compliance record (US-349): proof we received + acted on the deletion. Its
+  // own purpose-built table — NOT account_deletion_log, which is GradeThread
+  // account erasure. Best-effort: a logging failure must not break the ack.
+  const { error: logErr } = await supabaseAdmin
+    .from("ebay_account_deletion_log")
+    .insert({
+      notification_id: notificationId ?? null,
+      ebay_username: username ?? null,
+      ebay_user_id: ebayUserId ?? null,
+      connections_deactivated: connectionsDeactivated,
+    });
+  if (logErr && logErr.code !== "23505") {
+    console.error(
+      "[flipdesk-webhooks] account-deletion compliance log insert failed:",
+      logErr.message,
+    );
   }
 
   // Acknowledge promptly. eBay retries non-2xx responses.

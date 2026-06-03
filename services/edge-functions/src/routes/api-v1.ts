@@ -10,6 +10,7 @@ import {
 import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -107,6 +108,23 @@ apiV1Routes.post("/grades", async (c) => {
       if (img.base64 && !img.content_type) {
         errors.push(`images[${i}].content_type is required when providing base64 data`);
         continue;
+      }
+
+      // US-344: reject obviously-unfetchable / non-https URLs up front. The
+      // authoritative SSRF check (DNS resolution + private-range block) happens
+      // in safeFetch() at fetch time; this is a fast, clear 400 for bad input.
+      if (img.url) {
+        let parsedImageUrl: URL | null = null;
+        try {
+          parsedImageUrl = new URL(img.url);
+        } catch {
+          errors.push(`images[${i}].url is not a valid URL`);
+          continue;
+        }
+        if (parsedImageUrl.protocol !== "https:") {
+          errors.push(`images[${i}].url must use https`);
+          continue;
+        }
       }
 
       imageTypes.push(img.image_type);
@@ -210,12 +228,22 @@ apiV1Routes.post("/grades", async (c) => {
           decoded.image.bytes.byteOffset + decoded.image.bytes.byteLength,
         ) as ArrayBuffer;
       } else {
-        // Fetch from URL
-        const response = await fetch(img.url!);
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} fetching image from URL`);
+        // Fetch from URL through the SSRF guard (US-344): the edge runs on an
+        // internal network with the service-role key, so a caller-supplied URL
+        // must never reach a private/loopback/link-local/metadata target. The
+        // guard resolves DNS, refuses non-public IPs, re-validates redirects,
+        // and caps body size + time.
+        const fetched = await safeFetch(img.url!, {
+          maxBytes: 25 * 1024 * 1024,
+          timeoutMs: 10_000,
+        });
+        if (fetched.status < 200 || fetched.status >= 300) {
+          throw new Error(`HTTP ${fetched.status} fetching image from URL`);
         }
-        imageData = await response.arrayBuffer();
+        imageData = fetched.bytes.buffer.slice(
+          fetched.bytes.byteOffset,
+          fetched.bytes.byteOffset + fetched.bytes.byteLength,
+        ) as ArrayBuffer;
       }
     } catch (err) {
       console.error(`[API v1] Failed to process image ${i}:`, err);
@@ -542,20 +570,19 @@ apiV1Routes.patch("/webhook", async (c) => {
       }, 400);
     }
 
-    // Validate URL format (must be HTTPS in production)
+    // Validate URL format + SSRF safety at set-time (US-345): require https in
+    // prod and refuse any host that resolves to a private/loopback/link-local/
+    // metadata address, so a stored webhook can't be used as an internal relay.
+    // Delivery-time re-validates as well (DNS can change after set-time).
     try {
-      const parsed = new URL(webhook_url);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        return c.json({
-          data: null,
-          error: { message: "webhook_url must use HTTPS (or HTTP for development)", details: [] },
-          meta: null,
-        }, 400);
-      }
-    } catch {
+      await assertPublicUrl(webhook_url);
+    } catch (err) {
+      const message = err instanceof SsrfError
+        ? `webhook_url rejected: ${err.message}`
+        : "webhook_url is not a valid URL";
       return c.json({
         data: null,
-        error: { message: "webhook_url is not a valid URL", details: [] },
+        error: { message, details: [] },
         meta: null,
       }, 400);
     }
