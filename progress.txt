@@ -3374,3 +3374,31 @@ handles (only a GitHub URL exists in-repo); adding placeholders would violate
 the "only live URLs" AC + Google policy. Needs the real handles from the owner.
 
 prd.json 358/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Dark-mode surfaces + sitemap lastmod US-451/US-429
+
+US-451 Audit hardcoded surface utilities for dark mode [P3][Dark mode]:
+- Replaced the themeable NEUTRAL surfaces with semantic tokens: admin
+  users.tsx + user-detail.tsx role/plan badge maps 'bg-gray-100 text-gray-700'
+  -> 'bg-muted text-muted-foreground'; disputes.tsx checkbox 'border-gray-300'
+  -> 'border-input'.
+- Documented the INTENTIONAL fixed-color regions per the AC: navy dashboard
+  sidebar + admin-layout aside (white-on-navy in both themes) and the
+  photo-editor crop handle (fixed white over imagery). The remaining bg-white/N
+  hits are all white-with-opacity over colored/navy backgrounds (sidebar,
+  launch-banner, landing pricing toggle, verified badge) -> correct in both
+  themes. Colored -100/-700 status badges are left for US-439 (AA contrast).
+
+US-429 Use real content-change dates for static sitemap lastmod [P3][SEO]:
+- Added a hand-maintained, deploy-STABLE per-route lastModified source
+  (ROUTE_LAST_MODIFIED + lastModifiedFor() + DEFAULT_LAST_MODIFIED) co-located
+  with the registry in public-routes.ts. Legal pages mirror their rendered
+  effectiveDate (2026-04-01); marketing/glossary use 2026-06-01; generated
+  glossary spokes fall back to DEFAULT.
+- vite.config seoManifestPlugin attaches lastModified per route to
+  dist/seo-manifest.json; functions/_shared/sitemap.ts staticUrls now emits
+  r.lastModified (build timestamp only as a legacy fallback), so an unchanged
+  route keeps a steady <lastmod> across deploys. Test added (sitemap.test.ts).
+
+prd.json 360/524.

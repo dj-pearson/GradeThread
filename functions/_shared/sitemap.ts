@@ -27,6 +27,8 @@ interface ManifestRoute {
   path: string;
   changefreq?: string;
   priority?: number;
+  /** US-429: stable per-route content-change date (YYYY-MM-DD). */
+  lastModified?: string;
 }
 interface SeoManifest {
   siteUrl: string;
@@ -84,7 +86,10 @@ export async function staticUrls(env: PagesEnv): Promise<SitemapUrl[]> {
     for (const r of manifest.routes) {
       urls.push({
         loc: r.path === "/" ? `${base}/` : `${base}${r.path}`,
-        lastmod: manifest.generatedAt.slice(0, 10),
+        // US-429: prefer the route's stable content-change date so an unchanged
+        // page keeps a steady lastmod across deploys; fall back to the build
+        // time only for legacy manifests that predate the per-route field.
+        lastmod: (r.lastModified ?? manifest.generatedAt).slice(0, 10),
         changefreq: r.changefreq,
         priority: r.priority,
       });

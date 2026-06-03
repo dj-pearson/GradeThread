@@ -6780,8 +6780,8 @@
         "Unchanged routes keep a stable lastmod across deploys"
       ],
       "priority": 429,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. _shared/sitemap.ts sets every static lastmod to manifest.generatedAt."
+      "passes": true,
+      "notes": "[P3][SEO] Audit 2026-06-03. _shared/sitemap.ts sets every static lastmod to manifest.generatedAt. DONE 2026-06-03: added a hand-maintained, deploy-stable per-route lastModified source (ROUTE_LAST_MODIFIED + lastModifiedFor() + DEFAULT_LAST_MODIFIED) co-located with the route registry in public-routes.ts (legal pages mirror their April 1 2026 effectiveDate; others 2026-06-01; generated glossary spokes fall back to DEFAULT). vite.config seoManifestPlugin now attaches lastModified per route to dist/seo-manifest.json. functions/_shared/sitemap.ts staticUrls uses r.lastModified (falls back to generatedAt only for legacy manifests) so unchanged routes keep a stable <lastmod> across deploys instead of the build timestamp. Test added in src/test/sitemap.test.ts."
     },
     {
       "id": "US-430",
@@ -7055,8 +7055,8 @@
         "Intentional fixed-color regions (navy sidebar) documented; verified no stray light panels in dark mode"
       ],
       "priority": 451,
-      "passes": false,
-      "notes": "[P3][Dark mode] Audit 2026-06-03. 15 occurrences across 9 files."
+      "passes": true,
+      "notes": "[P3][Dark mode] Audit 2026-06-03. 15 occurrences across 9 files. DONE 2026-06-03: replaced the themeable neutral surfaces with semantic tokens — admin users.tsx + user-detail.tsx role/plan 'bg-gray-100 text-gray-700' badge classes -> 'bg-muted text-muted-foreground'; disputes.tsx checkbox 'border-gray-300' -> 'border-input'. Documented the INTENTIONAL fixed-color regions: the navy dashboard sidebar + admin-layout aside (white-on-navy text-white/bg-white/N in both themes) and the photo-editor crop handle (fixed white over imagery). Remaining bg-white/N occurrences are all white-with-opacity over colored/navy backgrounds (sidebar, launch-banner, landing pricing toggle, verified badge) and render correctly in both themes. Colored -100/-700 status badges left to US-439 (contrast)."
     },
     {
       "id": "US-452",

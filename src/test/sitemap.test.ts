@@ -98,6 +98,26 @@ describe("staticUrls (from seo-manifest.json)", () => {
     expect(urls).toHaveLength(1);
     expect(urls[0]!.loc).toBe("https://gradethread.com/");
   });
+
+  it("US-429: uses the per-route lastModified (not the build timestamp), falling back to generatedAt", async () => {
+    vi.stubGlobal(
+      "fetch",
+      mockFetch({
+        "/seo-manifest.json": {
+          siteUrl: "https://gradethread.com",
+          generatedAt: "2026-05-29T00:00:00.000Z",
+          routes: [
+            { path: "/privacy", changefreq: "yearly", priority: 0.3, lastModified: "2026-04-01" },
+            // No lastModified → legacy fallback to the build date.
+            { path: "/legacy", changefreq: "monthly", priority: 0.5 },
+          ],
+        },
+      }),
+    );
+    const urls = await staticUrls(env);
+    expect(urls[0]!.lastmod).toBe("2026-04-01");
+    expect(urls[1]!.lastmod).toBe("2026-05-29");
+  });
 });
 
 describe("blogUrls + certUrls", () => {

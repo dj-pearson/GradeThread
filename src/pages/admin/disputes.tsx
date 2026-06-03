@@ -988,7 +988,7 @@ export function AdminDisputesPage() {
                       id="adjust-grade"
                       checked={adjustGrade}
                       onChange={(e) => setAdjustGrade(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300"
+                      className="h-4 w-4 rounded border-input"
                     />
                     <Label htmlFor="adjust-grade" className="text-sm">
                       Adjust grade as part of resolution

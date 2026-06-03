@@ -69,14 +69,14 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const PLAN_COLORS: Record<string, string> = {
-  free: "bg-gray-100 text-gray-700",
+  free: "bg-muted text-muted-foreground",
   starter: "bg-green-100 text-green-700",
   professional: "bg-blue-100 text-blue-700",
   enterprise: "bg-amber-100 text-amber-700",
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  user: "bg-gray-100 text-gray-700",
+  user: "bg-muted text-muted-foreground",
   reviewer: "bg-blue-100 text-blue-700",
   admin: "bg-purple-100 text-purple-700",
   super_admin: "bg-red-100 text-red-700",

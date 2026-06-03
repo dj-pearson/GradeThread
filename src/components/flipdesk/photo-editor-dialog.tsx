@@ -332,6 +332,9 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
                         key={corner}
                         onPointerDown={(e) => onPointerDown(e, corner)}
                         className={cn(
+                          // US-451: intentional fixed white — a crop handle that
+                          // must stay visible over any photo, not a themeable
+                          // surface.
                           "absolute h-5 w-5 rounded-sm bg-white shadow-md",
                           corner === "tl" && "-left-2.5 -top-2.5 cursor-nw-resize",
                           corner === "tr" && "-right-2.5 -top-2.5 cursor-ne-resize",
