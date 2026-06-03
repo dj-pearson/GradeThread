@@ -15,6 +15,20 @@ export interface PagesEnv {
   // import.meta.env.VITE_CF_IMAGE_RESIZING) and Functions runtime (here), so
   // it's the same single toggle the React <Image> component reads.
   VITE_CF_IMAGE_RESIZING?: string;
+  // GA4 Measurement ID for the public blog SSR pages (US-255). Defaults to the
+  // SPA's stream (G-CMDWCFC275) so blog + app report into one property. Set to
+  // "off" / empty to disable injection.
+  GA4_MEASUREMENT_ID?: string;
+}
+
+// The SPA ships this same stream in index.html; keep them in sync so the blog
+// SSR and the app report into one GA4 property.
+export const DEFAULT_GA4_MEASUREMENT_ID = "G-CMDWCFC275";
+
+export function ga4MeasurementId(env: PagesEnv): string | null {
+  const raw = (env.GA4_MEASUREMENT_ID ?? DEFAULT_GA4_MEASUREMENT_ID).trim();
+  if (!raw || raw.toLowerCase() === "off") return null;
+  return raw;
 }
 
 export interface PublicPostListItem {
@@ -99,6 +113,18 @@ interface LayoutInput {
   jsonLd?: unknown[];
   bodyHtml: string;
   noindex?: boolean;
+  // US-255: when set, inject GA4 gtag.js (Consent Mode v2, all-denied default —
+  // mirrors index.html). Pass ga4MeasurementId(env) from the Pages Function.
+  gaMeasurementId?: string | null;
+}
+
+// GA4 snippet for the SSR <head>. Mirrors index.html exactly: Consent Mode v2
+// defaults everything to denied (GDPR/CCPA), queues config on the dataLayer,
+// and defers gtag.js to idle so it stays off the LCP path. No cookies are set
+// until consent is granted elsewhere.
+function ga4Snippet(measurementId: string): string {
+  const id = measurementId.replace(/[^A-Za-z0-9-]/g, "");
+  return `<script>(function(){window.dataLayer=window.dataLayer||[];function gtag(){window.dataLayer.push(arguments);}window.gtag=gtag;gtag("consent","default",{ad_storage:"denied",ad_user_data:"denied",ad_personalization:"denied",analytics_storage:"denied",wait_for_update:500});gtag("js",new Date());gtag("config","${id}");function load(){if(window.__gtagLoaded)return;window.__gtagLoaded=true;var s=document.createElement("script");s.async=true;s.src="https://www.googletagmanager.com/gtag/js?id=${id}";document.head.appendChild(s);}if("requestIdleCallback" in window){requestIdleCallback(load,{timeout:4000});}else{setTimeout(load,2500);}})();</script>`;
 }
 
 // Inline base styles. Kept tiny on purpose. Inherits the brand colors
@@ -198,6 +224,7 @@ ${input.ogImage ? `<meta property="og:image" content="${escape(input.ogImage)}">
 <meta name="twitter:description" content="${escape(input.description)}">
 ${input.ogImage ? `<meta name="twitter:image" content="${escape(input.ogImage)}">` : ""}
 <style>${BASE_STYLES}</style>
+${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId) : ""}
 ${ldScripts}
 </head>
 <body>

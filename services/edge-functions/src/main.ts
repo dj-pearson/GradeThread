@@ -235,6 +235,10 @@ app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
 // call is expensive (multi-thousand-token Claude responses or OpenAI
 // gpt-image-1). Cap at 20/min/user across these paths.
 app.use("/api/content/blog/*/generate", rateLimiter(20, 60_000, "content-ai"));
+// US-251 / US-252: streaming compose + section regen are long-lived SSE calls
+// that each hold an upstream Claude stream open — cap tighter than batch gen.
+app.use("/api/content/blog/*/compose-stream", rateLimiter(10, 60_000, "content-ai"));
+app.use("/api/content/blog/*/regenerate-section", rateLimiter(20, 60_000, "content-ai"));
 app.use("/api/content/social/*/generate", rateLimiter(20, 60_000, "content-ai"));
 app.use("/api/content/social/*/suggest-hashtags", rateLimiter(30, 60_000, "content-ai"));
 app.use("/api/content/topics/research", rateLimiter(20, 60_000, "content-ai"));

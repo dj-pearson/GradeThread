@@ -71,10 +71,112 @@ export function buildSystemPrompt(input: {
 }
 
 // ──────────────────────────────────────────────────────────
+// STREAMING SYSTEM PROMPT (US-251 / US-252)
+// ──────────────────────────────────────────────────────────
+// The batch generator asks for a JSON envelope; that can't be inserted into
+// the editor mid-stream. For the live-streaming features we want the model to
+// emit clean HTML directly, so the deltas are insertable as they arrive.
+
+export function buildStreamSystemPrompt(input: {
+  brandVoice: string;
+  surfaceStyle: string;
+  pillarMap: string;
+  task: "compose-article" | "regenerate-section";
+}): string {
+  const taskHeader =
+    input.task === "compose-article"
+      ? "Your task is to write a single SEO-targeted blog article, streamed as HTML."
+      : "Your task is to rewrite a specific passage of an existing article, streamed as HTML.";
+
+  return [
+    "# Role",
+    "You write content for GradeThread (AI clothing condition grading) and FlipDesk (reseller management for thrifters/eBay sellers). " +
+      taskHeader,
+    "",
+    "# Brand voice",
+    input.brandVoice,
+    "",
+    "# Surface style",
+    input.surfaceStyle,
+    "",
+    "# SEO pillar map (territory we cover)",
+    input.pillarMap,
+    "",
+    "# Output rules",
+    "- Respond with ONLY the HTML content — no JSON, no markdown code fences, no preamble or commentary.",
+    "- Use semantic tags: <h2>, <h3>, <p>, <ul><li>, <ol><li>, <blockquote>, <table>. Do NOT emit <html>, <head>, <body>, <script>, inline style, or on* handlers.",
+    "- Begin output immediately with the first content tag.",
+  ].join("\n");
+}
+
+// US-251: stream a full article body (HTML) for the given topic. No title/SEO
+// envelope — those stay on the batch generator; this just fills the editor.
+export function buildBlogComposeStreamUserPrompt(input: {
+  title: string;
+  angle: string | null;
+  primary_keyword: string;
+  secondary_keywords: string[];
+  search_intent: string | null;
+  product_focus: ContentProduct;
+  instruction?: string;
+}): string {
+  return [
+    "Write the body of a single blog article as streamed HTML.",
+    "",
+    `Working title: ${input.title}`,
+    input.angle ? `Angle: ${input.angle}` : "",
+    `Primary keyword: ${input.primary_keyword}`,
+    input.secondary_keywords.length > 0
+      ? `Secondary keywords: ${input.secondary_keywords.join(", ")}`
+      : "",
+    input.search_intent ? `Search intent: ${input.search_intent}` : "",
+    `Product focus: ${input.product_focus}`,
+    input.instruction ? `Extra direction: ${input.instruction}` : "",
+    "",
+    "Length: 1200–2000 words. Start at <h2> (the page already renders the title as <h1>). 4–7 H2 sections, H3 sparingly. Include at least one list or comparison table. Open with a concrete scenario; close with a low-pressure CTA. Output HTML only.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// US-252: stream a replacement passage (HTML) for a selected section.
+export function buildSectionRegenStreamUserPrompt(input: {
+  mode: "regenerate" | "expand" | "rewrite-for-keyword";
+  selection_html: string;
+  primary_keyword?: string;
+  surrounding_context?: string;
+}): string {
+  const modeHint = {
+    regenerate:
+      "Regenerate the selection. Same intent, fresher phrasing, same approximate length.",
+    expand:
+      "Expand the selection. Add concrete examples or a short list. ~2× length.",
+    "rewrite-for-keyword":
+      `Rewrite the selection to naturally target the keyword "${
+        input.primary_keyword ?? ""
+      }" without keyword stuffing.`,
+  }[input.mode];
+
+  return [
+    modeHint,
+    "",
+    input.surrounding_context
+      ? `Surrounding context (do not return this — for awareness only):\n${input.surrounding_context}\n`
+      : "",
+    "Selection HTML:",
+    input.selection_html,
+    "",
+    "Return ONLY the replacement HTML for the selection. No JSON, no fences, no commentary.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+// ──────────────────────────────────────────────────────────
 // BLOG ARTICLE GENERATION (v1)
 // ──────────────────────────────────────────────────────────
 
-export const BLOG_ARTICLE_PROMPT_VERSION = "blog_article_v1";
+export const BLOG_ARTICLE_PROMPT_VERSION = "blog_article_v2";
 
 export interface BlogTopicInput {
   title: string;
@@ -104,7 +206,12 @@ export function buildBlogArticleUserPrompt(topic: BlogTopicInput): string {
     "",
     "Return JSON matching exactly this schema:",
     "{",
-    '  "title": "<final title — may differ from working title>",',
+    '  "title": "<final title — may differ from working title; use the strongest of your title_suggestions>",',
+    '  "title_suggestions": [',
+    '    { "style": "question",  "title": "<a question-framed headline>" },',
+    '    { "style": "listicle",  "title": "<a numbered/list-framed headline>" },',
+    '    { "style": "contrarian","title": "<a myth-busting / against-the-grain headline>" }',
+    "  ],",
     '  "slug": "<lowercase-kebab-slug, ≤80 chars>",',
     '  "excerpt": "<140–180 char hook for OG description and feed snippets>",',
     '  "body_html": "<the article as semantic HTML: <h1>…</h1><p>…</p><h2>…</h2><ul><li>…</li></ul><table>…</table>. No <script>, no inline style, no onclick handlers.>",',
@@ -232,8 +339,47 @@ export function buildSectionRegenUserPrompt(input: {
 // TYPED OUTPUT SHAPES (what the generator libs validate against)
 // ──────────────────────────────────────────────────────────
 
+export type TitleSuggestionStyle = "question" | "listicle" | "contrarian";
+
+export interface TitleSuggestion {
+  style: TitleSuggestionStyle;
+  title: string;
+}
+
+// US-254: normalize the model's title_suggestions into 1–3 typed slots,
+// deduping and capping. Always returns at least one entry so the editor's
+// title picker has something to show even when the model omits the field.
+export function normalizeTitleSuggestions(
+  input: unknown,
+  fallbackTitle: string,
+): TitleSuggestion[] {
+  const allowed: TitleSuggestionStyle[] = ["question", "listicle", "contrarian"];
+  const out: TitleSuggestion[] = [];
+  const seen = new Set<string>();
+  if (Array.isArray(input)) {
+    for (const raw of input) {
+      if (!raw || typeof raw !== "object") continue;
+      const r = raw as Record<string, unknown>;
+      const title = String(r.title ?? "").trim();
+      if (!title || seen.has(title.toLowerCase())) continue;
+      const styleRaw = String(r.style ?? "").trim().toLowerCase();
+      const style = (allowed as string[]).includes(styleRaw)
+        ? (styleRaw as TitleSuggestionStyle)
+        : "question";
+      seen.add(title.toLowerCase());
+      out.push({ style, title });
+      if (out.length >= 3) break;
+    }
+  }
+  if (out.length === 0) out.push({ style: "question", title: fallbackTitle });
+  return out;
+}
+
 export interface BlogArticleOutput {
   title: string;
+  // US-254: A/B title candidates (one per slot). Always ≥1 (falls back to
+  // [{ style:'question', title }] when the model omits them).
+  titleSuggestions: TitleSuggestion[];
   slug: string;
   excerpt: string;
   body_html: string;

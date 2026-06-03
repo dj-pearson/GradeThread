@@ -8,6 +8,7 @@
     "hono": "https://deno.land/x/hono@v4.3.7/mod.ts",
     "hono/middleware": "https://deno.land/x/hono@v4.3.7/middleware.ts",
     "hono/factory": "https://deno.land/x/hono@v4.3.7/helper/factory/index.ts",
+    "hono/streaming": "https://deno.land/x/hono@v4.3.7/helper/streaming/index.ts",
     "hono/": "https://deno.land/x/hono@v4.3.7/",
     "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.43.1",
     "@anthropic-ai/sdk": "https://esm.sh/@anthropic-ai/sdk@0.39.0",

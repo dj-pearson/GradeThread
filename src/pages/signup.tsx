@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,6 +38,11 @@ export function SignupPage() {
     try {
       const data = await signUpWithEmail(email, password, fullName);
       setIsConfirmation(true);
+
+      // US-219: every new signup is granted a 14-day Pro trial by the
+      // handle_new_user trigger. Record the trial start (consent-gated no-op
+      // until the visitor opts in).
+      track("trial.started", { plan: "pro", trial_days: 14 });
 
       // Send welcome email (fire-and-forget)
       if (data?.user?.id && EDGE_URL) {

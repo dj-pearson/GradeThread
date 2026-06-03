@@ -14,6 +14,7 @@ import {
   purgeCloudflareCache,
 } from "../lib/cloudflare-purge.ts";
 import { writeSystemAuditLog } from "../lib/audit-log.ts";
+import { buildContentSummary } from "../lib/content-summary.ts";
 
 // Autonomous scheduler endpoint. Make.com hits this on a cron; the
 // /tick handler decides what (if anything) to publish next.
@@ -788,6 +789,94 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     refilled_topics: refilled,
     published_scheduled: publishedScheduled,
   } satisfies TickResult);
+});
+
+// ── GET /summary (US-260) ───────────────────────────────────────
+// Weekly digest source. Make.com hits this every Monday and formats the JSON
+// into an email: what published (per surface/focus), topics added/used, webhook
+// success rate, current bank levels, and suggested doc edits when voice drift is
+// signalled. Same auth as the rest of the scheduler routes (job secret OR admin
+// JWT). The window is configurable via ?days= (default 7).
+contentSchedulerRoutes.get("/summary", async (c) => {
+  const days = Math.min(
+    90,
+    Math.max(1, Number(c.req.query("days")) || 7),
+  );
+  const now = new Date();
+  const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+
+  const settings = await loadSettings();
+  const minTopics = settings?.min_topics_in_bank ?? 3;
+
+  const [
+    blogPub,
+    socialPub,
+    blogAuthored,
+    topicsAdded,
+    topicsUsed,
+    queuedTopics,
+    webhookRows,
+  ] = await Promise.all([
+    supabaseAdmin
+      .from("blog_posts")
+      .select("product_focus")
+      .eq("status", "published")
+      .gte("published_at", since),
+    supabaseAdmin
+      .from("social_posts")
+      .select("product_focus")
+      .eq("status", "published")
+      .gte("published_at", since),
+    supabaseAdmin
+      .from("blog_posts")
+      .select("generated_by")
+      .gte("created_at", since),
+    supabaseAdmin
+      .from("content_topics")
+      .select("surface, product_focus")
+      .gte("created_at", since),
+    supabaseAdmin
+      .from("content_topics")
+      .select("surface, product_focus")
+      .eq("status", "used")
+      .gte("used_at", since),
+    supabaseAdmin
+      .from("content_topics")
+      .select("surface, product_focus")
+      .eq("status", "queued"),
+    supabaseAdmin
+      .from("content_webhook_log")
+      .select("succeeded")
+      .gte("created_at", since),
+  ]);
+
+  // Aggregate current queued topics into per-(surface,product) bank levels.
+  const bankMap = new Map<string, { surface: string; product_focus: string; queued: number }>();
+  for (const row of queuedTopics.data ?? []) {
+    const key = `${row.surface}:${row.product_focus}`;
+    const e = bankMap.get(key) ?? {
+      surface: row.surface as string,
+      product_focus: row.product_focus as string,
+      queued: 0,
+    };
+    e.queued += 1;
+    bankMap.set(key, e);
+  }
+
+  const summary = buildContentSummary({
+    windowDays: days,
+    generatedAt: now.toISOString(),
+    blogPublished: (blogPub.data ?? []) as Array<{ product_focus: string }>,
+    socialPublished: (socialPub.data ?? []) as Array<{ product_focus: string }>,
+    blogAuthored: (blogAuthored.data ?? []) as Array<{ generated_by: string }>,
+    topicsAdded: (topicsAdded.data ?? []) as Array<{ surface: string; product_focus: string }>,
+    topicsUsed: (topicsUsed.data ?? []) as Array<{ surface: string; product_focus: string }>,
+    bankLevels: [...bankMap.values()],
+    webhookLog: (webhookRows.data ?? []) as Array<{ succeeded: boolean }>,
+    minTopicsInBank: minTopics,
+  });
+
+  return c.json(summary);
 });
 
 // Lightweight ping — useful for Make.com to validate the secret + URL

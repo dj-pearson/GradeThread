@@ -3707,8 +3707,8 @@
         "Posthog 'subscription.paused' { months } / 'subscription.resumed' { auto: bool }"
       ],
       "priority": 215,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified complete (backend pause/resume + webhook + Free-cap gating + billing banners all present). Closed the gap: added PostHog 'subscription.paused' {months} (pause dialog onSuccess) and 'subscription.resumed' {auto:false} (billing Resume-now onSuccess)."
     },
     {
       "id": "US-216",
@@ -3725,8 +3725,8 @@
         "Posthog 'subscription.cancel_scheduled' / 'subscription.cancel_undone' / 'subscription.ended' with reason"
       ],
       "priority": 216,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified complete (2-step dialog w/ off-ramps, cancel handler, webhook flag, Undo-cancel banner, emails). Closed gaps: added migration 00072 users.cancellation_reason + persist it in the cancel handler + clear on resubscribe; client events 'subscription.cancel_scheduled'{reason}/'subscription.cancel_undone'; server-side 'subscription.ended'{reason} fired from the customer.subscription.deleted webhook via new edge posthog helper."
     },
     {
       "id": "US-217",
@@ -3742,8 +3742,8 @@
         "Posthog 'subscription.downgrade_previewed' / 'subscription.downgrade_confirmed' { from, to }"
       ],
       "priority": 217,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified complete (two-column DowngradePreviewDialog, red-X over-cap warnings, Subscription-Schedules downgrade handler). Closed gap: added 'subscription.downgrade_previewed'{from,to} (fires on open) and 'subscription.downgrade_confirmed'{from,to} (confirm onSuccess)."
     },
     {
       "id": "US-218",
@@ -3758,8 +3758,8 @@
         "Email reminders at day 0, day 3, day 7 (template lives with US-222)"
       ],
       "priority": 218,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified complete: past_due dunning banner in billing.tsx (Update-card CTA), invoice.payment_failed webhook sets status=past_due + sends dunning email; grace period is Stripe Smart-Retries-managed (app surfaces the state). No code gaps."
     },
     {
       "id": "US-219",
@@ -3775,8 +3775,8 @@
         "Posthog 'trial.started' / 'trial.expiring_3d' (cron event) / 'trial.converted' / 'trial.expired_to_free'"
       ],
       "priority": 219,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified complete (handle_new_user grants 14d Pro trial in 00037, daily /trial-check cron warns+expires, trial banner, one-trial-per-user guard in checkout). Closed analytics gap: 'trial.started' on signup; server-side 'trial.converted' (sub created while trialing, webhook), 'trial.expiring_3d' + 'trial.expired_to_free' (trial-check cron) via new edge posthog helper."
     },
     {
       "id": "US-220",
@@ -3857,8 +3857,8 @@
         "Reset behavior: ai_actions_used_this_month resets on the same cycle as the FlipDesk subscription (or calendar month for Free users)"
       ],
       "priority": 224,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Verified complete: Settings AI-usage card (usage meter + plan limit + self-cap input writing users.ai_action_limit + 50/80/95 thresholds); gating uses min(plan_limit, ai_action_limit) in use-plan-usage.ts/billing.tsx. No gaps."
     },
     {
       "id": "US-225",
@@ -3874,8 +3874,8 @@
         "Posthog 'pricing.migrated' fired per user with { from_plan, to_flipdesk_plan }"
       ],
       "priority": 225,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Migration 00039 maps legacy plan->flipdesk_plan and seeds the pricing.migrated sentinel. Closed gap: added scripts/backfill-stripe-state.ts — dry-run by default, --apply to reconcile subscription_status/period_end/sub_id/interval/plan against live Stripe; flags amount-changing legacy-price drift (professional@$99->Business not Pro) for manual review instead of auto-swapping. tsc-clean."
     },
     {
       "id": "US-226",
@@ -4247,8 +4247,8 @@
         "Stop button cancels the fetch and discards remaining stream"
       ],
       "priority": 251,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "SSE streaming AI compose into Tiptap. Edge: POST /api/content/blog/:id/compose-stream streams HTML deltas via Hono streamSSE + Anthropic messages.stream() (new lib/content-ai-stream.ts + buildStreamSystemPrompt/buildBlogComposeStreamUserPrompt; HTML-only output, not JSON). Client disconnect aborts the upstream via c.req.raw.signal. Frontend: src/lib/content-stream.ts (SSE reader), useContentAiStream hook (createHtmlFlusher → editor.commands.insertContent on complete-tag boundaries), ai-stream-button.tsx with Stop (AbortController). Rate-limited 10/min. Added hono/streaming to the deno import map."
     },
     {
       "id": "US-252",
@@ -4260,8 +4260,8 @@
         "Stream replacement HTML back via SSE"
       ],
       "priority": 252,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Regenerate-selection + rewrite-for-keyword toolbar actions. Edge: implemented the former-501 POST /:id/regenerate-section as SSE (modes regenerate/expand/rewrite-for-keyword) via buildSectionRegenStreamUserPrompt. Frontend: TiptapToolbar gained an AI dropdown (Regenerate / Expand / Rewrite for keyword…) wired through useContentAiStream.regenerate — serializes the selection (DOMSerializer), deletes it, streams the replacement HTML in place. Rate-limited 20/min."
     },
     {
       "id": "US-253",
@@ -4286,8 +4286,8 @@
         "content_history_index.title reflects the chosen one"
       ],
       "priority": 254,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "A/B title testing. Prompt bumped to blog_article_v2 — requests title_suggestions[3] (question/listicle/contrarian). generateBlogArticle now returns normalized titleSuggestions (pure normalizeTitleSuggestions: coerce/dedup/cap/fallback). /generate response carries title_suggestions; blog-editor shows them as selectable headline options; picking persists post.title so content_history_index.title (stamped at publish) reflects the choice. deno test content-ai-prompts_test.ts + Node-validated."
     },
     {
       "id": "US-255",
@@ -4299,8 +4299,8 @@
         "Each event includes surface + product_focus"
       ],
       "priority": 255,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "GA4 + PostHog content events. Blog SSR (_shared/blog-render.ts) injects gtag.js with Consent Mode v2 (all-denied default, mirrors index.html); GA4_MEASUREMENT_ID env (default G-CMDWCFC275) on blog index/article/tag renders. Frontend track(): content.draft.created (create), content.generated (generate), content.published (publish), topic.researched (research) — each with surface + product_focus. Server-side webhook.dispatched fired from content-webhook.ts via captureServer (surface+product_focus+succeeded)."
     },
     {
       "id": "US-256",
@@ -4362,8 +4362,8 @@
         "Includes: posts published last 7d (per surface/focus), topics added/used, webhook success rate, bank levels, suggested doc edits if voice drift detected"
       ],
       "priority": 260,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added GET /api/content/scheduler/summary (US-260): returns posts published last Nd per surface/focus, topics added/used, webhook success rate, current bank levels (below-min flags), and operational suggestions. Voice-drift surfaced via a human-authored-share proxy (high human override -> suggest knowledge-doc edits). Pure aggregation in lib/content-summary.ts + deno test content-summary_test.ts (logic validated under Node, 6/6 assertions)."
     },
     {
       "id": "US-261",

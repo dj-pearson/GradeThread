@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useCancelSubscription } from "@/hooks/use-billing-summary";
+import { track } from "@/lib/analytics";
 import { PauseSubscriptionDialog } from "@/components/billing/pause-subscription-dialog";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
 import { AlertTriangle, Check, Loader2, Pause, TrendingDown } from "lucide-react";
@@ -74,6 +75,7 @@ export function CancelSubscriptionDialog({
       { reason: fullReason || undefined },
       {
         onSuccess: () => {
+          track("subscription.cancel_scheduled", { reason: reason || null });
           reset();
           onOpenChange(false);
         },

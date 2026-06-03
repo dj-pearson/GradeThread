@@ -9,6 +9,7 @@ import {
   BLOG_ARTICLE_PROMPT_VERSION,
   buildBlogArticleUserPrompt,
   buildSystemPrompt,
+  normalizeTitleSuggestions,
   type BlogArticleOutput,
   type BlogTopicInput,
 } from "./content-ai-prompts.ts";
@@ -38,13 +39,13 @@ export interface GenerateBlogArticleResult {
   };
 }
 
-interface KnowledgeBundle {
+export interface KnowledgeBundle {
   brandVoice: string;
   surfaceStyle: string;
   pillarMap: string;
 }
 
-async function loadKnowledge(
+export async function loadKnowledge(
   productFocus: ContentProduct,
   styleKeyOverride?: string,
 ): Promise<KnowledgeBundle> {
@@ -125,6 +126,7 @@ function validateAndNormalize(parsed: unknown): BlogArticleOutput {
 
   return {
     title,
+    titleSuggestions: normalizeTitleSuggestions(p.title_suggestions, title),
     slug: slugify(String(p.slug ?? title)),
     excerpt: String(p.excerpt ?? "").trim().slice(0, 240),
     body_html: bodyHtml,

@@ -228,7 +228,11 @@ export function BillingPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => resume.mutate()}
+            onClick={() =>
+              resume.mutate(undefined, {
+                onSuccess: () => track("subscription.resumed", { auto: false }),
+              })
+            }
             disabled={resume.isPending}
           >
             <Play className="mr-2 h-4 w-4" />
@@ -271,7 +275,11 @@ export function BillingPage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => uncancel.mutate()}
+            onClick={() =>
+              uncancel.mutate(undefined, {
+                onSuccess: () => track("subscription.cancel_undone"),
+              })
+            }
             disabled={uncancel.isPending}
           >
             Undo cancel

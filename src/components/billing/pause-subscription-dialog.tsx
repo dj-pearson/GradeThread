@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { usePauseSubscription } from "@/hooks/use-billing-summary";
+import { track } from "@/lib/analytics";
 import { Loader2, Pause } from "lucide-react";
 
 interface PauseSubscriptionDialogProps {
@@ -33,7 +34,12 @@ export function PauseSubscriptionDialog({
   function handlePause() {
     pause.mutate(
       { months: selected },
-      { onSuccess: () => onOpenChange(false) },
+      {
+        onSuccess: () => {
+          track("subscription.paused", { months: selected });
+          onOpenChange(false);
+        },
+      },
     );
   }
 

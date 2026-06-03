@@ -14,20 +14,44 @@ import {
   Redo,
   Code,
   Minus,
+  Sparkles,
+  RefreshCw,
+  Expand,
+  Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { RegenMode } from "@/hooks/use-content-ai-stream";
 
 interface TiptapToolbarProps {
   editor: Editor | null;
   // Optional: image upload handler. Receives a File, returns a public URL.
   onImageUpload?: (file: File) => Promise<string>;
+  // US-252: when provided, renders the AI submenu (Regenerate selection / Expand
+  // / Rewrite for keyword). Omit it for generic uses (e.g. knowledge-doc editor).
+  ai?: {
+    regenerate: (mode: RegenMode, keyword?: string) => void;
+    isStreaming: boolean;
+  };
 }
 
-// Compact formatting toolbar used above the Tiptap editor.
-// AI submenu (Regenerate / Expand / Rewrite-for-keyword) is intentionally
-// not here in Phase B — landing in Phase F (US-252).
-export function TiptapToolbar({ editor, onImageUpload }: TiptapToolbarProps) {
+// Compact formatting toolbar used above the Tiptap editor. The AI submenu
+// (US-252) appears only when an `ai` handler is wired in.
+export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps) {
   if (!editor) return null;
+
+  const rewriteForKeyword = () => {
+    const keyword = window.prompt("Target keyword for this passage:");
+    if (!keyword?.trim()) return;
+    ai?.regenerate("rewrite-for-keyword", keyword.trim());
+  };
 
   const btnClass = (active: boolean) =>
     active
@@ -229,6 +253,42 @@ export function TiptapToolbar({ editor, onImageUpload }: TiptapToolbarProps) {
       >
         <Redo className="h-4 w-4" />
       </Button>
+      {ai && (
+        <>
+          <div className="mx-1 h-6 w-px bg-border" />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 px-2"
+                disabled={ai.isStreaming}
+                title="AI actions on the selected text"
+              >
+                <Sparkles className="h-4 w-4" />
+                <span className="text-xs">AI</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>On the selected text</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => ai.regenerate("regenerate")}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Regenerate selection
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => ai.regenerate("expand")}>
+                <Expand className="mr-2 h-4 w-4" />
+                Expand selection
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={rewriteForKeyword}>
+                <Target className="mr-2 h-4 w-4" />
+                Rewrite for keyword…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      )}
     </div>
   );
 }
