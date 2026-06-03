@@ -50,13 +50,41 @@ export function suggestPack(creditCost: number) {
   return { credits: 100, priceCents: 19999 };
 }
 
-// Resolve the plan that governs included grades, accounting for a paused
-// subscription falling back to Free caps.
+// Resolve the plan that governs included grades + caps, accounting for a paused
+// subscription and an EXPIRED TRIAL both falling back to Free.
+//
+// US-383: handle_new_user grants a 14-day Pro trial (subscription_status
+// 'trialing', trial_ends_at +14d) but never creates a Stripe subscription. Once
+// the trial lapses, the daily downgrade job flips the row to free/none — but
+// until that job runs we must NOT keep handing out Pro caps to a signup that
+// never added a card. So an expired trial reads as Free here immediately,
+// independent of the job. `now` is injectable for tests.
+// US-392: subscription statuses that must NOT entitle paid plan caps. A paid
+// flipdesk_plan only ever comes from a real Stripe subscription — admins cannot
+// grant one cardless (admin-billing.ts refuses free→paid without a card) — so a
+// paid plan paired with any of these is an unpaid/lapsed sub (notably the
+// `incomplete` state, mapped to 'none') and drops to Free until a verified-paid
+// signal (invoice.payment_succeeded → 'active') arrives. `null` is treated as
+// entitling for backward-compatibility (the column is NOT NULL in practice).
+const NON_ENTITLING_STATUSES = new Set(["none", "canceled", "incomplete"]);
+
 export function effectivePlanFor(
   plan: string,
   subscriptionStatus: string | null,
+  trialEndsAt?: string | null,
+  now: Date = new Date(),
 ): string {
-  return subscriptionStatus === "paused" ? "free" : plan;
+  if (subscriptionStatus === "paused") return "free";
+  if (subscriptionStatus === "trialing") {
+    // Expired trial → Free; an in-window trial keeps its trial plan.
+    return trialEndsAt && new Date(trialEndsAt).getTime() <= now.getTime()
+      ? "free"
+      : plan;
+  }
+  if (subscriptionStatus && NON_ENTITLING_STATUSES.has(subscriptionStatus)) {
+    return "free";
+  }
+  return plan;
 }
 
 // Credits a batch of ready grades needs after included-standard coverage.

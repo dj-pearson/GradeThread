@@ -43,6 +43,9 @@ export interface BillingSummary {
   grades: {
     credit_balance: number;
     included_used_this_month: number;
+    // US-393: monthly included-grade reset boundary (Free users have no
+    // period_end, so the UI derives the reset date from this).
+    reset_at: string | null;
   };
   usage: {
     active_listings: number;

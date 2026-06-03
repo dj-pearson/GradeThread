@@ -143,6 +143,16 @@ export function BillingPage() {
   const paused = subscription.status === "paused";
   const canceling = subscription.cancel_at_period_end;
 
+  // US-393: Free users have no billing period_end. The included-grade counter
+  // resets monthly off grade_reset_at; show that date when it's still upcoming,
+  // otherwise the allowance has already rolled over.
+  const includedResetHint =
+    subscription.plan === "free"
+      ? grades.reset_at && new Date(grades.reset_at).getTime() > Date.now()
+        ? `Resets on ${dateLabel(grades.reset_at)}`
+        : "Renews monthly"
+      : `Resets on ${dateLabel(subscription.period_end)}`;
+
   function openPlanPicker(highlight?: FlipdeskPlanKey) {
     setHighlightPlan(highlight);
     setPlanPickerOpen(true);
@@ -430,7 +440,7 @@ export function BillingPage() {
               label="Included grades this month"
               used={grades.included_used_this_month}
               limit={plan.includedStandardGradesPerMonth}
-              hint={`Resets on ${dateLabel(subscription.period_end)}`}
+              hint={includedResetHint}
             />
 
             <div className="grid grid-cols-3 gap-2 text-xs">

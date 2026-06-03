@@ -11,6 +11,7 @@ import {
   type PlanGateDeps,
   type PlanGateUser,
   requireFlipdesk,
+  __testing,
 } from "../lib/plan-gate.ts";
 
 // ── Fake Context ─────────────────────────────────────────────────
@@ -32,9 +33,12 @@ function user(overrides: Partial<PlanGateUser> = {}): PlanGateUser {
   return {
     flipdesk_plan: "free",
     subscription_status: "active",
+    trial_ends_at: null,
     ai_actions_used_this_month: 0,
     ai_action_limit: null,
     grades_used_this_month: 0,
+    // Future boundary by default → no rollover, used count taken as-is.
+    grade_reset_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
     ...overrides,
   };
 }
@@ -50,6 +54,54 @@ function deps(u: PlanGateUser, usage: number): PlanGateDeps {
 async function bodyOf(resp: Response): Promise<Record<string, unknown>> {
   return await resp.json();
 }
+
+// ── Team seats (US-388) ──────────────────────────────────────────
+Deno.test("Free/Starter/Pro are blocked from inviting team members", async () => {
+  for (const plan of ["free", "starter", "pro"] as const) {
+    const { ctx } = fakeCtx();
+    const resp = await requireFlipdesk(
+      ctx,
+      { feature: "subAccounts" },
+      deps(user({ flipdesk_plan: plan }), 0),
+    );
+    assert(resp !== null, `${plan} should not have team seats`);
+    assertEquals(resp!.status, 402);
+    const body = await bodyOf(resp!);
+    assertEquals(body.error, "FEATURE_LOCKED");
+    assertEquals(body.requiredPlan, "business");
+  }
+});
+
+Deno.test("Business can invite up to its seat cap, then is blocked", async () => {
+  // subAccounts feature is unlocked for Business.
+  const featureResp = await requireFlipdesk(
+    fakeCtx().ctx,
+    { feature: "subAccounts" },
+    deps(user({ flipdesk_plan: "business" }), 0),
+  );
+  assertEquals(featureResp, null, "Business has the subAccounts feature");
+
+  // 9 existing members + 1 new = 10 → within the cap of 10.
+  const within = await requireFlipdesk(
+    fakeCtx().ctx,
+    { capacity: { kind: "teamSeats" } },
+    deps(user({ flipdesk_plan: "business" }), 9),
+  );
+  assertEquals(within, null, "10th seat is allowed");
+
+  // 10 existing members + 1 new = 11 → over the cap.
+  const over = await requireFlipdesk(
+    fakeCtx().ctx,
+    { capacity: { kind: "teamSeats" } },
+    deps(user({ flipdesk_plan: "business" }), 10),
+  );
+  assert(over !== null, "11th seat is blocked");
+  assertEquals(over!.status, 402);
+  const body = await bodyOf(over!);
+  assertEquals(body.error, "CAP_REACHED");
+  assertEquals(body.cap, "teamSeats");
+  assertEquals(body.limit, 10);
+});
 
 // ── Capacity: at the cap → 402 ───────────────────────────────────
 Deno.test("at-the-cap returns 402 CAP_REACHED", async () => {
@@ -130,6 +182,67 @@ Deno.test("paused subscription is treated as Free caps", async () => {
   assertEquals(body.limit, 25);
   // The gate never mutated the usage value it was handed (no reset).
   assertEquals(usage, 25);
+});
+
+// ── Free included-grade monthly rollover (US-393) ────────────────
+Deno.test("includedGrades usage rolls over once grade_reset_at has passed", async () => {
+  const past = new Date(Date.now() - 86_400_000).toISOString(); // boundary elapsed
+  const future = new Date(Date.now() + 86_400_000).toISOString();
+
+  // Counter shows 3 used, but the reset boundary passed → reads as 0 (a Free
+  // user gets no invoice to reset it, so the read must be clock-based).
+  const rolled = await __testing.readCurrentUsage(
+    "u1",
+    "includedGrades",
+    user({ grades_used_this_month: 3, grade_reset_at: past }),
+  );
+  assertEquals(rolled, 0);
+
+  // Within the current period the used count stands.
+  const current = await __testing.readCurrentUsage(
+    "u1",
+    "includedGrades",
+    user({ grades_used_this_month: 3, grade_reset_at: future }),
+  );
+  assertEquals(current, 3);
+});
+
+// ── Expired trial → Free caps (US-383) ──────────────────────────
+Deno.test("expired Pro trial is capped at Free", async () => {
+  const { ctx } = fakeCtx();
+  // Trialing Pro whose 14-day window lapsed → Free cap 25, even before the
+  // downgrade job flips the stored row.
+  const u = user({
+    flipdesk_plan: "pro",
+    subscription_status: "trialing",
+    trial_ends_at: new Date(Date.now() - 86_400_000).toISOString(), // yesterday
+  });
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "activeListings" } },
+    deps(u, 25),
+  );
+  assert(resp !== null, "expired-trial Pro user should hit the Free cap of 25");
+  assertEquals(resp!.status, 402);
+  const body = await bodyOf(resp!);
+  assertEquals(body.plan, "free");
+  assertEquals(body.limit, 25);
+});
+
+Deno.test("live Pro trial keeps Pro caps", async () => {
+  const { ctx } = fakeCtx();
+  const u = user({
+    flipdesk_plan: "pro",
+    subscription_status: "trialing",
+    trial_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), // next week
+  });
+  // 200 listings is well within Pro's 1000 cap but far over Free's 25.
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "activeListings" } },
+    deps(u, 200),
+  );
+  assertEquals(resp, null, "an in-window trial should still get Pro caps");
 });
 
 Deno.test("paused Pro user below Free cap still proceeds", async () => {

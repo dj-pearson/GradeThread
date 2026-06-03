@@ -36,6 +36,7 @@
 
 import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
+import { effectivePlanFor } from "./grade-pricing.ts";
 
 // ── FlipDesk catalog (mirror of src/lib/constants.ts FLIPDESK_PLANS) ──
 
@@ -61,6 +62,8 @@ interface PlanConfig {
   /** -1 = all */
   marketplacesCap: number;
   includedStandardGradesPerMonth: number;
+  /** US-388: additional team members (excludes the owner). 0 = no team. */
+  teamSeatCap: number;
   gateFlags: GateFlags;
 }
 
@@ -70,6 +73,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     aiActionsPerMonth: 25,
     marketplacesCap: 1,
     includedStandardGradesPerMonth: 3,
+    teamSeatCap: 0,
     gateFlags: {
       bulkActions: false, scheduledActions: false, compPulls: false,
       autoRelist: false, subAccounts: false, apiAccess: false,
@@ -81,6 +85,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     aiActionsPerMonth: 200,
     marketplacesCap: 2,
     includedStandardGradesPerMonth: 10,
+    teamSeatCap: 0,
     gateFlags: {
       bulkActions: false, scheduledActions: false, compPulls: false,
       autoRelist: false, subAccounts: false, apiAccess: false,
@@ -92,6 +97,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     aiActionsPerMonth: 1000,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 30,
+    teamSeatCap: 0,
     gateFlags: {
       bulkActions: true, scheduledActions: true, compPulls: true,
       autoRelist: true, subAccounts: false, apiAccess: false,
@@ -103,6 +109,7 @@ const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
     aiActionsPerMonth: 5000,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 75,
+    teamSeatCap: 10,
     gateFlags: {
       bulkActions: true, scheduledActions: true, compPulls: true,
       autoRelist: true, subAccounts: true, apiAccess: true,
@@ -119,7 +126,12 @@ const SOFT_WARN_PCT = 0.8;
 
 // ── Public API ───────────────────────────────────────────────────
 
-type CapacityKind = "activeListings" | "aiActions" | "marketplaces" | "includedGrades";
+type CapacityKind =
+  | "activeListings"
+  | "aiActions"
+  | "marketplaces"
+  | "includedGrades"
+  | "teamSeats";
 type FeatureKey = keyof GateFlags;
 
 export interface CapacityCheck {
@@ -141,9 +153,14 @@ type EnvWithUser = { Variables: { userId: string } };
 export interface PlanGateUser {
   flipdesk_plan: FlipdeskPlan;
   subscription_status: string;
+  // US-383: an expired Pro trial drops to Free caps before the downgrade job runs.
+  trial_ends_at: string | null;
   ai_actions_used_this_month: number;
   ai_action_limit: number | null;
   grades_used_this_month: number;
+  // US-393: when the included-grade counter rolls over (Free users never get an
+  // invoice.payment_succeeded to reset it, so the read must be clock-based).
+  grade_reset_at: string;
 }
 
 /**
@@ -162,7 +179,7 @@ const defaultDeps: PlanGateDeps = {
     const { data, error } = await supabaseAdmin
       .from("users")
       .select(
-        "flipdesk_plan, subscription_status, ai_actions_used_this_month, ai_action_limit, grades_used_this_month",
+        "flipdesk_plan, subscription_status, trial_ends_at, ai_actions_used_this_month, ai_action_limit, grades_used_this_month, grade_reset_at",
       )
       .eq("id", userId)
       .single();
@@ -199,9 +216,13 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
     return c.json({ error: "USER_NOT_FOUND" }, 404);
   }
 
-  // Paused subscribers fall back to Free caps but don't reset counters.
-  const effectivePlan: FlipdeskPlan =
-    user.subscription_status === "paused" ? "free" : user.flipdesk_plan;
+  // Paused subscribers AND expired trials (US-383) fall back to Free caps but
+  // don't reset counters. Shared resolution with the grading path.
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+    user.trial_ends_at,
+  ) as FlipdeskPlan;
   const plan = PLAN_MATRIX[effectivePlan];
 
   // ─ Feature check ─
@@ -263,6 +284,7 @@ function getLimit(plan: PlanConfig, kind: CapacityKind): number {
     case "aiActions": return plan.aiActionsPerMonth;
     case "marketplaces": return plan.marketplacesCap;
     case "includedGrades": return plan.includedStandardGradesPerMonth;
+    case "teamSeats": return plan.teamSeatCap;
   }
 }
 
@@ -271,6 +293,8 @@ interface UserSlice {
   ai_actions_used_this_month: number;
   ai_action_limit: number | null;
   grades_used_this_month: number;
+  // US-393: the clock-based monthly reset boundary for included grades.
+  grade_reset_at: string;
 }
 
 async function readCurrentUsage(
@@ -313,7 +337,28 @@ async function readCurrentUsage(
     }
 
     case "includedGrades": {
+      // US-393: honor the monthly rollover. Free users get no
+      // invoice.payment_succeeded to zero the counter, so once the reset
+      // boundary has passed the used count is 0 until the next grade is spent
+      // (which re-stamps grade_reset_at). Mirrors runPaymentPrecedence.
+      if (new Date(user.grade_reset_at).getTime() <= Date.now()) return 0;
       return user.grades_used_this_month;
+    }
+
+    case "teamSeats": {
+      // US-388: active team members in this workspace, excluding the owner
+      // (workspace_members never contains the owner). userId is the workspace
+      // OWNER (callers pass opts.userId = workspaceOwnerId).
+      const { count, error } = await supabaseAdmin
+        .from("workspace_members")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_id", userId);
+      if (error) {
+        console.error("[plan-gate] teamSeats query failed:", error);
+        // Fail closed: report the cap as full so we don't over-admit seats.
+        return Number.MAX_SAFE_INTEGER;
+      }
+      return count ?? 0;
     }
   }
 }
@@ -354,5 +399,6 @@ export const __testing = {
   requiredPlanForFeature,
   requiredPlanForCapacity,
   getLimit,
+  readCurrentUsage,
   SOFT_WARN_PCT,
 };

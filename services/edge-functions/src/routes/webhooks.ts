@@ -102,6 +102,10 @@ webhookRoutes.post("/stripe", async (c) => {
         await handleChargeRefunded(event);
         break;
 
+      case "charge.dispute.created":
+        await handleChargeDisputeCreated(event);
+        break;
+
       default:
         console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
@@ -194,7 +198,22 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   if (!user) user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const plan = mapSubscriptionToFlipdeskPlan(sub);
+  // US-396: fail closed on an unmappable price — grant NO paid caps (treat as
+  // 'free') and alert so the missing metadata.plan / lookup_key gets fixed,
+  // instead of silently mis-entitling via an amount heuristic.
+  const resolvedPlan = mapSubscriptionToFlipdeskPlan(sub);
+  if (!resolvedPlan) {
+    const priceId = sub.items?.data?.[0]?.price?.id ?? "unknown";
+    console.error(
+      `[Webhook] Unmappable subscription price ${priceId} on sub ${sub.id} ` +
+        `(no metadata.plan / lookup_key) — failing closed to Free, no entitlement`,
+    );
+    void captureServer(user.id, "billing.unmappable_price", {
+      subscription_id: sub.id,
+      price_id: priceId,
+    });
+  }
+  const plan: FlipdeskPlan = resolvedPlan ?? "free";
   const interval = mapSubscriptionInterval(sub);
   // pause_collection pauses billing but leaves Stripe's status as "active", so
   // mapSubscriptionStatus(sub.status) would never report "paused". Derive it
@@ -287,8 +306,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
     const name = userDisplayName(user.email, user.full_name);
 
-    // First-time subscription → welcome-to-paid email.
-    if (event.type === "customer.subscription.created" && status !== "trialing") {
+    // First-time subscription → welcome-to-paid email (skip when the price was
+    // unmappable — we didn't entitle a paid plan, so don't send a paid welcome).
+    if (event.type === "customer.subscription.created" && status !== "trialing" && resolvedPlan) {
       const priceCents = sub.items?.data?.[0]?.price?.unit_amount ?? 0;
       safeSendEmail(
         sendSubscriptionStartedEmail(user.email, {
@@ -668,6 +688,12 @@ async function handleChargeRefunded(event: Stripe.Event) {
   const userId = charge.metadata?.user_id;
   const product = charge.metadata?.product;
 
+  // US-385: a refunded per-grade purchase must withhold the grade it paid for.
+  if (userId && product === "per_grade") {
+    await refundPerGrade(event, charge, userId);
+    return;
+  }
+
   if (!userId || product !== "credit_pack") {
     // Subscription refunds: Stripe handles them; we just log the event.
     console.log(`[Webhook] charge.refunded product=${product ?? "?"} user=${userId ?? "?"} — no DB change`);
@@ -691,52 +717,178 @@ async function handleChargeRefunded(event: Stripe.Event) {
   );
   if (!proceed) return;
 
-  // Ledger reversal. NOTE: this could push balance negative if the user has
-  // already spent the credits. The DB CHECK constraint will block that, so
-  // we attempt the debit and log if it fails; ops can comp manually.
-  const { error } = await supabaseAdmin
-    .from("grade_credit_transactions")
-    .insert({
-      user_id: userId,
-      delta: -credits,
-      reason: "refund",
-      // balance_after is computed by the function for grants/debits; for
-      // direct reversal inserts we just snapshot the current balance.
-      balance_after: 0,
-      stripe_payment_intent_id: typeof charge.payment_intent === "string"
-        ? charge.payment_intent
-        : charge.payment_intent?.id ?? null,
-      notes: `Refund reversal for charge ${charge.id}`,
-    });
+  // US-384: clawing back the credits must actually DEBIT the wallet, not just
+  // append a ledger row. The row-locked RPC subtracts from grade_credit_balance,
+  // clamps at zero, writes a balance-consistent ledger row, and reports any
+  // shortfall (credits already spent before the refund) for reconciliation.
+  const paymentIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+
+  const { data, error } = await supabaseAdmin.rpc("revoke_grade_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_stripe_payment_intent: paymentIntentId,
+    p_notes: `Refund reversal for charge ${charge.id}`,
+  });
 
   if (error) {
-    console.error(`[Webhook] Refund reversal insert failed for user ${userId}:`, error);
-  } else {
-    console.log(`[Webhook] Refund reversal logged for user ${userId}: -${credits} credits`);
+    console.error(`[Webhook] Refund reversal failed for user ${userId}:`, error);
+    return;
   }
+
+  const result = (data ?? {}) as {
+    revoked?: number;
+    shortfall?: number;
+    balance_after?: number;
+  };
+  if ((result.shortfall ?? 0) > 0) {
+    // Credits were already spent — the wallet can't go negative, so flag for
+    // ops to reconcile (e.g. comp/write-off) rather than failing the refund.
+    console.warn(
+      `[Webhook] Refund reversal for user ${userId}: revoked ${result.revoked ?? 0}/${credits} ` +
+        `credits, ${result.shortfall} already spent (balance_after=${result.balance_after ?? 0}) — needs reconciliation`,
+    );
+  } else {
+    console.log(
+      `[Webhook] Refund reversal for user ${userId}: -${result.revoked ?? credits} credits ` +
+        `(balance_after=${result.balance_after ?? 0})`,
+    );
+  }
+}
+
+// US-385: a refunded per-grade purchase. Mark the submission refunded, flag it
+// for review, and WITHHOLD its public certificate (clearing certificate_id makes
+// the public_grade_reports view stop resolving it — US-348). The grade row is
+// retained so a human can reconcile; we don't hard-delete a paid artifact.
+async function refundPerGrade(
+  event: Stripe.Event,
+  charge: Stripe.Charge,
+  userId: string,
+) {
+  const submissionId = charge.metadata?.submission_id;
+  if (!submissionId) {
+    console.error(`[Webhook] per_grade refund missing submission_id (charge=${charge.id})`);
+    return;
+  }
+
+  const proceed = await recordEvent(
+    userId,
+    event.type,
+    event.id,
+    null,
+    null,
+    { product: "per_grade", submission_id: submissionId, charge_id: charge.id },
+  );
+  if (!proceed) return;
+
+  // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
+  // submission actually belongs to this user before we touch its grade.
+  const { data: updated, error } = await supabaseAdmin
+    .from("submissions")
+    .update({
+      refunded_at: new Date().toISOString(),
+      flagged: true,
+      flag_reason: "payment_refunded",
+    })
+    .eq("id", submissionId)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error(`[Webhook] per_grade refund: submission update failed (${submissionId}):`, error);
+    return;
+  }
+  if (!updated) {
+    console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
+    return;
+  }
+
+  // Withhold the public certificate. The submission was just verified as owned,
+  // so updating its grade_reports by submission_id is tenant-safe.
+  const { error: certErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update({ certificate_id: null })
+    .eq("submission_id", submissionId);
+  if (certErr) {
+    console.error(`[Webhook] per_grade refund: certificate withhold failed (${submissionId}):`, certErr);
+  }
+
+  console.log(
+    `[Webhook] per_grade refund: submission ${submissionId} marked refunded, flagged, cert withheld`,
+  );
+}
+
+// US-385: chargeback/dispute opened. A dispute can still be WON, so we don't
+// auto-revoke here — we record it, flag the submission for review, and surface
+// a clear alert for manual handling (evidence submission / decide whether to
+// withhold). charge.dispute.closed reconciliation is handled out-of-band by
+// ops per the billing runbook.
+async function handleChargeDisputeCreated(event: Stripe.Event) {
+  const dispute = event.data.object as Stripe.Dispute;
+  const charge = dispute.charge;
+  const chargeId = typeof charge === "string" ? charge : charge?.id ?? null;
+
+  // The dispute carries the PaymentIntent; its metadata mirrors the charge's.
+  const meta = (dispute.payment_intent &&
+      typeof dispute.payment_intent !== "string"
+    ? dispute.payment_intent.metadata
+    : undefined) ?? {};
+  const userId = meta.user_id;
+  const product = meta.product;
+  const submissionId = meta.submission_id;
+
+  console.warn(
+    `[Webhook] charge.dispute.created reason=${dispute.reason} amount=${dispute.amount} ` +
+      `product=${product ?? "?"} user=${userId ?? "?"} charge=${chargeId ?? "?"} — needs manual review`,
+  );
+
+  if (userId && product === "per_grade" && submissionId) {
+    const proceed = await recordEvent(
+      userId,
+      event.type,
+      event.id,
+      null,
+      null,
+      { product, submission_id: submissionId, dispute_id: dispute.id, reason: dispute.reason },
+    );
+    if (!proceed) return;
+
+    await supabaseAdmin
+      .from("submissions")
+      .update({ flagged: true, flag_reason: "payment_disputed" })
+      .eq("id", submissionId)
+      .eq("user_id", userId);
+  }
+
+  void captureServer(userId ?? "unknown", "billing.dispute_created", {
+    product: product ?? null,
+    dispute_id: dispute.id,
+    reason: dispute.reason,
+  });
 }
 
 // ── Mappers ──────────────────────────────────────────────────────
 
-function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): FlipdeskPlan {
-  // Prefer the metadata.plan we set at checkout (US-204).
+// US-396: resolve the tier from explicit, interval-independent signals only —
+// the metadata.plan we set at checkout (US-204), then the price lookup_key.
+// Returns null when neither resolves; the old amount>=9900 heuristic mapped
+// EVERY yearly price (e.g. $59/yr pro = 5900¢… or $590 = 59000¢ ≥ 9900) to
+// business and defaulted unknowns to a paid tier. Unmappable now FAILS CLOSED
+// (no entitlement + alert) so a price-config gap is fixed, not silently
+// mis-entitled.
+export function mapSubscriptionToFlipdeskPlan(sub: Stripe.Subscription): FlipdeskPlan | null {
   const meta = sub.metadata?.plan;
   if (meta === "starter" || meta === "pro" || meta === "business") return meta;
 
-  // Fall back to lookup_key on the first price.
   const item = sub.items?.data?.[0];
   const lookupKey = item?.price?.lookup_key ?? "";
   if (lookupKey.startsWith("flipdesk_business")) return "business";
   if (lookupKey.startsWith("flipdesk_pro")) return "pro";
   if (lookupKey.startsWith("flipdesk_starter")) return "starter";
 
-  // Last resort: amount-based heuristic.
-  const amount = item?.price?.unit_amount ?? 0;
-  if (amount >= 9900) return "business";
-  if (amount >= 5900) return "pro";
-  if (amount >= 2900) return "starter";
-  console.warn(`[Webhook] Unmapped subscription price ${item?.price?.id} (amount=${amount}); defaulting to starter`);
-  return "starter";
+  return null;
 }
 
 function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly" {
@@ -744,7 +896,7 @@ function mapSubscriptionInterval(sub: Stripe.Subscription): "monthly" | "yearly"
   return intvl === "year" ? "yearly" : "monthly";
 }
 
-function mapSubscriptionStatus(
+export function mapSubscriptionStatus(
   status: Stripe.Subscription.Status,
 ): "none" | "trialing" | "active" | "past_due" | "paused" | "canceled" {
   switch (status) {
@@ -755,7 +907,12 @@ function mapSubscriptionStatus(
     case "paused": return "paused";
     case "canceled":
     case "incomplete_expired": return "canceled";
+    // US-392: `incomplete` = checkout created but the first payment hasn't
+    // cleared. Do NOT entitle it (the old `→ active` fallback granted paid caps
+    // before any money moved). Map to the non-entitling 'none' — effectivePlanFor
+    // treats it as Free; invoice.payment_succeeded flips it to 'active'. Unknown
+    // future statuses fail closed the same way rather than silently entitling.
     case "incomplete":
-    default: return "active"; // Stripe will transition this shortly.
+    default: return "none";
   }
 }

@@ -3513,3 +3513,162 @@ US-463 Deactivate + notify on permanent eBay token-refresh failure [P1][FlipDesk
 - Tests: tests/ebay-auth-failure_test.ts.
 
 prd.json 368/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Public-cert RLS + billing P0s US-348/US-384/US-383
+
+US-348 Stop public RLS exposing full grade_reports row [P0][Security]:
+- Migration 00082_public_certificate_view.sql DROPs the broad "Public can view
+  grade reports with certificates" (USING certificate_id IS NOT NULL) SELECT-*
+  policy. Anon select('*') on grade_reports now matches no SELECT policy ->
+  zero rows (RLS deny-by-default). Owners keep their own-row policy.
+- Anonymous certificate reads now come from a NEW column-restricted view
+  public.public_grade_reports (owner-privileged; security_invoker left OFF so
+  the VIEW, not the caller's RLS, is the gate). It projects ONLY public-safe
+  fields and NEVER the anti-fraud/internal signals: raw confidence_score,
+  image_authenticity.tells, per_image_analysis, detailed_notes,
+  content_signature/content_hash/integrity_version, needs_human_review,
+  adjusted_* scores, intentional_misread, prompt_version. Authenticity is
+  reduced to authenticity_checked + two buyer-facing booleans; confidence to a
+  coarse confidence_label bucket (very_high/high/moderate/reviewed).
+- Frontend: certificate.tsx reads the view (PublicGradeReportRow +
+  Database.Views in src/types/database.ts); dropped the raw confidence %.
+  submissions/submission_images were already owner-only (anon got nothing), so
+  untouched. Test: tests/public-certificate_test.ts (env-gated) asserts the
+  base-table leak is closed, the view is anon-readable, and carries no
+  forbidden columns. Frontend tsc passes.
+
+US-384 Fix credit-pack refund to debit the wallet [P0][Billing]:
+- Bug: webhooks.ts handleChargeRefunded inserted a ledger row (delta=-credits,
+  balance_after:0) but NEVER touched users.grade_credit_balance -> refunded
+  customers kept their credits and the ledger balance_after was a lie.
+- Fix: NEW row-locked SECURITY DEFINER RPC revoke_grade_credits (migration
+  00083), mirroring debit/grant_grade_credits: FOR UPDATE lock, claws back
+  LEAST(balance, credits), clamps at 0 (balance CHECK forbids negative), writes
+  a balance-consistent ledger row (delta = actually-recovered), returns
+  {revoked, shortfall, balance_after}. Shortfall (credits already spent before
+  the refund) is written into the ledger note AND logged as a reconciliation
+  warning -- not a silent no-op or hard failure. webhooks.ts now calls the RPC.
+- Test: tests/credit-refund_test.ts (env-gated) -- grant->refund reduces balance
+  + ledger balance_after consistent; spent-pack refund clamps + reports shortfall.
+
+US-383 Add trial-expiry job (stop perpetual free Pro) [P0][Billing]:
+- Real-time guard: effectivePlanFor() (grade-pricing.ts) gains optional
+  trial_ends_at + now; a 'trialing' user past trial_ends_at reads as 'free'
+  immediately, before the job runs. Wired into grade-billing.ts
+  runPaymentPrecedence, flipdesk-grading.ts preflight, AND plan-gate.ts
+  requireFlipdesk (now selects + passes trial_ends_at, reuses effectivePlanFor
+  instead of its own paused-only check).
+- Job: NEW handleTrialExpiryCron (routes/jobs-trial-expiry.ts) mounted at POST
+  /api/jobs/trial-expiry, X-Internal-Job-Secret gated (same pattern as the
+  reprice/GSC crons). Flips subscription_status='trialing' + trial_ends_at<now
+  + flipdesk_subscription_id IS NULL rows to flipdesk_plan='free' /
+  subscription_status='none'. Cron row added to COOLIFY.md (00:15 UTC daily).
+- Tests: grade-pricing_test.ts (expired/live/converted/legacy-null trial cases)
+  + plan-gate_test.ts (expired-trial Pro capped at Free 25; live trial keeps Pro).
+
+prd.json 371/524.
+
+
+## Session Notes (2026-06-03 cont.) -- AI-quota correctness + subscription entitlement US-386/US-392/US-396
+
+US-386 Fix AI-action quota: correct plan column + enforce self-cap [P1][Billing]:
+- flipdesk-ai.ts checkQuota read the DEPRECATED users.plan enum
+  (free/starter/professional/enterprise) -> every paid FlipDesk tier silently
+  got the Free cap of 25; ai_action_limit was selected but never applied.
+- checkQuota now resolves the cap from users.flipdesk_plan via effectivePlanFor
+  (paused + expired-trial + non-entitling subs -> Free, shared with US-383/392),
+  then applies min(planLimit, ai_action_limit) via plan-gate's effectiveAiCap.
+  AI_ACTION_LIMITS re-keyed to flipdesk_plan (free 25/starter 200/pro 1000/
+  business 5000) to mirror PLAN_MATRIX.aiActionsPerMonth.
+- Test: tests/ai-quota_test.ts pins AI_ACTION_LIMITS == PLAN_MATRIX (anti-drift)
+  + self-cap min() behavior.
+- NOT done: US-387 (atomic check+increment / TOCTOU) -- needs a behavior-changing
+  consume-up-front refactor across ~8 call sites + a concurrency test, best done
+  when Deno is available to run the suite. Left for a follow-up.
+
+US-392 Don't entitle incomplete subscriptions [P2][Billing]:
+- webhooks.ts mapSubscriptionStatus mapped `incomplete` + unknown default to
+  'active' -> Pro caps granted before any money moved. Now both map to the
+  non-entitling 'none'. effectivePlanFor demotes 'none'/'canceled'/'incomplete'
+  to Free (NON_ENTITLING_STATUSES); safe because a paid flipdesk_plan only ever
+  comes from a real Stripe sub (admin-billing refuses cardless free->paid).
+  Entitlement keys off invoice.payment_succeeded -> 'active'; legacy null stays
+  entitling. Tests in grade-pricing_test.ts + subscription-mapping_test.ts.
+
+US-396 Make plan mapping interval-aware and fail-closed [P2][Billing]:
+- mapSubscriptionToFlipdeskPlan's amount>=9900 heuristic mapped every YEARLY
+  price to Business and defaulted unknowns to a paid tier. Removed: the mapper
+  now resolves only from metadata.plan then price lookup_key (both
+  interval-independent) and returns null when unmappable. handleSubscription
+  Change fails CLOSED on null -> Free (no entitlement) + console.error +
+  'billing.unmappable_price' PostHog alert + skips the paid welcome email.
+- Test: subscription-mapping_test.ts (yearly Pro/Starter map right; bare large
+  yearly amount -> null).
+
+prd.json 374/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Per-grade refunds + Stripe Tax + checkout idempotency US-385/US-389/US-394
+
+US-385 Handle per-grade refunds/chargebacks [P1][Billing]:
+- handleChargeRefunded logged 'no DB change' for product=per_grade -> a refunded
+  grade + its public certificate stayed live. Added refundPerGrade: sets
+  submissions.refunded_at (new col, migration 00084) + flagged/flag_reason=
+  'payment_refunded' (tenant-scoped by user_id), and clears
+  grade_reports.certificate_id so the public_grade_reports view (US-348) stops
+  resolving the cert. Grade row retained for human review.
+- charge.dispute.created -> handleChargeDisputeCreated: records event, flags
+  per_grade submissions 'payment_disputed', emits 'billing.dispute_created'
+  alert. NO auto-revoke (disputes can be won) -- reconciliation documented.
+- Admin runbook: docs/BILLING_REFUNDS.md.
+
+US-389 Make Stripe Tax checkout robust (collect address) [P1][Billing]:
+- automatic_tax was enabled with only customer_email/no address -> tax couldn't
+  compute for new customers. Added billing_address_collection:'required' to all
+  automatic_tax sessions (FlipDesk subscribe, credit-pack, legacy subscribe) and
+  conditionally on per-grade (gated on priceId like its automatic_tax).
+- Live end-to-end tax verification remains an ops step (needs live Stripe).
+
+US-394 Add idempotency key to per-grade checkout [P2][Billing]:
+- perGradeCheckout had no idempotency key -> double-click/retry could mint two
+  payable sessions. Now passes idempotencyKey =
+  perGradeIdempotencyKey(userId, submissionId, tier) (pure, exported); duplicates
+  reuse ONE session. Double-payment fallback: submission is single-use
+  (idempotent paid flip) + any second charge handled by the US-385 refund path.
+- Test: tests/per-grade-idempotency_test.ts.
+
+prd.json 377/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Free grade-counter reset + team-seat gating US-393/US-388
+
+US-393 Reset Free monthly included-grade counter [P2][Billing]:
+- Free users get no invoice.payment_succeeded, so their included-grade counter
+  never reset. Made all reads clock-based off grade_reset_at:
+  (1) plan-gate readCurrentUsage 'includedGrades' returns 0 when
+      grade_reset_at<=now (added grade_reset_at to PlanGateUser/UserSlice +
+      loadUser select); mirrors runPaymentPrecedence.
+  (2) /billing-summary returns rollover-aware included_used_this_month + new
+      grades.reset_at.
+  (3) billing.tsx shows a correct Free reset hint (upcoming grade_reset_at, else
+      'Renews monthly') instead of 'Resets on -'.
+- Test: plan-gate_test.ts readCurrentUsage rollover.
+
+US-388 Gate + bound team seats by plan [P1][Billing] (Business cap = 10, per
+product decision):
+- Team seats were never gated (invite only checked role; billing flat
+  quantity:1). Added teamSeatCap to PLAN_MATRIX (free/starter/pro 0, business 10)
+  + a 'teamSeats' capacity kind (getLimit + readCurrentUsage counts
+  workspace_members by owner_id, fail-closed on query error).
+- Invite (edge POST /invitations) enforces requireFlipdesk feature 'subAccounts'
+  (Free/Starter/Pro -> 402 FEATURE_LOCKED) AND capacity 'teamSeats' (Business ->
+  402 CAP_REACHED at 10), gated on the workspace OWNER's plan.
+- Accept is the authoritative seat-grant path (SECURITY DEFINER RPC from the
+  SPA): migration 00085 recreates accept_workspace_invitation to re-check the cap
+  under the row lock (effective-plan mirrors effectivePlanFor; a role-change on
+  an existing member consumes no seat).
+- Tests: plan-gate_test.ts (Free/Starter/Pro FEATURE_LOCKED; Business to 10 then
+  CAP_REACHED).
+
+prd.json 379/524.

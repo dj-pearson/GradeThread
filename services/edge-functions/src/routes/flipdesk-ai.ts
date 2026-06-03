@@ -16,6 +16,8 @@ import {
   groupsToPairs,
   type VisionImage,
 } from "../lib/ai-reconcile.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
+import { effectiveAiCap } from "../lib/plan-gate.ts";
 
 const MAX_PHOTOS = 8;
 
@@ -36,14 +38,18 @@ export const flipdeskAiRoutes = new Hono<{
   };
 }>();
 
-// Monthly AI-action allowance per plan. -1 = unlimited. (US-167 refines.)
-// Exported so AutoLister batch generation (flipdesk-autolister.ts) shares the
-// exact same per-plan budget and reset semantics.
+// Monthly AI-action allowance per FlipDesk plan. -1 = unlimited.
+// US-386: keyed by users.flipdesk_plan (free/starter/pro/business) — NOT the
+// deprecated users.plan enum (free/starter/professional/enterprise) that the
+// old lookup used, which silently fell through to the Free cap for every paying
+// FlipDesk tier. MUST mirror PLAN_MATRIX.aiActionsPerMonth in plan-gate.ts
+// (asserted by grade-pricing/plan-gate tests). Exported so AutoLister batch
+// generation (flipdesk-autolister.ts) shares the exact same per-plan budget.
 export const AI_ACTION_LIMITS: Record<string, number> = {
   free: 25,
   starter: 200,
-  professional: 1000,
-  enterprise: -1,
+  pro: 1000,
+  business: 5000,
 };
 
 // True when `resetAt` falls in a calendar month before `now`.
@@ -70,7 +76,7 @@ export async function checkQuota(
   const { data: user, error } = await supabaseAdmin
     .from("users")
     .select(
-      "plan, ai_enrichment_enabled, ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit"
+      "flipdesk_plan, subscription_status, trial_ends_at, ai_enrichment_enabled, ai_actions_used_this_month, ai_actions_reset_at, ai_action_limit"
     )
     .eq("id", ownerId)
     .single();
@@ -90,7 +96,18 @@ export async function checkQuota(
     };
   }
 
-  const limit = AI_ACTION_LIMITS[user.plan] ?? AI_ACTION_LIMITS.free!;
+  // US-386: resolve the AI cap from the FlipDesk plan (paused + expired-trial
+  // fall back to Free via effectivePlanFor), then honor the user's optional
+  // self-cap (users.ai_action_limit) — min(planLimit, userLimit). The old code
+  // read the deprecated `plan` column (capping every paid tier at Free) and
+  // selected ai_action_limit but never applied it.
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+    user.trial_ends_at,
+  );
+  const planLimit = AI_ACTION_LIMITS[effectivePlan] ?? AI_ACTION_LIMITS.free!;
+  const limit = effectiveAiCap(planLimit, user.ai_action_limit ?? null);
   let used = user.ai_actions_used_this_month ?? 0;
   if (isPriorMonth(new Date(user.ai_actions_reset_at), new Date())) {
     used = 0;

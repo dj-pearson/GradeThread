@@ -5750,8 +5750,8 @@
         "Test: anon client cannot read authenticity tells for any certificate"
       ],
       "priority": 348,
-      "passes": false,
-      "notes": "[P0][Security] Audit 2026-06-03. 00001:230-232; src/pages/certificate.tsx fetches select('*'). CERT_REPORT_COLUMNS allowlist is defeated by direct table access."
+      "passes": true,
+      "notes": "DONE 2026-06-03. Migration 00082_public_certificate_view.sql DROPs the broad \"Public can view grade reports with certificates\" (certificate_id IS NOT NULL) SELECT-* policy and serves anon certificate reads from a NEW column-restricted view public.public_grade_reports (owner-privileged, security_invoker off = the gate). View projects ONLY public-safe fields; anti-fraud/internal signals (raw confidence_score, image_authenticity.tells, per_image_analysis, detailed_notes, content_signature/hash, needs_human_review, adjusted_*, prompt_version) are never exposed. Authenticity reduced to authenticity_checked + two booleans; confidence reduced to a coarse confidence_label bucket. Frontend: certificate.tsx now reads the view (types: PublicGradeReportRow + Database.Views in src/types/database.ts); anon submissions/images were already owner-only so untouched. Test: services/edge-functions/src/tests/public-certificate_test.ts (env-gated) asserts anon base select returns nothing, the view is readable, and carries no forbidden fields. Frontend tsc passes."
     },
     {
       "id": "US-349",
@@ -6199,8 +6199,8 @@
         "Test covers an expired-trial user being capped at Free"
       ],
       "priority": 383,
-      "passes": false,
-      "notes": "[P0][Billing] Audit 2026-06-03. handle_new_user (00037) grants 14d Pro trial; the promised daily downgrade cron does not exist."
+      "passes": true,
+      "notes": "DONE 2026-06-03. Two layers. (1) Real-time: effectivePlanFor(plan, status, trial_ends_at?, now?) (grade-pricing.ts) now returns 'free' for a 'trialing' user whose trial_ends_at has passed, so caps are correct BEFORE the job runs; wired into grade-billing.ts runPaymentPrecedence, flipdesk-grading.ts preflight, AND plan-gate.ts requireFlipdesk (now selects+passes trial_ends_at, reuses effectivePlanFor). (2) Job: NEW handleTrialExpiryCron (routes/jobs-trial-expiry.ts) mounted POST /api/jobs/trial-expiry, X-Internal-Job-Secret gated, flips subscription_status='trialing' + trial_ends_at<now + flipdesk_subscription_id IS NULL rows to flipdesk_plan='free'/subscription_status='none'. Cron row added to COOLIFY.md (00:15 UTC daily). Tests: grade-pricing_test.ts (expired/live/converted/legacy trial cases) + plan-gate_test.ts (expired-trial Pro capped at Free 25; live trial keeps Pro)."
     },
     {
       "id": "US-384",
@@ -6212,8 +6212,8 @@
         "Test: pack purchase -> refund -> balance reduced and ledger balance_after consistent"
       ],
       "priority": 384,
-      "passes": false,
-      "notes": "[P0][Billing] Audit 2026-06-03 (flagged by 2 agents). webhooks.ts handleChargeRefunded inserts -credits, balance_after:0 but never touches grade_credit_balance."
+      "passes": true,
+      "notes": "DONE 2026-06-03. Root cause: webhooks.ts handleChargeRefunded inserted a ledger row (delta=-credits, balance_after:0) but NEVER updated users.grade_credit_balance -> refunded customers kept credits and balance_after was a lie. Fix: NEW row-locked SECURITY DEFINER RPC revoke_grade_credits (migration 00083) mirrors debit/grant_grade_credits: FOR UPDATE lock, claws back LEAST(balance,credits), clamps at 0, writes a balance-consistent ledger row (delta = actually-recovered), and returns {revoked, shortfall, balance_after}. Shortfall (credits already spent) is recorded in the ledger note + logged as a reconciliation warning instead of a silent no-op/failure. webhooks.ts now calls the RPC. Test: services/edge-functions/src/tests/credit-refund_test.ts (env-gated) covers grant->refund balance reduction + ledger consistency, and spent-pack clamp/shortfall."
     },
     {
       "id": "US-385",
@@ -6225,8 +6225,8 @@
         "Admin runbook covers reconciling a paid_stripe refund"
       ],
       "priority": 385,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. handleChargeRefunded logs 'no DB change' for per_grade."
+      "passes": true,
+      "notes": "DONE 2026-06-03. handleChargeRefunded previously logged 'no DB change' for product=per_grade, leaving the grade + public certificate live after a refund. Added refundPerGrade: marks submissions.refunded_at (new col, migration 00084) + flagged/flag_reason='payment_refunded' (tenant-scoped by user_id), and clears grade_reports.certificate_id so the public_grade_reports view (US-348) stops resolving the cert (grade row retained for review). charge.dispute.created now has handleChargeDisputeCreated: records the event, flags per_grade submissions 'payment_disputed', and emits a 'billing.dispute_created' alert -- NO auto-revoke (a dispute can be won), reconciliation documented. Admin runbook: docs/BILLING_REFUNDS.md (refund + shortfall + dispute reconciliation). recordEvent idempotency guards replays."
     },
     {
       "id": "US-386",
@@ -6238,8 +6238,8 @@
         "Test: upgraded user gets the new tier limit; self-cap blocks at the lower value"
       ],
       "priority": 386,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. flipdesk-ai.ts checkQuota reads deprecated plan column; self-cap selected but unused."
+      "passes": true,
+      "notes": "DONE 2026-06-03. flipdesk-ai.ts checkQuota was reading the DEPRECATED users.plan enum (free/starter/professional/enterprise) -> every paid FlipDesk tier silently fell through to the Free cap of 25; and it selected ai_action_limit but never applied the self-cap. Fix: checkQuota now resolves the cap from users.flipdesk_plan via effectivePlanFor (paused + expired-trial + non-entitling subs all fall back to Free, shared with US-383/US-392), then applies min(planLimit, ai_action_limit) via plan-gate's effectiveAiCap. AI_ACTION_LIMITS re-keyed to flipdesk_plan (free 25 / starter 200 / pro 1000 / business 5000) to mirror PLAN_MATRIX.aiActionsPerMonth. Test: tests/ai-quota_test.ts pins AI_ACTION_LIMITS==PLAN_MATRIX (anti-drift) + self-cap min() behavior. NOTE: US-387 (atomic check+increment / TOCTOU) deliberately NOT done here -- it needs a behavior-changing multi-callsite consume-up-front refactor + concurrency test best done with Deno available."
     },
     {
       "id": "US-387",
@@ -6263,8 +6263,8 @@
         "Test: Free/Starter/Pro blocked from inviting beyond limits; Business allowed up to its cap"
       ],
       "priority": 388,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. workspace.ts invite only checks role; billing is flat quantity:1; extra seats cost nothing."
+      "passes": true,
+      "notes": "DONE 2026-06-03 (Business seat cap = 10, per product decision). Team seats were never gated (invite only checked role). Added a teamSeatCap to PLAN_MATRIX (free/starter/pro 0, business 10) + a 'teamSeats' capacity kind (getLimit + readCurrentUsage counts workspace_members by owner_id, fail-closed on error). Invite (edge workspace.ts POST /invitations) now enforces requireFlipdesk feature 'subAccounts' (Free/Starter/Pro -> 402 FEATURE_LOCKED->business) AND capacity 'teamSeats' (Business -> 402 CAP_REACHED at 10), gated on the workspace OWNER's plan. Accept is the authoritative seat-grant path (SECURITY DEFINER RPC called from SPA), so migration 00085 recreates accept_workspace_invitation to re-check the cap under the row lock (effective-plan resolution mirrors effectivePlanFor: paused/expired-trial/unpaid->free; role-change on an existing member consumes no seat). Tests: plan-gate_test.ts (Free/Starter/Pro FEATURE_LOCKED; Business allowed to 10 then CAP_REACHED)."
     },
     {
       "id": "US-389",
@@ -6276,8 +6276,8 @@
         "tax_code/tax_behavior coverage for one-time products matches setup"
       ],
       "priority": 389,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. payments.ts enables automatic_tax with only customer_email and no address."
+      "passes": true,
+      "notes": "DONE 2026-06-03. payments.ts enabled automatic_tax with only customer_email and no address, so tax couldn't be computed for a brand-new customer. Added billing_address_collection:'required' to ALL automatic_tax Checkout sessions (FlipDesk subscribe, credit-pack, legacy subscribe) and conditionally on per-grade (gated on priceId like its automatic_tax). Existing customers already pass customer_update:{address:'auto'}; new ones now collect it at checkout. tax_id_collection already enabled on subscriptions. NOTE: live end-to-end subscribe+credit-pack-with-tax verification is an ops step (needs live Stripe)."
     },
     {
       "id": "US-390",
@@ -6315,8 +6315,8 @@
         "Test: incomplete->canceled never grants Pro caps"
       ],
       "priority": 392,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts maps incomplete->active."
+      "passes": true,
+      "notes": "DONE 2026-06-03. webhooks.ts mapSubscriptionStatus mapped `incomplete` (and the unknown default) to 'active', entitling Pro caps before the first payment cleared. Fix: incomplete + unknown statuses now map to the non-entitling 'none'; effectivePlanFor (grade-pricing.ts) demotes 'none'/'canceled'/'incomplete' to Free via a NON_ENTITLING_STATUSES set (safe: a paid flipdesk_plan only ever comes from a real Stripe sub -- admin-billing.ts refuses cardless free->paid). Entitlement now keys off a verified-paid status (invoice.payment_succeeded -> 'active'); legacy null stays entitling. Tests: grade-pricing_test.ts (none/canceled->free, active/past_due->plan) + subscription-mapping_test.ts (incomplete/unknown->none)."
     },
     {
       "id": "US-393",
@@ -6328,8 +6328,8 @@
         "plan-gate includedGrades reads honor the rollover"
       ],
       "priority": 393,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. Reset only fires on invoice.payment_succeeded (Free never gets one)."
+      "passes": true,
+      "notes": "DONE 2026-06-03. Free users never get invoice.payment_succeeded so their included-grade counter never reset. Made every read clock-based off grade_reset_at: (1) plan-gate readCurrentUsage 'includedGrades' returns 0 when grade_reset_at<=now (added grade_reset_at to PlanGateUser/UserSlice + loadUser select) -- mirrors runPaymentPrecedence's existing rollover; (2) edge /billing-summary returns rollover-aware included_used_this_month + a new grades.reset_at; (3) billing.tsx shows a correct reset hint for Free (upcoming grade_reset_at date, else 'Renews monthly') instead of 'Resets on -' from the null period_end. Test: plan-gate_test.ts readCurrentUsage rollover (past boundary->0, future->used). Frontend tsc passes."
     },
     {
       "id": "US-394",
@@ -6341,8 +6341,8 @@
         "Concurrent per-grade checkout test passes"
       ],
       "priority": 394,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. payments.ts perGradeCheckout guards on status but not concurrent sessions."
+      "passes": true,
+      "notes": "DONE 2026-06-03. perGradeCheckout created a Checkout Session with no idempotency key -> a double-click/retry could mint two payable sessions for one grade. Now passes a deterministic idempotencyKey = perGradeIdempotencyKey(userId, submissionId, tier) (pure, exported), so concurrent/duplicate requests reuse ONE session (Stripe replays the response 24h). Double-payment fallback is defined: the submission is single-use (handlePerGradePurchase flips payment_status off 'unpaid' idempotently) and any second charge is handled by the US-385 per-grade refund path. Test: tests/per-grade-idempotency_test.ts (key stable for same inputs, distinct across user/submission/tier)."
     },
     {
       "id": "US-395",
@@ -6367,8 +6367,8 @@
         "Yearly prices map to the correct tier (test)"
       ],
       "priority": 396,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts amount>=9900 heuristic maps all yearly prices to business."
+      "passes": true,
+      "notes": "DONE 2026-06-03. mapSubscriptionToFlipdeskPlan's amount>=9900 last-resort heuristic mapped EVERY yearly price to Business and defaulted unknowns to a paid tier. Removed it: the mapper now resolves the tier ONLY from metadata.plan (set at checkout, US-204) then price lookup_key -- both interval-independent -- and returns null when unmappable. handleSubscriptionChange fails CLOSED on null: grants Free (no entitlement), logs + emits a 'billing.unmappable_price' alert, and skips the paid welcome email, so a price-config gap is fixed rather than silently mis-entitled. Test: subscription-mapping_test.ts (yearly Pro via metadata + yearly Starter via lookup_key map correctly; bare large yearly amount -> null)."
     },
     {
       "id": "US-397",

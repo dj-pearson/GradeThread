@@ -92,7 +92,7 @@ async function buildValidation(
   const { data: userRow, error: userErr } = await supabaseAdmin
     .from("users")
     .select(
-      "flipdesk_plan, subscription_status, grades_used_this_month, grade_reset_at, grade_credit_balance, suspended",
+      "flipdesk_plan, subscription_status, trial_ends_at, grades_used_this_month, grade_reset_at, grade_credit_balance, suspended",
     )
     .eq("id", ownerId)
     .maybeSingle();
@@ -102,6 +102,7 @@ async function buildValidation(
   const user = userRow as {
     flipdesk_plan: string;
     subscription_status: string | null;
+    trial_ends_at: string | null;
     grades_used_this_month: number;
     grade_reset_at: string;
     grade_credit_balance: number;
@@ -122,6 +123,7 @@ async function buildValidation(
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
+    user.trial_ends_at,
   );
   const includedCap = INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0;
   const resetAt = new Date(user.grade_reset_at).getTime();
