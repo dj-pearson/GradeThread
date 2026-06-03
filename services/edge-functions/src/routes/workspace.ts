@@ -7,6 +7,7 @@ import {
   roleAtLeast,
   type WorkspaceRole,
 } from "../lib/workspace-roles.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 type WorkspaceEnv = {
   Variables: {
@@ -92,6 +93,22 @@ workspaceRoutes.post("/invitations", async (c) => {
       403,
     );
   }
+
+  // US-388: team seats are a paid feature, bounded per plan. Gate on the
+  // workspace OWNER's plan (not the inviting admin's): subAccounts must be
+  // enabled (Free/Starter/Pro get FEATURE_LOCKED) and the active-member count
+  // must be under the seat cap (Business → CAP_REACHED at the limit). The
+  // accept RPC re-checks the cap authoritatively to close the over-invite race.
+  const featureGate = await requireFlipdesk(c, {
+    userId: ownerId,
+    feature: "subAccounts",
+  });
+  if (featureGate) return featureGate;
+  const seatGate = await requireFlipdesk(c, {
+    userId: ownerId,
+    capacity: { kind: "teamSeats" },
+  });
+  if (seatGate) return seatGate;
 
   // Look up the workspace owner's name + the inviter's name for the email.
   const [ownerRes, inviterRes] = await Promise.all([

@@ -597,7 +597,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     .select(
       "flipdesk_plan, flipdesk_interval, subscription_status, " +
         "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
-        "trial_ends_at, grade_credit_balance, grades_used_this_month, " +
+        "trial_ends_at, grade_credit_balance, grades_used_this_month, grade_reset_at, " +
         "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, " +
         "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
         "usage_alert_thresholds, last_warning_at",
@@ -624,6 +624,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     pending_effective_at: string | null;
     grade_credit_balance: number | null;
     grades_used_this_month: number | null;
+    grade_reset_at: string | null;
     ai_actions_used_this_month: number | null;
     ai_action_limit: number | null;
     usage_alert_thresholds: number[] | null;
@@ -679,7 +680,14 @@ paymentRoutes.get("/billing-summary", async (c) => {
     },
     grades: {
       credit_balance: u.grade_credit_balance,
-      included_used_this_month: u.grades_used_this_month,
+      // US-393: honor the monthly rollover so a Free user (who never gets an
+      // invoice.payment_succeeded reset) sees 0 used once the boundary passes.
+      included_used_this_month:
+        u.grade_reset_at && new Date(u.grade_reset_at).getTime() <= Date.now()
+          ? 0
+          : (u.grades_used_this_month ?? 0),
+      // The reset boundary, so the UI can show a correct date even for Free.
+      reset_at: u.grade_reset_at,
     },
     usage: {
       active_listings: activeListingsResult.count ?? 0,

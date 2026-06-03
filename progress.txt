@@ -3639,3 +3639,36 @@ US-394 Add idempotency key to per-grade checkout [P2][Billing]:
 - Test: tests/per-grade-idempotency_test.ts.
 
 prd.json 377/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Free grade-counter reset + team-seat gating US-393/US-388
+
+US-393 Reset Free monthly included-grade counter [P2][Billing]:
+- Free users get no invoice.payment_succeeded, so their included-grade counter
+  never reset. Made all reads clock-based off grade_reset_at:
+  (1) plan-gate readCurrentUsage 'includedGrades' returns 0 when
+      grade_reset_at<=now (added grade_reset_at to PlanGateUser/UserSlice +
+      loadUser select); mirrors runPaymentPrecedence.
+  (2) /billing-summary returns rollover-aware included_used_this_month + new
+      grades.reset_at.
+  (3) billing.tsx shows a correct Free reset hint (upcoming grade_reset_at, else
+      'Renews monthly') instead of 'Resets on -'.
+- Test: plan-gate_test.ts readCurrentUsage rollover.
+
+US-388 Gate + bound team seats by plan [P1][Billing] (Business cap = 10, per
+product decision):
+- Team seats were never gated (invite only checked role; billing flat
+  quantity:1). Added teamSeatCap to PLAN_MATRIX (free/starter/pro 0, business 10)
+  + a 'teamSeats' capacity kind (getLimit + readCurrentUsage counts
+  workspace_members by owner_id, fail-closed on query error).
+- Invite (edge POST /invitations) enforces requireFlipdesk feature 'subAccounts'
+  (Free/Starter/Pro -> 402 FEATURE_LOCKED) AND capacity 'teamSeats' (Business ->
+  402 CAP_REACHED at 10), gated on the workspace OWNER's plan.
+- Accept is the authoritative seat-grant path (SECURITY DEFINER RPC from the
+  SPA): migration 00085 recreates accept_workspace_invitation to re-check the cap
+  under the row lock (effective-plan mirrors effectivePlanFor; a role-change on
+  an existing member consumes no seat).
+- Tests: plan-gate_test.ts (Free/Starter/Pro FEATURE_LOCKED; Business to 10 then
+  CAP_REACHED).
+
+prd.json 379/524.

@@ -6263,8 +6263,8 @@
         "Test: Free/Starter/Pro blocked from inviting beyond limits; Business allowed up to its cap"
       ],
       "priority": 388,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. workspace.ts invite only checks role; billing is flat quantity:1; extra seats cost nothing."
+      "passes": true,
+      "notes": "DONE 2026-06-03 (Business seat cap = 10, per product decision). Team seats were never gated (invite only checked role). Added a teamSeatCap to PLAN_MATRIX (free/starter/pro 0, business 10) + a 'teamSeats' capacity kind (getLimit + readCurrentUsage counts workspace_members by owner_id, fail-closed on error). Invite (edge workspace.ts POST /invitations) now enforces requireFlipdesk feature 'subAccounts' (Free/Starter/Pro -> 402 FEATURE_LOCKED->business) AND capacity 'teamSeats' (Business -> 402 CAP_REACHED at 10), gated on the workspace OWNER's plan. Accept is the authoritative seat-grant path (SECURITY DEFINER RPC called from SPA), so migration 00085 recreates accept_workspace_invitation to re-check the cap under the row lock (effective-plan resolution mirrors effectivePlanFor: paused/expired-trial/unpaid->free; role-change on an existing member consumes no seat). Tests: plan-gate_test.ts (Free/Starter/Pro FEATURE_LOCKED; Business allowed to 10 then CAP_REACHED)."
     },
     {
       "id": "US-389",
@@ -6328,8 +6328,8 @@
         "plan-gate includedGrades reads honor the rollover"
       ],
       "priority": 393,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. Reset only fires on invoice.payment_succeeded (Free never gets one)."
+      "passes": true,
+      "notes": "DONE 2026-06-03. Free users never get invoice.payment_succeeded so their included-grade counter never reset. Made every read clock-based off grade_reset_at: (1) plan-gate readCurrentUsage 'includedGrades' returns 0 when grade_reset_at<=now (added grade_reset_at to PlanGateUser/UserSlice + loadUser select) -- mirrors runPaymentPrecedence's existing rollover; (2) edge /billing-summary returns rollover-aware included_used_this_month + a new grades.reset_at; (3) billing.tsx shows a correct reset hint for Free (upcoming grade_reset_at date, else 'Renews monthly') instead of 'Resets on -' from the null period_end. Test: plan-gate_test.ts readCurrentUsage rollover (past boundary->0, future->used). Frontend tsc passes."
     },
     {
       "id": "US-394",
