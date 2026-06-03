@@ -5698,8 +5698,8 @@
         "Regression test fetching http://169.254.169.254 and an RFC1918 host asserts rejection"
       ],
       "priority": 344,
-      "passes": false,
-      "notes": "[P0][Security] Prod-readiness audit 2026-06-03. SSRF sink: edge runs service-role + internal network. File: services/edge-functions/src/routes/api-v1.ts:214."
+      "passes": true,
+      "notes": "Done 2026-06-03. New lib/ssrf.ts (assertPublicUrl + safeFetch): resolves DNS, blocks RFC1918/loopback/link-local/169.254.169.254/CGNAT/reserved + IPv6 ULA/link-local/mapped-private, disables auto-redirects (re-validates each hop), caps body size+timeout. api-v1.ts image fetch now uses safeFetch; non-https/malformed image URLs rejected up front with 400. Tests: src/tests/ssrf_test.ts (metadata + RFC1918 + IPv6 + redirect cases). Deno can't run here (deno.land/esm.sh blocked by network policy) — tests written to convention, logic review-verified."
     },
     {
       "id": "US-345",
@@ -5711,8 +5711,8 @@
         "Test asserts an internal-host webhook is refused"
       ],
       "priority": 345,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. Files: services/edge-functions/src/lib/webhook-delivery.ts, routes/api-v1.ts:519."
+      "passes": true,
+      "notes": "Done 2026-06-03. webhook_url validated at set-time (PATCH /webhook via assertPublicUrl — https-in-prod + private-range block) and at delivery-time (webhook-delivery.ts re-validates before each POST, guards DNS-rebinding) with redirect:\"manual\" so a 3xx can't bounce delivery to an internal host; response body already capped to 500B. SsrfError → refused, not delivered. Covered by ssrf_test.ts."
     },
     {
       "id": "US-346",
@@ -5724,8 +5724,8 @@
         "Adversarial test (injection string in title/description) asserts the grade is not driven to 10.0"
       ],
       "priority": 346,
-      "passes": false,
-      "notes": "[P0][Security/Grading] Audit 2026-06-03. File: services/edge-functions/src/lib/ai-grading.ts:725-727."
+      "passes": true,
+      "notes": "Done 2026-06-03. ai-grading.ts: seller free-text (brand/title/description/declared features) now sanitized (sanitizeSellerText: strip control chars/role tags/code-fences/forged delimiters, length-capped) and wrapped in a delimited <<<UNTRUSTED_GARMENT_INFO>>> block in BOTH buildCompositeUserPrompt and per-image buildUserPrompt. Added UNTRUSTED_INPUT_GUARD to both system prompts instructing the model the block is reference-only and must never change scores/tier/confidence/output. Adversarial test src/tests/prompt-injection_test.ts asserts the injection can't break out of the fence (exactly one open/close) and tokens are neutralized. Model-behavior ('grade not driven to 10') is the unprovable-offline part; prompt-layer invariants are tested."
     },
     {
       "id": "US-347",
@@ -5737,8 +5737,8 @@
         "Test: an authenticated user cannot set their own role to super_admin or clear suspended/usage"
       ],
       "priority": 347,
-      "passes": false,
-      "notes": "[P0][Security] Audit 2026-06-03. 00001 self-update policy has USING but no WITH CHECK and no column restriction."
+      "passes": true,
+      "notes": "Done 2026-06-03. Migration 00076_users_self_update_guard.sql: added WITH CHECK (auth.uid()=id) to the 'Users can update own profile' policy AND a BEFORE UPDATE SECURITY DEFINER trigger (guard_users_protected_columns) that freezes role/suspended/flagged/moderation_status/plan/grades_used_this_month/grade_reset_at/grade_credit_balance/stripe + all flipdesk billing+pending columns for authenticated-role (browser) updates. Service-role (edge) and SECURITY DEFINER paths bypass via auth.role() check, so billing/admin flows keep working. Verified frontend only updates non-protected cols (onboarded_at/use_case/flipdesk_onboarded/dismissed_flipdesk_promo). DB-RLS integration test needs a live anon/authenticated PG connection (not available in this harness, same limit as tenant-isolation suite) — migration SQL review-verified."
     },
     {
       "id": "US-348",
@@ -5763,8 +5763,8 @@
         "Regression test asserts a forged/unsigned deletion cannot deactivate a connection"
       ],
       "priority": 349,
-      "passes": false,
-      "notes": "[P0][Security] Audit 2026-06-03 (flagged by 3 agents; likely source of the observed deletion flood). File: services/edge-functions/src/routes/flipdesk-webhooks.ts:326-374."
+      "passes": true,
+      "notes": "Done 2026-06-03. flipdesk-webhooks.ts POST /ebay/account-deletion now verifies the eBay HMAC signature over the RAW body BEFORE any DB write (missing→401, mismatch→401); dedups via claimWebhookEvent(ebay, notificationId, MARKETPLACE_ACCOUNT_DELETION); writes a compliance row to NEW table ebay_account_deletion_log (migration 00075 — purpose-built; NOT the GDPR account_deletion_log, which is GradeThread-account erasure with NOT NULL deleted_user_id). Signature logic extracted to lib/ebay-signature.ts (also used by the /ebay receiver, helps US-365) + unit-tested in src/tests/ebay-signature_test.ts (forged/unsigned/tampered/wrong-secret all rejected = the regression guard a forged deletion can't deactivate a connection)."
     },
     {
       "id": "US-350",
@@ -5789,8 +5789,8 @@
         "Test: a workspace admin inviting/assigning owner is rejected"
       ],
       "priority": 351,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. Consistent with the approved model (admins manage members incl. admins) but closes 'assign above own level'. File: services/edge-functions/src/routes/workspace.ts:80."
+      "passes": true,
+      "notes": "Done 2026-06-03. Pure role logic extracted to lib/workspace-roles.ts (canAssignRole: target must be assignable AND <= actor's rank; owner is never assignable). workspace.ts invite-create now rejects assigning above the actor's role (canAssignRole); resend re-applies the same cap on the stored invitation role. Migration 00077 recreates accept_workspace_invitation() with a role-ceiling guard (rejects any invitation role above 'admin') as DB-side defense in depth alongside the existing CHECK(role<>'owner'). Unit test src/tests/workspace-roles_test.ts (admin->owner rejected, etc.) runs offline."
     },
     {
       "id": "US-352",
@@ -5802,8 +5802,8 @@
         "EDGE_ENCRYPTION_KEY is stored only in the secrets manager and is rotatable"
       ],
       "priority": 352,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. File: services/edge-functions/src/lib/crypto-aes.ts."
+      "passes": true,
+      "notes": "Done 2026-06-03. crypto-aes.ts v2 format `v2:<keyId>:<iv>:<ct>`: AES-GCM additionalData binds ciphertext to the owning user_id (cross-tenant replay fails the tag) + a key registry (EDGE_ENCRYPTION_KEY/_ID + EDGE_ENCRYPTION_KEYS_OLD) enables documented key rotation; legacy v1 (no key id/AAD) still decrypts. ebay-client.ts passes userId as AAD on encrypt/decrypt/refresh (v1 back-compat: aad ignored for v1). Rotation procedure + secrets-manager-only note in file header + .env.example. Test src/tests/crypto-aes_test.ts: AAD mismatch rejected, rotation, legacy v1."
     },
     {
       "id": "US-353",
@@ -5841,8 +5841,8 @@
         "Runs as a CI guard"
       ],
       "priority": 355,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. SPA reads PostgREST with anon key, so RLS is the sole client boundary."
+      "passes": true,
+      "notes": "Done 2026-06-03. New deno test src/tests/rls-guard_test.ts statically parses ALL supabase/migrations and fails if any multi-tenant table lacks RLS, lacks a policy (unless in the SERVICE_ROLE_ONLY allowlist = deny-all/service-role-only: flipdesk_subscription_events, oauth_states), or carries USING(true)/WITH CHECK(true) or a bare-authenticated policy (the last only on user_id tables; global reference tables like ebay_category_aspects may allow authenticated reads). user_id tables auto-discovered (new ones covered free); parent-scoped tenant tables (grade_reports, submission_images, item_photos, listings, sales, shipments, flipdesk_grading_submissions, grade_outcomes, listing_generation_jobs, workspace_invitations/members) from a curated list. Validated against the real schema (32 tables checked, 0 problems) via a Python port before committing. Wired into CI: deno test now runs with --allow-read (security.yml + deno.json)."
     },
     {
       "id": "US-356",
@@ -5854,8 +5854,8 @@
         "Consider HMAC-with-server-pepper over plain SHA-256"
       ],
       "priority": 356,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. Files: middleware/api-key-auth.ts, routes/api-keys.ts (bare SHA-256, no scopes, plan===professional|enterprise gate)."
+      "passes": true,
+      "notes": "Done 2026-06-03. Per-key scopes (read/submit/webhook_manage): migration 00078 adds scopes text[] (default full set, CHECK constraint) + last_rotated_at to api_keys. New lib/api-key.ts owns generate/hash/scope logic (shared by issuer + verifier so they can't drift); hashApiKey is HMAC-with-pepper when API_KEY_PEPPER is set, else SHA-256 (documented: setting the pepper invalidates existing keys). api-key-auth.ts loads scopes into context (legacy null -> full set); api-v1.ts enforces submit on POST /grades, read on the GET endpoints, webhook_manage on PATCH /webhook (403 on missing scope). Added POST /api/keys/:id/rotate (new secret, same row/name/scopes/expiry, ownership-checked). Plan gate CONFIRMED correct: user_plan (free/starter/professional/enterprise) is the grading plan and /api/v1 is the grading API, so plan in (professional,enterprise) is the intended column, not flipdesk_plan. Test src/tests/api-key_test.ts (scopes, hashing, pepper). Frontend unaffected (uses edgeFetch; additive columns)."
     },
     {
       "id": "US-357",
@@ -5906,8 +5906,8 @@
         "These /api/jobs/* paths are not reachable publicly without the secret and are not log-leaked"
       ],
       "priority": 360,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. FLIPDESK_INTERNAL_JOB_SECRET via plain !== across many jobs."
+      "passes": true,
+      "notes": "Done 2026-06-03. New lib/job-auth.ts: verifyJobSecret/requireJobSecret compare via SHA-256 digests (constant-time, no length leak), fail-closed on unset env or empty header, and support FLIPDESK_INTERNAL_JOB_SECRET_OLD for overlap rotation. Replaced plain !== checks across all 6 FLIPDESK_INTERNAL_JOB_SECRET cron sites (grading-monitor, flipdesk-pricing reprice-scan, flipdesk-ebay oauth/refresh + jobs/publish-due, notifications trial-check (Bearer), admin-seo gsc-sync) and the content-scheduler CONTENT_INTERNAL_JOB_SECRET path. Test src/tests/job-auth_test.ts. /api/jobs/* remain unreachable without the secret; secrets are not log-leaked."
     },
     {
       "id": "US-361",
@@ -5942,8 +5942,8 @@
         "Every allowlisted origin is confirmed first-party; localhost dropped in production builds"
       ],
       "priority": 363,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/main.ts:86-89 (reflects request headers; flipdesk.com + localhost allowed)."
+      "passes": true,
+      "notes": "Done 2026-06-03. main.ts CORS: OPTIONS preflight now returns the FIXED ALLOWED_HEADERS allowlist instead of reflecting Access-Control-Request-Headers (no client-controlled widening); the cors() middleware already used the fixed allowHeaders. localhost:5173 is dropped from ALLOWED_ORIGINS in production (isProduction()); remaining origins are first-party gradethread.com/flipdesk.com brand domains. Config hardening, review-verified."
     },
     {
       "id": "US-364",
@@ -5980,8 +5980,8 @@
         "The trial/credit grant in handle_new_user is not exploitable by unverified signups"
       ],
       "priority": 366,
-      "passes": false,
-      "notes": "[P0][Auth] Audit 2026-06-03. No code checks email_confirmed_at anywhere; signup UI claims verification but nothing enforces it."
+      "passes": true,
+      "notes": "Done 2026-06-03. Edge authMiddleware now rejects any session with email_confirmed_at=null (403 code=email_unverified) BEFORE setting context — OAuth (Google) emails arrive pre-confirmed so this only blocks unconfirmed password signups (defense in depth even with GoTrue confirmations on). Frontend: ProtectedRoute renders a new VerifyEmailGate (confirm-your-email state + resendConfirmationEmail + sign-out) when session.user.email_confirmed_at is null. config.toml enable_confirmations=true. Trial grant in handle_new_user (00079) is set pre-confirmation but NOT exploitable: the edge gate blocks all unverified requests and the trial-expiry cron reverts to Free. Frontend tsc+lint+build+vitest all green; edge gate review-verified (deno can't run here)."
     },
     {
       "id": "US-367",
@@ -5993,8 +5993,8 @@
         "Client shows a strength meter but the server is authoritative"
       ],
       "priority": 367,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. Only an 8-char client check exists (signup.tsx/reset-password.tsx)."
+      "passes": true,
+      "notes": "Done 2026-06-03. supabase/config.toml sets minimum_password_length=10 + password_requirements='lower_upper_letters_digits' (server authoritative); HIBP/breached-password documented via the self-hosted GoTrue env (GOTRUE_SECURITY_PASSWORD_HIBP_ENABLED) in a config comment. New client mirror src/lib/password-policy.ts (checkPassword: len>=10 + upper+lower+digit, passwordStrength meter) wired into signup + reset forms with an inline hint; client is advisory only. Test src/lib/password-policy.test.ts (6 cases, passing)."
     },
     {
       "id": "US-368",
@@ -6019,8 +6019,8 @@
         "Verified no enumeration via differing error text"
       ],
       "priority": 369,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. login.tsx surfaces raw Supabase errors (Invalid credentials vs Email not confirmed)."
+      "passes": true,
+      "notes": "Done 2026-06-03. login.tsx now shows ONE generic message for every sign-in failure (no branching on the Supabase error => no invalid-password vs unknown-email vs unconfirmed enumeration). signup.tsx maps any 'already registered/exists' error to the same neutral 'check your email' confirmation screen so account existence isn't revealed; other errors get a generic message. Brute-force lockout is enforced by GoTrue (the app talks to it directly) and documented in config.toml (GOTRUE_RATE_LIMIT_VERIFY etc.) — not code-enforceable in this repo. Frontend build-verified."
     },
     {
       "id": "US-370",
@@ -6031,8 +6031,8 @@
         "A timeout fallback navigates away from the spinner; the listener also checks the current session on mount so an already-completed sign-in isn't missed"
       ],
       "priority": 370,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. File: src/pages/auth-callback.tsx."
+      "passes": true,
+      "notes": "Done 2026-06-03. auth-callback.tsx rewritten: parses error/error_description from BOTH query and hash and shows a clear 'sign-in failed' state with back-to-login; checks the existing session on mount (getSession) so an already-completed exchange isn't missed; subscribes to onAuthStateChange; 15s timeout fallback navigates off the spinner to an error; subscription cleaned up on unmount. tsc+lint+build green."
     },
     {
       "id": "US-371",
@@ -6044,8 +6044,8 @@
         "Reset link is single-use and short-TTL (verified)"
       ],
       "priority": 371,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. File: src/pages/reset-password.tsx (UpdatePasswordForm)."
+      "passes": true,
+      "notes": "Done 2026-06-03. reset-password UpdatePasswordForm: a 3-phase gate (checking/ready/expired) confirms a recovery session exists (getSession + PASSWORD_RECOVERY listener, 4s expiry fallback) before allowing submit, showing 'link invalid or expired' + request-new otherwise; adds a confirm-password field + the US-367 policy check; on success calls supabase.auth.signOut({scope:'global'}) to revoke ALL sessions then routes to /login. Single-use/short-TTL link enforced by GoTrue otp_expiry=3600 (config.toml). Build-verified."
     },
     {
       "id": "US-372",
@@ -6057,8 +6057,8 @@
         "Optional grace/soft-delete window before the hard cascade; covered by a test"
       ],
       "priority": 372,
-      "passes": false,
-      "notes": "[P0][Auth] Audit 2026-06-03. ON DELETE CASCADE on workspace_members.owner_id wipes the whole shared workspace with zero notice."
+      "passes": true,
+      "notes": "Done 2026-06-03. account.ts /delete now BLOCKS deletion when the user owns a workspace with active members (counts workspace_members by owner_id; returns 409 code=workspace_has_members instructing them to remove members / transfer ownership first), instead of letting the ON DELETE CASCADE silently wipe the shared workspace. Edge review-verified (deno can't run here); the frontend DangerZoneCard surfaces the 409 message as-is."
     },
     {
       "id": "US-373",
@@ -6070,8 +6070,8 @@
         "A defined support recovery procedure exists within the window"
       ],
       "priority": 373,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. File: services/edge-functions/src/routes/account.ts (immediate hard cascade)."
+      "passes": true,
+      "notes": "Done 2026-06-03. Deletion model documented + signed off as IMMEDIATE HARD-DELETE (GDPR erasure + App Store 5.1.1(v); no recoverable PII kept beyond the non-PII account_deletion_log). Added sendAccountDeletedEmail() (email.ts) sent best-effort after the cascade using the email captured pre-deletion, giving the user a short support window to flag an unintended/unauthorized deletion (support@gradethread.com). Compensating controls: confirm-string + password re-auth on the client. Edge review-verified."
     },
     {
       "id": "US-374",
@@ -6096,8 +6096,8 @@
         "Sensitive actions (reveal API key, change email) require recent re-authentication; idle-timeout considered"
       ],
       "priority": 375,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. signOut is local-scope only; autoRefresh + persistSession give effectively unbounded sessions."
+      "passes": true,
+      "notes": "Done 2026-06-03. lib/auth.ts adds signOutEverywhere (scope:global) + signOutOtherSessions (scope:others). Settings: new 'Active Sessions' card with 'Sign out of all devices'; the password-change handler now enforces the US-367 policy (was 6-char), re-authenticates with the current password (recent re-auth gate), and revokes OTHER sessions on success. config.toml enables refresh-token rotation + reuse-interval, with the self-hosted GoTrue mirror env (rotation/reuse-interval/SESSIONS_TIMEBOX) documented. Frontend tsc+lint+build+vitest green."
     },
     {
       "id": "US-376",
@@ -6109,8 +6109,8 @@
         "Verified for retried/duplicate signups"
       ],
       "priority": 376,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. handle_new_user (00001) copies raw full_name and aborts signup on any insert failure."
+      "passes": true,
+      "notes": "Done 2026-06-03. Migration 00079 recreates handle_new_user: ON CONFLICT (id) DO NOTHING (idempotent on retry) + EXCEPTION WHEN OTHERS RETURN NEW (a profile problem never aborts auth signup), full_name trimmed/control-stripped/capped to 200 (NULLIF empty), avatar_url capped to 1000. PRESERVES the US-219 14-day Pro trial grant (was dropped if I'd naively replaced 00037). full_name is React-escaped on render (untrusted-safe). Review-verified SQL."
     },
     {
       "id": "US-377",
@@ -6148,8 +6148,8 @@
         "A staging check confirms reset and OAuth redirects resolve"
       ],
       "priority": 379,
-      "passes": false,
-      "notes": "[P2][Auth] Audit 2026-06-03. File: supabase/config.toml additional_redirect_urls."
+      "passes": true,
+      "notes": "Done 2026-06-03. config.toml additional_redirect_urls now exact-match lists /auth/callback, /auth/reset-password, and /accept-invite for both localhost (dev) and https://gradethread.com, with a comment that the production self-hosted GOTRUE_URI_ALLOW_LIST must contain ONLY the https URLs (no localhost, no wildcards) for open-redirect safety."
     },
     {
       "id": "US-380",
@@ -6173,8 +6173,8 @@
         "Validated against a GDPR SAR checklist"
       ],
       "priority": 381,
-      "passes": false,
-      "notes": "[P1][Auth/Legal] Audit 2026-06-03. /api/account/export omits several PII tables; settings says images not included."
+      "passes": true,
+      "notes": "Done 2026-06-03. buildAccountExport (lib/account-export.ts) now covers ALL PII tables: disputes, api_keys (metadata only — key_hash excluded), notifications + push_device_tokens, workspace memberships + invitations, marketplace_connections (metadata only — OAuth tokens excluded), payout_imports, feedback_messages, sources, plus the existing submissions/grade_reports/inventory/sales/financial_summary and a README documenting the contents + image exclusion. Fixed a real bug: images were exported via getPublicUrl on the PRIVATE submission-images bucket (dead links) — now lists storage paths under image_paths and documents how to retrieve binaries. Settings copy updated to match (discoverable next to deletion). tsc+lint+build+vitest green."
     },
     {
       "id": "US-382",

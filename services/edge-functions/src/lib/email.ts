@@ -769,6 +769,38 @@ export async function sendDisputeFiledAdminEmail(
   });
 }
 
+// US-373: confirmation that an account was permanently deleted. Sent to the
+// erased account's email (captured before the cascade). No PII beyond the name
+// and no links into the (now gone) account.
+export async function sendAccountDeletedEmail(
+  to: string,
+  userName: string,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your account has been deleted
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(userName)}, this confirms that your GradeThread account and
+      its data have been permanently deleted at your request.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      If you did <strong>not</strong> request this, or you deleted your account by
+      mistake, contact us at <a href="mailto:support@gradethread.com" style="color: ${BRAND_RED};">support@gradethread.com</a>
+      as soon as possible — for a short window after deletion our team may be able
+      to help. After that the erasure is irreversible.
+    </p>
+    <p style="margin: 0; color: #999; font-size: 13px; line-height: 1.5;">
+      Thank you for having used GradeThread.
+    </p>
+  `;
+  return await sendEmail({
+    to,
+    subject: "Your GradeThread account has been deleted",
+    html: emailLayout(content),
+  });
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function escapeHtml(text: string): string {

@@ -23,7 +23,8 @@ import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
-import { signOut } from "@/lib/auth";
+import { signOut, signOutEverywhere, signOutOtherSessions } from "@/lib/auth";
+import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -193,15 +194,18 @@ export function SettingsPage() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      toast.error("Password must be at least 6 characters");
+    // US-367: enforce the shared password policy (was a weaker 6-char check).
+    const pwCheck = checkPassword(newPassword);
+    if (!pwCheck.ok) {
+      toast.error(pwCheck.reason ?? "Password does not meet the requirements");
       return;
     }
 
     setChangingPassword(true);
 
     try {
-      // Verify current password by re-authenticating
+      // US-375: re-authenticate with the current password (recent re-auth gate
+      // for this sensitive action) before changing it.
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: user?.email ?? "",
         password: currentPassword,
@@ -218,10 +222,14 @@ export function SettingsPage() {
 
       if (error) throw error;
 
+      // US-375: a password change must revoke other sessions so a stolen one
+      // can't survive. Keep the current session active. Best-effort.
+      await signOutOtherSessions().catch(() => {});
+
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      toast.success("Password updated successfully");
+      toast.success("Password updated. Other devices have been signed out.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update password");
     } finally {
@@ -707,10 +715,12 @@ export function SettingsPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            The archive contains your submissions, grade reports, inventory,
-            sales, and a financial summary as JSON files. Image URLs are
-            included; image files are not, to keep the download small.
-            Limited to one export per day.
+            The archive contains all of your account data as JSON — submissions,
+            grade reports, inventory, sales, disputes, API-key metadata,
+            notifications, workspace memberships and invitations, connected
+            marketplaces, payout imports, feedback, and a financial summary, plus
+            a README. Image files are not included (a private store); each
+            submission lists its image paths. Limited to one export per day.
           </p>
           {exporting && (
             <div className="space-y-1.5">
@@ -769,6 +779,7 @@ export function SettingsPage() {
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Enter new password"
               />
+              <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
             </div>
 
             <div className="space-y-2">
@@ -795,8 +806,45 @@ export function SettingsPage() {
 
       <PhotoArchiveCard />
 
+      <SignOutAllCard />
+
       <DangerZoneCard />
     </div>
+  );
+}
+
+// US-375: revoke every session for this account (all devices). The auth
+// listener picks up the sign-out and routes the user back to /login.
+function SignOutAllCard() {
+  const [busy, setBusy] = useState(false);
+
+  async function handleSignOutAll() {
+    setBusy(true);
+    try {
+      await signOutEverywhere();
+      toast.success("Signed out of all devices.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to sign out everywhere");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Active Sessions</CardTitle>
+        <CardDescription>
+          Sign out everywhere if you've used a shared device or suspect your
+          account was accessed.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button variant="outline" onClick={handleSignOutAll} disabled={busy}>
+          {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Sign out of all devices
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

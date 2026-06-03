@@ -24,6 +24,18 @@ export const authMiddleware = createMiddleware<AuthEnv>(async (c, next) => {
     return c.json({ error: "Invalid or expired token" }, 401);
   }
 
+  // US-366: require a verified email before any authenticated edge access.
+  // OAuth identities (Google) arrive with email_confirmed_at already set, so
+  // this only blocks unconfirmed password signups. Defense in depth even with
+  // GoTrue confirmations on (a future config slip, magic-link, etc. can't grant
+  // app access to an unverified account).
+  if (!data.user.email_confirmed_at) {
+    return c.json(
+      { error: "Email not verified. Please confirm your email to continue.", code: "email_unverified" },
+      403,
+    );
+  }
+
   c.set("user", data.user);
   c.set("userId", data.user.id);
 

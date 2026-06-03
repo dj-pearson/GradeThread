@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
+import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,8 +31,10 @@ export function SignupPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters");
+    // US-367: client mirror of the server password policy (server is authoritative).
+    const pwCheck = checkPassword(password);
+    if (!pwCheck.ok) {
+      toast.error(pwCheck.reason ?? "Password does not meet the requirements");
       return;
     }
     setIsLoading(true);
@@ -53,7 +56,16 @@ export function SignupPage() {
         }).catch(() => {});
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign up");
+      // US-369: never reveal whether an email is already registered. GoTrue
+      // usually obfuscates this, but if an "already registered" error does
+      // surface, show the same neutral confirmation screen instead of leaking
+      // account existence. Other errors get a single generic message.
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      if (msg.includes("registered") || msg.includes("already") || msg.includes("exists")) {
+        setIsConfirmation(true);
+      } else {
+        toast.error("We couldn't create your account. Please check your details and try again.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -135,12 +147,13 @@ export function SignupPage() {
             <Input
               id="password"
               type="password"
-              placeholder="Min. 8 characters"
+              placeholder={PASSWORD_HINT}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={8}
+              minLength={10}
             />
+            <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
           </div>
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Creating account..." : "Create account"}

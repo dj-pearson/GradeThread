@@ -40,6 +40,7 @@ import {
 } from "../lib/ebay-trading.ts";
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -209,9 +210,7 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
 // header so the cron worker can hit it without a user Bearer token. Rotates
 // any token expiring in the next 24 hours.
 flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
-  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
-  const provided = c.req.header("X-Internal-Job-Secret");
-  if (!expected || !provided || provided !== expected) {
+  if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
@@ -1728,9 +1727,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
 // scheduled_publish_at is due and that isn't already live, AS the listing's
 // owner. Not under authMiddleware (path is /jobs/*, not /listings/*).
 flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
-  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
-  const provided = c.req.header("X-Internal-Job-Secret");
-  if (!expected || !provided || provided !== expected) {
+  if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 

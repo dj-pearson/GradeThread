@@ -1,10 +1,17 @@
 import { createMiddleware } from "hono/factory";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  type ApiKeyScope,
+  DEFAULT_API_KEY_SCOPES,
+  hashApiKey,
+  isWellFormedApiKey,
+} from "../lib/api-key.ts";
 
 type ApiKeyAuthEnv = {
   Variables: {
     user: { id: string; email?: string; [key: string]: unknown };
     userId: string;
+    apiKeyScopes: ApiKeyScope[];
   };
 };
 
@@ -21,19 +28,17 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
   }
 
   // Validate key format (gt_sk_ prefix + 64 hex chars)
-  if (!apiKey.startsWith("gt_sk_") || apiKey.length !== 70) {
+  if (!isWellFormedApiKey(apiKey)) {
     return c.json({ error: "Invalid API key format" }, 401);
   }
 
-  // Hash the provided key with SHA-256 to match against stored hash
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(apiKey));
-  const keyHash = Array.from(new Uint8Array(hashBuffer), (b) => b.toString(16).padStart(2, "0")).join("");
+  // Hash the provided key (HMAC-with-pepper when configured) to match storage.
+  const keyHash = await hashApiKey(apiKey);
 
   // Look up the key by hash
   const { data: keyRecord, error: lookupError } = await supabaseAdmin
     .from("api_keys")
-    .select("id, user_id, expires_at")
+    .select("id, user_id, expires_at, scopes")
     .eq("key_hash", keyHash)
     .single();
 
@@ -60,9 +65,14 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
       }
     });
 
-  // Set user context from the key's user_id
+  // Set user context from the key's user_id + the key's scopes (US-356). A row
+  // predating the scopes column reads back null → fall back to the full set.
   c.set("user", { id: keyRecord.user_id });
   c.set("userId", keyRecord.user_id);
+  c.set(
+    "apiKeyScopes",
+    ((keyRecord as { scopes?: ApiKeyScope[] }).scopes) ?? [...DEFAULT_API_KEY_SCOPES],
+  );
 
   await next();
 });

@@ -1,25 +1,12 @@
 import { createMiddleware } from "hono/factory";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { roleAtLeast, type WorkspaceRole } from "../lib/workspace-roles.ts";
 
-// Mirrors src/lib/workspace-permissions.ts on the frontend. Keep in sync.
-export type WorkspaceRole =
-  | "viewer"
-  | "member"
-  | "listing_manager"
-  | "admin"
-  | "owner";
-
-const ROLE_RANK: Record<WorkspaceRole, number> = {
-  viewer: 1,
-  member: 2,
-  listing_manager: 3,
-  admin: 4,
-  owner: 5,
-};
-
-export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
-  return ROLE_RANK[role] >= ROLE_RANK[min];
-}
+// Re-export the pure role helpers so existing importers of this middleware keep
+// working. The hierarchy + assignment cap live in lib/workspace-roles.ts (no DB
+// import, unit-testable).
+export { roleAtLeast };
+export type { WorkspaceRole };
 
 type WorkspaceEnv = {
   Variables: {

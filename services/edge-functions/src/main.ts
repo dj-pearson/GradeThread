@@ -42,18 +42,21 @@ import { rateLimiter } from "./middleware/rate-limit.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit } from "./middleware/body-limit.ts";
-import { assertNoProdDebugFlags } from "./lib/env.ts";
+import { assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
 
 const app = new Hono();
 
 // Allowed CORS origins. Function form is more reliable than the array form
 // across Hono versions and gives clearer logs when a request is rejected.
+// US-363: localhost is a dev-only origin and is dropped in production builds so
+// a prod deploy never trusts a loopback origin. The remaining origins are
+// first-party GradeThread / FlipDesk brand domains.
 const ALLOWED_ORIGINS = new Set<string>([
-  "http://localhost:5173",
   "https://gradethread.com",
   "https://www.gradethread.com",
   "https://flipdesk.com",
   "https://www.flipdesk.com",
+  ...(isProduction() ? [] : ["http://localhost:5173"]),
 ]);
 
 const ALLOWED_HEADERS = [
@@ -83,10 +86,9 @@ app.use("*", async (c, next) => {
     "Access-Control-Allow-Methods",
     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
   );
-  c.header(
-    "Access-Control-Allow-Headers",
-    c.req.header("Access-Control-Request-Headers") ?? ALLOWED_HEADERS.join(", "),
-  );
+  // US-363: return the FIXED allowlist — never reflect
+  // Access-Control-Request-Headers, which would let any client widen the set.
+  c.header("Access-Control-Allow-Headers", ALLOWED_HEADERS.join(", "));
   c.header("Access-Control-Max-Age", "86400");
   return c.body(null, 204);
 });

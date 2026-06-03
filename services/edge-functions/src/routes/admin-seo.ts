@@ -9,6 +9,7 @@
 
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
 import {
   getGscSiteUrl,
   isGscConfigured,
@@ -147,9 +148,7 @@ export async function handleGscSyncCron(c: {
   req: { header: (name: string) => string | undefined };
   json: (body: unknown, status?: number) => Response;
 }): Promise<Response> {
-  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
-  const provided = c.req.header("X-Internal-Job-Secret");
-  if (!expected || !provided || provided !== expected) {
+  if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   const result = await runGscSync();
