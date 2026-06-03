@@ -183,3 +183,21 @@
 .prose-legal th {
   @apply bg-muted text-xs font-semibold uppercase tracking-wide text-muted-foreground;
 }
+
+/* US-438: honor the OS "reduce motion" setting. Neutralizes non-essential
+   animation/transition globally (entrance/zoom/slide, hover transitions,
+   smooth scroll) for users prone to motion sickness or vestibular disorders.
+   We collapse durations to ~0 rather than `animation: none` so still-working
+   indicators (e.g. the loading spinner's `animate-spin` ring) stay PRESENT and
+   perceivable as a static ring — they just stop rotating. scroll-behavior is
+   reset so programmatic scrolling jumps instead of gliding. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

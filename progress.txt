@@ -3302,3 +3302,42 @@ Edge changes (ai-config/ai-grading/body-limit/main + new lib/tests) written to
 convention + review-verified; their deno lint/test run in CI.
 
 prd.json 354/524.
+
+
+## Session Notes (2026-06-03 cont.) -- A11y/UX polish US-438/US-441/US-450
+
+Three small, localized, review-verifiable frontend stories (node_modules is not
+installed + network blocked here, so all frontend is review-verified this pass).
+Chose contained changes where review gives high confidence.
+
+US-438 Support prefers-reduced-motion [P1][A11y]:
+- src/index.css: global @media (prefers-reduced-motion: reduce) that collapses
+  animation-duration/transition-duration to ~0 and resets scroll-behavior for
+  *, ::before, ::after. Uses near-0 duration (NOT animation:none) so the
+  animate-spin loading ring stays present/perceivable as a static ring per the
+  AC. Neutralizes tw-animate-css entrance/zoom/slide + all hover transitions.
+
+US-441 Add combobox/listbox ARIA to the command palette [P1][A11y]:
+- command-palette.tsx input -> role=combobox + aria-autocomplete=list +
+  aria-expanded + aria-controls + aria-activedescendant(command-palette-option-
+  {activeIdx}) + aria-label. Results container -> role=listbox + id. Sections ->
+  role=group + aria-label (visual header aria-hidden). Rows -> role=option +
+  stable id + aria-selected. Active option announced as arrows move.
+
+US-450 Make 404/error pages on-brand and clear [P3][UX]:
+- not-found.tsx rebuilt: logo + friendly copy + primary "Go home" + 3
+  de-emphasized helpful links (dashboard / how-it-works / faq), marked
+  <SEO noindex>. (SPA-level noindex; SSR-level real-404 is US-422/US-443.)
+- error-boundary.tsx: both ErrorBoundary fallback and RouteErrorFallback now
+  use a single primary "Try again" (reload) + de-emphasized ghost "Go home",
+  consistent styling across both + the 404.
+
+Considered but deferred this pass: US-359 (standardize edge errors + redact
+logs) -- the redaction helper is easy, but the AC requires migrating ~81
+error.message return sites across 14 files with per-status judgment, and with no
+deno runtime to run the suite a silent break can't be caught; left for a session
+with a runtime. US-454 (color-not-sole-indicator) is spread across many score
+cells with subjective per-cell judgment + needs a color-blindness simulator to
+validate -- not cleanly verifiable here.
+
+prd.json 357/524.

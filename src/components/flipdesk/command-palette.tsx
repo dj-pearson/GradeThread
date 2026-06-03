@@ -378,21 +378,49 @@ export function CommandPalette() {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search items, sources, actions…"
             className="h-12 flex-1 bg-transparent text-sm outline-none"
+            // US-441: expose the combobox pattern. The input owns the listbox
+            // below; aria-activedescendant points at the arrow-key-active row so
+            // a screen reader announces it without moving DOM focus off the
+            // input.
+            role="combobox"
+            aria-label="Search items, sources, actions"
+            aria-autocomplete="list"
+            aria-expanded={flat.length > 0}
+            aria-controls="command-palette-listbox"
+            aria-activedescendant={
+              flat.length > 0 ? `command-palette-option-${activeIdx}` : undefined
+            }
           />
           <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
             Esc
           </kbd>
         </div>
 
-        <div ref={listRef} className="max-h-[60vh] overflow-y-auto p-2">
+        <div
+          ref={listRef}
+          id="command-palette-listbox"
+          role="listbox"
+          aria-label="Search results"
+          className="max-h-[60vh] overflow-y-auto p-2"
+        >
           {flat.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
               {query ? "No matches." : "Type to search, or pick an action."}
             </div>
           ) : (
             sections.map((section) => (
-              <div key={section.title} className="mb-2">
-                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              // US-441: each section is a labelled group inside the listbox; the
+              // visual header is aria-hidden so it isn't announced twice.
+              <div
+                key={section.title}
+                role="group"
+                aria-label={section.title}
+                className="mb-2"
+              >
+                <div
+                  aria-hidden="true"
+                  className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+                >
                   {section.title}
                 </div>
                 {section.entries.map((entry) => {
@@ -403,6 +431,9 @@ export function CommandPalette() {
                     <button
                       key={`${entry.kind}-${entry.id}`}
                       type="button"
+                      id={`command-palette-option-${idx}`}
+                      role="option"
+                      aria-selected={isActive}
                       data-idx={idx}
                       onMouseMove={() => setActiveIdx(idx)}
                       onClick={() => selectEntry(entry)}

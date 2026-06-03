@@ -61,17 +61,20 @@ export class ErrorBoundary extends Component<Props, State> {
                   {this.state.error.message}
                 </pre>
               )}
-              <div className="mt-6 flex gap-3">
-                <Button variant="outline" onClick={() => window.location.reload()}>
+              {/* US-450: one clear primary action (reload — the most reliable
+                  recovery); "Go home" de-emphasized as a ghost button. */}
+              <div className="mt-6 flex flex-col items-center gap-2">
+                <Button onClick={() => window.location.reload()}>
                   <RefreshCw className="mr-2 h-4 w-4" />
-                  Reload
+                  Try again
                 </Button>
-                <Button variant="outline" onClick={this.handleReset}>
-                  Try Again
-                </Button>
-                <Button onClick={() => (window.location.href = "/")}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => (window.location.href = "/")}
+                >
                   <Home className="mr-2 h-4 w-4" />
-                  Go Home
+                  Go home
                 </Button>
               </div>
             </CardContent>
@@ -98,14 +101,20 @@ export function RouteErrorFallback() {
           <p className="mt-2 text-sm text-muted-foreground">
             This page encountered an error. Please try again.
           </p>
-          <div className="mt-6 flex gap-3">
-            <Button variant="outline" onClick={() => window.location.reload()}>
+          {/* US-450: consistent with the ErrorBoundary fallback — single
+              primary action, de-emphasized secondary. */}
+          <div className="mt-6 flex flex-col items-center gap-2">
+            <Button onClick={() => window.location.reload()}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              Reload
+              Try again
             </Button>
-            <Button onClick={() => (window.location.href = "/")}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => (window.location.href = "/")}
+            >
               <Home className="mr-2 h-4 w-4" />
-              Go Home
+              Go home
             </Button>
           </div>
         </CardContent>

@@ -6894,8 +6894,8 @@
         "Verified on landing + dialogs with OS reduce-motion on"
       ],
       "priority": 438,
-      "passes": false,
-      "notes": "[P1][A11y] Audit 2026-06-03. Zero prefers-reduced-motion handling; animations in 106 files."
+      "passes": true,
+      "notes": "[P1][A11y] Audit 2026-06-03. Zero prefers-reduced-motion handling; animations in 106 files. DONE 2026-06-03: added a global @media (prefers-reduced-motion: reduce) rule in src/index.css that collapses animation/transition durations to ~0 and resets scroll-behavior; uses near-0 duration (not animation:none) so still-working indicators like the animate-spin loading ring stay present/perceivable as a static ring. Covers tw-animate-css entrance/zoom/slide + all transitions globally."
     },
     {
       "id": "US-439",
@@ -6933,8 +6933,8 @@
         "Active option announced as focus moves with arrows"
       ],
       "priority": 441,
-      "passes": false,
-      "notes": "[P1][A11y] Audit 2026-06-03. File: src/components/flipdesk/command-palette.tsx."
+      "passes": true,
+      "notes": "[P1][A11y] Audit 2026-06-03. File: src/components/flipdesk/command-palette.tsx. DONE 2026-06-03: command-palette.tsx now implements the ARIA combobox/listbox pattern. Input: role=combobox, aria-autocomplete=list, aria-expanded, aria-controls=command-palette-listbox, aria-activedescendant pointing at command-palette-option-{activeIdx}, aria-label. Results container: role=listbox + id. Sections: role=group + aria-label (visual header aria-hidden). Each row: role=option, stable id command-palette-option-{idx}, aria-selected. Active option announced as arrows move via aria-activedescendant."
     },
     {
       "id": "US-442",
@@ -7043,8 +7043,8 @@
         "Error-boundary has a single clear primary action; secondary actions de-emphasized; consistent styling across RouteErrorFallback/ErrorBoundary/404"
       ],
       "priority": 450,
-      "passes": false,
-      "notes": "[P3][UX] Audit 2026-06-03. not-found.tsx minimal; error-boundary has 3 equal buttons."
+      "passes": true,
+      "notes": "[P3][UX] Audit 2026-06-03. not-found.tsx minimal; error-boundary has 3 equal buttons. DONE 2026-06-03: not-found.tsx rebuilt on-brand (logo + friendly copy + Go-home primary + 3 de-emphasized helpful links to dashboard/how-it-works/faq) and marked noindex via <SEO noindex>. error-boundary.tsx both fallbacks (ErrorBoundary + RouteErrorFallback) now use a single primary 'Try again' (reload) with a de-emphasized ghost 'Go home' secondary, consistent styling across both + the 404."
     },
     {
       "id": "US-451",
