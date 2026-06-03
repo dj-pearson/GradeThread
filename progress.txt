@@ -3486,3 +3486,30 @@ US-455 Add workspace-member RLS to repricing_suggestions + flipdesk_sync_runs [P
   contains A's suggestion id).
 
 prd.json 366/524.
+
+
+## Session Notes (2026-06-03 cont.) -- eBay reliability cluster US-467/US-463
+
+US-467 Don't mark a repricing suggestion applied when the eBay push fails [P2][FlipDesk]:
+- /suggestions/:id/apply now pushes to eBay FIRST. On updateOfferPrice failure
+  it returns 502 WITHOUT updating the local listing_price (no silent
+  local<->eBay desync) and WITHOUT marking the suggestion applied — it stays
+  'pending' (still in the list = retryable), and the next reconcile can't mask
+  the failed apply since local still equals eBay's current price. Local price +
+  status='applied' are written only after a successful push (or when there's no
+  live offer). The 502 carries a clear error + ebay_error for the UI.
+
+US-463 Deactivate + notify on permanent eBay token-refresh failure [P1][FlipDesk]:
+- Pure isPermanentEbayAuthFailure() (ebay-client.ts) classifies failures:
+  invalid_grant/invalid_client/unauthorized_client/invalid_scope/revoked + bare
+  400/401/403 = PERMANENT; 5xx/429/network = TRANSIENT.
+- getUserAccessToken's catch now DEACTIVATES the connection (is_active=false) +
+  stores a clear EBAY_RECONNECT_MESSAGE on PERMANENT failures (stops the refresh
+  cron hammering a dead grant); TRANSIENT failures keep is_active=true so a
+  retry can recover.
+- Frontend: new useEbayConnectionIssue() reads the latest (incl. inactive)
+  connection; the marketplaces page shows a clear reconnect banner with a
+  "Reconnect eBay" action when a connection was deactivated.
+- Tests: tests/ebay-auth-failure_test.ts.
+
+prd.json 368/524.

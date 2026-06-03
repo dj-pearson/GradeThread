@@ -42,6 +42,36 @@ export function useEbayConnection(pollingInterval?: number) {
   });
 }
 
+// US-463: surfaces a connection that was DEACTIVATED by a permanent
+// token-refresh failure (revoked/expired grant) so the UI can show a "reconnect"
+// banner. Unlike useEbayConnection it does NOT filter is_active=true — it reads
+// the latest row regardless so a deactivated connection's refresh_error is
+// visible. RLS keeps it scoped to the current user.
+export interface EbayConnectionIssue {
+  is_active: boolean;
+  refresh_error: string | null;
+}
+
+export function useEbayConnectionIssue() {
+  const user = useAuthStore((s) => s.user);
+  return useQuery({
+    queryKey: ["ebay_connection_issue", user?.id],
+    enabled: !!user,
+    staleTime: 60_000,
+    queryFn: async (): Promise<EbayConnectionIssue | null> => {
+      const { data, error } = await supabase
+        .from("marketplace_connections")
+        .select("is_active, refresh_error")
+        .eq("marketplace", "ebay")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as EbayConnectionIssue | null;
+    },
+  });
+}
+
 // Legacy single-header helper. Most call sites use it via
 // `Authorization: await authHeader()`; new sites should prefer the shared
 // edgeAuthHeaders() from @/lib/edge-fetch, which also attaches the

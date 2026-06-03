@@ -7207,8 +7207,8 @@
         "Transient failures (5xx/network) are distinguished and don't deactivate"
       ],
       "priority": 463,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. getUserAccessToken rethrows but leaves is_active=true; cron only counts failures."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. getUserAccessToken rethrows but leaves is_active=true; cron only counts failures. DONE 2026-06-03: pure isPermanentEbayAuthFailure() (ebay-client.ts) classifies refresh failures — invalid_grant/invalid_client/unauthorized_client/invalid_scope/revoked + bare 400/401/403 = PERMANENT; 5xx/429/network = TRANSIENT. getUserAccessToken's catch now deactivates the connection (is_active=false) + stores a clear EBAY_RECONNECT_MESSAGE on PERMANENT failures (stops the refresh cron hammering a dead grant); TRANSIENT failures keep is_active=true so a retry can recover. Frontend: new useEbayConnectionIssue() hook reads the latest (incl. inactive) connection; marketplaces page shows a clear reconnect banner with a 'Reconnect eBay' action when a connection was deactivated. Tests: tests/ebay-auth-failure_test.ts."
     },
     {
       "id": "US-464",
@@ -7259,8 +7259,8 @@
         "The next sync reconciling local<->eBay price doesn't mask a failed apply"
       ],
       "priority": 467,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. /suggestions/:id/apply marks applied even when updateOfferPrice throws."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. /suggestions/:id/apply marks applied even when updateOfferPrice throws. DONE 2026-06-03: /suggestions/:id/apply now pushes to eBay FIRST. On updateOfferPrice failure it returns 502 WITHOUT updating the local listing_price (no silent local<->eBay desync) and WITHOUT marking the suggestion applied — it stays 'pending' so it remains in the list and is retryable, and the next local<->eBay reconcile can't mask the failed apply (local still equals eBay's current price). Local price + status='applied' are written only after a successful push (or when there is no live offer). Response carries a clear error + ebay_error so the UI flags it."
     },
     {
       "id": "US-468",
