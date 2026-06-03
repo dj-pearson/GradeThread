@@ -89,6 +89,29 @@ Deno.test({
 });
 
 Deno.test({
+  // US-455: the suggestions list is scoped to the caller's workspace owner, so
+  // B's list must never contain one of A's suggestion ids. (RLS on
+  // repricing_suggestions is defense-in-depth; the edge scoping is the boundary
+  // actually enforced since the service-role client bypasses RLS.)
+  name: "B's repricing suggestions never include A's suggestion id",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUGGESTION_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_SUGGESTION_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/pricing/suggestions`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      suggestions?: Array<{ id: string }>;
+    };
+    const ids = (body.suggestions ?? []).map((s) => s.id);
+    assert(
+      !ids.includes(aId),
+      `B's suggestions leaked A's suggestion ${aId}`,
+    );
+  },
+});
+
+Deno.test({
   name: "B cannot delete A's API key (and the key survives)",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_API_KEY_ID"),
   fn: async () => {

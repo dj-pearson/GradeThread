@@ -45,6 +45,34 @@ export interface PublicRoute {
   jsonLdType?: string;
 }
 
+// US-429: per-route content-change date (YYYY-MM-DD) for the sitemap <lastmod>.
+// HAND-MAINTAINED and stable across deploys — NEVER the build timestamp — so an
+// unchanged route keeps the same lastmod every deploy (crawlers stop re-fetching
+// pages that didn't change). Bump a route's date ONLY when its rendered content
+// meaningfully changes. Routes not listed (e.g. generated glossary spokes) fall
+// back to DEFAULT_LAST_MODIFIED.
+export const DEFAULT_LAST_MODIFIED = "2026-06-01";
+const ROUTE_LAST_MODIFIED: Record<string, string> = {
+  "/": "2026-06-01",
+  "/how-it-works": "2026-06-01",
+  "/pricing": "2026-06-01",
+  "/for-resellers": "2026-06-01",
+  "/faq": "2026-06-01",
+  "/condition-grading": "2026-06-01",
+  "/grading-standard": "2026-06-01",
+  "/transparency": "2026-06-01",
+  // Legal pages mirror their rendered effectiveDate ("April 1, 2026").
+  "/privacy": "2026-04-01",
+  "/terms": "2026-04-01",
+  "/cookies": "2026-04-01",
+  "/acceptable-use": "2026-04-01",
+};
+
+/** Stable content-change date for a route's sitemap <lastmod>. */
+export function lastModifiedFor(path: string): string {
+  return ROUTE_LAST_MODIFIED[normalizePath(path)] ?? DEFAULT_LAST_MODIFIED;
+}
+
 export const PUBLIC_ROUTES: PublicRoute[] = [
   {
     path: "/",

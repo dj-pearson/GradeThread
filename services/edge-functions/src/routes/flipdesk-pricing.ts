@@ -228,32 +228,49 @@ flipdeskPricingRoutes.post("/suggestions/:id/apply", async (c) => {
     .maybeSingle();
   if (!listing) return c.json({ error: "Listing not found" }, 404);
 
+  const offerId = (listing as { platform_offer_id: string | null }).platform_offer_id;
+  const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+
+  // US-467: push to eBay FIRST. If the remote update fails we must NOT update
+  // the local price (which would silently desync local vs eBay) and must NOT
+  // mark the suggestion applied — leave it 'pending' so it stays in the list
+  // and is retryable, and so the next local<->eBay reconcile doesn't mask the
+  // failed apply (local still equals eBay's current price).
+  if (hasLiveOffer) {
+    try {
+      await updateOfferPrice(ownerId, offerId!, dollars);
+    } catch (err) {
+      const ebayError = err instanceof Error ? err.message : String(err);
+      console.error(
+        "[repricing] updateOfferPrice failed — suggestion left pending:",
+        ebayError,
+      );
+      return c.json(
+        {
+          applied: false,
+          ebay_synced: false,
+          error: "Couldn't update the price on eBay — left unapplied so you can retry.",
+          ebay_error: ebayError,
+        },
+        502,
+      );
+    }
+  }
+
+  // Remote update succeeded (or there is no live offer to push) — persist the
+  // new price locally and mark the suggestion applied.
   const { error: updErr } = await supabaseAdmin
     .from("listings")
     .update({ listing_price: dollars, price_is_estimated: false })
     .eq("id", listingId);
   if (updErr) return c.json({ error: updErr.message }, 500);
 
-  // Push the new price to eBay if this is a live offer.
-  let ebaySynced = false;
-  let ebayError: string | null = null;
-  const offerId = (listing as { platform_offer_id: string | null }).platform_offer_id;
-  if (offerId && isEbayConfigured()) {
-    try {
-      await updateOfferPrice(ownerId, offerId, dollars);
-      ebaySynced = true;
-    } catch (err) {
-      ebayError = err instanceof Error ? err.message : String(err);
-      console.error("[repricing] updateOfferPrice failed:", ebayError);
-    }
-  }
-
   await supabaseAdmin
     .from("repricing_suggestions")
     .update({ status: "applied", applied_at: new Date().toISOString() })
     .eq("id", id);
 
-  return c.json({ applied: true, new_price: dollars, ebay_synced: ebaySynced, ebay_error: ebayError });
+  return c.json({ applied: true, new_price: dollars, ebay_synced: hasLiveOffer });
 });
 
 // ── POST /suggestions/:id/dismiss ─────────────────────────────────

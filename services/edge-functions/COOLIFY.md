@@ -51,10 +51,41 @@ The dev override mounts `./src` and runs Deno with `--watch`.
 | `/api/flipdesk/images/*`     | Image pipeline (resize, EXIF, R2 archive)     |
 | `/api/flipdesk/reconciliation/*` | Payout matching                           |
 
+## Request body size limit (US-362)
+
+Request bodies are capped at two layers, defense-in-depth:
+
+1. **Edge of network (Traefik):** the `edge-bodylimit` buffering middleware
+   (see `docker-compose.coolify.yml`) returns **HTTP 413** once a request body
+   exceeds **16 MiB** (`maxRequestBodyBytes=16777216`), before the request ever
+   reaches the container. `memRequestBodyBytes=2 MiB` bounds the in-memory
+   buffer (larger bodies spill to disk). This holds even when `Content-Length`
+   is omitted or spoofed (chunked transfer-encoding).
+2. **Application (Hono):** `middleware/body-limit.ts` rejects an honest
+   over-cap `Content-Length` up front (413) and, for the spoofed/omitted case,
+   byte-counts the body **as the handler reads it** and aborts the stream past
+   the cap (15 MiB upload paths, 256 KiB JSON paths).
+
+The 16 MiB Traefik cap = the app's 15 MiB upload cap plus multipart/base64
+overhead. **Keep it in sync with `UPLOAD_MAX_BYTES` in `body-limit.ts`** if that
+value changes.
+
 ## Healthcheck
 
-Docker healthcheck and Coolify both hit `GET /health`. The container is marked
-unhealthy after 3 consecutive failures (90 s window, 15 s startup grace).
+Two probes (US-492):
+
+- **`GET /health` — liveness (restart probe).** Cheap, dependency-free. The
+  Dockerfile `HEALTHCHECK` and Coolify (`coolify.healthcheckPath=/health`) hit
+  this; the container is marked unhealthy after 3 consecutive failures (90 s
+  window, 15 s startup grace) and restarted. It deliberately does NOT touch the
+  DB — restarting can't fix a DB outage, and a dependency blip must not
+  crash-loop a healthy process.
+- **`GET /health/ready` — readiness.** Probes hard dependencies (Postgres
+  reachable via a tiny HEAD query + critical env present) and returns **503**
+  when one is down, so a load balancer / orchestrator can stop routing traffic
+  to a container that's up but can't serve. Use this (not `/health`) for any
+  traffic-gating or deploy-gating readiness check; keep the restart probe on
+  `/health`.
 
 ## Updating
 

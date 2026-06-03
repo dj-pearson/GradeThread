@@ -7,6 +7,7 @@ import {
   Check,
   Loader2,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
   useEbayConnection,
+  useEbayConnectionIssue,
   useStartEbayOauth,
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
@@ -109,6 +111,7 @@ export function FlipdeskMarketplacesPage() {
 
   const pollingInterval = syncSince != null ? 5_000 : undefined;
   const { data: connection, isLoading: connLoading } = useEbayConnection(pollingInterval);
+  const { data: connIssue } = useEbayConnectionIssue();
   const startOauth = useStartEbayOauth();
   const syncListings = useSyncEbayListings();
 
@@ -157,6 +160,32 @@ export function FlipdeskMarketplacesPage() {
           </p>
         </div>
       </div>
+
+      {/* US-463: a connection deactivated by a permanent token-refresh failure
+          (revoked/expired grant) needs explicit re-auth. Show a clear banner
+          with a reconnect action rather than silently reverting to the
+          "Connect eBay" CTA. */}
+      {connIssue && !connIssue.is_active && connIssue.refresh_error && (
+        <div className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
+            <span className="text-foreground">{connIssue.refresh_error}</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => startOauth.mutate()}
+            disabled={startOauth.isPending}
+            className="shrink-0"
+          >
+            {startOauth.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-2 h-4 w-4" />
+            )}
+            Reconnect eBay
+          </Button>
+        </div>
+      )}
 
       {/* eBay — the primary integration */}
       <div>

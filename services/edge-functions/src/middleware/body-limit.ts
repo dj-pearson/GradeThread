@@ -46,6 +46,9 @@ export const bodyLimit = createMiddleware(async (c, next) => {
   }
 
   const cap = capForPath(c.req.path);
+
+  // Fast path: an honest Content-Length over the cap is rejected up front with
+  // a clean 413 before the body is touched.
   const lenHeader = c.req.header("content-length");
   if (lenHeader) {
     const len = Number(lenHeader);
@@ -61,5 +64,63 @@ export const bodyLimit = createMiddleware(async (c, next) => {
     }
   }
 
+  // US-362: the header can be omitted or lie (e.g. chunked transfer-encoding),
+  // so we also count bytes AS THE HANDLER READS the body and abort the stream
+  // the moment it exceeds the cap — a single request can't grow the buffer past
+  // `cap` no matter what it claims. We swap the request's body for a wrapper
+  // stream; the wrapper only advances when the handler pulls, so this stays
+  // streaming (no eager buffering) and is a no-op for bodyless requests.
+  const original = c.req.raw;
+  if (original.body) {
+    const guarded = new Request(original, {
+      body: capBodyStream(original.body, cap),
+      // Required by the Fetch/Deno runtime when a Request carries a stream body.
+      duplex: "half",
+    } as RequestInit);
+    c.req.raw = guarded;
+  }
+
   await next();
 });
+
+// Error thrown into the body stream when the handler reads past the cap. The
+// handler's body parse (json()/formData()/arrayBuffer()) rejects with this, so
+// the route fails closed instead of buffering an unbounded payload.
+export class BodyTooLargeError extends Error {
+  readonly maxBytes: number;
+  constructor(maxBytes: number) {
+    super(`Request body exceeded ${maxBytes} bytes`);
+    this.name = "BodyTooLargeError";
+    this.maxBytes = maxBytes;
+  }
+}
+
+// Wraps a request body stream so reading it aborts once `cap` bytes have passed
+// through. Pure pass-through below the cap; errors the stream above it.
+export function capBodyStream(
+  src: ReadableStream<Uint8Array>,
+  cap: number,
+): ReadableStream<Uint8Array> {
+  const reader = src.getReader();
+  let total = 0;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      total += value.byteLength;
+      if (total > cap) {
+        const err = new BodyTooLargeError(cap);
+        controller.error(err);
+        await reader.cancel(err);
+        return;
+      }
+      controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
+}

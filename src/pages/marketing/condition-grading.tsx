@@ -122,7 +122,7 @@ export function ConditionGradingPage() {
             Rather than a single subjective impression, the overall grade is a
             weighted combination of five factors:
           </p>
-          <div className="mt-8 overflow-hidden rounded-lg border">
+          <div className="mt-8 overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>

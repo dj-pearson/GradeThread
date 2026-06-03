@@ -330,7 +330,7 @@ export function TransparencyPage() {
             live.
           </p>
           {data && data.changelog.length > 0 ? (
-            <div className="mt-8 overflow-hidden rounded-lg border">
+            <div className="mt-8 overflow-x-auto rounded-lg border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
                   <tr>

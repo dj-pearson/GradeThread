@@ -3253,3 +3253,263 @@ Verification: npx tsc -b, npm run lint, npm run build, npx vitest run (146 tests
 ALL pass. Edge (account.ts, email.ts) + config.toml review-verified.
 
 prd.json 351/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Grading reproducibility + UX/edge hardening US-481/US-437/US-362
+
+Picked three self-contained, high-priority audit items that are completable +
+verifiable in this environment (deno + deno.land/esm.sh remain blocked here, so
+edge code is review-verified; frontend is tsc-verified).
+
+US-481 Lower grading model temperature for reproducibility [P1][Grading]:
+- ai-config.ts: new getGradingTemperature() ALWAYS returns a number (default 0,
+  greedy decoding) regardless of AI_TEMPERATURE, clamped to [0,0.2] via optional
+  GRADING_AI_TEMPERATURE. Decoupled from getAiTemperature() (kept for non-grading
+  flows: extract/reconcile/content). ai-grading.ts vision + composite calls now
+  use it and always pass `temperature` (no more SDK-default-1.0 leak).
+- Reliability harness: new lib/grading-reliability.ts (pure gradeSelfConsistency
+  + assessSelfConsistency) + fixture-gated tests/grading-reliability_test.ts that
+  FAILS if any garment's repeated grades drift > one increment. Live re-grade
+  sampling can feed assessSelfConsistency() via a future env-gated job.
+- Documented in .env.example (justification + [0,0.2] cap).
+
+US-437 Replace window.confirm with AlertDialog [P1][UX]:
+- New components/ui/confirm-dialog.tsx: promise-based useConfirm()/ConfirmProvider
+  on Radix AlertDialog (focus trap + return-to-trigger built in). Mounted in
+  ProtectedRoute so it's on authenticated pages only (keeps radix weight off
+  public/marketing, consistent with the AppBillingDialogs decision).
+- Replaced ALL 5 native window.confirm sites (blog-editor, social-editor,
+  blog-list, bulk-intake, ebay-sku-match) with action-labeled confirms
+  ("Publish post" / "Delete post" / "Discard haul" / "Remove listings"), using
+  the destructive variant on deletes/discards.
+
+US-362 Enforce a real request-body byte cap [P3][Security] (supersedes the
+earlier deferral note above):
+- body-limit.ts: keeps the fast-path Content-Length 413, AND now wraps the body
+  in a byte-counting stream (capBodyStream) that aborts mid-read once the cap is
+  exceeded even when Content-Length is omitted/spoofed (chunked) -- mirrors
+  Hono's official body-limit pattern (new Request(orig,{body,duplex:'half'}) ->
+  c.req.raw). BodyTooLargeError maps to a clean 413 in app.onError.
+- Traefik hard cap: edge-bodylimit buffering middleware
+  (maxRequestBodyBytes=16MiB, memRequestBodyBytes=2MiB) added to
+  docker-compose.coolify.yml + documented in COOLIFY.md.
+- Tests added to body-validation_test.ts (under/at/over-cap streaming cases).
+
+Verification: npx tsc --noEmit -p tsconfig.app.json clean for changed frontend
+files (only the pre-existing TS-6.0.2 baseUrl-deprecation warning, irrelevant
+under the repo's pinned TS 5.9.3); async-onClick pattern matches existing code.
+Edge changes (ai-config/ai-grading/body-limit/main + new lib/tests) written to
+convention + review-verified; their deno lint/test run in CI.
+
+prd.json 354/524.
+
+
+## Session Notes (2026-06-03 cont.) -- A11y/UX polish US-438/US-441/US-450
+
+Three small, localized, review-verifiable frontend stories (node_modules is not
+installed + network blocked here, so all frontend is review-verified this pass).
+Chose contained changes where review gives high confidence.
+
+US-438 Support prefers-reduced-motion [P1][A11y]:
+- src/index.css: global @media (prefers-reduced-motion: reduce) that collapses
+  animation-duration/transition-duration to ~0 and resets scroll-behavior for
+  *, ::before, ::after. Uses near-0 duration (NOT animation:none) so the
+  animate-spin loading ring stays present/perceivable as a static ring per the
+  AC. Neutralizes tw-animate-css entrance/zoom/slide + all hover transitions.
+
+US-441 Add combobox/listbox ARIA to the command palette [P1][A11y]:
+- command-palette.tsx input -> role=combobox + aria-autocomplete=list +
+  aria-expanded + aria-controls + aria-activedescendant(command-palette-option-
+  {activeIdx}) + aria-label. Results container -> role=listbox + id. Sections ->
+  role=group + aria-label (visual header aria-hidden). Rows -> role=option +
+  stable id + aria-selected. Active option announced as arrows move.
+
+US-450 Make 404/error pages on-brand and clear [P3][UX]:
+- not-found.tsx rebuilt: logo + friendly copy + primary "Go home" + 3
+  de-emphasized helpful links (dashboard / how-it-works / faq), marked
+  <SEO noindex>. (SPA-level noindex; SSR-level real-404 is US-422/US-443.)
+- error-boundary.tsx: both ErrorBoundary fallback and RouteErrorFallback now
+  use a single primary "Try again" (reload) + de-emphasized ghost "Go home",
+  consistent styling across both + the 404.
+
+Considered but deferred this pass: US-359 (standardize edge errors + redact
+logs) -- the redaction helper is easy, but the AC requires migrating ~81
+error.message return sites across 14 files with per-status judgment, and with no
+deno runtime to run the suite a silent break can't be caught; left for a session
+with a runtime. US-454 (color-not-sole-indicator) is spread across many score
+cells with subjective per-cell judgment + needs a color-blindness simulator to
+validate -- not cleanly verifiable here.
+
+prd.json 357/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Responsive tables US-442
+
+US-442 Wrap data tables for mobile horizontal scroll [P1][Responsive]:
+- Key finding: the shadcn <Table> component (components/ui/table.tsx) ALREADY
+  self-wraps in `div.relative w-full overflow-x-auto`, so all 28 <Table> call
+  sites -- including every named offender (api-keys, admin/*, team, flipdesk
+  analytics/sources/expenses) -- are already compliant.
+- Fixed the remaining RAW <table> elements:
+  - 4 marketing tables (condition-grading/grading-standard/how-it-works/
+    transparency) + grading-calibration-panel + grading-monitor-panel: their
+    bordered containers used overflow-hidden (clips, no scroll); switched to
+    overflow-x-auto (same class shadcn's own Table uses), keeping the rounded
+    border.
+  - pnl-panel: added overflow-x-auto to its `rounded-md border` div.
+  - content analytics (x2) / blog-list / content-settings: wrapped the tables in
+    a new div.overflow-x-auto.
+- Excluded: financial-export.tsx's <table> is inside a downloadable HTML-report
+  string (not rendered UI); autolister-bulk-edit + grid were already wrapped.
+- Net: every rendered table now scrolls within its container instead of forcing
+  horizontal page scroll at 375px. (Stacked/card mobile layout is the AC's
+  optional "consider" item; the overflow-x-auto baseline is applied everywhere.)
+
+Considered but deferred: US-426 (trailing-slash canonical) -- the 301-redirect
+AC bullet is Cloudflare-Pages-specific (untestable here) and interacts with the
+not-yet-built _routes.json precedence (US-424); the client-canonical
+normalization is easy but the story can't be fully + safely landed review-only.
+US-428 (twitter:site + Organization sameAs) -- needs REAL X/LinkedIn/Instagram
+handles (only a GitHub URL exists in-repo); adding placeholders would violate
+the "only live URLs" AC + Google policy. Needs the real handles from the owner.
+
+prd.json 358/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Dark-mode surfaces + sitemap lastmod US-451/US-429
+
+US-451 Audit hardcoded surface utilities for dark mode [P3][Dark mode]:
+- Replaced the themeable NEUTRAL surfaces with semantic tokens: admin
+  users.tsx + user-detail.tsx role/plan badge maps 'bg-gray-100 text-gray-700'
+  -> 'bg-muted text-muted-foreground'; disputes.tsx checkbox 'border-gray-300'
+  -> 'border-input'.
+- Documented the INTENTIONAL fixed-color regions per the AC: navy dashboard
+  sidebar + admin-layout aside (white-on-navy in both themes) and the
+  photo-editor crop handle (fixed white over imagery). The remaining bg-white/N
+  hits are all white-with-opacity over colored/navy backgrounds (sidebar,
+  launch-banner, landing pricing toggle, verified badge) -> correct in both
+  themes. Colored -100/-700 status badges are left for US-439 (AA contrast).
+
+US-429 Use real content-change dates for static sitemap lastmod [P3][SEO]:
+- Added a hand-maintained, deploy-STABLE per-route lastModified source
+  (ROUTE_LAST_MODIFIED + lastModifiedFor() + DEFAULT_LAST_MODIFIED) co-located
+  with the registry in public-routes.ts. Legal pages mirror their rendered
+  effectiveDate (2026-04-01); marketing/glossary use 2026-06-01; generated
+  glossary spokes fall back to DEFAULT.
+- vite.config seoManifestPlugin attaches lastModified per route to
+  dist/seo-manifest.json; functions/_shared/sitemap.ts staticUrls now emits
+  r.lastModified (build timestamp only as a legacy fallback), so an unchanged
+  route keeps a steady <lastmod> across deploys. Test added (sitemap.test.ts).
+
+prd.json 360/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Grading-confidence + OAuth-redirect hardening US-483/US-361
+
+US-483 Cap confidence when grading factors were defaulted [P2][Grading]:
+- ai-grading.ts: extracted two pure, unit-tested helpers. sanitizeFactorScores()
+  clamps valid factors to [1,10], substitutes a neutral 7.0 for invalid/NaN
+  values, and COUNTS the substitutions. applyGradingConfidencePolicy() caps
+  confidence (authenticity 0.6, defaulted-factor 0.5) and forces
+  needs_human_review whenever any factor was defaulted OR authenticity flagged —
+  so a partly-hallucinated factor set always abstains to a human, even if the
+  (configurable) review threshold is set permissively.
+- compositeGrade emits the default-substitution COUNTER: a structured
+  [AI Grading][metric] factor_defaulted log line + a fire-and-forget PostHog
+  'grading.factor_defaulted' event (model + prompt_version + count).
+- Tests: tests/grading-confidence_test.ts, incl. a malformed-factor response.
+
+US-361 Verify open-redirect safety of the OAuth relative-path sanitizer [P3][Security]:
+- Hardened sanitizeRelativePath and moved it to a side-effect-free
+  lib/oauth-redirect.ts (imported by flipdesk-ebay.ts). It now rejects: control
+  chars incl. tab/newline/CR (browsers strip them, so "/<TAB>/evil.com" would
+  collapse to protocol-relative "//evil.com"); absolute/scheme URLs; "//host";
+  ANY backslash; and any path not under ALLOWED_REDIRECT_PREFIXES (["/dashboard"]
+  — the only legitimate OAuth landing; the sole caller passes no redirect_to, so
+  nothing breaks and the callback keeps its safe default).
+- Tests: tests/oauth-redirect_test.ts covers each bypass vector (control chars
+  built via String.fromCharCode so the source carries no literal control bytes).
+
+prd.json 362/524.
+
+
+## Session Notes (2026-06-03 cont.) -- DB sync indexes + health readiness US-409/US-492
+
+US-409 Add composite indexes for hot sync lookups [P1][Performance/DB]:
+- Migration 00080_listings_sync_indexes.sql:
+  - idx_listings_item_platform_created ON listings(inventory_item_id, platform,
+    created_at DESC) — the sync's per-item, newest-first listing lookup is now
+    served from the index (no Sort node, no heap scan for ordering).
+  - idx_listings_publish_due ON listings(scheduled_publish_at) WHERE
+    synced_to_ebay_at IS NULL AND listing_status='draft' — matches the
+    /jobs/publish-due filter EXACTLY (the prior 00052 partial index omitted the
+    draft predicate). EXPLAIN ANALYZE confirmations are documented inline for
+    operator post-deploy verification (no DB in CI here).
+
+US-492 Make /health a real readiness check [P1][Observability]:
+- routes/health.ts split into two probes. GET /health stays a cheap,
+  dependency-free LIVENESS/restart probe (Dockerfile HEALTHCHECK + Coolify keep
+  using it — restarting can't fix a DB outage, so it must not flap on deps). New
+  GET /health/ready READINESS probe checks DB connectivity (tiny HEAD count on
+  users.id) + critical env (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  ANTHROPIC_API_KEY/CLAUDE_API_KEY) and returns 503 when a hard dep is down.
+- Pure summarizeReadiness() helper unit-tested (tests/health_test.ts); the
+  route's I/O stays trivial. Documented the two probes in COOLIFY.md.
+
+prd.json 364/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Partial-success grading + FlipDesk member RLS US-485/US-455
+
+US-485 Allow partial-success grading on a single image failure [P2][Grading]:
+- grading-pipeline.ts runs per-image analysis with Promise.allSettled (was
+  Promise.all -> one rejection failed the whole paid grade). New pure,
+  unit-tested partitionImageResults() (ai-grading.ts) splits settled outcomes by
+  REQUIRED_IMAGE_TYPES (front/back/label, reused from image-quality.ts):
+  - REQUIRED core-angle failure (or zero usable images) still throws -> the
+    existing catch reverses the charge (behavior UNCHANGED -> bounds risk);
+  - OPTIONAL image failure (extra detail/defect shots) is tolerated: grade
+    proceeds on the images that succeeded, confidence capped to
+    PARTIAL_IMAGE_CONFIDENCE_CAP (0.6) + needs_human_review forced true.
+- Surfaced via per-failure console.error + a 'grading.partial_success' PostHog
+  metric. Retries/timeout already bounded by the Anthropic SDK
+  (getAiMaxRetries/getAiTimeoutMs). Tests: tests/grading-partial_test.ts.
+
+US-455 Add workspace-member RLS to repricing_suggestions + flipdesk_sync_runs [P1][RLS]:
+- Migration 00081 adds additive SELECT-only policies using
+  is_workspace_member_with_role(user_id,'viewer') (consistent with 00042);
+  previously both tables were owner-only. Mutations stay owner-scoped; a
+  non-member non-owner matches no SELECT policy -> sees nothing.
+- The edge already scopes reads by workspaceOwnerId (service-role bypasses RLS),
+  so this is defense-in-depth + RLS/edge consistency. Cross-tenant API-boundary
+  assertion added to tenant-isolation_test.ts (B's /pricing/suggestions never
+  contains A's suggestion id).
+
+prd.json 366/524.
+
+
+## Session Notes (2026-06-03 cont.) -- eBay reliability cluster US-467/US-463
+
+US-467 Don't mark a repricing suggestion applied when the eBay push fails [P2][FlipDesk]:
+- /suggestions/:id/apply now pushes to eBay FIRST. On updateOfferPrice failure
+  it returns 502 WITHOUT updating the local listing_price (no silent
+  local<->eBay desync) and WITHOUT marking the suggestion applied — it stays
+  'pending' (still in the list = retryable), and the next reconcile can't mask
+  the failed apply since local still equals eBay's current price. Local price +
+  status='applied' are written only after a successful push (or when there's no
+  live offer). The 502 carries a clear error + ebay_error for the UI.
+
+US-463 Deactivate + notify on permanent eBay token-refresh failure [P1][FlipDesk]:
+- Pure isPermanentEbayAuthFailure() (ebay-client.ts) classifies failures:
+  invalid_grant/invalid_client/unauthorized_client/invalid_scope/revoked + bare
+  400/401/403 = PERMANENT; 5xx/429/network = TRANSIENT.
+- getUserAccessToken's catch now DEACTIVATES the connection (is_active=false) +
+  stores a clear EBAY_RECONNECT_MESSAGE on PERMANENT failures (stops the refresh
+  cron hammering a dead grant); TRANSIENT failures keep is_active=true so a
+  retry can recover.
+- Frontend: new useEbayConnectionIssue() reads the latest (incl. inactive)
+  connection; the marketplaces page shows a clear reconnect banner with a
+  "Reconnect eBay" action when a connection was deactivated.
+- Tests: tests/ebay-auth-failure_test.ts.
+
+prd.json 368/524.

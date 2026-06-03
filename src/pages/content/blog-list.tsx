@@ -4,6 +4,7 @@ import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -33,6 +34,7 @@ export function BlogListPage() {
     status: status || undefined,
     product_focus: product || undefined,
   });
+  const confirm = useConfirm();
   const create = useCreateBlogPost();
   const del = useDeleteBlogPost();
   const tick = useSchedulerTick();
@@ -129,6 +131,7 @@ export function BlogListPage() {
       ) : (
         <Card>
           <CardContent className="p-0">
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="border-b text-left text-xs uppercase text-muted-foreground">
                 <tr>
@@ -195,8 +198,16 @@ export function BlogListPage() {
                         size="icon"
                         className="h-7 w-7 text-destructive"
                         title="Delete"
-                        onClick={() => {
-                          if (window.confirm(`Delete "${p.title}"?`)) {
+                        onClick={async () => {
+                          if (
+                            await confirm({
+                              title: `Delete "${p.title}"?`,
+                              description:
+                                "This permanently removes the post and its content. This can't be undone.",
+                              confirmLabel: "Delete post",
+                              destructive: true,
+                            })
+                          ) {
                             del.mutate(p.id);
                           }
                         }}
@@ -208,6 +219,7 @@ export function BlogListPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </CardContent>
         </Card>
       )}

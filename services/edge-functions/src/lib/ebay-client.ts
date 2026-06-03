@@ -262,6 +262,34 @@ export interface EbayUserRefreshResponse {
   token_type: string;
 }
 
+// US-463: classify a token-refresh failure as PERMANENT (the refresh token is
+// revoked/expired/invalid — only re-consent fixes it) vs TRANSIENT (5xx / 429 /
+// network blip — a later retry can succeed). Pure + unit-tested. refreshUserToken
+// throws "eBay token refresh failed (NNN): <body>", so both the OAuth error code
+// in the body and the HTTP status are available to classify on.
+export function isPermanentEbayAuthFailure(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  // Canonical OAuth permanent-grant signals from the response body.
+  if (
+    /\binvalid_grant\b|\binvalid_client\b|\bunauthorized_client\b|\binvalid_scope\b|token_revoked|\brevoked\b/
+      .test(msg)
+  ) {
+    return true;
+  }
+  // Fall back to the HTTP status in "failed (NNN)": 5xx/429 are transient, other
+  // 4xx auth errors (400/401/403) are permanent.
+  const status = Number(msg.match(/failed \((\d{3})\)/)?.[1] ?? 0);
+  if (status >= 500 || status === 429) return false;
+  if (status === 400 || status === 401 || status === 403) return true;
+  // Network/timeout/unknown → transient (never deactivate on a blip).
+  return false;
+}
+
+// Clear, seller-facing reason stored on the connection when we deactivate it, so
+// the UI banner can tell them to reconnect.
+export const EBAY_RECONNECT_MESSAGE =
+  "eBay disconnected: your authorization was revoked or expired. Please reconnect your eBay account.";
+
 export async function refreshUserToken(
   refreshToken: string
 ): Promise<EbayUserRefreshResponse> {
@@ -430,13 +458,25 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     return fresh.access_token;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const permanent = isPermanentEbayAuthFailure(err);
+    // US-463: a PERMANENT failure (revoked/expired refresh token) will never
+    // recover by retry — deactivate the connection and store a clear reconnect
+    // message so the UI prompts re-auth and the refresh cron stops hammering a
+    // dead grant. A TRANSIENT failure (5xx/429/network) leaves is_active=true so
+    // the next attempt can succeed.
     await supabaseAdmin
       .from("marketplace_connections")
       .update({
         last_refresh_attempt_at: new Date().toISOString(),
-        refresh_error: msg.slice(0, 500),
+        refresh_error: permanent ? EBAY_RECONNECT_MESSAGE : msg.slice(0, 500),
+        ...(permanent ? { is_active: false } : {}),
       })
       .eq("id", row.id);
+    if (permanent) {
+      console.warn(
+        `[ebay] permanent refresh failure — deactivated connection ${row.id}: ${msg.slice(0, 200)}`,
+      );
+    }
     throw err;
   }
 }

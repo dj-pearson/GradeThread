@@ -65,7 +65,16 @@ services:
       # can legitimately take 30-60s for a large seller. The default Traefik
       # timeout (~30s) returns a 504 mid-call. Bump to 120s.
       - traefik.http.services.edge-functions.loadbalancer.responseforwarding.flushinterval=100ms
-      - traefik.http.routers.edge-functions.middlewares=edge-cors
+      # US-362: hard edge-of-network request-body cap. Traefik returns 413 once
+      # the body exceeds this many bytes, BEFORE the request reaches the app, so
+      # a chunked/Content-Length-spoofing upload can't pressure the container.
+      # 16 MiB = the app's 15 MiB upload cap (body-limit.ts UPLOAD_MAX_BYTES)
+      # plus multipart/base64 overhead headroom. memRequestBodyBytes keeps the
+      # in-memory buffer bounded (spills to disk above it). Keep this in sync
+      # with UPLOAD_MAX_BYTES if that changes.
+      - traefik.http.middlewares.edge-bodylimit.buffering.maxRequestBodyBytes=16777216
+      - traefik.http.middlewares.edge-bodylimit.buffering.memRequestBodyBytes=2097152
+      - traefik.http.routers.edge-functions.middlewares=edge-cors,edge-bodylimit
     deploy:
       resources:
         limits:

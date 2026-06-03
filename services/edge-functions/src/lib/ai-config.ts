@@ -60,13 +60,39 @@ export function getAiMaxRetries(): number {
 }
 
 // Returns undefined when the var is unset so the SDK applies its own default
-// (currently 1.0). Returning a number clamps to [0, 1].
+// (currently 1.0). Returning a number clamps to [0, 1]. Used by the
+// non-grading AI flows (extraction, content, reconcile) where some sampling
+// variety is acceptable.
 export function getAiTemperature(): number | undefined {
   const raw = Deno.env.get("AI_TEMPERATURE");
   if (!raw) return undefined;
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return undefined;
   return Math.max(0, Math.min(1, parsed));
+}
+
+// US-481: Grading must be REPRODUCIBLE — the same garment must not score
+// differently on a re-grade or dispute. So grading (the per-image vision pass
+// AND the composite synthesis) ALWAYS uses a low temperature, defaulting to 0
+// (fully greedy decoding) regardless of whether AI_TEMPERATURE is set. This is
+// deliberately decoupled from getAiTemperature(): a global AI_TEMPERATURE meant
+// to add variety to copywriting must never leak nondeterminism into a graded,
+// certified score that backs a public "standardized" value prop.
+//
+// An operator MAY raise it via GRADING_AI_TEMPERATURE (clamped to [0, 0.2]) if a
+// documented experiment shows a higher value improves accuracy without harming
+// self-consistency — the cap keeps any non-zero choice within a reproducible
+// band. Always returns a number (never undefined) so the SDK default of 1.0 can
+// never apply to grading.
+export const GRADING_DEFAULT_TEMPERATURE = 0;
+export const GRADING_MAX_TEMPERATURE = 0.2;
+
+export function getGradingTemperature(): number {
+  const raw = Deno.env.get("GRADING_AI_TEMPERATURE");
+  if (!raw) return GRADING_DEFAULT_TEMPERATURE;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return GRADING_DEFAULT_TEMPERATURE;
+  return Math.max(0, Math.min(GRADING_MAX_TEMPERATURE, parsed));
 }
 
 export function isCachingEnabled(): boolean {

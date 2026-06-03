@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
   buildConsentUrl,
   createOffer,
@@ -1892,16 +1893,6 @@ function generateState(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Only same-origin relative redirects are allowed back out of the OAuth
-// callback — prevents an open redirect via a crafted ?redirect_to=. Must be a
-// path beginning with a single "/" (not "//" or "/\\", which browsers treat as
-// protocol-relative and would change host). Returns null for anything else,
-// including absolute URLs. (US-274)
-function sanitizeRelativePath(input: string | null | undefined): string | null {
-  if (!input || !input.startsWith("/")) return null;
-  if (input.startsWith("//") || input.startsWith("/\\")) return null;
-  return input;
-}
 
 // ── Manage helpers ─────────────────────────────────────────────────
 

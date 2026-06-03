@@ -262,7 +262,7 @@ export function GradingMonitorPanel() {
                 <p className="mb-2 text-xs font-medium text-muted-foreground">
                   Recent runs
                 </p>
-                <div className="overflow-hidden rounded-lg border">
+                <div className="overflow-x-auto rounded-lg border">
                   <table className="w-full text-xs">
                     <tbody>
                       {runs.slice(0, 8).map((r) => {

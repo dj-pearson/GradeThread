@@ -174,6 +174,10 @@ function PinnedViews({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Sidebar() {
   return (
+    // US-451: the sidebar is an INTENTIONAL fixed-color region — brand navy with
+    // white-on-navy nav items (text-white, bg-white/10..15) in BOTH light and
+    // dark mode. The hardcoded white utilities here are deliberate and must not
+    // be swapped for themeable tokens. Same for the admin layout's navy aside.
     <aside className="hidden w-64 flex-shrink-0 flex-col bg-brand-navy text-white md:flex">
       <div className="flex h-16 items-center px-6">
         <img src="/logo_white.png" alt="GradeThread" className="h-8" />

@@ -5,7 +5,10 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  // services/edge-functions is Deno code, linted by its own `deno lint` job.
+  // The browser-targeted config here would double-lint it and conflict with
+  // deno-lint-ignore directives, so it's excluded.
+  { ignores: ["dist", "services/edge-functions/**"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

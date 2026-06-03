@@ -5,7 +5,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
 import { writeFileSync } from "fs";
-import { PUBLIC_ROUTES, SITE_URL } from "./src/lib/seo/public-routes";
+import { PUBLIC_ROUTES, SITE_URL, lastModifiedFor } from "./src/lib/seo/public-routes";
 
 // Source-map upload only runs on builds that carry a Sentry auth token (CI).
 // Local/tokenless builds skip it and emit no source maps, so nothing leaks.
@@ -23,7 +23,12 @@ function seoManifestPlugin(): Plugin {
       const manifest = {
         siteUrl: SITE_URL,
         generatedAt: new Date().toISOString(),
-        routes: PUBLIC_ROUTES,
+        // US-429: attach each route's stable content-change date so the sitemap
+        // <lastmod> reflects real edits, not the build timestamp.
+        routes: PUBLIC_ROUTES.map((r) => ({
+          ...r,
+          lastModified: lastModifiedFor(r.path),
+        })),
       };
       writeFileSync(
         path.resolve(__dirname, "dist/seo-manifest.json"),

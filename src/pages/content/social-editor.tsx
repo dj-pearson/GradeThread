@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
   Select,
   SelectContent,
@@ -77,6 +78,7 @@ function SocialEditorInner({
   };
   onBack: () => void;
 }) {
+  const confirm = useConfirm();
   const update = useUpdateSocialPost(postId);
   const publish = usePublishSocialPost(postId);
   const generate = useGenerateSocialPost(postId);
@@ -123,7 +125,14 @@ function SocialEditorInner({
   };
 
   const runPublish = async () => {
-    if (!window.confirm("Publish this social post now?")) return;
+    if (
+      !(await confirm({
+        title: "Publish this social post now?",
+        description: "It will be sent to the connected channel immediately.",
+        confirmLabel: "Publish post",
+      }))
+    )
+      return;
     await saveMeta();
     await publish.mutateAsync();
   };
