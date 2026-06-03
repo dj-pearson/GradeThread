@@ -8,6 +8,7 @@ import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
+import { ConsentGate } from "@/components/legal/consent-gate";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -44,6 +45,9 @@ export function DashboardLayout() {
       {/* Billing dialogs — moved here from RootLayout so their weight stays off
           public pages (402 hard-trigger + usage watcher are authed-only). */}
       <AppBillingDialogs />
+      {/* US-377: blocks the app until ToS/Privacy are accepted (OAuth signups +
+          re-acceptance on a material legal change). */}
+      <ConsentGate />
     </div>
   );
 }

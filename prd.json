@@ -6122,8 +6122,8 @@
         "A re-acceptance flow exists for future material changes; record is exportable"
       ],
       "priority": 377,
-      "passes": false,
-      "notes": "[P1][Auth/Legal] Audit 2026-06-03. signup.tsx uses passive browsewrap text; nothing recorded; OAuth bypasses it."
+      "passes": true,
+      "notes": "DONE 2026-06-03. Signup used passive browsewrap text and recorded nothing; OAuth bypassed it. Now: (1) migration 00086 adds users.tos_accepted_version + tos_accepted_at and extends handle_new_user (additive, exception-safe) to persist the version passed at email signup (options.data.tos_accepted_version) with a server-set timestamp. (2) signup.tsx has a REQUIRED affirmative checkbox (submit disabled until checked) and passes CURRENT_LEGAL_VERSION (new constant) to signUpWithEmail. (3) ConsentGate (mounted in dashboard-layout) blocks the app for any authed user whose tos_accepted_version != CURRENT_LEGAL_VERSION -- captures OAuth signups before first dashboard access AND forces re-acceptance when the version is bumped; writes acceptance via a direct users update (not a protected column). (4) Exportable: account-export now includes profile.json with the consent record. tsc + lint pass."
     },
     {
       "id": "US-378",
@@ -6379,8 +6379,8 @@
         "Transient vs code-bug failures are distinguished; dropped billing events alert"
       ],
       "priority": 397,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts returns 200 and only console-logs DB failures."
+      "passes": true,
+      "notes": "DONE 2026-06-03. webhooks.ts swallowed DB-write failures in money handlers (console.error + return -> 200), so Stripe never retried and the event was silently dropped. Now: (1) webhook-idempotency.ts gains a 3-state claimWebhookEventResult (claimed/duplicate/error) + releaseWebhookClaim; the boolean claimWebhookEvent wrapper (fail-open) is kept for the eBay callers. (2) The Stripe route classifies events via isCriticalEvent (CRITICAL_EVENT_TYPES = subscription.*/invoice.*/checkout.session.completed/charge.refunded/charge.dispute.created). On a claim-store transient error, critical events fail CLOSED (503 -> Stripe retries). (3) Critical handlers now THROW on DB-write failure (not swallow); the outer catch RELEASES the claim (so the retry re-processes), emits a 'billing.webhook_failed' alert, and returns 500. Validation/lookup misses (bad metadata, no-user, not-found) stay benign 200s (no point retrying). recordEvent + per-resource guards keep retries idempotent. Test: tests/webhook-critical_test.ts (isCriticalEvent classification)."
     },
     {
       "id": "US-398",

@@ -1,3 +1,9 @@
+// US-377: current Terms of Service + Privacy Policy version. Bump this when the
+// legal documents materially change — the in-app consent gate compares it to
+// users.tos_accepted_version and re-prompts on a mismatch. Date-stamped so the
+// effective version is self-evident in the consent record.
+export const CURRENT_LEGAL_VERSION = "2026-06-03";
+
 // Grade scale labels (1.0-10.0)
 export const GRADE_LABELS = {
   10: "New with Tags (NWT)",

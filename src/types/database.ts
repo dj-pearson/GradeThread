@@ -227,6 +227,10 @@ export interface UserRow {
   verified_bio: string | null;
   verified_enabled: boolean;
   verified_since: string | null;
+  // US-377: clickwrap consent. The legal-document version the user accepted and
+  // when; NULL until captured (OAuth/legacy accounts → captured by the gate).
+  tos_accepted_version: string | null;
+  tos_accepted_at: string | null;
   created_at: string;
   updated_at: string;
 }

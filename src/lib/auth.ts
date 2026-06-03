@@ -1,11 +1,23 @@
 import { supabase } from "./supabase";
 
-export async function signUpWithEmail(email: string, password: string, fullName: string) {
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  fullName: string,
+  // US-377: the legal version the user affirmatively accepted at signup. Passed
+  // through to handle_new_user, which records it + a server timestamp.
+  acceptedLegalVersion?: string,
+) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
-      data: { full_name: fullName },
+      data: {
+        full_name: fullName,
+        ...(acceptedLegalVersion
+          ? { tos_accepted_version: acceptedLegalVersion }
+          : {}),
+      },
       emailRedirectTo: `${window.location.origin}/auth/callback`,
     },
   });

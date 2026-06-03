@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
+import { CURRENT_LEGAL_VERSION } from "@/lib/constants";
 import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,8 @@ export function SignupPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmation, setIsConfirmation] = useState(false);
+  // US-377: affirmative clickwrap consent — required before account creation.
+  const [agreed, setAgreed] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,9 +40,14 @@ export function SignupPage() {
       toast.error(pwCheck.reason ?? "Password does not meet the requirements");
       return;
     }
+    // US-377: block account creation until the user affirmatively accepts.
+    if (!agreed) {
+      toast.error("Please accept the Terms of Service and Privacy Policy to continue.");
+      return;
+    }
     setIsLoading(true);
     try {
-      const data = await signUpWithEmail(email, password, fullName);
+      const data = await signUpWithEmail(email, password, fullName, CURRENT_LEGAL_VERSION);
       setIsConfirmation(true);
 
       // US-219: every new signup is granted a 14-day Pro trial by the
@@ -155,7 +163,31 @@ export function SignupPage() {
             />
             <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
           </div>
-          <Button type="submit" className="w-full" disabled={isLoading}>
+          <label className="flex items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-input accent-brand-navy"
+              checked={agreed}
+              onChange={(e) => setAgreed(e.target.checked)}
+              aria-describedby="legal-consent"
+            />
+            <span id="legal-consent">
+              I agree to the{" "}
+              <Link to="/terms" className="underline hover:text-foreground">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link to="/privacy" className="underline hover:text-foreground">
+                Privacy Policy
+              </Link>
+              .
+            </span>
+          </label>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isLoading || !agreed}
+          >
             {isLoading ? "Creating account..." : "Create account"}
           </Button>
         </form>
@@ -181,7 +213,7 @@ export function SignupPage() {
         </Button>
 
         <p className="mt-4 text-center text-xs text-muted-foreground">
-          By creating an account, you agree to our{" "}
+          Continuing with Google means you accept our{" "}
           <Link to="/terms" className="underline hover:text-foreground">
             Terms of Service
           </Link>{" "}
@@ -189,7 +221,7 @@ export function SignupPage() {
           <Link to="/privacy" className="underline hover:text-foreground">
             Privacy Policy
           </Link>
-          .
+          ; we&apos;ll confirm on first sign-in.
         </p>
       </CardContent>
       <CardFooter className="justify-center">

@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
-import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
+import {
+  claimWebhookEventResult,
+  releaseWebhookClaim,
+} from "../lib/webhook-idempotency.ts";
 import {
   sendCreditPackPurchasedEmail,
   sendPaymentFailedEmail,
@@ -65,12 +68,21 @@ webhookRoutes.post("/stripe", async (c) => {
 
   console.log(`[Webhook] ${event.type} (${event.id})`);
 
+  const critical = isCriticalEvent(event.type);
+
   // Idempotency: skip duplicate deliveries before any side effects run. Stripe
   // retries the same event.id for up to 72h, so dedup (not timestamp rejection)
   // is the correct replay defense here. (US-277)
-  if (!(await claimWebhookEvent("stripe", event.id, event.type))) {
+  const claim = await claimWebhookEventResult("stripe", event.id, event.type);
+  if (claim === "duplicate") {
     console.log(`[Webhook] duplicate ${event.type} (${event.id}) — skipping`);
     return c.json({ received: true, duplicate: true });
+  }
+  // US-397: a transient failure recording the claim must fail CLOSED for money
+  // events — return 503 so Stripe retries rather than processing without an
+  // idempotency guard. Best-effort events fall through and process (fail-open).
+  if (claim === "error" && critical) {
+    return c.json({ error: "Idempotency store unavailable; retry" }, 503);
   }
 
   try {
@@ -112,11 +124,44 @@ webhookRoutes.post("/stripe", async (c) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[Webhook] Error handling ${event.type} (${event.id}): ${message}`);
-    // 200 anyway — Stripe retrying won't fix code-level bugs.
+
+    // US-397: for CRITICAL money events, a handler failure (e.g. a DB write
+    // error) must NOT be swallowed as 200 — that silently drops the event since
+    // Stripe won't retry a 2xx. Release the idempotency claim so the retry can
+    // re-process, alert, and return 5xx so Stripe retries.
+    if (critical) {
+      await releaseWebhookClaim("stripe", event.id);
+      void captureServer("system", "billing.webhook_failed", {
+        event_type: event.type,
+        event_id: event.id,
+        error: message,
+      });
+      return c.json({ error: "Webhook handler failed; retry" }, 500);
+    }
+    // Non-critical: nothing money-moving to retry — ack so Stripe stops.
   }
 
   return c.json({ received: true });
 });
+
+// US-397: money-moving / entitlement-changing events. A handler failure on
+// these must trigger a Stripe retry (release claim + 5xx); other events ack 200.
+const CRITICAL_EVENT_TYPES = new Set<string>([
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.paused",
+  "customer.subscription.resumed",
+  "customer.subscription.deleted",
+  "invoice.payment_succeeded",
+  "invoice.payment_failed",
+  "checkout.session.completed",
+  "charge.refunded",
+  "charge.dispute.created",
+]);
+
+export function isCriticalEvent(eventType: string): boolean {
+  return CRITICAL_EVENT_TYPES.has(eventType);
+}
 
 // ── Idempotency helper ───────────────────────────────────────────
 type FlipdeskPlan = "free" | "starter" | "pro" | "business";
@@ -284,8 +329,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     .eq("id", user.id);
 
   if (error) {
-    console.error(`[Webhook] Failed to update user ${user.id} subscription:`, error);
-    return;
+    // US-397: throw so the outer handler releases the claim + returns 5xx and
+    // Stripe retries — a swallowed 200 would silently drop the plan change.
+    throw new Error(`subscription update failed for ${user.id}: ${error.message}`);
   }
 
   console.log(
@@ -402,8 +448,7 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     .eq("id", user.id);
 
   if (error) {
-    console.error(`[Webhook] Failed to downgrade user ${user.id}:`, error);
-    return;
+    throw new Error(`subscription-deleted downgrade failed for ${user.id}: ${error.message}`); // US-397: retry
   }
 
   // Credit balance intentionally untouched (US-200 / US-216).
@@ -460,16 +505,18 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
       .eq("id", user.id);
 
     if (error) {
-      console.error(`[Webhook] Failed to reset monthly counters for ${user.id}:`, error);
-      return;
+      throw new Error(`cycle reset failed for ${user.id}: ${error.message}`); // US-397: retry
     }
     console.log(`[Webhook] User ${user.id} cycle reset (${billingReason})`);
   } else {
     // Any successful payment clears past_due → active.
-    await supabaseAdmin
+    const { error: clearErr } = await supabaseAdmin
       .from("users")
       .update({ subscription_status: "active" })
       .eq("id", user.id);
+    if (clearErr) {
+      throw new Error(`past_due→active clear failed for ${user.id}: ${clearErr.message}`); // US-397: retry
+    }
   }
 }
 
@@ -497,10 +544,13 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
   );
   if (!proceed) return;
 
-  await supabaseAdmin
+  const { error: pastDueErr } = await supabaseAdmin
     .from("users")
     .update({ subscription_status: "past_due" })
     .eq("id", user.id);
+  if (pastDueErr) {
+    throw new Error(`past_due update failed for ${user.id}: ${pastDueErr.message}`); // US-397: retry
+  }
 
   console.log(
     `[Webhook] User ${user.id} → past_due (invoice ${invoice.id}, attempt ${invoice.attempt_count})`,
@@ -610,8 +660,10 @@ async function handleCreditPackPurchase(
   });
 
   if (error) {
-    console.error(`[Webhook] grant_grade_credits failed for user ${userId}:`, error);
-    return;
+    // US-397: throw so Stripe retries — dropping a paid credit grant means the
+    // customer paid and got nothing. recordEvent already guards against the
+    // retry double-granting.
+    throw new Error(`grant_grade_credits failed for ${userId}: ${error.message}`);
   }
   const newBalance = typeof data === "number" ? data : credits;
   console.log(`[Webhook] Granted ${credits} credits to user ${userId}, new balance=${newBalance}`);
@@ -666,8 +718,10 @@ async function handlePerGradePurchase(
     .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
 
   if (updateError) {
-    console.error(`[Webhook] Failed to mark submission ${submissionId} paid:`, updateError);
-    return;
+    // US-397: throw so Stripe retries — the customer paid; we must mark it paid
+    // and kick grading. The .eq('payment_status','unpaid') guard keeps the
+    // retry idempotent.
+    throw new Error(`mark-paid failed for submission ${submissionId}: ${updateError.message}`);
   }
 
   console.log(`[Webhook] Submission ${submissionId} paid (${tier}); kicking grading pipeline`);
@@ -733,8 +787,9 @@ async function handleChargeRefunded(event: Stripe.Event) {
   });
 
   if (error) {
-    console.error(`[Webhook] Refund reversal failed for user ${userId}:`, error);
-    return;
+    // US-397: throw so Stripe retries — a dropped reversal leaves refunded
+    // credits spendable. recordEvent guards the retry from double-debiting.
+    throw new Error(`revoke_grade_credits failed for ${userId}: ${error.message}`);
   }
 
   const result = (data ?? {}) as {
@@ -797,10 +852,11 @@ async function refundPerGrade(
     .maybeSingle();
 
   if (error) {
-    console.error(`[Webhook] per_grade refund: submission update failed (${submissionId}):`, error);
-    return;
+    throw new Error(`per_grade refund submission update failed (${submissionId}): ${error.message}`); // US-397: retry
   }
   if (!updated) {
+    // Not a DB failure — the submission isn't this user's (or doesn't exist).
+    // Nothing to retry; ack.
     console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
     return;
   }

@@ -3672,3 +3672,36 @@ product decision):
   CAP_REACHED).
 
 prd.json 379/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Webhook retry-on-failure + signup clickwrap US-397/US-377
+
+US-397 Retry critical webhook handlers on DB write failure [P2][Billing]:
+- webhooks.ts swallowed DB-write failures in money handlers (console.error +
+  return -> 200), so Stripe never retried and the event was silently dropped.
+- webhook-idempotency.ts: new 3-state claimWebhookEventResult
+  (claimed/duplicate/error) + releaseWebhookClaim; boolean claimWebhookEvent
+  wrapper (fail-open) kept for eBay callers.
+- Stripe route classifies via isCriticalEvent (CRITICAL_EVENT_TYPES =
+  subscription.*/invoice.*/checkout.session.completed/charge.refunded/
+  charge.dispute.created). Claim-store transient error -> critical events fail
+  CLOSED (503, Stripe retries).
+- Critical handlers now THROW on DB-write failure; outer catch RELEASES the
+  claim (retry re-processes), emits 'billing.webhook_failed' alert, returns 500.
+  Validation/lookup misses stay benign 200 (no point retrying). recordEvent +
+  per-resource guards keep retries idempotent.
+- Test: tests/webhook-critical_test.ts.
+
+US-377 Capture explicit ToS/Privacy acceptance at signup (clickwrap) [P1][Auth/Legal]:
+- Migration 00086 adds users.tos_accepted_version + tos_accepted_at; extends
+  handle_new_user (additive, exception-safe) to persist the version from email
+  signup metadata with a server-set timestamp.
+- signup.tsx: REQUIRED affirmative checkbox (submit disabled until checked) +
+  passes CURRENT_LEGAL_VERSION (new constant) to signUpWithEmail.
+- ConsentGate (dashboard-layout) blocks the app for any authed user whose
+  tos_accepted_version != CURRENT_LEGAL_VERSION -> captures OAuth signups before
+  first dashboard access AND forces re-acceptance on a version bump.
+- account-export now includes profile.json with the consent record (exportable).
+- tsc + lint pass.
+
+prd.json 381/524.

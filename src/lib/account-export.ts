@@ -44,6 +44,14 @@ async function selectAllUntyped(table: string): Promise<unknown[]> {
 export async function buildAccountExport(
   onProgress: ExportProgress
 ): Promise<Blob> {
+  onProgress("Fetching profile…", 5);
+  // US-377: the user's own profile row — includes the consent record
+  // (tos_accepted_version / tos_accepted_at), which must be exportable.
+  const { data: profileRow } = await supabase
+    .from("users")
+    .select("*")
+    .single();
+
   onProgress("Fetching submissions…", 8);
   const { data: submissionsRaw, error: subErr } = await supabase
     .from("submissions")
@@ -162,6 +170,7 @@ export async function buildAccountExport(
     "This archive contains a copy of your personal data held by GradeThread,",
     "provided under GDPR (Art. 15/20) and CCPA. Each .json file is one record set:",
     "",
+    "  profile.json              your account profile + ToS/Privacy acceptance record",
     "  submissions.json          your grading submissions (with image_paths)",
     "  grade_reports.json        the resulting grade reports",
     "  inventory.json            your FlipDesk inventory items",
@@ -189,6 +198,7 @@ export async function buildAccountExport(
 
   const zip = createZip([
     textFile("README.txt", readme),
+    jsonFile("profile.json", profileRow ?? {}),
     jsonFile("submissions.json", submissionsWithImages),
     jsonFile("grade_reports.json", gradeReports),
     jsonFile("inventory.json", inventory),
