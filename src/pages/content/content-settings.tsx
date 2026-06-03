@@ -260,6 +260,7 @@ function RecentDeliveries() {
             No webhooks have been dispatched yet.
           </p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-muted-foreground">
               <tr>
@@ -311,6 +312,7 @@ function RecentDeliveries() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </CardContent>
     </Card>

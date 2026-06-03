@@ -116,6 +116,7 @@ export function ContentAnalyticsPage() {
           <CardTitle className="text-base">Topic bank levels</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase text-muted-foreground">
               <tr>
@@ -160,6 +161,7 @@ export function ContentAnalyticsPage() {
               })}
             </tbody>
           </table>
+          </div>
           <p className="mt-3 text-xs text-muted-foreground">
             The scheduler auto-refills any slice that dips below the configured
             minimum in{" "}
@@ -291,6 +293,7 @@ function PublishedCard({
             Nothing published in this window.
           </p>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <tbody>
               {(["gradethread", "flipdesk", "both"] as const).map((p) => {
@@ -313,6 +316,7 @@ function PublishedCard({
               </tr>
             </tbody>
           </table>
+          </div>
         )}
       </CardContent>
     </Card>

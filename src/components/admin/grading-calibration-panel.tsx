@@ -119,7 +119,7 @@ export function GradingCalibrationPanel() {
             )}
 
             {/* Reliability curve */}
-            <div className="overflow-hidden rounded-lg border">
+            <div className="overflow-x-auto rounded-lg border">
               <table className="w-full text-xs">
                 <thead className="bg-muted/50">
                   <tr>

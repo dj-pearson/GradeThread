@@ -6946,8 +6946,8 @@
         "Consider a stacked/card layout for the most critical tables on small screens"
       ],
       "priority": 442,
-      "passes": false,
-      "notes": "[P1][Responsive] Audit 2026-06-03. api-keys, admin/*, team, flipdesk/analytics/sources/expenses tables not wrapped."
+      "passes": true,
+      "notes": "[P1][Responsive] Audit 2026-06-03. api-keys, admin/*, team, flipdesk/analytics/sources/expenses tables not wrapped. DONE 2026-06-03: confirmed the shadcn <Table> component (src/components/ui/table.tsx) already self-wraps in div.overflow-x-auto, so all 28 <Table> usages (incl. the named offenders api-keys/admin-*/team/flipdesk analytics+sources+expenses) are compliant. Wrapped the remaining raw <table> UI elements: switched overflow-hidden->overflow-x-auto on the bordered containers in the 4 marketing tables (condition-grading/grading-standard/how-it-works/transparency) + grading-calibration + grading-monitor panels; added overflow-x-auto to pnl-panel's border div; wrapped content analytics(x2)/blog-list/content-settings tables in div.overflow-x-auto. financial-export's <table> is a downloadable HTML-report string (not UI) so excluded; autolister-bulk-edit + grid were already wrapped. Every UI table now scrolls within its container rather than forcing page overflow at 375px."
     },
     {
       "id": "US-443",

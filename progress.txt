@@ -3341,3 +3341,36 @@ cells with subjective per-cell judgment + needs a color-blindness simulator to
 validate -- not cleanly verifiable here.
 
 prd.json 357/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Responsive tables US-442
+
+US-442 Wrap data tables for mobile horizontal scroll [P1][Responsive]:
+- Key finding: the shadcn <Table> component (components/ui/table.tsx) ALREADY
+  self-wraps in `div.relative w-full overflow-x-auto`, so all 28 <Table> call
+  sites -- including every named offender (api-keys, admin/*, team, flipdesk
+  analytics/sources/expenses) -- are already compliant.
+- Fixed the remaining RAW <table> elements:
+  - 4 marketing tables (condition-grading/grading-standard/how-it-works/
+    transparency) + grading-calibration-panel + grading-monitor-panel: their
+    bordered containers used overflow-hidden (clips, no scroll); switched to
+    overflow-x-auto (same class shadcn's own Table uses), keeping the rounded
+    border.
+  - pnl-panel: added overflow-x-auto to its `rounded-md border` div.
+  - content analytics (x2) / blog-list / content-settings: wrapped the tables in
+    a new div.overflow-x-auto.
+- Excluded: financial-export.tsx's <table> is inside a downloadable HTML-report
+  string (not rendered UI); autolister-bulk-edit + grid were already wrapped.
+- Net: every rendered table now scrolls within its container instead of forcing
+  horizontal page scroll at 375px. (Stacked/card mobile layout is the AC's
+  optional "consider" item; the overflow-x-auto baseline is applied everywhere.)
+
+Considered but deferred: US-426 (trailing-slash canonical) -- the 301-redirect
+AC bullet is Cloudflare-Pages-specific (untestable here) and interacts with the
+not-yet-built _routes.json precedence (US-424); the client-canonical
+normalization is easy but the story can't be fully + safely landed review-only.
+US-428 (twitter:site + Organization sameAs) -- needs REAL X/LinkedIn/Instagram
+handles (only a GitHub URL exists in-repo); adding placeholders would violate
+the "only live URLs" AC + Google policy. Needs the real handles from the owner.
+
+prd.json 358/524.

@@ -80,7 +80,7 @@ export function HowItWorksPage() {
             never sinks an otherwise excellent item — and condition stays
             comparable across sellers.
           </p>
-          <div className="mt-8 overflow-hidden rounded-lg border">
+          <div className="mt-8 overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>

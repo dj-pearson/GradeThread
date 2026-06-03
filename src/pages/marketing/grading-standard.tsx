@@ -83,7 +83,7 @@ export function GradingStandardPage() {
             of five factors. The weights are fixed and add up to 100%, so the
             same evidence always produces the same score.
           </p>
-          <div className="mt-8 overflow-hidden rounded-lg border">
+          <div className="mt-8 overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
