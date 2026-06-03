@@ -3,6 +3,8 @@
 
 import { assert, assertEquals } from "@std/assert";
 import {
+  BodyTooLargeError,
+  capBodyStream,
   capForPath,
   JSON_MAX_BYTES,
   UPLOAD_MAX_BYTES,
@@ -36,6 +38,53 @@ Deno.test("capForPath: prefix match is boundary-safe", () => {
   // a different segment must NOT inherit the upload cap.
   assertEquals(capForPath("/api/gradebook"), JSON_MAX_BYTES);
   assertEquals(capForPath("/api/grade"), UPLOAD_MAX_BYTES); // exact prefix is fine
+});
+
+// ── body-limit: streaming byte cap (US-362) ──────────────────────────────────
+
+// Helper: build a ReadableStream that emits `count` chunks of `size` bytes.
+function chunkedStream(count: number, size: number): ReadableStream<Uint8Array> {
+  let emitted = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (emitted >= count) {
+        controller.close();
+        return;
+      }
+      emitted++;
+      controller.enqueue(new Uint8Array(size));
+    },
+  });
+}
+
+async function drain(stream: ReadableStream<Uint8Array>): Promise<number> {
+  let total = 0;
+  for await (const chunk of stream) total += chunk.byteLength;
+  return total;
+}
+
+Deno.test("capBodyStream: passes a body under the cap through unchanged", async () => {
+  // 4 × 100 bytes = 400, under a 1000 cap.
+  const total = await drain(capBodyStream(chunkedStream(4, 100), 1000));
+  assertEquals(total, 400);
+});
+
+Deno.test("capBodyStream: passes a body exactly at the cap", async () => {
+  const total = await drain(capBodyStream(chunkedStream(10, 100), 1000));
+  assertEquals(total, 1000);
+});
+
+Deno.test("capBodyStream: aborts a body that exceeds the cap (no Content-Length needed)", async () => {
+  // 20 × 100 = 2000 bytes streamed against a 1000 cap — must abort mid-read.
+  const guarded = capBodyStream(chunkedStream(20, 100), 1000);
+  let thrown: unknown = null;
+  try {
+    await drain(guarded);
+  } catch (e) {
+    thrown = e;
+  }
+  assert(thrown instanceof BodyTooLargeError);
+  assertEquals((thrown as BodyTooLargeError).maxBytes, 1000);
 });
 
 // ── zod error flattening ─────────────────────────────────────────────────────

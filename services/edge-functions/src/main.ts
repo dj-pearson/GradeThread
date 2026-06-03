@@ -41,7 +41,7 @@ import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
-import { bodyLimit } from "./middleware/body-limit.ts";
+import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
 
 const app = new Hono();
@@ -316,6 +316,11 @@ app.notFound((c) => c.json({ error: "Not found" }, 404));
 
 // Error handler
 app.onError((err, c) => {
+  // US-362: a body that overran the streaming cap surfaces here when the route
+  // tried to read it — return a clean 413, not a generic 500.
+  if (err instanceof BodyTooLargeError) {
+    return c.json({ error: "Request body too large", maxBytes: err.maxBytes }, 413);
+  }
   console.error("Unhandled error:", err);
   return c.json({ error: "Internal server error" }, 500);
 });

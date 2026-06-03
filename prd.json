@@ -5930,8 +5930,8 @@
         "Traefik/Coolify has a documented hard maxRequestBodyBytes"
       ],
       "priority": 362,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/middleware/body-limit.ts."
+      "passes": true,
+      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/middleware/body-limit.ts. DONE 2026-06-03: body-limit.ts now wraps the request body in a byte-counting stream (capBodyStream) that aborts past the cap even when Content-Length is omitted/spoofed (mirrors Hono's official body-limit); BodyTooLargeError maps to 413 in app.onError. Traefik edge cap documented + enforced: edge-bodylimit buffering middleware (maxRequestBodyBytes=16MiB) in docker-compose.coolify.yml, documented in COOLIFY.md. Tests in body-validation_test.ts."
     },
     {
       "id": "US-363",
@@ -6881,8 +6881,8 @@
         "Focus is trapped and returns to the trigger"
       ],
       "priority": 437,
-      "passes": false,
-      "notes": "[P1][UX] Audit 2026-06-03. window.confirm in blog-list, social-editor, blog-editor, bulk-intake, ebay-sku-match."
+      "passes": true,
+      "notes": "[P1][UX] Audit 2026-06-03. window.confirm in blog-list, social-editor, blog-editor, bulk-intake, ebay-sku-match. DONE 2026-06-03: added promise-based useConfirm()/ConfirmProvider (components/ui/confirm-dialog.tsx) on Radix AlertDialog (focus trap + return-to-trigger), mounted in ProtectedRoute (authenticated pages only, off public/marketing). Replaced all 5 window.confirm sites (blog-editor, social-editor, blog-list, bulk-intake, ebay-sku-match) with action-labeled confirms (Publish post / Delete post / Discard haul / Remove listings) and destructive variant on deletes/discards. tsc clean."
     },
     {
       "id": "US-438",
@@ -7437,8 +7437,8 @@
         "The reliability harness measures AI self-consistency (same input repeated) and gates on it"
       ],
       "priority": 481,
-      "passes": false,
-      "notes": "[P1][Grading] Audit 2026-06-03. getAiTemperature returns undefined -> SDK default 1.0; contradicts the 'standardized' value prop."
+      "passes": true,
+      "notes": "[P1][Grading] Audit 2026-06-03. getAiTemperature returns undefined -> SDK default 1.0; contradicts the 'standardized' value prop. DONE 2026-06-03: grading (per-image vision + composite) now uses getGradingTemperature() which defaults to 0 (greedy) regardless of AI_TEMPERATURE, clamped to [0,0.2] via optional GRADING_AI_TEMPERATURE. getAiTemperature() retained for non-grading flows. Self-consistency metric + fixture-gated CI test added (lib/grading-reliability.ts, tests/grading-reliability_test.ts). Documented in .env.example. Live-traffic re-grade sampling can feed assessSelfConsistency() via a future env-gated job."
     },
     {
       "id": "US-482",

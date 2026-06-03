@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -104,6 +105,7 @@ function trimOrNull(v: string): string | null {
 
 export function BulkIntake() {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId, can } = useWorkspace();
@@ -160,9 +162,14 @@ export function BulkIntake() {
     setSession((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) }));
   }
 
-  function discardSession() {
+  async function discardSession() {
     if (
-      !window.confirm("Discard this haul session? Captured items are lost.")
+      !(await confirm({
+        title: "Discard this haul session?",
+        description: "Captured items in this session are lost. This can't be undone.",
+        confirmLabel: "Discard haul",
+        destructive: true,
+      }))
     )
       return;
     setSession(freshSession());

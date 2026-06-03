@@ -1,6 +1,7 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { VerifyEmailGate } from "@/components/auth/verify-email-gate";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 export function ProtectedRoute() {
   const { session, user, isLoading } = useAuth();
@@ -24,5 +25,11 @@ export function ProtectedRoute() {
     return <VerifyEmailGate email={user.email ?? null} />;
   }
 
-  return <Outlet />;
+  // US-437: provides the branded, focus-managed useConfirm() to every
+  // authenticated page (dashboard + admin), replacing native window.confirm.
+  return (
+    <ConfirmProvider>
+      <Outlet />
+    </ConfirmProvider>
+  );
 }

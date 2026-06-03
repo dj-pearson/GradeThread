@@ -22,6 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import {
@@ -118,6 +119,7 @@ function StatTile({
 
 export function EbaySkuMatch() {
   const user = useAuthStore((s) => s.user);
+  const confirm = useConfirm();
   const { workspaceOwnerId } = useWorkspace();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -228,9 +230,13 @@ export function EbaySkuMatch() {
   async function clearAll() {
     if (!user) return;
     if (
-      !window.confirm(
-        "Remove all imported eBay listings? This clears the SKU match data but does not touch your FlipDesk items.",
-      )
+      !(await confirm({
+        title: "Remove all imported eBay listings?",
+        description:
+          "This clears the SKU match data but does not touch your FlipDesk items.",
+        confirmLabel: "Remove listings",
+        destructive: true,
+      }))
     )
       return;
     try {

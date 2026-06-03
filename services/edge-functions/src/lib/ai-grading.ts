@@ -1,9 +1,9 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
-  getAiTemperature,
   getAnthropicClient,
   getDefaultModel,
   getGradingCompositeModel,
+  getGradingTemperature,
   isCachingEnabled,
   reviewConfidenceThreshold,
 } from "./ai-config.ts";
@@ -580,7 +580,8 @@ export async function analyzeImage(
   const client = getAnthropicClient();
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
-  const temperature = getAiTemperature();
+  // US-481: grading is always low-temperature for reproducibility.
+  const temperature = getGradingTemperature();
 
   // Resolve the active per-image prompt (DB override → code default), unless
   // the caller supplied an explicit candidate prompt.
@@ -604,7 +605,7 @@ export async function analyzeImage(
       // Headroom so the added authenticity block can't truncate the JSON
       // (truncation → parse failure → grade fails).
       max_tokens: 1536,
-      ...(temperature !== undefined ? { temperature } : {}),
+      temperature,
       system: [systemBlock],
       messages: [
         {
@@ -922,7 +923,8 @@ export async function compositeGrade(
 ): Promise<CompositeGradeResult> {
   const client = getAnthropicClient();
   const startTime = Date.now();
-  const temperature = getAiTemperature();
+  // US-481: grading is always low-temperature for reproducibility.
+  const temperature = getGradingTemperature();
   const compositeModel = getGradingCompositeModel();
 
   // Resolve the active composite prompt (DB override → code default), unless
@@ -949,7 +951,7 @@ export async function compositeGrade(
     const response = await client.messages.create({
       model: compositeModel,
       max_tokens: 2048,
-      ...(temperature !== undefined ? { temperature } : {}),
+      temperature,
       system: [systemBlock],
       messages: [
         {

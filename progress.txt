@@ -3253,3 +3253,52 @@ Verification: npx tsc -b, npm run lint, npm run build, npx vitest run (146 tests
 ALL pass. Edge (account.ts, email.ts) + config.toml review-verified.
 
 prd.json 351/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Grading reproducibility + UX/edge hardening US-481/US-437/US-362
+
+Picked three self-contained, high-priority audit items that are completable +
+verifiable in this environment (deno + deno.land/esm.sh remain blocked here, so
+edge code is review-verified; frontend is tsc-verified).
+
+US-481 Lower grading model temperature for reproducibility [P1][Grading]:
+- ai-config.ts: new getGradingTemperature() ALWAYS returns a number (default 0,
+  greedy decoding) regardless of AI_TEMPERATURE, clamped to [0,0.2] via optional
+  GRADING_AI_TEMPERATURE. Decoupled from getAiTemperature() (kept for non-grading
+  flows: extract/reconcile/content). ai-grading.ts vision + composite calls now
+  use it and always pass `temperature` (no more SDK-default-1.0 leak).
+- Reliability harness: new lib/grading-reliability.ts (pure gradeSelfConsistency
+  + assessSelfConsistency) + fixture-gated tests/grading-reliability_test.ts that
+  FAILS if any garment's repeated grades drift > one increment. Live re-grade
+  sampling can feed assessSelfConsistency() via a future env-gated job.
+- Documented in .env.example (justification + [0,0.2] cap).
+
+US-437 Replace window.confirm with AlertDialog [P1][UX]:
+- New components/ui/confirm-dialog.tsx: promise-based useConfirm()/ConfirmProvider
+  on Radix AlertDialog (focus trap + return-to-trigger built in). Mounted in
+  ProtectedRoute so it's on authenticated pages only (keeps radix weight off
+  public/marketing, consistent with the AppBillingDialogs decision).
+- Replaced ALL 5 native window.confirm sites (blog-editor, social-editor,
+  blog-list, bulk-intake, ebay-sku-match) with action-labeled confirms
+  ("Publish post" / "Delete post" / "Discard haul" / "Remove listings"), using
+  the destructive variant on deletes/discards.
+
+US-362 Enforce a real request-body byte cap [P3][Security] (supersedes the
+earlier deferral note above):
+- body-limit.ts: keeps the fast-path Content-Length 413, AND now wraps the body
+  in a byte-counting stream (capBodyStream) that aborts mid-read once the cap is
+  exceeded even when Content-Length is omitted/spoofed (chunked) -- mirrors
+  Hono's official body-limit pattern (new Request(orig,{body,duplex:'half'}) ->
+  c.req.raw). BodyTooLargeError maps to a clean 413 in app.onError.
+- Traefik hard cap: edge-bodylimit buffering middleware
+  (maxRequestBodyBytes=16MiB, memRequestBodyBytes=2MiB) added to
+  docker-compose.coolify.yml + documented in COOLIFY.md.
+- Tests added to body-validation_test.ts (under/at/over-cap streaming cases).
+
+Verification: npx tsc --noEmit -p tsconfig.app.json clean for changed frontend
+files (only the pre-existing TS-6.0.2 baseUrl-deprecation warning, irrelevant
+under the repo's pinned TS 5.9.3); async-onClick pattern matches existing code.
+Edge changes (ai-config/ai-grading/body-limit/main + new lib/tests) written to
+convention + review-verified; their deno lint/test run in CI.
+
+prd.json 354/524.
