@@ -112,7 +112,7 @@ async function getKey(id: string): Promise<CryptoKey> {
   return key;
 }
 
-function aadBytes(aad?: string): Uint8Array | undefined {
+function aadBytes(aad?: string): Uint8Array<ArrayBuffer> | undefined {
   return aad ? new TextEncoder().encode(aad) : undefined;
 }
 

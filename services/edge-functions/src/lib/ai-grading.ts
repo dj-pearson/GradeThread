@@ -1126,7 +1126,9 @@ export async function compositeGrade(
     }
 
     const { scores: sanitizedFactors, defaultedCount: defaultedFactorCount } =
-      sanitizeFactorScores(parsed.factor_scores as Record<string, unknown>);
+      sanitizeFactorScores(
+        parsed.factor_scores as unknown as Record<string, unknown>,
+      );
     parsed.factor_scores = sanitizedFactors;
 
     if (defaultedFactorCount > 0) {

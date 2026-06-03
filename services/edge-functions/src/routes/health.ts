@@ -21,7 +21,7 @@ export const healthRoutes = new Hono();
 const REQUIRED_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"] as const;
 
 function missingCriticalEnv(): string[] {
-  const missing = REQUIRED_ENV.filter((k) => !Deno.env.get(k)?.trim());
+  const missing: string[] = REQUIRED_ENV.filter((k) => !Deno.env.get(k)?.trim());
   const hasAnthropic =
     Deno.env.get("ANTHROPIC_API_KEY")?.trim() ||
     Deno.env.get("CLAUDE_API_KEY")?.trim();
