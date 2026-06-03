@@ -36,6 +36,7 @@
 
 import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
+import { effectivePlanFor } from "./grade-pricing.ts";
 
 // ── FlipDesk catalog (mirror of src/lib/constants.ts FLIPDESK_PLANS) ──
 
@@ -141,6 +142,8 @@ type EnvWithUser = { Variables: { userId: string } };
 export interface PlanGateUser {
   flipdesk_plan: FlipdeskPlan;
   subscription_status: string;
+  // US-383: an expired Pro trial drops to Free caps before the downgrade job runs.
+  trial_ends_at: string | null;
   ai_actions_used_this_month: number;
   ai_action_limit: number | null;
   grades_used_this_month: number;
@@ -162,7 +165,7 @@ const defaultDeps: PlanGateDeps = {
     const { data, error } = await supabaseAdmin
       .from("users")
       .select(
-        "flipdesk_plan, subscription_status, ai_actions_used_this_month, ai_action_limit, grades_used_this_month",
+        "flipdesk_plan, subscription_status, trial_ends_at, ai_actions_used_this_month, ai_action_limit, grades_used_this_month",
       )
       .eq("id", userId)
       .single();
@@ -199,9 +202,13 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
     return c.json({ error: "USER_NOT_FOUND" }, 404);
   }
 
-  // Paused subscribers fall back to Free caps but don't reset counters.
-  const effectivePlan: FlipdeskPlan =
-    user.subscription_status === "paused" ? "free" : user.flipdesk_plan;
+  // Paused subscribers AND expired trials (US-383) fall back to Free caps but
+  // don't reset counters. Shared resolution with the grading path.
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+    user.trial_ends_at,
+  ) as FlipdeskPlan;
   const plan = PLAN_MATRIX[effectivePlan];
 
   // ─ Feature check ─

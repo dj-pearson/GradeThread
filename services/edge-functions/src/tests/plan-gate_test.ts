@@ -32,6 +32,7 @@ function user(overrides: Partial<PlanGateUser> = {}): PlanGateUser {
   return {
     flipdesk_plan: "free",
     subscription_status: "active",
+    trial_ends_at: null,
     ai_actions_used_this_month: 0,
     ai_action_limit: null,
     grades_used_this_month: 0,
@@ -130,6 +131,44 @@ Deno.test("paused subscription is treated as Free caps", async () => {
   assertEquals(body.limit, 25);
   // The gate never mutated the usage value it was handed (no reset).
   assertEquals(usage, 25);
+});
+
+// ── Expired trial → Free caps (US-383) ──────────────────────────
+Deno.test("expired Pro trial is capped at Free", async () => {
+  const { ctx } = fakeCtx();
+  // Trialing Pro whose 14-day window lapsed → Free cap 25, even before the
+  // downgrade job flips the stored row.
+  const u = user({
+    flipdesk_plan: "pro",
+    subscription_status: "trialing",
+    trial_ends_at: new Date(Date.now() - 86_400_000).toISOString(), // yesterday
+  });
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "activeListings" } },
+    deps(u, 25),
+  );
+  assert(resp !== null, "expired-trial Pro user should hit the Free cap of 25");
+  assertEquals(resp!.status, 402);
+  const body = await bodyOf(resp!);
+  assertEquals(body.plan, "free");
+  assertEquals(body.limit, 25);
+});
+
+Deno.test("live Pro trial keeps Pro caps", async () => {
+  const { ctx } = fakeCtx();
+  const u = user({
+    flipdesk_plan: "pro",
+    subscription_status: "trialing",
+    trial_ends_at: new Date(Date.now() + 7 * 86_400_000).toISOString(), // next week
+  });
+  // 200 listings is well within Pro's 1000 cap but far over Free's 25.
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "activeListings" } },
+    deps(u, 200),
+  );
+  assertEquals(resp, null, "an in-window trial should still get Pro caps");
 });
 
 Deno.test("paused Pro user below Free cap still proceeds", async () => {

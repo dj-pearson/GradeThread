@@ -23,6 +23,7 @@ import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
+import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
@@ -289,6 +290,9 @@ app.route("/api/grading/public", publicGradingRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
 app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
+// US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
+// handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
+app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
 // gated by the /api/admin/* middleware groups above.
 app.route("/api/admin/seo", adminSeoRoutes);

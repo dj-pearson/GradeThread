@@ -49,6 +49,21 @@ Deno.test("effectivePlanFor drops paused subs to Free caps", () => {
   assertEquals(effectivePlanFor("pro", "paused"), "free");
 });
 
+Deno.test("effectivePlanFor caps an EXPIRED trial at Free (US-383)", () => {
+  const now = new Date("2026-06-03T00:00:00Z");
+  const past = new Date("2026-05-20T00:00:00Z").toISOString(); // trial lapsed
+  const future = new Date("2026-06-10T00:00:00Z").toISOString(); // still trialing
+
+  // Expired trial → Free, even before the downgrade job flips the row.
+  assertEquals(effectivePlanFor("pro", "trialing", past, now), "free");
+  // Live trial keeps its trial plan.
+  assertEquals(effectivePlanFor("pro", "trialing", future, now), "pro");
+  // A trial that converted to an active sub is unaffected by trial_ends_at.
+  assertEquals(effectivePlanFor("pro", "active", past, now), "pro");
+  // No trial_ends_at (legacy / non-trial) → unchanged.
+  assertEquals(effectivePlanFor("pro", "trialing", null, now), "pro");
+});
+
 Deno.test("included caps mirror the plan model", () => {
   assertEquals(INCLUDED_STANDARD_PER_MONTH.free, 3);
   assertEquals(INCLUDED_STANDARD_PER_MONTH.starter, 10);

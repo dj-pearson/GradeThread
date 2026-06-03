@@ -691,28 +691,43 @@ async function handleChargeRefunded(event: Stripe.Event) {
   );
   if (!proceed) return;
 
-  // Ledger reversal. NOTE: this could push balance negative if the user has
-  // already spent the credits. The DB CHECK constraint will block that, so
-  // we attempt the debit and log if it fails; ops can comp manually.
-  const { error } = await supabaseAdmin
-    .from("grade_credit_transactions")
-    .insert({
-      user_id: userId,
-      delta: -credits,
-      reason: "refund",
-      // balance_after is computed by the function for grants/debits; for
-      // direct reversal inserts we just snapshot the current balance.
-      balance_after: 0,
-      stripe_payment_intent_id: typeof charge.payment_intent === "string"
-        ? charge.payment_intent
-        : charge.payment_intent?.id ?? null,
-      notes: `Refund reversal for charge ${charge.id}`,
-    });
+  // US-384: clawing back the credits must actually DEBIT the wallet, not just
+  // append a ledger row. The row-locked RPC subtracts from grade_credit_balance,
+  // clamps at zero, writes a balance-consistent ledger row, and reports any
+  // shortfall (credits already spent before the refund) for reconciliation.
+  const paymentIntentId = typeof charge.payment_intent === "string"
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+
+  const { data, error } = await supabaseAdmin.rpc("revoke_grade_credits", {
+    p_user_id: userId,
+    p_credits: credits,
+    p_stripe_payment_intent: paymentIntentId,
+    p_notes: `Refund reversal for charge ${charge.id}`,
+  });
 
   if (error) {
-    console.error(`[Webhook] Refund reversal insert failed for user ${userId}:`, error);
+    console.error(`[Webhook] Refund reversal failed for user ${userId}:`, error);
+    return;
+  }
+
+  const result = (data ?? {}) as {
+    revoked?: number;
+    shortfall?: number;
+    balance_after?: number;
+  };
+  if ((result.shortfall ?? 0) > 0) {
+    // Credits were already spent — the wallet can't go negative, so flag for
+    // ops to reconcile (e.g. comp/write-off) rather than failing the refund.
+    console.warn(
+      `[Webhook] Refund reversal for user ${userId}: revoked ${result.revoked ?? 0}/${credits} ` +
+        `credits, ${result.shortfall} already spent (balance_after=${result.balance_after ?? 0}) — needs reconciliation`,
+    );
   } else {
-    console.log(`[Webhook] Refund reversal logged for user ${userId}: -${credits} credits`);
+    console.log(
+      `[Webhook] Refund reversal for user ${userId}: -${result.revoked ?? credits} credits ` +
+        `(balance_after=${result.balance_after ?? 0})`,
+    );
   }
 }
 

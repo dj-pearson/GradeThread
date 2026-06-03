@@ -50,13 +50,30 @@ export function suggestPack(creditCost: number) {
   return { credits: 100, priceCents: 19999 };
 }
 
-// Resolve the plan that governs included grades, accounting for a paused
-// subscription falling back to Free caps.
+// Resolve the plan that governs included grades + caps, accounting for a paused
+// subscription and an EXPIRED TRIAL both falling back to Free.
+//
+// US-383: handle_new_user grants a 14-day Pro trial (subscription_status
+// 'trialing', trial_ends_at +14d) but never creates a Stripe subscription. Once
+// the trial lapses, the daily downgrade job flips the row to free/none — but
+// until that job runs we must NOT keep handing out Pro caps to a signup that
+// never added a card. So an expired trial reads as Free here immediately,
+// independent of the job. `now` is injectable for tests.
 export function effectivePlanFor(
   plan: string,
   subscriptionStatus: string | null,
+  trialEndsAt?: string | null,
+  now: Date = new Date(),
 ): string {
-  return subscriptionStatus === "paused" ? "free" : plan;
+  if (subscriptionStatus === "paused") return "free";
+  if (
+    subscriptionStatus === "trialing" &&
+    trialEndsAt &&
+    new Date(trialEndsAt).getTime() <= now.getTime()
+  ) {
+    return "free";
+  }
+  return plan;
 }
 
 // Credits a batch of ready grades needs after included-standard coverage.

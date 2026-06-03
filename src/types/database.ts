@@ -405,6 +405,39 @@ export interface GradeReportRow {
   created_at: string;
 }
 
+// US-348: public-safe projection of a certified grade report, served by the
+// `public_grade_reports` view. Anonymous certificate viewers read THIS, never
+// the base grade_reports row — so anti-fraud/internal signals (raw
+// confidence_score, image_authenticity.tells, per_image_analysis,
+// detailed_notes, content_signature, needs_human_review) are never exposed.
+export type PublicConfidenceLabel = "very_high" | "high" | "moderate" | "reviewed";
+
+export interface PublicGradeReportRow {
+  id: string;
+  submission_id: string;
+  certificate_id: string;
+  created_at: string;
+  overall_score: number;
+  grade_tier: GradeTier;
+  fabric_condition_score: number;
+  structural_integrity_score: number;
+  cosmetic_appearance_score: number;
+  functional_elements_score: number;
+  odor_cleanliness_score: number;
+  ai_summary: string;
+  model_version: string;
+  human_reviewed: boolean;
+  defects_found: DefectFound[];
+  detected_style_attributes: DetectedStyleAttribute[];
+  // Buyer-facing authenticity summary derived from image_authenticity; the raw
+  // detection tells stay server-side so they can't be used to evade the check.
+  authenticity_checked: boolean;
+  authenticity_manipulation_suspected: boolean;
+  authenticity_screenshot_or_watermark_detected: boolean;
+  // Coarse confidence bucket — the precise confidence_score is not exposed.
+  confidence_label: PublicConfidenceLabel;
+}
+
 export interface DisputeRow {
   id: string;
   grade_report_id: string;
@@ -1940,6 +1973,12 @@ export interface Database {
         Row: WorkspaceInvitationRow;
         Insert: WorkspaceInvitationInsert;
         Update: WorkspaceInvitationUpdate;
+      };
+    };
+    Views: {
+      // US-348: column-restricted public certificate projection.
+      public_grade_reports: {
+        Row: PublicGradeReportRow;
       };
     };
     Enums: {

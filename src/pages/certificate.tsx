@@ -29,7 +29,8 @@ import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { Button } from "@/components/ui/button";
 import type {
-  GradeReportRow,
+  PublicGradeReportRow,
+  PublicConfidenceLabel,
   SubmissionRow,
   SubmissionImageRow,
 } from "@/types/database";
@@ -88,12 +89,18 @@ function severityBadgeClasses(severity: string): string {
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
-// Plain-language confidence label from the 0–1 model confidence.
-function confidenceLabel(score: number): string {
-  if (score >= 0.9) return "Very high";
-  if (score >= 0.75) return "High";
-  if (score >= 0.6) return "Moderate";
-  return "Reviewed"; // below threshold → was routed to human review
+// Plain-language confidence label from the coarse public bucket. The precise
+// 0–1 confidence_score is an anti-fraud signal and is not exposed publicly
+// (US-348) — the view buckets it server-side before it ever reaches the client.
+const CONFIDENCE_LABELS: Record<PublicConfidenceLabel, string> = {
+  very_high: "Very high",
+  high: "High",
+  moderate: "Moderate",
+  reviewed: "Reviewed", // below threshold → was routed to human review
+};
+
+function confidenceLabel(bucket: PublicConfidenceLabel): string {
+  return CONFIDENCE_LABELS[bucket] ?? "Reviewed";
 }
 
 // US-333: renders the tamper-evident integrity verdict for the certificate.
@@ -198,7 +205,7 @@ function CertificateLoadingSkeleton() {
 
 export function CertificatePage() {
   const { id } = useParams<{ id: string }>();
-  const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
+  const [gradeReport, setGradeReport] = useState<PublicGradeReportRow | null>(null);
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
@@ -242,9 +249,10 @@ export function CertificatePage() {
       setLoading(true);
       setError(null);
 
-      // Fetch grade report by certificate_id (public via RLS)
+      // US-348: read the column-restricted public_grade_reports view, not the
+      // base table. Anonymous viewers get only public-safe certificate fields.
       const { data: reportData, error: reportError } = await supabase
-        .from("grade_reports")
+        .from("public_grade_reports")
         .select("*")
         .eq("certificate_id", id!)
         .single();
@@ -255,7 +263,7 @@ export function CertificatePage() {
         return;
       }
 
-      const report = reportData as GradeReportRow;
+      const report = reportData as PublicGradeReportRow;
       setGradeReport(report);
 
       // Set OG meta tags
@@ -360,14 +368,15 @@ export function CertificatePage() {
       (SEVERITY_RANK[a.severity] ?? 3) - (SEVERITY_RANK[b.severity] ?? 3)
   );
 
-  // US-336/US-338: authenticity check result (null for grades before the check
-  // existed). We surface a measured, buyer-facing line — not the raw detection
-  // tells, which stay in the admin view so they can't be used to evade it.
-  const authenticity = gradeReport.image_authenticity;
+  // US-336/US-338 + US-348: authenticity result, reduced to public-safe booleans
+  // by the view (raw detection tells stay server-side so they can't be used to
+  // evade the check). `authenticity_checked` is false for grades created before
+  // the check existed.
+  const authenticity = gradeReport.authenticity_checked;
   const authenticityFlagged =
-    !!authenticity &&
-    (authenticity.manipulation_suspected ||
-      authenticity.screenshot_or_watermark_detected);
+    authenticity &&
+    (gradeReport.authenticity_manipulation_suspected ||
+      gradeReport.authenticity_screenshot_or_watermark_detected);
 
   return (
     <div className="min-h-screen bg-background">
@@ -602,10 +611,7 @@ export function CertificatePage() {
               <Gauge className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy" />
               <div>
                 <p className="text-sm font-medium">
-                  Grade confidence: {confidenceLabel(gradeReport.confidence_score)}{" "}
-                  <span className="text-muted-foreground">
-                    ({Math.round(gradeReport.confidence_score * 100)}%)
-                  </span>
+                  Grade confidence: {confidenceLabel(gradeReport.confidence_label)}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Low-confidence grades are routed to a human reviewer before
