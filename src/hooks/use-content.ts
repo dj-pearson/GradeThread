@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { track } from "@/lib/analytics";
 import type {
   BlogPostListRow,
   BlogPostRow,
@@ -102,8 +103,13 @@ export function useCreateBlogPost() {
       });
       return data.post;
     },
-    onSuccess: () => {
+    onSuccess: (post) => {
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
+      // US-255: content telemetry. surface + product_focus on every event.
+      track("content.draft.created", {
+        surface: "blog",
+        product_focus: post.product_focus,
+      });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -156,25 +162,40 @@ export function usePublishBlogPost(id: string) {
       qc.setQueryData(["blog_post", id], post);
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
       toast.success("Published.");
+      track("content.published", {
+        surface: "blog",
+        product_focus: post.product_focus,
+      });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+}
+
+// US-254: one A/B title candidate per slot (question / listicle / contrarian).
+export interface TitleSuggestion {
+  style: "question" | "listicle" | "contrarian";
+  title: string;
 }
 
 export function useGenerateBlogPost(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input?: { topic?: Record<string, unknown> }) => {
-      const data = await jfetch<{ post: BlogPostRow; meta: Record<string, unknown> }>(
-        `/api/content/blog/${id}/generate`,
-        { method: "POST", json: input ?? {} },
-      );
+      const data = await jfetch<{
+        post: BlogPostRow;
+        meta: Record<string, unknown>;
+        title_suggestions?: TitleSuggestion[];
+      }>(`/api/content/blog/${id}/generate`, { method: "POST", json: input ?? {} });
       return data;
     },
     onSuccess: ({ post }) => {
       qc.setQueryData(["blog_post", id], post);
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
       toast.success("Draft generated.");
+      track("content.generated", {
+        surface: "blog",
+        product_focus: post.product_focus,
+      });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -381,7 +402,7 @@ export function useResearchTopics() {
       }>(`/api/content/topics/research`, { method: "POST", json: input });
       return data;
     },
-    onSuccess: ({ inserted, rejected_duplicates }) => {
+    onSuccess: ({ inserted, rejected_duplicates }, variables) => {
       qc.invalidateQueries({ queryKey: ["content_topics"] });
       qc.invalidateQueries({ queryKey: ["content_topic_counts"] });
       toast.success(
@@ -389,6 +410,11 @@ export function useResearchTopics() {
           rejected_duplicates ? ` (${rejected_duplicates} dupes rejected)` : ""
         }.`,
       );
+      track("topic.researched", {
+        surface: variables.surface,
+        product_focus: variables.product_focus,
+        inserted,
+      });
     },
     onError: (e: Error) => toast.error(e.message),
   });

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { captureServer } from "./posthog.ts";
 
 // Outbound webhook dispatcher for the content module.
 //
@@ -205,6 +206,7 @@ export async function dispatchContentWebhook(
           format ? `/${format}` : ""
         } on attempt ${attemptNo} (${status})`,
       );
+      captureWebhookDispatched(payload, true);
       return { delivered: true, attempts: attemptNo, last_status: status };
     }
     console.warn(
@@ -219,9 +221,24 @@ export async function dispatchContentWebhook(
       format ? `/${format}` : ""
     } after ${ATTEMPT_DELAYS_MS.length} attempts`,
   );
+  captureWebhookDispatched(payload, false);
   return {
     delivered: false,
     attempts: ATTEMPT_DELAYS_MS.length,
     last_status: lastStatus,
   };
+}
+
+// US-255: emit the server-side 'webhook.dispatched' analytics event once a
+// dispatch reaches a terminal outcome. surface + product_focus on every event
+// (matching the dashboard-fired content.* events). No user in this context —
+// keyed to a stable system distinct id. Fire-and-forget; never throws.
+function captureWebhookDispatched(payload: WebhookPayload, succeeded: boolean) {
+  const surface = payload.event === "blog.published" ? "blog" : "social";
+  void captureServer("system:content", "webhook.dispatched", {
+    surface,
+    product_focus: payload.data.product_focus,
+    event: payload.event,
+    succeeded,
+  });
 }

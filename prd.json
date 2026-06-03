@@ -4247,8 +4247,8 @@
         "Stop button cancels the fetch and discards remaining stream"
       ],
       "priority": 251,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "SSE streaming AI compose into Tiptap. Edge: POST /api/content/blog/:id/compose-stream streams HTML deltas via Hono streamSSE + Anthropic messages.stream() (new lib/content-ai-stream.ts + buildStreamSystemPrompt/buildBlogComposeStreamUserPrompt; HTML-only output, not JSON). Client disconnect aborts the upstream via c.req.raw.signal. Frontend: src/lib/content-stream.ts (SSE reader), useContentAiStream hook (createHtmlFlusher → editor.commands.insertContent on complete-tag boundaries), ai-stream-button.tsx with Stop (AbortController). Rate-limited 10/min. Added hono/streaming to the deno import map."
     },
     {
       "id": "US-252",
@@ -4260,8 +4260,8 @@
         "Stream replacement HTML back via SSE"
       ],
       "priority": 252,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Regenerate-selection + rewrite-for-keyword toolbar actions. Edge: implemented the former-501 POST /:id/regenerate-section as SSE (modes regenerate/expand/rewrite-for-keyword) via buildSectionRegenStreamUserPrompt. Frontend: TiptapToolbar gained an AI dropdown (Regenerate / Expand / Rewrite for keyword…) wired through useContentAiStream.regenerate — serializes the selection (DOMSerializer), deletes it, streams the replacement HTML in place. Rate-limited 20/min."
     },
     {
       "id": "US-253",
@@ -4286,8 +4286,8 @@
         "content_history_index.title reflects the chosen one"
       ],
       "priority": 254,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "A/B title testing. Prompt bumped to blog_article_v2 — requests title_suggestions[3] (question/listicle/contrarian). generateBlogArticle now returns normalized titleSuggestions (pure normalizeTitleSuggestions: coerce/dedup/cap/fallback). /generate response carries title_suggestions; blog-editor shows them as selectable headline options; picking persists post.title so content_history_index.title (stamped at publish) reflects the choice. deno test content-ai-prompts_test.ts + Node-validated."
     },
     {
       "id": "US-255",
@@ -4299,8 +4299,8 @@
         "Each event includes surface + product_focus"
       ],
       "priority": 255,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "GA4 + PostHog content events. Blog SSR (_shared/blog-render.ts) injects gtag.js with Consent Mode v2 (all-denied default, mirrors index.html); GA4_MEASUREMENT_ID env (default G-CMDWCFC275) on blog index/article/tag renders. Frontend track(): content.draft.created (create), content.generated (generate), content.published (publish), topic.researched (research) — each with surface + product_focus. Server-side webhook.dispatched fired from content-webhook.ts via captureServer (surface+product_focus+succeeded)."
     },
     {
       "id": "US-256",

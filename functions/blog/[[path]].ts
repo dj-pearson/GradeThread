@@ -12,6 +12,7 @@ import {
   escape,
   fetchJson,
   formatDate,
+  ga4MeasurementId,
   notFoundResponse,
   renderLayout,
   siteUrl,
@@ -127,6 +128,7 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
         "Condition grading vocabulary, reseller workflows, and FlipDesk how-tos for clothing flippers.",
       canonicalUrl: canonical,
       ogImage: `${siteUrl(env)}/logo_icon_512.png`,
+      gaMeasurementId: ga4MeasurementId(env),
       jsonLd,
       bodyHtml,
     }),
@@ -253,6 +255,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       // renders a branded 1200x630 PNG via Satori (workers-og). The static
       // logo is the last-ditch fallback if the OG worker errors.
       ogImage: `${siteUrl(env)}/og/blog/${encodeURIComponent(post.slug)}`,
+      gaMeasurementId: ga4MeasurementId(env),
       jsonLd: [articleLd, breadcrumbLd, ...(faqLd ? [faqLd] : [])],
       bodyHtml,
     }),
@@ -356,6 +359,7 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
       description: `Articles tagged ${tag} on the GradeThread blog.`,
       canonicalUrl: canonical,
       ogImage: `${siteUrl(env)}/logo_icon_512.png`,
+      gaMeasurementId: ga4MeasurementId(env),
       bodyHtml,
     }),
     {

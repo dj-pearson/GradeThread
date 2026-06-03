@@ -1,7 +1,14 @@
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { appendToHistoryIndex } from "../lib/content-history.ts";
-import { generateBlogArticle } from "../lib/content-ai-blog.ts";
+import { generateBlogArticle, loadKnowledge } from "../lib/content-ai-blog.ts";
+import { streamAnthropicText } from "../lib/content-ai-stream.ts";
+import {
+  buildBlogComposeStreamUserPrompt,
+  buildSectionRegenStreamUserPrompt,
+  buildStreamSystemPrompt,
+} from "../lib/content-ai-prompts.ts";
 import { sanitizeHtml } from "../lib/content-sanitize.ts";
 import {
   buildBlogPurgeFiles,
@@ -519,7 +526,13 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
       await replaceTags(id, article.tags);
     }
 
-    return c.json({ post: updated, meta });
+    // US-254: surface the A/B title candidates so the editor can offer them
+    // as radio options. The chosen one is saved back via PATCH /:id (title).
+    return c.json({
+      post: updated,
+      meta,
+      title_suggestions: article.titleSuggestions,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[content-blog] generate failed:", msg);
@@ -527,12 +540,147 @@ contentBlogRoutes.post("/:id/generate", async (c) => {
   }
 });
 
-contentBlogRoutes.post("/:id/regenerate-section", (c) =>
-  c.json(
-    { error: "Not implemented yet — section regenerator lands in Phase F" },
-    501,
-  ),
-);
+// ──────────────────────────────────────────────────────────
+// AI COMPOSE (STREAMING) — US-251
+// ──────────────────────────────────────────────────────────
+// Streams an article body into the editor as Server-Sent Events. Each `delta`
+// event carries an HTML text chunk the client inserts live; `done` closes it.
+// A client disconnect (Stop button → fetch abort) propagates to the upstream
+// Anthropic request via c.req.raw.signal, so we stop burning tokens.
+// Body: { instruction?: string }
+contentBlogRoutes.post("/:id/compose-stream", async (c) => {
+  const id = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    instruction?: string;
+  };
+
+  const { data: post } = await supabaseAdmin
+    .from("blog_posts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  // Resolve topic context: post fields, falling back to the linked topic.
+  let angle: string | null = null;
+  let intent: string | null = null;
+  let primaryKw = (post.primary_keyword as string | null) ?? "";
+  let secondaryKw = (post.secondary_keywords as string[] | null) ?? [];
+  if (post.topic_id && (!primaryKw || secondaryKw.length === 0)) {
+    const { data: topic } = await supabaseAdmin
+      .from("content_topics")
+      .select("angle, primary_keyword, secondary_keywords, search_intent")
+      .eq("id", post.topic_id)
+      .maybeSingle();
+    if (topic) {
+      angle = (topic.angle as string | null) ?? null;
+      intent = (topic.search_intent as string | null) ?? null;
+      primaryKw = primaryKw || (topic.primary_keyword as string);
+      secondaryKw =
+        secondaryKw.length > 0
+          ? secondaryKw
+          : (topic.secondary_keywords as string[] | null) ?? [];
+    }
+  }
+  if (!post.title || !primaryKw) {
+    return c.json(
+      { error: "title and primary_keyword required to compose" },
+      400,
+    );
+  }
+
+  const knowledge = await loadKnowledge(post.product_focus);
+  const system = buildStreamSystemPrompt({ ...knowledge, task: "compose-article" });
+  const user = buildBlogComposeStreamUserPrompt({
+    title: post.title,
+    angle,
+    primary_keyword: primaryKw,
+    secondary_keywords: secondaryKw,
+    search_intent: intent,
+    product_focus: post.product_focus,
+    instruction: body.instruction,
+  });
+
+  return streamSSE(c, async (stream) => {
+    try {
+      for await (const delta of streamAnthropicText({
+        system,
+        user,
+        maxTokens: 8192,
+        signal: c.req.raw.signal,
+      })) {
+        await stream.writeSSE({ event: "delta", data: JSON.stringify({ text: delta }) });
+      }
+      await stream.writeSSE({ event: "done", data: JSON.stringify({ ok: true }) });
+    } catch (e) {
+      if (c.req.raw.signal.aborted) return; // client hit Stop — quiet exit
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[content-blog] compose-stream failed:", msg);
+      await stream.writeSSE({ event: "error", data: JSON.stringify({ message: msg }) });
+    }
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// AI SECTION REGEN (STREAMING) — US-252
+// ──────────────────────────────────────────────────────────
+// Streams a replacement passage for a selected section. The toolbar AI submenu
+// posts the current selection HTML + a mode; we stream the rewritten HTML back.
+// Body: { mode: "regenerate"|"expand"|"rewrite-for-keyword", selectionHtml, keyword? }
+contentBlogRoutes.post("/:id/regenerate-section", async (c) => {
+  const id = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as {
+    mode?: "regenerate" | "expand" | "rewrite-for-keyword";
+    selectionHtml?: string;
+    keyword?: string;
+  };
+
+  const mode = body.mode ?? "regenerate";
+  const selectionHtml = (body.selectionHtml ?? "").trim();
+  if (!selectionHtml) {
+    return c.json({ error: "selectionHtml is required" }, 400);
+  }
+  if (mode === "rewrite-for-keyword" && !body.keyword?.trim()) {
+    return c.json({ error: "keyword is required for rewrite-for-keyword" }, 400);
+  }
+
+  const { data: post } = await supabaseAdmin
+    .from("blog_posts")
+    .select("product_focus, primary_keyword")
+    .eq("id", id)
+    .maybeSingle();
+  if (!post) return c.json({ error: "Not found" }, 404);
+
+  const knowledge = await loadKnowledge(post.product_focus);
+  const system = buildStreamSystemPrompt({
+    ...knowledge,
+    task: "regenerate-section",
+  });
+  const user = buildSectionRegenStreamUserPrompt({
+    mode,
+    selection_html: selectionHtml,
+    primary_keyword: body.keyword?.trim() || (post.primary_keyword as string | null) || undefined,
+  });
+
+  return streamSSE(c, async (stream) => {
+    try {
+      for await (const delta of streamAnthropicText({
+        system,
+        user,
+        maxTokens: 4096,
+        signal: c.req.raw.signal,
+      })) {
+        await stream.writeSSE({ event: "delta", data: JSON.stringify({ text: delta }) });
+      }
+      await stream.writeSSE({ event: "done", data: JSON.stringify({ ok: true }) });
+    } catch (e) {
+      if (c.req.raw.signal.aborted) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[content-blog] regenerate-section failed:", msg);
+      await stream.writeSSE({ event: "error", data: JSON.stringify({ message: msg }) });
+    }
+  });
+});
 
 // ──────────────────────────────────────────────────────────
 // PREVIEW LINK
