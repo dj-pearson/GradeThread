@@ -3402,3 +3402,32 @@ US-429 Use real content-change dates for static sitemap lastmod [P3][SEO]:
   route keeps a steady <lastmod> across deploys. Test added (sitemap.test.ts).
 
 prd.json 360/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Grading-confidence + OAuth-redirect hardening US-483/US-361
+
+US-483 Cap confidence when grading factors were defaulted [P2][Grading]:
+- ai-grading.ts: extracted two pure, unit-tested helpers. sanitizeFactorScores()
+  clamps valid factors to [1,10], substitutes a neutral 7.0 for invalid/NaN
+  values, and COUNTS the substitutions. applyGradingConfidencePolicy() caps
+  confidence (authenticity 0.6, defaulted-factor 0.5) and forces
+  needs_human_review whenever any factor was defaulted OR authenticity flagged —
+  so a partly-hallucinated factor set always abstains to a human, even if the
+  (configurable) review threshold is set permissively.
+- compositeGrade emits the default-substitution COUNTER: a structured
+  [AI Grading][metric] factor_defaulted log line + a fire-and-forget PostHog
+  'grading.factor_defaulted' event (model + prompt_version + count).
+- Tests: tests/grading-confidence_test.ts, incl. a malformed-factor response.
+
+US-361 Verify open-redirect safety of the OAuth relative-path sanitizer [P3][Security]:
+- Hardened sanitizeRelativePath and moved it to a side-effect-free
+  lib/oauth-redirect.ts (imported by flipdesk-ebay.ts). It now rejects: control
+  chars incl. tab/newline/CR (browsers strip them, so "/<TAB>/evil.com" would
+  collapse to protocol-relative "//evil.com"); absolute/scheme URLs; "//host";
+  ANY backslash; and any path not under ALLOWED_REDIRECT_PREFIXES (["/dashboard"]
+  — the only legitimate OAuth landing; the sole caller passes no redirect_to, so
+  nothing breaks and the callback keeps its safe default).
+- Tests: tests/oauth-redirect_test.ts covers each bypass vector (control chars
+  built via String.fromCharCode so the source carries no literal control bytes).
+
+prd.json 362/524.

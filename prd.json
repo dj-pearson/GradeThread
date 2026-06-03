@@ -5918,8 +5918,8 @@
         "Unit tests cover each bypass vector"
       ],
       "priority": 361,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/routes/flipdesk-ebay.ts (oauth start/callback)."
+      "passes": true,
+      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/routes/flipdesk-ebay.ts (oauth start/callback). DONE 2026-06-03: hardened the OAuth redirect sanitizer and extracted it to a side-effect-free lib/oauth-redirect.ts (imported by flipdesk-ebay.ts). sanitizeRelativePath now rejects: control chars incl. tab/newline/CR (browsers strip them -> '/<TAB>/evil.com' would collapse to protocol-relative '//evil.com'), absolute/scheme URLs, '//host', ANY backslash, and any path not under the ALLOWED_REDIRECT_PREFIXES allowlist (['/dashboard'] — the only legit OAuth landing; the only caller passes no redirect_to so nothing breaks). Tests: tests/oauth-redirect_test.ts covers each bypass vector (control chars built via String.fromCharCode)."
     },
     {
       "id": "US-362",
@@ -7462,8 +7462,8 @@
         "Test covers a malformed-factor response"
       ],
       "priority": 483,
-      "passes": false,
-      "notes": "[P2][Grading] Audit 2026-06-03. compositeGrade defaults invalid factors to 7.0 with no confidence penalty."
+      "passes": true,
+      "notes": "[P2][Grading] Audit 2026-06-03. compositeGrade defaults invalid factors to 7.0 with no confidence penalty. DONE 2026-06-03: extracted pure, unit-tested helpers in ai-grading.ts — sanitizeFactorScores() clamps valid factors to [1,10], substitutes a neutral 7.0 for invalid/NaN values AND counts the substitutions; applyGradingConfidencePolicy() caps confidence (authenticity 0.6, defaulted-factor 0.5) and forces needs_human_review whenever any factor was defaulted OR authenticity flagged (so a partly-hallucinated factor set always abstains to a human, even if the review threshold is reconfigured). compositeGrade emits a structured [metric] log line + fire-and-forget PostHog 'grading.factor_defaulted' event (model + prompt_version + count) as the default-substitution counter. Tests: tests/grading-confidence_test.ts incl. a malformed-factor response."
     },
     {
       "id": "US-484",

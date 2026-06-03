@@ -8,6 +8,7 @@ import {
   reviewConfidenceThreshold,
 } from "./ai-config.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { captureServer } from "./posthog.ts";
 
 // Version names for the in-code default prompts. These MUST match the seeded
 // rows in ai_prompt_versions (migration 00050) so the accuracy loop can
@@ -915,6 +916,84 @@ function roundToHalf(value: number): number {
   return Math.round(value * 2) / 2;
 }
 
+// US-483: when the composite model returns an invalid/missing factor value we
+// substitute a neutral 7.0 so the pipeline doesn't crash — but a partially
+// hallucinated factor set must NEVER ship as a confident grade. These helpers
+// (pure, unit-tested) count the substitutions and decide the confidence policy.
+export const DEFAULTED_FACTOR_VALUE = 7.0;
+// Confidence ceiling applied when any factor was defaulted. Below the default
+// review threshold (0.75) so the grade routes to a human; combined with the
+// explicit force-review flag it holds even if the threshold is reconfigured.
+export const DEFAULTED_FACTOR_CONFIDENCE_CAP = 0.5;
+// Confidence ceiling applied when authenticity (manipulation/screenshot) is
+// flagged — unchanged from the prior inline value, centralized here.
+export const AUTHENTICITY_FLAG_CONFIDENCE_CAP = 0.6;
+
+const FACTOR_KEYS: (keyof FactorScores)[] = [
+  "fabric_condition",
+  "structural_integrity",
+  "cosmetic_appearance",
+  "functional_elements",
+  "odor_cleanliness",
+];
+
+export interface SanitizedFactors {
+  scores: FactorScores;
+  /** How many of the 5 factors had to be defaulted (invalid/missing values). */
+  defaultedCount: number;
+}
+
+// Clamp valid factor scores into [1,10] and substitute DEFAULTED_FACTOR_VALUE
+// for any non-numeric/NaN value, counting the substitutions. Caller guarantees
+// `raw` is a non-null object (a completely missing factor_scores is treated as
+// a hard parse failure upstream, not a defaultable response).
+export function sanitizeFactorScores(raw: Record<string, unknown>): SanitizedFactors {
+  const scores = {} as FactorScores;
+  let defaultedCount = 0;
+  for (const key of FACTOR_KEYS) {
+    const value = raw[key];
+    if (typeof value !== "number" || isNaN(value)) {
+      scores[key] = DEFAULTED_FACTOR_VALUE;
+      defaultedCount++;
+    } else {
+      scores[key] = Math.max(1.0, Math.min(10.0, value));
+    }
+  }
+  return { scores, defaultedCount };
+}
+
+export interface ConfidencePolicyInput {
+  confidenceScore: number;
+  authenticityFlagged: boolean;
+  defaultedFactorCount: number;
+  reviewThreshold: number;
+}
+
+export interface ConfidencePolicyResult {
+  finalConfidence: number;
+  needsHumanReview: boolean;
+}
+
+// Final confidence + human-review decision. A flagged authenticity signal OR a
+// defaulted factor caps confidence and forces review; the explicit flags mean
+// the grade abstains even if the (configurable) threshold is set permissively.
+export function applyGradingConfidencePolicy(
+  input: ConfidencePolicyInput,
+): ConfidencePolicyResult {
+  let finalConfidence = input.confidenceScore;
+  if (input.authenticityFlagged) {
+    finalConfidence = Math.min(finalConfidence, AUTHENTICITY_FLAG_CONFIDENCE_CAP);
+  }
+  if (input.defaultedFactorCount > 0) {
+    finalConfidence = Math.min(finalConfidence, DEFAULTED_FACTOR_CONFIDENCE_CAP);
+  }
+  const needsHumanReview =
+    finalConfidence < input.reviewThreshold ||
+    input.authenticityFlagged ||
+    input.defaultedFactorCount > 0;
+  return { finalConfidence, needsHumanReview };
+}
+
 export async function compositeGrade(
   perImageResults: PerImageAnalysis[],
   garmentInfo: GarmentInfo,
@@ -999,31 +1078,35 @@ export async function compositeGrade(
       throw new Error("AI returned invalid JSON for composite grade");
     }
 
-    // Validate and clamp factor scores
-    const factorKeys: (keyof FactorScores)[] = [
-      "fabric_condition",
-      "structural_integrity",
-      "cosmetic_appearance",
-      "functional_elements",
-      "odor_cleanliness",
-    ];
-
+    // Validate and clamp factor scores. A completely missing factor_scores is a
+    // hard parse failure; individual invalid factors are defaulted + counted
+    // (US-483) so a partly-garbled response can't ship a confident grade.
     if (!parsed.factor_scores || typeof parsed.factor_scores !== "object") {
       throw new Error("AI response missing factor_scores");
     }
 
-    for (const key of factorKeys) {
-      const value = parsed.factor_scores[key];
-      if (typeof value !== "number" || isNaN(value)) {
-        parsed.factor_scores[key] = 7.0;
-      } else {
-        parsed.factor_scores[key] = Math.max(1.0, Math.min(10.0, value));
-      }
+    const { scores: sanitizedFactors, defaultedCount: defaultedFactorCount } =
+      sanitizeFactorScores(parsed.factor_scores as Record<string, unknown>);
+    parsed.factor_scores = sanitizedFactors;
+
+    if (defaultedFactorCount > 0) {
+      // Structured counter (US-483): default-substitution frequency per
+      // model/prompt version. Log line for aggregation + a fire-and-forget
+      // PostHog metric (no-ops without POSTHOG_KEY).
+      console.warn(
+        `[AI Grading][metric] factor_defaulted | model=${compositeModel} | ` +
+          `prompt_version=${promptVersion} | count=${defaultedFactorCount}`,
+      );
+      void captureServer("grading-engine", "grading.factor_defaulted", {
+        model: compositeModel,
+        prompt_version: promptVersion,
+        defaulted_count: defaultedFactorCount,
+      });
     }
 
     // Recalculate overall_score from factor scores with weights to ensure correctness
     let weightedSum = 0;
-    for (const key of factorKeys) {
+    for (const key of FACTOR_KEYS) {
       weightedSum += parsed.factor_scores[key] * FACTOR_WEIGHTS[key];
     }
     const calculatedScore = roundToHalf(Math.max(1.0, Math.min(10.0, weightedSum)));
@@ -1090,19 +1173,23 @@ export async function compositeGrade(
     const authenticityFlagged =
       imageAuthenticity.manipulation_suspected ||
       imageAuthenticity.screenshot_or_watermark_detected;
-    const finalConfidence = authenticityFlagged
-      ? Math.min(confidenceScore, 0.6)
-      : confidenceScore;
 
-    // Flag for human review if confidence is below threshold or authenticity is suspect.
-    const needsHumanReview =
-      finalConfidence < reviewConfidenceThreshold() || authenticityFlagged;
+    // US-483: a flagged authenticity signal OR any defaulted factor caps
+    // confidence and forces human review (the grade abstains rather than
+    // shipping confidently on partially-hallucinated output).
+    const { finalConfidence, needsHumanReview } = applyGradingConfidencePolicy({
+      confidenceScore,
+      authenticityFlagged,
+      defaultedFactorCount,
+      reviewThreshold: reviewConfidenceThreshold(),
+    });
 
     if (needsHumanReview) {
       console.log(
         `[AI Grading] compositeGrade FLAGGED for human review | ` +
           `confidence=${finalConfidence} | overall_score=${overallScore} | ` +
-          `authenticity_flagged=${authenticityFlagged}`
+          `authenticity_flagged=${authenticityFlagged} | ` +
+          `defaulted_factors=${defaultedFactorCount}`
       );
     }
 
