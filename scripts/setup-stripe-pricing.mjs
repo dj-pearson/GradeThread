@@ -36,22 +36,29 @@ if (!LIVE && STRIPE_SECRET_KEY.startsWith("sk_live_")) {
 
 const STRIPE = "https://api.stripe.com/v1";
 
+// Stripe Tax product tax codes (US-223). Stripe Tax keys product taxability off
+// the product's tax_code, not the price. FlipDesk is a recurring software tool
+// → SaaS; per-grade grading + credit packs are a service we render → General
+// Services. See https://stripe.com/docs/tax/tax-codes.
+const TAX_CODE_SAAS = "txcd_10103000"; // Software as a service (SaaS)
+const TAX_CODE_SERVICE = "txcd_20030000"; // General - Services
+
 // ── Catalog (mirror of FLIPDESK_PLANS / GRADETHREAD_TIERS / CREDIT_PACKS) ──
 const FLIPDESK = [
-  { sku: "flipdesk_starter",  name: "FlipDesk Starter",  monthly: 2900, yearly: 29000 },
-  { sku: "flipdesk_pro",      name: "FlipDesk Pro",      monthly: 5900, yearly: 59000 },
-  { sku: "flipdesk_business", name: "FlipDesk Business", monthly: 9900, yearly: 99000 },
+  { sku: "flipdesk_starter",  name: "FlipDesk Starter",  monthly: 2900, yearly: 29000, taxCode: TAX_CODE_SAAS },
+  { sku: "flipdesk_pro",      name: "FlipDesk Pro",      monthly: 5900, yearly: 59000, taxCode: TAX_CODE_SAAS },
+  { sku: "flipdesk_business", name: "FlipDesk Business", monthly: 9900, yearly: 99000, taxCode: TAX_CODE_SAAS },
 ];
 const GRADES = [
-  { sku: "grade_standard", name: "GradeThread Standard Grade", amount: 299 },
-  { sku: "grade_premium",  name: "GradeThread Premium Grade",  amount: 799 },
-  { sku: "grade_express",  name: "GradeThread Express Grade",  amount: 1299 },
+  { sku: "grade_standard", name: "GradeThread Standard Grade", amount: 299,  taxCode: TAX_CODE_SERVICE },
+  { sku: "grade_premium",  name: "GradeThread Premium Grade",  amount: 799,  taxCode: TAX_CODE_SERVICE },
+  { sku: "grade_express",  name: "GradeThread Express Grade",  amount: 1299, taxCode: TAX_CODE_SERVICE },
 ];
 const PACKS = [
-  { sku: "credits_10",  name: "GradeThread Credit Pack — 10",  amount: 2499 },
-  { sku: "credits_25",  name: "GradeThread Credit Pack — 25",  amount: 5999 },
-  { sku: "credits_50",  name: "GradeThread Credit Pack — 50",  amount: 10999 },
-  { sku: "credits_100", name: "GradeThread Credit Pack — 100", amount: 19999 },
+  { sku: "credits_10",  name: "GradeThread Credit Pack — 10",  amount: 2499,  taxCode: TAX_CODE_SERVICE },
+  { sku: "credits_25",  name: "GradeThread Credit Pack — 25",  amount: 5999,  taxCode: TAX_CODE_SERVICE },
+  { sku: "credits_50",  name: "GradeThread Credit Pack — 50",  amount: 10999, taxCode: TAX_CODE_SERVICE },
+  { sku: "credits_100", name: "GradeThread Credit Pack — 100", amount: 19999, taxCode: TAX_CODE_SERVICE },
 ];
 
 // ── Stripe helpers ────────────────────────────────────────────────
@@ -109,20 +116,25 @@ async function findPrice(productId, { amount, currency, recurring }) {
   }) ?? null;
 }
 
-async function upsertProduct({ sku, name }) {
+async function upsertProduct({ sku, name, taxCode }) {
   const existing = await findProductBySku(sku);
   if (existing) {
-    if (existing.name !== name) {
-      await stripe("POST", `/products/${existing.id}`, { name });
-      console.log(`  updated product name → ${name}`);
+    const patch = {};
+    if (existing.name !== name) patch.name = name;
+    // Stripe returns tax_code as the code id string (or null) on the product.
+    if (taxCode && existing.tax_code !== taxCode) patch.tax_code = taxCode;
+    if (Object.keys(patch).length > 0) {
+      await stripe("POST", `/products/${existing.id}`, patch);
+      console.log(`  updated product ${name} → ${JSON.stringify(patch)}`);
     }
     return existing.id;
   }
   const created = await stripe("POST", "/products", {
     name,
+    tax_code: taxCode,
     metadata: { gradethread_sku: sku },
   });
-  console.log(`  created product ${name} (${created.id})`);
+  console.log(`  created product ${name} (${created.id}) [tax_code ${taxCode}]`);
   return created.id;
 }
 

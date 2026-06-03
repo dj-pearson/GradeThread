@@ -596,7 +596,10 @@ export function AdminUserDetailPage() {
       </Card>
 
       {/* Billing actions (US-221) */}
-      <BillingActionsCard userId={targetUser.id} />
+      <BillingActionsCard
+        userId={targetUser.id}
+        currentTrialEndsAt={targetUser.trial_ends_at}
+      />
 
       {/* Submission History */}
       <Card>

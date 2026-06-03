@@ -76,6 +76,19 @@ interface AdminPaymentsResponse {
 
 interface BillingActionsCardProps {
   userId: string;
+  /** Current users.trial_ends_at (ISO) so the trial control can prefill. */
+  currentTrialEndsAt?: string | null;
+}
+
+/** ISO timestamp → value for <input type="datetime-local"> (local, no seconds). */
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours(),
+  )}:${pad(d.getMinutes())}`;
 }
 
 const PLAN_OPTIONS: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"];
@@ -84,7 +97,10 @@ function dollars(cents: number, currency = "usd"): string {
   return `${currency.toUpperCase() === "USD" ? "$" : ""}${(cents / 100).toFixed(2)}`;
 }
 
-export function BillingActionsCard({ userId }: BillingActionsCardProps) {
+export function BillingActionsCard({
+  userId,
+  currentTrialEndsAt,
+}: BillingActionsCardProps) {
   const qc = useQueryClient();
   const payments = useQuery({
     queryKey: ["admin-payments", userId],
@@ -138,6 +154,36 @@ export function BillingActionsCard({ userId }: BillingActionsCardProps) {
       toast.success(`Granted ${credits} credits. New balance: ${data.newBalance}.`);
       setCredits("");
       setCreditReason("");
+      qc.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  // ── Trial control (US-221: rare-exception trial_ends_at override) ──
+  const [trialInput, setTrialInput] = useState(toDatetimeLocal(currentTrialEndsAt));
+
+  const setTrial = useMutation({
+    mutationFn: async (clear: boolean) => {
+      const trial_ends_at = clear
+        ? null
+        : trialInput
+          ? new Date(trialInput).toISOString()
+          : null;
+      const res = await edgeFetch(`/api/admin/users/${userId}/set-trial`, {
+        method: "POST",
+        json: { trial_ends_at },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to update trial.");
+      return json as { ok: true; trial_ends_at: string | null };
+    },
+    onSuccess: (data) => {
+      toast.success(
+        data.trial_ends_at
+          ? `Trial set to ${new Date(data.trial_ends_at).toLocaleString()}.`
+          : "Trial cleared.",
+      );
+      setTrialInput(toDatetimeLocal(data.trial_ends_at));
       qc.invalidateQueries({ queryKey: ["admin-user-detail", userId] });
     },
     onError: (err: Error) => toast.error(err.message),
@@ -269,6 +315,47 @@ export function BillingActionsCard({ userId }: BillingActionsCardProps) {
               </Button>
             </div>
           </div>
+        </section>
+
+        <Separator />
+
+        {/* ── Trial override (rare exception) ── */}
+        <section className="space-y-3">
+          <div className="text-sm font-semibold">Trial end date</div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
+            <div className="space-y-1">
+              <Label className="text-xs">trial_ends_at</Label>
+              <Input
+                type="datetime-local"
+                value={trialInput}
+                onChange={(e) => setTrialInput(e.target.value)}
+              />
+            </div>
+            <div className="flex items-end">
+              <Button
+                variant="outline"
+                onClick={() => setTrial.mutate(false)}
+                disabled={setTrial.isPending || !trialInput}
+              >
+                {setTrial.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Set
+              </Button>
+            </div>
+            <div className="flex items-end">
+              <Button
+                variant="ghost"
+                onClick={() => setTrial.mutate(true)}
+                disabled={setTrial.isPending}
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Rare exception — extends or clears the Pro trial window for this user.
+          </p>
         </section>
 
         <Separator />

@@ -60,6 +60,34 @@ function auditLog(
   return writeAuditLog(c, { action, targetType, targetId, details });
 }
 
+type FlipdeskPlan = "free" | "starter" | "pro" | "business";
+
+// Mirrors the organic webhook trail (webhooks.ts recordEvent) so admin-initiated
+// plan changes show up in the user's billing history alongside Stripe events.
+// stripe_event_id is left null (nullable UNIQUE column — Postgres permits many
+// nulls); the acting admin's user_id is stamped in raw_payload (US-221 AC).
+async function recordAdminEvent(
+  userId: string,
+  adminId: string,
+  fromPlan: FlipdeskPlan | null,
+  toPlan: FlipdeskPlan | null,
+  details: Record<string, unknown>,
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("flipdesk_subscription_events")
+    .insert({
+      user_id: userId,
+      stripe_event_id: null,
+      event_type: "admin_change",
+      from_plan: fromPlan,
+      to_plan: toPlan,
+      raw_payload: { admin_id: adminId, ...details },
+    });
+  if (error) {
+    console.error("[admin-billing] failed to record subscription event:", error);
+  }
+}
+
 // ── POST /users/:id/change-plan ──────────────────────────────────
 //
 // Body: { plan: 'free'|'starter'|'pro'|'business', interval?: 'monthly'|'yearly' }
@@ -130,6 +158,9 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
       to_plan: "free",
       method: "stripe_cancel_immediate",
     });
+    await recordAdminEvent(targetUserId, adminId, fromPlan, "free", {
+      method: "stripe_cancel_immediate",
+    });
     return c.json({ ok: true, method: "stripe_cancel_immediate" });
   }
 
@@ -171,6 +202,11 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
     await auditLog(c, "admin.change_plan", "user", targetUserId, {
       from_plan: fromPlan,
       to_plan: plan,
+      from_interval: targetUser.flipdesk_interval,
+      to_interval: interval,
+      method: "stripe_subscription_update",
+    });
+    await recordAdminEvent(targetUserId, adminId, fromPlan, plan, {
       from_interval: targetUser.flipdesk_interval,
       to_interval: interval,
       method: "stripe_subscription_update",
@@ -247,6 +283,68 @@ adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
   });
 
   return c.json({ ok: true, newBalance });
+});
+
+// ── POST /users/:id/set-trial ────────────────────────────────────
+//
+// Body: { trial_ends_at: string | null }  (ISO 8601 timestamp, or null to clear)
+// Rare exception path (US-221): lets an admin extend or clear a user's Pro
+// trial window. Writes users.trial_ends_at directly and audit-logs before/after.
+adminBillingRoutes.post("/users/:id/set-trial", async (c) => {
+  const adminId = c.get("userId");
+  const targetUserId = c.req.param("id");
+
+  let body: { trial_ends_at?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  let trialEndsAt: string | null;
+  if (body.trial_ends_at === null || body.trial_ends_at === undefined) {
+    trialEndsAt = null;
+  } else if (typeof body.trial_ends_at === "string") {
+    const parsed = new Date(body.trial_ends_at);
+    if (Number.isNaN(parsed.getTime())) {
+      return c.json({ error: "trial_ends_at must be a valid ISO timestamp or null" }, 400);
+    }
+    trialEndsAt = parsed.toISOString();
+  } else {
+    return c.json({ error: "trial_ends_at must be a string or null" }, 400);
+  }
+
+  const { data: targetUser, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("id, trial_ends_at")
+    .eq("id", targetUserId)
+    .single();
+
+  if (userError || !targetUser) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  const { error: updateError } = await supabaseAdmin
+    .from("users")
+    .update({ trial_ends_at: trialEndsAt })
+    .eq("id", targetUserId);
+
+  if (updateError) {
+    console.error("[admin-billing] set-trial update failed:", updateError);
+    return c.json({ error: "Failed to update trial" }, 500);
+  }
+
+  await auditLog(c, "admin.set_trial", "user", targetUserId, {
+    from_trial_ends_at: targetUser.trial_ends_at,
+    to_trial_ends_at: trialEndsAt,
+  });
+  await recordAdminEvent(targetUserId, adminId, null, null, {
+    action: "set_trial",
+    from_trial_ends_at: targetUser.trial_ends_at,
+    to_trial_ends_at: trialEndsAt,
+  });
+
+  return c.json({ ok: true, trial_ends_at: trialEndsAt });
 });
 
 // ── POST /charges/:id/refund ─────────────────────────────────────

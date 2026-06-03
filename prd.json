@@ -3792,8 +3792,8 @@
         "Mobile responsive; brand-red highlight on Pro (Most Popular) and on the 100-pack (Best Value)"
       ],
       "priority": 220,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "DONE (2026-06-03). Audited: pricing section was already split into FlipdeskPricingBlock + GradeThreadPricingBlock + IncludedGradesTable, with the monthly/annual toggle, 4-card FlipDesk grid, 3 GradeThread tier cards w/ SLA, credit-pack callout, 3/10/30/75 included-grades table, and all 4 FAQ additions (credits expire / pause / downgrade / trial) in landing-faqs.ts. Closed the last two AC gaps: (1) the two sub-section headers were <h3> -> now <h2> per AC ('FlipDesk — your reseller workflow' / 'GradeThread — pay only when you grade'); (2) added the brand-red 'Best Value' highlight + badge on the 100-pack (largest CREDIT_PACK) to mirror the 'Most Popular' treatment on Pro. Old PLANS-driven grid already removed. Verified: npx tsc -b clean, npm run lint clean."
     },
     {
       "id": "US-221",
@@ -3808,8 +3808,8 @@
         "Admin can also set users.trial_ends_at (rare exception)"
       ],
       "priority": 221,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "DONE (2026-06-03). Backend (admin-billing.ts) + frontend (billing-actions-card.tsx in /admin/users/:id) were already built: change-plan (Stripe subscriptions.update / cancel, free->paid blocked), comp-credits (grant_grade_credits reason='admin_grant'), refund (Stripe refunds.create, MFA step-up gated, webhook reverses pack ledger via US-206), GET /coupons + /users/:id/payments, all writing admin_audit_log with before/after JSON. Closed two AC gaps: (1) plan changes now ALSO write a flipdesk_subscription_events row (event_type='admin_change', acting admin's user_id in raw_payload) via new recordAdminEvent() — the file header + UI claimed this but the code didn't do it; (2) added POST /users/:id/set-trial to set/clear users.trial_ends_at (audit-logged + event-logged) plus a datetime-local Trial control in the billing card, wired with currentTrialEndsAt from user-detail. Verified: frontend tsc + tsconfig.functions.json tsc + lint all clean. Edge runtime not run here (deno.land/esm.sh blocked by network policy) — handlers are review-verified."
     },
     {
       "id": "US-222",
@@ -3842,8 +3842,8 @@
         "Tax shown clearly on Billing page and in receipts; no hidden charges"
       ],
       "priority": 223,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "DONE (2026-06-03). Stripe-side was already complete: all 4 Checkout Sessions in payments.ts set automatic_tax.enabled, allow_promotion_codes, and tax_id_collection.enabled; setup-stripe-pricing.mjs set price tax_behavior='exclusive'; admin /coupons endpoint + read-only src/pages/admin/coupons.tsx list coupons + active promotion codes with times_redeemed. Closed two AC gaps: (1) setup-stripe-pricing.mjs now sets the PRODUCT tax_code (Stripe Tax keys taxability off product.tax_code, not price) — SaaS txcd_10103000 for FlipDesk subs, General-Services txcd_20030000 for per-grade + credit packs — on both create and update paths; (2) added a tax-transparency note on the Billing page (prices exclude tax; sales tax/VAT calculated at checkout by location and itemized on receipts; full invoices in the Stripe portal). Verified: node --check on the setup script, frontend tsc + lint clean."
     },
     {
       "id": "US-224",
