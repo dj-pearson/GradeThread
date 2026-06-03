@@ -3113,3 +3113,46 @@ refactors specifically moved the security-critical logic into DB-free modules so
 their tests DO run offline once a deno runtime is present.
 
 prd.json 338/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Security cluster US-355 (CI RLS guard) + US-356 (API key scopes/rotation)
+
+US-355 CI guard that every tenant table has restrictive RLS:
+- NEW deno test src/tests/rls-guard_test.ts statically parses every
+  supabase/migration and FAILS the build if a multi-tenant table is missing RLS,
+  has no policy (unless allowlisted as service-role-only deny-all:
+  flipdesk_subscription_events, oauth_states), or carries USING(true)/
+  WITH CHECK(true) or a bare-authenticated policy. user_id tables are
+  auto-discovered (a new one is covered automatically); parent-scoped tenant
+  tables come from a curated list. Validated against the real 60-table schema
+  via a Python port first (32 tenant/parent tables checked, 0 false failures).
+- Wired into CI: `deno test` now runs with --allow-read (security.yml + the
+  deno.json test task) so the guard can read the migrations dir.
+
+US-356 API-key scopes + rotation + plan column:
+- Migration 00078: scopes text[] (default full set + CHECK constraint) +
+  last_rotated_at on api_keys.
+- NEW lib/api-key.ts centralizes key generation + hashing + scope helpers so the
+  issuer (routes/api-keys.ts) and verifier (middleware/api-key-auth.ts) share one
+  implementation. hashApiKey = HMAC-with-pepper when API_KEY_PEPPER is set, else
+  SHA-256 (documented: enabling the pepper re-issues keys; .env.example updated).
+- api-v1.ts enforces per-route scopes: submit (POST /grades), read (GET
+  /grades[/:id]), webhook_manage (PATCH /webhook). Legacy keys (null scopes) get
+  the full set, so nothing breaks.
+- Added POST /api/keys/:id/rotate (new secret, same row/name/scopes/expiry,
+  ownership-verified). Plan gate CONFIRMED: the public API is the grading API, so
+  the legacy user_plan column (professional|enterprise) is the intended gate, not
+  flipdesk_plan. Test src/tests/api-key_test.ts. Frontend unaffected (edgeFetch).
+
+US-362 (deferred): the safe parts (Traefik maxRequestBodyBytes doc) are doable,
+but the core AC -- byte-counting the body stream and aborting mid-read -- means
+wrapping/replacing the request body for every POST route, which I can't verify
+without a deno runtime here (high risk of breaking all body reads). Left for a
+session with a runtime to test against.
+
+Verification: deno unavailable + deno.land/esm.sh blocked here, so deno can't run;
+new code/tests written to convention and review-verified, migrations
+review-verified. The RLS guard's logic was additionally validated by a Python
+port against the real migrations (0 false failures) before commit.
+
+prd.json 340/524.

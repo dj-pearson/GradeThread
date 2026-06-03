@@ -11,12 +11,30 @@ import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
+import type { ApiKeyScope } from "../lib/api-key.ts";
 
 type ApiV1Env = {
   Variables: {
     userId: string;
+    apiKeyScopes: ApiKeyScope[];
   };
 };
+
+// US-356: enforce the calling key's scopes. A key with no scopes set (legacy
+// row) is granted the full set by the auth middleware, so this stays
+// back-compatible. Returns true when the key carries `required`.
+function hasScope(
+  scopes: ApiKeyScope[] | undefined,
+  required: ApiKeyScope,
+): boolean {
+  return (scopes ?? []).includes(required);
+}
+
+const scopeDenied = (required: ApiKeyScope) => ({
+  data: null,
+  error: { message: `This API key lacks the '${required}' scope`, details: [] },
+  meta: null,
+});
 
 const GARMENT_TYPES = ["tops", "bottoms", "outerwear", "dresses", "footwear", "accessories"] as const;
 const GARMENT_CATEGORIES = [
@@ -43,6 +61,9 @@ export const apiV1Routes = new Hono<ApiV1Env>();
 
 // --- POST /api/v1/grades — Submit garment for grading ---
 apiV1Routes.post("/grades", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "submit")) {
+    return c.json(scopeDenied("submit"), 403);
+  }
   const userId = c.get("userId");
 
   let body: {
@@ -396,6 +417,9 @@ apiV1Routes.post("/grades", async (c) => {
 
 // --- GET /api/v1/grades/:id — Get a specific grade report ---
 apiV1Routes.get("/grades/:id", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
   const userId = c.get("userId");
   const id = c.req.param("id");
 
@@ -446,6 +470,9 @@ apiV1Routes.get("/grades/:id", async (c) => {
 
 // --- GET /api/v1/grades — List user's grades with pagination ---
 apiV1Routes.get("/grades", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
   const userId = c.get("userId");
 
   // Parse pagination params
@@ -545,6 +572,9 @@ apiV1Routes.get("/grades", async (c) => {
 
 // --- PATCH /api/v1/webhook — Set or update webhook URL ---
 apiV1Routes.patch("/webhook", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "webhook_manage")) {
+    return c.json(scopeDenied("webhook_manage"), 403);
+  }
   const userId = c.get("userId");
 
   let body: { webhook_url?: string | null };

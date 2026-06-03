@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { generateApiKey, normalizeScopes } from "../lib/api-key.ts";
 
 type ApiKeysEnv = {
   Variables: {
@@ -16,20 +17,8 @@ type ApiKeysEnv = {
 
 export const apiKeyRoutes = new Hono<ApiKeysEnv>();
 
-// Generate a cryptographically random API key
-async function generateApiKey(): Promise<{ fullKey: string; keyHash: string; keyPrefix: string }> {
-  const randomBytes = new Uint8Array(32);
-  crypto.getRandomValues(randomBytes);
-  const fullKey = "gt_sk_" + Array.from(randomBytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  const keyPrefix = fullKey.slice(0, 14); // "gt_sk_" + 8 hex chars
-
-  // Hash the full key with SHA-256 for storage
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", encoder.encode(fullKey));
-  const keyHash = Array.from(new Uint8Array(hashBuffer), (b) => b.toString(16).padStart(2, "0")).join("");
-
-  return { fullKey, keyHash, keyPrefix };
-}
+// Key generation + hashing live in lib/api-key.ts so the issuer and the
+// verifying middleware share one implementation (US-356).
 
 // List user's API keys
 apiKeyRoutes.get("/", async (c) => {
@@ -45,7 +34,7 @@ apiKeyRoutes.get("/", async (c) => {
 
   const { data: keys, error } = await supabaseAdmin
     .from("api_keys")
-    .select("id, name, key_prefix, last_used_at, expires_at, created_at")
+    .select("id, name, key_prefix, scopes, last_used_at, last_rotated_at, expires_at, created_at")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
@@ -69,7 +58,7 @@ apiKeyRoutes.post("/", async (c) => {
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  let body: { name?: string; expires_at?: string };
+  let body: { name?: string; expires_at?: string; scopes?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -84,6 +73,15 @@ apiKeyRoutes.post("/", async (c) => {
 
   if (name.trim().length > 100) {
     return c.json({ error: "name must be 100 characters or fewer" }, 400);
+  }
+
+  // US-356: validate requested scopes (defaults to the full set when omitted).
+  const scopes = normalizeScopes(body.scopes);
+  if (scopes === null) {
+    return c.json(
+      { error: "scopes must be a non-empty array of: read, submit, webhook_manage" },
+      400,
+    );
   }
 
   // Check user's plan — only Professional and Enterprise can create API keys
@@ -140,9 +138,10 @@ apiKeyRoutes.post("/", async (c) => {
       name: name.trim(),
       key_hash: keyHash,
       key_prefix: keyPrefix,
+      scopes,
       expires_at: expiresAt,
     })
-    .select("id, name, key_prefix, expires_at, created_at")
+    .select("id, name, key_prefix, scopes, expires_at, created_at")
     .single();
 
   if (insertError) {
@@ -157,6 +156,65 @@ apiKeyRoutes.post("/", async (c) => {
       full_key: fullKey,
     },
   }, 201);
+});
+
+// Rotate an API key (US-356): issue a new secret for the SAME row, keeping its
+// name/scopes/expiry, and invalidate the old secret immediately. The new
+// plaintext is returned once. Use this instead of delete+create so the key's
+// identity/scopes are preserved across the rotation.
+apiKeyRoutes.post("/:id/rotate", async (c) => {
+  const role = c.get("workspaceRole") ?? "owner";
+  if (role !== "owner" && role !== "admin") {
+    return c.json(
+      { error: "Only the workspace owner and admins can manage API keys" },
+      403,
+    );
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const keyId = c.req.param("id");
+
+  if (!keyId) {
+    return c.json({ error: "Key ID is required" }, 400);
+  }
+
+  // Confirm ownership before mutating (US-268: never mutate by id alone).
+  const { data: existing, error: fetchError } = await supabaseAdmin
+    .from("api_keys")
+    .select("id")
+    .eq("id", keyId)
+    .eq("user_id", userId)
+    .single();
+
+  if (fetchError || !existing) {
+    return c.json({ error: "API key not found" }, 404);
+  }
+
+  const { fullKey, keyHash, keyPrefix } = await generateApiKey();
+
+  const { data: rotated, error: updateError } = await supabaseAdmin
+    .from("api_keys")
+    .update({
+      key_hash: keyHash,
+      key_prefix: keyPrefix,
+      last_rotated_at: new Date().toISOString(),
+      last_used_at: null,
+    })
+    .eq("id", keyId)
+    .eq("user_id", userId)
+    .select("id, name, key_prefix, scopes, expires_at, created_at, last_rotated_at")
+    .single();
+
+  if (updateError || !rotated) {
+    console.error("Failed to rotate API key:", updateError);
+    return c.json({ error: "Failed to rotate API key" }, 500);
+  }
+
+  return c.json({
+    data: {
+      ...rotated,
+      full_key: fullKey,
+    },
+  });
 });
 
 // Delete/revoke an API key

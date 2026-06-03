@@ -5841,8 +5841,8 @@
         "Runs as a CI guard"
       ],
       "priority": 355,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. SPA reads PostgREST with anon key, so RLS is the sole client boundary."
+      "passes": true,
+      "notes": "Done 2026-06-03. New deno test src/tests/rls-guard_test.ts statically parses ALL supabase/migrations and fails if any multi-tenant table lacks RLS, lacks a policy (unless in the SERVICE_ROLE_ONLY allowlist = deny-all/service-role-only: flipdesk_subscription_events, oauth_states), or carries USING(true)/WITH CHECK(true) or a bare-authenticated policy (the last only on user_id tables; global reference tables like ebay_category_aspects may allow authenticated reads). user_id tables auto-discovered (new ones covered free); parent-scoped tenant tables (grade_reports, submission_images, item_photos, listings, sales, shipments, flipdesk_grading_submissions, grade_outcomes, listing_generation_jobs, workspace_invitations/members) from a curated list. Validated against the real schema (32 tables checked, 0 problems) via a Python port before committing. Wired into CI: deno test now runs with --allow-read (security.yml + deno.json)."
     },
     {
       "id": "US-356",
@@ -5854,8 +5854,8 @@
         "Consider HMAC-with-server-pepper over plain SHA-256"
       ],
       "priority": 356,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. Files: middleware/api-key-auth.ts, routes/api-keys.ts (bare SHA-256, no scopes, plan===professional|enterprise gate)."
+      "passes": true,
+      "notes": "Done 2026-06-03. Per-key scopes (read/submit/webhook_manage): migration 00078 adds scopes text[] (default full set, CHECK constraint) + last_rotated_at to api_keys. New lib/api-key.ts owns generate/hash/scope logic (shared by issuer + verifier so they can't drift); hashApiKey is HMAC-with-pepper when API_KEY_PEPPER is set, else SHA-256 (documented: setting the pepper invalidates existing keys). api-key-auth.ts loads scopes into context (legacy null -> full set); api-v1.ts enforces submit on POST /grades, read on the GET endpoints, webhook_manage on PATCH /webhook (403 on missing scope). Added POST /api/keys/:id/rotate (new secret, same row/name/scopes/expiry, ownership-checked). Plan gate CONFIRMED correct: user_plan (free/starter/professional/enterprise) is the grading plan and /api/v1 is the grading API, so plan in (professional,enterprise) is the intended column, not flipdesk_plan. Test src/tests/api-key_test.ts (scopes, hashing, pepper). Frontend unaffected (uses edgeFetch; additive columns)."
     },
     {
       "id": "US-357",
