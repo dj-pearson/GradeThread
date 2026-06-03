@@ -8,14 +8,45 @@ extra_search_path = ["public", "extensions"]
 
 [auth]
 site_url = "https://gradethread.com"
-additional_redirect_urls = ["http://localhost:5173/auth/callback", "https://gradethread.com/auth/callback"]
+# US-379: exact-match redirect allow-list. EVERY OAuth/recovery/invite target the
+# app sends users to must be listed here or GoTrue refuses the redirect. localhost
+# entries are for LOCAL DEV ONLY — the production self-hosted GoTrue
+# (GOTRUE_URI_ALLOW_LIST on api.gradethread.com) must contain ONLY the https URLs
+# below, never localhost, and no wildcards (open-redirect safety).
+additional_redirect_urls = [
+  "http://localhost:5173/auth/callback",
+  "http://localhost:5173/auth/reset-password",
+  "http://localhost:5173/accept-invite",
+  "https://gradethread.com/auth/callback",
+  "https://gradethread.com/auth/reset-password",
+  "https://gradethread.com/accept-invite",
+]
 jwt_expiry = 3600
 enable_signup = true
+
+# US-367: server-authoritative password policy. The client shows a strength meter
+# but GoTrue is the enforcer. minimum_password_length + required character classes
+# are Supabase-CLI config keys; the self-hosted GoTrue mirrors them via
+# GOTRUE_PASSWORD_MIN_LENGTH and GOTRUE_PASSWORD_REQUIRED_CHARACTERS, and
+# breached-password rejection is enabled there with GOTRUE_SECURITY_PASSWORD_HIBP_ENABLED=true.
+minimum_password_length = 10
+password_requirements = "lower_upper_letters_digits"
+
+# US-369: brute-force protection. The client shows ONE generic message for every
+# sign-in failure (no enumeration); throttling is enforced by GoTrue, which the
+# app talks to directly. On the self-hosted instance set the rate limits via env:
+#   GOTRUE_RATE_LIMIT_TOKEN_REFRESH, GOTRUE_RATE_LIMIT_VERIFY (per-IP login/verify
+#   attempts per 5 min), GOTRUE_RATE_LIMIT_EMAIL_SENT, and
+#   GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED=true. Tune VERIFY low enough to
+#   throttle password-guessing per IP.
 
 [auth.email]
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = true
+# Recovery (password-reset) links are single-use and short-lived. otp_expiry caps
+# the link TTL (1 hour); GoTrue invalidates the token on first use (US-371).
+otp_expiry = 3600
 
 [auth.external.google]
 enabled = true

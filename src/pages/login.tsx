@@ -22,8 +22,13 @@ export function LoginPage() {
     try {
       await signInWithEmail(email, password);
       navigate(inviteToken ? `/accept-invite?token=${inviteToken}` : "/dashboard");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign in");
+    } catch {
+      // US-369: a single generic message for ALL sign-in failures so the error
+      // text can't be used to enumerate accounts (invalid password vs unknown
+      // email vs unconfirmed email all read identically).
+      toast.error(
+        "We couldn't sign you in. Check your email and password — and if you just signed up, confirm your email first.",
+      );
     } finally {
       setIsLoading(false);
     }

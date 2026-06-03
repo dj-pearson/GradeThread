@@ -1,6 +1,8 @@
-import { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword, updatePassword } from "@/lib/auth";
+import { supabase } from "@/lib/supabase";
+import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -90,24 +92,99 @@ function RequestResetForm() {
 }
 
 function UpdatePasswordForm() {
+  const navigate = useNavigate();
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // US-371: only allow the update once we've confirmed a recovery session
+  // exists. A valid reset link establishes one (detectSessionInUrl) and fires
+  // PASSWORD_RECOVERY; without it the link is invalid/expired.
+  const [phase, setPhase] = useState<"checking" | "ready" | "expired">("checking");
+
+  useEffect(() => {
+    let active = true;
+    void supabase.auth.getSession().then(({ data }) => {
+      if (active && data.session) setPhase("ready");
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY" || (event === "SIGNED_IN" && session)) {
+        setPhase("ready");
+      }
+    });
+    // If no recovery session has materialized shortly after mount, the link is
+    // bad or expired — stop showing the form.
+    const timer = window.setTimeout(() => {
+      setPhase((p) => (p === "checking" ? "expired" : p));
+    }, 4000);
+    return () => {
+      active = false;
+      sub.subscription.unsubscribe();
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters");
+    if (phase !== "ready") return;
+    const check = checkPassword(password);
+    if (!check.ok) {
+      toast.error(check.reason ?? "Password does not meet the requirements");
+      return;
+    }
+    if (password !== confirm) {
+      toast.error("Passwords do not match");
       return;
     }
     setIsLoading(true);
     try {
       await updatePassword(password);
-      toast.success("Password updated! You can now sign in.");
+      // US-371: revoke ALL sessions after a password change so a previously
+      // stolen/active session can't survive the reset. The user re-authenticates
+      // with the new password.
+      await supabase.auth.signOut({ scope: "global" }).catch(() => {});
+      toast.success("Password updated. Please sign in with your new password.");
+      navigate("/login", { replace: true });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to update password");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  if (phase === "checking") {
+    return (
+      <Card>
+        <CardHeader className="text-center">
+          <CardTitle>Set new password</CardTitle>
+          <CardDescription>Verifying your reset link…</CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center py-6">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (phase === "expired") {
+    return (
+      <Card>
+        <CardHeader className="text-center">
+          <CardTitle>Reset link invalid or expired</CardTitle>
+          <CardDescription>
+            This password reset link is no longer valid. Request a new one to try
+            again.
+          </CardDescription>
+        </CardHeader>
+        <CardFooter className="justify-center gap-4">
+          <Link to="/auth/reset-password" className="text-sm text-brand-red hover:underline">
+            Request a new link
+          </Link>
+          <Link to="/login" className="text-sm text-muted-foreground hover:underline">
+            Back to sign in
+          </Link>
+        </CardFooter>
+      </Card>
+    );
   }
 
   return (
@@ -123,13 +200,25 @@ function UpdatePasswordForm() {
             <Input
               id="password"
               type="password"
-              placeholder="Min. 8 characters"
+              placeholder={PASSWORD_HINT}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={8}
+              minLength={10}
             />
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirm">Confirm new password</Label>
+            <Input
+              id="confirm"
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              required
+              minLength={10}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Updating..." : "Update password"}
           </Button>

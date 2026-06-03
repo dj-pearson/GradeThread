@@ -262,6 +262,8 @@ export function sanitizeSellerText(
 ): string {
   if (value == null) return "";
   let s = String(value);
+  // Stripping control chars is the whole point here (defang break-out).
+  // eslint-disable-next-line no-control-regex
   s = s.replace(/[\u0000-\u001F\u007F]+/g, " "); // control chars + newlines → space
   s = s.replace(/`{3,}/g, "'''"); // code fences
   s = s.replace(/<\/?\s*(system|assistant|user|human|instructions?)\b[^>]*>/gi, ""); // role tags

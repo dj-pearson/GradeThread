@@ -3156,3 +3156,61 @@ review-verified. The RLS guard's logic was additionally validated by a Python
 port against the real migrations (0 false failures) before commit.
 
 prd.json 340/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Auth-hardening sweep US-366/367/369/370/371/376/379
+
+Leaned into the FRONTEND auth stories because the frontend toolchain works in
+this environment (npm/tsc/lint/build/vitest all run), so unlike the edge stories
+these are fully build-verified, not just review-verified.
+
+US-366 Enforce email verification (P0):
+- Edge authMiddleware rejects sessions with email_confirmed_at=null (403
+  email_unverified) before setting context. OAuth users are pre-confirmed.
+- ProtectedRoute renders a new VerifyEmailGate (confirm-your-email + resend +
+  sign-out) when user.email_confirmed_at is null. lib/auth.ts gains
+  resendConfirmationEmail.
+- Trial grant (00079) is pre-confirmation but not exploitable — the edge gate
+  blocks unverified requests and the trial-expiry cron reverts to Free.
+
+US-367 Server password policy + client mirror:
+- config.toml: minimum_password_length=10 + lower_upper_letters_digits; HIBP
+  documented via self-hosted GoTrue env. New lib/password-policy.ts (checkPassword
+  + strength meter) wired into signup + reset; client advisory, server
+  authoritative. Test: src/lib/password-policy.test.ts (6 cases).
+
+US-369 Generic auth errors + lockout:
+- login shows ONE generic failure message (no enumeration). signup hides
+  already-registered (neutral confirmation screen). Lockout = GoTrue rate limits,
+  documented in config.toml.
+
+US-370 OAuth callback robustness:
+- auth-callback.tsx: parse error/error_description (query+hash) -> error UI;
+  getSession() on mount (don't miss a completed exchange); 15s timeout fallback;
+  subscription cleanup.
+
+US-371 Password-reset hardening:
+- reset-password: checking/ready/expired phase gate (confirms recovery session,
+  4s fallback -> link-expired); confirm-password field + policy check; global
+  sign-out on success; GoTrue otp_expiry=3600 for single-use/short-TTL.
+
+US-376 handle_new_user resilient + sanitize:
+- Migration 00079: ON CONFLICT DO NOTHING + EXCEPTION-safe (never aborts signup),
+  full_name trimmed/control-stripped/capped 200, avatar_url capped 1000.
+  PRESERVES the US-219 14-day Pro trial grant.
+
+US-379 Redirect allow-list:
+- config.toml additional_redirect_urls exact-matches /auth/callback,
+  /auth/reset-password, /accept-invite (dev + prod hosts); documented that prod
+  GoTrue allow-list must exclude localhost and wildcards.
+
+Also fixed a LATENT CI failure: the US-346 control-char regex in ai-grading.ts
+tripped eslint no-control-regex (npm run lint covers the edge dir too), which
+would have failed the frontend CI gate from that earlier commit — added the
+standard eslint-disable-next-line.
+
+Verification: frontend `npx tsc -b`, `npm run lint`, `npm run build`, and
+`npx vitest run` (146 tests) ALL pass. Migrations + config + edge authMiddleware
+are review-verified (deno can't run here).
+
+prd.json 347/524.
