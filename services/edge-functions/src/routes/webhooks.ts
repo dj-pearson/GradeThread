@@ -11,6 +11,7 @@ import {
   sendSubscriptionResumedEmail,
   sendSubscriptionStartedEmail,
 } from "../lib/email.ts";
+import { captureServer } from "../lib/posthog.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -152,7 +153,7 @@ async function recordEvent(
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until, cancellation_reason, subscription_status";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -246,6 +247,11 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_pause_until: pauseUntil,
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,
       stripe_customer_id: customerId,
+      // US-216: a fresh subscription means the user came back — clear any churn
+      // reason left over from a prior cancellation.
+      ...(event.type === "customer.subscription.created"
+        ? { cancellation_reason: null }
+        : {}),
       ...(trialEndsAtUpdate ? { trial_ends_at: trialEndsAtUpdate } : {}),
       ...(pendingCleared
         ? {
@@ -266,6 +272,15 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   console.log(
     `[Webhook] User ${user.id} → plan=${plan} interval=${interval} status=${status}`,
   );
+
+  // US-219: a trialing user just attached a real subscription → trial.converted.
+  // The trial has no Stripe sub, so its creation is the conversion signal.
+  if (
+    event.type === "customer.subscription.created" &&
+    user.subscription_status === "trialing"
+  ) {
+    void captureServer(user.id, "trial.converted", { to_plan: plan, interval });
+  }
 
   // Emails (best-effort, never fail the webhook).
   if (user.email) {
@@ -373,6 +388,13 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
 
   // Credit balance intentionally untouched (US-200 / US-216).
   console.log(`[Webhook] User ${user.id} → free (canceled)`);
+
+  // US-216: subscription actually terminated (period end reached). Fire the
+  // server-side analytics event with the reason captured at cancel time.
+  void captureServer(user.id, "subscription.ended", {
+    from_plan: user.flipdesk_plan,
+    reason: user.cancellation_reason ?? null,
+  });
 }
 
 // ── Invoice handlers ─────────────────────────────────────────────

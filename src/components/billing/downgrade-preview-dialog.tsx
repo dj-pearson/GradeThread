@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
   useBillingSummary,
   useScheduleDowngrade,
 } from "@/hooks/use-billing-summary";
+import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, ArrowDown, Check, Loader2, X } from "lucide-react";
 
@@ -65,9 +67,21 @@ export function DowngradePreviewDialog({
   const { data: summary } = useBillingSummary();
   const downgrade = useScheduleDowngrade();
 
+  // US-217: fire downgrade_previewed once per open, when the comparison is shown.
+  const fromPlan = summary?.subscription.plan;
+  useEffect(() => {
+    if (open && fromPlan) {
+      track("subscription.downgrade_previewed", {
+        from: fromPlan,
+        to: targetPlan,
+      });
+    }
+  }, [open, fromPlan, targetPlan]);
+
   if (!summary) return null;
 
-  const current = FLIPDESK_PLANS[summary.subscription.plan as FlipdeskPlanKey];
+  const currentPlanKey = summary.subscription.plan;
+  const current = FLIPDESK_PLANS[currentPlanKey as FlipdeskPlanKey];
   const next = FLIPDESK_PLANS[targetPlan];
   const interval = targetInterval ?? summary.subscription.interval ?? "monthly";
   const effectiveAt = summary.subscription.period_end;
@@ -92,7 +106,15 @@ export function DowngradePreviewDialog({
   function handleConfirm() {
     downgrade.mutate(
       { plan: targetPlan, interval },
-      { onSuccess: () => onOpenChange(false) },
+      {
+        onSuccess: () => {
+          track("subscription.downgrade_confirmed", {
+            from: currentPlanKey,
+            to: targetPlan,
+          });
+          onOpenChange(false);
+        },
+      },
     );
   }
 

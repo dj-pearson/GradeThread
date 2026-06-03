@@ -7,6 +7,7 @@ import {
   sendTrialExpiringEmail,
   sendWelcomeEmail,
 } from "../lib/email.ts";
+import { captureServer } from "../lib/posthog.ts";
 
 // Insert an in-app notification (service role bypasses RLS). Best-effort.
 async function notifyInApp(
@@ -470,6 +471,7 @@ notificationRoutes.post("/trial-check", async (c) => {
       }).catch((err) => {
         console.error(`[trial-check] email failed for ${u.id}:`, err);
       });
+      void captureServer(u.id, "trial.expiring_3d", { days_left: daysLeft });
       warned++;
     }
   }
@@ -488,6 +490,10 @@ notificationRoutes.post("/trial-check", async (c) => {
 
   if (expireErr) {
     console.error("[trial-check] expire update failed:", expireErr);
+  }
+
+  for (const u of expired ?? []) {
+    void captureServer(u.id, "trial.expired_to_free", {});
   }
 
   const expiredCount = expired?.length ?? 0;

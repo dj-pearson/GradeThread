@@ -914,6 +914,16 @@ paymentRoutes.post("/flipdesk/cancel", async (c) => {
         ? { metadata: { cancellation_reason: reason } }
         : {}),
     });
+    // Persist the reason on the user row too (US-216) so the period-end
+    // subscription.deleted webhook can read it for the 'subscription.ended'
+    // analytics event and for churn reporting. Best-effort — never fail the
+    // cancel over this.
+    if (reason) {
+      await supabaseAdmin
+        .from("users")
+        .update({ cancellation_reason: reason })
+        .eq("id", userId);
+    }
     // Webhook will reflect cancel_at_period_end=true on the user row.
     return c.json({
       ok: true,

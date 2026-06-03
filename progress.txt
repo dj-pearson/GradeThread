@@ -2840,3 +2840,61 @@ upgrade-required-dialog.tsx, flipdesk-plan-picker-dialog.tsx,
 credit-pack-dialog.tsx, billing.tsx, dashboard.tsx (+UsageMeters row).
 
 prd.json 311/343.
+
+
+## Session Notes (2026-06-03) -- Billing lifecycle + content digest cluster
+
+Audited the billing self-serve cluster (US-215..225) against acceptance
+criteria: backend handlers, webhooks, dialogs and migrations were ~90% built by
+prior sessions. The consistent gap was analytics telemetry (PostHog events,
+several of them server-side with no browser in the loop), plus one missing
+column and one missing ops script. Closed 8 stories.
+
+NEW infra:
+- services/edge-functions/src/lib/posthog.ts -- captureServer(distinctId,event,
+  props): fire-and-forget HTTP capture to PostHog from the edge for lifecycle
+  events that only happen server-side (Stripe webhooks, crons). No-op when
+  POSTHOG_KEY unset; never throws into a webhook/cron. Mirrors the consent-safe
+  frontend track() pattern.
+- migration 00072_cancellation_reason.sql -- users.cancellation_reason text
+  (US-216 AC wanted this column; cancel handler previously only wrote Stripe
+  metadata). Cancel handler now persists it; webhook clears it on resubscribe.
+- scripts/backfill-stripe-state.ts (US-225) -- dry-run-by-default reconciler of
+  subscription_status/period_end/sub_id/interval/plan vs live Stripe. --apply to
+  write. Flags amount-changing legacy-price drift (professional@$99 -> Business
+  not Pro@$59) for manual review instead of auto-swapping. tsc-clean standalone.
+- services/edge-functions/src/lib/content-summary.ts + GET /api/content/
+  scheduler/summary (US-260) + content-summary_test.ts. Weekly digest source for
+  Make.com: published-per-surface/focus, topics added/used, webhook success
+  rate, bank levels (below-min flags), suggestions. Voice-drift via a
+  human-authored-share proxy. Pure helper validated under Node (6/6 assertions);
+  deno suite couldn't run here (deno.land blocked 403 by the network policy).
+
+Stories closed (passes=true):
+US-215 pause/resume -- added 'subscription.paused'{months}/'subscription.resumed'{auto}.
+US-216 cancel -- migration+handler for cancellation_reason; client cancel_scheduled/
+  cancel_undone; server subscription.ended{reason} from the deleted webhook.
+US-217 downgrade preview -- 'subscription.downgrade_previewed'/'..._confirmed'{from,to}.
+US-218 dunning -- verified complete (past_due banner + webhook + email; grace=Stripe). No code gap.
+US-219 14d Pro trial -- trial.started(signup) + server trial.converted/expiring_3d/expired_to_free.
+US-224 AI self-cap -- verified complete (Settings card + min(plan,cap) gating). No gap.
+US-225 legacy migrate -- backfill-stripe-state.ts dry-run script.
+US-260 weekly content summary -- endpoint + pure helper + test.
+
+Verification: frontend `npx tsc -b` clean, `npm run lint` clean, `npx vitest run`
+137/140 pass (1 known responsive-images fail needs dist/ from npm run build; 2
+skipped). backfill-stripe-state.ts typechecks standalone (nodenext/strict).
+content-summary logic validated under Node. Edge files could not be Deno
+type-checked here -- remote deno.land deps are blocked (403) by the network
+policy -- so edge changes are manual-review-verified against existing patterns
+(untyped supabaseAdmin client, so no generic type break; columns referenced all
+exist after 00072).
+
+STILL OPEN (21): US-137 (e2e dogfood), US-146..151 (Sheets sync / cross-listing /
+schedulers / perf-sync), US-194 (iOS settings), US-220 (landing pricing rewrite),
+US-221 (admin plan/credits/refund), US-222 (transactional emails), US-223 (Stripe
+Tax + promo codes), US-251/252 (SSE Tiptap streaming + toolbar actions), US-254
+(A/B titles), US-255 (content GA4/PostHog events), US-289 (reconcile iOS import),
+US-330 (shadow A/B prompt grading), US-339/340/341 (forensic/provenance pipeline).
+
+prd.json 322/343.
