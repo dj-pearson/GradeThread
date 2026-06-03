@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
 import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
 import {
   sendDisputeFiledAdminEmail,
@@ -433,10 +434,7 @@ notificationRoutes.post("/welcome", async (c) => {
 //
 // Gated by FLIPDESK_INTERNAL_JOB_SECRET header (same pattern as other crons).
 notificationRoutes.post("/trial-check", async (c) => {
-  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
-  const authz = c.req.header("Authorization") ?? "";
-  const provided = authz.startsWith("Bearer ") ? authz.slice(7) : "";
-  if (!expected || provided !== expected) {
+  if (!(await requireJobSecret(c, { bearer: true }))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 

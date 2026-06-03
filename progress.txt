@@ -3068,3 +3068,48 @@ product tension + the SECURITY DEFINER view + frontend rewrite is a larger build
 left for a focused pass rather than guessing the public-column set.
 
 prd.json 334/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Security hardening cluster US-351/352/360/363
+
+Continued the prod-readiness security cluster with four more in-repo stories.
+
+US-351 Cap workspace role assignment:
+- Extracted the role hierarchy to NEW lib/workspace-roles.ts (pure, no DB import
+  => unit-testable): canAssignRole(actor, target) = target is assignable
+  (owner excluded) AND target rank <= actor rank.
+- workspace.ts invite-create rejects assigning above the actor's own role;
+  resend re-applies the cap to the stored invitation role.
+- Migration 00077 recreates accept_workspace_invitation() with a role-ceiling
+  guard (rejects any invitation role above 'admin') -- DB-side defense in depth.
+- middleware/workspace.ts now re-exports the helpers from the pure module.
+- Test: src/tests/workspace-roles_test.ts (admin->owner rejected, etc.).
+
+US-352 Harden eBay OAuth-token encryption:
+- crypto-aes.ts v2 format `v2:<keyId>:<iv>:<ct>`. AES-GCM additionalData binds
+  the ciphertext to the owning user_id (a blob replayed onto another tenant's
+  row fails the auth tag). Key registry (EDGE_ENCRYPTION_KEY/_ID +
+  EDGE_ENCRYPTION_KEYS_OLD) enables documented key rotation; legacy v1 still
+  decrypts. ebay-client.ts threads userId as AAD through encrypt/decrypt/refresh.
+- Rotation procedure + secrets-manager-only note in the file header + env.example.
+- Test: src/tests/crypto-aes_test.ts (AAD mismatch rejected, rotation, v1 compat).
+
+US-360 Harden internal job-secret auth:
+- NEW lib/job-auth.ts: verifyJobSecret/requireJobSecret compare SHA-256 digests
+  (constant-time, no length leak), fail-closed on unset env / empty header, and
+  support an _OLD secret for overlap rotation. Replaced every plain `!==` check
+  across the 6 FLIPDESK job-secret sites + the content-scheduler CONTENT secret.
+- Test: src/tests/job-auth_test.ts.
+
+US-363 Lock down CORS preflight reflection:
+- main.ts OPTIONS handler returns the FIXED ALLOWED_HEADERS list instead of
+  reflecting Access-Control-Request-Headers. localhost dropped from
+  ALLOWED_ORIGINS in production (isProduction()); remaining origins first-party.
+
+Verification: deno still unavailable + deno.land/esm.sh blocked here, so
+`deno check`/`deno test` can't run; new code + tests written to convention and
+review-verified, migrations review-verified. The role-extraction + job-auth
+refactors specifically moved the security-critical logic into DB-free modules so
+their tests DO run offline once a deno runtime is present.
+
+prd.json 338/524.

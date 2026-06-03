@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "./supabase.ts";
+import { requireJobSecret } from "./job-auth.ts";
 import { computeAccuracySummary, computeOutcomeFeedback } from "./accuracy-tracking.ts";
 import { evalThresholds, runEval } from "./grading-eval.ts";
 import { sendGradingRegressionAlertEmail } from "./email.ts";
@@ -402,9 +403,7 @@ export async function handleGradingMonitorCron(c: {
   req: { header: (name: string) => string | undefined };
   json: (body: unknown, status?: number) => Response;
 }): Promise<Response> {
-  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
-  const provided = c.req.header("X-Internal-Job-Secret");
-  if (!expected || !provided || provided !== expected) {
+  if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   try {

@@ -5789,8 +5789,8 @@
         "Test: a workspace admin inviting/assigning owner is rejected"
       ],
       "priority": 351,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. Consistent with the approved model (admins manage members incl. admins) but closes 'assign above own level'. File: services/edge-functions/src/routes/workspace.ts:80."
+      "passes": true,
+      "notes": "Done 2026-06-03. Pure role logic extracted to lib/workspace-roles.ts (canAssignRole: target must be assignable AND <= actor's rank; owner is never assignable). workspace.ts invite-create now rejects assigning above the actor's role (canAssignRole); resend re-applies the same cap on the stored invitation role. Migration 00077 recreates accept_workspace_invitation() with a role-ceiling guard (rejects any invitation role above 'admin') as DB-side defense in depth alongside the existing CHECK(role<>'owner'). Unit test src/tests/workspace-roles_test.ts (admin->owner rejected, etc.) runs offline."
     },
     {
       "id": "US-352",
@@ -5802,8 +5802,8 @@
         "EDGE_ENCRYPTION_KEY is stored only in the secrets manager and is rotatable"
       ],
       "priority": 352,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. File: services/edge-functions/src/lib/crypto-aes.ts."
+      "passes": true,
+      "notes": "Done 2026-06-03. crypto-aes.ts v2 format `v2:<keyId>:<iv>:<ct>`: AES-GCM additionalData binds ciphertext to the owning user_id (cross-tenant replay fails the tag) + a key registry (EDGE_ENCRYPTION_KEY/_ID + EDGE_ENCRYPTION_KEYS_OLD) enables documented key rotation; legacy v1 (no key id/AAD) still decrypts. ebay-client.ts passes userId as AAD on encrypt/decrypt/refresh (v1 back-compat: aad ignored for v1). Rotation procedure + secrets-manager-only note in file header + .env.example. Test src/tests/crypto-aes_test.ts: AAD mismatch rejected, rotation, legacy v1."
     },
     {
       "id": "US-353",
@@ -5906,8 +5906,8 @@
         "These /api/jobs/* paths are not reachable publicly without the secret and are not log-leaked"
       ],
       "priority": 360,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. FLIPDESK_INTERNAL_JOB_SECRET via plain !== across many jobs."
+      "passes": true,
+      "notes": "Done 2026-06-03. New lib/job-auth.ts: verifyJobSecret/requireJobSecret compare via SHA-256 digests (constant-time, no length leak), fail-closed on unset env or empty header, and support FLIPDESK_INTERNAL_JOB_SECRET_OLD for overlap rotation. Replaced plain !== checks across all 6 FLIPDESK_INTERNAL_JOB_SECRET cron sites (grading-monitor, flipdesk-pricing reprice-scan, flipdesk-ebay oauth/refresh + jobs/publish-due, notifications trial-check (Bearer), admin-seo gsc-sync) and the content-scheduler CONTENT_INTERNAL_JOB_SECRET path. Test src/tests/job-auth_test.ts. /api/jobs/* remain unreachable without the secret; secrets are not log-leaked."
     },
     {
       "id": "US-361",
@@ -5942,8 +5942,8 @@
         "Every allowlisted origin is confirmed first-party; localhost dropped in production builds"
       ],
       "priority": 363,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/main.ts:86-89 (reflects request headers; flipdesk.com + localhost allowed)."
+      "passes": true,
+      "notes": "Done 2026-06-03. main.ts CORS: OPTIONS preflight now returns the FIXED ALLOWED_HEADERS allowlist instead of reflecting Access-Control-Request-Headers (no client-controlled widening); the cors() middleware already used the fixed allowHeaders. localhost:5173 is dropped from ALLOWED_ORIGINS in production (isProduction()); remaining origins are first-party gradethread.com/flipdesk.com brand domains. Config hardening, review-verified."
     },
     {
       "id": "US-364",

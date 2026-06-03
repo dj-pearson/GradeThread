@@ -3,6 +3,7 @@ import { createMiddleware } from "hono/factory";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
+import { verifyJobSecret } from "../lib/job-auth.ts";
 import { generateBlogArticle } from "../lib/content-ai-blog.ts";
 import { generateSocialPost } from "../lib/content-ai-social.ts";
 import { researchTopics } from "../lib/content-ai-research.ts";
@@ -30,9 +31,10 @@ type SchedulerEnv = { Variables: { userId?: string } };
 export const contentSchedulerRoutes = new Hono<SchedulerEnv>();
 
 const schedulerAuth = createMiddleware<SchedulerEnv>(async (c, next) => {
+  // US-360: constant-time compare of the Make.com job secret.
   const headerSecret = c.req.header("X-Internal-Job-Secret");
   const envSecret = Deno.env.get("CONTENT_INTERNAL_JOB_SECRET")?.trim();
-  if (envSecret && headerSecret && headerSecret === envSecret) {
+  if (await verifyJobSecret(headerSecret, envSecret ?? "")) {
     // Make.com path — no JWT.
     await next();
     return;

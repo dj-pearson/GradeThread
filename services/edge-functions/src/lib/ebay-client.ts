@@ -304,8 +304,10 @@ export async function upsertConnection(args: {
   accessExpiresInSeconds: number;
   accountHandle?: string | null;
 }): Promise<void> {
-  const access = await encryptToken(args.accessToken);
-  const refresh = await encryptToken(args.refreshToken);
+  // US-352: bind the ciphertext to the owning user_id (AES-GCM AAD) so a token
+  // blob can't be replayed onto another tenant's connection row.
+  const access = await encryptToken(args.accessToken, { aad: args.userId });
+  const refresh = await encryptToken(args.refreshToken, { aad: args.userId });
   const expiresAt = new Date(
     Date.now() + args.accessExpiresInSeconds * 1000
   ).toISOString();
@@ -389,16 +391,19 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     : 0;
   const refreshNeeded = !expiresAt || expiresAt - Date.now() < 60_000;
 
+  // US-352: pass the user_id as AAD. Legacy v1 ciphertexts were written without
+  // AAD and decryptToken ignores the option for them, so this is back-compatible.
   if (!refreshNeeded) {
-    return await decryptToken(row.access_token_encrypted as string);
+    return await decryptToken(row.access_token_encrypted as string, { aad: userId });
   }
 
   const refreshToken = await decryptToken(
-    row.refresh_token_encrypted as string
+    row.refresh_token_encrypted as string,
+    { aad: userId },
   );
   try {
     const fresh = await refreshUserToken(refreshToken);
-    const encryptedAccess = await encryptToken(fresh.access_token);
+    const encryptedAccess = await encryptToken(fresh.access_token, { aad: userId });
     const expiresAtNew = new Date(
       Date.now() + fresh.expires_in * 1000
     ).toISOString();

@@ -2,9 +2,11 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { sendWorkspaceInvitationEmail } from "../lib/email.ts";
 import {
-  type WorkspaceRole,
+  ASSIGNABLE_ROLES,
+  canAssignRole,
   roleAtLeast,
-} from "../middleware/workspace.ts";
+  type WorkspaceRole,
+} from "../lib/workspace-roles.ts";
 
 type WorkspaceEnv = {
   Variables: {
@@ -16,13 +18,6 @@ type WorkspaceEnv = {
 };
 
 export const workspaceRoutes = new Hono<WorkspaceEnv>();
-
-const ASSIGNABLE_ROLES: WorkspaceRole[] = [
-  "admin",
-  "listing_manager",
-  "member",
-  "viewer",
-];
 
 const ROLE_LABEL: Record<WorkspaceRole, string> = {
   owner: "Owner",
@@ -83,6 +78,18 @@ workspaceRoutes.post("/invitations", async (c) => {
         error: `role must be one of: ${ASSIGNABLE_ROLES.join(", ")}`,
       },
       400,
+    );
+  }
+
+  // US-351: cap the assigned role at the actor's own role. ASSIGNABLE_ROLES
+  // already excludes 'owner', but canAssignRole makes the "never assign above
+  // your own level" invariant explicit + server-enforced (an admin can assign
+  // up to admin, never owner) instead of relying on the role list and the
+  // invite gate coincidentally aligning.
+  if (!canAssignRole(role, requestedRole)) {
+    return c.json(
+      { error: "You cannot assign a role higher than your own" },
+      403,
     );
   }
 
@@ -220,6 +227,15 @@ workspaceRoutes.post("/invitations/:id/resend", async (c) => {
 
   if (inv.owner_id !== ownerId) {
     return c.json({ error: "Invitation belongs to a different workspace" }, 403);
+  }
+  // US-351: re-apply the role cap at resend time. An invitation row could carry
+  // a role above the resender's level (legacy row, or one created before the
+  // cap); don't re-send an over-privileged invite.
+  if (!canAssignRole(role, inv.role)) {
+    return c.json(
+      { error: "This invitation grants a role higher than your own and cannot be resent" },
+      403,
+    );
   }
   if (inv.accepted_at) {
     return c.json({ error: "Invitation already accepted" }, 400);

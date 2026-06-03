@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
 import {
   isEbayConfigured,
   searchBrowseComps,
@@ -276,9 +277,7 @@ flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
 // intercepts it; mounted in main.ts as POST /api/jobs/reprice-scan and gated by
 // the X-Internal-Job-Secret header (same pattern as the GSC sync cron).
 export async function handleRepriceScanCron(c: Context): Promise<Response> {
-  const expected = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
-  const provided = c.req.header("X-Internal-Job-Secret");
-  if (!expected || provided !== expected) {
+  if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
   if (!isEbayConfigured()) {
