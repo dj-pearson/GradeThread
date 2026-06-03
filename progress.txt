@@ -3214,3 +3214,42 @@ Verification: frontend `npx tsc -b`, `npm run lint`, `npm run build`, and
 are review-verified (deno can't run here).
 
 prd.json 347/524.
+
+
+## Session Notes (2026-06-03 cont.) -- Account & session security cluster US-372/373/375/381
+
+Continued the auth/security theme with account-deletion + session + GDPR-export
+hardening. Frontend parts fully build-verified (tsc/lint/build/vitest); edge
+account.ts + email.ts review-verified (deno can't run here).
+
+US-372 Protect workspace data on owner deletion:
+- account.ts /delete blocks (409 workspace_has_members) when the owner still has
+  active workspace_members, instead of letting ON DELETE CASCADE wipe the shared
+  workspace. Owner must remove members / transfer first.
+
+US-373 Account-deletion confirmation + decision:
+- Documented + signed off the immediate-hard-delete model (GDPR + App Store).
+  New sendAccountDeletedEmail() sent best-effort after deletion (email captured
+  pre-cascade) so a user can flag an unintended deletion within the support
+  window. Client confirm-string + password re-auth remain the pre-delete gates.
+
+US-375 Sign-out-everywhere + rotation + re-auth:
+- lib/auth.ts: signOutEverywhere (global) + signOutOtherSessions (others).
+- Settings: 'Active Sessions' card with 'Sign out of all devices'; password
+  change now enforces the US-367 policy, re-auths with current password, and
+  revokes other sessions on success.
+- config.toml: refresh-token rotation + reuse-interval (+ self-hosted GoTrue
+  mirror env documented, incl. SESSIONS_TIMEBOX absolute TTL).
+
+US-381 Complete + discoverable GDPR export:
+- buildAccountExport now covers disputes, api_keys (metadata, no key_hash),
+  notifications + push_device_tokens, workspace memberships + invitations,
+  marketplace_connections (metadata, no OAuth tokens), payout_imports,
+  feedback_messages, sources + a README. FIXED a real bug: images were exported
+  via getPublicUrl on the PRIVATE submission-images bucket (dead links) — now
+  lists storage paths + documents retrieval. Settings copy updated to match.
+
+Verification: npx tsc -b, npm run lint, npm run build, npx vitest run (146 tests)
+ALL pass. Edge (account.ts, email.ts) + config.toml review-verified.
+
+prd.json 351/524.

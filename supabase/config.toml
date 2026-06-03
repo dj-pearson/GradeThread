@@ -22,6 +22,13 @@ additional_redirect_urls = [
   "https://gradethread.com/accept-invite",
 ]
 jwt_expiry = 3600
+# US-375: rotate refresh tokens on every use and detect reuse of a revoked token
+# (a sign of theft). The self-hosted GoTrue mirrors this with
+# GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED=true and
+# GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL=10; set an absolute session TTL
+# there too (GOTRUE_SESSIONS_TIMEBOX) so a refreshed session can't live forever.
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
 enable_signup = true
 
 # US-367: server-authoritative password policy. The client shows a strength meter

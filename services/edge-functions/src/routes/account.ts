@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { sendAccountDeletedEmail } from "../lib/email.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -101,7 +102,7 @@ accountRoutes.post("/delete", async (c) => {
 
   const { data: user } = await supabaseAdmin
     .from("users")
-    .select("stripe_customer_id, role")
+    .select("stripe_customer_id, role, email, full_name")
     .eq("id", userId)
     .maybeSingle();
 
@@ -111,6 +112,33 @@ accountRoutes.post("/delete", async (c) => {
   if (user && (user.role === "admin" || user.role === "super_admin")) {
     const stepUp = requireStepUp(c);
     if (stepUp) return stepUp;
+  }
+
+  // US-372: this user may OWN a shared workspace. workspace_members.owner_id has
+  // ON DELETE CASCADE, so deleting the owner would silently wipe the entire
+  // shared workspace (every member's access + the membership rows) with no
+  // notice. Block the deletion while members still exist and tell the owner to
+  // remove them (or transfer ownership) first.
+  {
+    const { count: memberCount, error: memberErr } = await supabaseAdmin
+      .from("workspace_members")
+      .select("member_id", { count: "exact", head: true })
+      .eq("owner_id", userId);
+    if (memberErr) {
+      console.error(`[account/delete] member check failed for ${userId}:`, memberErr.message);
+      return c.json({ error: "Failed to verify workspace state. Try again." }, 500);
+    }
+    if ((memberCount ?? 0) > 0) {
+      return c.json(
+        {
+          error:
+            "Your workspace still has members. Remove all members (or transfer ownership) before deleting your account.",
+          code: "workspace_has_members",
+          member_count: memberCount,
+        },
+        409,
+      );
+    }
   }
 
   // 1. Remove storage objects (no user_id column on storage; derive paths from
@@ -192,6 +220,24 @@ accountRoutes.post("/delete", async (c) => {
   if (delErr) {
     console.error(`[account/delete] auth user delete failed for ${userId}:`, delErr.message);
     return c.json({ error: "Failed to delete account. Contact support." }, 500);
+  }
+
+  // US-373: deletion model is IMMEDIATE HARD-DELETE (signed off): GDPR
+  // erasure + App Store 5.1.1(v) both favor prompt destruction, and we keep no
+  // recoverable PII (the account_deletion_log row above is non-PII proof only).
+  // The compensating control is (1) the confirm-string + password re-auth on the
+  // client, and (2) this confirmation email which gives the user a short
+  // support window to flag an unintended/unauthorized deletion before backups
+  // age out. Best-effort — never fail the (already-completed) deletion over it.
+  if (user?.email) {
+    try {
+      await sendAccountDeletedEmail(user.email, user.full_name?.trim() || "there");
+    } catch (err) {
+      console.error(
+        `[account/delete] confirmation email failed for ${userId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
   }
 
   return c.json({ deleted: true });

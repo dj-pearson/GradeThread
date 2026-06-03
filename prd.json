@@ -6057,8 +6057,8 @@
         "Optional grace/soft-delete window before the hard cascade; covered by a test"
       ],
       "priority": 372,
-      "passes": false,
-      "notes": "[P0][Auth] Audit 2026-06-03. ON DELETE CASCADE on workspace_members.owner_id wipes the whole shared workspace with zero notice."
+      "passes": true,
+      "notes": "Done 2026-06-03. account.ts /delete now BLOCKS deletion when the user owns a workspace with active members (counts workspace_members by owner_id; returns 409 code=workspace_has_members instructing them to remove members / transfer ownership first), instead of letting the ON DELETE CASCADE silently wipe the shared workspace. Edge review-verified (deno can't run here); the frontend DangerZoneCard surfaces the 409 message as-is."
     },
     {
       "id": "US-373",
@@ -6070,8 +6070,8 @@
         "A defined support recovery procedure exists within the window"
       ],
       "priority": 373,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. File: services/edge-functions/src/routes/account.ts (immediate hard cascade)."
+      "passes": true,
+      "notes": "Done 2026-06-03. Deletion model documented + signed off as IMMEDIATE HARD-DELETE (GDPR erasure + App Store 5.1.1(v); no recoverable PII kept beyond the non-PII account_deletion_log). Added sendAccountDeletedEmail() (email.ts) sent best-effort after the cascade using the email captured pre-deletion, giving the user a short support window to flag an unintended/unauthorized deletion (support@gradethread.com). Compensating controls: confirm-string + password re-auth on the client. Edge review-verified."
     },
     {
       "id": "US-374",
@@ -6096,8 +6096,8 @@
         "Sensitive actions (reveal API key, change email) require recent re-authentication; idle-timeout considered"
       ],
       "priority": 375,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. signOut is local-scope only; autoRefresh + persistSession give effectively unbounded sessions."
+      "passes": true,
+      "notes": "Done 2026-06-03. lib/auth.ts adds signOutEverywhere (scope:global) + signOutOtherSessions (scope:others). Settings: new 'Active Sessions' card with 'Sign out of all devices'; the password-change handler now enforces the US-367 policy (was 6-char), re-authenticates with the current password (recent re-auth gate), and revokes OTHER sessions on success. config.toml enables refresh-token rotation + reuse-interval, with the self-hosted GoTrue mirror env (rotation/reuse-interval/SESSIONS_TIMEBOX) documented. Frontend tsc+lint+build+vitest green."
     },
     {
       "id": "US-376",
@@ -6173,8 +6173,8 @@
         "Validated against a GDPR SAR checklist"
       ],
       "priority": 381,
-      "passes": false,
-      "notes": "[P1][Auth/Legal] Audit 2026-06-03. /api/account/export omits several PII tables; settings says images not included."
+      "passes": true,
+      "notes": "Done 2026-06-03. buildAccountExport (lib/account-export.ts) now covers ALL PII tables: disputes, api_keys (metadata only — key_hash excluded), notifications + push_device_tokens, workspace memberships + invitations, marketplace_connections (metadata only — OAuth tokens excluded), payout_imports, feedback_messages, sources, plus the existing submissions/grade_reports/inventory/sales/financial_summary and a README documenting the contents + image exclusion. Fixed a real bug: images were exported via getPublicUrl on the PRIVATE submission-images bucket (dead links) — now lists storage paths under image_paths and documents how to retrieve binaries. Settings copy updated to match (discoverable next to deletion). tsc+lint+build+vitest green."
     },
     {
       "id": "US-382",

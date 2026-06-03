@@ -38,6 +38,21 @@ export async function signOut() {
   if (error) throw error;
 }
 
+// US-375: revoke EVERY session for this user (all devices), not just the local
+// one. Used by the "Sign out of all devices" control and after a password
+// change.
+export async function signOutEverywhere() {
+  const { error } = await supabase.auth.signOut({ scope: "global" });
+  if (error) throw error;
+}
+
+// US-375: revoke OTHER sessions while keeping the current one — used after a
+// password change so the active session continues but stolen sessions die.
+export async function signOutOtherSessions() {
+  const { error } = await supabase.auth.signOut({ scope: "others" });
+  if (error) throw error;
+}
+
 export async function resetPassword(email: string) {
   const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}/auth/reset-password`,
