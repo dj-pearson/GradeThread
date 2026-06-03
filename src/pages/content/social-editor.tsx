@@ -56,7 +56,7 @@ export function SocialEditorPage() {
         hashtags: post.hashtags,
         cta_url: post.cta_url,
       }}
-      onBack={() => navigate("/dashboard/content/social")}
+      onBack={() => navigate("/admin/content/social")}
     />
   );
 }

@@ -45,7 +45,7 @@ export function BlogListPage() {
       title: title.trim(),
       product_focus: (product as ContentProduct) || "both",
     });
-    navigate(`/dashboard/content/blog/editor/${post.id}`);
+    navigate(`/admin/content/blog/editor/${post.id}`);
   };
 
   return (
@@ -145,7 +145,7 @@ export function BlogListPage() {
                   <tr key={p.id} className="border-b hover:bg-muted/50">
                     <td className="p-3">
                       <Link
-                        to={`/dashboard/content/blog/editor/${p.id}`}
+                        to={`/admin/content/blog/editor/${p.id}`}
                         className="font-medium hover:underline"
                       >
                         {p.title || <em>(untitled)</em>}

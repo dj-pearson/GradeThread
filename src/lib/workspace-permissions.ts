@@ -48,10 +48,10 @@ export function canDo(role: WorkspaceRole | null | undefined, cap: WorkspaceCapa
 }
 
 export const WORKSPACE_ROLE_LABEL: Record<WorkspaceRole, string> = {
-  owner: "Shop Admin",
+  owner: "Owner",
   admin: "Admin",
-  listing_manager: "Listing Manager",
-  member: "Member",
+  listing_manager: "Manager",
+  member: "Staff",
   viewer: "Viewer",
 };
 

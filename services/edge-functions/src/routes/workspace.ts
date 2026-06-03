@@ -25,10 +25,10 @@ const ASSIGNABLE_ROLES: WorkspaceRole[] = [
 ];
 
 const ROLE_LABEL: Record<WorkspaceRole, string> = {
-  owner: "Shop Admin",
+  owner: "Owner",
   admin: "Admin",
-  listing_manager: "Listing Manager",
-  member: "Member",
+  listing_manager: "Manager",
+  member: "Staff",
   viewer: "Viewer",
 };
 

@@ -276,8 +276,8 @@ export function TeamPage() {
             Members
           </CardTitle>
           <CardDescription>
-            The Shop Admin (workspace owner) always has full access and can't
-            be removed.
+            The Owner always has full access and can&apos;t be removed or
+            demoted. Admins can change roles and remove members.
           </CardDescription>
         </CardHeader>
         <CardContent>

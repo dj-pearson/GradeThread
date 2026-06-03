@@ -14,6 +14,12 @@ import {
   ArrowLeft,
   TrendingUp,
   BarChart3,
+  Newspaper,
+  MessageCircle,
+  Lightbulb,
+  BookOpen,
+  Activity,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
@@ -35,6 +41,26 @@ const adminNavItems = [
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
 ];
+
+// Content module — its own section in the admin sidebar. Same admin +
+// super_admin access as the rest of the panel (moved here from the regular
+// dashboard's "Content" group).
+const contentNavItems = [
+  { to: "/admin/content/blog", icon: Newspaper, label: "Blog", end: false },
+  { to: "/admin/content/social", icon: MessageCircle, label: "Social", end: false },
+  { to: "/admin/content/topics", icon: Lightbulb, label: "Topic Bank", end: false },
+  { to: "/admin/content/knowledge", icon: BookOpen, label: "Knowledge", end: false },
+  { to: "/admin/content/analytics", icon: Activity, label: "Analytics", end: false },
+  { to: "/admin/content/settings", icon: SlidersHorizontal, label: "Content Settings", end: false },
+];
+
+// Shared NavLink styling for the admin sidebar (active = brand-red highlight).
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+    isActive
+      ? "bg-brand-red/20 text-brand-red"
+      : "text-white/70 hover:bg-white/10 hover:text-white"
+  }`;
 
 export function AdminLayout() {
   const { user, profile } = useAuth();
@@ -70,19 +96,29 @@ export function AdminLayout() {
           </div>
         </div>
 
-        <nav className="mt-2 flex-1 space-y-1 px-3">
+        <nav className="mt-2 flex-1 space-y-1 overflow-y-auto px-3">
           {visibleNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               end={item.end}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-brand-red/20 text-brand-red"
-                    : "text-white/70 hover:bg-white/10 hover:text-white"
-                }`
-              }
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
+            </NavLink>
+          ))}
+
+          {/* Content module — visually grouped under its own heading. */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Content
+          </div>
+          {contentNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
             >
               <item.icon className="h-5 w-5" />
               {item.label}

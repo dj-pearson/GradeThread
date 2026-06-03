@@ -70,7 +70,7 @@ export function BlogEditorPage() {
       key={id}
       postId={id}
       initial={post}
-      onBack={() => navigate("/dashboard/content/blog")}
+      onBack={() => navigate("/admin/content/blog")}
     />
   );
 }

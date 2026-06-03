@@ -532,6 +532,56 @@ export function useSyncEbayListings() {
   });
 }
 
+// ── Sync history ────────────────────────────────────────────────────
+
+export interface EbaySyncRun {
+  id: string;
+  marketplace: string;
+  status: "running" | "success" | "partial" | "failed";
+  listings_total: number;
+  listings_matched: number;
+  listings_unmatched: number;
+  listings_skipped: number;
+  legacy_matched: number;
+  legacy_unmatched: number;
+  legacy_duplicates: number;
+  sales_new: number;
+  sales_updated: number;
+  sales_skipped: number;
+  sales_enriched: number;
+  error_count: number;
+  errors: string[];
+  since: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+// Recent eBay sync runs for the Reconciliation page's history box. Each run is
+// written by the background pull when it finishes (see doListingsPull). Refetches
+// on focus/mount so opening Reconciliation after a sync shows the latest run.
+export function useEbaySyncRuns(limit = 20) {
+  const user = useAuthStore((s) => s.user);
+  return useQuery({
+    queryKey: ["ebay_sync_runs", user?.id, limit],
+    enabled: !!user,
+    staleTime: 15_000,
+    queryFn: async (): Promise<EbaySyncRun[]> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/sync-runs?limit=${limit}`,
+        { headers: await ebayHeaders() },
+      );
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        runs?: EbaySyncRun[];
+      };
+      if (!res.ok) {
+        throw new Error(json.error || "Failed to load sync history.");
+      }
+      return json.runs ?? [];
+    },
+  });
+}
+
 // ── Publish to eBay (Week 3) ────────────────────────────────────────
 
 export interface PublishSummary {

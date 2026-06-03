@@ -41,7 +41,7 @@ export function ContentAnalyticsPage() {
       kind: "blog" as const,
       id: b.id,
       title: b.title,
-      url: `/dashboard/content/blog/editor/${b.id}`,
+      url: `/admin/content/blog/editor/${b.id}`,
       published_at: b.published_at,
       product_focus: b.product_focus,
       external_url: `/blog/${b.slug}`,
@@ -54,7 +54,7 @@ export function ContentAnalyticsPage() {
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 120),
-      url: `/dashboard/content/social/editor/${s.id}`,
+      url: `/admin/content/social/editor/${s.id}`,
       published_at: s.published_at,
       product_focus: s.product_focus,
       external_url: null,
@@ -164,7 +164,7 @@ export function ContentAnalyticsPage() {
             The scheduler auto-refills any slice that dips below the configured
             minimum in{" "}
             <Link
-              to="/dashboard/content/settings"
+              to="/admin/content/settings"
               className="underline underline-offset-2"
             >
               Content Settings

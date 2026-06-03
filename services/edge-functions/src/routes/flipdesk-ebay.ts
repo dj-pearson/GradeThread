@@ -459,6 +459,55 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
 //   • no match → snapshot into `flipdesk_ebay_listings` so the user can see
 //     orphaned eBay listings on the Reconciliation page.
 // ── Background sync helper ─────────────────────────────────────────
+// One row per sync run, written to flipdesk_sync_runs (migration 00073) so the
+// Reconciliation page can show a history of what each pull did. Best-effort:
+// a logging failure here must never break the sync that already ran.
+interface SyncRunStats {
+  startedAt: string;
+  since: string | null;
+  status: "success" | "partial" | "failed";
+  total: number;
+  matched: number;
+  unmatched: number;
+  skipped: number;
+  legacyMatched: number;
+  legacyUnmatched: number;
+  legacyDuplicates: number;
+  salesNew: number;
+  salesUpdated: number;
+  salesSkipped: number;
+  salesEnriched: number;
+  errors: string[];
+}
+
+async function recordSyncRun(userId: string, s: SyncRunStats): Promise<void> {
+  try {
+    await supabaseAdmin.from("flipdesk_sync_runs").insert({
+      user_id: userId,
+      marketplace: "ebay",
+      status: s.status,
+      listings_total: s.total,
+      listings_matched: s.matched,
+      listings_unmatched: s.unmatched,
+      listings_skipped: s.skipped,
+      legacy_matched: s.legacyMatched,
+      legacy_unmatched: s.legacyUnmatched,
+      legacy_duplicates: s.legacyDuplicates,
+      sales_new: s.salesNew,
+      sales_updated: s.salesUpdated,
+      sales_skipped: s.salesSkipped,
+      sales_enriched: s.salesEnriched,
+      error_count: s.errors.length,
+      errors: s.errors.slice(0, 50),
+      since: s.since,
+      started_at: s.startedAt,
+      finished_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("[flipdesk-ebay] failed to record sync run:", err);
+  }
+}
+
 // Extracted from the /listings/pull handler so we can fire it as a
 // detached promise and return 202 immediately.  The sync typically takes
 // 60-120s (N eBay API calls + Supabase writes) which exceeds Cloudflare's
@@ -469,6 +518,7 @@ async function doListingsPull(
   connId: string,
   lastSyncedAt: string | null,
 ): Promise<void> {
+  const startedAt = new Date().toISOString();
   let offers: RemoteOffer[];
   try {
     offers = await listAllOffers(userId);
@@ -476,7 +526,25 @@ async function doListingsPull(
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
     // Can't surface this to the client (we already returned 202), but
-    // log it clearly so it shows up in Coolify's container logs.
+    // log it clearly so it shows up in Coolify's container logs — and record
+    // a failed run so the user sees the attempt in the sync history.
+    await recordSyncRun(userId, {
+      startedAt,
+      since: lastSyncedAt,
+      status: "failed",
+      total: 0,
+      matched: 0,
+      unmatched: 0,
+      skipped: 0,
+      legacyMatched: 0,
+      legacyUnmatched: 0,
+      legacyDuplicates: 0,
+      salesNew: 0,
+      salesUpdated: 0,
+      salesSkipped: 0,
+      salesEnriched: 0,
+      errors: [`fetch offers: ${msg.slice(0, 200)}`],
+    });
     return;
   }
 
@@ -982,6 +1050,27 @@ async function doListingsPull(
       `sales_skipped=${salesSkipped} sales_enriched=${salesEnriched} ` +
       `errors=${errors.length}`,
   );
+
+  // Persist the run so the Reconciliation page can show its stats. Per-phase
+  // failures were collected in `errors` without aborting the pull, so a run
+  // that finished with any errors is "partial", otherwise "success".
+  await recordSyncRun(userId, {
+    startedAt,
+    since: lastSyncedAt,
+    status: errors.length > 0 ? "partial" : "success",
+    total: offers.length,
+    matched,
+    unmatched,
+    skipped,
+    legacyMatched,
+    legacyUnmatched,
+    legacyDuplicates,
+    salesNew,
+    salesUpdated,
+    salesSkipped,
+    salesEnriched,
+    errors,
+  });
 }
 
 // /listings/pull — validates the connection then fires the heavy sync as a
@@ -1018,6 +1107,25 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   );
 
   return c.json({ ok: true, message: "Sync started in background." }, 202);
+});
+
+// GET /sync-runs — recent sync-run history for the Reconciliation page.
+// Tenant-scoped to the workspace owner (the account the sync runs on behalf
+// of). Returns the freshest runs first; default 20, capped at 50.
+flipdeskEbayRoutes.get("/sync-runs", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const limit = Math.min(
+    Math.max(Number(c.req.query("limit")) || 20, 1),
+    50,
+  );
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_sync_runs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("started_at", { ascending: false })
+    .limit(limit);
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ runs: data ?? [] });
 });
 
 // ── Publish flow (Week 3) ──────────────────────────────────────────

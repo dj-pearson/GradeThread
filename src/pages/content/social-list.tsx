@@ -102,7 +102,7 @@ export function SocialListPage() {
             <span>
               Promote a topic from the{" "}
               <Link
-                to="/dashboard/content/topics"
+                to="/admin/content/topics"
                 className="underline underline-offset-2"
               >
                 Topic Bank
@@ -116,7 +116,7 @@ export function SocialListPage() {
           {posts.map((p) => (
             <Link
               key={p.id}
-              to={`/dashboard/content/social/editor/${p.id}`}
+              to={`/admin/content/social/editor/${p.id}`}
               className="block"
             >
               <Card className="h-full transition hover:border-primary/50">

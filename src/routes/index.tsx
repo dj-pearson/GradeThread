@@ -3,7 +3,7 @@
 // router config below. Fast-refresh constraints don't apply here.
 /* eslint-disable react-refresh/only-export-components */
 import { lazy, Suspense } from "react";
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createBrowserRouter, Navigate, useLocation } from "react-router-dom";
 import { RootLayout } from "@/layouts/root-layout";
 import { RouteErrorFallback } from "@/components/error-boundary";
 
@@ -116,6 +116,15 @@ function SuspenseWrapper({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
 }
 
+// The content module moved from /dashboard/content/* into the admin dashboard
+// (/admin/content/*). This redirect keeps old bookmarks/links working by
+// swapping the path prefix while preserving the sub-path, params and query.
+function ContentRedirect() {
+  const { pathname, search } = useLocation();
+  const target = pathname.replace(/^\/dashboard\/content/, "/admin/content");
+  return <Navigate to={`${target}${search}`} replace />;
+}
+
 export const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -221,22 +230,10 @@ export const router = createBrowserRouter([
               { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
               { path: "/dashboard/team", element: <SuspenseWrapper><TeamPage /></SuspenseWrapper> },
-              // Content module (admin-only). The AdminRoute guard
-              // wraps the content children so non-admins land back at
-              // /dashboard with the standard "Access denied" toast.
-              {
-                element: <SuspenseWrapper><AdminRoute /></SuspenseWrapper>,
-                children: [
-                  { path: "/dashboard/content/blog", element: <SuspenseWrapper><BlogListPage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/blog/editor/:id", element: <SuspenseWrapper><BlogEditorPage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/social", element: <SuspenseWrapper><SocialListPage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/social/editor/:id", element: <SuspenseWrapper><SocialEditorPage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/topics", element: <SuspenseWrapper><TopicBankPage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/knowledge", element: <SuspenseWrapper><KnowledgePage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/analytics", element: <SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper> },
-                  { path: "/dashboard/content/settings", element: <SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper> },
-                ],
-              },
+              // Content module moved to the admin dashboard (/admin/content/*).
+              // Keep old /dashboard/content/* URLs alive via a prefix-preserving
+              // redirect so existing bookmarks and in-app links don't 404.
+              { path: "/dashboard/content/*", element: <ContentRedirect /> },
             ],
           },
         ],
@@ -264,6 +261,18 @@ export const router = createBrowserRouter([
               { path: "/admin/moderation", element: <SuspenseWrapper><AdminModerationPage /></SuspenseWrapper> },
               { path: "/admin/tasks", element: <SuspenseWrapper><AdminTasksPage /></SuspenseWrapper> },
               { path: "/admin/tasks/:id", element: <SuspenseWrapper><AdminTaskBoardPage /></SuspenseWrapper> },
+              // Content module — blog, social, topic bank, knowledge base,
+              // analytics + settings. Lives in the admin dashboard (admin +
+              // super_admin), behind the AdminMfaGate like every other admin
+              // surface. Moved here from /dashboard/content/* (US: content move).
+              { path: "/admin/content/blog", element: <SuspenseWrapper><BlogListPage /></SuspenseWrapper> },
+              { path: "/admin/content/blog/editor/:id", element: <SuspenseWrapper><BlogEditorPage /></SuspenseWrapper> },
+              { path: "/admin/content/social", element: <SuspenseWrapper><SocialListPage /></SuspenseWrapper> },
+              { path: "/admin/content/social/editor/:id", element: <SuspenseWrapper><SocialEditorPage /></SuspenseWrapper> },
+              { path: "/admin/content/topics", element: <SuspenseWrapper><TopicBankPage /></SuspenseWrapper> },
+              { path: "/admin/content/knowledge", element: <SuspenseWrapper><KnowledgePage /></SuspenseWrapper> },
+              { path: "/admin/content/analytics", element: <SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper> },
+              { path: "/admin/content/settings", element: <SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper> },
             ],
           },
         ],

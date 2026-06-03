@@ -102,7 +102,9 @@
       "Bash(ls src/components/pricing)",
       "WebFetch(domain:gradethread.com)",
       "PowerShell(npx vitest run src/test/responsive-images.test.ts 2>&1 | Select-Object -Last 30)",
-      "PowerShell(npx eslint src/routes/index.tsx src/layouts/root-layout.tsx src/layouts/dashboard-layout.tsx src/layouts/admin-layout.tsx src/components/billing/app-billing-dialogs.tsx src/components/responsive-image.tsx 2>&1 | Select-Object -Last 30)"
+      "PowerShell(npx eslint src/routes/index.tsx src/layouts/root-layout.tsx src/layouts/dashboard-layout.tsx src/layouts/admin-layout.tsx src/components/billing/app-billing-dialogs.tsx src/components/responsive-image.tsx 2>&1 | Select-Object -Last 30)",
+      "Bash(rg -rn \"Shop Admin\" src services/edge-functions/src)",
+      "Bash(rg -rn \"WORKSPACE_ROLE_LABEL|ROLE_LABEL\" src services/edge-functions/src)"
     ]
   },
   "hooks": {

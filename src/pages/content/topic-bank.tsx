@@ -106,8 +106,8 @@ function BankTab({
       const post = result.post as { id: string };
       const path =
         result.surface === "blog"
-          ? `/dashboard/content/blog/editor/${post.id}`
-          : `/dashboard/content/social/editor/${post.id}`;
+          ? `/admin/content/blog/editor/${post.id}`
+          : `/admin/content/social/editor/${post.id}`;
       navigate(path);
     }
   };

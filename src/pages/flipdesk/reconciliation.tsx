@@ -9,6 +9,9 @@ import {
   Loader2,
   FileText,
   Download,
+  History,
+  RefreshCw,
+  XCircle,
 } from "lucide-react";
 import {
   Card,
@@ -42,6 +45,7 @@ import {
   type QueueEntry,
 } from "@/hooks/use-payouts";
 import { downloadSalesCsv } from "@/lib/csv-export";
+import { useEbaySyncRuns, type EbaySyncRun } from "@/hooks/use-ebay";
 import type { SaleRow, ItemFullRow } from "@/types/database";
 
 const STEPS = [
@@ -70,6 +74,22 @@ function fmtDate(d: string | null | undefined): string {
   const t = new Date(`${d}T00:00:00`);
   if (Number.isNaN(t.getTime())) return d;
   return t.toLocaleDateString();
+}
+
+// Compact "2m ago" / "3h ago" / date for older runs. Used by the sync history.
+function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "—";
+  const diff = Date.now() - t;
+  const min = Math.round(diff / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(t).toLocaleDateString();
 }
 
 export function FlipdeskReconciliationPage() {
@@ -403,7 +423,180 @@ export function FlipdeskReconciliationPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* eBay sync history — stats from each background pull, newest first. */}
+      <SyncHistoryCard />
     </div>
+  );
+}
+
+// Maps a run status to its badge presentation.
+function runStatusBadge(status: EbaySyncRun["status"]) {
+  switch (status) {
+    case "success":
+      return {
+        label: "Success",
+        className: "border-emerald-600/30 bg-emerald-600/10 text-emerald-700",
+        Icon: CheckCircle2,
+      };
+    case "partial":
+      return {
+        label: "Partial",
+        className: "border-amber-500/30 bg-amber-500/10 text-amber-700",
+        Icon: AlertTriangle,
+      };
+    case "failed":
+      return {
+        label: "Failed",
+        className: "border-destructive/30 bg-destructive/10 text-destructive",
+        Icon: XCircle,
+      };
+    default:
+      return {
+        label: "Running",
+        className: "border-muted-foreground/30 bg-muted text-muted-foreground",
+        Icon: Loader2,
+      };
+  }
+}
+
+// eBay sync history — one row per background pull, newest first. Surfaces the
+// stats the sync computes (listings pulled/matched, sales created/updated,
+// fee enrichment, errors) which were previously only in the container logs.
+function SyncHistoryCard() {
+  const { data: runs = [], isLoading, isFetching, refetch } = useEbaySyncRuns();
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              eBay sync history
+            </CardTitle>
+            <CardDescription>
+              Stats from each background sync. Start one from the{" "}
+              <strong>Marketplaces</strong> page — results land here when it
+              finishes (a sync takes ~1–2 minutes).
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+          >
+            <RefreshCw
+              className={`mr-2 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="px-0">
+        {isLoading ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            Loading…
+          </div>
+        ) : runs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-1 py-8 text-center text-sm text-muted-foreground">
+            <History className="h-5 w-5 opacity-50" />
+            No syncs yet. Run one from the Marketplaces page and its stats will
+            show up here.
+          </div>
+        ) : (
+          <Table className="text-xs">
+            <TableHeader>
+              <TableRow>
+                <TableHead>When</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Listings</TableHead>
+                <TableHead className="text-right">Matched</TableHead>
+                <TableHead className="text-right">Sales</TableHead>
+                <TableHead className="text-right">Fees synced</TableHead>
+                <TableHead className="text-right">Issues</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {runs.map((run) => {
+                const badge = runStatusBadge(run.status);
+                const salesTouched = run.sales_new + run.sales_updated;
+                return (
+                  <TableRow key={run.id}>
+                    <TableCell
+                      className="whitespace-nowrap text-muted-foreground"
+                      title={new Date(run.started_at).toLocaleString()}
+                    >
+                      {fmtRelative(run.started_at)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`gap-1 text-[10px] ${badge.className}`}
+                      >
+                        <badge.Icon
+                          className={`h-3 w-3 ${run.status === "running" ? "animate-spin" : ""}`}
+                        />
+                        {badge.label}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {run.listings_total}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <span className="text-emerald-700">
+                        {run.listings_matched}
+                      </span>
+                      {run.listings_unmatched > 0 && (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          / {run.listings_unmatched} new
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {salesTouched > 0 ? (
+                        <span title={`${run.sales_new} new · ${run.sales_updated} updated`}>
+                          {run.sales_new > 0 && (
+                            <span className="text-emerald-700">
+                              +{run.sales_new}
+                            </span>
+                          )}
+                          {run.sales_new > 0 && run.sales_updated > 0 && " "}
+                          {run.sales_updated > 0 && (
+                            <span className="text-muted-foreground">
+                              ~{run.sales_updated}
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {run.sales_enriched > 0 ? run.sales_enriched : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {run.error_count > 0 ? (
+                        <span
+                          className="text-destructive"
+                          title={run.errors.slice(0, 5).join("\n")}
+                        >
+                          {run.error_count}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">0</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
