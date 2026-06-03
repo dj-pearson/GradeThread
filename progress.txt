@@ -2952,3 +2952,56 @@ here; the untyped supabaseAdmin client means no generic type break, and the
 Anthropic streaming + Hono streamSSE usage follows their documented APIs.
 
 prd.json 326/343.
+
+
+## Session Notes (2026-06-03 cont.) -- Billing/pricing cluster US-220/221/223
+
+Picked up the highest-priority remaining stories. All three turned out to be
+"substantially built but never marked + a couple of real AC gaps left open"
+(same shape as the content cluster). Audited each against its full AC, closed
+the concrete gaps, verified, and marked passes=true.
+
+US-220 landing pricing split (fully verifiable here):
+- Was already split into FlipdeskPricingBlock + GradeThreadPricingBlock +
+  IncludedGradesTable with toggle, 4 FlipDesk cards, 3 GradeThread tier cards
+  w/ SLA, credit-pack callout, 3/10/30/75 included-grades table, and all 4 new
+  FAQs in landing-faqs.ts. Old PLANS grid already gone.
+- Gaps closed: sub-section headers <h3> -> <h2> (AC says H2); added brand-red
+  'Best Value' badge+border on the 100-pack (largest CREDIT_PACK) to mirror
+  Pro's 'Most Popular'.
+
+US-221 admin change-plan/comp-credits/refund (edge review + frontend verifiable):
+- admin-billing.ts + billing-actions-card.tsx already had change-plan (Stripe
+  sub update/cancel), comp-credits (grant_grade_credits admin_grant), refund
+  (refunds.create, MFA step-up, US-206 webhook reversal), /coupons, /payments,
+  all -> admin_audit_log with before/after.
+- Gaps closed: (1) plan changes now ALSO insert a flipdesk_subscription_events
+  row (event_type='admin_change', admin user_id in raw_payload) via new
+  recordAdminEvent() -- the header comment + UI copy claimed this but code never
+  did it; (2) new POST /users/:id/set-trial (set/clear users.trial_ends_at,
+  audit + event logged) + a datetime-local Trial control in the card wired with
+  currentTrialEndsAt from user-detail.tsx.
+
+US-223 Stripe Tax + promo codes (setup script + frontend verifiable):
+- payments.ts already had automatic_tax + allow_promotion_codes +
+  tax_id_collection on all 4 Checkout Sessions; setup script set price
+  tax_behavior='exclusive'; /admin/coupons read-only list w/ redemption counts.
+- Gaps closed: (1) setup-stripe-pricing.mjs now sets the PRODUCT tax_code
+  (Stripe Tax keys off product.tax_code, not price): SaaS txcd_10103000 for
+  FlipDesk subs, General-Services txcd_20030000 for grades + credit packs, on
+  both create + update paths; (2) tax-transparency note on the Billing page
+  (prices exclude tax; calculated at checkout by location; full invoices in the
+  Stripe portal).
+
+Verification: frontend `npx tsc -b` clean, `tsconfig.functions.json` tsc clean,
+`npm run lint` clean, `node --check scripts/setup-stripe-pricing.mjs` OK. Edge
+runtime/Deno handlers are review-verified only (deno.land + esm.sh blocked by
+the network policy, so `deno check` can't run here); the changes follow existing
+patterns in the same files (recordEvent shape in webhooks.ts, Stripe SDK usage).
+
+Remaining 14 are blocked on external creds (US-137 eBay sandbox; US-146/147/148
+Google Cloud OAuth; US-151 eBay Sell Analytics; US-194/289 iOS device build) or
+are substantial focused builds (US-149 cross-listing, US-150 automations,
+US-222 email preview/bounce, US-330 shadow grading, US-339/340/341 forensics).
+
+prd.json 329/343.

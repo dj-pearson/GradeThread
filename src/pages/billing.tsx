@@ -523,6 +523,25 @@ export function BillingPage() {
         onChoosePlan={(p) => openPlanPicker(p)}
       />
 
+      {/* Tax transparency (US-223) — no hidden charges */}
+      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+        <Info className="mt-0.5 h-3 w-3 flex-shrink-0" />
+        <span>
+          Prices exclude tax. Any applicable sales tax or VAT is calculated at
+          checkout based on your billing location and itemized on every receipt.
+          Full invoices with the tax breakdown are available in the{" "}
+          <button
+            type="button"
+            onClick={() => portal.mutate()}
+            disabled={portal.isPending}
+            className="underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+          >
+            Stripe billing portal
+          </button>
+          .
+        </span>
+      </p>
+
       {/* Dialogs */}
       <CreditPackDialog open={creditPackOpen} onOpenChange={setCreditPackOpen} />
       <FlipdeskPlanPickerDialog

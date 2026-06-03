@@ -110,9 +110,9 @@ function FlipdeskPricingBlock() {
   return (
     <div className="space-y-6">
       <div className="space-y-2 text-center">
-        <h3 className="text-2xl font-semibold">
+        <h2 className="text-2xl font-semibold">
           FlipDesk — your reseller workflow
-        </h3>
+        </h2>
         <p className="text-sm text-muted-foreground">
           Catalog, photograph, draft, list, sell, ship — all in one tool.
         </p>
@@ -232,9 +232,9 @@ function GradeThreadPricingBlock() {
   return (
     <div className="space-y-6">
       <div className="space-y-2 text-center">
-        <h3 className="text-2xl font-semibold">
+        <h2 className="text-2xl font-semibold">
           GradeThread — pay only when you grade
-        </h3>
+        </h2>
         <p className="text-sm text-muted-foreground">
           No monthly fee. Submit a garment, pay for that grade. Buy in packs
           to save up to {bestSavings.toFixed(0)}%.
@@ -285,20 +285,32 @@ function GradeThreadPricingBlock() {
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {CREDIT_PACKS.map((pack) => (
-              <div
-                key={pack.credits}
-                className="rounded-md border border-border bg-background p-2 text-center"
-              >
-                <div className="text-lg font-bold tabular-nums">
-                  {pack.credits}
+            {CREDIT_PACKS.map((pack) => {
+              const isBestValue = pack.credits === bestPack.credits;
+              return (
+                <div
+                  key={pack.credits}
+                  className={`relative rounded-md border bg-background p-2 text-center ${
+                    isBestValue
+                      ? "border-brand-red shadow-sm"
+                      : "border-border"
+                  }`}
+                >
+                  {isBestValue && (
+                    <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 whitespace-nowrap bg-brand-red px-1.5 py-0 text-[10px] text-white">
+                      Best Value
+                    </Badge>
+                  )}
+                  <div className="text-lg font-bold tabular-nums">
+                    {pack.credits}
+                  </div>
+                  <div className="text-xs text-muted-foreground">credits</div>
+                  <div className="mt-0.5 text-sm font-semibold">
+                    ${(pack.priceCents / 100).toFixed(0)}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">credits</div>
-                <div className="mt-0.5 text-sm font-semibold">
-                  ${(pack.priceCents / 100).toFixed(0)}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
