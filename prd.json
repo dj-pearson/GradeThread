@@ -7991,6 +7991,572 @@
       "priority": 524,
       "passes": false,
       "notes": "[P3][Legal] Audit 2026-06-03. acceptable-use.tsx exists but no takedown/DMCA process."
+    },
+    {
+      "id": "US-525",
+      "title": "Make AutoLister generation a durable queue with an orphan reclaimer",
+      "description": "As a reseller running a large batch, my listing-generation jobs must survive a container restart, so a redeploy/crash mid-batch never silently strands drafts.",
+      "acceptanceCriteria": [
+        "processBatch is driven by a worker loop over the listing_generation_jobs table (claim + heartbeat/updated_at), not an unawaited fire-and-forget promise",
+        "A scheduled sweeper requeues jobs stuck in running past N minutes and resumes pending jobs after a restart; the batch always reaches a terminal status",
+        "retry handling can recover stuck running jobs (not only status=failed)"
+      ],
+      "priority": 525,
+      "passes": false,
+      "notes": "[P0][AutoLister/Reliability] Deep-dive 2026-06-03. flipdesk-autolister.ts dispatches processBatch via void...catch() and returns 202; no orphan sweeper exists. Ties to US-407."
+    },
+    {
+      "id": "US-526",
+      "title": "Add a per-item generation timeout",
+      "description": "As the platform, a single hung item must not tie up a concurrency slot indefinitely, so the batch keeps moving.",
+      "acceptanceCriteria": [
+        "generateListing has a total wall-clock timeout across its sequential upstream calls (generate -> suggestCategories -> getCategoryAspects -> extractEbayAspects -> comps)",
+        "A timed-out job is marked failed with a clear reason and is retryable"
+      ],
+      "priority": 526,
+      "passes": false,
+      "notes": "[P1][AutoLister/Reliability] Deep-dive 2026-06-03. Only the SDK 120s socket timeout protects a job today."
+    },
+    {
+      "id": "US-527",
+      "title": "Reserve AI quota atomically per batch",
+      "description": "As the platform, a batch's AI-action cost must be reserved at enqueue, so parallel batches can't bypass the monthly cap.",
+      "acceptanceCriteria": [
+        "The batch reserves its item-count against the monthly cap in one DB transaction at enqueue (decrement/refund on per-item failure)",
+        "Concurrent batches from the same workspace cannot collectively exceed the cap (test)"
+      ],
+      "priority": 527,
+      "passes": false,
+      "notes": "[P1][AutoLister/Billing] Deep-dive 2026-06-03. Per-item local consumed counter vs a snapshot allowance is racy across parallel batches."
+    },
+    {
+      "id": "US-528",
+      "title": "Make eBay publish idempotent (claim-lock + no blind retry)",
+      "description": "As a reseller, publishing must never create duplicate live listings, so retries and the scheduled cron are safe.",
+      "acceptanceCriteria": [
+        "publish-due claims each draft (UPDATE ... SET listing_status='publishing' WHERE listing_status='draft' returning affected rows) before publishing; no claim = skip",
+        "The publish_ POST is not blanket-retried; on transient failure, re-fetch the offer's listingId and short-circuit if already live",
+        "Duplicate-offer detection uses eBay's structured errorId (25002), not a message regex"
+      ],
+      "priority": 528,
+      "passes": false,
+      "notes": "[P0][AutoLister/Publish] Deep-dive 2026-06-03. 5-min cron has no lock; publish_ wrapped in withRetry; isOfferAlreadyExistsError is a fragile regex. Ties to US-464/US-503."
+    },
+    {
+      "id": "US-529",
+      "title": "Route AutoLister uploads through server validation + EXIF strip",
+      "description": "As the platform, AutoLister photos must pass the US-276 upload hardening, so blurry/oversized files and GPS EXIF don't reach storage.",
+      "acceptanceCriteria": [
+        "AutoLister uploads go through validateImageUpload() (magic-byte sniff, size/dimension caps) + stripImageMetadata() before storage.upload(), not direct client upload",
+        "The compress-failure fallback never uploads a raw original with intact EXIF/GPS",
+        "A min-resolution/quality gate rejects unusably small images"
+      ],
+      "priority": 529,
+      "passes": false,
+      "notes": "[P1][AutoLister/Security] Deep-dive 2026-06-03. autolister.tsx uploads client-side directly to item-photos, bypassing the validated edge path; image-utils validateImage() is not called."
+    },
+    {
+      "id": "US-530",
+      "title": "Add drag-and-drop, folder, and paste photo ingest",
+      "description": "As a desktop reseller, I want to drag a folder of haul photos (or paste) into AutoLister, so I'm not stuck clicking through a file picker.",
+      "acceptanceCriteria": [
+        "The dropzone is a real drop target (onDrop/onDragOver with dataTransfer.items + webkitGetAsEntry for folders)",
+        "True folder import via webkitdirectory; clipboard paste supported",
+        "Misleading 'pick a folder' copy now matches real behavior"
+      ],
+      "priority": 530,
+      "passes": false,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx is click-to-pick only; no onDrop/onPaste/webkitdirectory."
+    },
+    {
+      "id": "US-531",
+      "title": "Transcode HEIC/HEIF in the browser",
+      "description": "As an iPhone reseller, my default-format photos must just work, so I don't have to change iOS settings and re-export.",
+      "acceptanceCriteria": [
+        "HEIC/HEIF files are transcoded in-browser (libheif-wasm/heic2any, ideally in a Worker) before compression/upload",
+        "No HEIC is hard-rejected; orientation is preserved",
+        "Verified on real iPhone exports"
+      ],
+      "priority": 531,
+      "passes": false,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx skips HEIC/HEIF with a toast telling users to change iOS settings."
+    },
+    {
+      "id": "US-532",
+      "title": "Auto-group loose photos into per-item drafts",
+      "description": "As a reseller, dumping a folder should auto-cluster photos into per-item listings, so I don't manually checkbox-group 100 photos into 25 items.",
+      "acceptanceCriteria": [
+        "An auto-grouping pass clusters uploads using EXIF capture-time burst gaps (readCaptureTime) + visual similarity (dHash from image-utils)",
+        "The user can merge/split the suggested groups; manual grouping remains available",
+        "Measured: a 100-photo folder produces sensible per-item groups with minimal correction"
+      ],
+      "priority": 532,
+      "passes": false,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03 — MARQUEE FEATURE. Building blocks (readCaptureTime in exif.ts, computeDHash in image-utils, reconcile-cluster.ts) already exist but aren't wired into AutoLister; grouping is 100% manual today."
+    },
+    {
+      "id": "US-533",
+      "title": "AI cover-photo selection + role auto-tagging per group",
+      "description": "As a reseller, the best front shot and photo roles should be chosen automatically, so the listing gallery is well-ordered without manual work.",
+      "acceptanceCriteria": [
+        "A vision pass per group picks the best front/cover photo and auto-tags back/tag/detail/defect",
+        "The user can override the cover and tags",
+        "Cover feeds primary_photo_id and gallery order"
+      ],
+      "priority": 533,
+      "passes": false,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. Today cover is manual (Star) and non-cover photos are all tagged 'detail' in order."
+    },
+    {
+      "id": "US-534",
+      "title": "Mount the photo editor (crop/rotate/straighten) in AutoLister",
+      "description": "As a reseller, I want to crop/rotate/straighten photos before AI and publish, so listing images look clean.",
+      "acceptanceCriteria": [
+        "PhotoEditorDialog is available per-photo in the AutoLister staging grid",
+        "Add straighten/deskew alongside the existing crop+rotate",
+        "Edits apply to both the AI input and the published image"
+      ],
+      "priority": 534,
+      "passes": false,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. PhotoEditorDialog exists (used by photo-manager/uploader) but isn't mounted in AutoLister."
+    },
+    {
+      "id": "US-535",
+      "title": "One-tap batch background removal + studio-white compositing",
+      "description": "As a reseller, I want one tap to put all photos on a clean studio-white background, so my gallery looks professional and lifts CTR.",
+      "acceptanceCriteria": [
+        "On-device segmentation (free WASM model, e.g. @imgly/background-removal or MediaPipe/TF.js) removes the background and composites onto studio-white, applied across a whole batch",
+        "Replaces the paid remove.bg dependency for this path; transparent-PNG and white-backdrop both available",
+        "Runs without per-image API cost; preview + undo per photo"
+      ],
+      "priority": 535,
+      "passes": false,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. remove-bg today is paid remove.bg, transparent-PNG only, and not in AutoLister."
+    },
+    {
+      "id": "US-536",
+      "title": "One-tap batch auto-enhance",
+      "description": "As a reseller, I want one tap to auto-crop-to-garment, white-balance, and normalize brightness/contrast across a batch, so mixed phone snaps look like a cohesive studio set.",
+      "acceptanceCriteria": [
+        "Batch auto-enhance: auto-crop to subject, straighten, white-balance, brightness/contrast normalization (OffscreenCanvas/WebGL)",
+        "Multi-angle consistency: normalized crop aspect/orientation/white-point across an item's photos",
+        "Per-photo preview + revert"
+      ],
+      "priority": 536,
+      "passes": false,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. No enhance/white-balance/straighten anywhere in app code."
+    },
+    {
+      "id": "US-537",
+      "title": "AI photo-QA readiness score with reshoot prompts",
+      "description": "As a reseller, I want to be told when a photo is blurry/dark/cropped or an angle is missing, so I fix it before publishing.",
+      "acceptanceCriteria": [
+        "Reuse the grading vision pipeline to score each item's photos 0-100 for listing-readiness with specific issues (blurry, dark, tag unreadable, missing back)",
+        "Surfaced in the queue so sellers fix bad photos pre-publish",
+        "Score persisted per item"
+      ],
+      "priority": 537,
+      "passes": false,
+      "notes": "[P2][AutoLister/Input/AI] Deep-dive 2026-06-03. The AI sees photos but never returns photo-quality feedback."
+    },
+    {
+      "id": "US-538",
+      "title": "Carry auto-defect annotations into listings",
+      "description": "As a reseller, AI-detected defects should be highlighted on listing photos automatically, so listings are honest and dispute-proof with zero extra work.",
+      "acceptanceCriteria": [
+        "AnnotatedPhoto bbox/legend compositor generates defect-callout images during AutoLister and attaches them",
+        "Opt-in per item; annotations reflect the verified grade defects"
+      ],
+      "priority": 538,
+      "passes": false,
+      "notes": "[P3][AutoLister/Input] Deep-dive 2026-06-03. AnnotatedPhoto exists for grading disclosure but isn't used in AutoLister."
+    },
+    {
+      "id": "US-539",
+      "title": "Move photo processing off the main thread",
+      "description": "As a mobile reseller, processing a big batch must not freeze the UI, so large hauls feel fast.",
+      "acceptanceCriteria": [
+        "Compression/thumbnailing run in a Web Worker pool with OffscreenCanvas; uploads run in parallel",
+        "Per-file progress bars + per-file failure retry UI",
+        "Verified smooth on a 100-photo mobile batch"
+      ],
+      "priority": 539,
+      "passes": false,
+      "notes": "[P2][AutoLister/Performance] Deep-dive 2026-06-03. compressImage is main-thread synchronous; handleFiles is serial; progress is a coarse counter."
+    },
+    {
+      "id": "US-540",
+      "title": "Gate AutoLister photos on minimum quality/resolution",
+      "description": "As the platform, low-res/blurry photos shouldn't reach the AI or the listing, so listing quality and AI accuracy stay high.",
+      "acceptanceCriteria": [
+        "validateImage() (min 1200px, type allow-list) is enforced on the AutoLister path with a clear per-file reason when rejected",
+        "Borderline images warn rather than silently pass"
+      ],
+      "priority": 540,
+      "passes": false,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. AutoLister only calls compressImage; validateImage() exists but is unused here."
+    },
+    {
+      "id": "US-541",
+      "title": "Persist and act on per-field AI confidence",
+      "description": "As a reseller, low-confidence drafts should be flagged for review, so I only hand-touch the listings that need it.",
+      "acceptanceCriteria": [
+        "Pass-1 and pass-2 per-field confidence/source are persisted (stop discarding them in suggestionsToSpecifics)",
+        "A needs_review flag is set when overall or any required-aspect confidence < a configurable threshold (reuse reviewConfidenceThreshold pattern)",
+        "The editor surfaces 'AI is unsure about X'"
+      ],
+      "priority": 541,
+      "passes": false,
+      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03 — biggest near-free quality lever. confidence is generated but never acted on; extractEbayAspects confidence is thrown away."
+    },
+    {
+      "id": "US-542",
+      "title": "Price from sold comps, not active asking prices",
+      "description": "As a reseller, suggested prices should be based on realized sales, so they aren't systematically high.",
+      "acceptanceCriteria": [
+        "Pricing uses sold/realized comps (eBay Marketplace Insights/Terapeak, or the platform's own sales table as a private comp set)",
+        "Returns a price range + confidence; price_is_estimated=false only when backed by sold data",
+        "Graceful fallback to active comps with the limitation surfaced"
+      ],
+      "priority": 542,
+      "passes": false,
+      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03. searchBrowseComps uses active Browse listings (asking prices) yet flags price_is_estimated=false. Ties to US-460."
+    },
+    {
+      "id": "US-543",
+      "title": "Add a dedicated tag-OCR ground-truth pass",
+      "description": "As a reseller, brand/size/fiber should be read verbatim from the tag, so listings don't hallucinate those fields.",
+      "acceptanceCriteria": [
+        "When a tag/label photo exists, a high-res OCR/vision pass extracts brand, size, RN#, fiber content, and style code verbatim as ground-truth knownFields before the listing call",
+        "These ground-truth fields are weighted over model inference",
+        "Reduced brand/size error measured against a sample"
+      ],
+      "priority": 543,
+      "passes": false,
+      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03. Brand/size rely on implicit vision reading; no dedicated tag crop/OCR step."
+    },
+    {
+      "id": "US-544",
+      "title": "Normalize brand/SKU + resolve style codes",
+      "description": "As a reseller, brand names should be canonical and style codes resolved, so comps and aspects match accurately.",
+      "acceptanceCriteria": [
+        "Model-emitted brand is canonicalized against a known-brand table (Levis -> Levi's)",
+        "For sneakers/streetwear, style codes resolve to a canonical product -> exact comps + auto-filled specifics",
+        "Comp search keys on the normalized brand"
+      ],
+      "priority": 544,
+      "passes": false,
+      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03. Brand is free text; comp search keys on raw item.brand."
+    },
+    {
+      "id": "US-545",
+      "title": "Cut AI image cost per item",
+      "description": "As the platform, per-item AI cost must be disciplined, so 100-item batches stay affordable.",
+      "acceptanceCriteria": [
+        "Downscale/cap images and dedupe near-identical shots before sending to the model",
+        "Use a cheaper model (Haiku) for the aspect-refine pass on easy categories",
+        "Per-item cost reduced ~30-50% at batch scale (measured)"
+      ],
+      "priority": 545,
+      "passes": false,
+      "notes": "[P2][AutoLister/AI/Cost] Deep-dive 2026-06-03. Two Sonnet vision calls per item, both sending all photos; prompt caching only covers the ~1KB system block."
+    },
+    {
+      "id": "US-546",
+      "title": "Keyword-priority title trimming + SEO from eBay demand",
+      "description": "As a reseller, titles should be demand-optimized and never cut mid-word, so they rank and read well.",
+      "acceptanceCriteria": [
+        "Title trimming to 80 chars is keyword-priority-aware (no mid-word slice)",
+        "Top demand terms (eBay search/autosuggest for the category/brand) are fed into the title/description prompt",
+        "Optional A/B title variants tracked to sell-through"
+      ],
+      "priority": 546,
+      "passes": false,
+      "notes": "[P2][AutoLister/AI/SEO] Deep-dive 2026-06-03. Title is hard .slice(0,80); no search-demand input."
+    },
+    {
+      "id": "US-547",
+      "title": "Self-improving listing prompt from seller-acceptance data",
+      "description": "As the platform, the listing prompt should learn from which AI fields sellers keep vs change, so every edit improves the next listing.",
+      "acceptanceCriteria": [
+        "Capture per-field keep/change on accepted drafts as an eval/feedback signal",
+        "A/B candidate listing_gen prompts (00053 versioning + eval gate) against acceptance + sell-through; auto-promote winners",
+        "A dashboard shows prompt-version performance"
+      ],
+      "priority": 547,
+      "passes": false,
+      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03 — MOAT. Rails exist (ai_prompt_versions, eval gate, ai_enrichment_log) but acceptance data isn't captured/looped."
+    },
+    {
+      "id": "US-548",
+      "title": "Add a persistent AutoLister drafts cockpit",
+      "description": "As a reseller, I need a saved view of all my unpublished drafts, so I can generate today and finish reviewing tomorrow without losing the batch URL.",
+      "acceptanceCriteria": [
+        "A /dashboard/flipdesk/autolister/drafts view lists every unpublished batch_id draft with status/blocker/price/margin columns",
+        "Filter + sort; persists across sessions (not tied to a ?batch= URL)",
+        "Publish-all and bulk actions available from it"
+      ],
+      "priority": 548,
+      "passes": false,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. The queue exists only at a ?batch= URL; close the tab and there's no drafts cockpit."
+    },
+    {
+      "id": "US-549",
+      "title": "Keyboard-first review with Save & next",
+      "description": "As a reseller reviewing 50 drafts, I want to fly through them with the keyboard, so the 50-drafts-to-50-published loop is fast.",
+      "acceptanceCriteria": [
+        "Queue/grid supports j/k row nav, Enter = Save & next, e = expand editor inline, x = multi-select, p = publish-selected, / = find",
+        "Save & next returns to the queue, not the item canvas",
+        "Focus and active-row state are visible and accessible"
+      ],
+      "priority": 549,
+      "passes": false,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. No keyboard nav; reviewing N drafts is Review->edit->save->browser-back->find-next, N times."
+    },
+    {
+      "id": "US-550",
+      "title": "Confidence-based triage view with accept-all-green",
+      "description": "As a reseller, I want drafts auto-sorted by confidence/blockers, so I can publish the safe ones in one click and only touch the rest.",
+      "acceptanceCriteria": [
+        "A batch confidence score sorts drafts green (high-confidence, no blockers) / amber (low-confidence price or aspects) / red (missing required aspects)",
+        "One click publishes all green; amber/red are queued for review",
+        "Built on the persisted per-field confidence (US-541)"
+      ],
+      "priority": 550,
+      "passes": false,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. Depends on US-541 confidence persistence."
+    },
+    {
+      "id": "US-551",
+      "title": "Show AI-vs-edited diff with revert-to-AI",
+      "description": "As a reseller, I want to see what I changed from the AI draft and revert, so editing is transparent and reversible.",
+      "acceptanceCriteria": [
+        "The original AI draft is snapshotted (e.g. *_ai_original jsonb)",
+        "Inline diff chips show changed fields (AI: $42 -> you: $38; strikethrough on changed aspects) with a per-field revert-to-AI",
+        "Works in both the composer and the bulk grid"
+      ],
+      "priority": 551,
+      "passes": false,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Once a field is edited the AI's original is lost; no undo/revert."
+    },
+    {
+      "id": "US-552",
+      "title": "Add inline AI rewrite in the composer",
+      "description": "As a reseller, I want one-click AI rewrite of titles/descriptions, so I can punch up copy without leaving the editor.",
+      "acceptanceCriteria": [
+        "Composer offers AI actions: punch up title for SEO, shorten to 80, add buyer keywords, tighten/regenerate description from photos",
+        "Reuses the AiFillPanel/useAiExtract infrastructure (accept-all, confidence, conflict resolution, acceptance logging)",
+        "Edits remain user-overridable"
+      ],
+      "priority": 552,
+      "passes": false,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Title/description are deterministic templates; AiFillPanel exists but isn't wired into the composer."
+    },
+    {
+      "id": "US-553",
+      "title": "Add a forward profit/margin calculator at the price input",
+      "description": "As a reseller, I want live net profit and margin as I price, so pricing is a margin decision, not a guess.",
+      "acceptanceCriteria": [
+        "computePnl runs forward from the draft price (eBay category fee % + payment processing + cost basis + grading cost) and shows net $ / margin % next to the price input and as a bulk-grid column",
+        "Bulk price rules beyond markup/.99: median comp - X%, floor at X% margin, match recommended",
+        "Updates live as price/comps change"
+      ],
+      "priority": 553,
+      "passes": false,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. PnlPanel computes margin only after a recorded sale; comps panel shows price with no fee/margin math."
+    },
+    {
+      "id": "US-554",
+      "title": "Add queue filtering/sorting + selective bulk-publish",
+      "description": "As a reseller, I want to filter/sort drafts and publish a chosen subset, so I'm not limited to all-or-nothing publish.",
+      "acceptanceCriteria": [
+        "Queue supports sort (status, has-blockers, price, confidence) and filter (only failed / only ready)",
+        "Multi-select specific rows and publish just those",
+        "Title map for large batches is paginated (no raw UUID fallbacks at scale)"
+      ],
+      "priority": 554,
+      "passes": false,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Flat list; publish-all is all-or-nothing-minus-blocked; selective select-to-publish only in the (non-publishing) bulk grid."
+    },
+    {
+      "id": "US-555",
+      "title": "Add real bulk power-ops to the grid",
+      "description": "As a reseller, I want find/replace, real category picking, and policy assignment in bulk, so I can fix 50 drafts at once.",
+      "acceptanceCriteria": [
+        "Find/replace across titles and descriptions; bulk category via the real EbayCategoryPicker WITH aspect cascade (required specifics refresh)",
+        "Bulk business-policy assignment from the business_policies table; bulk AI aspect-fill across the batch",
+        "Templates / smart defaults from the seller's last N listings (auto policies, shipping, common aspects by brand/category)"
+      ],
+      "priority": 555,
+      "passes": false,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. No find/replace; bulk category is a raw ID textbox with no cascade; no bulk policy assignment despite the table existing."
+    },
+    {
+      "id": "US-556",
+      "title": "Make description + item specifics editable in the bulk grid",
+      "description": "As a reseller, I want to edit the AI's richest output in bulk, so I'm not forced into the composer one item at a time.",
+      "acceptanceCriteria": [
+        "Description and item-specifics/aspects are editable in the grid via expandable cell/popover",
+        "Edits respect the same validation and save path as the composer"
+      ],
+      "priority": 556,
+      "passes": false,
+      "notes": "[P3][AutoLister/UX] Deep-dive 2026-06-03. Bulk grid edits only 7 scalar columns; description/aspects are composer-only."
+    },
+    {
+      "id": "US-557",
+      "title": "Unify the AutoLister save paths",
+      "description": "As a reseller, my edits must never silently vanish, so there's one consistent save model across the aspect picker, composer, and bulk grid.",
+      "acceptanceCriteria": [
+        "Aspect-picker (inventory_items), composer (nulls item_specifics_override), and bulk-grid (listings) writes are reconciled into one coherent model with a single Save",
+        "Editing aspects then saving the draft cannot lose the aspect edits",
+        "Per-row save errors are isolated (one failure doesn't discard other dirty rows)"
+      ],
+      "priority": 557,
+      "passes": false,
+      "notes": "[P2][AutoLister/Data] Deep-dive 2026-06-03. Three disconnected save targets; composer saveDraft nulls item_specifics_override; bulk saveAll rolls back all dirty rows on one failure."
+    },
+    {
+      "id": "US-558",
+      "title": "Render a true eBay view-item preview",
+      "description": "As a reseller, I want the preview to match eBay's actual listing layout, so what I see is what buyers get.",
+      "acceptanceCriteria": [
+        "Preview renders eBay's view-item layout (gallery, specifics table, condition pill, shipping/returns from the assigned policy)",
+        "Desktop + mobile preview toggle"
+      ],
+      "priority": 558,
+      "passes": false,
+      "notes": "[P3][AutoLister/UX] Deep-dive 2026-06-03. Composer preview is a stylized card, not eBay's real layout."
+    },
+    {
+      "id": "US-559",
+      "title": "Move bulk publish to a durable server-side batch endpoint",
+      "description": "As a reseller, bulk publish should survive a tab close and respect rate limits centrally, so large publishes are reliable.",
+      "acceptanceCriteria": [
+        "A server-side bulk-publish endpoint mirrors processBatch (claim/concurrency/quota/retry-failed) instead of the client looping /push",
+        "It survives tab-close; per-item validation + blockers reported back; rate budget centralized",
+        "Idempotent per item (no duplicate listings)"
+      ],
+      "priority": 559,
+      "passes": false,
+      "notes": "[P1][AutoLister/Publish] Deep-dive 2026-06-03. useBulkPublish loops /listings/push client-side; client retries compound the server withRetry."
+    },
+    {
+      "id": "US-560",
+      "title": "Add a quantity-aware relist endpoint",
+      "description": "As a reseller, I want one-click relist of a sold-out evergreen item, so I don't have to manually rebuild the listing.",
+      "acceptanceCriteria": [
+        "POST /listings/:id/relist replenishes inventory quantity, reuses the offer, and republishes",
+        "A republished previously-sold item never goes live at quantity 0",
+        "Idempotent under retry"
+      ],
+      "priority": 560,
+      "passes": false,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Offer-reuse path doesn't refresh availableQuantity; no relist endpoint."
+    },
+    {
+      "id": "US-561",
+      "title": "Add Promoted Listings ad-rate at publish",
+      "description": "As a reseller, I want a data-driven Promoted Listings rate attached at publish, so my items get visibility — eBay's biggest revenue lever.",
+      "acceptanceCriteria": [
+        "Use the granted sell.marketing scope to create/attach a campaign with a suggested ad-rate per category at publish",
+        "Seller can accept/adjust the suggested rate; opt-out available",
+        "Ad spend/performance surfaced post-publish"
+      ],
+      "priority": 561,
+      "passes": false,
+      "notes": "[P2][AutoLister/Revenue] Deep-dive 2026-06-03. sell.marketing scope is granted but entirely unused; zero Promoted Listings."
+    },
+    {
+      "id": "US-562",
+      "title": "Send best-offer auto-accept/decline thresholds",
+      "description": "As a reseller, best offers should auto-clear within my limits, so I don't babysit offers.",
+      "acceptanceCriteria": [
+        "autoAcceptPrice/autoDeclinePrice are sent on the offer, derived from comp stats (p25/median/p75 already computed)",
+        "Per-item override in the editor",
+        "Validated against eBay's best-offer constraints"
+      ],
+      "priority": 562,
+      "passes": false,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. bestOfferEnabled is a bare boolean; thresholds aren't sent."
+    },
+    {
+      "id": "US-563",
+      "title": "Add timezone-aware scheduled drops",
+      "description": "As a reseller, I want to schedule listings to go live at peak times, so I maximize visibility.",
+      "acceptanceCriteria": [
+        "Timezone-aware presets (e.g. drop at 7pm Sunday) + a calendar view for scheduled_publish_at",
+        "Optional Promoted-Listings boost on go-live",
+        "Built on the existing scheduled_publish_at + 5-min cron"
+      ],
+      "priority": 563,
+      "passes": false,
+      "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. Plumbing exists; no tz-aware presets/calendar."
+    },
+    {
+      "id": "US-564",
+      "title": "Crosslist one draft to multiple marketplaces with auto-delist",
+      "description": "As a reseller, I want one AI draft to publish to multiple marketplaces and auto-delist elsewhere when it sells, so I sell faster without double-listing risk.",
+      "acceptanceCriteria": [
+        "A marketplace adapter contract (behind publishItemForOwner) lets a draft fan out to Poshmark/Mercari/etc. via listings.platform",
+        "Auto-delist-on-sale across platforms, driven by the existing orders sync",
+        "Per-marketplace field mapping from the shared AI draft + photos + aspects"
+      ],
+      "priority": 564,
+      "passes": false,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Only eBay publishes; other marketplaces are PHASE_2/3 placeholders. Ties to US-458."
+    },
+    {
+      "id": "US-565",
+      "title": "Build a post-publish performance feedback loop",
+      "description": "As a reseller, I want listing performance to drive suggestions, so stale or under-performing listings get fixed automatically.",
+      "acceptanceCriteria": [
+        "Ingest impressions/CTR/watchers (eBay getTrafficReport) for owned listings into a listing_metrics table",
+        "Surface 'low CTR -> improve title/photo' and 'high watchers, no sale -> drop price / enable best offer'",
+        "Feed signals into the repricing engine"
+      ],
+      "priority": 565,
+      "passes": false,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Sync pulls price/status/fees but no impressions/watchers feedback for owned listings."
+    },
+    {
+      "id": "US-566",
+      "title": "Harden publish pre-flight (condition + image cap)",
+      "description": "As a reseller, condition/image issues should be caught before publish, so I get fixable blockers instead of raw eBay 400s.",
+      "acceptanceCriteria": [
+        "assemblePublishContext validates the condition enum against the leaf category's allowed conditions",
+        "Enforce eBay's image cap (24) as a pre-flight blocker with de-dup/ordering",
+        "Both surface as fixable blockers, not raw errors"
+      ],
+      "priority": 566,
+      "passes": false,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Condition mapping is lossy and not category-validated; image cap not pre-checked."
+    },
+    {
+      "id": "US-567",
+      "title": "Map eBay error IDs to actionable fix messages",
+      "description": "As a reseller, a publish failure should tell me exactly what to fix and where, so I'm not staring at a raw error blob.",
+      "acceptanceCriteria": [
+        "eBay structured error IDs (e.g. 25002, 25709) map to user-fixable messages with the offending field",
+        "The publish dialog deep-links the fix back to the composer field",
+        "Raw provider detail stays server-side"
+      ],
+      "priority": 567,
+      "passes": false,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. eBay's structured error array is flattened to a 500-1000 char blob."
+    },
+    {
+      "id": "US-568",
+      "title": "Support auction format and variation listings",
+      "description": "As a reseller, I want auctions and multi-variant (size/color) listings, so I can list the way the item sells best.",
+      "acceptanceCriteria": [
+        "Auction format (start/reserve/BIN price, duration) supported in the publish path (currently hardcoded FIXED_PRICE)",
+        "Multi-variant listings (one listing, multiple sizes/colors) supported",
+        "Editor exposes format + variation controls"
+      ],
+      "priority": 568,
+      "passes": false,
+      "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. publish path hardcodes FIXED_PRICE; no variations."
     }
   ]
 }
