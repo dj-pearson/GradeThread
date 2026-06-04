@@ -16,8 +16,12 @@ final class SnapStore: ObservableObject {
 
     private let service: SnapService
 
-    init(service: SnapService = SnapService()) {
-        self.service = service
+    // Default is constructed in the init BODY (main-actor-isolated, since this
+    // type is @MainActor) rather than as a default argument — a default argument
+    // is evaluated in a nonisolated context and can't call SnapService's
+    // @MainActor init.
+    init(service: SnapService? = nil) {
+        self.service = service ?? SnapService()
     }
 
     func setImage(_ img: UIImage) {

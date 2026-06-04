@@ -120,7 +120,8 @@
       "Bash(npm test *)",
       "Bash(sed -n '1,20p' .github/workflows/ios-ci.yml)",
       "Bash(sed -n '1,25p' .github/workflows/ios-release.yml)",
-      "Bash(npx playwright *)"
+      "Bash(npx playwright *)",
+      "Bash(xargs -I{} sed -n '{},+12p' src/lib/plan-gate.ts)"
     ]
   },
   "hooks": {
