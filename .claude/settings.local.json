@@ -104,7 +104,22 @@
       "PowerShell(npx vitest run src/test/responsive-images.test.ts 2>&1 | Select-Object -Last 30)",
       "PowerShell(npx eslint src/routes/index.tsx src/layouts/root-layout.tsx src/layouts/dashboard-layout.tsx src/layouts/admin-layout.tsx src/components/billing/app-billing-dialogs.tsx src/components/responsive-image.tsx 2>&1 | Select-Object -Last 30)",
       "Bash(rg -rn \"Shop Admin\" src services/edge-functions/src)",
-      "Bash(rg -rn \"WORKSPACE_ROLE_LABEL|ROLE_LABEL\" src services/edge-functions/src)"
+      "Bash(rg -rn \"WORKSPACE_ROLE_LABEL|ROLE_LABEL\" src services/edge-functions/src)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(grep -n 'app.post\\(\"/api/jobs\\\\|app.route\\(\"/api/jobs\\\\|/api/jobs/\\\\|handleRepriceScanCron\\\\|handleGscSync\\\\|handleGradingMonitor' services/edge-functions/src/main.ts)",
+      "Bash(git commit -q -m 'US-525/526/527: AutoLister generation reliability \\(durable queue, timeout, atomic quota\\) *)",
+      "Bash(git push *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(awk '/interface ItemFullRow/{f=1} f&&/^}/{print; exit} f' src/types/database.ts)",
+      "Bash(awk 'NR>=440 && NR<=480 && /interface |acquired_price/' src/types/database.ts)",
+      "Bash(git add *)",
+      "Bash(git restore *)",
+      "Bash(git commit -q -m 'US-553: live profit/margin at the AutoLister price input *)",
+      "Bash(gh auth *)",
+      "Bash(gh pr *)",
+      "PowerShell($gh = Get-Command gh -ErrorAction SilentlyContinue; if \\($gh\\) { Write-Output \"gh: $\\($gh.Source\\)\"; gh auth status 2>&1 | Select-Object -First 4 } else { Write-Output \"gh NOT installed\" })",
+      "PowerShell($tok = $env:GITHUB_TOKEN; if \\(-not $tok\\) { $tok = $env:GH_TOKEN }; if \\($tok\\) { Write-Output \"token present \\(len $\\($tok.Length\\)\\)\" } else { Write-Output \"no GITHUB_TOKEN/GH_TOKEN env\" }; Write-Output \"--- remote ---\"; git -C \"C:/Users/pears/Documents/GradeThread/GradeThread\" remote get-url origin)"
     ]
   },
   "hooks": {
