@@ -19,7 +19,8 @@ export interface BillingLedgerEntry {
   id: string;
   delta: number;
   reason: GradeCreditReason;
-  balance_after: number;
+  // US-398: NULL for zero-delta audit rows (included_grant / included refund).
+  balance_after: number | null;
   submission_id: string | null;
   notes: string | null;
   created_at: string;

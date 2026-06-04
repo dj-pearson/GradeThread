@@ -3890,3 +3890,51 @@ COMPLETED.
   Node port 4/4.
 
 prd.json 389/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Webhook retry + ledger consistency US-397/398
+
+Completed the two billing-reliability siblings of the US-390/391 work. Deno still
+uninstallable (deno.land blocked); edge logic verified via Node ports + balance
+checks; frontend tsc + vitest re-run green (the lone vitest failure is the
+pre-existing responsive-images test that needs a prior `npm run build`).
+
+US-397 Retry critical webhook handlers on DB write failure [P2][Billing] --
+COMPLETED, passes=true.
+- The /stripe handler swallowed handler DB-write failures with 200 -> Stripe
+  never retried -> subscription-state transitions were permanently lost.
+- New failIfDbError() (webhook-idempotency.ts) THROWS a TransientWebhookError on
+  a Supabase {error}; the dispatcher now distinguishes:
+    • TransientWebhookError -> releaseWebhookEvent() deletes the claim row +
+      return 500, so Stripe re-delivers and RE-processes (safe: side effects are
+      idempotent on the Stripe object id, US-390).
+    • any other thrown error (code bug) -> KEEP the claim, emit a
+      'billing.webhook_dropped' PostHog alert, return 200 (no retry storm).
+- Converted 11 critical writes to failIfDbError (sub change/delete, cycle reset,
+  past_due transitions, credit grant, per-grade paid flip, refund revoke,
+  per-grade refund submission + cert withhold). Audit-row write + dispute
+  soft-flag stay best-effort.
+- tests/webhook-idempotency_test.ts extended: failIfDbError throw-only-on-error;
+  isTransientWebhookError vs TypeError/Error; claim->release->reclaim->dedupe.
+  Node port 8/8.
+
+US-398 Make all credit-ledger writes balance-consistent [P2][Billing] --
+COMPLETED, passes=true.
+- Two zero-delta audit rows (included_grant in runPaymentPrecedence, included
+  'refund' in refund_grade) snapshotted balance_after from a NON-atomic read ->
+  drift under concurrency.
+- Migration 00093: balance_after made NULLABLE; both zero-delta rows now write
+  NULL (no balance change to record) instead of a stale snapshot. Every
+  balance-CHANGING write already flows through a row-locking RPC
+  (grant/debit/revoke_grade_credits + refund_grade credits branch) that computes
+  balance_after under FOR UPDATE.
+- Added credit_ledger_reconciliation() RPC: returns only users where
+  SUM(delta) != grade_credit_balance (empty = consistent). Invariant holds
+  because new users start at 0 and every balance change has a ledger row.
+- Frontend: balance_after -> number|null (GradeCreditTransactionRow +
+  BillingLedgerEntry); activity-history-dialog hides 'bal' for null audit rows.
+- tests/ledger-consistency_test.ts (env-gated, live-DB): 40 parallel debits
+  (2x balance) + zero-delta inserts -> no overspend + reconciliation reports no
+  drift.
+
+prd.json 391/568.

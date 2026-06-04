@@ -56,3 +56,67 @@ export async function claimWebhookEvent(
   );
   return "error"; // fail CLOSED — caller decides (critical events → non-2xx).
 }
+
+// US-397: a TRANSIENT failure inside a critical webhook handler (a DB write that
+// returned an error). It must trigger a Stripe retry, so the caller RELEASES
+// the idempotency claim and returns non-2xx. Distinct from a code bug (any other
+// thrown error), which a retry can't fix and which instead keeps the claim +
+// alerts (so Stripe doesn't storm a permanently-failing event).
+export class TransientWebhookError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TransientWebhookError";
+  }
+}
+
+export function isTransientWebhookError(err: unknown): err is TransientWebhookError {
+  return err instanceof TransientWebhookError;
+}
+
+// Throw a TransientWebhookError when a Supabase `{ error }` write failed. Use at
+// every money/state-transition write in a critical handler so a transient DB
+// blip propagates to the dispatcher (which releases the claim + 500s) instead
+// of being swallowed with a 200 that drops the event.
+export function failIfDbError(
+  error: { code?: string; message?: string } | null | undefined,
+  context: string,
+): void {
+  if (error) {
+    throw new TransientWebhookError(
+      `${context}: ${error.code ?? ""} ${error.message ?? ""}`.trim(),
+    );
+  }
+}
+
+// Release a previously-claimed event so Stripe's retry can re-process it. Used
+// only on a transient critical-handler failure (US-397); side effects are
+// idempotent on the Stripe object id (US-390) so the re-run is safe.
+export type WebhookEventDeleter = (
+  provider: "stripe" | "ebay",
+  eventId: string,
+) => Promise<{ error: { message?: string } | null }>;
+
+const defaultDelete: WebhookEventDeleter = async (provider, eventId) => {
+  const { error } = await supabaseAdmin
+    .from("processed_webhook_events")
+    .delete()
+    .eq("provider", provider)
+    .eq("event_id", eventId);
+  return { error };
+};
+
+export async function releaseWebhookEvent(
+  provider: "stripe" | "ebay",
+  eventId: string,
+  del: WebhookEventDeleter = defaultDelete,
+): Promise<void> {
+  const { error } = await del(provider, eventId);
+  if (error) {
+    // If we can't release the claim, the retry will dedupe and skip — log loudly
+    // so the dropped transition is visible. (Better than not failing closed.)
+    console.error(
+      `[webhook-idempotency] FAILED to release claim ${provider}:${eventId} — ${error.message}. ` +
+        `Stripe's retry will be deduped; this event may need manual replay.`,
+    );
+  }
+}

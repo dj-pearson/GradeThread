@@ -6379,8 +6379,8 @@
         "Transient vs code-bug failures are distinguished; dropped billing events alert"
       ],
       "priority": 397,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts returns 200 and only console-logs DB failures."
+      "passes": true,
+      "notes": "[P2][Billing] DONE 2026-06-04. The /stripe handler swallowed handler DB-write failures with a 200 (Stripe never retried -> transitions permanently lost). Now critical handlers THROW on a DB write error (new failIfDbError() wraps the Supabase {error}) and the dispatcher DISTINGUISHES transient from code-bug: a TransientWebhookError -> RELEASE the idempotency claim (releaseWebhookEvent deletes the processed_webhook_events row) + return 500 so Stripe retries and RE-processes (safe because side effects are idempotent on the object id, US-390); any other thrown error (a code bug a retry can't fix) -> KEEP the claim, emit a 'billing.webhook_dropped' PostHog alert, return 200 (no retry storm). Converted 11 critical writes to failIfDbError: subscription change/delete transitions, cycle reset + past_due->active clear, past_due transition, credit-pack grant, per-grade paid flip, refund revoke, per-grade refund submission + certificate withhold. The audit-row write and the dispute soft-flag stay best-effort (non-throwing). Tests: tests/webhook-idempotency_test.ts extended (failIfDbError throws only on a DB error; isTransientWebhookError separates transient vs TypeError/Error; claim->release->reclaim proves a transient failure stays re-processable then dedupes once it succeeds). Logic verified via Node port (8/8). frontend tsc clean."
     },
     {
       "id": "US-398",
@@ -6392,8 +6392,8 @@
         "Concurrent debit + included-grant consistency test passes"
       ],
       "priority": 398,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. runPaymentPrecedence + refund_grade snapshot balance_after from non-atomic reads."
+      "passes": true,
+      "notes": "[P2][Billing] DONE 2026-06-04. Two ledger writes snapshotted balance_after from a NON-atomic read of grade_credit_balance (the zero-delta 'included_grant' row in runPaymentPrecedence and the zero-delta 'refund' row in refund_grade's included branch) -> a concurrent debit/grant made the snapshot a lie. Migration 00093: balance_after is now NULLABLE; both zero-delta audit rows write balance_after=NULL (no balance change to record) instead of a stale snapshot, and every balance-CHANGING write still goes through a row-locking RPC (grant/debit/revoke_grade_credits + refund_grade's credits branch) that computes balance_after under FOR UPDATE. Added credit_ledger_reconciliation() RPC that returns only users where SUM(delta) != grade_credit_balance (empty = consistent; doubles as a monitor) — the invariant holds because new users start at balance 0 and every balance change has a ledger row. Frontend: GradeCreditTransactionRow/BillingLedgerEntry balance_after -> number|null; activity-history-dialog hides 'bal' for null audit rows. Test: tests/ledger-consistency_test.ts (env-gated, live-DB) fires 40 parallel single-credit debits (2x balance) + zero-delta audit inserts and asserts no overspend (balance>=0) and credit_ledger_reconciliation() reports NO drift for the user. frontend tsc + vitest green."
     },
     {
       "id": "US-399",

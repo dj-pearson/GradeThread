@@ -117,12 +117,16 @@ export async function runPaymentPrecedence(
         .from("submissions")
         .update({ payment_status: "included", paid_at: new Date().toISOString() })
         .eq("id", submissionId);
-      // Ledger row for audit, balance unchanged.
+      // Zero-delta audit row, balance unchanged. US-398: balance_after is NULL
+      // here — snapshotting user.grade_credit_balance was a NON-atomic read that
+      // could drift if a concurrent debit/grant landed between read and insert.
+      // The balance is unaffected by an included grant, so there is nothing to
+      // record; balance-changing rows still carry an atomic balance_after.
       await supabaseAdmin.from("grade_credit_transactions").insert({
         user_id: userId,
         delta: 0,
         reason: "included_grant",
-        balance_after: user.grade_credit_balance,
+        balance_after: null,
         submission_id: submissionId,
         notes: `Included Standard grade #${includedUsed + 1}/${includedCap} on ${effectivePlan}`,
       });

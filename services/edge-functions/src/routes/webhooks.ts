@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
-import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
+import {
+  claimWebhookEvent,
+  failIfDbError,
+  isTransientWebhookError,
+  releaseWebhookEvent,
+} from "../lib/webhook-idempotency.ts";
 import {
   sendCreditPackPurchasedEmail,
   sendPaymentFailedEmail,
@@ -127,9 +132,28 @@ webhookRoutes.post("/stripe", async (c) => {
         console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
   } catch (err) {
+    // US-397: distinguish a TRANSIENT DB failure (retry can fix it) from a code
+    // bug (it can't). On a transient failure, RELEASE the idempotency claim so
+    // Stripe's retry re-processes (side effects are idempotent on the object id,
+    // US-390), and return 500. On a code bug, KEEP the claim so Stripe doesn't
+    // storm a permanently-failing event, alert that the billing event was
+    // dropped, and return 200.
+    if (isTransientWebhookError(err)) {
+      await releaseWebhookEvent("stripe", event.id);
+      console.error(
+        `[Webhook] transient failure on ${event.type} (${event.id}): ${err.message} — released claim, asking Stripe to retry`,
+      );
+      return c.json({ error: "Temporary error processing event; please retry." }, 500);
+    }
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[Webhook] Error handling ${event.type} (${event.id}): ${message}`);
-    // 200 anyway — Stripe retrying won't fix code-level bugs.
+    console.error(
+      `[Webhook] DROPPED ${event.type} (${event.id}) — non-transient handler error: ${message}`,
+    );
+    void captureServer(event.id, "billing.webhook_dropped", {
+      event_type: event.type,
+      event_id: event.id,
+    });
+    // 200 — a code bug won't be fixed by a Stripe retry; the alert above flags it.
   }
 
   return c.json({ received: true });
@@ -341,10 +365,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     })
     .eq("id", user.id);
 
-  if (error) {
-    console.error(`[Webhook] Failed to update user ${user.id} subscription:`, error);
-    return;
-  }
+  // US-397: a failed subscription-state transition is critical — throw so the
+  // dispatcher releases the claim and Stripe retries (the update is idempotent).
+  failIfDbError(error, `subscription update for user ${user.id}`);
 
   console.log(
     `[Webhook] User ${user.id} → plan=${plan} interval=${interval} status=${status}`,
@@ -458,10 +481,8 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     })
     .eq("id", user.id);
 
-  if (error) {
-    console.error(`[Webhook] Failed to downgrade user ${user.id}:`, error);
-    return;
-  }
+  // US-397: critical downgrade transition — retry on a transient DB failure.
+  failIfDbError(error, `downgrade for user ${user.id}`);
 
   // Credit balance intentionally untouched (US-200 / US-216).
   console.log(`[Webhook] User ${user.id} → free (canceled)`);
@@ -515,18 +536,17 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
       })
       .eq("id", user.id);
 
-    if (error) {
-      console.error(`[Webhook] Failed to reset monthly counters for ${user.id}:`, error);
-      return;
-    }
+    // US-397: a missed cycle reset would over/under-charge entitlement — retry.
+    failIfDbError(error, `cycle reset for user ${user.id}`);
     console.log(`[Webhook] User ${user.id} cycle reset (${billingReason})`);
   } else {
     // Any successful payment clears past_due → active (and the US-395 dunning
     // grace clock).
-    await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("users")
       .update({ subscription_status: "active", past_due_since: null })
       .eq("id", user.id);
+    failIfDbError(error, `past_due→active clear for user ${user.id}`);
   }
 }
 
@@ -553,7 +573,7 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
     },
   );
 
-  await supabaseAdmin
+  const { error: pastDueErr } = await supabaseAdmin
     .from("users")
     .update({
       subscription_status: "past_due",
@@ -566,6 +586,8 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
       ),
     })
     .eq("id", user.id);
+  // US-397: a missed past_due transition would keep dunning entitlement — retry.
+  failIfDbError(pastDueErr, `past_due transition for user ${user.id}`);
 
   console.log(
     `[Webhook] User ${user.id} → past_due (invoice ${invoice.id}, attempt ${invoice.attempt_count})`,
@@ -666,10 +688,9 @@ async function handleCreditPackPurchase(
     p_notes: `Pack of ${credits} credits via session ${session.id}`,
   });
 
-  if (error) {
-    console.error(`[Webhook] grant_grade_credits failed for user ${userId}:`, error);
-    return;
-  }
+  // US-397: a dropped credit grant cheats a paying customer — retry on a
+  // transient failure (the grant is idempotent on the payment_intent, US-390).
+  failIfDbError(error, `grant_grade_credits for user ${userId}`);
   const newBalance = typeof data === "number" ? data : credits;
   console.log(`[Webhook] Granted ${credits} credits to user ${userId}, new balance=${newBalance}`);
 
@@ -721,10 +742,9 @@ async function handlePerGradePurchase(
     .eq("user_id", userId)
     .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
 
-  if (updateError) {
-    console.error(`[Webhook] Failed to mark submission ${submissionId} paid:`, updateError);
-    return;
-  }
+  // US-397: a dropped "paid" flip leaves a paid grade unprocessed — retry on a
+  // transient failure (the update is idempotent: it only matches 'unpaid').
+  failIfDbError(updateError, `mark submission ${submissionId} paid`);
 
   console.log(`[Webhook] Submission ${submissionId} paid (${tier}); kicking grading pipeline`);
 
@@ -787,10 +807,9 @@ async function handleChargeRefunded(event: Stripe.Event) {
     p_notes: `Refund reversal for charge ${charge.id}`,
   });
 
-  if (error) {
-    console.error(`[Webhook] Refund reversal failed for user ${userId}:`, error);
-    return;
-  }
+  // US-397: a dropped refund reversal leaves clawed-back credits in the wallet —
+  // retry on a transient failure (revoke is row-locked + clamped, US-384/398).
+  failIfDbError(error, `revoke_grade_credits for user ${userId}`);
 
   const result = (data ?? {}) as {
     revoked?: number;
@@ -850,10 +869,9 @@ async function refundPerGrade(
     .select("id")
     .maybeSingle();
 
-  if (error) {
-    console.error(`[Webhook] per_grade refund: submission update failed (${submissionId}):`, error);
-    return;
-  }
+  // US-397: a dropped refund flag would keep a refunded grade live — retry on a
+  // transient failure (the update is idempotent on submission_id+user_id).
+  failIfDbError(error, `per_grade refund submission update (${submissionId})`);
   if (!updated) {
     console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
     return;
@@ -865,9 +883,8 @@ async function refundPerGrade(
     .from("grade_reports")
     .update({ certificate_id: null })
     .eq("submission_id", submissionId);
-  if (certErr) {
-    console.error(`[Webhook] per_grade refund: certificate withhold failed (${submissionId}):`, certErr);
-  }
+  // US-397: keeping a refunded grade's certificate live is a trust hole — retry.
+  failIfDbError(certErr, `per_grade refund certificate withhold (${submissionId})`);
 
   console.log(
     `[Webhook] per_grade refund: submission ${submissionId} marked refunded, flagged, cert withheld`,

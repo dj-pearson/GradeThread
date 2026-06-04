@@ -106,7 +106,8 @@ export function ActivityHistoryDialog({
                     {entry.delta}
                   </span>
                   <span className="w-16 text-right text-xs tabular-nums text-muted-foreground">
-                    bal {entry.balance_after}
+                    {/* US-398: zero-delta audit rows carry no balance_after. */}
+                    {entry.balance_after === null ? "" : `bal ${entry.balance_after}`}
                   </span>
                 </div>
               </li>
