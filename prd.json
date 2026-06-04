@@ -7566,7 +7566,7 @@
         "Verified by triggering a forced 500 and seeing it in the tracker"
       ],
       "priority": 491,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][Observability] Audit 2026-06-03. env.ts:42 documents 'No Sentry in the edge service'; only console.error exists."
     },
     {
@@ -7642,7 +7642,7 @@
         "Sensitive fields (tokens, PII, signatures) are redacted"
       ],
       "priority": 497,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Observability] Audit 2026-06-03. 312 unstructured console.* across 54 files to ephemeral stdout."
     },
     {
@@ -7785,7 +7785,7 @@
         "Dashboards + alerts on grading p95 latency, cron failure, and external-call error rate"
       ],
       "priority": 508,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Observability] Audit 2026-06-03. No APM/tracing; PostHog server capture is product analytics only."
     },
     {
@@ -7797,7 +7797,7 @@
         "Every side effect downstream of fail-open is provably idempotent, or high-risk events (payments/account-deletion) fail-closed"
       ],
       "priority": 509,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Reliability] Audit 2026-06-03. webhook-idempotency.ts fails open on any non-unique DB error with only console.error."
     },
     {
@@ -8557,6 +8557,534 @@
       "priority": 568,
       "passes": false,
       "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. publish path hardcodes FIXED_PRICE; no variations."
+    },
+    {
+      "id": "US-569",
+      "title": "Make AI grading durable + idempotent",
+      "description": "As the platform, I want the AI grading job to survive crashes/redeploys and never double-charge, so the paid revenue path is reliable.",
+      "acceptanceCriteria": [
+        "Grading is moved into the durable job queue (US-407 family explicitly excludes grading today)",
+        "Each grade claims/leases its submission row with an idempotency key so a re-kick cannot run twice or double-bill Claude",
+        "A crash or redeploy mid-grade resumes the job; no submission is silently lost",
+        "Verified under a forced container restart during an in-flight grade"
+      ],
+      "priority": 569,
+      "passes": false,
+      "notes": "[P0][Ops/Reliability] Deep-dive 2026-06-04. grade.ts:79-92 + grading-pipeline.ts:85 run processSubmission(id).catch(...) fire-and-forget; US-407/525/559 cover sync/publish/autolister but NOT grading; US-495 only recovers stuck rows after the fact."
+    },
+    {
+      "id": "US-570",
+      "title": "Front self-hosted Postgres with a connection pooler",
+      "description": "As the platform, I want a DB connection pooler, so multiple edge replicas under load do not exhaust Postgres connections.",
+      "acceptanceCriteria": [
+        "Supavisor or PgBouncer (transaction mode) sits in front of the self-hosted Postgres",
+        "SUPABASE_URL / direct PG connections from the edge service point at the pooler",
+        "Pool size is sized to the planned replica count (ties to US-501) and documented",
+        "Load test confirms no max_connections exhaustion at target concurrency"
+      ],
+      "priority": 570,
+      "passes": false,
+      "notes": "[P0][Ops/DB] Deep-dive 2026-06-04. lib/supabase.ts opens service-role connections directly; no Supavisor/PgBouncer anywhere; multiplies per replica on US-501."
+    },
+    {
+      "id": "US-571",
+      "title": "Fix in-memory cache coherence before enabling multi-replica",
+      "description": "As the platform, I want shared/security-relevant caches to be coherent across replicas, so eval-gated prompt activations and tokens behave correctly when scaled out.",
+      "acceptanceCriteria": [
+        "Module-level caches (eBay app token, GSC token, AES key, grading prompt) no longer cause N-times token minting or stale reads across replicas",
+        "Grading-prompt cache is purged/invalidated on eval-gated activation (defends migration 00050) instead of serving stale up to TTL",
+        "Approach is either shared store (Postgres/Redis) or pub/sub invalidation; documented",
+        "Verified with >1 replica that an activated prompt version takes effect immediately everywhere"
+      ],
+      "priority": 571,
+      "passes": false,
+      "notes": "[P0][Ops/Reliability] Deep-dive 2026-06-04. ebay-client.ts:1962, gsc-client.ts:35, crypto-aes.ts:47, ai-grading.ts:326 hold per-process caches; not covered by US-501 (replicas) which ignores cache coherence."
+    },
+    {
+      "id": "US-572",
+      "title": "Stop serving avatars from the private submission-images bucket via getPublicUrl",
+      "description": "As a user, I want my avatar served safely, so private-bucket objects are not exposed and the storage contract is honored.",
+      "acceptanceCriteria": [
+        "settings.tsx avatar no longer calls getPublicUrl on the private submission-images bucket",
+        "Either avatars move to a public/intended bucket or are served via short-TTL createSignedUrl per the CLAUDE.md storage rule",
+        "No remaining getPublicUrl call targets submission-images anywhere in the codebase"
+      ],
+      "priority": 572,
+      "passes": false,
+      "notes": "[P0][Security] Deep-dive 2026-06-04. settings.tsx ~line 160 uses getPublicUrl on the PRIVATE submission-images bucket for avatars; violates the CLAUDE.md storage gotcha (signed URLs only)."
+    },
+    {
+      "id": "US-573",
+      "title": "Load-test grade + autolister paths and right-size / autoscale the edge container",
+      "description": "As the platform, I want known capacity limits and a scale rule, so concurrent grading does not OOM the container at launch.",
+      "acceptanceCriteria": [
+        "Load test run against the grade and autolister paths at realistic concurrency",
+        "In-process base64 image buffering memory profile is measured; container memory/CPU limits right-sized (currently hard-capped 1.5 CPU / 1G)",
+        "A memory/CPU-based scale-out rule is defined (ties to US-501) with a documented headroom target",
+        "No OOM observed at target concurrency"
+      ],
+      "priority": 573,
+      "passes": false,
+      "notes": "[P0][Ops/Performance] Deep-dive 2026-06-04. docker-compose.coolify.yml:78-85 caps 1.5 CPU/1G; grading-pipeline.ts:24 buffers multi-MB images to base64 in-process; no scale signal."
+    },
+    {
+      "id": "US-574",
+      "title": "Add a CDN/image-transform layer + thumbnails for public listing imagery",
+      "description": "As a reseller, I want listing photos to load fast and cheap, so grids are snappy and Storage egress stays low.",
+      "acceptanceCriteria": [
+        "Public item-photos are served through Cloudflare Image Transformations (or pre-generated sized thumbnails on upload), not full-res getPublicUrl",
+        "Grid/canvas/uploader views request thumbnail sizes, not originals",
+        "VITE_CF_IMAGE_RESIZING enabled once the zone supports it; documented",
+        "Measured LCP + Storage-egress improvement on a photo-heavy page"
+      ],
+      "priority": 574,
+      "passes": false,
+      "notes": "[P1][Performance] Deep-dive 2026-06-04. photo-{manager,uploader}.tsx + item-canvas.tsx use getPublicUrl full-res; /cdn-cgi/image only used for SSR blog/cert and gated off (wrangler.toml:36). US-413 thumbnails alone do not add a CDN layer."
+    },
+    {
+      "id": "US-575",
+      "title": "Add explicit no-cache headers for index.html / SPA shell",
+      "description": "As a user, I want the latest app shell after a deploy, so I am not pinned to a stale asset manifest.",
+      "acceptanceCriteria": [
+        "public/_headers sets Cache-Control: public, max-age=0, must-revalidate for / and /index.html",
+        "Immutable /assets/* caching is preserved",
+        "Verified a deploy does not strand an open tab on the old shell"
+      ],
+      "priority": 575,
+      "passes": false,
+      "notes": "[P1][Performance] Deep-dive 2026-06-04. public/_headers only marks /assets/* immutable; HTML relies on Cloudflare Pages defaults (stale-shell risk)."
+    },
+    {
+      "id": "US-576",
+      "title": "Gate background polling on visibility + widen intervals (or move to realtime)",
+      "description": "As the platform, I want background polling to stop when tabs are hidden, so idle tenants do not generate constant edge/DB load.",
+      "acceptanceCriteria": [
+        "Notification center (30s), admin dashboard (60s), admin system (30s), and submission-detail (5s setInterval) gate on document.visibilityState",
+        "Intervals widened where acceptable, or notifications moved to realtime/SSE",
+        "Measured reduction in background request volume per idle tab"
+      ],
+      "priority": 576,
+      "passes": false,
+      "notes": "[P2][Performance] Deep-dive 2026-06-04. notification-center.tsx:85, admin/{dashboard,system}.tsx, submission-detail.tsx:252 poll continuously per open tab; distinct from US-419 (dedupe)."
+    },
+    {
+      "id": "US-577",
+      "title": "Add an edge-cache strategy for dynamic public SSR surfaces",
+      "description": "As the platform, I want shared/crawled public pages cached at the edge, so certificate/profile/blog hits are not re-rendered every time.",
+      "acceptanceCriteria": [
+        "Cloudflare Pages Functions for /cert/*, /verified/:handle, and blog set s-maxage + stale-while-revalidate",
+        "Cache is purged on publish/score-change using the existing lib/cloudflare-purge.ts plumbing",
+        "Verified cache HIT on repeat crawler/share requests"
+      ],
+      "priority": 577,
+      "passes": false,
+      "notes": "[P2][Performance/SEO] Deep-dive 2026-06-04. functions/{cert,verified,blog}/ are edge-SSR'd with no documented Cache-Control; purge lib present but caching not enabled."
+    },
+    {
+      "id": "US-578",
+      "title": "Define edge log retention + trace sampling/cost budget",
+      "description": "As the platform, I want bounded logging/tracing cost, so observability does not become a runaway expense.",
+      "acceptanceCriteria": [
+        "Access-log retention/rotation policy documented for the edge",
+        "Edge trace sampling rate configured (frontend already at tracesSampleRate 0.1)",
+        "A cost ceiling/budget for logs + traces is written down"
+      ],
+      "priority": 578,
+      "passes": false,
+      "notes": "[P2][Observability] Deep-dive 2026-06-04. src/main.tsx:18 sets frontend sampling; middleware/access-log.ts writes stdout with no retention; adjacent to US-497/508 but cost dimension uncovered."
+    },
+    {
+      "id": "US-579",
+      "title": "Host-allowlist Google Photos baseUrl fetch (or strip the OAuth header)",
+      "description": "As a user, I want my Google access token protected during photo import, so a poisoned Picker response cannot exfiltrate it.",
+      "acceptanceCriteria": [
+        "Before fetching mediaFile.baseUrl, validate the host ends with .googleusercontent.com / .google.com",
+        "Alternatively strip the Authorization header on the media download if Google's signed baseUrl does not require it",
+        "Hardcoded googleapis fetches are left unchanged"
+      ],
+      "priority": 579,
+      "passes": false,
+      "notes": "[P2][Security] Deep-dive 2026-06-04. flipdesk-google-photos.ts:340 downloads baseUrl with the user's Google bearer token attached, no host validation (TLS-sourced, low real risk)."
+    },
+    {
+      "id": "US-580",
+      "title": "Stop leaking raw error.message on public/unauthenticated endpoints",
+      "description": "As the platform, I want generic errors on anonymous surfaces, so DB/PostgREST internals are not exposed to unauthenticated callers.",
+      "acceptanceCriteria": [
+        "/transparency and public blog/cert/seller endpoints return a generic 'Internal error' body on 500",
+        "Detailed error is logged server-side per the global onError pattern",
+        "Stale comment in content-public.ts:291-297 referencing the dropped RLS policy is corrected to describe the in-code column allowlist gate"
+      ],
+      "priority": 580,
+      "passes": false,
+      "notes": "[P3][Security] Deep-dive 2026-06-04. public-grading.ts:36-38 and content-public.ts (162,179,209,...) return raw error.message to anonymous callers."
+    },
+    {
+      "id": "US-581",
+      "title": "Add admin user impersonation / view-as + global account lookup",
+      "description": "As an operator, I want to view a user's account as they see it and find any account fast, so I can debug support tickets without reading raw Postgres.",
+      "acceptanceCriteria": [
+        "Audited, MFA-gated impersonation ('view as') of a user's dashboard, with a clear active-impersonation banner and a hard exit",
+        "Global lookup by email, Stripe customer id, submission id, and certificate id that jumps to the user detail",
+        "Every impersonation start/stop is written to admin_audit_log"
+      ],
+      "priority": 581,
+      "passes": false,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. No impersonation/magic-link/view-as infra exists; users.tsx only lists+filters. #1 support gap per admin audit."
+    },
+    {
+      "id": "US-582",
+      "title": "Send an ad-hoc email/message to a user from admin",
+      "description": "As an operator, I want to message a customer from the admin app, so I can handle support, dunning, and account comms without an external tool.",
+      "acceptanceCriteria": [
+        "Admin can compose and send a templated or free-form email to a specific user via the transactional email path",
+        "Sends are rate-limited, audited, and recorded against the user",
+        "Respects CAN-SPAM/marketing-vs-transactional rules (transactional support comms only)"
+      ],
+      "priority": 582,
+      "passes": false,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. Only auto-dispute emails exist today; no ad-hoc operator-to-customer comms."
+    },
+    {
+      "id": "US-583",
+      "title": "Add trustworthy revenue (MRR/churn) + per-grade AI-cost reporting",
+      "description": "As an operator, I want accurate financials and AI gross-margin, so I know whether the per-grade pricing is profitable.",
+      "acceptanceCriteria": [
+        "MRR/ARPU/churn computed from authoritative Stripe/subscription data, not users.plan counts and a hard-coded $499 enterprise estimate",
+        "Anthropic token spend tracked per grade, per day, and as gross-margin per grade",
+        "A dashboard surfaces these with no obviously-wrong heuristics"
+      ],
+      "priority": 583,
+      "passes": false,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. system.tsx MRR is a plan-count heuristic; churn is a 'free user with recent sales' guess; no AI-cost tracking at all."
+    },
+    {
+      "id": "US-584",
+      "title": "Add a job/queue monitoring dashboard with manual retry/cancel",
+      "description": "As an operator, I want to see and act on individual jobs, so I can clear stuck grades and watch cron health.",
+      "acceptanceCriteria": [
+        "Per-job view (grading, sync, autolister, repricing, token-refresh) with status, age, and last error",
+        "Manual retry and cancel for a stuck/failed job, audited",
+        "Dead-letter/backlog drill-down and cron last-run/next-run status"
+      ],
+      "priority": 584,
+      "passes": false,
+      "notes": "[P1][Admin/Ops] Deep-dive 2026-06-04. system.tsx shows only counts; no per-job view, retry/cancel, or cron status."
+    },
+    {
+      "id": "US-585",
+      "title": "Add waitlist / beta / early-access gating",
+      "description": "As the team, I want to gate access for a controlled rollout, so the 2026-04-01 launch can be staged.",
+      "acceptanceCriteria": [
+        "Waitlist capture + a DB table and an admin surface to review/approve/invite",
+        "Server-enforced access gate (not just UI) for non-approved accounts",
+        "Bulk invite + per-cohort tracking"
+      ],
+      "priority": 585,
+      "passes": false,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. Launch is 2026-04-01 with no waitlist/beta-gating table or admin surface."
+    },
+    {
+      "id": "US-586",
+      "title": "Allow in-app coupon/promo creation",
+      "description": "As an operator, I want to create promos without the Stripe dashboard, so growth experiments are fast and less error-prone.",
+      "acceptanceCriteria": [
+        "admin/coupons gains create/edit (not just read) backed by an audited admin-billing endpoint",
+        "Created promos sync to Stripe and are validated before activation"
+      ],
+      "priority": 586,
+      "passes": false,
+      "notes": "[P2][Admin/Billing] Deep-dive 2026-06-04. admin-billing.ts /coupons is read-only; 'create in Stripe dashboard' today."
+    },
+    {
+      "id": "US-587",
+      "title": "Configure plans/pricing without a code deploy",
+      "description": "As an operator, I want plan prices and limits editable from admin, so pricing changes are not deploys.",
+      "acceptanceCriteria": [
+        "FlipDesk price IDs and PLANS limits become data-driven (DB/config) rather than env vars + src/lib/constants.ts",
+        "Changes are audited and validated; frontend reads the live config"
+      ],
+      "priority": 587,
+      "passes": false,
+      "notes": "[P2][Admin/Billing] Deep-dive 2026-06-04. FLIPDESK_PRICE_IDS env-hardcoded in admin-billing.ts; PLANS in constants.ts; any change is a deploy."
+    },
+    {
+      "id": "US-588",
+      "title": "Unify suspend semantics into one model",
+      "description": "As an operator, I want suspension to mean one thing, so moderation decisions are reliable.",
+      "acceptanceCriteria": [
+        "user-detail.tsx 'suspend' and moderation.tsx suspension use the same users.suspended mechanism",
+        "Suspended users are blocked server-side consistently across all surfaces"
+      ],
+      "priority": 588,
+      "passes": false,
+      "notes": "[P2][Admin] Deep-dive 2026-06-04. user-detail.tsx suspend just downgrades to free plan; moderation.tsx sets users.suspended — two divergent models."
+    },
+    {
+      "id": "US-589",
+      "title": "Add bulk admin operations",
+      "description": "As an operator, I want bulk actions, so a prompt regression or promo can be applied without one-by-one clicks.",
+      "acceptanceCriteria": [
+        "Bulk credit grant, bulk suspend/unsuspend, and bulk re-grade across a selected set",
+        "Bulk actions are audited and idempotent"
+      ],
+      "priority": 589,
+      "passes": false,
+      "notes": "[P2][Admin] Deep-dive 2026-06-04. Every admin action is single-record today."
+    },
+    {
+      "id": "US-590",
+      "title": "Replace the stubbed AI-prompt test with a real dry-run",
+      "description": "As an operator, I want to dry-run a candidate prompt against a sample submission before activation, so eval-gating is meaningful.",
+      "acceptanceCriteria": [
+        "ai-models.tsx handleTestPrompt runs a real grade against a chosen sample submission (no setTimeout fake)",
+        "Shows the candidate's output/factors vs the active prompt's for comparison"
+      ],
+      "priority": 590,
+      "passes": false,
+      "notes": "[P2][Admin/Grading] Deep-dive 2026-06-04. ai-models.tsx handleTestPrompt is a hard-coded setTimeout fake."
+    },
+    {
+      "id": "US-591",
+      "title": "Add an abuse / fraud dashboard",
+      "description": "As an operator, I want a cross-account abuse view, so I can act on repeat offenders and chargebacks proactively.",
+      "acceptanceCriteria": [
+        "Surfaces repeat-offender accounts, rate-limit/velocity abuse, duplicate-account / shared-payment signals, and chargeback tracking",
+        "Links to per-user actions; complements per-submission moderation"
+      ],
+      "priority": 591,
+      "passes": false,
+      "notes": "[P2][Admin/Fraud] Deep-dive 2026-06-04. Moderation is one-flagged-submission-at-a-time; no aggregate abuse/fraud view."
+    },
+    {
+      "id": "US-592",
+      "title": "Build Scout / buy-decision mode",
+      "description": "As a reseller in the field, I want a grade-aware buy/skip recommendation before I purchase, so I source profitable items.",
+      "acceptanceCriteria": [
+        "Photo or barcode input returns an instant condition signal + estimated resale + sell-through + ROI/breakeven before purchase",
+        "Available on the highest-friction surface (mobile/iOS in-field and web)",
+        "Uses the closed-loop grading/sale dataset for grade-aware estimates",
+        "Extends the pipeline upstream of the current 'sourced' (already-bought) start"
+      ],
+      "priority": 592,
+      "passes": false,
+      "notes": "[P1][Differentiation] Deep-dive 2026-06-04. FlipDesk PRD §9.4 scopes scout/ROI but nothing in the 568 stories implements the buy-decision side; the reseller's highest-leverage moment and a unique grading-data win."
+    },
+    {
+      "id": "US-593",
+      "title": "Make the grade portable + buyer-trusted across platforms",
+      "description": "As a seller, I want my grade recognized by buyers everywhere, so the certificate is trust currency beyond an eBay description link.",
+      "acceptanceCriteria": [
+        "Embeddable grade badge/widget for any listing or storefront",
+        "QR-to-certificate for in-person and non-eBay (Poshmark/Mercari/Depop) sales",
+        "A buyer-facing 'verify this grade' entry point marketed to buyers, not just sellers"
+      ],
+      "priority": 593,
+      "passes": false,
+      "notes": "[P1][Differentiation] Deep-dive 2026-06-04. Certificates + verified-seller profile exist but the grade only lives inside an eBay description link; no embeddable badge/QR/buyer verify entry."
+    },
+    {
+      "id": "US-594",
+      "title": "Build a sold-comp, grade-banded pricing engine",
+      "description": "As a reseller, I want prices based on actual sold comps banded by condition grade, so my pricing reflects reality and velocity.",
+      "acceptanceCriteria": [
+        "Pricing uses sold comps (Marketplace Insights/Terapeak) not active asking prices",
+        "Recommendations are banded by grade and incorporate sell-through velocity",
+        "Surfaces confidence + the comp set behind each recommendation"
+      ],
+      "priority": 594,
+      "passes": false,
+      "notes": "[P1][Differentiation/Pricing] Deep-dive 2026-06-04. flipdesk-ebay.ts:1930 comps are eBay Browse active asking prices; sold-comp is a pending follow-up; US-460/542 only surface the limitation."
+    },
+    {
+      "id": "US-595",
+      "title": "Add grade-backed return-reduction intelligence",
+      "description": "As a seller, I want to see how grading reduces my returns, so the grading ROI is concrete.",
+      "acceptanceCriteria": [
+        "Analytics tie buyer returns/INADs back to item grades (e.g. 'items graded <=6 return Nx more')",
+        "Optional grade-backed 'condition guarantee' surface that targets return reduction",
+        "Aggregates across the seller's history with clear methodology"
+      ],
+      "priority": 595,
+      "passes": false,
+      "notes": "[P1][Differentiation/Analytics] Deep-dive 2026-06-04. US-459 handles returns mechanically; no analytics tying returns to grades — the hard seller-ROI story."
+    },
+    {
+      "id": "US-596",
+      "title": "Productize Grade-as-a-Service (B2B / white-label API)",
+      "description": "As a partner platform, I want a usable grading API product, so other marketplaces can embed GradeThread grading.",
+      "acceptanceCriteria": [
+        "Public grading API gains an SDK, sandbox, and a usage/billing dashboard (beyond internal plumbing)",
+        "White-label option (branding + embeddable results) for partner platforms",
+        "Documented rate limits, quotas, and pricing tier"
+      ],
+      "priority": 596,
+      "passes": false,
+      "notes": "[P1][Differentiation/API] Deep-dive 2026-06-04. Public grade API + keys exist (US-063-066) but positioned as internal plumbing; biggest TAM-expander the asset enables."
+    },
+    {
+      "id": "US-597",
+      "title": "Surface + gamify the Items-Listed-Per-Week North Star",
+      "description": "As a reseller, I want goals/streaks around items listed, so I stay engaged with the behavior the product optimizes for.",
+      "acceptanceCriteria": [
+        "Weekly items-listed goal + streak surfaced in-app",
+        "Milestone/encouragement emails tied to listing activity",
+        "Respects the North Star metric defined in the PRD"
+      ],
+      "priority": 597,
+      "passes": false,
+      "notes": "[P2][Differentiation/Engagement] Deep-dive 2026-06-04. PRD North Star is Items-Listed-Per-Week but nothing surfaces or gamifies it; cheap retention loop."
+    },
+    {
+      "id": "US-598",
+      "title": "Add web barcode/UPC scan-to-autofill intake",
+      "description": "As a reseller on desktop, I want to scan a UPC/style code to autofill item data, so intake (the #1 bottleneck) is faster.",
+      "acceptanceCriteria": [
+        "Web-side barcode/UPC scan (camera or hardware scanner) autofills brand/SKU/product data",
+        "Resolves style codes and enriches the draft (complements US-544 normalization)"
+      ],
+      "priority": 598,
+      "passes": false,
+      "notes": "[P2][FlipDesk] Deep-dive 2026-06-04. Barcode scanning exists only on iOS (US-179); no web scan-to-autofill."
+    },
+    {
+      "id": "US-599",
+      "title": "Ship the first real non-eBay marketplace connector",
+      "description": "As a reseller, I want at least one true second-marketplace connector, so the multi-marketplace promise is real.",
+      "acceptanceCriteria": [
+        "One non-eBay marketplace (e.g. Poshmark or Mercari) gains real list/sync/delist, not just labels",
+        "Reconciliation and crosslisting paths handle the second marketplace",
+        "Resolves the gap US-458 names (multi-marketplace promise vs eBay-only reality)"
+      ],
+      "priority": 599,
+      "passes": false,
+      "notes": "[P2][Differentiation/FlipDesk] Deep-dive 2026-06-04. MARKETPLACE_LABELS/LISTING_PLATFORMS promise Poshmark/Mercari/Depop/Grailed/Whatnot but everything is eBay-only."
+    },
+    {
+      "id": "US-600",
+      "title": "Build consignment mode",
+      "description": "As a consignment reseller, I want a consignor portal with splits and payouts, so I can run consignment on GradeThread.",
+      "acceptanceCriteria": [
+        "Consignor portal with configurable %, per-consignor P&L, and intake e-sign",
+        "Stripe Connect payouts to consignors",
+        "Independent grading attached to each consigned item"
+      ],
+      "priority": 600,
+      "passes": false,
+      "notes": "[P2][Differentiation] Deep-dive 2026-06-04. FlipDesk PRD §9.2 scopes consignment; zero backlog stories; no competitor pairs consignment accounting with independent grading."
+    },
+    {
+      "id": "US-601",
+      "title": "Add an authenticity/counterfeit-confidence signal",
+      "description": "As a buyer/seller, I want an authenticity-confidence signal alongside condition, so resale trust covers counterfeits too.",
+      "acceptanceCriteria": [
+        "Grading pipeline emits an authenticity-confidence / counterfeit-flag signal as a premium add-on",
+        "Clearly separated from the condition grade and from photo-tamper detection",
+        "Confidence + limitations disclosed"
+      ],
+      "priority": 601,
+      "passes": false,
+      "notes": "[P3][Differentiation/Grading] Deep-dive 2026-06-04. Grading scores condition only; US-336-338 detect photo tampering, not garment authenticity."
+    },
+    {
+      "id": "US-602",
+      "title": "Add reseller benchmarking / community insights",
+      "description": "As a reseller, I want anonymized market insights, so I know what to source and how I compare.",
+      "acceptanceCriteria": [
+        "Aggregate, anonymized insights: top brands by sell-through, trending categories, your sell-through vs similar sellers",
+        "Privacy-preserving aggregation (no per-seller leakage)"
+      ],
+      "priority": 602,
+      "passes": false,
+      "notes": "[P3][Differentiation/Analytics] Deep-dive 2026-06-04. Pure data-asset monetization; current analytics never go beyond a single seller's own numbers."
+    },
+    {
+      "id": "US-603",
+      "title": "Add a referral / affiliate program",
+      "description": "As a user, I want to refer others for rewards, so growth compounds through earned channels.",
+      "acceptanceCriteria": [
+        "Referral codes + reward tracking and an affiliate ('graded by GradeThread' earned-link) option",
+        "Attribution + payout/credit handling"
+      ],
+      "priority": 603,
+      "passes": false,
+      "notes": "[P3][Growth] Deep-dive 2026-06-04. No referral/affiliate program despite heavy SEO/content investment (US-291-435) that could amplify it."
+    },
+    {
+      "id": "US-604",
+      "title": "Rebuild the landing page with proof",
+      "description": "As a prospect, I want social proof and to see the product, so I trust and convert.",
+      "acceptanceCriteria": [
+        "Landing adds product screenshots and an embedded/linked LIVE sample certificate (the strongest asset)",
+        "Real social proof band (real numbers only, per the no-fake-ratings policy)",
+        "FAQ accordion made keyboard/ARIA-complete (aria-expanded/controls/region)"
+      ],
+      "priority": 604,
+      "passes": false,
+      "notes": "[P2][UX/Conversion] Deep-dive 2026-06-04. landing.tsx has zero social proof, no screenshots, no sample cert; FAQItem is a plain button with no ARIA. Biggest conversion lever."
+    },
+    {
+      "id": "US-605",
+      "title": "Extract PageHeader + EmptyState primitives and centralize status/score tokens",
+      "description": "As the team, I want shared layout/empty primitives and one source for status colors, so the app feels one-piece and is easy to restyle.",
+      "acceptanceCriteria": [
+        "Reusable PageHeader (title/subtitle/action) and EmptyState components in src/components/ui, adopted across dashboard/submissions/settings/flipdesk",
+        "getStatusBadgeClasses/getScoreColor/getProgressColor centralized into tokens/utils (currently copy-pasted in 6+ files)",
+        "A palette change requires editing one place, not every page"
+      ],
+      "priority": 605,
+      "passes": false,
+      "notes": "[P2][UX/Design-system] Deep-dive 2026-06-04. No shared PageHeader/EmptyState; status/score color logic duplicated across dashboard, submissions, certificate, inventory, inventory-detail, submission-detail."
+    },
+    {
+      "id": "US-606",
+      "title": "Add an in-app help/support launcher + shortcuts cheat-sheet",
+      "description": "As a user, I want help and shortcut discovery in the shell, so I have somewhere to go when stuck.",
+      "acceptanceCriteria": [
+        "A help/support launcher (help center / contact support / docs) in the app shell",
+        "A '?' keyboard-shortcuts cheat-sheet dialog; shortcuts advertised",
+        "Command palette extended with global actions (Billing, API Keys, Team, theme toggle, help) beyond FlipDesk-only"
+      ],
+      "priority": 606,
+      "passes": false,
+      "notes": "[P2][UX] Deep-dive 2026-06-04. No in-app help/support anywhere; useKeyboardShortcuts only binds 'n'; command palette is FlipDesk-only."
+    },
+    {
+      "id": "US-607",
+      "title": "Make the certificate a first-class shareable",
+      "description": "As a seller, I want to share my certificate everywhere, so the best trust artifact becomes a distribution channel.",
+      "acceptanceCriteria": [
+        "Dynamic OG image generated for /cert/:id (natural hook on the cert SSR work, US-294)",
+        "Share-to-social / copy-link beyond the embed badge",
+        "Print / PDF export of the certificate"
+      ],
+      "priority": 607,
+      "passes": false,
+      "notes": "[P2][UX/Differentiation] Deep-dive 2026-06-04. certificate.tsx is the standout artifact but has only meta tags (no OG image), no share, no print/PDF — under-leveraged distribution."
+    },
+    {
+      "id": "US-608",
+      "title": "Restructure Settings into tabs/sections",
+      "description": "As a user, I want findable settings, so I am not scrolling one long page.",
+      "acceptanceCriteria": [
+        "settings.tsx split into tabs/sections (Profile, Security, Notifications, AI, FlipDesk, Data, Storage, Danger) using the existing Tabs primitive",
+        "Deep-linkable sections"
+      ],
+      "priority": 608,
+      "passes": false,
+      "notes": "[P3][UX] Deep-dive 2026-06-04. settings.tsx is one ~1000-line single scroll of 10 cards; worst IA in the authenticated app."
+    },
+    {
+      "id": "US-609",
+      "title": "Group/collapse the FlipDesk sidebar and standardize loading patterns",
+      "description": "As a user, I want a manageable nav and consistent loading, so the app does not feel overwhelming or uneven.",
+      "acceptanceCriteria": [
+        "FlipDesk sidebar group (13 flat items) supports collapse/grouping",
+        "flipdesk pipeline (and other text 'Loading…' cards) use the standard Skeleton treatment"
+      ],
+      "priority": 609,
+      "passes": false,
+      "notes": "[P3][UX] Deep-dive 2026-06-04. sidebar.tsx FlipDesk group is 13 flat items; flipdesk/pipeline.tsx uses plain text loading while others use Skeleton."
     }
   ]
 }

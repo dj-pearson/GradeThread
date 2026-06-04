@@ -17,6 +17,7 @@ import {
   sendSubscriptionStartedEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { recordMetric } from "../lib/observability.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
@@ -90,6 +91,10 @@ webhookRoutes.post("/stripe", async (c) => {
     return c.json({ received: true, duplicate: true });
   }
   if (claim === "error") {
+    // US-509: Stripe events move money/entitlement → fail CLOSED (500 so Stripe
+    // re-delivers). Record the decision so a spike of claim-write failures is
+    // visible rather than buried in a console line.
+    recordMetric("webhook.fail_closed", 1, { provider: "stripe", topic: event.type });
     console.error(
       `[Webhook] idempotency claim failed for ${event.type} (${event.id}) — asking Stripe to retry`,
     );

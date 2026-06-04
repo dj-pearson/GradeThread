@@ -9,8 +9,6 @@
 // It is intentionally conservative — it can over-redact (replacing a token-like
 // blob with a placeholder) but must never under-redact a real secret.
 
-const REPLACEMENT = "[redacted]";
-
 // Ordered most-specific → least-specific so a JWT isn't first mangled by the
 // generic long-token rule.
 const PATTERNS: Array<[RegExp, string]> = [

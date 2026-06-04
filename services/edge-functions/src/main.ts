@@ -49,6 +49,7 @@ import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
 import { redactError } from "./lib/log-redact.ts";
+import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
 
 const app = new Hono();
 
@@ -350,6 +351,19 @@ app.onError((err, c) => {
   }
   // US-359: redact before logging (no PII/secrets in the sink) and return a
   // generic body — never the raw error text.
+  // US-491: report the exception to the tracker with request/route/user context
+  // tagged with the release SHA, correlated to the access-log line by request id.
+  let path = c.req.path;
+  try {
+    path = new URL(c.req.url).pathname;
+  } catch { /* keep c.req.path */ }
+  captureException(err, {
+    route: `${c.req.method} ${path}`,
+    method: c.req.method,
+    url: path,
+    correlationId: readCtxVar(c, "correlationId"),
+    userId: readCtxVar(c, "userId") ?? readCtxVar(c, "workspaceOwnerId"),
+  });
   console.error("Unhandled error:", redactError(err));
   return c.json({ error: "Internal server error" }, 500);
 });
@@ -364,6 +378,10 @@ assertNoProdDebugFlags();
 assertAdminMfaConfig();
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
-console.log(`Edge functions running on port ${port}`);
+logEvent("info", "edge.boot", {
+  port,
+  release: releaseSha(),
+  errorTracking: !!Deno.env.get("SENTRY_DSN")?.trim(),
+});
 
 Deno.serve({ port }, app.fetch);

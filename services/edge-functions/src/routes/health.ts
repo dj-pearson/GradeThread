@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 
 export const healthRoutes = new Hono();
 
@@ -60,12 +61,29 @@ export function summarizeReadiness(
 }
 
 // Liveness — restart probe. Never touches a dependency.
+// US-491/513: also reports the deployed commit SHA and whether the exception
+// tracker is wired up, so a deploy's running version and observability posture
+// are visible without leaking the DSN.
 healthRoutes.get("/", (c) => {
   return c.json({
     status: "ok",
     service: "gradethread-edge-functions",
+    release: releaseSha(),
+    errorTracking: isErrorTrackingConfigured() ? "enabled" : "disabled",
     timestamp: new Date().toISOString(),
   });
+});
+
+// US-491 verification hook: a forced exception path so an operator can confirm
+// the tracker receives events end-to-end. Gated to NON-production (returns 404
+// in prod so it can't be used as a noise/abuse vector). Throws into app.onError,
+// which captures to the tracker with the release SHA + correlation id.
+healthRoutes.get("/_throw", (c) => {
+  if ((Deno.env.get("EDGE_ENV") ?? Deno.env.get("DENO_ENV") ?? "production")
+    .trim().toLowerCase() === "production") {
+    return c.json({ error: "Not found" }, 404);
+  }
+  throw new Error("Forced test exception from /health/_throw (US-491 verification)");
 });
 
 // Readiness — dependency probe. 503 when a hard dependency is unreachable.

@@ -3981,3 +3981,48 @@ DONE.
   tests/pending-downgrade_test.ts (Node port 8/8).
 
 BILLING BAND 382-402 COMPLETE (0 open). prd.json 394/568.
+
+
+## Session Notes (2026-06-04) -- Production-ops band US-491..524 (autonomous, direct-to-main)
+
+Working the 491-524 production-readiness band per-story. Edge logic verified
+with `deno test --no-check` (the http-status type-only import + flipdesk-ai
+QuotaResult.limit are 2 PRE-EXISTING type errors on the clean tree, unrelated).
+`deno lint` now clean (168 files).
+
+### Observability cluster -- US-491/497/508/509 COMPLETE, passes=true
+
+New lib/observability.ts -- dependency-free, fail-safe (never throws into a
+caller), all output through redact() (log-redact.ts):
+- US-491 captureException(): Sentry-compatible HTTP ingest (parses the DSN,
+  POSTs the store endpoint with X-Sentry-Auth, 3s AbortController timeout,
+  fire-and-forget). Gated on SENTRY_DSN; with no DSN it still leaves a local
+  structured 'exception' breadcrumb. Tagged with release SHA + environment.
+  Wired into app.onError (route/method/url/correlationId/userId context) and the
+  grade.ts fire-and-forget processSubmission().catch (the previously-invisible
+  pipeline crash). /health now reports release + errorTracking; /health/_throw
+  (non-prod only) is the forced-500 verification hook.
+- US-497 structured logs + correlation ids: access-log middleware now mints (or
+  reuses inbound X-Request-Id/X-Correlation-Id) a per-request correlationId,
+  stores it on the Hono context (ContextVariableMap augmentation), echoes it in
+  the X-Request-Id response header, and emits the access line as structured JSON
+  (event:"http.request"). correlationId propagates into the grading
+  fire-and-forget task. logEvent() redacts the whole serialized line.
+- US-508 metrics: recordMetric()/timed() emit event:"metric" structured lines
+  the aggregator scrapes (latency/throughput/outcome) -- no extra runtime dep.
+  Per-request latency is the access line. Dashboards/alerts on those lines are
+  an aggregator-side config (documented as the manual follow-up).
+- US-509 webhook fail-open observability: the two eBay fail-OPEN claim paths
+  (payout/sale + account-deletion -- both idempotent downstream) now
+  recordMetric("webhook.fail_open") + captureException(level:warn) instead of a
+  lone console.error. Stripe fail-CLOSED path records webhook.fail_closed. High-
+  risk (money/entitlement) Stripe events already fail closed (US-390).
+
+Also fixed a pre-existing unused-const (REPLACEMENT) in log-redact.ts that was
+failing `deno lint` (advances US-518's clean-gate goal).
+
+tests/observability_test.ts: 10 tests (release id, structured log shape +
+redaction + unserializable-survival, metric emission, timed ok/error, capture
+never-throws + local breadcrumb, DSN gating). All green.
+
+prd.json 398/609.

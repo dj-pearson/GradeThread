@@ -5,6 +5,7 @@ import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { verifyEbayHmac } from "../lib/ebay-signature.ts";
+import { captureException, recordMetric } from "../lib/observability.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -130,11 +131,22 @@ async function processEbayWebhookEvent(
     // US-390: claimWebhookEvent now returns a tri-state. Skip only on a
     // confirmed duplicate; on a claim-write error fall OPEN and process (eBay
     // notifications aren't money-moving and the payout layer has its own dedup).
-    if ((await claimWebhookEvent("ebay", notif.notificationId, topic)) === "duplicate") {
+    const claim = await claimWebhookEvent("ebay", notif.notificationId, topic);
+    if (claim === "duplicate") {
       console.log(
         `[flipdesk-webhooks] duplicate eBay event id=${notif.notificationId} — skipping`,
       );
       return;
+    }
+    // US-509: make the fail-OPEN decision observable. The downstream payout/sale
+    // ingest is idempotent (ebay-payout-dedup), so processing without a durable
+    // claim is safe — but a claim-write failure must not be invisible.
+    if (claim === "error") {
+      recordMetric("webhook.fail_open", 1, { provider: "ebay", topic });
+      captureException(
+        new Error(`eBay webhook idempotency claim failed; processing fail-open (topic=${topic})`),
+        { level: "warn", route: "flipdesk-webhooks.ebay", tags: { topic, decision: "fail_open" } },
+      );
     }
   }
 
@@ -357,11 +369,29 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
   if (notificationId) {
     // US-390: tri-state claim — skip only on a confirmed duplicate; fall open
     // (process) on a claim-write error so a real deletion request isn't dropped.
-    if ((await claimWebhookEvent("ebay", notificationId, "MARKETPLACE_ACCOUNT_DELETION")) === "duplicate") {
+    const claim = await claimWebhookEvent("ebay", notificationId, "MARKETPLACE_ACCOUNT_DELETION");
+    if (claim === "duplicate") {
       console.log(
         `[flipdesk-webhooks] duplicate eBay account-deletion id=${notificationId} — skipping`,
       );
       return c.body(null, 204);
+    }
+    // US-509: the deletion handler is idempotent (it no-ops if the user is
+    // already purged), so fail-open is safe — but a dropped claim on a
+    // COMPLIANCE event must be loud, not a lone console.error.
+    if (claim === "error") {
+      recordMetric("webhook.fail_open", 1, {
+        provider: "ebay",
+        topic: "MARKETPLACE_ACCOUNT_DELETION",
+      });
+      captureException(
+        new Error("eBay account-deletion idempotency claim failed; processing fail-open"),
+        {
+          level: "warn",
+          route: "flipdesk-webhooks.account-deletion",
+          tags: { topic: "MARKETPLACE_ACCOUNT_DELETION", decision: "fail_open" },
+        },
+      );
     }
   }
 

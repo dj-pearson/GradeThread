@@ -9,6 +9,7 @@ import {
   type PrecedenceResult,
   runPaymentPrecedence,
 } from "../lib/grade-billing.ts";
+import { captureException } from "../lib/observability.ts";
 
 type GradeEnv = {
   Variables: {
@@ -76,7 +77,7 @@ export const gradeRoutes = new Hono<GradeEnv>();
 // lib/grade-billing.ts so the FlipDesk bridge and public API charge through
 // the same path. See runPaymentPrecedence there.
 
-function kickPipeline(submissionId: string) {
+function kickPipeline(submissionId: string, correlationId?: string) {
   // Status='processing' first; then fire-and-forget the grading pipeline.
   supabaseAdmin
     .from("submissions")
@@ -84,6 +85,14 @@ function kickPipeline(submissionId: string) {
     .eq("id", submissionId)
     .then(() => {
       processSubmission(submissionId).catch((err) => {
+        // US-491/497: a crash in the un-awaited pipeline is otherwise invisible.
+        // Report it to the tracker, correlated to the originating request, and
+        // tag the submission so the stuck-submission reaper (US-495) can refund.
+        captureException(err, {
+          route: "grade.pipeline",
+          correlationId,
+          extra: { submissionId },
+        });
         console.error(
           `[Grade] Pipeline error for ${submissionId}:`,
           err instanceof Error ? err.message : String(err),
@@ -296,7 +305,7 @@ gradeRoutes.post("/submit", async (c) => {
   }
 
   if (precedence.paid) {
-    kickPipeline(submissionId);
+    kickPipeline(submissionId, c.get("correlationId"));
     return c.json({
       submissionId,
       status: "processing",
@@ -375,7 +384,7 @@ gradeRoutes.post("/pay/:id", async (c) => {
   }
 
   if (precedence.paid) {
-    kickPipeline(submissionId);
+    kickPipeline(submissionId, c.get("correlationId"));
     return c.json({
       submissionId,
       status: "processing",
