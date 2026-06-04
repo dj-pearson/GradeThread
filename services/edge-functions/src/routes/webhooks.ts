@@ -19,6 +19,7 @@ import {
 import { captureServer } from "../lib/posthog.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
+import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -193,7 +194,7 @@ async function recordEvent(
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -315,16 +316,26 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       ? new Date(sub.trial_end * 1000).toISOString()
       : undefined;
 
-  // Clear a pending downgrade ONLY when the plan has actually transitioned to
-  // the scheduled target (the Subscription Schedule's phase 2 activated —
-  // US-217). Comparing the new plan against the stored pending plan avoids the
-  // false positive where merely *attaching* a schedule fires
-  // subscription.updated while the current plan is still unchanged — the old
-  // `metadata.plan === plan` check matched there (business === business) and
-  // wiped the pending state before the user ever saw the "Downgrade scheduled"
-  // banner.
-  const pendingCleared =
-    !!user.pending_flipdesk_plan && plan === user.pending_flipdesk_plan;
+  // US-402: clear a pending downgrade based on the Stripe SCHEDULE lifecycle +
+  // the resolved plan/interval — NOT a plan-string match. Stripe releases the
+  // schedule (sub.schedule → null) once phase 2 activates; clearing on the
+  // schedule being gone + the target reached fixes interval-only downgrades
+  // (pro/monthly → pro/yearly, where the plan string never changes) and avoids
+  // clearing prematurely when a schedule is merely attached.
+  const incomingScheduleId = sub.schedule
+    ? (typeof sub.schedule === "string" ? sub.schedule : sub.schedule.id)
+    : null;
+  const pendingCleared = shouldClearPendingDowngrade(
+    {
+      pendingPlan: user.pending_flipdesk_plan,
+      pendingInterval: user.pending_flipdesk_interval,
+      pendingScheduleId: user.pending_schedule_id,
+      pendingEffectiveAt: user.pending_effective_at,
+    },
+    plan,
+    interval,
+    incomingScheduleId,
+  );
 
   // US-391: reconcile the customer link separately (set-if-null / alert-on-
   // mismatch) instead of blindly overwriting stripe_customer_id below, which

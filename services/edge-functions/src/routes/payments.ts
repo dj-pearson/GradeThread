@@ -172,6 +172,45 @@ async function ensureStripeCustomer(
   return fresh?.stripe_customer_id ?? customer.id;
 }
 
+// US-400: the shape the billing UI renders for the next charge.
+export interface UpcomingInvoice {
+  amount_cents: number;
+  currency: string;
+  next_payment_at: string | null;
+}
+
+// US-400: fetch the subscription's real upcoming invoice from Stripe so the UI
+// shows what will ACTUALLY be billed (coupons, grandfathered prices, prorations)
+// rather than the static FLIPDESK_PLANS table. Returns null for users without a
+// subscription and degrades gracefully (null) if Stripe is unavailable — the UI
+// then falls back to the plan-table price.
+async function fetchUpcomingInvoice(
+  customerId: string | null,
+  subscriptionId: string | null,
+): Promise<UpcomingInvoice | null> {
+  if (!customerId || !subscriptionId) return null;
+  const stripe = getStripe();
+  if (!stripe) return null;
+  try {
+    // stripe-node v15: invoices.retrieveUpcoming. Scope to the subscription so a
+    // customer with multiple products gets the right line.
+    const inv = await stripe.invoices.retrieveUpcoming({
+      customer: customerId,
+      subscription: subscriptionId,
+    });
+    const nextAt = inv.next_payment_attempt ?? inv.period_end ?? null;
+    return {
+      amount_cents: inv.amount_due,
+      currency: inv.currency,
+      next_payment_at: nextAt ? new Date(nextAt * 1000).toISOString() : null,
+    };
+  } catch (err) {
+    // No upcoming invoice (canceled/ended) or a transient Stripe error → null.
+    console.error("[billing-summary] upcoming invoice fetch failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── POST /flipdesk/subscribe (US-204) ────────────────────────────
 //
 // Body: { plan: 'starter'|'pro'|'business', interval: 'monthly'|'yearly' }
@@ -668,7 +707,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
       "flipdesk_plan, flipdesk_interval, subscription_status, " +
         "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
         "trial_ends_at, grade_credit_balance, grades_used_this_month, grade_reset_at, " +
-        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, " +
+        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, flipdesk_subscription_id, " +
         "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
         "usage_alert_thresholds, last_warning_at",
     )
@@ -689,6 +728,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     flipdesk_cancel_at_period_end: boolean | null;
     trial_ends_at: string | null;
     stripe_customer_id: string | null;
+    flipdesk_subscription_id: string | null;
     pending_flipdesk_plan: string | null;
     pending_flipdesk_interval: string | null;
     pending_effective_at: string | null;
@@ -705,6 +745,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     activeListingsResult,
     marketplacesResult,
     ledgerResult,
+    upcomingInvoice,
   ] = await Promise.all([
     supabaseAdmin
       .from("inventory_items")
@@ -722,6 +763,10 @@ paymentRoutes.get("/billing-summary", async (c) => {
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(5),
+    // US-400: the REAL next charge from Stripe (honors coupons / grandfathered
+    // prices), fetched in parallel. Returns null for free users and degrades
+    // gracefully if Stripe is unavailable (UI falls back to the plan table).
+    fetchUpcomingInvoice(u.stripe_customer_id, u.flipdesk_subscription_id),
   ]);
 
   if (activeListingsResult.error) {
@@ -747,6 +792,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
       pending_plan: u.pending_flipdesk_plan,
       pending_interval: u.pending_flipdesk_interval,
       pending_effective_at: u.pending_effective_at,
+      // US-400: actual upcoming Stripe charge, or null (free / Stripe down).
+      upcoming_invoice: upcomingInvoice,
     },
     grades: {
       credit_balance: u.grade_credit_balance,

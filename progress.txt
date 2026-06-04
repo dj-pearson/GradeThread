@@ -3938,3 +3938,46 @@ COMPLETED, passes=true.
   drift.
 
 prd.json 391/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Finish billing band US-399/400/402
+
+Closed the last three open stories in the 382-402 billing band (band now 100%).
+Deno still uninstallable; edge logic verified via Node ports; frontend tsc +
+vitest re-run green (lone failure = pre-existing responsive-images build test).
+
+US-399 Require step-up MFA + proration on admin billing mutations [P3] -- DONE.
+- requireStepUp() added to admin /users/:id/change-plan, /comp-credits,
+  /set-trial (mirrors the existing /charges/:id/refund gate).
+- Immediate paid->free cancel now SURFACES proration (computed from the REAL
+  amount paid on the latest invoice via pure lib/proration.ts so coupons/
+  grandfathered prices are honored) and AUTOMATES a Stripe refund of the unused
+  portion when body.prorate===true. Audit log + recordAdminEvent capture the
+  full outcome (proration, prorate_requested, refunded, refund_id,
+  refund_amount_cents, refund_error). Preview is best-effort (never blocks the
+  cancel). Tests: tests/proration_test.ts (Node port 9/9).
+
+US-400 Show the real upcoming Stripe charge in billing UI [P3] -- DONE.
+- GET /billing-summary now fetches the subscription's upcoming invoice
+  (stripe.invoices.retrieveUpcoming, customer+subscription) IN PARALLEL with the
+  count/ledger queries and returns subscription.upcoming_invoice
+  {amount_cents, currency, next_payment_at} — null for free users + graceful
+  degradation to null if Stripe is down.
+- billing.tsx derives nextChargeCents/nextChargeDate from upcoming_invoice with
+  a fallback to the FLIPDESK_PLANS table; used in the plan-price description AND
+  the 'Next charge $X on <date>' line so coupons/grandfathered prices render
+  correctly. Frontend types updated.
+
+US-402 Key pending-downgrade clearing on the schedule, not plan-string [P3] --
+DONE.
+- Pure shouldClearPendingDowngrade (lib/pending-downgrade.ts): clears when the
+  Stripe schedule is GONE (sub.schedule -> null or a different id, i.e. phase
+  activated + released) AND the resolved plan+interval match the target; plus a
+  stale-reconcile path (effective date passed + schedule gone). Fixes
+  interval-only downgrades (pro/monthly -> pro/yearly) the plan-string match
+  missed, and stops premature clearing on schedule-attach.
+- handleSubscriptionChange computes incomingScheduleId + feeds the pending_*
+  columns (added to USER_SELECT) into the helper. Tests:
+  tests/pending-downgrade_test.ts (Node port 8/8).
+
+BILLING BAND 382-402 COMPLETE (0 open). prd.json 394/568.

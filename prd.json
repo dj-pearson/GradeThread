@@ -6405,8 +6405,8 @@
         "Audit log captures the proration/refund outcome"
       ],
       "priority": 399,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. File: admin-billing.ts."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. admin-billing mutations now require a fresh MFA step-up like refunds: requireStepUp() added to /users/:id/change-plan, /comp-credits, and /set-trial (mirrors the existing /charges/:id/refund gate; relaxed only during the enrollment window via ADMIN_MFA_ENFORCED). The immediate paid->free cancel now SURFACES + optionally AUTOMATES proration: it computes the unused-time credit from the REAL amount paid on the latest invoice (so coupons/grandfathered prices are honored, via pure lib/proration.ts unusedProrationCents/remainingFraction), includes it in the response + audit log every time (surfaced), and when body.prorate===true issues a Stripe refund of that amount on the invoice's payment_intent (automated). The audit log + recordAdminEvent capture the full outcome: proration {unused_cents, base_paid_cents, remaining_fraction, computed}, prorate_requested, refunded, refund_id, refund_amount_cents, refund_error. Proration preview is best-effort (a failure never blocks the cancel). Tests: tests/proration_test.ts (clamping, coupon/grandfathered base, 100%-off, never-negative). Node port 9/9; frontend tsc + vitest green."
     },
     {
       "id": "US-400",
@@ -6417,8 +6417,8 @@
         "Grandfathered/coupon prices render correctly; graceful degradation if Stripe is unavailable"
       ],
       "priority": 400,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. billing.tsx shows the hardcoded plan price."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. The billing UI showed the static FLIPDESK_PLANS price; it now shows the REAL upcoming Stripe charge. GET /billing-summary fetches the subscription's upcoming invoice (stripe.invoices.retrieveUpcoming scoped to customer+subscription) in PARALLEL with the existing count/ledger queries and returns subscription.upcoming_invoice {amount_cents, currency, next_payment_at} — null for free users and degraded gracefully to null if Stripe is unavailable. billing.tsx derives nextChargeCents = upcoming_invoice.amount_cents ?? plan-table price and nextChargeDate = upcoming_invoice.next_payment_at ?? period_end, used in both the plan-price description and the 'Next charge $X on <date>' line, so coupons/grandfathered prices render correctly and the UI falls back to the plan table when no upcoming invoice is returned. Frontend types updated (BillingSummary.subscription.upcoming_invoice). frontend tsc + vitest green."
     },
     {
       "id": "US-401",
@@ -6442,8 +6442,8 @@
         "Test: downgrade to a yearly plan clears pending state"
       ],
       "priority": 402,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. webhooks.ts clears pending only on exact plan-string match."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. Pending-downgrade clearing was keyed on an exact plan-STRING match (plan === pending_flipdesk_plan), which couldn't tell 'schedule just attached' from 'phase activated' and MISSED interval-only downgrades (pro/monthly -> pro/yearly, where the plan string never changes -> the 'Downgrade scheduled' banner stuck forever). Now keyed on the Stripe SCHEDULE lifecycle via pure shouldClearPendingDowngrade (lib/pending-downgrade.ts): Stripe releases the schedule (sub.schedule -> null, or a different id) once the final phase activates, so we clear when the tracked schedule is GONE AND the resolved plan+interval match the target — and, as a reconcile, when pending_effective_at has passed and the schedule is gone (so stale pending can't stick). handleSubscriptionChange computes incomingScheduleId from sub.schedule and feeds it + the pending_* columns (added pending_flipdesk_interval/pending_schedule_id/pending_effective_at to USER_SELECT) into the helper; the existing cleared-block already nulls all four pending_* columns. Tests: tests/pending-downgrade_test.ts (attach keeps banner; plan-downgrade activation clears; interval-only yearly activation clears; different/absent schedule id; stale reconcile; gone-but-unmatched-and-not-passed keeps). Node port 8/8; frontend tsc clean."
     },
     {
       "id": "US-403",
