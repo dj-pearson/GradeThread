@@ -872,7 +872,11 @@ export async function generateListing(
         },
       },
     });
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    // US-527: the AutoLister worker (the sole caller) now atomically RESERVES
+    // the AI action against the monthly cap BEFORE calling generateListing
+    // (reserve_ai_action) and refunds on failure, so the counter is no longer
+    // incremented here — doing both would double-count and re-introduce the
+    // parallel-batch cap-bypass race this story fixes.
   } catch (err) {
     console.error("[AI Listing] usage logging failed (non-fatal):", err);
   }

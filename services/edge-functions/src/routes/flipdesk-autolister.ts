@@ -1,8 +1,10 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateListing } from "../lib/ai-listing.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
 
 // FlipDesk AutoLister batch generation (US-313).
 // Mounted at /api/flipdesk/autolister (authed + workspace context).
@@ -11,12 +13,34 @@ import { requireFlipdesk } from "../lib/plan-gate.ts";
 //                     202 + batch_id and processes in the background.
 // GET  /batch/:id   — poll batch + per-job status for the queue view (US-318).
 //
+// Durability (US-525): generation state is durable in the batches/jobs tables.
+// Each job is CLAIMED with a conditional update before it runs, every progress
+// roll-up bumps the batch's updated_at (a heartbeat), and the batch always
+// terminalizes from the authoritative jobs table (finalizeBatch). A cron sweep
+// (handleAutolisterReclaimCron, mounted at /api/jobs/autolister-reclaim) resumes
+// any batch whose worker died mid-run, so nothing is stranded by a restart.
+//
 // Tenant safety (CLAUDE.md US-268): the service-role client bypasses RLS, so
 // every query here is scoped to the workspace owner. Items are verified owned
 // before any job is created; batch/job reads join through batch.user_id.
 
 const MAX_BATCH_ITEMS = 100; // matches the "100 listings in one batch" target
 const CONCURRENCY = 3; // vision calls are heavy; mirror flipdesk-ai bulk-extract
+
+// US-526: hard wall-clock cap on a single item's generation. generateListing
+// makes several sequential Anthropic + eBay calls; only the SDK socket timeout
+// protected it before, so one hung item could pin a concurrency slot.
+const GENERATION_TIMEOUT_MS = 90_000;
+// US-525: a job started this many times (incl. reclaim resumes) is failed
+// terminally rather than resumed forever.
+const MAX_JOB_ATTEMPTS = 5;
+// US-525: a 'running' job whose updated_at is older than this was left by a
+// dead worker and is eligible for reclaim. Must exceed GENERATION_TIMEOUT_MS so
+// a live, generating job is never reclaimed out from under its worker.
+const JOB_STALE_MS = 5 * 60_000;
+// US-525: a 'running' batch whose updated_at (bumped on every progress roll-up)
+// is older than this is presumed abandoned and is swept.
+const BATCH_STALE_MS = 15 * 60_000;
 
 export const flipdeskAutolisterRoutes = new Hono<{
   Variables: {
@@ -31,111 +55,180 @@ export const flipdeskAutolisterRoutes = new Hono<{
   };
 }>();
 
-type BatchStatus = "pending" | "running" | "completed" | "failed" | "partial";
+// ── Helpers ─────────────────────────────────────────────────────────
+
+export type BatchTerminalStatus = "completed" | "failed" | "partial";
 
 /**
- * Background worker: generate a listing for each job in the batch with bounded
- * concurrency. Partial failures never abort the batch — each job records its
- * own status/error/attempts and the batch rolls up succeeded/failed counts.
- *
- * Quota: `allowance` is the number of generations permitted this run (Infinity
- * for unlimited plans). Once exhausted, remaining jobs are marked failed with a
- * clear message rather than silently dropped.
+ * US-525: terminal status of a batch given its job tallies, or null if jobs are
+ * still open. Pure, so the terminalization rule is unit-tested without a DB.
+ */
+export function deriveBatchStatus(
+  succeeded: number,
+  failed: number,
+  open: number,
+): BatchTerminalStatus | null {
+  if (open > 0) return null;
+  return failed === 0 ? "completed" : succeeded === 0 ? "failed" : "partial";
+}
+
+/** Reject with a clear error if `promise` doesn't settle within `ms` (US-526). */
+export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/**
+ * US-527: atomically reserve one AI action against the monthly cap. Returns
+ * true if reserved, false if the cap is reached. This is the SINGLE quota
+ * enforcement point — replacing the old in-memory allowance that two parallel
+ * batches could each spend, blowing past the cap.
+ */
+async function reserveAiAction(ownerId: string, limit: number): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.rpc("reserve_ai_action", {
+    p_user_id: ownerId,
+    p_limit: limit,
+  });
+  if (error) throw new Error(`Quota reservation failed: ${error.message}`);
+  return data === true;
+}
+
+/** Give a reserved AI action back when its generation ultimately failed. */
+async function refundAiAction(ownerId: string): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("refund_ai_action", { p_user_id: ownerId });
+  if (error) {
+    console.error("[flipdesk-autolister] refund_ai_action failed:", error.message);
+  }
+}
+
+async function markJobFailed(jobId: string, message: string): Promise<void> {
+  await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ status: "failed", error: message.slice(0, 1000) })
+    .eq("id", jobId);
+}
+
+/**
+ * US-525: recompute counts from the authoritative jobs table and terminalize
+ * the batch when no jobs remain open. Idempotent — also serves as the live
+ * progress roll-up (which bumps batch.updated_at, the heartbeat the reclaim
+ * sweeper watches). Called after every slice and once in `finally`, so a batch
+ * always reaches a terminal status even if the worker was interrupted.
+ */
+async function finalizeBatch(batchId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .select("status")
+    .eq("batch_id", batchId);
+  const rows = (data ?? []) as Array<{ status: string }>;
+  const succeeded = rows.filter((r) => r.status === "success").length;
+  const failed = rows.filter((r) => r.status === "failed").length;
+  const open = rows.filter((r) => r.status === "pending" || r.status === "running").length;
+  const patch: Record<string, unknown> = {
+    succeeded_count: succeeded,
+    failed_count: failed,
+  };
+  const terminal = deriveBatchStatus(succeeded, failed, open);
+  if (terminal) patch.status = terminal;
+  await supabaseAdmin.from("listing_generation_batches").update(patch).eq("id", batchId);
+}
+
+/**
+ * Background worker: generate a listing for each job with bounded concurrency.
+ * Partial failures never abort the batch — each job records its own
+ * status/error/attempts. Quota is enforced atomically per item (US-527); a
+ * per-item timeout caps a hung generation (US-526); jobs are claimed so a
+ * resumed/concurrent run can't double-process one (US-525).
  */
 async function processBatch(
   batchId: string,
   ownerId: string,
   jobs: Array<{ id: string; inventory_item_id: string; attempts?: number }>,
   useComps: boolean,
-  allowance: number,
-  initialCounts?: { succeeded: number; failed: number },
+  limit: number,
 ): Promise<void> {
-  let succeeded = initialCounts?.succeeded ?? 0;
-  let failed = initialCounts?.failed ?? 0;
-  let consumed = 0;
+  const jobStaleBefore = new Date(Date.now() - JOB_STALE_MS).toISOString();
 
   async function runJob(
     job: { id: string; inventory_item_id: string; attempts?: number },
   ): Promise<void> {
-    // Mark running + bump attempts (US-325: real per-job retry counter).
-    // attempts always reflects the total number of times the job has been run.
-    const nextAttempts = (job.attempts ?? 0) + 1;
-    await supabaseAdmin
-      .from("listing_generation_jobs")
-      .update({ status: "running", attempts: nextAttempts, error: null })
-      .eq("id", job.id);
+    const attempts = job.attempts ?? 0;
+    // US-525: don't resume a job forever.
+    if (attempts >= MAX_JOB_ATTEMPTS) {
+      await markJobFailed(
+        job.id,
+        "Generation abandoned after repeated interruptions. Retry from the queue if needed.",
+      );
+      return;
+    }
 
-    // Quota gate (local counter against the run's allowance).
-    if (consumed >= allowance) {
-      failed++;
-      await supabaseAdmin
-        .from("listing_generation_jobs")
-        .update({
-          status: "failed",
-          error:
-            "Monthly AI action limit reached — this item was not generated. Your allowance resets next month.",
-        })
-        .eq("id", job.id);
+    // US-525: atomically CLAIM the job. Eligible = still 'pending', or a
+    // 'running' job left stale by a dead worker. If a live worker already owns
+    // it (fresh 'running'), the conditional update matches nothing and we skip.
+    const { data: claimed } = await supabaseAdmin
+      .from("listing_generation_jobs")
+      .update({ status: "running", attempts: attempts + 1, error: null })
+      .eq("id", job.id)
+      .in("status", ["pending", "running"])
+      .or(`status.eq.pending,updated_at.lt.${jobStaleBefore}`)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) return;
+
+    // US-527: atomic, cap-aware reservation.
+    let reserved = false;
+    try {
+      reserved = await reserveAiAction(ownerId, limit);
+    } catch (err) {
+      await markJobFailed(job.id, err instanceof Error ? err.message : "Quota check failed");
+      return;
+    }
+    if (!reserved) {
+      await markJobFailed(
+        job.id,
+        "Monthly AI action limit reached — this item was not generated. Your allowance resets next month.",
+      );
       return;
     }
 
     try {
-      consumed++;
-      const result = await generateListing(job.inventory_item_id, ownerId, {
-        batchId,
-        useComps,
-      });
-      succeeded++;
+      const result = await withTimeout(
+        generateListing(job.inventory_item_id, ownerId, { batchId, useComps }),
+        GENERATION_TIMEOUT_MS,
+        "Listing generation",
+      );
       await supabaseAdmin
         .from("listing_generation_jobs")
         .update({ status: "success", listing_id: result.listingId, error: null })
         .eq("id", job.id);
     } catch (err) {
-      failed++;
-      // Refund the local allowance slot — generateListing only increments the
-      // DB action counter on success (its own logging is post-write).
-      consumed--;
-      await supabaseAdmin
-        .from("listing_generation_jobs")
-        .update({
-          status: "failed",
-          error: err instanceof Error ? err.message : "Generation failed",
-        })
-        .eq("id", job.id);
+      // Generation failed (incl. timeout) — give the reserved quota slot back.
+      await refundAiAction(ownerId);
+      await markJobFailed(job.id, err instanceof Error ? err.message : "Generation failed");
     }
-
-    // Roll up progress so the queue view updates live.
-    await supabaseAdmin
-      .from("listing_generation_batches")
-      .update({ succeeded_count: succeeded, failed_count: failed })
-      .eq("id", batchId);
   }
 
   try {
     for (let i = 0; i < jobs.length; i += CONCURRENCY) {
       await Promise.all(jobs.slice(i, i + CONCURRENCY).map((j) => runJob(j)));
+      // Live progress + heartbeat for the reclaim sweeper.
+      await finalizeBatch(batchId);
     }
-
-    const status: BatchStatus = failed === 0
-      ? "completed"
-      : succeeded === 0
-      ? "failed"
-      : "partial";
-    await supabaseAdmin
-      .from("listing_generation_batches")
-      .update({ status, succeeded_count: succeeded, failed_count: failed })
-      .eq("id", batchId);
   } catch (err) {
     console.error("[flipdesk-autolister] batch worker crashed:", err);
-    await supabaseAdmin
-      .from("listing_generation_batches")
-      .update({
-        status: "failed",
-        error: err instanceof Error ? err.message : "Batch processing crashed",
-        succeeded_count: succeeded,
-        failed_count: failed,
-      })
-      .eq("id", batchId);
+  } finally {
+    // US-525: always terminalize from the jobs table, even on a crash/resume.
+    await finalizeBatch(batchId).catch((e) =>
+      console.error("[flipdesk-autolister] finalizeBatch failed:", e)
+    );
   }
 }
 
@@ -173,12 +266,11 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
 
-  // AI enablement + monthly allowance (over-quota items fail per-item below).
+  // AI enablement + monthly cap. The per-item atomic reservation (US-527) is
+  // the real enforcement; this returns 402 early if AI is off or already capped.
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
-  const allowance = quota.limit === -1
-    ? Number.POSITIVE_INFINITY
-    : Math.max(0, quota.limit - quota.used);
+  const limit = quota.limit;
 
   // Tenant isolation: every requested item MUST belong to this workspace.
   const { data: ownedRows, error: ownErr } = await supabaseAdmin
@@ -206,6 +298,7 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
       status: "running",
       source: "autolister",
       item_count: itemIds.length,
+      use_comps: useComps,
     })
     .select("id")
     .single();
@@ -234,10 +327,11 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
 
   const jobs = (jobRows as Array<{ id: string; inventory_item_id: string }>);
 
-  // Fire-and-forget — do NOT await. Returning 202 closes the HTTP connection
-  // immediately (well under Cloudflare's proxy timeout); the frontend polls
-  // GET /batch/:id. Mirrors flipdesk-ebay.ts /listings/pull.
-  void processBatch(batchId, ownerId, jobs, useComps, allowance).catch((err) =>
+  // Optimistic immediate processing for low latency — returning 202 closes the
+  // HTTP connection well under Cloudflare's proxy timeout. Durability does NOT
+  // depend on this promise surviving: if the container dies mid-run, the
+  // reclaim sweeper (US-525) resumes the batch from its persisted job rows.
+  void processBatch(batchId, ownerId, jobs, useComps, limit).catch((err) =>
     console.error("[flipdesk-autolister] background batch crashed:", err)
   );
 
@@ -245,10 +339,8 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
 });
 
 // POST /batch/:id/retry-failed  —  re-runs ONLY the failed jobs in this batch
-// against the same item set (US-318/US-325). Increments each job's attempts
-// counter and resets its status to "running"; partial failures stay in place
-// for further retries. Quota is re-checked, so the workspace can't bypass its
-// monthly cap by spamming retries.
+// against the same item set (US-318/US-325). Quota is re-checked + reserved
+// atomically per item, so retries can't bypass the monthly cap.
 flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const batchId = c.req.param("id");
@@ -256,23 +348,20 @@ flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
   // Ownership-scoped batch lookup (tenant isolation per CLAUDE.md US-268).
   const { data: batch, error: batchErr } = await supabaseAdmin
     .from("listing_generation_batches")
-    .select(
-      "id, status, item_count, succeeded_count, failed_count",
-    )
+    .select("id, status, item_count, succeeded_count, failed_count, use_comps")
     .eq("id", batchId)
     .eq("user_id", ownerId)
     .maybeSingle();
   if (batchErr) return c.json({ error: "Could not load batch." }, 500);
   if (!batch) return c.json({ error: "Batch not found" }, 404);
+  const useComps = (batch as { use_comps?: boolean }).use_comps !== false;
 
   // Premium tier + quota (same gates as POST /batch).
   const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
   if (gated) return gated;
   const quota = await checkQuota(ownerId);
   if (!quota.ok) return c.json(quota.body, quota.status);
-  const allowance = quota.limit === -1
-    ? Number.POSITIVE_INFINITY
-    : Math.max(0, quota.limit - quota.used);
+  const limit = quota.limit;
 
   const { data: failedJobs, error: jobsErr } = await supabaseAdmin
     .from("listing_generation_jobs")
@@ -287,30 +376,18 @@ flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
     return c.json({ error: "No failed jobs to retry." }, 400);
   }
 
-  // Reopen the batch and decrement failed_count by the retry set; keep
-  // succeeded_count untouched. processBatch will re-roll on completion.
-  const b = batch as {
-    id: string;
-    item_count: number;
-    succeeded_count: number | null;
-    failed_count: number | null;
-  };
-  const succeededSoFar = b.succeeded_count ?? 0;
-  const failedSoFar = Math.max(0, (b.failed_count ?? 0) - jobs.length);
+  // Reopen the batch and reset the failed jobs to 'pending' so the worker can
+  // claim them. finalizeBatch recomputes the rolled-up counts from the jobs.
   await supabaseAdmin
     .from("listing_generation_batches")
-    .update({
-      status: "running",
-      succeeded_count: succeededSoFar,
-      failed_count: failedSoFar,
-      error: null,
-    })
+    .update({ status: "running", error: null })
     .eq("id", batchId);
+  await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ status: "pending", error: null })
+    .in("id", jobs.map((j) => j.id));
 
-  void processBatch(batchId, ownerId, jobs, true, allowance, {
-    succeeded: succeededSoFar,
-    failed: failedSoFar,
-  }).catch((err) =>
+  void processBatch(batchId, ownerId, jobs, useComps, limit).catch((err) =>
     console.error("[flipdesk-autolister] retry batch crashed:", err)
   );
 
@@ -343,3 +420,71 @@ flipdeskAutolisterRoutes.get("/batch/:id", async (c) => {
 
   return c.json({ batch, jobs: jobs ?? [] });
 });
+
+// US-525: reclaim sweeper. A cron hits POST /api/jobs/autolister-reclaim (job-
+// secret gated, mounted in main.ts OUTSIDE the authed /autolister/* wildcard).
+// Finds 'running' batches whose worker died (stale updated_at), claims each,
+// and re-dispatches its still-open jobs so the batch eventually terminalizes.
+export async function handleAutolisterReclaimCron(c: Context): Promise<Response> {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const batchStaleBefore = new Date(Date.now() - BATCH_STALE_MS).toISOString();
+  const { data: staleRows, error } = await supabaseAdmin
+    .from("listing_generation_batches")
+    .select("id, user_id, use_comps")
+    .eq("status", "running")
+    .lt("updated_at", batchStaleBefore)
+    .limit(20);
+  if (error) {
+    console.error("[flipdesk-autolister] reclaim scan failed:", error.message);
+    return c.json({ error: "Scan failed" }, 500);
+  }
+  const stale = (staleRows ?? []) as Array<
+    { id: string; user_id: string; use_comps: boolean | null }
+  >;
+
+  let resumed = 0;
+  let finalized = 0;
+  for (const b of stale) {
+    // Claim the batch — any UPDATE bumps updated_at via the trigger, so a
+    // concurrent sweeper tick sees a fresh (non-stale) row and skips it.
+    const { data: claimedBatch } = await supabaseAdmin
+      .from("listing_generation_batches")
+      .update({ error: null })
+      .eq("id", b.id)
+      .eq("status", "running")
+      .lt("updated_at", batchStaleBefore)
+      .select("id")
+      .maybeSingle();
+    if (!claimedBatch) continue; // lost the race to another tick
+
+    const { data: openJobs } = await supabaseAdmin
+      .from("listing_generation_jobs")
+      .select("id, inventory_item_id, attempts")
+      .eq("batch_id", b.id)
+      .in("status", ["pending", "running"]);
+    const jobs = (openJobs ?? []) as Array<
+      { id: string; inventory_item_id: string; attempts: number }
+    >;
+
+    if (jobs.length === 0) {
+      // No open jobs but the batch was stuck 'running' — terminalize it.
+      await finalizeBatch(b.id);
+      finalized += 1;
+      continue;
+    }
+
+    const quota = await checkQuota(b.user_id);
+    // If AI is now off / over cap, limit 0 makes reserve refuse and the open
+    // jobs fail with the quota message, so the batch still terminalizes.
+    const limit = quota.ok ? quota.limit : 0;
+    void processBatch(b.id, b.user_id, jobs, b.use_comps !== false, limit).catch((err) =>
+      console.error("[flipdesk-autolister] reclaim resume crashed:", err)
+    );
+    resumed += 1;
+  }
+
+  return c.json({ scanned: stale.length, resumed, finalized });
+}
