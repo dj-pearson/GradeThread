@@ -15,7 +15,10 @@ import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
-import { flipdeskAutolisterRoutes } from "./routes/flipdesk-autolister.ts";
+import {
+  flipdeskAutolisterRoutes,
+  handleAutolisterReclaimCron,
+} from "./routes/flipdesk-autolister.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
@@ -279,6 +282,10 @@ app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 // middleware above doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync cron).
 app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
+// US-525 AutoLister reclaim sweeper. OUTSIDE the /api/flipdesk/autolister/*
+// JWT wildcard so a cron (no user token) can reach it; the handler enforces
+// X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.
+app.post("/api/jobs/autolister-reclaim", (c) => handleAutolisterReclaimCron(c));
 app.route("/api/admin", adminBillingRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
