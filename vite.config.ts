@@ -95,6 +95,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    // Inject the commit SHA from Cloudflare Pages (CF_PAGES_COMMIT_SHA) or
+    // any manually set VITE_RELEASE_SHA at build time. Falls back to 'dev'
+    // in local builds where neither is set.
+    'import.meta.env.VITE_RELEASE_SHA': JSON.stringify(
+      process.env.CF_PAGES_COMMIT_SHA ||
+      process.env.VITE_RELEASE_SHA ||
+      'dev'
+    ),
+  },
   build: {
     // 'hidden' emits maps without a //# sourceMappingURL comment, so prod
     // bundles never advertise them; the Sentry plugin uploads then removes
