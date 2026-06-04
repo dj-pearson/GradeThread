@@ -130,6 +130,25 @@ the handler returns 401.
 | trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                  |
 | trial-expiry            | `15 0 * * *` (00:15)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/trial-expiry`                          |
 | autolister-reclaim      | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/autolister-reclaim`                    |
+| reprice-scan            | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-scan`                          |
+| grading-monitor         | `0 */12 * * *` (12h)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/grading-monitor`                       |
+| stuck-submissions       | `*/10 * * * *` (10min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/stuck-submissions`                     |
+| email-retry             | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/email-retry`                           |
+| integrity-scan          | `0 7 * * *` (07:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/integrity-scan`                        |
+| data-retention          | `0 4 * * *` (04:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/data-retention`                        |
+
+> **Cadence notes (US-496):**
+> - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
+>   balances freshness vs. rate budget; the eBay circuit breaker backs it off
+>   during an outage (US-499) and the job lock prevents overlap (US-503).
+> - `grading-monitor` re-runs the golden-set eval + production-accuracy check.
+>   Set **`MONITOR_ALERT_EMAIL`** (and/or **`MONITOR_ALERT_WEBHOOK`** for
+>   Slack/PagerDuty) so a regression actually pages someone; with neither set the
+>   run records the alert but reports it as undelivered (US-502).
+> - `stuck-submissions` fails+refunds grades stranded in `processing` (US-495);
+>   `email-retry` re-sends failed critical email (US-498); `integrity-scan`
+>   reports DB anomalies (US-504); `data-retention` purges grading photos past
+>   the window (US-521). All are overlap-locked and idempotent.
 
 Use `http://localhost:8787` from inside the container (not the public FQDN)
 so scheduled jobs don't take the round-trip through Traefik + WAF and

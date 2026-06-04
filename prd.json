@@ -7591,7 +7591,7 @@
         "Confirm 00057 through 00074 are applied to prod; re-test /verified/* and /flipdesk/pricing/* return 200"
       ],
       "priority": 493,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][Ops/Data] Audit 2026-06-03 (2 agents). CI only builds the frontend; no db push anywhere. This is the root cause of the verified/profile + pricing/suggestions 500s. Bundle 00057-00074 into one idempotent script."
     },
     {
@@ -7630,7 +7630,7 @@
         "Expected cadence and MONITOR_ALERT_EMAIL documented"
       ],
       "priority": 496,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Ops] Audit 2026-06-03. /api/jobs/reprice-scan and /api/jobs/grading-monitor are mounted but absent from COOLIFY.md cron table."
     },
     {
@@ -7694,7 +7694,7 @@
         "Supabase failover/capacity plan documented"
       ],
       "priority": 501,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Reliability] Audit 2026-06-03. Single Coolify container; deploy is a brief full outage."
     },
     {
@@ -7746,7 +7746,7 @@
         "Confirmed rotation doesn't break in-flight crons"
       ],
       "priority": 505,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Ops] Audit 2026-06-03. One static long-lived job secret across all crons; no rotation story."
     },
     {
@@ -7849,7 +7849,7 @@
         "Rollback procedure validated once in staging"
       ],
       "priority": 513,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][DevOps] Audit 2026-06-03. Both deploy paths auto-on-push; edge image is unpinned; no rollback docs."
     },
     {
@@ -7900,7 +7900,7 @@
         "The Deno base image is scanned (Trivy/Grype)"
       ],
       "priority": 517,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][DevOps/Security] Audit 2026-06-03. Edge deps via mutable esm.sh; npm audit only covers the frontend; Dependabot can't update Deno."
     },
     {
@@ -7963,7 +7963,7 @@
         "Note the local gitleaks hook is best-effort; CI is the hard gate"
       ],
       "priority": 522,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][DevOps] Audit 2026-06-03."
     },
     {

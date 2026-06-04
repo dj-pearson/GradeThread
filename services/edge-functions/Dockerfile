@@ -4,6 +4,16 @@
 # (glibc) variant: more compatible than alpine for esm.sh deps.
 FROM denoland/deno:debian-2.8.0
 
+# US-513: stamp the build with the commit SHA so a specific prior image can be
+# redeployed deterministically and the running version is observable. Coolify
+# passes the commit via a build arg (set GIT_SHA=$SOURCE_COMMIT in the build
+# args, or CF/CI equivalent). RELEASE_SHA is what lib/observability.ts reads to
+# tag errors/metrics + report on /health.
+ARG GIT_SHA=dev
+ENV RELEASE_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.revision=${GIT_SHA}
+LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread"
+
 WORKDIR /app
 
 # Copy manifests first so dep caching can be a separate layer.

@@ -39,6 +39,12 @@ concurrency:
   group: ios-release
   cancel-in-progress: false
 
+# US-522: least privilege. The release flow reads the repo and authenticates to
+# TestFlight via job secrets (App Store Connect API key) — it never writes back
+# to the repo, so the default GITHUB_TOKEN is read-only here.
+permissions:
+  contents: read
+
 jobs:
   release:
     name: Archive + TestFlight upload

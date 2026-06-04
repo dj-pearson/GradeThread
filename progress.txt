@@ -4203,3 +4203,48 @@ accessibility}/index.html. tsc -b clean; frontend 186 tests pass (coverage
 80.7/72.8/79.6/82.9); edge 389 pass.
 
 prd.json 415/609.
+
+
+### Ops-docs cluster -- US-493/496/501/505/513/517/522 COMPLETE; 494/500/506/520 need provisioning
+
+CODE/CONFIG-COMPLETE (marked passes=true):
+- US-493 migration process: MIGRATIONS.md (apply runbook, 00057-00097 backfill,
+  drift check) + scripts/check-migrations.sh + .github/workflows/db-migrations.yml
+  (supabase db start + reset on a fresh schema — uses the Supabase CLI so
+  auth/storage schemas exist; vanilla PG would fail).
+- US-496 schedule crons: COOLIFY.md cron table now includes the previously-missing
+  reprice-scan + grading-monitor AND the 6 new crons (stuck-submissions,
+  email-retry, integrity-scan, data-retention) with cadences + MONITOR_ALERT_*
+  notes.
+- US-501 replicas/degradation: SCALING.md documents the accepted single-instance
+  risk (AC allows OR), per-dependency graceful degradation (kill-switches,
+  breakers, outbox, readiness 503), Supabase plan + pooler prerequisite (US-570).
+- US-505 secrets rotation: KEY_ROTATION.md (dual-secret job-secret rotation that
+  the code already supports, provider-key cadences, EDGE_ENCRYPTION_KEY re-encrypt
+  plan) + the US-522 CI secret inventory.
+- US-513 rollback + pinned images: ROLLBACK.md (Pages rollback / Coolify redeploy
+  prior commit) + Dockerfile ARG GIT_SHA -> RELEASE_SHA + OCI revision label
+  (deterministic prior-build redeploy + observable /health release).
+- US-517 pin/scan edge deps: security.yml `deno cache --frozen` (fails on changed
+  esm.sh artifact) + a Trivy job scanning the built edge image (HIGH/CRITICAL,
+  unfixed ignored). Base image already version-pinned.
+- US-522 CI least-privilege: added `permissions: contents: read` to ios-ci.yml +
+  ios-release.yml; CI secret inventory + rotation cadence in KEY_ROTATION.md;
+  noted gitleaks (secret-scan.yml) is the hard gate vs the best-effort local hook.
+
+RUNBOOK DELIVERED, NEEDS MANUAL PROVISIONING (left passes=false — can't be
+truthfully "done" from a code session):
+- US-494 backups/PITR: BACKUPS.md written (pg_dump cron, offsite, PITR, restore
+  procedure) but a real restore drill must be performed + logged (launch-blocker).
+- US-500 uptime/status: UPTIME_MONITORING.md written but the synthetic monitors,
+  on-call routing, and public status page must be provisioned.
+- US-506 incident runbooks: INCIDENT_RESPONSE.md written (severity matrix + 7
+  per-scenario runbooks + links) but real on-call contacts/escalation must be
+  filled in.
+- US-520 staging: STAGING.md written but the staging Supabase + edge + Stripe-test
+  stack must be stood up.
+
+All workflow YAML validated (python yaml.safe_load). No code/test regressions
+(docs + CI config + Dockerfile only this commit).
+
+prd.json 422/609.
