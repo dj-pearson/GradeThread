@@ -216,6 +216,29 @@ Deno.test({
   },
 });
 
+// US-537: photo-QA scores + writes onto an item. B passing A's item_id must
+// not assess or persist anything to A's row — the owner filter yields 0 items
+// (404), or the plan gate refuses earlier (402). Either way A's row is untouched.
+Deno.test({
+  name: "B cannot run photo-QA on A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/photo-qa`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [itemId] }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_GATED.has(status),
+      `POST autolister/photo-qa with another tenant's item should be denied ` +
+        `(401/402/403/404) but got ${status}`,
+    );
+  },
+});
+
 Deno.test({
   name: "B cannot read A's AutoLister batch status",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_BATCH_ID"),

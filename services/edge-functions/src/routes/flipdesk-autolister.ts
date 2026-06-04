@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateListing } from "../lib/ai-listing.ts";
 import { classifyPhotoRoles } from "../lib/ai-photo-roles.ts";
+import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
@@ -30,6 +31,10 @@ const MAX_BATCH_ITEMS = 100; // matches the "100 listings in one batch" target
 // One item rarely has more than a handful of shots; the cap bounds the vision
 // cost (and request size) of one classify call.
 const MAX_CLASSIFY_PHOTOS = 40;
+// US-537: cap on photo-QA scope. One item's gallery is small; cap photos per
+// item, and cap items per request to bound vision cost.
+const MAX_QA_ITEMS = 100;
+const MAX_QA_PHOTOS = 12;
 const CONCURRENCY = 3; // vision calls are heavy; mirror flipdesk-ai bulk-extract
 
 // US-526: hard wall-clock cap on a single item's generation. generateListing
@@ -416,6 +421,144 @@ flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
       502,
     );
   }
+});
+
+// US-537: POST /photo-qa — score each item's photos 0-100 for listing-readiness
+// and persist the score + specific issues on the item, so the queue can nudge
+// the seller to reshoot before publishing. Body: { item_ids: [...] }.
+//
+// Tenant safety (CLAUDE.md US-268): items are filtered to the workspace owner
+// before any photo is loaded or any row is written.
+flipdeskAutolisterRoutes.post("/photo-qa", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemIds = Array.isArray(body.item_ids)
+    ? Array.from(
+      new Set(body.item_ids.filter((x): x is string => typeof x === "string")),
+    )
+    : [];
+  if (itemIds.length === 0) {
+    return c.json({ error: "item_ids must be a non-empty array" }, 400);
+  }
+  if (itemIds.length > MAX_QA_ITEMS) {
+    return c.json({ error: `At most ${MAX_QA_ITEMS} items per request.` }, 400);
+  }
+
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  // Tenant scope: only items owned by this workspace are assessed/written.
+  const { data: ownedRows, error: ownErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("user_id", ownerId)
+    .in("id", itemIds);
+  if (ownErr) return c.json({ error: "Could not verify item ownership." }, 500);
+  const ownedIds = ((ownedRows ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (ownedIds.length === 0) return c.json({ error: "No matching items." }, 404);
+
+  // Load each item's photos (front-first via sort_order), capped per item.
+  const { data: photoRows } = await supabaseAdmin
+    .from("item_photos")
+    .select("inventory_item_id, storage_path, photo_type, sort_order")
+    .in("inventory_item_id", ownedIds)
+    .order("sort_order", { ascending: true });
+  const byItem = new Map<string, { url: string; type: string }[]>();
+  for (
+    const r of (photoRows ?? []) as Array<{
+      inventory_item_id: string;
+      storage_path: string | null;
+      photo_type: string;
+    }>
+  ) {
+    if (!r.storage_path) continue;
+    const arr = byItem.get(r.inventory_item_id) ?? [];
+    if (arr.length >= MAX_QA_PHOTOS) continue;
+    arr.push({
+      url: supabaseAdmin.storage.from("item-photos").getPublicUrl(r.storage_path)
+        .data.publicUrl,
+      type: r.photo_type,
+    });
+    byItem.set(r.inventory_item_id, arr);
+  }
+
+  type QaPersistIssue = {
+    type: string;
+    severity: string;
+    message: string;
+    photo_index: number | null;
+  };
+  type QaItemResult = {
+    item_id: string;
+    score: number;
+    issues: QaPersistIssue[];
+    error?: string;
+  };
+
+  async function persist(itemId: string, score: number, issues: QaPersistIssue[]) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({
+        photo_qa_score: score,
+        photo_qa_issues: issues,
+        photo_qa_at: new Date().toISOString(),
+      })
+      .eq("id", itemId)
+      .eq("user_id", ownerId);
+  }
+
+  const results: QaItemResult[] = [];
+  const queue = [...ownedIds];
+  async function worker(): Promise<void> {
+    while (queue.length > 0) {
+      const itemId = queue.shift()!;
+      const photos = byItem.get(itemId) ?? [];
+      if (photos.length === 0) {
+        const issues: QaPersistIssue[] = [
+          {
+            type: "missing_angle",
+            severity: "high",
+            message: "This item has no photos yet — add the front, back, tag, and a detail shot.",
+            photo_index: null,
+          },
+        ];
+        await persist(itemId, 0, issues);
+        results.push({ item_id: itemId, score: 0, issues });
+        continue;
+      }
+      try {
+        const qa = await assessPhotoQuality(photos);
+        const issues: QaPersistIssue[] = qa.issues.map((i) => ({
+          type: i.type,
+          severity: i.severity,
+          message: i.message,
+          photo_index: i.photoIndex,
+        }));
+        await persist(itemId, qa.score, issues);
+        await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+        results.push({ item_id: itemId, score: qa.score, issues });
+      } catch (err) {
+        console.error("[AutoLister] photo-qa failed for", itemId, err);
+        results.push({
+          item_id: itemId,
+          score: -1,
+          issues: [],
+          error: err instanceof Error ? err.message : "Photo QA failed.",
+        });
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, ownedIds.length) }, () => worker()),
+  );
+
+  return c.json({ results });
 });
 
 flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {

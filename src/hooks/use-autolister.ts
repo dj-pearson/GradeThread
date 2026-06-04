@@ -3,7 +3,11 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { supabase } from "@/lib/supabase";
-import type { ListingGenerationJobStatus, ListingGenerationStatus } from "@/types/database";
+import type {
+  ListingGenerationJobStatus,
+  ListingGenerationStatus,
+  PhotoQaIssue,
+} from "@/types/database";
 
 // Client for the AutoLister batch API (US-313 backend). Submits grouped items
 // for AI listing generation and polls per-item progress for the queue view
@@ -211,6 +215,33 @@ export function useBulkPublish() {
   );
 
   return { run, results, running };
+}
+
+// ── Photo QA (US-537) ───────────────────────────────────────────
+export interface PhotoQaItemResult {
+  item_id: string;
+  score: number; // 0-100, or -1 when the QA pass errored for that item
+  issues: PhotoQaIssue[];
+  error?: string;
+}
+
+/**
+ * POST /api/flipdesk/autolister/photo-qa — score the given items' photos for
+ * listing-readiness and persist the score + issues on each item.
+ */
+export function useRunPhotoQa() {
+  return useMutation<{ results: PhotoQaItemResult[] }, Error, { itemIds: string[] }>({
+    mutationFn: async ({ itemIds }) => {
+      const res = await edgeFetch("/api/flipdesk/autolister/photo-qa", {
+        method: "POST",
+        json: { item_ids: itemIds },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not check photos.");
+      return json as { results: PhotoQaItemResult[] };
+    },
+    onError: (err) => toast.error(err.message),
+  });
 }
 
 /**
