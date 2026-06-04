@@ -7810,7 +7810,7 @@
         "Runs alongside lint/type-check so all gates report together"
       ],
       "priority": 510,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][CI] Audit 2026-06-03. ci.yml runs only lint/tsc/build; 16 frontend test files never run."
     },
     {
@@ -7836,7 +7836,7 @@
         "The refund balance_after bug has a regression test"
       ],
       "priority": 512,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][Testing] Audit 2026-06-03. webhooks.ts (700+ lines) has no test."
     },
     {
@@ -7912,7 +7912,7 @@
         "deno lint passes clean on services/edge-functions/; CI fails on any new lint error"
       ],
       "priority": 518,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][CI] Audit 2026-06-03 (and project memory). Pre-existing prefer-const in ai-grading.ts."
     },
     {
@@ -7924,7 +7924,7 @@
         "Coverage reported separately for frontend and edge (deno test --coverage)"
       ],
       "priority": 519,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Testing] Audit 2026-06-03. No coverage block/threshold; CI doesn't run vitest."
     },
     {

@@ -1,8 +1,19 @@
 // US-357: admin MFA gate decision + startup-assertion unit tests.
+// admin-auth.ts transitively imports the service-role supabase client, which
+// throws at module init without env — set dummy creds BEFORE the dynamic import
+// (mirrors ai-photo-qa_test / grading-monitor_test). (US-510: keeps the suite
+// green so the CI test gate is trustworthy.)
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import { adminMfaBlocked } from "../middleware/admin-auth.ts";
-import { assertAdminMfaConfig } from "../lib/env.ts";
 import type { AuthAssuranceClaims } from "../lib/jwt-claims.ts";
+
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+
+const { adminMfaBlocked } = await import("../middleware/admin-auth.ts");
+const { assertAdminMfaConfig } = await import("../lib/env.ts");
 
 const aal2: AuthAssuranceClaims = { aal: "aal2", amr: [{ method: "totp", timestamp: 1 }] };
 const aal1: AuthAssuranceClaims = { aal: "aal1", amr: [{ method: "password", timestamp: 1 }] };

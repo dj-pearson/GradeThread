@@ -51,7 +51,11 @@ jobs:
       # Unit tests (billing math, etc.). Integration tests that need a live
       # fixture (tenant-isolation) skip cleanly when their env isn't set.
       # --allow-read lets the US-355 RLS guard read supabase/migrations.
-      - run: deno test --allow-net --allow-env --allow-read
+      # US-519: --coverage records edge coverage; the summary is printed so edge
+      # coverage is reported separately from the frontend's vitest coverage.
+      - run: deno test --allow-net --allow-env --allow-read --coverage=cov_profile
+      - name: Edge coverage summary
+        run: deno coverage cov_profile || true
 
   codeql:
     name: CodeQL (javascript-typescript)

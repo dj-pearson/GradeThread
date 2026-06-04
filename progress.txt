@@ -4089,3 +4089,44 @@ email-retry (+ existing reprice-scan, grading-monitor, trial-expiry, gsc-sync,
 autolister-reclaim, ebay token refresh).
 
 prd.json 403/609.
+
+
+### CI/testing cluster -- US-510/512/518/519 COMPLETE (US-511 E2E still open)
+
+FIRST fixed the pre-existing CI-RED (clean-tree deno test was failing, which
+would make the new gate meaningless):
+- admin-mfa_test.ts statically imported admin-auth -> supabase (throws w/o env);
+  switched to the dummy-env + dynamic-import pattern. 9 pass.
+- rls-guard flagged google_photos_import_sessions (00089: RLS on, zero policies
+  BY DESIGN -> service-role only). Added it to the test's SERVICE_ROLE_ONLY
+  allowlist (the classification the guard requires). Full edge suite now
+  382 passed / 0 failed.
+
+US-510 wire vitest into CI: ci.yml build job now runs `npm run test:coverage`
+(alongside lint + tsc) and fails on any test failure. Frontend suite: 21 files /
+178 tests green. (Required-status-check on main is deferred to US-522 since main
+branch protection is intentionally off during the pre-prod sprint.)
+
+US-519 coverage + thresholds: installed @vitest/coverage-v8, vitest.config.ts
+coverage block with FAILING thresholds (stmts 72 / branches 65 / funcs 70 /
+lines 72 — margin under current 81.3/73.6/79.5/83.3). test:coverage script.
+Edge: security.yml deno-check now runs `deno test --coverage` + `deno coverage`
+summary (edge coverage reported separately). coverage/ + cov_profile/ gitignored.
+
+US-518 clean lint gate: deno lint already clean (168 files) after the earlier
+log-redact unused-const removal; ai-grading.ts prefer-const finding is gone.
+security.yml already fails on `deno lint`.
+
+US-512 Stripe webhook handler tests (tests/stripe-webhook-handler_test.ts, 5):
+the per-branch billing MATH was already pinned (subscription-mapping,
+webhook-idempotency duplicate-delivery, credit-refund balance_after,
+ledger-consistency, per-grade-idempotency). The untested gap was the /stripe
+HANDLER contract: 503 when unconfigured, 400 missing/invalid signature, a
+VALIDLY-signed fixture (HMAC-SHA256 via crypto.subtle, current ts) is accepted
+and FAILS CLOSED (500, never silent 200) without a DB, and tamper detection
+(sig for a different payload -> 400).
+
+US-511 (E2E Playwright) NOT done — large standalone effort (harness + 4 flow
+specs + auth-guard redirects + CI against mocked/preview env). Left open.
+
+prd.json 407/609.

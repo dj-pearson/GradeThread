@@ -1,9 +1,9 @@
 name: CI
 
-# Frontend app gate: lint + type-check + production build must pass before a
-# change can merge to main. The edge service is covered separately by the
-# deno-check job in security.yml; dependency/secret scanning live in
-# security.yml and secret-scan.yml.
+# Frontend app gate: lint + type-check + unit tests (with coverage thresholds) +
+# production build must pass before a change can merge to main. The edge service
+# is covered separately by the deno-check job in security.yml; dependency/secret
+# scanning live in security.yml and secret-scan.yml.
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   build:
-    name: Lint, type-check & build (frontend)
+    name: Lint, type-check, test & build (frontend)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,5 +33,12 @@ jobs:
         run: npm run lint
       - name: Type-check
         run: npx tsc -b
+      # US-510 / US-519: run the Vitest suite with coverage thresholds. Fails the
+      # build on any test failure OR if coverage drops below the configured floor
+      # (vitest.config.ts). Runs alongside lint/type-check so all gates report
+      # together. NOTE: make this a REQUIRED status check once branch protection
+      # on `main` is (re)enabled — see US-522.
+      - name: Test (with coverage)
+        run: npm run test:coverage
       - name: Build
         run: npm run build
