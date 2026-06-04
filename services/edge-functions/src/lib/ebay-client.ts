@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
-import { withRetry } from "./retry.ts";
+import { withRetry, isRetryableError } from "./retry.ts";
 
 export type EbayEnv = "sandbox" | "production";
 
@@ -779,8 +779,21 @@ async function fetchAuthedOnce<T>(
     // matches on the numeric status (not just the message regex).
     const err = new Error(
       `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`,
-    ) as Error & { status: number };
+    ) as Error & { status: number; ebayErrorIds?: number[] };
     err.status = res.status;
+    // US-528: parse eBay's structured error array so callers can match on a
+    // stable errorId (e.g. 25002 = offer already exists) instead of brittle
+    // message regexes that break when eBay rewords or localizes a message.
+    try {
+      const parsed = JSON.parse(text) as { errors?: Array<{ errorId?: number }> };
+      if (Array.isArray(parsed.errors)) {
+        err.ebayErrorIds = parsed.errors
+          .map((e) => e.errorId)
+          .filter((id): id is number => typeof id === "number");
+      }
+    } catch {
+      // Non-JSON error body (gateway HTML, etc.) — leave ebayErrorIds undefined.
+    }
     throw err;
   }
   // 204 No Content is valid for publishOffer in some paths.
@@ -1240,9 +1253,21 @@ export async function createOffer(
   );
 }
 
-// eBay's "offer already exists for this SKU" error doesn't have a clean
-// HTTP code — we detect it via message body. Caller falls back to lookup.
+// eBay returns errorId 25002 when an offer already exists for this SKU +
+// marketplace. US-528: match the structured errorId first (stable across
+// message rewording/localization); fall back to the legacy message heuristic
+// only when the error body wasn't JSON-parseable. A false positive is safe:
+// the caller (publishItemForOwner) looks up the SKU's offers and re-throws the
+// original error if none is found.
+export const OFFER_ALREADY_EXISTS_ERROR_ID = 25002;
 export function isOfferAlreadyExistsError(err: unknown): boolean {
+  const ids =
+    err && typeof err === "object"
+      ? (err as { ebayErrorIds?: number[] }).ebayErrorIds
+      : undefined;
+  if (Array.isArray(ids) && ids.includes(OFFER_ALREADY_EXISTS_ERROR_ID)) {
+    return true;
+  }
   const msg = err instanceof Error ? err.message : String(err);
   return /already exists/i.test(msg) && /offer/i.test(msg);
 }
@@ -1293,15 +1318,58 @@ export async function listOffersForSku(
     }));
 }
 
+// US-528: publish_ is NOT idempotent — a 5xx/timeout can land AFTER eBay has
+// already created the live listing, so a blanket retry (the old fetchAuthed
+// path) would re-publish and risk a duplicate. Instead we retry deliberately:
+// before each retry (and after exhausting attempts) we re-read the offer and,
+// if it already carries a live listingId, return that instead of re-publishing.
 export async function publishOffer(
   userId: string,
   offerId: string
 ): Promise<{ listingId: string }> {
-  return await fetchAuthed<{ listingId: string }>(
-    userId,
-    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish_`,
-    { method: "POST" }
-  );
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      // A prior attempt may have actually published despite the error it threw.
+      const alreadyLive = await getPublishedListingId(userId, offerId);
+      if (alreadyLive) return { listingId: alreadyLive };
+      const cap = Math.min(8000, 500 * 2 ** (attempt - 2));
+      await new Promise((r) => setTimeout(r, Math.floor(Math.random() * cap)));
+    }
+    try {
+      return await fetchAuthedOnce<{ listingId: string }>(
+        userId,
+        `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish_`,
+        { method: "POST" }
+      );
+    } catch (err) {
+      lastErr = err;
+      if (attempt >= MAX_ATTEMPTS || !isRetryableError(err)) break;
+    }
+  }
+  // Exhausted (or hit a non-retryable error): one final reconciliation — did it
+  // publish despite the failures? If so, succeed with that listingId.
+  const alreadyLive = await getPublishedListingId(userId, offerId);
+  if (alreadyLive) return { listingId: alreadyLive };
+  throw lastErr;
+}
+
+// Reads the offer and returns its live listingId if eBay has already published
+// it. Used by publishOffer to avoid double-publishing on a retry. Returns null
+// if the offer is unpublished or the lookup fails (treated as "not live yet").
+async function getPublishedListingId(
+  userId: string,
+  offerId: string
+): Promise<string | null> {
+  try {
+    const offer = (await getOffer(userId, offerId)) as {
+      listing?: { listingId?: string };
+    };
+    return offer.listing?.listingId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // Reads a single offer's full body. Needed before updateOfferPrice because

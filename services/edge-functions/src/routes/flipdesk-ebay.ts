@@ -1723,24 +1723,39 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
   });
 });
 
+// US-528: how long a publish claim is honored before it's considered stale and
+// reclaimable. Must exceed the realistic worst-case publish wall-time (eBay
+// latency + the bounded publishOffer retries) so a still-running publish is
+// never reclaimed, while a crashed one is eventually retried.
+const PUBLISH_CLAIM_STALE_MS = 10 * 60_000;
+
 // Scheduled publishing worker (US-322). Job-secret gated (no user token) like
 // /oauth/refresh — a cron hits this periodically. Publishes every draft whose
 // scheduled_publish_at is due and that isn't already live, AS the listing's
 // owner. Not under authMiddleware (path is /jobs/*, not /listings/*).
+// US-528: each due draft is atomically CLAIMED before publishing so an
+// overlapping cron tick (e.g. when a publish runs longer than the cron
+// interval) can't double-publish it.
 flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
   const now = new Date().toISOString();
-  // Due = scheduled at/before now, not yet synced live, still a draft. The
-  // lte filter already excludes NULL scheduled_publish_at rows.
+  // US-528: a claim older than this is "stale" and reclaimable — covers a
+  // publish whose container crashed/redeployed mid-run so the draft isn't
+  // stranded. Must comfortably exceed the worst-case publish wall-time.
+  const staleBefore = new Date(Date.now() - PUBLISH_CLAIM_STALE_MS).toISOString();
+  // Due = scheduled at/before now, not yet synced live, still a draft, and not
+  // currently claimed by an in-flight tick. The lte filter already excludes
+  // NULL scheduled_publish_at rows.
   const { data: dueRows, error } = await supabaseAdmin
     .from("listings")
     .select("id, inventory_item_id")
     .lte("scheduled_publish_at", now)
     .is("synced_to_ebay_at", null)
     .eq("listing_status", "draft")
+    .or(`publish_claimed_at.is.null,publish_claimed_at.lt.${staleBefore}`)
     .limit(100);
   if (error) {
     console.error("[flipdesk-ebay] publish-due scan failed:", error);
@@ -1748,7 +1763,9 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   }
 
   const due = (dueRows ?? []) as { id: string; inventory_item_id: string }[];
-  if (due.length === 0) return c.json({ scanned: 0, published: 0, failed: 0 });
+  if (due.length === 0) {
+    return c.json({ scanned: 0, published: 0, failed: 0, skipped: 0 });
+  }
 
   // Resolve each item's owner (the publish must run as them).
   const itemIds = Array.from(new Set(due.map((d) => d.inventory_item_id)));
@@ -1762,12 +1779,36 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
 
   let published = 0;
   let failed = 0;
+  let skipped = 0;
   for (const row of due) {
     const owner = ownerByItem.get(row.inventory_item_id);
     if (!owner) {
       failed += 1;
       continue;
     }
+
+    // US-528: atomically claim the draft before publishing so a concurrent (or
+    // next-tick) cron run can't publish the same row while this publish is
+    // still in flight. Only the tick that wins this conditional update — which
+    // re-checks the same eligibility predicate under a row lock — proceeds; the
+    // claim flips publish_claimed_at to a FRESH timestamp (not the scan-time
+    // `now`, which can be many minutes old on a long batch), so the claim is
+    // honored for the full stale window from the moment it is taken.
+    const claimedAt = new Date().toISOString();
+    const { data: claimed } = await supabaseAdmin
+      .from("listings")
+      .update({ publish_claimed_at: claimedAt })
+      .eq("id", row.id)
+      .eq("listing_status", "draft")
+      .is("synced_to_ebay_at", null)
+      .or(`publish_claimed_at.is.null,publish_claimed_at.lt.${staleBefore}`)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) {
+      skipped += 1;
+      continue;
+    }
+
     try {
       const result = await publishItemForOwner(owner, row.inventory_item_id);
       if (result.ok) {
@@ -1794,7 +1835,7 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     }
   }
 
-  return c.json({ scanned: due.length, published, failed });
+  return c.json({ scanned: due.length, published, failed, skipped });
 });
 
 // Imports an eBay Seller Hub "Payouts" CSV into payout_imports. Server-side
