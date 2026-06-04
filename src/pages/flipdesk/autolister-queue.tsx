@@ -14,6 +14,7 @@ import {
   CalendarClock,
   ShieldCheck,
   AlertTriangle,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -33,9 +34,11 @@ import {
   useAutolisterBatch,
   useBulkPublish,
   useRetryFailedAutolister,
+  useRunPhotoQa,
   type AutolisterJob,
 } from "@/hooks/use-autolister";
 import { useEbayConnection } from "@/hooks/use-ebay";
+import type { PhotoQaIssue } from "@/types/database";
 import { cn } from "@/lib/utils";
 
 // AutoLister queue / progress view (US-318). Polls the batch until it finishes,
@@ -78,25 +81,44 @@ export function FlipdeskAutolisterQueuePage() {
   const [preflight, setPreflight] = useState<PreflightItem[]>([]);
   const [preflightLoading, setPreflightLoading] = useState(false);
 
+  const runPhotoQa = useRunPhotoQa();
+
   const jobs = useMemo(() => data?.jobs ?? [], [data]);
   const itemIds = useMemo(() => jobs.map((j) => j.inventory_item_id), [jobs]);
 
-  // Item titles for friendlier rows.
-  const { data: titles = {} } = useQuery<Record<string, string>>({
-    queryKey: ["autolister_item_titles", batchId, itemIds.length],
+  // Item titles + persisted photo-QA (US-537) for friendlier, actionable rows.
+  interface ItemMeta {
+    title: string;
+    qaScore: number | null;
+    qaIssues: PhotoQaIssue[];
+  }
+  const { data: itemMeta = {} } = useQuery<Record<string, ItemMeta>>({
+    queryKey: ["autolister_item_meta", batchId, itemIds.length],
     enabled: itemIds.length > 0,
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("inventory_items")
-        .select("id, title")
+        .select("id, title, photo_qa_score, photo_qa_issues")
         .in("id", itemIds);
-      const map: Record<string, string> = {};
-      for (const r of (rows ?? []) as Array<{ id: string; title: string }>) {
-        map[r.id] = r.title;
+      const map: Record<string, ItemMeta> = {};
+      for (
+        const r of (rows ?? []) as Array<{
+          id: string;
+          title: string;
+          photo_qa_score: number | null;
+          photo_qa_issues: PhotoQaIssue[] | null;
+        }>
+      ) {
+        map[r.id] = {
+          title: r.title,
+          qaScore: r.photo_qa_score,
+          qaIssues: r.photo_qa_issues ?? [],
+        };
       }
       return map;
     },
   });
+  const titleOf = (id: string): string => itemMeta[id]?.title ?? id;
 
   // US-541: which generated drafts the AI flagged as needing a human look, plus
   // the specific low-confidence fields (for the badge tooltip). Keyed by
@@ -199,7 +221,7 @@ export function FlipdeskAutolisterQueuePage() {
     const initial: PreflightItem[] = succeededJobs.map((j) => ({
       itemId: j.inventory_item_id,
       listingId: j.listing_id,
-      title: titles[j.inventory_item_id] ?? j.inventory_item_id,
+      title: titleOf(j.inventory_item_id),
       scheduledFor: null,
       blockers: [],
       blockersLoaded: false,
@@ -279,6 +301,25 @@ export function FlipdeskAutolisterQueuePage() {
     );
   }
 
+  // US-537: score the generated items' photos for listing-readiness and persist
+  // the result, then refresh the per-row badges.
+  async function checkPhotos() {
+    const ids = succeededJobs.map((j) => j.inventory_item_id);
+    if (ids.length === 0) return;
+    try {
+      const { results } = await runPhotoQa.mutateAsync({ itemIds: ids });
+      await queryClient.invalidateQueries({ queryKey: ["autolister_item_meta"] });
+      const flagged = results.filter((r) => r.score >= 0 && r.score < 80).length;
+      toast.success(
+        flagged > 0
+          ? `Checked ${results.length} item${results.length === 1 ? "" : "s"} — ${flagged} could use better photos.`
+          : `Checked ${results.length} item${results.length === 1 ? "" : "s"} — photos look good.`,
+      );
+    } catch {
+      /* useRunPhotoQa surfaces the error toast */
+    }
+  }
+
   async function retryFailed() {
     if (failedItemIds.length === 0 || !batchId) return;
     // In-place retry: re-runs only the failed jobs in this batch and
@@ -307,6 +348,21 @@ export function FlipdeskAutolisterQueuePage() {
             >
               <RefreshCw className="mr-2 h-4 w-4" />
               Retry {failedItemIds.length} failed
+            </Button>
+          )}
+          {succeededJobs.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => void checkPhotos()}
+              disabled={runPhotoQa.isPending}
+              title="Score each item's photos for listing readiness and flag reshoots"
+            >
+              {runPhotoQa.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Camera className="mr-2 h-4 w-4" />
+              )}
+              Check photos ({succeededJobs.length})
             </Button>
           )}
           {succeededJobs.length > 0 && !isRunning && (
@@ -389,8 +445,11 @@ export function FlipdeskAutolisterQueuePage() {
             >
               <StatusIcon status={job.status} />
               <span className="flex-1 truncate">
-                {titles[job.inventory_item_id] ?? job.inventory_item_id}
+                {titleOf(job.inventory_item_id)}
               </span>
+
+              {/* US-537: photo readiness — nudge a reshoot before publish. */}
+              <PhotoQaBadge meta={itemMeta[job.inventory_item_id]} />
 
               {/* US-541: AI flagged this draft as low-confidence — surface a
                   "Needs review" nudge so the seller checks it before publish. */}
@@ -467,6 +526,33 @@ export function FlipdeskAutolisterQueuePage() {
         onConfirm={confirmPublish}
       />
     </div>
+  );
+}
+
+// US-537: per-item photo-readiness badge. Green ≥80, amber 50-79, red <50; the
+// tooltip lists the specific reshoot prompts the vision pass returned.
+function PhotoQaBadge({
+  meta,
+}: {
+  meta?: { qaScore: number | null; qaIssues: PhotoQaIssue[] };
+}) {
+  if (!meta || meta.qaScore == null) return null;
+  const score = meta.qaScore;
+  const cls =
+    score >= 80
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+      : score >= 50
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
+        : "border-destructive/40 bg-destructive/10 text-destructive";
+  const tip =
+    meta.qaIssues.length > 0
+      ? meta.qaIssues.map((i) => `• ${i.message}`).join("\n")
+      : "Photos look ready to publish.";
+  return (
+    <Badge variant="outline" className={cn("gap-1 text-[10px]", cls)} title={tip}>
+      <Camera className="h-3 w-3" />
+      Photos {score}
+    </Badge>
   );
 }
 
