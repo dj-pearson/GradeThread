@@ -9240,7 +9240,7 @@
         "JSON-LD (Dataset) + canonical/OG metadata"
       ],
       "priority": 621,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][ConditionIndex][SEO] Reuses the prerender/SEO machinery (US-291..309). 'The S&P 500 of secondhand condition.'"
     },
     {
@@ -9253,7 +9253,7 @@
         "A refresh cadence keeps curves current; stale curves are labeled"
       ],
       "priority": 622,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][ConditionIndex] Mirrors the transparency-report + 'don't mark up data that doesn't exist' discipline."
     },
     {
@@ -9265,7 +9265,7 @@
         "Updates live as the price changes; ties into the existing pricing/repricing surface"
       ],
       "priority": 623,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SellThrough] Closes the loop - the Index intelligence inside the FlipDesk listing flow."
     }
   ]

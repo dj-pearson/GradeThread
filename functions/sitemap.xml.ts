@@ -12,6 +12,7 @@ import {
   blogUrls,
   certUrls,
   sellerUrls,
+  conditionIndexUrls,
   urlsetXml,
   sitemapIndexXml,
   SITEMAP_MAX_URLS,
@@ -19,14 +20,16 @@ import {
 } from "./_shared/sitemap";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
-  const [statics, blog, certs, sellers] = await Promise.all([
+  const [statics, blog, certs, sellers, condition] = await Promise.all([
     staticUrls(env),
     blogUrls(env),
     certUrls(env),
     sellerUrls(env),
+    conditionIndexUrls(env),
   ]);
 
-  const total = statics.length + blog.length + certs.length + sellers.length;
+  const total =
+    statics.length + blog.length + certs.length + sellers.length + condition.length;
 
   const xml =
     total > SITEMAP_MAX_URLS
@@ -35,8 +38,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           "sitemap-blog.xml",
           "sitemap-certs.xml",
           "sitemap-sellers.xml",
+          "sitemap-condition.xml",
         ])
-      : urlsetXml([...statics, ...blog, ...certs, ...sellers]);
+      : urlsetXml([...statics, ...blog, ...certs, ...sellers, ...condition]);
 
   return new Response(xml, { status: 200, headers: { ...SITEMAP_HEADERS } });
 };

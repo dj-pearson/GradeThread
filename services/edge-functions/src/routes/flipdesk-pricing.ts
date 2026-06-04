@@ -7,6 +7,7 @@ import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   isEbayConfigured,
   searchBrowseComps,
+  suggestCategories,
   updateOfferPrice,
 } from "../lib/ebay-client.ts";
 import {
@@ -14,6 +15,8 @@ import {
   gradeToConditionId,
   type ReasonCode,
 } from "../lib/repricing.ts";
+import { valueAtGrade } from "../lib/condition-value.ts";
+import { forecastSellThrough } from "../lib/sell-through.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 
 // Condition-aware dynamic repricing. The scan pulls condition-matched comps per
@@ -190,6 +193,45 @@ flipdeskPricingRoutes.post("/scan", async (c) => {
 });
 
 // ── GET /suggestions ──────────────────────────────────────────────
+// US-623: condition-aware sell-through forecast for a candidate price. Given an
+// item identity + grade + price, returns how likely + how fast it sells at that
+// price (from the condition-matched comp range). Powers the composer's "list at
+// $X → ~N% sell in D days" hint. Best-effort: degrades to unknown rather than
+// erroring so the composer never breaks on a comp hiccup.
+flipdeskPricingRoutes.post("/forecast", async (c) => {
+  let body: { categoryId?: unknown; brand?: unknown; q?: unknown; grade?: unknown; priceCents?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const brand = typeof body.brand === "string" ? body.brand.trim() : undefined;
+  const q = typeof body.q === "string" ? body.q.trim() : undefined;
+  const grade = typeof body.grade === "number" ? body.grade : null;
+  const priceCents = typeof body.priceCents === "number" ? Math.round(body.priceCents) : 0;
+  let categoryId = typeof body.categoryId === "string" ? body.categoryId.trim() : "";
+
+  if (priceCents <= 0 || (!brand && !q && !categoryId)) {
+    return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+  }
+
+  try {
+    if (!categoryId) {
+      const cats = await suggestCategories([brand, q].filter(Boolean).join(" ").trim());
+      categoryId = cats[0]?.categoryId ?? "";
+    }
+    if (!categoryId) {
+      return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+    }
+    const value = await valueAtGrade({ categoryId, q, brand }, grade);
+    const forecast = forecastSellThrough(value, priceCents);
+    return c.json({ forecast, value });
+  } catch {
+    // Never break the composer on a comp/taxonomy hiccup — degrade to unknown.
+    return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+  }
+});
+
 flipdeskPricingRoutes.get("/suggestions", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const { data, error } = await supabaseAdmin

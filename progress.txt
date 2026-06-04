@@ -4429,3 +4429,37 @@ Snap-to-Value (US-612/614) COMPLETE on web. Remaining cluster: US-613 (Snap iOS)
 US-621/622/623 (Condition Index + sell-through).
 
 prd.json 433/623.
+
+
+### Condition Index US-621/622/623 COMPLETE -- feature #3 fully shipped
+
+US-621 public SSR Index pages: functions/condition-index/[[path]].ts (Cloudflare
+Pages Function, mirrors /blog) edge-SSRs the hub (/condition-index) + per-item
+pages (/condition-index/<slug>) from the public edge API, with JSON-LD
+(Dataset/CollectionPage) + canonical/OG via the shared blog-render helpers.
+Migration 00100 adds slug/label to condition_price_curves. lib/condition-index.ts:
+CURATED_INDEX seed list (8 popular brand/item combos) + refreshConditionIndex
+cron (POST /api/jobs/condition-index-refresh, job-locked, scheduled 08:00 in
+COOLIFY.md) builds+slugs curves. Public endpoints on publicGradingRoutes
+(/api/grading/public/condition-index[/:slug]). Sitemap: conditionIndexUrls in
+functions/_shared/sitemap.ts + functions/sitemap-condition.xml.ts, wired into the
+sitemap index.
+
+US-622 honesty: getIndexHub/getIndexCurveBySlug publish ONLY curves with
+total_sample_size >= 8 and drop per-grade points without sufficient comps; every
+page shows the comp sample size + "not a guaranteed sale price". Thin/on-demand
+curves (null slug) never enter the public Index.
+
+US-623 sell-through forecast: lib/sell-through.ts forecastSellThrough (pure, 5
+tests) — sell-through % + days band from where the price sits in the
+condition-matched range. Edge POST /api/flipdesk/pricing/forecast (degrades to
+unknown, never breaks the composer). Composer (src/pages/flipdesk/composer.tsx)
+shows a live "~N% sell in D-D days" hint at the price input via
+useSellThroughForecast (debounced).
+
+deno lint + eslint clean; edge 410 tests; frontend 186 tests (coverage ~80/72/79/82).
+
+CONDITION INDEX (feature #3 SEO destination + sell-through loop) COMPLETE.
+Remaining cluster: US-613 (Snap iOS) only.
+
+prd.json 436/623.

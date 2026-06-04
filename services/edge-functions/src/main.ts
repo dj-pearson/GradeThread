@@ -33,6 +33,7 @@ import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
 import { handleEmailRetryCron } from "./lib/email-retry.ts";
 import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
+import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
@@ -348,6 +349,8 @@ app.post("/api/jobs/email-retry", (c) => handleEmailRetryCron(c));
 app.post("/api/jobs/integrity-scan", (c) => handleIntegrityScanCron(c));
 // US-521 data-retention / PII purge (delete grading photos past the window).
 app.post("/api/jobs/data-retention", (c) => handleDataRetentionCron(c));
+// US-621 Condition Index refresh — rebuilds the curated price-vs-grade curves.
+app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefreshCron(c));
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
