@@ -57,6 +57,7 @@ import { compositeGradeBadge } from "@/lib/grade-badge";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
+import { estimateListingProfit } from "@/lib/listing-profit";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
@@ -446,6 +447,12 @@ export function FlipdeskComposerPage() {
   const previewPrice = Number.isFinite(parsedPreviewPrice)
     ? parsedPreviewPrice
     : (item.target_price ?? item.list_price ?? null);
+  // US-553: forward profit/margin at the current list price.
+  const profitEstimate = estimateListingProfit({
+    price: Number.isFinite(parsedPreviewPrice) ? parsedPreviewPrice : 0,
+    costBasis: item.purchase_price,
+    shippingCost: item.shipping_cost,
+  });
   const showBadgeOverlay = badgeEnabled && item.grade_value != null;
 
   return (
@@ -639,6 +646,39 @@ export function FlipdeskComposerPage() {
                     No eBay comps were found, so this price is the AI's estimate.
                     Edit it to confirm.
                   </p>
+                )}
+                {/* US-553: live profit/margin so pricing is a margin decision. */}
+                {parsedPreviewPrice > 0 && (
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Est. net profit</span>
+                      <span
+                        className={cn(
+                          "font-semibold tabular-nums",
+                          profitEstimate.net < 0
+                            ? "text-destructive"
+                            : profitEstimate.marginPct < 20
+                              ? "text-amber-600"
+                              : "text-emerald-600",
+                        )}
+                      >
+                        ${profitEstimate.net.toFixed(2)} ·{" "}
+                        {profitEstimate.marginPct.toFixed(0)}% margin
+                      </span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                      <span>eBay fees ~${profitEstimate.fees.toFixed(2)}</span>
+                      <span>Cost ${(item.purchase_price ?? 0).toFixed(2)}</span>
+                      {(item.shipping_cost ?? 0) > 0 && (
+                        <span>Shipping ${(item.shipping_cost ?? 0).toFixed(2)}</span>
+                      )}
+                    </div>
+                    {item.purchase_price == null && (
+                      <p className="mt-1 text-[11px] text-amber-600">
+                        Add this item's cost to see true margin.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="space-y-1.5">
