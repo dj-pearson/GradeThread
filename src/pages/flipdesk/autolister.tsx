@@ -17,9 +17,11 @@ import {
   Tags,
   Eraser,
   Undo2,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -250,6 +252,8 @@ export function FlipdeskAutolisterPage() {
   const [bgProcessing, setBgProcessing] = useState<Set<string>>(new Set());
   const [bgBusy, setBgBusy] = useState(false);
   const [modelProgress, setModelProgress] = useState<number | null>(null);
+  // US-534: id of the staged photo open in the crop/rotate/straighten editor.
+  const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -649,6 +653,92 @@ export function FlipdeskAutolisterPage() {
     if (orphans.length > 0) {
       void supabase.storage.from("item-photos").remove(orphans);
     }
+  }
+
+  // US-534: persist an edited photo (crop/rotate/straighten) by re-running the
+  // SAME stage pipeline as upload — compress → thumbnail → dHash → upload — so
+  // the edit feeds BOTH the AI input and the published image. Keeps the staged
+  // id + capture time so grouping/order/roles survive; writes a fresh storage
+  // key (avoids CDN-caching a reused URL) and cleans up the replaced objects.
+  async function replacePhotoWithBlob(photoId: string, blob: Blob): Promise<void> {
+    if (!ownerId) return;
+    const existing = stagedById.get(photoId);
+    if (!existing) return;
+    const file = new File([blob], "edited.jpg", { type: blob.type || "image/jpeg" });
+
+    let body: Blob = file;
+    let bodyType = file.type || "image/jpeg";
+    let width: number | null = null;
+    let height: number | null = null;
+    let phash = "";
+    let thumbBlob: Blob | null = null;
+    let thumbType = "image/webp";
+    try {
+      const main = await compressImage(file, 2400, 0.85);
+      body = main.blob;
+      bodyType = main.blob.type || "image/webp";
+      width = main.width;
+      height = main.height;
+      phash = main.phash;
+      const thumb = await compressImage(file, 320, 0.7);
+      thumbBlob = thumb.blob;
+      thumbType = thumb.blob.type || "image/webp";
+    } catch (compErr) {
+      console.warn("[autolister] edit compress failed, using edited blob:", compErr);
+    }
+
+    const editId = crypto.randomUUID();
+    const base = `${ownerId}/_staging/${sessionId.current}/${editId}`;
+    const path = `${base}.${extForBlobType(bodyType)}`;
+    const { error: upErr } = await supabase.storage
+      .from("item-photos")
+      .upload(path, body, { upsert: false, contentType: bodyType });
+    if (upErr) {
+      toast.error(`Could not save edit: ${upErr.message}`);
+      throw upErr;
+    }
+    const url = supabase.storage.from("item-photos").getPublicUrl(path).data.publicUrl;
+
+    let thumbnailUrl: string | null = null;
+    let thumbnailStoragePath: string | null = null;
+    if (thumbBlob) {
+      const tpath = `${base}_thumb.${extForBlobType(thumbType)}`;
+      const { error: tErr } = await supabase.storage
+        .from("item-photos")
+        .upload(tpath, thumbBlob, { upsert: false, contentType: thumbType });
+      if (!tErr) {
+        thumbnailStoragePath = tpath;
+        thumbnailUrl = supabase.storage.from("item-photos").getPublicUrl(tpath).data
+          .publicUrl;
+      }
+    }
+
+    const orphans = [existing.storagePath, existing.thumbnailStoragePath].filter(
+      (p): p is string => !!p,
+    );
+    setStaged((prev) =>
+      prev.map((p) =>
+        p.id === photoId
+          ? {
+              ...p,
+              url,
+              storagePath: path,
+              thumbnailUrl,
+              thumbnailStoragePath,
+              width,
+              height,
+              bytes: body.size,
+              phash,
+            }
+          : p,
+      ),
+    );
+
+    // Best-effort: drop the replaced objects so staging doesn't accumulate them.
+    if (orphans.length > 0) {
+      void supabase.storage.from("item-photos").remove(orphans);
+    }
+    toast.success("Photo updated.");
   }
 
   // US-535: one tap to clean every not-yet-cleaned staged photo. Sequential —
@@ -1252,6 +1342,16 @@ export function FlipdeskAutolisterPage() {
                       <Eraser className="h-3 w-3" />
                     </button>
                   )}
+                  {/* US-534: crop/rotate/straighten */}
+                  <button
+                    type="button"
+                    title="Edit photo"
+                    onClick={() => setEditingPhotoId(p.id)}
+                    disabled={processing}
+                    className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
                   {processing && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
                       <Loader2 className="h-5 w-5 animate-spin text-white" />
@@ -1391,6 +1491,15 @@ export function FlipdeskAutolisterPage() {
                       >
                         <X className="h-3 w-3" />
                       </button>
+                      {/* US-534: crop/rotate/straighten */}
+                      <button
+                        type="button"
+                        title="Edit photo"
+                        onClick={() => setEditingPhotoId(pid)}
+                        className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
                       {/* US-533: cover is the front; others show an editable role. */}
                       {isCover ? (
                         <span className="absolute inset-x-0 bottom-0 bg-brand-red/90 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-white">
@@ -1426,6 +1535,29 @@ export function FlipdeskAutolisterPage() {
           Your grouped listings will appear here.
         </div>
       )}
+
+      {/* US-534: crop/rotate/straighten one staged photo. Edits re-enter the
+          stage pipeline so both the AI input and the published image use them. */}
+      {editingPhotoId &&
+        (() => {
+          const editing = stagedById.get(editingPhotoId);
+          if (!editing) return null;
+          return (
+            <PhotoEditorDialog
+              open
+              src={editing.url}
+              onClose={() => setEditingPhotoId(null)}
+              onSave={async (blob) => {
+                try {
+                  await replacePhotoWithBlob(editingPhotoId, blob);
+                  setEditingPhotoId(null);
+                } catch {
+                  /* toast already shown; keep the dialog open to retry/cancel */
+                }
+              }}
+            />
+          );
+        })()}
     </div>
   );
 }
