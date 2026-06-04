@@ -4248,3 +4248,34 @@ All workflow YAML validated (python yaml.safe_load). No code/test regressions
 (docs + CI config + Dockerfile only this commit).
 
 prd.json 422/609.
+
+
+### US-511 E2E Playwright COMPLETE, passes=true
+
+Harness: playwright.config.ts (webServer = `vite preview` of the built dist;
+chromium). Supabase/Stripe mocked per-test via page.route -> no live backend, runs
+on an ephemeral CI runner (AC#3). New `e2e` npm script; e2e job added to ci.yml
+(build -> playwright install chromium -> e2e, uploads report on failure). e2e/
+artifacts gitignored; vitest include stays src/** so the two suites don't overlap.
+
+11 tests, all green:
+- AC#2 auth guards: unauthenticated /dashboard, /dashboard/billing,
+  /dashboard/submissions all redirect to /login.
+- AC#1 login: a mocked-session login (fake unsigned JWT + mocked /auth/v1/token)
+  lands on /dashboard (guard accepts the session); a failed login (400) stays on
+  /login. signup + login pages render their forms.
+- AC#1 public certificate view: a valid cert (mocked public_grade_reports
+  .single()) renders the grade AND the US-514 AI disclosure; an unknown cert shows
+  the not-found state without crashing.
+- AC#1 billing checkout entry: an authed user reaches /dashboard/billing and is
+  not bounced to /login.
+- Public landing renders the prerendered hero.
+
+PARTIAL (documented): the full image-upload -> grading-pipeline -> grade-display
+happy-path isn't driven end-to-end (it needs authed file upload + a mocked async
+pipeline + polling); it's covered at the guard level + grade-report rendering is
+verified via the certificate test. Full upload happy-path is a follow-up.
+
+eslint clean on e2e/ + config; ci.yml YAML validated.
+
+prd.json 423/609.

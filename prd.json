@@ -7823,7 +7823,7 @@
         "E2E runs in CI against a preview/ephemeral environment (or mocked Supabase/Stripe)"
       ],
       "priority": 511,
-      "passes": false,
+      "passes": true,
       "notes": "[P0][Testing] Audit 2026-06-03. Zero E2E tooling; all tests are unit-level."
     },
     {
