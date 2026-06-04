@@ -19,6 +19,7 @@ import {
   flipdeskAutolisterRoutes,
   handleAutolisterReclaimCron,
 } from "./routes/flipdesk-autolister.ts";
+import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
@@ -155,6 +156,13 @@ app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
+// Google Photos import — everything authed EXCEPT /oauth/callback (Google
+// redirects the browser there unauthenticated; the `state` row identifies the
+// user and the import is one-shot + tenant-scoped to the session's owner_id).
+app.use("/api/flipdesk/google/photos/oauth/start", authMiddleware);
+app.use("/api/flipdesk/google/photos/poll", authMiddleware);
+app.use("/api/flipdesk/google/photos/import", authMiddleware);
+app.use("/api/flipdesk/google/photos/config", authMiddleware);
 // Workspace (team) management: auth + workspace context. The route handlers
 // enforce per-action role checks (owner/admin required to invite, etc.).
 app.use("/api/workspace/*", authMiddleware);
@@ -180,6 +188,9 @@ app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
+// Only /oauth/start needs the workspace owner (to stage imports under the
+// owner); /poll + /import resolve the owner from the session row.
+app.use("/api/flipdesk/google/photos/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
@@ -276,6 +287,7 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
+app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 // Condition-aware repricing cron. OUTSIDE /api/flipdesk so the user-JWT
