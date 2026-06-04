@@ -190,13 +190,21 @@ export function FlipdeskAutolisterQueuePage() {
     .filter((j) => j.status === "failed")
     .map((j) => j.inventory_item_id);
   const succeededJobs = jobs.filter((j) => j.status === "success");
+  // US-550: triage succeeded drafts by the AI's needs_review signal (US-541).
+  // green = high-confidence + ready; amber = give it a look; red = generation
+  // failed. (Publish-time blockers are still caught by the pre-flight below.)
+  const greenJobs = succeededJobs.filter(
+    (j) => !(j.listing_id && reviewByListing[j.listing_id]?.needsReview),
+  );
+  const amberCount = succeededJobs.length - greenJobs.length;
+  const failedCount = jobs.filter((j) => j.status === "failed").length;
 
   // Open the confirmation dialog (US-321) and run pre-flight /listings/validate
   // on each succeeded item in parallel. Blockers render per-row and gate the
   // "Publish N clean" button — items with unresolved blockers are refused.
-  async function openPublishDialog() {
-    if (succeededJobs.length === 0) return;
-    const initial: PreflightItem[] = succeededJobs.map((j) => ({
+  async function openPublishDialog(jobsToPublish: AutolisterJob[] = succeededJobs) {
+    if (jobsToPublish.length === 0) return;
+    const initial: PreflightItem[] = jobsToPublish.map((j) => ({
       itemId: j.inventory_item_id,
       listingId: j.listing_id,
       title: titles[j.inventory_item_id] ?? j.inventory_item_id,
@@ -309,9 +317,28 @@ export function FlipdeskAutolisterQueuePage() {
               Retry {failedItemIds.length} failed
             </Button>
           )}
+          {greenJobs.length > 0 && amberCount > 0 && !isRunning && (
+            <Button
+              onClick={() => void openPublishDialog(greenJobs)}
+              disabled={bulkPublish.running || !ebayConnection}
+              title={
+                !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : "Validate and publish only the high-confidence drafts; the rest are flagged for review."
+              }
+            >
+              {bulkPublish.running ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              Publish ready ({greenJobs.length})
+            </Button>
+          )}
           {succeededJobs.length > 0 && !isRunning && (
             <Button
-              onClick={() => void openPublishDialog()}
+              variant={amberCount > 0 ? "outline" : "default"}
+              onClick={() => void openPublishDialog(succeededJobs)}
               disabled={bulkPublish.running || !ebayConnection}
               title={
                 !ebayConnection
@@ -377,6 +404,34 @@ export function FlipdeskAutolisterQueuePage() {
           <p className="mt-2 text-xs text-destructive">{batch.error}</p>
         )}
       </Card>
+
+      {/* US-550: confidence triage summary */}
+      {!isRunning && succeededJobs.length > 0 && (
+        <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3 text-sm">
+          <span className="font-medium">Triage</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            {greenJobs.length} ready
+          </span>
+          {amberCount > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+              {amberCount} need review
+            </span>
+          )}
+          {failedCount > 0 && (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2.5 w-2.5 rounded-full bg-destructive" />
+              {failedCount} failed
+            </span>
+          )}
+          <span className="text-muted-foreground">
+            {amberCount > 0
+              ? "Publish the ready ones in one click; the flagged drafts are marked below."
+              : "All drafts look confident — publish when ready."}
+          </span>
+        </Card>
+      )}
 
       {/* Per-item rows */}
       <div className="space-y-2">
