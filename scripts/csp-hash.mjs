@@ -17,7 +17,7 @@ import { createHash } from "node:crypto";
 // bootstrap). The module loader (`<script type="module" src=…>`) has
 // attributes and is intentionally skipped. Returns null if none is found.
 export function extractInlineBootstrap(html) {
-  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  const m = html.match(/<script>([\s\S]*?)<\/script>/i);
   return m ? m[1] : null;
 }
 
