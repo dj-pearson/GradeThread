@@ -7617,7 +7617,7 @@
         "A metric/alert for submissions in processing older than N minutes"
       ],
       "priority": 495,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Reliability] Audit 2026-06-03. grade.ts calls processSubmission(...).catch() without awaiting; no orphan recovery."
     },
     {
@@ -7655,7 +7655,7 @@
         "Verified a forced SMTP failure is retried and eventually surfaced"
       ],
       "priority": 498,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Reliability] Audit 2026-06-03. email.ts sends once, logs+returns false on failure; callers ignore the boolean."
     },
     {
@@ -7668,7 +7668,7 @@
         "Timeouts/breaker trips are logged to the error tracker"
       ],
       "priority": 499,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Reliability] Audit 2026-06-03. ebay-client.ts has no AbortController/timeout; withRetry not wired into eBay calls."
     },
     {
@@ -7707,7 +7707,7 @@
         "Failure to deliver an alert is itself reported"
       ],
       "priority": 502,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Ops] Audit 2026-06-03. grading-monitor sets alerted:true even when no MONITOR_ALERT_EMAIL is set -> 12h suppression."
     },
     {
@@ -7720,7 +7720,7 @@
         "A test asserts a second concurrent run is a no-op"
       ],
       "priority": 503,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Reliability] Audit 2026-06-03. orders-sync (30m) and publish-due (5m) have no overlap guard."
     },
     {

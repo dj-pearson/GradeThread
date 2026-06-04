@@ -4026,3 +4026,66 @@ redaction + unserializable-survival, metric emission, timed ok/error, capture
 never-throws + local breadcrumb, DSN gating). All green.
 
 prd.json 398/609.
+
+
+### Reliability cluster -- US-499/503/495/502/498 COMPLETE, passes=true
+
+US-499 timeouts + circuit breakers (lib/circuit-breaker.ts):
+- fetchWithTimeout() — AbortController hard deadline; throws TimeoutError
+  (isRetryableError matches it). eBay client: every raw fetch now routes through
+  ebayFetch() (20s) and the authed Sell-API path adds a shared per-key
+  CircuitBreaker OUTSIDE withRetry. isFailure: isRetryableError so a 4xx
+  (revoked token / bad request) does NOT trip the breaker — only 5xx/429/
+  timeout/network do. Breaker open/close/short-circuit -> metrics + captureException.
+- Stripe SDK: timeout 20s + maxNetworkRetries 2 at all 4 ctor sites.
+- Anthropic SDK already had timeout(120s)+maxRetries(2) (ai-config.ts).
+- tests/circuit-breaker_test.ts: 7 (open after threshold, half-open->close,
+  failed-probe re-opens, isFailure predicate, shared registry, timeout).
+
+US-503 cron overlap locks (migration 00094 job_locks + try_acquire_job_lock/
+release_job_lock RPCs; lib/job-lock.ts acquireJobLock/withJobLock, injectable
+rpc). Lease-based (advisory locks don't survive PostgREST's stateless calls).
+FAIL-SAFE: lock RPC error -> SKIP the run (don't risk overlap). Wired into
+publish-due(240s), reprice-scan(600s), trial-expiry(300s), gsc-sync(600s),
+autolister-reclaim(300s). publish-due/autolister already had per-resource claim
+locks (US-528/525) — this is the coarse guard. tests/job-lock_test.ts: 5
+(incl. AC#3 two concurrent runs -> exactly one runs fn).
+
+US-495 stuck-submission recovery (lib/stuck-submissions.ts, cron POST
+/api/jobs/stuck-submissions, job-locked). Finds submissions stuck >20m in
+'processing', atomically claims (status->failed WHERE status='processing'),
+reverses the charge via the now-exported reverseChargeForUngradedSubmission
+(refund_grade RPC), mirrors failure into the FlipDesk link. Emits
+submissions.stuck metric + captureException so a spike is visible. Fails+refunds
+rather than re-enqueue (re-running grading isn't idempotent yet — that's US-569).
+
+US-502 grading-monitor alerting (lib/grading-monitor.ts dispatchAlert):
+- FIXED the cooldown bug — dispatchAlert now returns true ONLY if a channel
+  actually delivered, so `alerted` (which gates the 12h cooldown) is false when
+  nothing was sent and the next run retries (old code returned true even with no
+  MONITOR_ALERT_EMAIL -> 12h silent suppression).
+- Added a webhook channel (MONITOR_ALERT_WEBHOOK; Slack/PagerDuty/generic) in
+  addition to email. Undelivered raised alert -> metric + captureException (AC#3).
+- tests: dispatchAlert returns false with no channel configured.
+
+US-498 durable email retry/dead-letter (migration 00095 email_deliveries;
+lib/email-retry.ts):
+- email.ts sendEmail: on failure of a CRITICAL email (category set) persists to
+  the outbox; every send failure now -> captureException (callers historically
+  ignored the boolean). deliverEmail() exported as the raw send.
+  grade_ready (sendGradeCompleteEmail) + payment_failed (sendPaymentFailedEmail)
+  tagged critical.
+- retryPendingEmails() cron (POST /api/jobs/email-retry, job-locked): re-sends
+  due rows, exponential backoff (1m/5m/15m/1h/6h), dead-letters after
+  max_attempts (default 6) with captureException. tests/email-retry_test.ts: 2.
+
+Full edge suite: 368 passed, 27 ignored. PRE-EXISTING (clean-tree, NOT from this
+work): rls-guard flags google_photos_import_sessions (migration 00089 — no RLS
+policy/not classified) and admin-mfa_test throws standalone. These make CI red
+and are flagged for follow-up (relate to US-350).
+
+New crons to schedule in Coolify (folded into US-496): stuck-submissions,
+email-retry (+ existing reprice-scan, grading-monitor, trial-expiry, gsc-sync,
+autolister-reclaim, ebay token refresh).
+
+prd.json 403/609.

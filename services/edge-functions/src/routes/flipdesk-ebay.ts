@@ -42,6 +42,7 @@ import {
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 
@@ -1776,6 +1777,15 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
+  // US-503: coarse overlap guard so a slow 5-min tick can't race the next one.
+  // (Per-row publish_claimed_at claim-lock below — US-528 — is the resource-
+  // level idempotency; this just stops a wasteful overlapping scan.) 4-min lease
+  // < the 5-min cadence so a crashed run frees the lock before the next tick.
+  const lock = await acquireJobLock("publish-due", 240);
+  if (!lock.acquired) {
+    return c.json({ skipped: true, reason: lock.reason, scanned: 0, published: 0 });
+  }
+  try {
   const now = new Date().toISOString();
   // US-528: a claim older than this is "stale" and reclaimable — covers a
   // publish whose container crashed/redeployed mid-run so the draft isn't
@@ -1871,6 +1881,9 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   }
 
   return c.json({ scanned: due.length, published, failed, skipped });
+  } finally {
+    await lock.release();
+  }
 });
 
 // Imports an eBay Seller Hub "Payouts" CSV into payout_imports. Server-side

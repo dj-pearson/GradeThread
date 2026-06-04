@@ -7,6 +7,7 @@ import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
 
 // FlipDesk AutoLister batch generation (US-313).
 // Mounted at /api/flipdesk/autolister (authed + workspace context).
@@ -650,6 +651,14 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
     return c.json({ error: "Unauthorized" }, 401);
   }
 
+  // US-503: overlap guard. Per-batch claim (the UPDATE below bumps updated_at)
+  // is the resource-level idempotency; this coarse lock avoids two sweepers
+  // contending. 5-min lease.
+  const lock = await acquireJobLock("autolister-reclaim", 300);
+  if (!lock.acquired) {
+    return c.json({ scanned: 0, resumed: 0, finalized: 0, skipped: true, reason: lock.reason });
+  }
+  try {
   const batchStaleBefore = new Date(Date.now() - BATCH_STALE_MS).toISOString();
   const { data: staleRows, error } = await supabaseAdmin
     .from("listing_generation_batches")
@@ -707,4 +716,7 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
   }
 
   return c.json({ scanned: stale.length, resumed, finalized });
+  } finally {
+    await lock.release();
+  }
 }

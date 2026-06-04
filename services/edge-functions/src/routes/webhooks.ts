@@ -59,7 +59,7 @@ webhookRoutes.post("/stripe", async (c) => {
     return c.json({ error: "Webhook not configured" }, 503);
   }
 
-  const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-04-10" });
+  const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 
   const body = await c.req.text();
   const signature = c.req.header("stripe-signature");

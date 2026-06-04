@@ -27,6 +27,8 @@ import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
+import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
+import { handleEmailRetryCron } from "./lib/email-retry.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
@@ -314,6 +316,14 @@ app.route("/api/grading/public", publicGradingRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
 app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
+// US-495 stuck-submission recovery sweep. OUTSIDE the JWT groups; the handler
+// enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
+// reverses their charge so a crash/redeploy can't strand paid work.
+app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
+// US-498 transactional-email outbox retry sweep. OUTSIDE the JWT groups; the
+// handler enforces X-Internal-Job-Secret itself. Re-sends failed critical
+// emails with backoff and dead-letters after max attempts.
+app.post("/api/jobs/email-retry", (c) => handleEmailRetryCron(c));
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));

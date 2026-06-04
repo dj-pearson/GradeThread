@@ -48,7 +48,7 @@ function getStripe(): Stripe | null {
     console.error("[admin-billing] STRIPE_SECRET_KEY not configured");
     return null;
   }
-  return new Stripe(key, { apiVersion: "2024-04-10" });
+  return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 }
 
 // Thin wrapper over the shared writeAuditLog (US-269) so billing actions get

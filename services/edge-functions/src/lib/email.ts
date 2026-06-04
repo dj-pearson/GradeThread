@@ -10,6 +10,8 @@
  */
 
 import { SMTPClient } from "denomailer";
+import { supabaseAdmin } from "./supabase.ts";
+import { captureException, recordMetric } from "./observability.ts";
 
 const BRAND_NAVY = "#0F3460";
 const BRAND_RED = "#E94560";
@@ -23,6 +25,10 @@ interface EmailOptions {
   to: string;
   subject: string;
   html: string;
+  // US-498: when set, a failed send is persisted to the email_deliveries outbox
+  // and retried with backoff (use for CRITICAL mail — grade-ready, payment-
+  // failed). Omit for nice-to-have mail that doesn't warrant durable retry.
+  category?: string;
 }
 
 interface GradeCompleteData {
@@ -50,7 +56,22 @@ interface WelcomeData {
 
 // ─── Core Send Function ─────────────────────────────────────────────
 
+// Public send: attempts delivery once, and on failure of a CRITICAL email
+// (options.category set) persists it to the outbox for backoff retry (US-498).
+// Every failure is reported to the error tracker. Returns true iff the message
+// was accepted by SMTP on this attempt.
 async function sendEmail(options: EmailOptions): Promise<boolean> {
+  const ok = await deliverEmail(options);
+  if (!ok && options.category) {
+    await enqueueFailedEmail(options, options.category);
+  }
+  return ok;
+}
+
+// Raw SMTP send. Returns true on accept, false on any failure (and reports the
+// failure to the error tracker). Exported so the retry cron can re-attempt a
+// persisted message WITHOUT re-enqueuing it (the cron owns the outbox row).
+export async function deliverEmail(options: EmailOptions): Promise<boolean> {
   const host = Deno.env.get("SMTP_HOST");
   const port = Number(Deno.env.get("SMTP_PORT") ?? "587") || 587;
   const user = Deno.env.get("SMTP_USER");
@@ -89,6 +110,12 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
     console.log(`[Email] Sent successfully to ${options.to}`);
     return true;
   } catch (error) {
+    // US-498: report every send failure (the boolean was historically ignored
+    // by callers). The caller / retry cron decides whether to persist + retry.
+    captureException(error, {
+      route: "email.send",
+      tags: { category: options.category ?? "uncategorized" },
+    });
     console.error(
       "[Email] Failed to send:",
       error instanceof Error ? error.message : String(error),
@@ -100,6 +127,32 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
     } catch {
       // Ignore close errors — the message was already accepted (or failed) above.
     }
+  }
+}
+
+// US-498: persist a failed critical email so the retry cron can re-attempt it
+// with backoff. Best-effort — if even the outbox write fails, we've already
+// reported the original send failure.
+async function enqueueFailedEmail(options: EmailOptions, category: string): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin.from("email_deliveries").insert({
+      recipient: options.to,
+      subject: options.subject,
+      html: options.html,
+      category,
+      status: "pending",
+      attempts: 1, // the just-failed live attempt counts as the first
+      // First retry ~1 min out; the cron applies exponential backoff thereafter.
+      next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+      last_error: "initial live send failed",
+    });
+    if (error) {
+      captureException(error, { route: "email.enqueue", tags: { category } });
+    } else {
+      recordMetric("email.enqueued_for_retry", 1, { category });
+    }
+  } catch (err) {
+    captureException(err, { route: "email.enqueue", tags: { category } });
   }
 }
 
@@ -235,6 +288,7 @@ export async function sendGradeCompleteEmail(
     to,
     subject: `Grade Ready: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
     html: emailLayout(content),
+    category: "grade_ready", // US-498: critical → durable retry on failure
   });
 }
 
@@ -583,6 +637,7 @@ export async function sendPaymentFailedEmail(
     to,
     subject: "Action needed: update your card to keep FlipDesk active",
     html: emailLayout(content),
+    category: "payment_failed", // US-498: critical → durable retry on failure
   });
 }
 
