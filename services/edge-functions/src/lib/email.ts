@@ -12,6 +12,7 @@
 import { SMTPClient } from "denomailer";
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
+import { marketingUnsubscribeUrl } from "./unsubscribe.ts";
 
 const BRAND_NAVY = "#0F3460";
 const BRAND_RED = "#E94560";
@@ -158,12 +159,28 @@ async function enqueueFailedEmail(options: EmailOptions, category: string): Prom
 
 // ─── HTML Layout ────────────────────────────────────────────────────
 
-function emailLayout(content: string, unsubscribe: boolean = false): string {
-  const unsubscribeSection = unsubscribe
+// US-516 (CAN-SPAM): a valid physical postal address in every commercial email
+// footer. Set COMPANY_POSTAL_ADDRESS to the real registered address; the
+// fallback is a clearly-marked placeholder that MUST be replaced before launch.
+function postalAddress(): string {
+  return (
+    Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
+    "Pearson Media LLC, [SET COMPANY_POSTAL_ADDRESS], Iowa, USA"
+  );
+}
+
+// `unsubscribeUrl` (US-516): when provided (MARKETING email), render a no-login
+// unsubscribe link. Transactional email omits it (and must not be globally
+// suppressed) but still carries the postal address.
+function emailLayout(
+  content: string,
+  opts: { unsubscribeUrl?: string } = {},
+): string {
+  const unsubscribeSection = opts.unsubscribeUrl
     ? `<tr>
         <td style="padding: 16px 32px; text-align: center;">
-          <a href="${SITE_URL}/dashboard/settings" style="color: #999; font-size: 12px; text-decoration: underline;">
-            Manage email preferences
+          <a href="${opts.unsubscribeUrl}" style="color: #999; font-size: 12px; text-decoration: underline;">
+            Unsubscribe from marketing emails
           </a>
         </td>
       </tr>`
@@ -205,6 +222,10 @@ function emailLayout(content: string, unsubscribe: boolean = false): string {
               </p>
               <p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">
                 <a href="${SITE_URL}" style="color: rgba(255,255,255,0.6); text-decoration: none;">gradethread.com</a>
+              </p>
+              <!-- US-516 CAN-SPAM: physical postal address on every email. -->
+              <p style="margin: 8px 0 0; color: rgba(255,255,255,0.4); font-size: 11px;">
+                ${postalAddress()}
               </p>
             </td>
           </tr>
@@ -424,7 +445,7 @@ export async function sendWelcomeEmail(
   return await sendEmail({
     to,
     subject: "Welcome to GradeThread — Start Grading with AI",
-    html: emailLayout(content, true),
+    html: emailLayout(content),
   });
 }
 
@@ -463,6 +484,9 @@ interface TrialExpiringData {
   userName: string;
   daysLeft: number;
   trialEndsAt: string;
+  // US-516: this is a promotional ("add a card / keep Pro") message, so it
+  // carries a no-login unsubscribe link keyed to the recipient's user id.
+  userId?: string;
 }
 
 function dollars(cents: number): string {
@@ -657,10 +681,13 @@ export async function sendTrialExpiringEmail(
     </p>
     ${ctaButton("Add card", `${SITE_URL}/dashboard/billing`)}
   `;
+  const unsubscribeUrl = data.userId
+    ? await marketingUnsubscribeUrl(data.userId)
+    : undefined;
   return await sendEmail({
     to,
     subject: `${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"} left on your FlipDesk Pro trial`,
-    html: emailLayout(content),
+    html: emailLayout(content, { unsubscribeUrl }),
   });
 }
 

@@ -46,6 +46,10 @@ const PrivacyPage = lazy(() => import("@/pages/legal/privacy").then(m => ({ defa
 const TermsPage = lazy(() => import("@/pages/legal/terms").then(m => ({ default: m.TermsPage })));
 const CookiesPage = lazy(() => import("@/pages/legal/cookies").then(m => ({ default: m.CookiesPage })));
 const AcceptableUsePage = lazy(() => import("@/pages/legal/acceptable-use").then(m => ({ default: m.AcceptableUsePage })));
+const DpaPage = lazy(() => import("@/pages/legal/dpa").then(m => ({ default: m.DpaPage })));
+const SubprocessorsPage = lazy(() => import("@/pages/legal/subprocessors").then(m => ({ default: m.SubprocessorsPage })));
+const DmcaPage = lazy(() => import("@/pages/legal/dmca").then(m => ({ default: m.DmcaPage })));
+const AccessibilityPage = lazy(() => import("@/pages/legal/accessibility").then(m => ({ default: m.AccessibilityPage })));
 // Evergreen marketing pages (US-302) — public, prerendered, indexable.
 const HowItWorksPage = lazy(() => import("@/pages/marketing/how-it-works").then(m => ({ default: m.HowItWorksPage })));
 const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ default: m.PricingPage })));
@@ -157,6 +161,10 @@ export const router = createBrowserRouter([
       { path: "/terms", element: <SuspenseWrapper><TermsPage /></SuspenseWrapper> },
       { path: "/cookies", element: <SuspenseWrapper><CookiesPage /></SuspenseWrapper> },
       { path: "/acceptable-use", element: <SuspenseWrapper><AcceptableUsePage /></SuspenseWrapper> },
+      { path: "/dpa", element: <SuspenseWrapper><DpaPage /></SuspenseWrapper> },
+      { path: "/subprocessors", element: <SuspenseWrapper><SubprocessorsPage /></SuspenseWrapper> },
+      { path: "/dmca", element: <SuspenseWrapper><DmcaPage /></SuspenseWrapper> },
+      { path: "/accessibility", element: <SuspenseWrapper><AccessibilityPage /></SuspenseWrapper> },
 
       // Auth routes (guest only)
       {

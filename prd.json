@@ -7862,7 +7862,7 @@
         "Wording consistent with Terms section 5"
       ],
       "priority": 514,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Legal] Audit 2026-06-03. Disclosure only buried in terms.tsx; the public certificate doesn't show it."
     },
     {
@@ -7874,7 +7874,7 @@
         "At least one automated a11y check (axe) added to CI or the E2E suite"
       ],
       "priority": 515,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Legal/A11y] Audit 2026-06-03. No accessibility statement; no automated a11y check."
     },
     {
@@ -7887,7 +7887,7 @@
         "Transactional vs marketing types distinguished so transactional mail isn't over-suppressed"
       ],
       "priority": 516,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][Legal] Audit 2026-06-03. email.ts footer links to login-gated settings and has no postal address."
     },
     {
@@ -7976,7 +7976,7 @@
         "A subprocessor-change notification mechanism"
       ],
       "priority": 523,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Legal] Audit 2026-06-03. privacy.tsx names only Anthropic; no DPA/complete subprocessor list."
     },
     {
@@ -7989,7 +7989,7 @@
         "Acceptable-use policy references the enforcement/takedown path"
       ],
       "priority": 524,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Legal] Audit 2026-06-03. acceptable-use.tsx exists but no takedown/DMCA process."
     },
     {

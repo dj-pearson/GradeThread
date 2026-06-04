@@ -4162,3 +4162,44 @@ deno lint clean; edge suite 385 passed; frontend tsc -b + eslint clean.
 New crons to schedule (folded into US-496): integrity-scan, data-retention.
 
 prd.json 410/609.
+
+
+### Legal/compliance cluster -- US-514/515/516/523/524 COMPLETE, passes=true
+
+Also fixed a PRE-EXISTING CI-red: tsc -b failed on csp-hash.test.ts (TS7016,
+.mjs import implicit-any, from commit 5371155) -> blocked `npm run build`. Added
+scripts/csp-hash.d.mts. tsc -b now exits 0; build green.
+
+US-514 AI disclosure: public certificate (certificate.tsx) now shows an
+amber "AI-generated condition estimate — not a professional appraisal or
+guarantee" card with confidence/limitation language + Terms §5 link; in-app
+grade report (submission-detail.tsx) shows the same inline.
+
+US-515 accessibility: new /accessibility statement page (WCAG 2.1 AA target,
+known limitations, accessibility@ remediation contact), linked from footer + legal
+nav. Automated axe check: src/pages/legal/__tests__/accessibility-axe.test.tsx
+renders 4 legal pages to static markup, runs axe-core in jsdom, fails on
+serious/critical (color-contrast disabled — no layout in jsdom). Runs in CI via
+npm test. axe-core added as devDep.
+
+US-516 CAN-SPAM: email footer now carries the physical postal address
+(COMPANY_POSTAL_ADDRESS env, placeholder flagged) on ALL emails. No-login
+unsubscribe: lib/unsubscribe.ts (HMAC token), emailLayout({unsubscribeUrl}),
+public GET /api/notifications/unsubscribe (unauthed, flips
+notification_preferences.product_updates.email=false, HTML confirmation). Trial-
+expiring email (promotional) carries the link; transactional email omits it (not
+suppressed). tests/unsubscribe_test.ts: 4.
+
+US-523 DPA + subprocessors: new /dpa (DPA terms, request signed copy) and
+/subprocessors (dated table of all 10 third parties processing PII) pages, linked
+from Privacy §6 + footer + legal nav.
+
+US-524 DMCA: new /dmca page (designated agent, valid-notice elements, takedown
+process, counter-notice, abuse contact). Acceptable-use §6 now links to it.
+
+All 4 new pages registered in public-routes.ts + entry-server.tsx (SEO sync
+guards pass) + routes/index.tsx; prerender emits dist/{dpa,subprocessors,dmca,
+accessibility}/index.html. tsc -b clean; frontend 186 tests pass (coverage
+80.7/72.8/79.6/82.9); edge 389 pass.
+
+prd.json 415/609.

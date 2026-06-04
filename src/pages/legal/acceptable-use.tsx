@@ -148,8 +148,9 @@ export function AcceptableUsePage() {
         copyright infringement, or any other abuse, email{" "}
         <a href="mailto:abuse@gradethread.com">abuse@gradethread.com</a>.
         Include the certificate ID, URL, or account in question and a
-        description of the issue. For DMCA notices, use{" "}
-        <a href="mailto:dmca@gradethread.com">dmca@gradethread.com</a>.
+        description of the issue. For copyright/DMCA notices and our full
+        takedown process, see our{" "}
+        <Link to="/dmca">Copyright &amp; Content Takedown (DMCA)</Link> page.
       </p>
 
       <h2 id="enforcement">7. Enforcement</h2>

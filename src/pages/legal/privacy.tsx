@@ -194,7 +194,13 @@ export function PrivacyPage() {
       </p>
 
       <h2 id="sharing">6. How we share information</h2>
-      <p>We do not sell personal information. We share it only as follows:</p>
+      <p>
+        We do not sell personal information. We share it only as follows. A
+        complete, dated list of our subprocessors is on the{" "}
+        <a href="/subprocessors">Subprocessors</a> page, and customers with
+        data-processing obligations can review our{" "}
+        <a href="/dpa">Data Processing Addendum</a>.
+      </p>
       <ul>
         <li>
           <strong>Service providers (subprocessors).</strong> Vendors that

@@ -66,6 +66,10 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/terms": "2026-04-01",
   "/cookies": "2026-04-01",
   "/acceptable-use": "2026-04-01",
+  "/dpa": "2026-04-01",
+  "/subprocessors": "2026-04-01",
+  "/dmca": "2026-04-01",
+  "/accessibility": "2026-04-01",
 };
 
 /** Stable content-change date for a route's sitemap <lastmod>. */
@@ -170,6 +174,34 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/acceptable-use",
     title: "Acceptable Use Policy",
     description: "What is and isn't allowed when using GradeThread.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/dpa",
+    title: "Data Processing Addendum",
+    description: "GradeThread's DPA for customers with GDPR/CCPA data-processing obligations.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/subprocessors",
+    title: "Subprocessors",
+    description: "The third-party subprocessors GradeThread uses to process personal data.",
+    changefreq: "monthly",
+    priority: 0.3,
+  },
+  {
+    path: "/dmca",
+    title: "Copyright & Content Takedown (DMCA)",
+    description: "How to report infringing or abusive content and our DMCA designated-agent info.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/accessibility",
+    title: "Accessibility Statement",
+    description: "GradeThread's commitment to WCAG 2.1 AA accessibility and how to report barriers.",
     changefreq: "yearly",
     priority: 0.3,
   },
