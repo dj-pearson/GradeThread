@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 
 // Payout reconciliation: matches payout_imports rows to sales rows by listing ID
 // and timestamp window. Never silently mis-matches — unmatched rows stay queued.
@@ -544,10 +545,7 @@ flipdeskReconciliationRoutes.post("/dismiss/:id", async (c) => {
     .update({ reconciled: true, sale_id: null, raw_payload: nextRaw })
     .eq("id", id);
   if (error) {
-    return c.json(
-      { error: "Failed to dismiss payout", detail: error.message },
-      500,
-    );
+    return failSafe(c, 500, "Failed to dismiss payout.", error, "reconciliation.dismiss-payout");
   }
 
   return c.json({ ok: true, payout_import_id: id });

@@ -5815,8 +5815,8 @@
         "Bypass-corpus tests (nested broken tags, javascript:/data: URIs) pass"
       ],
       "priority": 353,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. Files: services/edge-functions/src/lib/content-sanitize.ts, functions/_shared/blog-render.ts."
+      "passes": true,
+      "notes": "[P2][Security] DONE 2026-06-04. content-sanitize.ts rewritten as a real PARSER-BASED allowlist: a tokenizer (start/end/text/comment tokens) with a RAWTEXT state that consumes+drops <script>/<style>/<textarea>/<noscript>/etc., quote-aware attribute parsing, HTML-escaped text (entities preserved, not double-escaped), and an auto-balanced output tree (stray end tags dropped, open tags closed at EOF). Same allowlist policy + public sanitizeHtml() API, so publish callers (content-blog.ts, content-scheduler.ts) are unchanged. Blog SSR (functions/_shared/blog-render.ts) renders already-sanitized HTML and inherits the enforcing CSP from public/_headers (script-src no 'unsafe-inline'; object-src 'none'). Bypass-corpus tests: tests/content-sanitize_test.ts (nested/broken <scri<script>pt>, svg/style mutation, attribute-smuggled '>', javascript:/vbscript:/data: incl. \\t-obfuscated, non-YouTube iframes, bogus comments/CDATA). Logic verified via a Node port (24 payloads inert, 0 leaks); found+fixed an entity double-escape bug in escapeText."
     },
     {
       "id": "US-354",
@@ -5867,8 +5867,8 @@
         "Test: an aal1 admin token cannot reach admin routes"
       ],
       "priority": 357,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. Files: middleware/admin-auth.ts:46, lib/step-up.ts, lib/jwt-claims.ts."
+      "passes": true,
+      "notes": "[P1][Security] DONE 2026-06-04. (1) Startup assertion assertAdminMfaConfig() (env.ts) THROWS in production when ADMIN_MFA_ENFORCED=false unless an explicit ADMIN_MFA_ENROLLMENT_WINDOW=true escape hatch is set (which logs loudly); wired into main.ts before Deno.serve so a misconfigured prod deploy crashes instead of serving admin routes without AAL2. (2) Claims-decode coupling: authMiddleware now decodes aal/amr ONCE from the SAME token getUser() verified and stores it on c.var.authClaims; adminAuthMiddleware + requireStepUp read THAT (never re-decode the raw Authorization header). decodeJwtClaims now has a single call site (auth.ts). Fail-closed pure helper adminMfaBlocked(claims,enforced) (missing claims/aal1 -> blocked). Tests: tests/admin-mfa_test.ts (aal1 admin blocked, aal2 allowed, missing-claims blocked, prod+disabled throws, enrollment-window allowed). Logic verified via Node port (9/9)."
     },
     {
       "id": "US-358",
@@ -5880,8 +5880,8 @@
         "Add static.cloudflareinsights.com/cloudflareinsights.com only as needed (already added)"
       ],
       "priority": 358,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: public/_headers; MEMORY notes the hash-drift footgun."
+      "passes": true,
+      "notes": "[P3][Security] DONE 2026-06-04. Hash-drift footgun ELIMINATED (not just checked): the inline-bootstrap sha256 is regenerated from the BUILT (esbuild-minified) dist/index.html script and rewritten into dist/_headers by scripts/prerender.mjs (runs last in `npm run build`), so editing the bootstrap can never silently break the CSP. Pure helpers in scripts/csp-hash.mjs (extract bare <script>, sha256 CSP token, single-token replace; throws loudly if the script-src sha256 token is missing). img-src tightened from bare `https:` to an explicit allowlist (*.gradethread.com supabase storage/cdn, *.googleusercontent.com avatars/photos, *.ebayimg.com/*.ebaystatic.com comps, *.stripe.com, GA/GTM/doubleclick pixels) + data:/blob:. cloudflareinsights already present. Vitest: src/lib/seo/__tests__/csp-hash.test.ts (8 tests, PASS) + repo-shape guard (one inline bootstrap, one sha256 token). Frontend tsc clean."
     },
     {
       "id": "US-359",
@@ -5893,8 +5893,8 @@
         "Routes returning error.message are migrated to the helper"
       ],
       "priority": 359,
-      "passes": false,
-      "notes": "[P2][Security/Obs] Audit 2026-06-03. e.g. flipdesk-pricing.ts:201/234/269, verified.ts, sync-runs all return raw error.message."
+      "passes": true,
+      "notes": "[P2][Security/Obs] DONE 2026-06-04. (1) Shared helpers lib/http-errors.ts: jsonError(c,status,msg,code?) returns the consistent {error,code?} shape; failSafe(c,status,clientMsg,cause,tag,code?) logs the redacted raw cause server-side under a stable tag and returns a generic body (raw DB/provider text never reaches the client). (2) lib/log-redact.ts redact()/redactError() scrub JWTs, Bearer tokens, stripe/whsec/gt_ keys, eBay tokens, emails, and long signature/base64 blobs. (3) New middleware/access-log.ts replaces Hono logger(): logs only method+pathname(no query)+status+duration, NEVER request headers, so Authorization/X-API-Key/signatures can't leak; pathname run through redact(). (4) Global onError redacts before logging. Migrated the flagged user-facing raw-error returns: flipdesk-pricing.ts (list/apply/dismiss), verified.ts (get/update), flipdesk-reconciliation.ts (dismiss-payout), flipdesk-grading.ts (status), flipdesk-ebay.ts (sync-runs). Tests: tests/error-redaction_test.ts (redaction patterns + helper shape + failSafe never leaks raw cause). Redaction verified via Node port. Remaining admin-only error.message returns (behind admin+MFA) can adopt the helper incrementally."
     },
     {
       "id": "US-360",

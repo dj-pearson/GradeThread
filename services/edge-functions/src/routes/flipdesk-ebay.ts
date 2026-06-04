@@ -42,6 +42,7 @@ import {
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { failSafe } from "../lib/http-errors.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -1124,7 +1125,7 @@ flipdeskEbayRoutes.get("/sync-runs", async (c) => {
     .eq("user_id", userId)
     .order("started_at", { ascending: false })
     .limit(limit);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load sync runs.", error, "ebay.sync-runs");
   return c.json({ runs: data ?? [] });
 });
 

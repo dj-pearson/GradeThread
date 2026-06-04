@@ -12,6 +12,7 @@ import {
   gradeToConditionId,
   type ReasonCode,
 } from "../lib/repricing.ts";
+import { failSafe, jsonError } from "../lib/http-errors.ts";
 
 // Condition-aware dynamic repricing. The scan pulls condition-matched comps per
 // active eBay listing and writes one actionable suggestion per listing. Every
@@ -199,7 +200,7 @@ flipdeskPricingRoutes.get("/suggestions", async (c) => {
     .eq("status", "pending")
     .order("updated_at", { ascending: false })
     .limit(200);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load repricing suggestions.", error, "repricing.list");
   return c.json({ suggestions: data ?? [] });
 });
 
@@ -263,7 +264,7 @@ flipdeskPricingRoutes.post("/suggestions/:id/apply", async (c) => {
     .from("listings")
     .update({ listing_price: dollars, price_is_estimated: false })
     .eq("id", listingId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't save the new price.", updErr, "repricing.apply");
 
   await supabaseAdmin
     .from("repricing_suggestions")
@@ -284,8 +285,8 @@ flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
     .eq("user_id", ownerId)
     .select("id")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data) return c.json({ error: "Suggestion not found" }, 404);
+  if (error) return failSafe(c, 500, "Couldn't dismiss the suggestion.", error, "repricing.dismiss");
+  if (!data) return jsonError(c, 404, "Suggestion not found");
   return c.json({ dismissed: true });
 });
 

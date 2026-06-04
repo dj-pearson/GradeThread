@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe, jsonError } from "../lib/http-errors.ts";
 
 // GradeThread Verified — seller-profile management (US: revolutionary-flipping).
 //
@@ -104,7 +105,7 @@ verifiedRoutes.get("/profile", async (c) => {
     )
     .eq("id", userId)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load your profile.", error, "verified.get");
 
   const stats = await ownStats(userId);
   return c.json({
@@ -190,9 +191,9 @@ verifiedRoutes.put("/profile", async (c) => {
   if (error) {
     // 23505 = unique_violation on the case-insensitive handle index.
     if ((error as { code?: string }).code === "23505") {
-      return c.json({ error: "That handle is already taken." }, 409);
+      return jsonError(c, 409, "That handle is already taken.");
     }
-    return c.json({ error: error.message }, 500);
+    return failSafe(c, 500, "Couldn't update your profile.", error, "verified.update");
   }
 
   return c.json({

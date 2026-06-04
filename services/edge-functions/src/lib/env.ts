@@ -25,6 +25,45 @@ export function isAdminMfaEnforced(): boolean {
     "false";
 }
 
+// US-357: startup assertion. In production, ADMIN_MFA_ENFORCED=false silently
+// disables the entire admin-MFA gate (AAL2 requirement + destructive step-up),
+// so a misconfigured flag must not pass quietly. We FAIL LOUD: throw at boot,
+// crashing the container, unless the operator has set an explicit, documented
+// enrollment-window escape hatch (which itself logs a loud warning). Pure +
+// injectable (env getter) so it is unit-testable. Returns void; throws on a
+// fatal misconfiguration.
+export function assertAdminMfaConfig(
+  getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
+): void {
+  const env = (getEnv("EDGE_ENV") ?? getEnv("DENO_ENV") ?? "production")
+    .trim().toLowerCase();
+  if (env !== "production") return;
+
+  const enforced =
+    (getEnv("ADMIN_MFA_ENFORCED") ?? "true").trim().toLowerCase() !== "false";
+  if (enforced) return;
+
+  const enrollmentWindow =
+    (getEnv("ADMIN_MFA_ENROLLMENT_WINDOW") ?? "false").trim().toLowerCase() ===
+      "true";
+  if (enrollmentWindow) {
+    // Deliberate, temporary opt-out — allowed, but never silent.
+    console.error(
+      "[SECURITY] ADMIN_MFA_ENFORCED=false in production with " +
+        "ADMIN_MFA_ENROLLMENT_WINDOW=true — admin MFA is OFF for the enrollment " +
+        "window only. Re-enable (unset both) the moment the team has enrolled.",
+    );
+    return;
+  }
+
+  throw new Error(
+    "[SECURITY] ADMIN_MFA_ENFORCED=false in production but no enrollment window " +
+      "is declared. Refusing to start with admin MFA disabled. Set " +
+      "ADMIN_MFA_ENFORCED=true (or, only for the initial TOTP-enrollment window, " +
+      "set ADMIN_MFA_ENROLLMENT_WINDOW=true explicitly).",
+  );
+}
+
 // Step-up freshness window for destructive super-admin actions (seconds).
 export const STEP_UP_MAX_AGE_SEC = 5 * 60;
 
