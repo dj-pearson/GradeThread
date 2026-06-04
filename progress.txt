@@ -4463,3 +4463,27 @@ CONDITION INDEX (feature #3 SEO destination + sell-through loop) COMPLETE.
 Remaining cluster: US-613 (Snap iOS) only.
 
 prd.json 436/623.
+
+
+### Snap-to-Value iOS US-613 COMPLETE -- the FULL feature cluster (610-623) is done
+
+Native SwiftUI Snap-to-Value (camera-first). New ios/GradeThread/Snap/:
+- SnapTypes.swift: SnapResponse/SnapGrade/SnapValue (decoded with
+  .convertFromSnakeCase, matching /api/grade/snap).
+- SnapService.swift: POST /api/grade/snap with the Supabase bearer token (mirrors
+  AIExtractService); image sent as a base64 data-URI; injectable URLSession.
+- SnapStore.swift: @MainActor view-model; compresses+EXIF-strips via
+  PhotoCompressor before upload.
+- CameraPicker.swift: UIImagePickerController(.camera) wrapper (guarded by
+  isSourceTypeAvailable); PhotoLibraryPicker (existing PHPicker) for library.
+- SnapView.swift: photo -> "What's it worth?" -> big grade + value range +
+  estimate disclaimer + CTAs ("Get certified grade" -> add/capture flow,
+  "List it" -> inventory).
+- DashboardView: "What's it worth?" quick-action presents the sheet.
+
+XcodeGen auto-includes the new files (project.yml globs GradeThread/); camera +
+photo-library usage strings already declared. Symbols all verified against the
+existing app; ios-ci.yml build will validate on push (no local Xcode here).
+
+THE WHOLE ScoutAI + Snap-to-Value + Condition Index cluster (US-610..623) IS NOW
+COMPLETE -- 14/14 stories. prd.json 437/623.

@@ -9136,7 +9136,7 @@
         "Reuses the existing iOS auth + camera/upload stack"
       ],
       "priority": 613,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][SnapToValue][iOS] Fast-follow to US-612; web is the launch surface. The 'Shazam for what your clothes are worth' moment."
     },
     {
