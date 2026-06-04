@@ -13,6 +13,7 @@ import {
   Combine,
   Wand2,
   FolderOpen,
+  Images,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { compressImage } from "@/lib/image-utils";
@@ -187,6 +189,26 @@ export function FlipdeskAutolisterPage() {
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Google Photos import: whether the server has it configured, and an
+  // in-flight flag while the user picks photos in the Google popup.
+  const [gpConfigured, setGpConfigured] = useState(false);
+  const [gpImporting, setGpImporting] = useState(false);
+
+  // One-time check whether Google Photos import is configured server-side, so
+  // we only show the button when it'll actually work.
+  useEffect(() => {
+    if (!entitled) return;
+    let cancelled = false;
+    void edgeFetch("/api/flipdesk/google/photos/config")
+      .then((r) => r.json())
+      .then((j: { configured?: boolean }) => {
+        if (!cancelled) setGpConfigured(!!j.configured);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [entitled]);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -323,6 +345,124 @@ export function FlipdeskAutolisterPage() {
           duration: 8_000,
         },
       );
+    }
+  }
+
+  // Google Photos import: open the Google-hosted picker in a popup, poll
+  // until the user finishes, then the edge downloads+validates the picks and
+  // returns staged URLs (with capture time, so auto-grouping works on them).
+  async function importFromGooglePhotos() {
+    if (gpImporting || !ownerId) return;
+    setGpImporting(true);
+    let popup: Window | null = null;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      setGpImporting(false);
+    };
+
+    try {
+      const startRes = await edgeFetch("/api/flipdesk/google/photos/oauth/start");
+      if (startRes.status === 503) {
+        toast.error("Google Photos import isn't configured yet.");
+        setGpImporting(false);
+        return;
+      }
+      const start = (await startRes.json()) as {
+        session_id?: string;
+        consent_url?: string;
+        error?: string;
+      };
+      if (!startRes.ok || !start.session_id || !start.consent_url) {
+        toast.error(start.error || "Could not start Google Photos import.");
+        setGpImporting(false);
+        return;
+      }
+      const sessionId = start.session_id;
+      popup = window.open(start.consent_url, "gphotos", "width=620,height=760");
+      if (!popup) {
+        toast.error("Please allow popups to import from Google Photos.");
+        setGpImporting(false);
+        return;
+      }
+      toast.info("Pick your photos in the Google window — they'll appear here when you're done.", {
+        duration: 8000,
+      });
+
+      const startedAt = Date.now();
+      const doImport = async () => {
+        const imp = await edgeFetch(
+          `/api/flipdesk/google/photos/import?session=${sessionId}`,
+          { method: "POST" },
+        );
+        const ij = (await imp.json()) as {
+          photos?: Array<{
+            url: string;
+            storagePath: string;
+            width: number | null;
+            height: number | null;
+            bytes: number;
+            capturedAtMs: number | null;
+          }>;
+        };
+        const added: StagedPhoto[] = (ij.photos ?? []).map((p) => ({
+          id: crypto.randomUUID(),
+          url: p.url,
+          storagePath: p.storagePath,
+          thumbnailUrl: null,
+          thumbnailStoragePath: null,
+          width: p.width,
+          height: p.height,
+          bytes: p.bytes,
+          capturedAtMs: p.capturedAtMs,
+          phash: "",
+        }));
+        if (added.length > 0) {
+          setStaged((prev) => [...prev, ...added]);
+          toast.success(
+            `Imported ${added.length} photo${added.length === 1 ? "" : "s"} from Google Photos.`,
+          );
+        } else {
+          toast.warning("No photos were imported.");
+        }
+      };
+
+      timer = setInterval(() => {
+        void (async () => {
+          const closed = !!popup && popup.closed;
+          const timedOut = Date.now() - startedAt > 4 * 60_000;
+          let ready = false;
+          try {
+            const pr = await edgeFetch(
+              `/api/flipdesk/google/photos/poll?session=${sessionId}`,
+            );
+            ready = !!((await pr.json()) as { ready?: boolean }).ready;
+          } catch {
+            /* transient — keep polling */
+          }
+          if (ready) {
+            stop();
+            popup?.close();
+            try {
+              await doImport();
+            } catch (err) {
+              toast.error(
+                `Google Photos import failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
+            return;
+          }
+          if (closed || timedOut) {
+            stop();
+            if (closed) toast.info("Google Photos import cancelled.");
+          }
+        })();
+      }, 2500);
+    } catch (err) {
+      toast.error(
+        `Could not start Google Photos: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      stop();
     }
   }
 
@@ -640,7 +780,7 @@ export function FlipdeskAutolisterPage() {
             iPhone HEIC supported. Resized &amp; compressed in your browser before upload.
           </span>
         </button>
-        <div className="mt-2 flex justify-center">
+        <div className="mt-2 flex flex-wrap justify-center gap-2">
           <Button
             type="button"
             size="sm"
@@ -651,6 +791,22 @@ export function FlipdeskAutolisterPage() {
             <FolderOpen className="mr-1.5 h-4 w-4" />
             Pick a folder
           </Button>
+          {gpConfigured && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void importFromGooglePhotos()}
+              disabled={!entitled || gpImporting}
+            >
+              {gpImporting ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <Images className="mr-1.5 h-4 w-4" />
+              )}
+              Import from Google Photos
+            </Button>
+          )}
         </div>
       </Card>
 
