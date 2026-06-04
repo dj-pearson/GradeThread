@@ -4,6 +4,10 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import {
+  remainingFraction as prorationRemainingFraction,
+  unusedProrationCents,
+} from "../lib/proration.ts";
 
 // Admin billing routes (US-221). All endpoints require admin role —
 // mounted with both authMiddleware + adminAuthMiddleware in main.ts.
@@ -97,10 +101,15 @@ async function recordAdminEvent(
 // existing Stripe subscription. For free → paid: errors (admin should email
 // the user a magic-link to Checkout — we don't store cards on file).
 adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
+  // US-399: changing a paying customer's plan (incl. an immediate cancel) is
+  // destructive — require a fresh MFA step-up like refunds.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
   const adminId = c.get("userId");
   const targetUserId = c.req.param("id");
 
-  let body: { plan?: unknown; interval?: unknown };
+  let body: { plan?: unknown; interval?: unknown; prorate?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -109,6 +118,10 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
 
   const plan = body.plan as string | undefined;
   const interval = (body.interval as string | undefined) ?? "monthly";
+  // US-399: when true, automatically refund the unused-time proration on an
+  // immediate paid→free cancel. Default false: the proration is still computed
+  // and SURFACED in the response + audit log so the admin can act on it.
+  const prorate = body.prorate === true;
 
   if (plan !== "free" && plan !== "starter" && plan !== "pro" && plan !== "business") {
     return c.json({ error: "plan must be one of: free, starter, pro, business" }, 400);
@@ -144,24 +157,98 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
     const stripe = getStripe();
     if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
+    const subId = targetUser.flipdesk_subscription_id;
+
+    // US-399: SURFACE the proration so the customer isn't silently uncredited.
+    // Compute the unused-time value from the REAL amount paid on the latest
+    // invoice (so coupons / grandfathered prices are reflected, not the list
+    // price). Best-effort: a preview failure must NOT block the cancel.
+    let unusedCents = 0;
+    let basePaidCents = 0;
+    let remainingFraction = 0;
+    let prorationComputed = false;
+    let paymentIntentId: string | null = null;
     try {
-      // Cancel immediately (no prorated refund — admin should issue separately if needed).
-      await stripe.subscriptions.cancel(targetUser.flipdesk_subscription_id);
+      const sub = await stripe.subscriptions.retrieve(subId, {
+        expand: ["latest_invoice"],
+      });
+      const nowSec = Math.floor(Date.now() / 1000);
+      const start = sub.current_period_start ?? nowSec;
+      const end = sub.current_period_end ?? nowSec;
+      const inv = sub.latest_invoice && typeof sub.latest_invoice !== "string"
+        ? sub.latest_invoice
+        : null;
+      basePaidCents = inv?.amount_paid ?? (sub.items.data[0]?.price?.unit_amount ?? 0);
+      paymentIntentId = inv?.payment_intent
+        ? (typeof inv.payment_intent === "string" ? inv.payment_intent : inv.payment_intent.id)
+        : null;
+      remainingFraction = prorationRemainingFraction(start, end, nowSec);
+      unusedCents = unusedProrationCents({
+        basePaidCents,
+        periodStartSec: start,
+        periodEndSec: end,
+        nowSec,
+      });
+      prorationComputed = true;
+    } catch (err) {
+      console.error("[admin-billing] proration preview failed:", err);
+    }
+
+    try {
+      // Cancel immediately. Webhook sets flipdesk_plan='free' + status='canceled'.
+      await stripe.subscriptions.cancel(subId);
     } catch (err) {
       console.error("[admin-billing] cancel failed:", err);
       return c.json({ error: "Stripe cancel failed" }, 500);
     }
 
-    // Webhook will set flipdesk_plan='free' and subscription_status='canceled'.
-    await auditLog(c, "admin.change_plan", "user", targetUserId, {
+    // US-399: optionally AUTOMATE the refund of the unused portion.
+    let refundId: string | null = null;
+    let refundError: string | null = null;
+    if (prorate && unusedCents > 0 && paymentIntentId) {
+      try {
+        const r = await stripe.refunds.create({
+          payment_intent: paymentIntentId,
+          amount: unusedCents,
+          reason: "requested_by_customer",
+          metadata: { admin_changed_by: adminId, purpose: "plan_downgrade_proration" },
+        });
+        refundId = r.id;
+      } catch (err) {
+        refundError = err instanceof Error ? err.message : String(err);
+        console.error("[admin-billing] proration refund failed:", err);
+      }
+    }
+
+    const proration = {
+      unused_cents: unusedCents,
+      base_paid_cents: basePaidCents,
+      remaining_fraction: Number(remainingFraction.toFixed(4)),
+      computed: prorationComputed,
+    };
+    const outcome = {
       from_plan: fromPlan,
       to_plan: "free",
       method: "stripe_cancel_immediate",
-    });
-    await recordAdminEvent(targetUserId, adminId, fromPlan, "free", {
+      proration,
+      prorate_requested: prorate,
+      refunded: Boolean(refundId),
+      refund_id: refundId,
+      refund_amount_cents: refundId ? unusedCents : null,
+      refund_error: refundError,
+    };
+    await auditLog(c, "admin.change_plan", "user", targetUserId, outcome);
+    await recordAdminEvent(targetUserId, adminId, fromPlan, "free", outcome);
+    return c.json({
+      ok: true,
       method: "stripe_cancel_immediate",
+      proration,
+      prorate_requested: prorate,
+      refunded: Boolean(refundId),
+      refund_id: refundId,
+      refund_amount_cents: refundId ? unusedCents : null,
+      refund_error: refundError,
     });
-    return c.json({ ok: true, method: "stripe_cancel_immediate" });
   }
 
   // ─ Case 3: paid → paid (swap subscription price) ─
@@ -225,6 +312,10 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
 // grant_grade_credits RPC with reason='admin_grant'. The reason text is
 // stored in the ledger notes column for audit.
 adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
+  // US-399: granting credits mints value — require a fresh MFA step-up like refunds.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
   const adminId = c.get("userId");
   const targetUserId = c.req.param("id");
 
@@ -291,6 +382,10 @@ adminBillingRoutes.post("/users/:id/comp-credits", async (c) => {
 // Rare exception path (US-221): lets an admin extend or clear a user's Pro
 // trial window. Writes users.trial_ends_at directly and audit-logs before/after.
 adminBillingRoutes.post("/users/:id/set-trial", async (c) => {
+  // US-399: extending entitlement for free is destructive — require step-up.
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
   const adminId = c.get("userId");
   const targetUserId = c.req.param("id");
 

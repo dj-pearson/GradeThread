@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import { validateJson, z } from "../lib/validation.ts";
 import {
@@ -633,7 +634,7 @@ flipdeskGradingRoutes.get("/submissions/:id", async (c) => {
     .eq("id", id)
     .maybeSingle();
   if (error) {
-    return c.json({ error: "Lookup failed", detail: error.message }, 500);
+    return failSafe(c, 500, "Lookup failed", error, "flipdesk-grading.status");
   }
   if (!row) {
     return c.json({ error: "Submission not found" }, 404);

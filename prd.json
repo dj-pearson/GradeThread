@@ -5815,8 +5815,8 @@
         "Bypass-corpus tests (nested broken tags, javascript:/data: URIs) pass"
       ],
       "priority": 353,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. Files: services/edge-functions/src/lib/content-sanitize.ts, functions/_shared/blog-render.ts."
+      "passes": true,
+      "notes": "[P2][Security] DONE 2026-06-04. content-sanitize.ts rewritten as a real PARSER-BASED allowlist: a tokenizer (start/end/text/comment tokens) with a RAWTEXT state that consumes+drops <script>/<style>/<textarea>/<noscript>/etc., quote-aware attribute parsing, HTML-escaped text (entities preserved, not double-escaped), and an auto-balanced output tree (stray end tags dropped, open tags closed at EOF). Same allowlist policy + public sanitizeHtml() API, so publish callers (content-blog.ts, content-scheduler.ts) are unchanged. Blog SSR (functions/_shared/blog-render.ts) renders already-sanitized HTML and inherits the enforcing CSP from public/_headers (script-src no 'unsafe-inline'; object-src 'none'). Bypass-corpus tests: tests/content-sanitize_test.ts (nested/broken <scri<script>pt>, svg/style mutation, attribute-smuggled '>', javascript:/vbscript:/data: incl. \\t-obfuscated, non-YouTube iframes, bogus comments/CDATA). Logic verified via a Node port (24 payloads inert, 0 leaks); found+fixed an entity double-escape bug in escapeText."
     },
     {
       "id": "US-354",
@@ -5867,8 +5867,8 @@
         "Test: an aal1 admin token cannot reach admin routes"
       ],
       "priority": 357,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. Files: middleware/admin-auth.ts:46, lib/step-up.ts, lib/jwt-claims.ts."
+      "passes": true,
+      "notes": "[P1][Security] DONE 2026-06-04. (1) Startup assertion assertAdminMfaConfig() (env.ts) THROWS in production when ADMIN_MFA_ENFORCED=false unless an explicit ADMIN_MFA_ENROLLMENT_WINDOW=true escape hatch is set (which logs loudly); wired into main.ts before Deno.serve so a misconfigured prod deploy crashes instead of serving admin routes without AAL2. (2) Claims-decode coupling: authMiddleware now decodes aal/amr ONCE from the SAME token getUser() verified and stores it on c.var.authClaims; adminAuthMiddleware + requireStepUp read THAT (never re-decode the raw Authorization header). decodeJwtClaims now has a single call site (auth.ts). Fail-closed pure helper adminMfaBlocked(claims,enforced) (missing claims/aal1 -> blocked). Tests: tests/admin-mfa_test.ts (aal1 admin blocked, aal2 allowed, missing-claims blocked, prod+disabled throws, enrollment-window allowed). Logic verified via Node port (9/9)."
     },
     {
       "id": "US-358",
@@ -5880,8 +5880,8 @@
         "Add static.cloudflareinsights.com/cloudflareinsights.com only as needed (already added)"
       ],
       "priority": 358,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: public/_headers; MEMORY notes the hash-drift footgun."
+      "passes": true,
+      "notes": "[P3][Security] DONE 2026-06-04. Hash-drift footgun ELIMINATED (not just checked): the inline-bootstrap sha256 is regenerated from the BUILT (esbuild-minified) dist/index.html script and rewritten into dist/_headers by scripts/prerender.mjs (runs last in `npm run build`), so editing the bootstrap can never silently break the CSP. Pure helpers in scripts/csp-hash.mjs (extract bare <script>, sha256 CSP token, single-token replace; throws loudly if the script-src sha256 token is missing). img-src tightened from bare `https:` to an explicit allowlist (*.gradethread.com supabase storage/cdn, *.googleusercontent.com avatars/photos, *.ebayimg.com/*.ebaystatic.com comps, *.stripe.com, GA/GTM/doubleclick pixels) + data:/blob:. cloudflareinsights already present. Vitest: src/lib/seo/__tests__/csp-hash.test.ts (8 tests, PASS) + repo-shape guard (one inline bootstrap, one sha256 token). Frontend tsc clean."
     },
     {
       "id": "US-359",
@@ -5893,8 +5893,8 @@
         "Routes returning error.message are migrated to the helper"
       ],
       "priority": 359,
-      "passes": false,
-      "notes": "[P2][Security/Obs] Audit 2026-06-03. e.g. flipdesk-pricing.ts:201/234/269, verified.ts, sync-runs all return raw error.message."
+      "passes": true,
+      "notes": "[P2][Security/Obs] DONE 2026-06-04. (1) Shared helpers lib/http-errors.ts: jsonError(c,status,msg,code?) returns the consistent {error,code?} shape; failSafe(c,status,clientMsg,cause,tag,code?) logs the redacted raw cause server-side under a stable tag and returns a generic body (raw DB/provider text never reaches the client). (2) lib/log-redact.ts redact()/redactError() scrub JWTs, Bearer tokens, stripe/whsec/gt_ keys, eBay tokens, emails, and long signature/base64 blobs. (3) New middleware/access-log.ts replaces Hono logger(): logs only method+pathname(no query)+status+duration, NEVER request headers, so Authorization/X-API-Key/signatures can't leak; pathname run through redact(). (4) Global onError redacts before logging. Migrated the flagged user-facing raw-error returns: flipdesk-pricing.ts (list/apply/dismiss), verified.ts (get/update), flipdesk-reconciliation.ts (dismiss-payout), flipdesk-grading.ts (status), flipdesk-ebay.ts (sync-runs). Tests: tests/error-redaction_test.ts (redaction patterns + helper shape + failSafe never leaks raw cause). Redaction verified via Node port. Remaining admin-only error.message returns (behind admin+MFA) can adopt the helper incrementally."
     },
     {
       "id": "US-360",
@@ -6186,8 +6186,8 @@
         "Integration tests assert 402 CAP_REACHED/FEATURE_LOCKED for a Free user on each path"
       ],
       "priority": 382,
-      "passes": false,
-      "notes": "[P0][Billing] Audit 2026-06-03. requireFlipdesk is wired ONLY into flipdesk-autolister.ts; caps are effectively UI-only. File: lib/plan-gate.ts."
+      "passes": true,
+      "notes": "[P0][Billing] DONE 2026-06-04. requireFlipdesk (lib/plan-gate.ts, the single source of truth keyed on users.flipdesk_plan via effectivePlanFor) is now wired into the real endpoints, not just AutoLister/workspace: (1) listing publish POST /flipdesk/ebay/listings/push -> capacity activeListings (re-publish of an already-'listed' item passes delta=0 so it's never double-counted/blocked); (2) marketplace connect GET /flipdesk/ebay/oauth/start -> capacity marketplaces (reconnect of an existing active eBay connection passes delta=0 so it isn't blocked); (3) reconciliation -> router-level .use('*') feature gate 'reconciliation' (Business) on EVERY /flipdesk/reconciliation/* endpoint; (4) API keys POST /keys -> feature 'apiAccess' (Business), REPLACING the stale legacy users.plan 'professional'/'enterprise' check that mis-gated paid resellers; (5) bulk extraction POST /flipdesk/ai/bulk-extract -> feature 'bulkActions' (Pro) before any AI quota spend. subAccounts was already enforced (US-388). Tests: tests/plan-gate_test.ts extended -- Free->402 FEATURE_LOCKED on reconciliation/apiAccess/bulkActions, Pro cleared for bulkActions but still locked (requiredPlan business) on reconciliation/apiAccess, Business clears all; activeListings/marketplaces CAP_REACHED at the Free cap with delta=0 re-publish/reconnect allowed. Gate decisions verified via Node port (16/16)."
     },
     {
       "id": "US-383",
@@ -6250,8 +6250,8 @@
         "Concurrency test confirms N parallel requests at the boundary cannot exceed the cap"
       ],
       "priority": 387,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. flipdesk-ai.ts does check-then-increment (TOCTOU)."
+      "passes": true,
+      "notes": "[P1][Billing] DONE 2026-06-04. The single-action AI endpoints in flipdesk-ai.ts did checkQuota()->...work...->increment_ai_actions() (TOCTOU: concurrent requests both passed the check then both incremented, exceeding the monthly cap). Now ALL 8 billable sites (extract, suggest-aspects, listing-copy, bulk-extract per item, visual group-similar, classify modes A+B, suggest-item-match) reserve atomically via the existing row-locking CAS reserve_ai_action(p_user_id,p_limit) (migration 00087) BEFORE the AI call and refund_ai_action on failure; the trailing increment_ai_actions calls were removed. New reserveAiAction() helper fails CLOSED on a store error (a broken counter can't hand out free over-cap actions). checkQuota stays for the enablement gate + limit resolution + fast UX rejection. (The two autolister metering increments are unconditional meters with no preceding check -> not the TOCTOU bug; left as-is.) Tests: tests/ai-quota-concurrency_test.ts (env-gated, live-DB) fires 25 parallel reservations at a 3-slot boundary and asserts exactly 3 win, the counter lands exactly on the cap, and a further reservation is refused. flipdesk-ai.ts braces/parens balanced; frontend tsc clean."
     },
     {
       "id": "US-388",
@@ -6289,8 +6289,8 @@
         "Duplicate-delivery tests for charge.refunded and checkout.session.completed"
       ],
       "priority": 390,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03 (3 agents). Two idempotency systems; claimWebhookEvent fails open; handlers 200-anyway."
+      "passes": true,
+      "notes": "[P1][Billing] DONE 2026-06-04. One authoritative idempotency claim + fail-closed. claimWebhookEvent (processed_webhook_events) now returns a tri-state 'claimed'|'duplicate'|'error' (was a fail-OPEN boolean). The /stripe handler: duplicate->skip(2xx); error (claim couldn't be written)->FAIL CLOSED 500 so Stripe re-delivers (every Stripe event we handle moves money/entitlement, so processing without a durable claim risks a double-apply); claimed->process. recordEvent demoted to AUDIT-ONLY (writes flipdesk_subscription_events, no longer gates — removed `if(!proceed)return` at all 9 sites). Money side effects made idempotent on the Stripe object id as defense-in-depth: per_grade already guarded (.eq payment_status 'unpaid'); credit-pack grant_grade_credits made idempotent on the payment_intent (migration 00092 — short-circuits under the existing FOR UPDATE row lock if a pack_purchase ledger row for that payment_intent already exists). eBay webhook callers updated to the tri-state (skip on duplicate, fail-open on error — eBay events aren't money-moving). Tests: tests/webhook-idempotency_test.ts (tri-state + duplicate-delivery of charge.refunded & checkout.session.completed processed exactly once + transient-error). Logic verified via Node port (9/9). NOTE: handler-INTERNAL DB-failure retry (transient vs code-bug) is US-397's scope; this story covers the claim layer."
     },
     {
       "id": "US-391",
@@ -6302,8 +6302,8 @@
         "Webhook customer-link backfill reconciles multiple customers for one user"
       ],
       "priority": 391,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. Customer id is back-filled post-checkout via update .is(null)."
+      "passes": true,
+      "notes": "[P1][Billing] DONE 2026-06-04. New ensureStripeCustomer() lazily creates + persists EXACTLY ONE Stripe customer before the first Checkout and reuses it on every session: customers.create uses a STABLE idempotency key (customer-create:<uid>) so a concurrent first-checkout race resolves to a single Stripe customer; the id is persisted with a conditional .is('stripe_customer_id', null) update and, if another request won the race, the persisted winner is adopted (no orphan). All four checkout creators (flipdesk subscribe, credit-pack, per-grade, legacy subscribe) now bind sessionParams.customer = ensureStripeCustomer(...) instead of the old customer_email fallback that let Checkout mint duplicates. Stable session idempotency key added to subscribe (flipdesk-subscribe:<uid>:<plan>:<interval>); per-grade already keyed (US-394); credit-pack intentionally unkeyed (repeatable purchase). Webhook backfill reconciliation: new linkStripeCustomer() (pure reconcileCustomerLink in lib/stripe-customer.ts) sets-if-null / no-ops-on-match / on a DIFFERENT customer keeps the canonical stored id + alerts 'billing.multiple_stripe_customers' instead of silently repointing; used in handleCheckoutCompleted (both branches) and handleSubscriptionChange (which no longer blindly overwrites stripe_customer_id). Tests: tests/stripe-customer_test.ts (reconcile set/noop/conflict + stable key). Logic verified via Node port; frontend tsc clean."
     },
     {
       "id": "US-392",
@@ -6354,8 +6354,8 @@
         "Test: a subscription stuck in past_due loses paid caps after grace"
       ],
       "priority": 395,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. Only paused is special-cased; past_due keeps paid caps."
+      "passes": true,
+      "notes": "[P2][Billing] DONE 2026-06-04. A past_due subscription previously kept paid caps forever. Now: migration 00091 adds users.past_due_since; the webhook anchors it on the FIRST failed invoice (invoice.payment_failed) and PRESERVES it across retries (handleSubscriptionChange + payment_failed both use the pure nextPastDueSince(prevStatus, prevSince, nextStatus)), and CLEARS it on recovery to active (invoice.payment_succeeded sets past_due_since=null). effectivePlanFor (grade-pricing.ts) gains an optional pastDueSince + PAST_DUE_GRACE_MS (14 days): a past_due sub past the window reads as Free caps, inside the window keeps paid caps (fail-open when no anchor recorded yet). Threaded into plan-gate.loadUser/requireFlipdesk AND grade-billing.runPaymentPrecedence (so both caps + included-grade allowance respect dunning). Dunning end-states defined: canceled (NON_ENTITLING) and past_due/unpaid-past-grace both -> Free (mapSubscriptionStatus folds Stripe 'unpaid' into 'past_due'). Tests: grade-pricing_test.ts (in-grace keeps / past-grace Free / no-anchor keeps; nextPastDueSince anchor/preserve/clear). Logic verified via Node port (8/8)."
     },
     {
       "id": "US-396",
@@ -6379,8 +6379,8 @@
         "Transient vs code-bug failures are distinguished; dropped billing events alert"
       ],
       "priority": 397,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. webhooks.ts returns 200 and only console-logs DB failures."
+      "passes": true,
+      "notes": "[P2][Billing] DONE 2026-06-04. The /stripe handler swallowed handler DB-write failures with a 200 (Stripe never retried -> transitions permanently lost). Now critical handlers THROW on a DB write error (new failIfDbError() wraps the Supabase {error}) and the dispatcher DISTINGUISHES transient from code-bug: a TransientWebhookError -> RELEASE the idempotency claim (releaseWebhookEvent deletes the processed_webhook_events row) + return 500 so Stripe retries and RE-processes (safe because side effects are idempotent on the object id, US-390); any other thrown error (a code bug a retry can't fix) -> KEEP the claim, emit a 'billing.webhook_dropped' PostHog alert, return 200 (no retry storm). Converted 11 critical writes to failIfDbError: subscription change/delete transitions, cycle reset + past_due->active clear, past_due transition, credit-pack grant, per-grade paid flip, refund revoke, per-grade refund submission + certificate withhold. The audit-row write and the dispute soft-flag stay best-effort (non-throwing). Tests: tests/webhook-idempotency_test.ts extended (failIfDbError throws only on a DB error; isTransientWebhookError separates transient vs TypeError/Error; claim->release->reclaim proves a transient failure stays re-processable then dedupes once it succeeds). Logic verified via Node port (8/8). frontend tsc clean."
     },
     {
       "id": "US-398",
@@ -6392,8 +6392,8 @@
         "Concurrent debit + included-grant consistency test passes"
       ],
       "priority": 398,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. runPaymentPrecedence + refund_grade snapshot balance_after from non-atomic reads."
+      "passes": true,
+      "notes": "[P2][Billing] DONE 2026-06-04. Two ledger writes snapshotted balance_after from a NON-atomic read of grade_credit_balance (the zero-delta 'included_grant' row in runPaymentPrecedence and the zero-delta 'refund' row in refund_grade's included branch) -> a concurrent debit/grant made the snapshot a lie. Migration 00093: balance_after is now NULLABLE; both zero-delta audit rows write balance_after=NULL (no balance change to record) instead of a stale snapshot, and every balance-CHANGING write still goes through a row-locking RPC (grant/debit/revoke_grade_credits + refund_grade's credits branch) that computes balance_after under FOR UPDATE. Added credit_ledger_reconciliation() RPC that returns only users where SUM(delta) != grade_credit_balance (empty = consistent; doubles as a monitor) — the invariant holds because new users start at balance 0 and every balance change has a ledger row. Frontend: GradeCreditTransactionRow/BillingLedgerEntry balance_after -> number|null; activity-history-dialog hides 'bal' for null audit rows. Test: tests/ledger-consistency_test.ts (env-gated, live-DB) fires 40 parallel single-credit debits (2x balance) + zero-delta audit inserts and asserts no overspend (balance>=0) and credit_ledger_reconciliation() reports NO drift for the user. frontend tsc + vitest green."
     },
     {
       "id": "US-399",
@@ -6405,8 +6405,8 @@
         "Audit log captures the proration/refund outcome"
       ],
       "priority": 399,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. File: admin-billing.ts."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. admin-billing mutations now require a fresh MFA step-up like refunds: requireStepUp() added to /users/:id/change-plan, /comp-credits, and /set-trial (mirrors the existing /charges/:id/refund gate; relaxed only during the enrollment window via ADMIN_MFA_ENFORCED). The immediate paid->free cancel now SURFACES + optionally AUTOMATES proration: it computes the unused-time credit from the REAL amount paid on the latest invoice (so coupons/grandfathered prices are honored, via pure lib/proration.ts unusedProrationCents/remainingFraction), includes it in the response + audit log every time (surfaced), and when body.prorate===true issues a Stripe refund of that amount on the invoice's payment_intent (automated). The audit log + recordAdminEvent capture the full outcome: proration {unused_cents, base_paid_cents, remaining_fraction, computed}, prorate_requested, refunded, refund_id, refund_amount_cents, refund_error. Proration preview is best-effort (a failure never blocks the cancel). Tests: tests/proration_test.ts (clamping, coupon/grandfathered base, 100%-off, never-negative). Node port 9/9; frontend tsc + vitest green."
     },
     {
       "id": "US-400",
@@ -6417,8 +6417,8 @@
         "Grandfathered/coupon prices render correctly; graceful degradation if Stripe is unavailable"
       ],
       "priority": 400,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. billing.tsx shows the hardcoded plan price."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. The billing UI showed the static FLIPDESK_PLANS price; it now shows the REAL upcoming Stripe charge. GET /billing-summary fetches the subscription's upcoming invoice (stripe.invoices.retrieveUpcoming scoped to customer+subscription) in PARALLEL with the existing count/ledger queries and returns subscription.upcoming_invoice {amount_cents, currency, next_payment_at} — null for free users and degraded gracefully to null if Stripe is unavailable. billing.tsx derives nextChargeCents = upcoming_invoice.amount_cents ?? plan-table price and nextChargeDate = upcoming_invoice.next_payment_at ?? period_end, used in both the plan-price description and the 'Next charge $X on <date>' line, so coupons/grandfathered prices render correctly and the UI falls back to the plan table when no upcoming invoice is returned. Frontend types updated (BillingSummary.subscription.upcoming_invoice). frontend tsc + vitest green."
     },
     {
       "id": "US-401",
@@ -6429,8 +6429,8 @@
         "The dev-only fallback is gated behind an explicit non-prod flag; monitoring alerts if it executes"
       ],
       "priority": 401,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. payments.ts perGradeCheckout inline price_data disables tax."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. payments.ts perGradeCheckout's inline price_data fallback disables automatic_tax (an ad-hoc one-off price can't be tax-coded), so a missing GRADE_PRICE_IDS[tier] in production would mint an UNTAXED charge. Now: in production a missing price ID returns 503 'Pricing not configured' (mirrors /subscribe + /credit-pack) and emits a 'billing.missing_grade_price_id' PostHog alert + console.error; the inline-price_data fallback is retained ONLY for non-production (isProduction() gate) where price IDs aren't configured. Tax stays enabled on the real-price path."
     },
     {
       "id": "US-402",
@@ -6442,8 +6442,8 @@
         "Test: downgrade to a yearly plan clears pending state"
       ],
       "priority": 402,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. webhooks.ts clears pending only on exact plan-string match."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. Pending-downgrade clearing was keyed on an exact plan-STRING match (plan === pending_flipdesk_plan), which couldn't tell 'schedule just attached' from 'phase activated' and MISSED interval-only downgrades (pro/monthly -> pro/yearly, where the plan string never changes -> the 'Downgrade scheduled' banner stuck forever). Now keyed on the Stripe SCHEDULE lifecycle via pure shouldClearPendingDowngrade (lib/pending-downgrade.ts): Stripe releases the schedule (sub.schedule -> null, or a different id) once the final phase activates, so we clear when the tracked schedule is GONE AND the resolved plan+interval match the target — and, as a reconcile, when pending_effective_at has passed and the schedule is gone (so stale pending can't stick). handleSubscriptionChange computes incomingScheduleId from sub.schedule and feeds it + the pending_* columns (added pending_flipdesk_interval/pending_schedule_id/pending_effective_at to USER_SELECT) into the helper; the existing cleared-block already nulls all four pending_* columns. Tests: tests/pending-downgrade_test.ts (attach keeps banner; plan-downgrade activation clears; interval-only yearly activation clears; different/absent schedule id; stale reconcile; gone-but-unmatched-and-not-passed keeps). Node port 8/8; frontend tsc clean."
     },
     {
       "id": "US-403",

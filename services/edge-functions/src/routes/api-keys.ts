@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateApiKey, normalizeScopes } from "../lib/api-key.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 type ApiKeysEnv = {
   Variables: {
@@ -84,20 +85,13 @@ apiKeyRoutes.post("/", async (c) => {
     );
   }
 
-  // Check user's plan — only Professional and Enterprise can create API keys
-  const { data: user, error: userError } = await supabaseAdmin
-    .from("users")
-    .select("id, plan")
-    .eq("id", userId)
-    .single();
-
-  if (userError || !user) {
-    return c.json({ error: "User not found" }, 404);
-  }
-
-  if (user.plan !== "professional" && user.plan !== "enterprise") {
-    return c.json({ error: "API keys require a Professional or Enterprise plan" }, 403);
-  }
+  // US-382: API access is a gated feature. Enforce via the single source of
+  // truth (requireFlipdesk → users.flipdesk_plan), replacing the stale legacy
+  // users.plan check (the legacy 'professional'/'enterprise' values no longer
+  // track the live FlipDesk plan, so paid resellers were being mis-gated). A
+  // caller without the apiAccess feature gets 402 FEATURE_LOCKED.
+  const apiGate = await requireFlipdesk(c, { feature: "apiAccess", userId });
+  if (apiGate) return apiGate;
 
   // Limit number of API keys per user (max 10)
   const { count, error: countError } = await supabaseAdmin

@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-02
+# Last updated: 2026-06-04
 
 ## Completed Stories
 
@@ -3672,3 +3672,312 @@ product decision):
   CAP_REACHED).
 
 prd.json 379/524.
+
+
+## Session Notes (2026-06-04) -- Security hardening cluster US-353/357/358/359
+
+Took the highest-priority remaining coherent cluster: the code-implementable
+security stories from the prod-readiness audit (US-350..US-368 band). Picked the
+four that are fully implementable + verifiable offline (no live infra needed),
+leaving the infra/live-verification ones (US-350 CI fixture, US-354 CF-only
+origin, US-364/365 live eBay, US-368 GoTrue captcha) for an environment with
+Deno + CI + the live providers. Deno could not be installed this session
+(deno.land blocked by network policy), so edge logic was verified via Node ports
+of the pure functions; the frontend Vitest + tsc were run for real.
+
+US-353 Replace regex HTML sanitizer with an allowlist DOM/parser sanitizer
+[P2][Security] -- COMPLETED, passes=true.
+- services/edge-functions/src/lib/content-sanitize.ts rewritten as a real
+  PARSER-BASED pipeline: a tokenizer emits start/end/text/comment tokens with a
+  RAWTEXT state that consumes + DROPS <script>/<style>/<textarea>/<noscript>/
+  <iframe>-content/etc. wholesale (defeats the <scri<script>pt> /
+  <svg><style><img onerror> mutation bypasses a naive .replace() leaves behind),
+  quote-aware attribute parsing (a '>' inside an attr can't close the tag),
+  HTML-escaped text nodes (existing entities preserved, not double-escaped), and
+  an auto-balanced output tree (stray end tags dropped, open tags closed at EOF).
+- Same allowlist policy + same public sanitizeHtml() signature, so the publish
+  callers (content-blog.ts, content-scheduler.ts) are untouched. The render side
+  (functions/_shared/blog-render.ts) emits already-sanitized HTML and inherits
+  the enforcing CSP from public/_headers (script-src no 'unsafe-inline';
+  object-src 'none') -- publish-time is the single gate.
+- tests/content-sanitize_test.ts: bypass corpus (nested/broken script, svg/style
+  mutation, attr-smuggled '>', javascript:/vbscript:/data: incl. \t-obfuscated,
+  non-YouTube iframes, bogus comments/CDATA) + positive structure/entity cases.
+- Verified via a Node port: 24 payloads inert, 0 leaks. Found + fixed a real
+  entity double-escape bug (sticky-regex lastIndex vs leading '&') while at it.
+
+US-357 Guard admin MFA enforcement flag + claims-decode coupling [P1][Security]
+-- COMPLETED, passes=true.
+- Startup assertion assertAdminMfaConfig() (lib/env.ts) THROWS in production when
+  ADMIN_MFA_ENFORCED=false, UNLESS an explicit ADMIN_MFA_ENROLLMENT_WINDOW=true
+  escape hatch is set (logs a loud warning). Wired into main.ts before
+  Deno.serve, so a misconfigured prod deploy crashes loudly instead of serving
+  admin routes with the AAL2 gate silently off.
+- Claims-decode coupling: authMiddleware now decodes aal/amr ONCE from the SAME
+  token getUser() just verified and stores it on c.var.authClaims;
+  adminAuthMiddleware + requireStepUp read THAT, never re-decoding the raw
+  Authorization header. decodeJwtClaims now has a single call site (auth.ts).
+  Fail-closed pure helper adminMfaBlocked(claims, enforced) (missing claims or
+  aal1 -> blocked).
+- tests/admin-mfa_test.ts (aal1 admin blocked, aal2 allowed, missing-claims
+  blocked; prod+disabled throws, enrollment-window allowed, dev no-op). Logic
+  verified via Node port (9/9).
+
+US-358 Tighten CSP + remove the inline-hash footgun [P3][Security] -- COMPLETED,
+passes=true.
+- Hash-drift ELIMINATED, not merely checked: scripts/prerender.mjs (runs last in
+  `npm run build`) now regenerates the inline-bootstrap sha256 from the BUILT
+  (esbuild-minified) dist/index.html script and rewrites dist/_headers, so
+  editing the bootstrap can never silently break the CSP again. Pure helpers in
+  scripts/csp-hash.mjs (extract bare <script>, sha256 CSP token, single-token
+  replace) throw loudly if the script-src sha256 token is missing.
+  NOTE: the committed public/_headers sha256 was already STALE vs the source
+  script (esbuild minifies it at build), which is exactly the footgun -- the
+  build-time sync makes the served hash authoritative regardless.
+- img-src tightened from bare `https:` to an explicit allowlist
+  (*.gradethread.com supabase storage/cdn, *.googleusercontent.com avatars/
+  photos, *.ebayimg.com/*.ebaystatic.com comps, *.stripe.com, GA/GTM/doubleclick
+  pixels) + data:/blob:. cloudflareinsights already present.
+- src/lib/seo/__tests__/csp-hash.test.ts (8 tests) -- RAN, PASS. Frontend
+  `tsc --noEmit` -- RAN, clean. Full Vitest: 175 pass / 1 pre-existing failure
+  (responsive-images.test.ts needs a prior `npm run build`, unrelated).
+
+US-359 Standardize edge error responses and redact logs [P2][Security/Obs] --
+COMPLETED, passes=true.
+- lib/http-errors.ts: jsonError(c,status,msg,code?) returns the consistent
+  {error, code?} shape; failSafe(c,status,clientMsg,cause,tag,code?) logs the
+  REDACTED raw cause server-side under a stable tag and returns a generic body
+  (raw DB/provider text never reaches the client).
+- lib/log-redact.ts redact()/redactError() scrub JWTs, Bearer tokens,
+  stripe/whsec/gt_ keys, eBay tokens, emails, and long signature/base64 blobs.
+- middleware/access-log.ts replaces Hono logger(): logs only method + pathname
+  (no querystring) + status + duration, NEVER request headers, so
+  Authorization/X-API-Key/signatures can't land in a sink; pathname run through
+  redact(). Global onError now redacts before logging.
+- Migrated the flagged user-facing raw-error returns: flipdesk-pricing.ts
+  (list/apply/dismiss), verified.ts (get/update), flipdesk-reconciliation.ts
+  (dismiss-payout), flipdesk-grading.ts (status), flipdesk-ebay.ts (sync-runs).
+  Remaining admin-only error.message returns (behind admin+MFA) can adopt the
+  helper incrementally.
+- tests/error-redaction_test.ts (redaction patterns + helper shape + failSafe
+  never leaks the raw cause). Redaction verified via Node port.
+
+prd.json 383/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Server-side plan enforcement + dunning US-382/395/401
+
+Continued into the next highest-priority cluster: server-side billing/plan
+enforcement (the US-382..US-402 band). Took the P0 anchor + two focused
+correctness fixes. Deno still couldn't be installed (deno.land blocked), so edge
+logic was verified via Node ports of the pure decision functions; frontend tsc
+re-run clean.
+
+US-382 Enforce FlipDesk plan caps + feature gates server-side [P0][Billing] --
+COMPLETED, passes=true.
+- requireFlipdesk (the single source of truth in lib/plan-gate.ts, keyed on
+  users.flipdesk_plan via effectivePlanFor) was wired ONLY into autolister +
+  workspace, so caps were effectively UI-only. Now wired into the real paths:
+  • POST /flipdesk/ebay/listings/push -> capacity activeListings. Re-publish of
+    an item already in status 'listed' passes delta=0 so a revise is never
+    blocked or double-counted.
+  • GET /flipdesk/ebay/oauth/start -> capacity marketplaces. A reconnect of an
+    existing ACTIVE eBay connection passes delta=0 so it isn't blocked (only a
+    genuinely new marketplace counts +1).
+  • /flipdesk/reconciliation/* -> router .use('*') feature gate 'reconciliation'
+    (Business) on every endpoint.
+  • POST /keys -> feature 'apiAccess' (Business), REPLACING the stale legacy
+    users.plan 'professional'/'enterprise' check (those values no longer track
+    the live FlipDesk plan, so paid resellers were mis-gated).
+  • POST /flipdesk/ai/bulk-extract -> feature 'bulkActions' (Pro) before any AI
+    quota is spent.
+  subAccounts was already enforced (US-388).
+- tests/plan-gate_test.ts extended: Free -> 402 FEATURE_LOCKED on
+  reconciliation/apiAccess/bulkActions; Pro clears bulkActions but stays locked
+  (requiredPlan=business) on reconciliation/apiAccess; Business clears all;
+  activeListings/marketplaces CAP_REACHED at the Free cap with delta=0
+  re-publish/reconnect allowed. Gate decisions verified via Node port (16/16).
+- NOT done here: an HTTP-level integration harness (needs Deno + a seeded DB);
+  the injected-deps gate tests cover the same decisions offline.
+
+US-395 Downgrade entitlement on exhausted dunning [P2][Billing] -- COMPLETED,
+passes=true.
+- A past_due subscription kept paid caps forever. Added users.past_due_since
+  (migration 00091); the webhook anchors it on the FIRST failed invoice and
+  PRESERVES it across retries (pure nextPastDueSince(prevStatus, prevSince,
+  nextStatus) used by both handleSubscriptionChange and the payment_failed
+  handler), and CLEARS it on recovery (payment_succeeded -> active sets null).
+- effectivePlanFor gains optional pastDueSince + PAST_DUE_GRACE_MS (14 days): a
+  past_due sub past the window reads as Free caps; inside the window keeps paid
+  caps; fail-open while no anchor is recorded yet. Threaded into
+  plan-gate.loadUser/requireFlipdesk AND grade-billing.runPaymentPrecedence so
+  caps + included-grade allowance both respect dunning.
+- Dunning end-states defined: canceled (NON_ENTITLING) and past_due/unpaid past
+  grace both -> Free (mapSubscriptionStatus folds Stripe 'unpaid' into
+  'past_due'). Tests in grade-pricing_test.ts (in-grace / past-grace / no-anchor
+  + nextPastDueSince anchor/preserve/clear). Verified via Node port (8/8).
+
+US-401 Prevent the per-grade price_data fallback from bypassing tax in prod
+[P3][Billing] -- COMPLETED, passes=true.
+- payments.ts perGradeCheckout's inline price_data fallback disables
+  automatic_tax (an ad-hoc one-off price can't be tax-coded). In production a
+  missing GRADE_PRICE_IDS[tier] now returns 503 'Pricing not configured'
+  (mirrors /subscribe + /credit-pack) + a 'billing.missing_grade_price_id'
+  PostHog alert + console.error; the inline fallback is gated behind
+  isProduction()===false (dev/local only). Tax stays enabled on the real-price
+  path.
+
+prd.json 386/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Webhook/Stripe integrity P1s US-387/390/391
+
+Took the three P1 webhook/Stripe-integrity stories. Deno still uninstallable
+(deno.land blocked), so edge logic verified via Node ports of the pure decision
+functions + balance checks; frontend tsc re-run clean. New Deno tests committed
+but not run this session.
+
+US-387 Make AI-action quota check+increment atomic [P1][Billing] -- COMPLETED.
+- flipdesk-ai.ts's single-action endpoints did checkQuota()->work->increment_
+  ai_actions() (TOCTOU). All 8 billable sites (extract, suggest-aspects,
+  listing-copy, bulk-extract per item, visual group-similar, classify A+B,
+  suggest-item-match) now RESERVE atomically via the existing row-locking CAS
+  reserve_ai_action(p_user_id,p_limit) (migration 00087) BEFORE the AI call and
+  refund_ai_action() on failure; trailing increment_ai_actions removed. New
+  reserveAiAction() fails CLOSED on a store error. checkQuota stays for the
+  enablement gate + limit + fast UX rejection. The two autolister metering
+  increments have no preceding check (not the TOCTOU bug) and are left as-is.
+- tests/ai-quota-concurrency_test.ts (env-gated, live-DB): 25 parallel
+  reservations at a 3-slot boundary -> exactly 3 win, counter lands on the cap,
+  next reservation refused.
+
+US-390 Single-source, fail-closed webhook idempotency for money events
+[P1][Billing] -- COMPLETED.
+- claimWebhookEvent (processed_webhook_events) is now the SINGLE authoritative
+  claim and returns a tri-state 'claimed'|'duplicate'|'error' (was a fail-OPEN
+  boolean). /stripe: duplicate->skip 2xx; error->FAIL CLOSED 500 (Stripe
+  re-delivers — every event moves money/entitlement, so no durable claim = don't
+  process); claimed->process. recordEvent demoted to AUDIT-ONLY (no longer
+  gates; removed `if(!proceed)return` at all 9 sites).
+- Money side effects idempotent on the Stripe object id: per_grade already
+  guarded (payment_status='unpaid'); credit-pack grant_grade_credits made
+  idempotent on the payment_intent (migration 00092 — short-circuits under the
+  existing FOR UPDATE user-row lock if a pack_purchase ledger row for that
+  payment_intent already exists).
+- eBay webhook callers moved to the tri-state (skip on duplicate; fail-open on
+  error since eBay events aren't money-moving).
+- tests/webhook-idempotency_test.ts (tri-state + dup-delivery of charge.refunded
+  & checkout.session.completed once + transient error). Node port 9/9.
+- Handler-INTERNAL DB-failure retry (transient vs code-bug) is US-397's scope.
+
+US-391 Ensure a single Stripe customer with idempotency keys [P1][Billing] --
+COMPLETED.
+- New ensureStripeCustomer(): lazily creates + persists ONE customer before the
+  first Checkout; customers.create uses a STABLE idempotency key
+  (customer-create:<uid>) so a concurrent first-checkout race yields a single
+  customer; persisted via conditional .is(null) update with adopt-the-winner on
+  a lost race (no orphan). All four checkout creators (flipdesk subscribe,
+  credit-pack, per-grade, legacy subscribe) bind sessionParams.customer to it,
+  replacing the customer_email fallback that let Checkout mint duplicates.
+- Stable session idempotency key added to subscribe; per-grade already keyed
+  (US-394); credit-pack intentionally unkeyed (repeatable purchase).
+- Webhook reconciliation: linkStripeCustomer() (pure reconcileCustomerLink in
+  lib/stripe-customer.ts) set-if-null / no-op-on-match / keep-canonical+alert
+  ('billing.multiple_stripe_customers') on a mismatch; used in
+  handleCheckoutCompleted (both branches) and handleSubscriptionChange (which no
+  longer blind-overwrites stripe_customer_id).
+- tests/stripe-customer_test.ts (reconcile set/noop/conflict + stable key).
+  Node port 4/4.
+
+prd.json 389/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Webhook retry + ledger consistency US-397/398
+
+Completed the two billing-reliability siblings of the US-390/391 work. Deno still
+uninstallable (deno.land blocked); edge logic verified via Node ports + balance
+checks; frontend tsc + vitest re-run green (the lone vitest failure is the
+pre-existing responsive-images test that needs a prior `npm run build`).
+
+US-397 Retry critical webhook handlers on DB write failure [P2][Billing] --
+COMPLETED, passes=true.
+- The /stripe handler swallowed handler DB-write failures with 200 -> Stripe
+  never retried -> subscription-state transitions were permanently lost.
+- New failIfDbError() (webhook-idempotency.ts) THROWS a TransientWebhookError on
+  a Supabase {error}; the dispatcher now distinguishes:
+    • TransientWebhookError -> releaseWebhookEvent() deletes the claim row +
+      return 500, so Stripe re-delivers and RE-processes (safe: side effects are
+      idempotent on the Stripe object id, US-390).
+    • any other thrown error (code bug) -> KEEP the claim, emit a
+      'billing.webhook_dropped' PostHog alert, return 200 (no retry storm).
+- Converted 11 critical writes to failIfDbError (sub change/delete, cycle reset,
+  past_due transitions, credit grant, per-grade paid flip, refund revoke,
+  per-grade refund submission + cert withhold). Audit-row write + dispute
+  soft-flag stay best-effort.
+- tests/webhook-idempotency_test.ts extended: failIfDbError throw-only-on-error;
+  isTransientWebhookError vs TypeError/Error; claim->release->reclaim->dedupe.
+  Node port 8/8.
+
+US-398 Make all credit-ledger writes balance-consistent [P2][Billing] --
+COMPLETED, passes=true.
+- Two zero-delta audit rows (included_grant in runPaymentPrecedence, included
+  'refund' in refund_grade) snapshotted balance_after from a NON-atomic read ->
+  drift under concurrency.
+- Migration 00093: balance_after made NULLABLE; both zero-delta rows now write
+  NULL (no balance change to record) instead of a stale snapshot. Every
+  balance-CHANGING write already flows through a row-locking RPC
+  (grant/debit/revoke_grade_credits + refund_grade credits branch) that computes
+  balance_after under FOR UPDATE.
+- Added credit_ledger_reconciliation() RPC: returns only users where
+  SUM(delta) != grade_credit_balance (empty = consistent). Invariant holds
+  because new users start at 0 and every balance change has a ledger row.
+- Frontend: balance_after -> number|null (GradeCreditTransactionRow +
+  BillingLedgerEntry); activity-history-dialog hides 'bal' for null audit rows.
+- tests/ledger-consistency_test.ts (env-gated, live-DB): 40 parallel debits
+  (2x balance) + zero-delta inserts -> no overspend + reconciliation reports no
+  drift.
+
+prd.json 391/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Finish billing band US-399/400/402
+
+Closed the last three open stories in the 382-402 billing band (band now 100%).
+Deno still uninstallable; edge logic verified via Node ports; frontend tsc +
+vitest re-run green (lone failure = pre-existing responsive-images build test).
+
+US-399 Require step-up MFA + proration on admin billing mutations [P3] -- DONE.
+- requireStepUp() added to admin /users/:id/change-plan, /comp-credits,
+  /set-trial (mirrors the existing /charges/:id/refund gate).
+- Immediate paid->free cancel now SURFACES proration (computed from the REAL
+  amount paid on the latest invoice via pure lib/proration.ts so coupons/
+  grandfathered prices are honored) and AUTOMATES a Stripe refund of the unused
+  portion when body.prorate===true. Audit log + recordAdminEvent capture the
+  full outcome (proration, prorate_requested, refunded, refund_id,
+  refund_amount_cents, refund_error). Preview is best-effort (never blocks the
+  cancel). Tests: tests/proration_test.ts (Node port 9/9).
+
+US-400 Show the real upcoming Stripe charge in billing UI [P3] -- DONE.
+- GET /billing-summary now fetches the subscription's upcoming invoice
+  (stripe.invoices.retrieveUpcoming, customer+subscription) IN PARALLEL with the
+  count/ledger queries and returns subscription.upcoming_invoice
+  {amount_cents, currency, next_payment_at} — null for free users + graceful
+  degradation to null if Stripe is down.
+- billing.tsx derives nextChargeCents/nextChargeDate from upcoming_invoice with
+  a fallback to the FLIPDESK_PLANS table; used in the plan-price description AND
+  the 'Next charge $X on <date>' line so coupons/grandfathered prices render
+  correctly. Frontend types updated.
+
+US-402 Key pending-downgrade clearing on the schedule, not plan-string [P3] --
+DONE.
+- Pure shouldClearPendingDowngrade (lib/pending-downgrade.ts): clears when the
+  Stripe schedule is GONE (sub.schedule -> null or a different id, i.e. phase
+  activated + released) AND the resolved plan+interval match the target; plus a
+  stale-reconcile path (effective date passed + schedule gone). Fixes
+  interval-only downgrades (pro/monthly -> pro/yearly) the plan-string match
+  missed, and stops premature clearing on schedule-attach.
+- handleSubscriptionChange computes incomingScheduleId + feeds the pending_*
+  columns (added to USER_SELECT) into the helper. Tests:
+  tests/pending-downgrade_test.ts (Node port 8/8).
+
+BILLING BAND 382-402 COMPLETE (0 open). prd.json 394/568.

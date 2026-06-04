@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/middleware";
-import { logger } from "hono/middleware";
+import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
@@ -47,7 +47,8 @@ import { rateLimiter } from "./middleware/rate-limit.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
-import { assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
+import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
+import { redactError } from "./lib/log-redact.ts";
 
 const app = new Hono();
 
@@ -99,7 +100,10 @@ app.use("*", async (c, next) => {
 });
 
 // Middleware
-app.use("*", logger());
+// US-359: custom access logger (never logs request headers / querystrings) in
+// place of Hono's logger(), so Authorization / X-API-Key / signatures can't
+// leak into log sinks.
+app.use("*", accessLogger);
 app.use(
   "*",
   cors({
@@ -344,13 +348,20 @@ app.onError((err, c) => {
   if (err instanceof BodyTooLargeError) {
     return c.json({ error: "Request body too large", maxBytes: err.maxBytes }, 413);
   }
-  console.error("Unhandled error:", err);
+  // US-359: redact before logging (no PII/secrets in the sink) and return a
+  // generic body — never the raw error text.
+  console.error("Unhandled error:", redactError(err));
   return c.json({ error: "Internal server error" }, 500);
 });
 
 // Fail-closed safety net: warn loudly if a security-weakening debug flag is
 // set in production (the flag is already ignored by isDebugAllowed). (US-266)
 assertNoProdDebugFlags();
+
+// US-357: refuse to boot in production with admin MFA silently disabled. Throws
+// here (before Deno.serve) so a misconfigured deploy crashes loudly instead of
+// serving admin routes without the AAL2 gate.
+assertAdminMfaConfig();
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
 console.log(`Edge functions running on port ${port}`);
