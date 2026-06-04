@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateListing } from "../lib/ai-listing.ts";
+import { classifyPhotoRoles } from "../lib/ai-photo-roles.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
@@ -25,6 +26,10 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 // before any job is created; batch/job reads join through batch.user_id.
 
 const MAX_BATCH_ITEMS = 100; // matches the "100 listings in one batch" target
+// US-533: a single group's photo set passed to the cover/role vision pass.
+// One item rarely has more than a handful of shots; the cap bounds the vision
+// cost (and request size) of one classify call.
+const MAX_CLASSIFY_PHOTOS = 40;
 const CONCURRENCY = 3; // vision calls are heavy; mirror flipdesk-ai bulk-extract
 
 // US-526: hard wall-clock cap on a single item's generation. generateListing
@@ -341,6 +346,78 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
 // POST /batch/:id/retry-failed  —  re-runs ONLY the failed jobs in this batch
 // against the same item set (US-318/US-325). Quota is re-checked + reserved
 // atomically per item, so retries can't bypass the monthly cap.
+// US-533: POST /classify-photos — vision pass over one group's staged photos.
+// Returns { cover_id, roles: { photoId: role } } so the AutoLister can pick the
+// best cover and order/tag the listing gallery automatically. Stateless: it
+// classifies the photos the caller already staged; it writes nothing.
+//
+// Distinct from /api/flipdesk/ai/classify-photos (US-286), which classifies each
+// photo INDEPENDENTLY into a type and (Mode A) writes back to a committed item.
+// AutoLister needs a HOLISTIC pass that picks one best cover across the set, runs
+// BEFORE any item exists, and scopes by storage_path (not an arbitrary URL).
+//
+// Tenant safety (CLAUDE.md US-268): staged AutoLister photos live in item-photos
+// under the owner's `{ownerId}/...` folder. We refuse any storage_path outside
+// the caller's folder, so a forged path can't make us fetch another tenant's
+// image into the model.
+flipdeskAutolisterRoutes.post("/classify-photos", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { photos?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const rawPhotos = Array.isArray(body.photos) ? body.photos : [];
+  if (rawPhotos.length === 0) {
+    return c.json({ error: "photos must be a non-empty array" }, 400);
+  }
+  if (rawPhotos.length > MAX_CLASSIFY_PHOTOS) {
+    return c.json(
+      { error: `At most ${MAX_CLASSIFY_PHOTOS} photos can be classified at once.` },
+      400,
+    );
+  }
+
+  // Paid-tier gate (same as generation): the cover/role pass is an AI feature.
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  const photos: { id: string; url: string }[] = [];
+  for (const raw of rawPhotos) {
+    const id = typeof (raw as { id?: unknown })?.id === "string"
+      ? (raw as { id: string }).id
+      : "";
+    const path = typeof (raw as { storage_path?: unknown })?.storage_path === "string"
+      ? (raw as { storage_path: string }).storage_path
+      : "";
+    if (!id || !path) {
+      return c.json({ error: "Each photo needs an id and storage_path." }, 400);
+    }
+    if (!path.startsWith(`${ownerId}/`)) {
+      return c.json({ error: "A photo is not owned by the caller." }, 403);
+    }
+    const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
+      .data.publicUrl;
+    photos.push({ id, url });
+  }
+
+  try {
+    const result = await classifyPhotoRoles(photos);
+    // Meter the AI action for usage parity with the other vision endpoints.
+    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    return c.json({ cover_id: result.coverId, roles: result.roles });
+  } catch (err) {
+    console.error("[AutoLister] classify-photos failed", err);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Photo classification failed." },
+      502,
+    );
+  }
+});
+
 flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const batchId = c.req.param("id");

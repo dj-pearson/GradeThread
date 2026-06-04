@@ -368,6 +368,30 @@ Deno.test({
   },
 });
 
+// US-533: the AutoLister cover/role pass classifies caller-staged photos by
+// storage_path. A path outside the caller's own `{ownerId}/...` folder must be
+// refused before any image is fetched — so B can't make us read another
+// tenant's staged photo into the model. (402 if B's plan lacks AutoLister; the
+// gate runs before the path check — either way B never touches a foreign photo.)
+Deno.test({
+  name: "B cannot classify photos under another tenant's storage folder",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const foreignPath = "00000000-0000-0000-0000-000000000000/_staging/x.jpg";
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/classify-photos`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ photos: [{ id: "p1", storage_path: foreignPath }] }),
+    });
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_GATED.has(res.status),
+      `POST autolister classify-photos (foreign folder): should be denied ` +
+        `(401/402/403/404) but got ${res.status}`,
+    );
+  },
+});
+
 // The embed endpoint operates on caller-supplied images (no cross-tenant
 // resource), but must still require auth — an unauthenticated call is rejected.
 Deno.test({
