@@ -14,6 +14,15 @@ import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { suggestCategories } from "../lib/ebay-client.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
+
+// US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
+const SNAP_CAP: Record<string, number> = {
+  free: 15,
+  starter: 60,
+  pro: 200,
+  business: -1,
+};
 
 type GradeEnv = {
   Variables: {
@@ -527,6 +536,39 @@ gradeRoutes.post("/snap", async (c) => {
   const { bytes: clean } = stripImageMetadata(rawBytes, verdict.format);
   const dataUri = `data:${verdict.contentType};base64,${bytesToBase64(clean)}`;
 
+  // US-614: per-plan monthly snap cap. Free is the funnel — generous but bounded;
+  // paid tiers get more / unlimited. Reserve BEFORE the (paid-for-us) grade so an
+  // over-cap user can't burn AI budget; refund on failure.
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data: planRow } = await supabaseAdmin
+    .from("users")
+    .select("flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+    .eq("id", ownerId)
+    .maybeSingle();
+  const effPlan = effectivePlanFor(
+    (planRow?.flipdesk_plan as string) ?? "free",
+    (planRow?.subscription_status as string) ?? "none",
+    (planRow?.trial_ends_at as string | null) ?? null,
+    new Date(),
+    (planRow?.past_due_since as string | null) ?? null,
+  );
+  const snapCap = SNAP_CAP[effPlan] ?? SNAP_CAP.free;
+  const { data: reserved } = await supabaseAdmin.rpc("reserve_snap", {
+    p_user_id: ownerId,
+    p_limit: snapCap,
+  });
+  if (reserved !== true) {
+    return c.json(
+      {
+        error:
+          `You've used all ${snapCap} free Snap-to-Value checks this month. Upgrade for more, or get a full certified grade.`,
+        code: "SNAP_LIMIT_REACHED",
+        action: "upgrade",
+      },
+      429,
+    );
+  }
+
   let grade;
   try {
     grade = await quickGrade({
@@ -534,6 +576,8 @@ gradeRoutes.post("/snap", async (c) => {
       garment: { brand: brand ?? null, title: keyword ?? "" },
     });
   } catch (err) {
+    // Refund the reserved snap so a transient grading failure isn't counted.
+    await supabaseAdmin.rpc("refund_snap", { p_user_id: ownerId }).then(() => {}, () => {});
     captureException(err, { route: "grade.snap", correlationId: c.get("correlationId") });
     return c.json({ error: "Couldn't grade that photo. Try a clearer, well-lit shot." }, 502);
   }

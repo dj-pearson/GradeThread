@@ -25,6 +25,7 @@ import {
   Layers,
   ClipboardList,
   Radar,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -58,6 +59,7 @@ const navGroups: NavGroup[] = [
   {
     items: [
       { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
+      { to: "/dashboard/snap", icon: Camera, label: "What's it worth?", end: false },
       { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
       { to: "/dashboard/inventory", icon: Package, label: "Inventory", end: false },
       { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },

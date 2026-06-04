@@ -9149,7 +9149,7 @@
         "Snap usage + conversion tracked for analytics"
       ],
       "priority": 614,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SnapToValue][Growth] Reuse plan-gate.ts + usePlanUsage. The acquisition->monetization bridge."
     },
     {

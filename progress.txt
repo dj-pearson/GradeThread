@@ -4405,3 +4405,27 @@ Remaining cluster: US-621/622/623 (Condition Index + sell-through), US-614 (Snap
 funnel), US-613 (Snap iOS).
 
 prd.json 432/623.
+
+
+### Snap-to-Value funnel US-614 COMPLETE -- Snap web feature now end-to-end
+
+Consumer page src/pages/snap.tsx (/dashboard/snap, "What's it worth?" + sidebar
+Camera entry in the GradeThread group) + src/hooks/use-snap.ts (useSnap). Upload
+photo (FileReader -> data URI) + optional brand/item -> POST /api/grade/snap ->
+big grade number (color by score) + tier + confidence, value range, estimate
+disclaimer, and conversion CTAs (US-614): "Get a certified grade" (->
+/dashboard/submissions/new) + "List it with FlipDesk".
+
+Per-plan monthly cap (migration 00099): users.snaps_used_this_month/snaps_reset_at
++ reserve_snap/refund_snap RPCs (mirror reserve_ai_action). Snap endpoint resolves
+the effective plan (effectivePlanFor) -> SNAP_CAP {free 15, starter 60, pro 200,
+business unlimited}; reserves BEFORE grading (refund on failure); 429
+SNAP_LIMIT_REACHED with upgrade CTA over cap. Frontend surfaces the limit + an
+"Upgrade for more snaps" button.
+
+tsc + eslint clean; frontend 186 tests + edge 405 tests pass.
+
+Snap-to-Value (US-612/614) COMPLETE on web. Remaining cluster: US-613 (Snap iOS),
+US-621/622/623 (Condition Index + sell-through).
+
+prd.json 433/623.
