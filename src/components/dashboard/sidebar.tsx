@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   TrendingUp,
   Layers,
+  ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,6 +71,7 @@ const navGroups: NavGroup[] = [
       // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
       { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
       { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
+      { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false },
