@@ -13,8 +13,10 @@ import {
   Combine,
   Wand2,
   FolderOpen,
+  Tags,
 } from "lucide-react";
 import { toast } from "sonner";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -55,11 +57,26 @@ interface StagedPhoto {
   phash: string;
 }
 
+// US-533: per-photo gallery roles. The cover is always "front"; the rest carry
+// a role the AI assigns (and the user can override). Order after the cover:
+// back → tag → detail → defect.
+type PhotoRole = "front" | "back" | "tag" | "detail" | "defect";
+const ROLE_ORDER: Record<PhotoRole, number> = {
+  front: 0,
+  back: 1,
+  tag: 2,
+  detail: 3,
+  defect: 4,
+};
+
 interface Group {
   id: string;
   name: string;
   photoIds: string[];
   coverId: string;
+  // photoId -> role. Optional so sessions persisted before US-533 (and freshly
+  // created groups) round-trip; a missing entry falls back to "detail".
+  roles?: Record<string, PhotoRole>;
 }
 
 function extForBlobType(mimeType: string): string {
@@ -187,6 +204,9 @@ export function FlipdeskAutolisterPage() {
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // US-533: groups currently running the AI cover/role pass.
+  const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
+  const [taggingAll, setTaggingAll] = useState(false);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -380,6 +400,101 @@ export function FlipdeskAutolisterPage() {
     setGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   }
 
+  // US-533: the cover is always the front shot. Promote the chosen photo to
+  // cover+front and demote the previous cover (if it was a front) to detail, so
+  // we never carry two "front" tags.
+  function setCover(groupId: string, photoId: string) {
+    setGroups((prev) =>
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const roles: Record<string, PhotoRole> = { ...(g.roles ?? {}) };
+        if (g.coverId && g.coverId !== photoId && roles[g.coverId] === "front") {
+          roles[g.coverId] = "detail";
+        }
+        roles[photoId] = "front";
+        return { ...g, coverId: photoId, roles };
+      }),
+    );
+  }
+
+  // US-533: override a non-cover photo's role. (The cover's role is fixed to
+  // "front" — change the front by picking a new cover.)
+  function setPhotoRole(groupId: string, photoId: string, role: PhotoRole) {
+    setGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId
+          ? { ...g, roles: { ...(g.roles ?? {}), [photoId]: role } }
+          : g,
+      ),
+    );
+  }
+
+  // US-533: run the AI cover/role vision pass for one group and apply the
+  // result. Returns true on success. edgeFetch surfaces the 402 upgrade dialog
+  // for locked plans, so we don't handle gating here.
+  async function autoTagGroup(groupId: string): Promise<boolean> {
+    const g = groups.find((x) => x.id === groupId);
+    if (!g) return false;
+    const photos = g.photoIds
+      .map((pid) => stagedById.get(pid))
+      .filter((p): p is StagedPhoto => !!p);
+    if (photos.length === 0) return false;
+
+    setTaggingGroups((prev) => new Set(prev).add(groupId));
+    try {
+      const res = await edgeFetch("/api/flipdesk/autolister/classify-photos", {
+        method: "POST",
+        json: {
+          photos: photos.map((p) => ({ id: p.id, storage_path: p.storagePath })),
+        },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        cover_id?: string;
+        roles?: Record<string, PhotoRole>;
+        error?: string;
+      };
+      if (!res.ok) {
+        toast.error(json.error || "Could not auto-tag photos.");
+        return false;
+      }
+      const cover =
+        typeof json.cover_id === "string" && g.photoIds.includes(json.cover_id)
+          ? json.cover_id
+          : g.coverId;
+      updateGroup(groupId, { coverId: cover, roles: json.roles ?? {} });
+      return true;
+    } catch (err) {
+      toast.error(
+        `Auto-tag failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    } finally {
+      setTaggingGroups((prev) => {
+        const next = new Set(prev);
+        next.delete(groupId);
+        return next;
+      });
+    }
+  }
+
+  // US-533: classify every group. Sequential — each is a vision call and the
+  // endpoint is rate-limited (20/min) — so we don't burst.
+  async function autoTagAllGroups() {
+    if (groups.length === 0 || taggingAll) return;
+    setTaggingAll(true);
+    try {
+      let ok = 0;
+      for (const g of groups) {
+        if (await autoTagGroup(g.id)) ok++;
+      }
+      if (ok > 0) {
+        toast.success(`Auto-tagged ${ok} listing${ok === 1 ? "" : "s"}.`);
+      }
+    } finally {
+      setTaggingAll(false);
+    }
+  }
+
   function removePhotoFromGroup(groupId: string, photoId: string) {
     setGroups((prev) =>
       prev
@@ -452,11 +567,16 @@ export function FlipdeskAutolisterPage() {
           .filter((p): p is StagedPhoto => !!p);
         if (photos.length === 0) continue;
 
-        // Cover photo first (front), rest detail, in display order.
-        const ordered = [
-          ...photos.filter((p) => p.id === g.coverId),
-          ...photos.filter((p) => p.id !== g.coverId),
-        ];
+        // US-533: cover first (front), then the rest ordered by role
+        // (back → tag → detail → defect). photo_type carries the assigned role
+        // so the eBay gallery is well-ordered and labeled, not all "detail".
+        const roleOf = (p: StagedPhoto): PhotoRole =>
+          p.id === g.coverId ? "front" : (g.roles?.[p.id] ?? "detail");
+        const ordered = [...photos].sort((a, b) => {
+          if (a.id === g.coverId) return -1;
+          if (b.id === g.coverId) return 1;
+          return ROLE_ORDER[roleOf(a)] - ROLE_ORDER[roleOf(b)];
+        });
 
         const { data: item, error: itemErr } = await supabase
           .from("inventory_items")
@@ -476,7 +596,7 @@ export function FlipdeskAutolisterPage() {
           storage_path: p.storagePath,
           thumbnail_url: p.thumbnailUrl,
           thumbnail_storage_path: p.thumbnailStoragePath,
-          photo_type: idx === 0 ? "front" : "detail",
+          photo_type: roleOf(p),
           sort_order: idx,
           width: p.width,
           height: p.height,
@@ -725,19 +845,35 @@ export function FlipdeskAutolisterPage() {
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Listings to generate ({groups.length})
             </h2>
-            {selectedGroups.size >= 2 && (
+            <div className="flex items-center gap-2">
+              {selectedGroups.size >= 2 && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    mergeGroups(Array.from(selectedGroups));
+                    setSelectedGroups(new Set());
+                  }}
+                >
+                  <Combine className="mr-1 h-4 w-4" />
+                  Merge {selectedGroups.size} groups
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="secondary"
-                onClick={() => {
-                  mergeGroups(Array.from(selectedGroups));
-                  setSelectedGroups(new Set());
-                }}
+                onClick={autoTagAllGroups}
+                disabled={taggingAll || taggingGroups.size > 0}
+                title="Pick the best cover and tag each photo's role with AI"
               >
-                <Combine className="mr-1 h-4 w-4" />
-                Merge {selectedGroups.size} groups
+                {taggingAll ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Tags className="mr-1 h-4 w-4" />
+                )}
+                Auto-tag all
               </Button>
-            )}
+            </div>
           </div>
           {groups.map((g) => (
             <Card key={g.id} className="p-3">
@@ -763,7 +899,21 @@ export function FlipdeskAutolisterPage() {
                   placeholder="Item name"
                 />
                 <Badge variant="secondary">{g.photoIds.length} photos</Badge>
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => autoTagGroup(g.id)}
+                    disabled={taggingGroups.has(g.id) || taggingAll}
+                    title="Pick the best cover and tag each photo's role with AI"
+                  >
+                    {taggingGroups.has(g.id) ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Tags className="mr-1 h-4 w-4" />
+                    )}
+                    Auto-tag
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -797,7 +947,7 @@ export function FlipdeskAutolisterPage() {
                       <button
                         type="button"
                         title="Set as cover"
-                        onClick={() => updateGroup(g.id, { coverId: pid })}
+                        onClick={() => setCover(g.id, pid)}
                         className={cn(
                           "absolute left-1 top-1 rounded-full p-0.5",
                           isCover
@@ -815,6 +965,26 @@ export function FlipdeskAutolisterPage() {
                       >
                         <X className="h-3 w-3" />
                       </button>
+                      {/* US-533: cover is the front; others show an editable role. */}
+                      {isCover ? (
+                        <span className="absolute inset-x-0 bottom-0 bg-brand-red/90 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-white">
+                          Front
+                        </span>
+                      ) : (
+                        <select
+                          value={g.roles?.[pid] ?? "detail"}
+                          onChange={(e) =>
+                            setPhotoRole(g.id, pid, e.target.value as PhotoRole)
+                          }
+                          aria-label="Photo role"
+                          className="absolute inset-x-0 bottom-0 w-full cursor-pointer border-0 bg-black/60 py-0.5 text-center text-[10px] text-white outline-none"
+                        >
+                          <option value="back">Back</option>
+                          <option value="tag">Tag</option>
+                          <option value="detail">Detail</option>
+                          <option value="defect">Defect</option>
+                        </select>
+                      )}
                     </div>
                   );
                 })}
