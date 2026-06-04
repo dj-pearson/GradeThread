@@ -7733,7 +7733,7 @@
         "A periodic integrity check (orphan/invalid-status scan) reports anomalies"
       ],
       "priority": 504,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Data] Audit 2026-06-03. repricing_suggestions status/reason_code are free-text with no CHECK."
     },
     {
@@ -7772,7 +7772,7 @@
         "Admin UI or documented procedure to toggle flags"
       ],
       "priority": 507,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][Reliability] Audit 2026-06-03. Only static env presence checks; no runtime kill-switch."
     },
     {
@@ -7950,7 +7950,7 @@
         "Retention windows reflected in Privacy Policy + subprocessor docs"
       ],
       "priority": 521,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][Legal/Data] Audit 2026-06-03. No retention/purge job; submission-images accumulate indefinitely."
     },
     {

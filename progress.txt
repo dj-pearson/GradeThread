@@ -4130,3 +4130,35 @@ US-511 (E2E Playwright) NOT done — large standalone effort (harness + 4 flow
 specs + auth-guard redirects + CI against mocked/preview env). Left open.
 
 prd.json 407/609.
+
+
+### Data/flags cluster -- US-504/507/521 COMPLETE, passes=true
+
+US-507 server-side feature flags / kill-switches (migration 00096 feature_flags
+seeded grading/autolister/content_ai/repricing; lib/feature-flags.ts
+isFeatureEnabled with 30s cache, FAIL-OPEN on missing row / DB error; featureGate
+middleware). Gated: grade.ts /submit + /pay/:id (503), autolister /batch (503),
+content-AI paths in main.ts via featureGate, reprice-scan cron (no-op skip).
+Admin toggle: routes/admin-flags.ts (GET list, PUT toggle) at
+/api/admin/feature-flags (admin+MFA), clears cache + writeAuditLog; documented
+SQL fallback. tests/feature-flags_test.ts: 3 (fail-open, cache, body code).
+
+US-504 DB CHECK constraints + integrity scan (migration 00097): CHECK on
+repricing_suggestions.status (pending/applied/dismissed) + .reason_code
+(UNDERPRICED/OVERPRICED/STALE/OK/NO_COMPS), added NOT VALID then VALIDATE.
+FK ON DELETE audit documented (repricing FKs all CASCADE). data_integrity_scan()
+RPC returns anomaly classes+counts (user_id drift, stuck email outbox, stuck
+submissions). lib/integrity-scan.ts cron (/api/jobs/integrity-scan, job-locked)
+-> metric + captureException on any anomaly.
+
+US-521 data retention + PII purge (lib/data-retention.ts cron
+/api/jobs/data-retention, job-locked): deletes submission-images storage objects
++ submission_images rows for submissions older than DATA_RETENTION_DAYS (730),
+storage-first to avoid orphans, KEEPS grade_reports (anonymize, not destroy).
+Privacy Policy §7 now has a per-category retention table; DATA_RETENTION.md is
+the operational runbook.
+
+deno lint clean; edge suite 385 passed; frontend tsc -b + eslint clean.
+New crons to schedule (folded into US-496): integrity-scan, data-retention.
+
+prd.json 410/609.

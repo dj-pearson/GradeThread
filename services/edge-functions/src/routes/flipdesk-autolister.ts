@@ -8,6 +8,7 @@ import { checkQuota } from "./flipdesk-ai.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
+import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 
 // FlipDesk AutoLister batch generation (US-313).
 // Mounted at /api/flipdesk/autolister (authed + workspace context).
@@ -245,6 +246,10 @@ async function processBatch(
 
 // POST /batch  Body: { item_ids: string[], use_comps?: boolean }
 flipdeskAutolisterRoutes.post("/batch", async (c) => {
+  // US-507: AutoLister kill-switch (heavy per-item AI cost).
+  if (!(await isFeatureEnabled("autolister"))) {
+    return c.json(featureDisabledBody("autolister"), 503);
+  }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   let body: { item_ids?: unknown; use_comps?: unknown };

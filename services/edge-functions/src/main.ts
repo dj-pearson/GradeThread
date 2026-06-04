@@ -23,12 +23,15 @@ import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
+import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
 import { handleEmailRetryCron } from "./lib/email-retry.ts";
+import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
+import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
@@ -52,6 +55,7 @@ import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
+import { featureGate } from "./lib/feature-flags.ts";
 
 const app = new Hono();
 
@@ -268,6 +272,14 @@ app.use("/api/content/social/*/suggest-hashtags", rateLimiter(30, 60_000, "conte
 app.use("/api/content/topics/research", rateLimiter(20, 60_000, "content-ai"));
 app.use("/api/content/images/*", rateLimiter(20, 60_000, "content-ai"));
 
+// US-507: content-AI kill-switch on the same expensive paths.
+app.use("/api/content/blog/*/generate", featureGate("content_ai"));
+app.use("/api/content/blog/*/compose-stream", featureGate("content_ai"));
+app.use("/api/content/blog/*/regenerate-section", featureGate("content_ai"));
+app.use("/api/content/social/*/generate", featureGate("content_ai"));
+app.use("/api/content/topics/research", featureGate("content_ai"));
+app.use("/api/content/images/*", featureGate("content_ai"));
+
 // Coarse per-IP ceiling on the unauthenticated webhook receivers — blunts
 // floods only. Legit Stripe/eBay bursts stay well under it, and a 429 just
 // makes the provider retry (idempotency in US-277 makes that safe).
@@ -306,6 +318,8 @@ app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.
 app.post("/api/jobs/autolister-reclaim", (c) => handleAutolisterReclaimCron(c));
 app.route("/api/admin", adminBillingRoutes);
+// US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
+app.route("/api/admin/feature-flags", adminFlagsRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
 // US-326 public transparency report. Lives at /api/grading/public (NOT
@@ -324,6 +338,10 @@ app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
 // handler enforces X-Internal-Job-Secret itself. Re-sends failed critical
 // emails with backoff and dead-letters after max attempts.
 app.post("/api/jobs/email-retry", (c) => handleEmailRetryCron(c));
+// US-504 periodic DB integrity scan (orphans/drift/stuck rows -> alert).
+app.post("/api/jobs/integrity-scan", (c) => handleIntegrityScanCron(c));
+// US-521 data-retention / PII purge (delete grading photos past the window).
+app.post("/api/jobs/data-retention", (c) => handleDataRetentionCron(c));
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));

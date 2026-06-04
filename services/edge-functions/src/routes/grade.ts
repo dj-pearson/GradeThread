@@ -10,6 +10,7 @@ import {
   runPaymentPrecedence,
 } from "../lib/grade-billing.ts";
 import { captureException } from "../lib/observability.ts";
+import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 
 type GradeEnv = {
   Variables: {
@@ -103,6 +104,11 @@ function kickPipeline(submissionId: string, correlationId?: string) {
 
 // ── POST /submit ─────────────────────────────────────────────────
 gradeRoutes.post("/submit", async (c) => {
+  // US-507: grading kill-switch — disable the (expensive, Anthropic-dependent)
+  // pipeline during an outage/cost spike without a redeploy.
+  if (!(await isFeatureEnabled("grading"))) {
+    return c.json(featureDisabledBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const role = c.get("workspaceRole") ?? "owner";
@@ -341,6 +347,10 @@ gradeRoutes.post("/submit", async (c) => {
 // calls this after a credit-pack purchase completes (Stripe returns to a
 // success URL) so the new balance is consumed without a second click.
 gradeRoutes.post("/pay/:id", async (c) => {
+  // US-507: same grading kill-switch as /submit (this path also kicks the pipeline).
+  if (!(await isFeatureEnabled("grading"))) {
+    return c.json(featureDisabledBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const submissionId = c.req.param("id");

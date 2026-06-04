@@ -254,12 +254,54 @@ export function PrivacyPage() {
       <h2 id="retention">7. Data retention</h2>
       <p>
         We retain personal information for as long as your account is active
-        and as needed to provide the Service. After account closure, we
-        typically delete or de-identify personal data within 90 days, except
-        where we are required to retain it longer for legal, accounting, tax,
-        fraud-prevention, or dispute-resolution purposes. Aggregate or
-        de-identified data that cannot reasonably be linked to you may be
-        retained indefinitely.
+        and as needed to provide the Service, then delete or de-identify it
+        according to the schedule below. We retain data longer only where
+        required for legal, accounting, tax, fraud-prevention, or
+        dispute-resolution purposes. Aggregate or de-identified data that
+        cannot reasonably be linked to you may be retained indefinitely.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Data category</th>
+            <th>Retention period</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Grading photos (uploaded garment images)</td>
+            <td>
+              Automatically deleted 2 years after submission; the resulting
+              grade report is anonymized (photos removed) and retained for
+              certificate validity and accuracy analytics.
+            </td>
+          </tr>
+          <tr>
+            <td>Grade reports &amp; certificates</td>
+            <td>Life of the account (the certificate must remain verifiable).</td>
+          </tr>
+          <tr>
+            <td>Account profile &amp; authentication data</td>
+            <td>Deleted or de-identified within 90 days of account closure.</td>
+          </tr>
+          <tr>
+            <td>Billing &amp; transaction records</td>
+            <td>Up to 7 years (tax/accounting obligations).</td>
+          </tr>
+          <tr>
+            <td>Support &amp; dispute correspondence</td>
+            <td>Up to 3 years after resolution.</td>
+          </tr>
+          <tr>
+            <td>Server &amp; security logs</td>
+            <td>Up to 90 days, then purged or aggregated.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Grading-photo deletion is enforced automatically by a scheduled purge
+        job; you can also request earlier deletion at any time (see{" "}
+        <a href="#your-rights">Your rights</a>).
       </p>
 
       <h2 id="your-rights">8. Your rights and choices</h2>

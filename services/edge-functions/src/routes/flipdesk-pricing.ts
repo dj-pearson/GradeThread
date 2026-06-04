@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   isEbayConfigured,
   searchBrowseComps,
@@ -301,6 +302,10 @@ export async function handleRepriceScanCron(c: Context): Promise<Response> {
   }
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  // US-507: repricing kill-switch — skip the scan (no-op) when disabled.
+  if (!(await isFeatureEnabled("repricing"))) {
+    return c.json({ ok: true, skipped: true, reason: "feature_disabled" });
   }
   // US-503: a scan fans out one eBay Browse call per listing and can run long;
   // a 10-min lease keeps an overlapping tick from re-scanning + double-writing
