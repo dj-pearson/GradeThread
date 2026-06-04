@@ -4331,3 +4331,35 @@ service-role only. tests: 4 (key normalization, 1-fetch-per-bucket, monotonicity
 bucket-failure degrades gracefully).
 
 deno lint clean; only the 2 pre-existing type errors. prd.json 425/623.
+
+
+### ScoutAI engine US-615/616/617/619/620 COMPLETE (UI US-618 = frontend follow-up)
+
+The Condition Arbitrage Engine, end-to-end on the edge. POST /api/flipdesk/scout.
+
+Primitives:
+- lib/quick-grade.ts: runs the REAL grader (analyzeImage + compositeGrade) on a
+  small image set with NO submission/certificate/billing. Accepts data-URIs
+  (Snap) or http URLs (eBay photos -> SSRF-guarded safeFetch, image-type + size
+  capped). Shared by Snap-to-Value (US-612) + ScoutAI shadow-grade.
+- lib/scout-scoring.ts (pure, 6 tests): scoreCandidate computes net-of-fees
+  margin from asking + condition-adjusted value; flags "underpriced for its
+  condition"; actionable only when comps sufficient AND grade-confidence >= 0.7.
+  rankCandidates = actionable-first, then margin desc.
+
+Route (flipdesk-scout.ts):
+- US-615 ingest: searchBrowseComps keyword/category/brand search (eBay APP token
+  -> no user eBay connection needed) -> candidate listings, cap 8.
+- US-616 shadow-grade: quick-grade each candidate's own photo -> PRIVATE shadow
+  grade (never published, never re-labels the seller's listing).
+- US-617 rank: valueAtGrade(category, shadowGrade) -> scoreCandidate -> rank.
+- US-619 paid gate: requireFlipdesk feature 'compPulls' (pro+); checkQuota +
+  atomic reserve_ai_action per candidate (refund on failure); rate-limited
+  6/min; candidate cap. Respects the global AI cost ceiling via the grader.
+- US-620 guardrails: private shadow grades, explicit estimate disclaimer,
+  SSRF-guarded image fetch, breaker/timeout on all eBay calls.
+
+deno lint clean; only the 2 pre-existing type errors; full edge suite 405 passed.
+US-618 (sourcing UI at /dashboard/flipdesk/scout) is the remaining frontend piece.
+
+prd.json 430/623.

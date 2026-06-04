@@ -15,6 +15,7 @@ import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
+import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import {
   flipdeskAutolisterRoutes,
   handleAutolisterReclaimCron,
@@ -164,6 +165,7 @@ app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
+app.use("/api/flipdesk/scout/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
@@ -198,6 +200,7 @@ app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
 app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
+app.use("/api/flipdesk/scout/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
 // owner); /poll + /import resolve the owner from the session row.
@@ -234,6 +237,8 @@ app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
 app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
+// US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
+app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
 // AutoLister batch enqueue is cheap to call but kicks off heavy background
 // work — cap submissions; per-item AI cost is governed by the quota check.
 app.use("/api/flipdesk/autolister/*", rateLimiter(20, 60_000, "flipdesk-autolister"));
@@ -305,6 +310,7 @@ app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
+app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);

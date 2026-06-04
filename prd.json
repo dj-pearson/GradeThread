@@ -9162,7 +9162,7 @@
         "Return normalized candidates: title, photo URLs, asking price, item id/URL"
       ],
       "priority": 615,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][ScoutAI] On-demand only; saved-search auto-sweep is a later story (per product decision). Reuses ebay-client Browse + bounded concurrency."
     },
     {
@@ -9175,7 +9175,7 @@
         "Shadow grades are PRIVATE to the requesting user - never published, never attached to the seller's listing"
       ],
       "priority": 616,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][ScoutAI] ToS/fairness guardrail: a derived buyer-side decision signal only. Cost-capped (US-414)."
     },
     {
@@ -9188,7 +9188,7 @@
         "Hide candidates with insufficient comps or low grade-confidence (no false signals)"
       ],
       "priority": 617,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][ScoutAI] The core arbitrage output. Reuse irr.ts / profit helpers where useful."
     },
     {
@@ -9214,7 +9214,7 @@
         "Honors the global Claude concurrency + cost ceiling (US-414); refuses gracefully when over budget"
       ],
       "priority": 619,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][ScoutAI][Billing] ScoutAI is paid (per product decision). Reuse plan-gate + ai-quota."
     },
     {
@@ -9227,7 +9227,7 @@
         "Clear disclaimers; an allowlist of supported item categories to keep accuracy honest"
       ],
       "priority": 620,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][ScoutAI][Compliance] Pairs with the tenant-isolation rules (US-268)."
     },
     {
