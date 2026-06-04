@@ -15,6 +15,8 @@ import {
   FolderOpen,
   Images,
   Tags,
+  WandSparkles,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -23,12 +25,12 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
-import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { compressImage } from "@/lib/image-utils";
 import { readCaptureTime } from "@/lib/exif";
 import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
+import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
 import { useStartAutolisterBatch } from "@/hooks/use-autolister";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
@@ -57,6 +59,18 @@ interface StagedPhoto {
   // dHash compressImage already computes (empty string if unavailable).
   capturedAtMs: number | null;
   phash: string;
+  // US-536: snapshot of the pre-enhance image so a one-tap auto-enhance can be
+  // reverted. Present only after enhancing; cleared on revert.
+  original?: {
+    url: string;
+    storagePath: string;
+    thumbnailUrl: string | null;
+    thumbnailStoragePath: string | null;
+    width: number | null;
+    height: number | null;
+    bytes: number;
+    phash: string;
+  };
 }
 
 // US-533: per-photo gallery roles. The cover is always "front"; the rest carry
@@ -230,6 +244,9 @@ export function FlipdeskAutolisterPage() {
   // US-533: groups currently running the AI cover/role pass.
   const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
   const [taggingAll, setTaggingAll] = useState(false);
+  // US-536: photos currently being auto-enhanced, and a batch-busy flag.
+  const [enhancing, setEnhancing] = useState<Set<string>>(new Set());
+  const [enhanceBusy, setEnhanceBusy] = useState(false);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -494,6 +511,197 @@ export function FlipdeskAutolisterPage() {
       else next.add(id);
       return next;
     });
+  }
+
+  // US-536: upload a processed image under a fresh storage key and swap it into
+  // the staged photo, snapshotting the previous image into `original` for one-
+  // tap revert. Keeps the staged id + capture time so grouping/order survive;
+  // the processed image flows into BOTH the AI input and the published listing.
+  async function restageProcessed(
+    photoId: string,
+    processed: {
+      full: Blob;
+      thumb: Blob;
+      width: number;
+      height: number;
+      contentType: string;
+      ext: string;
+    },
+  ): Promise<boolean> {
+    if (!ownerId) return false;
+    const existing = stagedById.get(photoId);
+    if (!existing) return false;
+
+    const editId = crypto.randomUUID();
+    const base = `${ownerId}/_staging/${sessionId.current}/${editId}`;
+    const path = `${base}.${processed.ext}`;
+    const { error: upErr } = await supabase.storage
+      .from("item-photos")
+      .upload(path, processed.full, {
+        upsert: false,
+        contentType: processed.contentType,
+      });
+    if (upErr) {
+      toast.error(`Could not save photo: ${upErr.message}`);
+      return false;
+    }
+    const url = supabase.storage.from("item-photos").getPublicUrl(path).data
+      .publicUrl;
+
+    let thumbnailUrl: string | null = null;
+    let thumbnailStoragePath: string | null = null;
+    const tpath = `${base}_thumb.${processed.ext}`;
+    const { error: tErr } = await supabase.storage
+      .from("item-photos")
+      .upload(tpath, processed.thumb, {
+        upsert: false,
+        contentType: processed.contentType,
+      });
+    if (!tErr) {
+      thumbnailStoragePath = tpath;
+      thumbnailUrl = supabase.storage.from("item-photos").getPublicUrl(tpath).data
+        .publicUrl;
+    }
+
+    // Snapshot the TRUE original once; re-processing only replaces the prior
+    // processed objects (which become orphans), never the saved original.
+    const original = existing.original ?? {
+      url: existing.url,
+      storagePath: existing.storagePath,
+      thumbnailUrl: existing.thumbnailUrl,
+      thumbnailStoragePath: existing.thumbnailStoragePath,
+      width: existing.width,
+      height: existing.height,
+      bytes: existing.bytes,
+      phash: existing.phash,
+    };
+    const orphans = existing.original
+      ? [existing.storagePath, existing.thumbnailStoragePath].filter(
+          (p): p is string => !!p,
+        )
+      : [];
+
+    setStaged((prev) =>
+      prev.map((p) =>
+        p.id === photoId
+          ? {
+              ...p,
+              url,
+              storagePath: path,
+              thumbnailUrl,
+              thumbnailStoragePath,
+              width: processed.width,
+              height: processed.height,
+              bytes: processed.full.size,
+              phash: "",
+              original,
+            }
+          : p,
+      ),
+    );
+    if (orphans.length > 0) {
+      void supabase.storage.from("item-photos").remove(orphans);
+    }
+    return true;
+  }
+
+  // US-536: auto-enhance one photo. A `reference` (a group's cover stats) gives
+  // every photo of an item the same white-point/exposure. Returns the stats used
+  // so the cover's can be threaded through the rest of the group.
+  async function enhancePhoto(
+    photoId: string,
+    reference?: EnhanceStats,
+  ): Promise<EnhanceStats | null> {
+    const existing = stagedById.get(photoId);
+    if (!existing) return null;
+    setEnhancing((prev) => new Set(prev).add(photoId));
+    try {
+      const srcBlob = await (await fetch(existing.url)).blob();
+      const { image, stats } = await autoEnhance(srcBlob, reference);
+      const ok = await restageProcessed(photoId, image);
+      return ok ? stats : null;
+    } catch (err) {
+      toast.error(
+        `Auto-enhance failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    } finally {
+      setEnhancing((prev) => {
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
+    }
+  }
+
+  // US-536: restore the pre-enhance original and drop the processed objects.
+  function revertEnhance(photoId: string) {
+    const existing = stagedById.get(photoId);
+    if (!existing?.original) return;
+    const o = existing.original;
+    const orphans = [existing.storagePath, existing.thumbnailStoragePath].filter(
+      (p): p is string => !!p,
+    );
+    setStaged((prev) =>
+      prev.map((p) =>
+        p.id === photoId
+          ? {
+              ...p,
+              url: o.url,
+              storagePath: o.storagePath,
+              thumbnailUrl: o.thumbnailUrl,
+              thumbnailStoragePath: o.thumbnailStoragePath,
+              width: o.width,
+              height: o.height,
+              bytes: o.bytes,
+              phash: o.phash,
+              original: undefined,
+            }
+          : p,
+      ),
+    );
+    if (orphans.length > 0) {
+      void supabase.storage.from("item-photos").remove(orphans);
+    }
+  }
+
+  // US-536: one tap to enhance the whole batch. For each GROUP the cover is
+  // enhanced first and its stats are reused for the rest (multi-angle
+  // consistency — shared white-point/exposure); ungrouped photos are enhanced
+  // independently. Sequential: the pixel work is heavy.
+  async function enhanceAll() {
+    if (enhanceBusy) return;
+    if (staged.every((p) => !!p.original)) {
+      toast.info("Every photo is already enhanced.");
+      return;
+    }
+    setEnhanceBusy(true);
+    try {
+      let ok = 0;
+      for (const g of groups) {
+        const members = g.photoIds
+          .map((id) => stagedById.get(id))
+          .filter((p): p is StagedPhoto => !!p && !p.original);
+        if (members.length === 0) continue;
+        const coverId =
+          members.find((m) => m.id === g.coverId)?.id ?? members[0]!.id;
+        const stats = await enhancePhoto(coverId);
+        if (stats) ok++;
+        for (const m of members) {
+          if (m.id === coverId) continue;
+          if (await enhancePhoto(m.id, stats ?? undefined)) ok++;
+        }
+      }
+      for (const p of ungrouped) {
+        if (p.original) continue;
+        if (await enhancePhoto(p.id)) ok++;
+      }
+      if (ok > 0) {
+        toast.success(`Auto-enhanced ${ok} photo${ok === 1 ? "" : "s"}.`);
+      }
+    } finally {
+      setEnhanceBusy(false);
+    }
   }
 
   function createGroupFromSelection() {
@@ -931,6 +1139,32 @@ export function FlipdeskAutolisterPage() {
         </div>
       </Card>
 
+      {/* US-536: one-tap auto-enhance across the whole batch */}
+      {staged.length > 0 && entitled && (
+        <Card className="flex flex-wrap items-center gap-3 p-3">
+          <div className="flex items-center gap-2">
+            <WandSparkles className="h-4 w-4 text-brand-red" />
+            <span className="text-sm font-medium">Auto-enhance</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={enhanceAll}
+            disabled={enhanceBusy || staged.every((p) => !!p.original)}
+          >
+            {enhanceBusy ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <WandSparkles className="mr-1 h-4 w-4" />
+            )}
+            Enhance all ({staged.filter((p) => !p.original).length})
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Auto-crops to the item, white-balances &amp; evens out exposure ·
+            consistent across each item · runs in your browser
+          </span>
+        </Card>
+      )}
+
       {/* Ungrouped staging area */}
       <div>
         <div className="mb-2 flex items-center justify-between">
@@ -966,31 +1200,67 @@ export function FlipdeskAutolisterPage() {
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
-            {ungrouped.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggleSelect(p.id)}
-                className={cn(
-                  "relative aspect-square overflow-hidden rounded-md border-2",
-                  selected.has(p.id)
-                    ? "border-primary ring-2 ring-primary/40"
-                    : "border-transparent hover:border-muted-foreground/40",
-                )}
-              >
-                <img
-                  src={p.thumbnailUrl ?? p.url}
-                  alt=""
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
-                {selected.has(p.id) && (
-                  <span className="absolute right-1 top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                    ✓
-                  </span>
-                )}
-              </button>
-            ))}
+            {ungrouped.map((p) => {
+              const processing = enhancing.has(p.id);
+              const enhanced = !!p.original;
+              return (
+                <div
+                  key={p.id}
+                  className={cn(
+                    "group relative aspect-square overflow-hidden rounded-md border-2",
+                    selected.has(p.id)
+                      ? "border-primary ring-2 ring-primary/40"
+                      : "border-transparent hover:border-muted-foreground/40",
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSelect(p.id)}
+                    aria-label="Select photo"
+                    className="absolute inset-0"
+                  >
+                    <img
+                      src={p.thumbnailUrl ?? p.url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  </button>
+                  {selected.has(p.id) && (
+                    <span className="pointer-events-none absolute right-1 top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                      ✓
+                    </span>
+                  )}
+                  {/* US-536: per-photo enhance / revert */}
+                  {enhanced ? (
+                    <button
+                      type="button"
+                      title="Revert to original"
+                      onClick={() => revertEnhance(p.id)}
+                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100"
+                    >
+                      <Undo2 className="h-3 w-3" />
+                      Revert
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title="Auto-enhance"
+                      onClick={() => enhancePhoto(p.id)}
+                      disabled={processing || enhanceBusy}
+                      className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100"
+                    >
+                      <WandSparkles className="h-3 w-3" />
+                    </button>
+                  )}
+                  {processing && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
+                      <Loader2 className="h-5 w-5 animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
