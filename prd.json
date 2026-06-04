@@ -9097,7 +9097,7 @@
         "Pure/injectable enough to unit-test the bucketing + range math without live eBay"
       ],
       "priority": 610,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][PriceEngine] FOUNDATION for ScoutAI (US-615+), Snap-to-Value (US-612), Condition Index (US-621). Builds on flipdesk-pricing/repricing condition-matched comps + ebay-client Browse; grade->conditionId mapping already exists in repricing.ts."
     },
     {
@@ -9110,7 +9110,7 @@
         "Curves are aggregate/anonymized only - no per-listing PII or per-seller data stored"
       ],
       "priority": 611,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][PriceEngine] New migration. Powers Index SEO pages + ScoutAI margin ranking without re-hitting eBay each time."
     },
     {

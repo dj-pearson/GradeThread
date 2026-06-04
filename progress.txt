@@ -4310,3 +4310,24 @@ effort = ScoutAI (~70% of stack already exists: vision grading + Browse comps +
 condition mapping).
 
 prd.json 423/623.
+
+
+## ScoutAI/Snap/Index build (2026-06-04) -- Foundation US-610/611 COMPLETE
+
+US-610 condition-adjusted value engine (lib/condition-value.ts): valueRangeFromStats
+(pure) returns {low/median/high cents, sampleSize, confidence, sufficient} from a
+condition-matched comp distribution + grade — median is the grade-positioned
+center (reuses repricing.ts positionPriceByGrade + gradeToConditionId), low/high
+bracket it within the comp spread; sufficient:false below MIN_VALUE_COMPS (3) so
+callers never show false precision. valueAtGrade(item, grade) = thin I/O wrapper
+over searchBrowseComps (already timeout+breaker-guarded). tests: 6.
+
+US-611 price-vs-grade curves (migration 00098 condition_price_curves + lib/
+condition-curve.ts): buildValueCurve fetches comps ONCE per distinct conditionId
+bucket (~3 eBay calls, not one/grade) then positions a value range at each of
+CURVE_GRADE_POINTS; getOrRefreshCurve = read-through cache (7d TTL) + upsert,
+serves stale on rebuild failure. Injectable fetcher. Aggregate/no-PII;
+service-role only. tests: 4 (key normalization, 1-fetch-per-bucket, monotonicity,
+bucket-failure degrades gracefully).
+
+deno lint clean; only the 2 pre-existing type errors. prd.json 425/623.
