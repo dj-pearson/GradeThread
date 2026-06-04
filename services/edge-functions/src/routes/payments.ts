@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isProduction } from "../lib/env.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -115,10 +116,60 @@ async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
     .select(
-      "id, email, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
+      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
     )
     .eq("id", userId)
     .single();
+}
+
+// US-391: lazily ensure EXACTLY ONE Stripe customer per user, persisted before
+// the first Checkout and reused on every later session. Two concurrent first
+// checkouts previously each omitted `customer`, so Stripe minted two customers
+// and the post-hoc back-fill (.is(null)) kept only one — orphaning the other
+// and risking a lost customer↔user link. Now:
+//   • If we already have a customer id, reuse it.
+//   • Otherwise create one with a STABLE idempotency key (`customer-create:<uid>`)
+//     so even a true race resolves to a SINGLE Stripe customer, then persist it
+//     conditionally; if another request won the race, adopt the persisted id.
+async function ensureStripeCustomer(
+  stripe: Stripe,
+  user: {
+    id: string;
+    email: string | null;
+    full_name?: string | null;
+    stripe_customer_id: string | null;
+  },
+): Promise<string> {
+  if (user.stripe_customer_id) return user.stripe_customer_id;
+
+  const customer = await stripe.customers.create(
+    {
+      email: user.email ?? undefined,
+      name: user.full_name ?? undefined,
+      metadata: { user_id: user.id },
+    },
+    { idempotencyKey: customerCreateIdempotencyKey(user.id) },
+  );
+
+  // Persist only if still unset. If our conditional update matches no row,
+  // another concurrent request already linked a customer — adopt that one. The
+  // shared idempotency key means Stripe returned the SAME customer to both
+  // racers, so there is no orphaned duplicate.
+  const { data: linked } = await supabaseAdmin
+    .from("users")
+    .update({ stripe_customer_id: customer.id })
+    .eq("id", user.id)
+    .is("stripe_customer_id", null)
+    .select("stripe_customer_id")
+    .maybeSingle();
+  if (linked?.stripe_customer_id) return linked.stripe_customer_id;
+
+  const { data: fresh } = await supabaseAdmin
+    .from("users")
+    .select("stripe_customer_id")
+    .eq("id", user.id)
+    .single();
+  return fresh?.stripe_customer_id ?? customer.id;
 }
 
 // ── POST /flipdesk/subscribe (US-204) ────────────────────────────
@@ -266,14 +317,17 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       tax_id_collection: { enabled: true },
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      sessionParams.customer_email = user.email;
-    }
+    // US-391: always bind the session to the user's single Stripe customer
+    // (created lazily here if needed) so every session reuses one customer.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    // US-391: stable idempotency key dedupes a double-clicked subscribe within
+    // Stripe's 24h window (a user has at most one active subscription, so this
+    // can't block a legitimate distinct purchase the way it would for packs).
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `flipdesk-subscribe:${userId}:${plan}:${interval}`,
+    });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
     console.error("FlipDesk subscribe checkout failed:", err);
@@ -359,7 +413,12 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
       sessionParams.customer = user.stripe_customer_id;
       sessionParams.customer_update = { name: "auto", address: "auto" };
     } else {
-      sessionParams.customer_email = user.email;
+      // US-391: bind to the single Stripe customer (created lazily) instead of
+      // letting Checkout mint a fresh one. No session idempotency key: credit
+      // packs are intentionally repeatable, so a stable key would wrongly
+      // dedupe a legitimate second purchase within Stripe's 24h window.
+      sessionParams.customer = await ensureStripeCustomer(stripe, user);
+      sessionParams.customer_update = { name: "auto", address: "auto" };
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
@@ -475,12 +534,11 @@ async function perGradeCheckout(c: Ctx) {
       allow_promotion_codes: true,
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      sessionParams.customer_email = user.email;
-    }
+    // US-391: bind to the single Stripe customer (created lazily) so the
+    // per-grade purchase reuses the user's one customer instead of minting a
+    // new one when none exists yet.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
     // US-394: key the session on (submission, tier) so a double-click or retry
     // reuses ONE Checkout Session instead of creating duplicates that could
@@ -578,12 +636,10 @@ paymentRoutes.post("/subscribe", async (c) => {
       allow_promotion_codes: true,
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      sessionParams.customer_email = user.email;
-    }
+    // US-391: bind to the single Stripe customer (created lazily) instead of
+    // letting Checkout mint a fresh one.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
     return c.json({ sessionId: session.id, url: session.url });

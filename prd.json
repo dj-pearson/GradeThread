@@ -6250,8 +6250,8 @@
         "Concurrency test confirms N parallel requests at the boundary cannot exceed the cap"
       ],
       "priority": 387,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. flipdesk-ai.ts does check-then-increment (TOCTOU)."
+      "passes": true,
+      "notes": "[P1][Billing] DONE 2026-06-04. The single-action AI endpoints in flipdesk-ai.ts did checkQuota()->...work...->increment_ai_actions() (TOCTOU: concurrent requests both passed the check then both incremented, exceeding the monthly cap). Now ALL 8 billable sites (extract, suggest-aspects, listing-copy, bulk-extract per item, visual group-similar, classify modes A+B, suggest-item-match) reserve atomically via the existing row-locking CAS reserve_ai_action(p_user_id,p_limit) (migration 00087) BEFORE the AI call and refund_ai_action on failure; the trailing increment_ai_actions calls were removed. New reserveAiAction() helper fails CLOSED on a store error (a broken counter can't hand out free over-cap actions). checkQuota stays for the enablement gate + limit resolution + fast UX rejection. (The two autolister metering increments are unconditional meters with no preceding check -> not the TOCTOU bug; left as-is.) Tests: tests/ai-quota-concurrency_test.ts (env-gated, live-DB) fires 25 parallel reservations at a 3-slot boundary and asserts exactly 3 win, the counter lands exactly on the cap, and a further reservation is refused. flipdesk-ai.ts braces/parens balanced; frontend tsc clean."
     },
     {
       "id": "US-388",
@@ -6289,8 +6289,8 @@
         "Duplicate-delivery tests for charge.refunded and checkout.session.completed"
       ],
       "priority": 390,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03 (3 agents). Two idempotency systems; claimWebhookEvent fails open; handlers 200-anyway."
+      "passes": true,
+      "notes": "[P1][Billing] DONE 2026-06-04. One authoritative idempotency claim + fail-closed. claimWebhookEvent (processed_webhook_events) now returns a tri-state 'claimed'|'duplicate'|'error' (was a fail-OPEN boolean). The /stripe handler: duplicate->skip(2xx); error (claim couldn't be written)->FAIL CLOSED 500 so Stripe re-delivers (every Stripe event we handle moves money/entitlement, so processing without a durable claim risks a double-apply); claimed->process. recordEvent demoted to AUDIT-ONLY (writes flipdesk_subscription_events, no longer gates — removed `if(!proceed)return` at all 9 sites). Money side effects made idempotent on the Stripe object id as defense-in-depth: per_grade already guarded (.eq payment_status 'unpaid'); credit-pack grant_grade_credits made idempotent on the payment_intent (migration 00092 — short-circuits under the existing FOR UPDATE row lock if a pack_purchase ledger row for that payment_intent already exists). eBay webhook callers updated to the tri-state (skip on duplicate, fail-open on error — eBay events aren't money-moving). Tests: tests/webhook-idempotency_test.ts (tri-state + duplicate-delivery of charge.refunded & checkout.session.completed processed exactly once + transient-error). Logic verified via Node port (9/9). NOTE: handler-INTERNAL DB-failure retry (transient vs code-bug) is US-397's scope; this story covers the claim layer."
     },
     {
       "id": "US-391",
@@ -6302,8 +6302,8 @@
         "Webhook customer-link backfill reconciles multiple customers for one user"
       ],
       "priority": 391,
-      "passes": false,
-      "notes": "[P1][Billing] Audit 2026-06-03. Customer id is back-filled post-checkout via update .is(null)."
+      "passes": true,
+      "notes": "[P1][Billing] DONE 2026-06-04. New ensureStripeCustomer() lazily creates + persists EXACTLY ONE Stripe customer before the first Checkout and reuses it on every session: customers.create uses a STABLE idempotency key (customer-create:<uid>) so a concurrent first-checkout race resolves to a single Stripe customer; the id is persisted with a conditional .is('stripe_customer_id', null) update and, if another request won the race, the persisted winner is adopted (no orphan). All four checkout creators (flipdesk subscribe, credit-pack, per-grade, legacy subscribe) now bind sessionParams.customer = ensureStripeCustomer(...) instead of the old customer_email fallback that let Checkout mint duplicates. Stable session idempotency key added to subscribe (flipdesk-subscribe:<uid>:<plan>:<interval>); per-grade already keyed (US-394); credit-pack intentionally unkeyed (repeatable purchase). Webhook backfill reconciliation: new linkStripeCustomer() (pure reconcileCustomerLink in lib/stripe-customer.ts) sets-if-null / no-ops-on-match / on a DIFFERENT customer keeps the canonical stored id + alerts 'billing.multiple_stripe_customers' instead of silently repointing; used in handleCheckoutCompleted (both branches) and handleSubscriptionChange (which no longer blindly overwrites stripe_customer_id). Tests: tests/stripe-customer_test.ts (reconcile set/noop/conflict + stable key). Logic verified via Node port; frontend tsc clean."
     },
     {
       "id": "US-392",

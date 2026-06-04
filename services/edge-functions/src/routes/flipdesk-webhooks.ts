@@ -127,7 +127,10 @@ async function processEbayWebhookEvent(
   // re-sent or replayed delivery can't double-ingest a payout/sale. Events
   // without an id can't be deduped here — the payout layer has its own dedup. (US-277)
   if (notif?.notificationId) {
-    if (!(await claimWebhookEvent("ebay", notif.notificationId, topic))) {
+    // US-390: claimWebhookEvent now returns a tri-state. Skip only on a
+    // confirmed duplicate; on a claim-write error fall OPEN and process (eBay
+    // notifications aren't money-moving and the payout layer has its own dedup).
+    if ((await claimWebhookEvent("ebay", notif.notificationId, topic)) === "duplicate") {
       console.log(
         `[flipdesk-webhooks] duplicate eBay event id=${notif.notificationId} — skipping`,
       );
@@ -352,7 +355,9 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
   // Idempotency: a verified re-delivery must not run the mutation or write a
   // second compliance row. Dedupe by eBay's notificationId before side effects.
   if (notificationId) {
-    if (!(await claimWebhookEvent("ebay", notificationId, "MARKETPLACE_ACCOUNT_DELETION"))) {
+    // US-390: tri-state claim — skip only on a confirmed duplicate; fall open
+    // (process) on a claim-write error so a real deletion request isn't dropped.
+    if ((await claimWebhookEvent("ebay", notificationId, "MARKETPLACE_ACCOUNT_DELETION")) === "duplicate") {
       console.log(
         `[flipdesk-webhooks] duplicate eBay account-deletion id=${notificationId} — skipping`,
       );

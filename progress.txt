@@ -3828,3 +3828,65 @@ US-401 Prevent the per-grade price_data fallback from bypassing tax in prod
   path.
 
 prd.json 386/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Webhook/Stripe integrity P1s US-387/390/391
+
+Took the three P1 webhook/Stripe-integrity stories. Deno still uninstallable
+(deno.land blocked), so edge logic verified via Node ports of the pure decision
+functions + balance checks; frontend tsc re-run clean. New Deno tests committed
+but not run this session.
+
+US-387 Make AI-action quota check+increment atomic [P1][Billing] -- COMPLETED.
+- flipdesk-ai.ts's single-action endpoints did checkQuota()->work->increment_
+  ai_actions() (TOCTOU). All 8 billable sites (extract, suggest-aspects,
+  listing-copy, bulk-extract per item, visual group-similar, classify A+B,
+  suggest-item-match) now RESERVE atomically via the existing row-locking CAS
+  reserve_ai_action(p_user_id,p_limit) (migration 00087) BEFORE the AI call and
+  refund_ai_action() on failure; trailing increment_ai_actions removed. New
+  reserveAiAction() fails CLOSED on a store error. checkQuota stays for the
+  enablement gate + limit + fast UX rejection. The two autolister metering
+  increments have no preceding check (not the TOCTOU bug) and are left as-is.
+- tests/ai-quota-concurrency_test.ts (env-gated, live-DB): 25 parallel
+  reservations at a 3-slot boundary -> exactly 3 win, counter lands on the cap,
+  next reservation refused.
+
+US-390 Single-source, fail-closed webhook idempotency for money events
+[P1][Billing] -- COMPLETED.
+- claimWebhookEvent (processed_webhook_events) is now the SINGLE authoritative
+  claim and returns a tri-state 'claimed'|'duplicate'|'error' (was a fail-OPEN
+  boolean). /stripe: duplicate->skip 2xx; error->FAIL CLOSED 500 (Stripe
+  re-delivers — every event moves money/entitlement, so no durable claim = don't
+  process); claimed->process. recordEvent demoted to AUDIT-ONLY (no longer
+  gates; removed `if(!proceed)return` at all 9 sites).
+- Money side effects idempotent on the Stripe object id: per_grade already
+  guarded (payment_status='unpaid'); credit-pack grant_grade_credits made
+  idempotent on the payment_intent (migration 00092 — short-circuits under the
+  existing FOR UPDATE user-row lock if a pack_purchase ledger row for that
+  payment_intent already exists).
+- eBay webhook callers moved to the tri-state (skip on duplicate; fail-open on
+  error since eBay events aren't money-moving).
+- tests/webhook-idempotency_test.ts (tri-state + dup-delivery of charge.refunded
+  & checkout.session.completed once + transient error). Node port 9/9.
+- Handler-INTERNAL DB-failure retry (transient vs code-bug) is US-397's scope.
+
+US-391 Ensure a single Stripe customer with idempotency keys [P1][Billing] --
+COMPLETED.
+- New ensureStripeCustomer(): lazily creates + persists ONE customer before the
+  first Checkout; customers.create uses a STABLE idempotency key
+  (customer-create:<uid>) so a concurrent first-checkout race yields a single
+  customer; persisted via conditional .is(null) update with adopt-the-winner on
+  a lost race (no orphan). All four checkout creators (flipdesk subscribe,
+  credit-pack, per-grade, legacy subscribe) bind sessionParams.customer to it,
+  replacing the customer_email fallback that let Checkout mint duplicates.
+- Stable session idempotency key added to subscribe; per-grade already keyed
+  (US-394); credit-pack intentionally unkeyed (repeatable purchase).
+- Webhook reconciliation: linkStripeCustomer() (pure reconcileCustomerLink in
+  lib/stripe-customer.ts) set-if-null / no-op-on-match / keep-canonical+alert
+  ('billing.multiple_stripe_customers') on a mismatch; used in
+  handleCheckoutCompleted (both branches) and handleSubscriptionChange (which no
+  longer blind-overwrites stripe_customer_id).
+- tests/stripe-customer_test.ts (reconcile set/noop/conflict + stable key).
+  Node port 4/4.
+
+prd.json 389/568.

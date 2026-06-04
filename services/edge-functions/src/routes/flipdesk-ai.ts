@@ -125,6 +125,43 @@ export async function checkQuota(
   return { ok: true, limit, used };
 }
 
+// ── US-387: atomic AI-action reservation ─────────────────────────
+// reserve_ai_action (migration 00087) is a row-locking CAS that increments the
+// monthly counter AND refuses at the cap in one statement, so N concurrent
+// requests at the boundary can't collectively exceed it — unlike the old
+// checkQuota()→increment_ai_actions() flow, which had a check-then-act TOCTOU
+// gap. checkQuota stays for the enablement gate + limit resolution + a fast UX
+// rejection; reserveAiAction is the AUTHORITATIVE enforcement point. Callers
+// reserve immediately BEFORE the billable AI call and refund if it throws.
+async function reserveAiAction(userId: string, limit: number): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.rpc("reserve_ai_action", {
+    p_user_id: userId,
+    p_limit: limit,
+  });
+  if (error) {
+    // Fail CLOSED: a broken counter must not hand out free, over-cap actions.
+    console.error("[flipdesk-ai] reserve_ai_action failed:", error.message);
+    return false;
+  }
+  return data === true;
+}
+
+// Return a reserved action to the pool when the work it was reserved for fails.
+async function refundAiAction(userId: string): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("refund_ai_action", {
+    p_user_id: userId,
+  });
+  if (error) {
+    console.error("[flipdesk-ai] refund_ai_action failed:", error.message);
+  }
+}
+
+const QUOTA_EXHAUSTED_429 = {
+  error:
+    "You've used all your AI actions for this month. Your allowance resets at the start of next month.",
+  actions_remaining: 0,
+};
+
 /**
  * POST /extract
  * Body: { text?, photo_urls?, known_fields?, item_id? }
@@ -190,6 +227,11 @@ flipdeskAiRoutes.post("/extract", async (c) => {
   const inputKind =
     cappedPhotos.length > 0 ? (text ? "both" : "photo") : "text";
 
+  // US-387: reserve the action atomically before spending it.
+  if (!(await reserveAiAction(userId, limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
   const start = Date.now();
   let result;
   try {
@@ -199,6 +241,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
       knownFields,
     });
   } catch (err) {
+    await refundAiAction(userId);
     console.error(
       "[flipdesk-ai] extraction failed:",
       err instanceof Error ? err.message : String(err)
@@ -244,8 +287,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     console.error("[flipdesk-ai] failed to write log row:", logErr.message);
   }
 
-  await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
-
+  // Action already reserved atomically above (US-387).
   const actionsRemaining =
     limit === -1 ? -1 : Math.max(0, limit - used - 1);
 
@@ -443,6 +485,11 @@ flipdeskAiRoutes.post("/extract-aspects", async (c) => {
       ? (body.known_aspects as Record<string, string[]>)
       : {};
 
+  // US-387: reserve the action atomically before spending it.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
   const start = Date.now();
   let result;
   try {
@@ -454,6 +501,7 @@ flipdeskAiRoutes.post("/extract-aspects", async (c) => {
       categoryPath,
     });
   } catch (err) {
+    await refundAiAction(userId);
     console.error(
       "[flipdesk-ai] aspect extraction failed:",
       err instanceof Error ? err.message : String(err)
@@ -484,7 +532,7 @@ flipdeskAiRoutes.post("/extract-aspects", async (c) => {
     })
     .select("id")
     .single();
-  await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+  // Action already reserved atomically above (US-387).
 
   const actionsRemaining = quota.limit === -1
     ? -1
@@ -560,6 +608,12 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
   }
 
   const photos = await loadItemPhotos(itemId);
+
+  // US-387: reserve the action atomically before spending it.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
   const start = Date.now();
   let result;
   try {
@@ -579,6 +633,7 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
       photos,
     });
   } catch (err) {
+    await refundAiAction(userId);
     console.error(
       "[flipdesk-ai] listing copy failed:",
       err instanceof Error ? err.message : String(err)
@@ -609,7 +664,7 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
     })
     .select("id")
     .single();
-  await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+  // Action already reserved atomically above (US-387).
 
   const actionsRemaining =
     quota.limit === -1 ? -1 : Math.max(0, quota.limit - quota.used - 1);
@@ -689,6 +744,20 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         return;
       }
 
+      // US-387: reserve this item's action atomically. If the cap is reached
+      // (including by a concurrent batch), skip it rather than processing for
+      // free — reserve_ai_action is the single enforcement point across batches.
+      if (!(await reserveAiAction(userId, quota.limit))) {
+        results.push({
+          item_id: itemId,
+          status: "failed",
+          applied: [],
+          pending: [],
+          reason: "Monthly AI limit reached",
+        });
+        return;
+      }
+
       const photos = await loadItemPhotos(itemId);
       const text = [item.title, item.description, item.condition_notes]
         .filter((t): t is string => !!t && t.trim() !== "")
@@ -757,7 +826,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         latency_ms: latencyMs,
         suggested_fields: extraction.suggestions,
       });
-      await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+      // Action already reserved atomically at the top of processItem (US-387).
 
       if (applied.length > 0) {
         update.ai_field_sources = aiSources;
@@ -775,6 +844,9 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         pending,
       });
     } catch (err) {
+      // US-387: the action was reserved before the AI call — refund it so a
+      // failed item doesn't permanently consume quota.
+      await refundAiAction(userId);
       results.push({
         item_id: itemId,
         status: "failed",
@@ -891,12 +963,18 @@ flipdeskAiRoutes.post("/embed-photos", async (c) => {
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
 
+  // US-387: reserve the action atomically before spending it.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
   try {
     const groups = await groupSimilarPhotos(images);
     const pairs = groupsToPairs(groups, ids);
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    // Action already reserved atomically above (US-387).
     return c.json({ pairs });
   } catch (err) {
+    await refundAiAction(userId);
     // Fail soft: the board keeps its time-gap clusters and tells the user.
     return c.json(
       { error: "Visual pass failed", detail: err instanceof Error ? err.message : String(err) },
@@ -948,6 +1026,11 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
       url: supabaseAdmin.storage.from("item-photos").getPublicUrl(p.storage_path).data.publicUrl,
     }));
 
+    // US-387: reserve the action atomically before the vision call.
+    if (!(await reserveAiAction(userId, quota.limit))) {
+      return c.json(QUOTA_EXHAUSTED_429, 429);
+    }
+
     let classifications: { id: string; type: string; confidence: number }[];
     try {
       const result = await classifyPhotoTypes(images);
@@ -957,7 +1040,9 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
         return { id: p.id, type: r?.type ?? "detail", confidence: r?.confidence ?? 0 };
       });
     } catch {
-      // Fall back to 'detail' rather than blocking the commit.
+      // Classification failed → refund the reserved action and fall back to
+      // 'detail' rather than blocking the commit (US-387).
+      await refundAiAction(userId);
       classifications = photos.map((p) => ({ id: p.id, type: "detail", confidence: 0 }));
     }
 
@@ -974,7 +1059,7 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
           .eq("inventory_item_id", itemId);
       }
     }
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    // Action already reserved atomically above (US-387).
     return c.json({ classifications });
   }
 
@@ -984,6 +1069,10 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
   if (images.length > 40) {
     return c.json({ error: "Too many photos in one batch (max 40)." }, 400);
   }
+  // US-387: reserve the action atomically before the vision call.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
   try {
     const result = await classifyPhotoTypes(images);
     const byIndex = new Map(result.map((r) => [r.index, r]));
@@ -991,9 +1080,10 @@ flipdeskAiRoutes.post("/classify-photos", async (c) => {
       const r = byIndex.get(i);
       return { id, type: r?.type ?? "detail", confidence: r?.confidence ?? 0 };
     });
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    // Action already reserved atomically above (US-387).
     return c.json({ classifications });
   } catch {
+    await refundAiAction(userId);
     return c.json({ classifications: ids.map((id) => ({ id, type: "detail", confidence: 0 })) });
   }
 });
@@ -1024,11 +1114,17 @@ flipdeskAiRoutes.post("/suggest-item-match", async (c) => {
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
 
+  // US-387: reserve the action atomically before spending it.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
   try {
     const hints = await extractMatchHints(images);
-    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: userId });
+    // Action already reserved atomically above (US-387).
     return c.json(hints);
   } catch (err) {
+    await refundAiAction(userId);
     return c.json(
       { error: "Suggestion failed", detail: err instanceof Error ? err.message : String(err) },
       502,

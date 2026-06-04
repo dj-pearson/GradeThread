@@ -13,6 +13,7 @@ import {
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
+import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -31,12 +32,16 @@ export const webhookRoutes = new Hono();
 
 // ── Stripe webhook (US-206) ──────────────────────────────────────
 //
-// All billing-state mutations flow through this endpoint. Idempotency: every
-// event we handle is recorded in public.flipdesk_subscription_events with
-// stripe_event_id UNIQUE — duplicate deliveries short-circuit early.
+// All billing-state mutations flow through this endpoint. Idempotency: the
+// authoritative claim is claimWebhookEvent (processed_webhook_events, PK
+// provider+event_id), made ONCE below before any side effect (US-390). A
+// duplicate delivery is skipped; a claim-write failure fails CLOSED (500) so
+// Stripe re-delivers. Money side effects are also individually idempotent on
+// the Stripe object id (submission payment_status guard; grant_grade_credits
+// dedupes on the payment_intent) as defense in depth.
 //
-// Handlers must be best-effort: log + return 200 on internal errors so
-// Stripe doesn't pile up retries that won't succeed without code changes.
+// Handler-internal errors currently log + return 200 (a code bug won't be
+// fixed by a Stripe retry); durable handler-failure retry is US-397.
 // Signature failures DO return 400 so Stripe surfaces a real misconfiguration.
 webhookRoutes.post("/stripe", async (c) => {
   const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
@@ -66,12 +71,23 @@ webhookRoutes.post("/stripe", async (c) => {
 
   console.log(`[Webhook] ${event.type} (${event.id})`);
 
-  // Idempotency: skip duplicate deliveries before any side effects run. Stripe
-  // retries the same event.id for up to 72h, so dedup (not timestamp rejection)
-  // is the correct replay defense here. (US-277)
-  if (!(await claimWebhookEvent("stripe", event.id, event.type))) {
+  // Idempotency: the SINGLE authoritative claim before any side effects run.
+  // Stripe retries the same event.id for up to 72h, so dedup (not timestamp
+  // rejection) is the correct replay defense. (US-277/US-390)
+  //   • duplicate → skip (2xx).
+  //   • error (claim couldn't be written) → FAIL CLOSED with 500 so Stripe
+  //     re-delivers. Every Stripe event we handle moves money/entitlement, so
+  //     processing without a durable claim risks a double-apply on the retry.
+  const claim = await claimWebhookEvent("stripe", event.id, event.type);
+  if (claim === "duplicate") {
     console.log(`[Webhook] duplicate ${event.type} (${event.id}) — skipping`);
     return c.json({ received: true, duplicate: true });
+  }
+  if (claim === "error") {
+    console.error(
+      `[Webhook] idempotency claim failed for ${event.type} (${event.id}) — asking Stripe to retry`,
+    );
+    return c.json({ error: "Could not record event; please retry." }, 500);
   }
 
   try {
@@ -119,13 +135,15 @@ webhookRoutes.post("/stripe", async (c) => {
   return c.json({ received: true });
 });
 
-// ── Idempotency helper ───────────────────────────────────────────
+// ── Subscription audit trail ─────────────────────────────────────
 type FlipdeskPlan = "free" | "starter" | "pro" | "business";
 
-/**
- * Records the event and returns true if this is the first time we've seen
- * the event_id. Returns false on duplicate delivery so the caller can skip.
- */
+// US-390: AUDIT-ONLY. The authoritative idempotency claim is now
+// claimWebhookEvent (processed_webhook_events), called once at the top of the
+// /stripe handler. recordEvent only writes the human-readable subscription
+// audit trail (flipdesk_subscription_events). A duplicate stripe_event_id here
+// is expected to be impossible (the claim already deduped) and is logged, not
+// used to gate processing — it no longer returns a "should I proceed" boolean.
 async function recordEvent(
   userId: string,
   eventType: string,
@@ -133,7 +151,7 @@ async function recordEvent(
   fromPlan: FlipdeskPlan | null,
   toPlan: FlipdeskPlan | null,
   rawPayload: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<void> {
   const { error } = await supabaseAdmin
     .from("flipdesk_subscription_events")
     .insert({
@@ -145,16 +163,9 @@ async function recordEvent(
       raw_payload: rawPayload,
     });
 
-  if (error) {
-    // 23505 = unique_violation on stripe_event_id → already processed.
-    if (error.code === "23505") {
-      console.log(`[Webhook] Duplicate event ${stripeEventId} — skipping`);
-      return false;
-    }
-    console.error(`[Webhook] Failed to record event ${stripeEventId}:`, error);
-    // Continue processing anyway — better to act than to drop.
+  if (error && error.code !== "23505") {
+    console.error(`[Webhook] Failed to write audit row for ${stripeEventId}:`, error);
   }
-  return true;
 }
 
 const USER_SELECT =
@@ -184,6 +195,42 @@ async function loadUserById(userId: string) {
     return null;
   }
   return data;
+}
+
+// US-391: idempotently link a Stripe customer to a user and reconcile the
+// "one user → multiple customers" case. Sets the id when unset; no-ops when it
+// already matches; on a MISMATCH keeps the stored (canonical) id and ALERTS for
+// manual reconciliation rather than silently flapping the link between
+// duplicate customers (which would scatter the user's billing history).
+async function linkStripeCustomer(userId: string, customerId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .single();
+  const current =
+    (data as { stripe_customer_id: string | null } | null)?.stripe_customer_id ?? null;
+
+  switch (reconcileCustomerLink(current, customerId)) {
+    case "noop":
+      return;
+    case "set":
+      await supabaseAdmin
+        .from("users")
+        .update({ stripe_customer_id: customerId })
+        .eq("id", userId)
+        .is("stripe_customer_id", null);
+      return;
+    case "conflict":
+      console.error(
+        `[Webhook] user ${userId} maps to multiple Stripe customers: stored=${current} incoming=${customerId} — keeping stored`,
+      );
+      void captureServer(userId, "billing.multiple_stripe_customers", {
+        stored_customer: current,
+        incoming_customer: customerId,
+      });
+      return;
+  }
 }
 
 // ── Subscription handlers ────────────────────────────────────────
@@ -229,7 +276,7 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     ? new Date(sub.pause_collection.resumes_at * 1000).toISOString()
     : null;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -237,7 +284,6 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     plan,
     { subscription_id: sub.id, status: sub.status, plan, interval },
   );
-  if (!proceed) return;
 
   // If Stripe set trial_end on a new subscription, persist it (one trial ever).
   const trialEndsAtUpdate =
@@ -256,6 +302,11 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   const pendingCleared =
     !!user.pending_flipdesk_plan && plan === user.pending_flipdesk_plan;
 
+  // US-391: reconcile the customer link separately (set-if-null / alert-on-
+  // mismatch) instead of blindly overwriting stripe_customer_id below, which
+  // could silently repoint a user at a duplicate customer.
+  await linkStripeCustomer(user.id, customerId);
+
   const { error } = await supabaseAdmin
     .from("users")
     .update({
@@ -266,7 +317,6 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_period_end: periodEnd,
       flipdesk_pause_until: pauseUntil,
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,
-      stripe_customer_id: customerId,
       // US-395: anchor/clear the dunning grace clock across this transition
       // (preserves the original anchor across retries; clears on recovery).
       past_due_since: nextPastDueSince(
@@ -386,7 +436,7 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -394,7 +444,6 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     "free",
     { subscription_id: sub.id },
   );
-  if (!proceed) return;
 
   const { error } = await supabaseAdmin
     .from("users")
@@ -439,7 +488,7 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -447,7 +496,6 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
     user.flipdesk_plan,
     { invoice_id: invoice.id, billing_reason: billingReason },
   );
-  if (!proceed) return;
 
   // On subscription create or renewal, reset the included-grades + AI counters
   // for the new billing cycle. Other invoice reasons (manual, upcoming, etc.)
@@ -492,7 +540,7 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -504,7 +552,6 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
       attempt_count: invoice.attempt_count,
     },
   );
-  if (!proceed) return;
 
   await supabaseAdmin
     .from("users")
@@ -557,31 +604,24 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
   }
 
   // Subscription-mode sessions are handled by customer.subscription.created.
-  // We still want to attach the customer id to the user the first time.
+  // We still want to attach the customer id to the user the first time. (US-391:
+  // reconcile rather than blind-set, so a stray duplicate customer is flagged.)
   if (session.mode === "subscription" && session.customer) {
     const customerId = typeof session.customer === "string"
       ? session.customer
       : session.customer.id;
-    await supabaseAdmin
-      .from("users")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", userId)
-      .is("stripe_customer_id", null);
+    await linkStripeCustomer(userId, customerId);
     return;
   }
 
   if (session.mode !== "payment") return;
 
-  // Attach customer id on first one-time purchase too.
+  // Attach customer id on first one-time purchase too. (US-391: reconcile.)
   if (session.customer) {
     const customerId = typeof session.customer === "string"
       ? session.customer
       : session.customer.id;
-    await supabaseAdmin
-      .from("users")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", userId)
-      .is("stripe_customer_id", null);
+    await linkStripeCustomer(userId, customerId);
   }
 
   if (product === "credit_pack") {
@@ -609,7 +649,7 @@ async function handleCreditPackPurchase(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -617,7 +657,6 @@ async function handleCreditPackPurchase(
     null,
     { product: "credit_pack", credits, payment_intent: paymentIntentId },
   );
-  if (!proceed) return;
 
   const { data, error } = await supabaseAdmin.rpc("grant_grade_credits", {
     p_user_id: userId,
@@ -663,7 +702,7 @@ async function handlePerGradePurchase(
     return;
   }
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -671,7 +710,6 @@ async function handlePerGradePurchase(
     null,
     { product: "per_grade", submission_id: submissionId, tier },
   );
-  if (!proceed) return;
 
   const { error: updateError } = await supabaseAdmin
     .from("submissions")
@@ -725,7 +763,7 @@ async function handleChargeRefunded(event: Stripe.Event) {
     return;
   }
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -733,7 +771,6 @@ async function handleChargeRefunded(event: Stripe.Event) {
     null,
     { product: "credit_pack", credits, charge_id: charge.id },
   );
-  if (!proceed) return;
 
   // US-384: clawing back the credits must actually DEBIT the wallet, not just
   // append a ledger row. The row-locked RPC subtracts from grade_credit_balance,
@@ -790,7 +827,7 @@ async function refundPerGrade(
     return;
   }
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -798,7 +835,6 @@ async function refundPerGrade(
     null,
     { product: "per_grade", submission_id: submissionId, charge_id: charge.id },
   );
-  if (!proceed) return;
 
   // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
   // submission actually belongs to this user before we touch its grade.
@@ -863,7 +899,7 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
   );
 
   if (userId && product === "per_grade" && submissionId) {
-    const proceed = await recordEvent(
+    await recordEvent(
       userId,
       event.type,
       event.id,
@@ -871,7 +907,6 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
       null,
       { product, submission_id: submissionId, dispute_id: dispute.id, reason: dispute.reason },
     );
-    if (!proceed) return;
 
     await supabaseAdmin
       .from("submissions")
