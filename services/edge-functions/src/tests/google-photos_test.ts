@@ -34,14 +34,28 @@ Deno.test("consent URL targets Google with the Picker scope + online access", ()
   );
 });
 
+const CLIENT_ENV = [
+  "GOOGLE_PHOTOS_CLIENT_ID",
+  "GOOGLE_PHOTOS_CLIENT_SECRET",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+];
+
 Deno.test("isGooglePhotosConfigured reflects the client env vars", () => {
-  Deno.env.delete("GOOGLE_PHOTOS_CLIENT_ID");
-  Deno.env.delete("GOOGLE_PHOTOS_CLIENT_SECRET");
+  for (const k of CLIENT_ENV) Deno.env.delete(k);
   assertEquals(isGooglePhotosConfigured(), false);
+
+  // Per-service override vars work and require BOTH.
   Deno.env.set("GOOGLE_PHOTOS_CLIENT_ID", "id");
-  assertEquals(isGooglePhotosConfigured(), false); // needs both
+  assertEquals(isGooglePhotosConfigured(), false);
   Deno.env.set("GOOGLE_PHOTOS_CLIENT_SECRET", "secret");
   assertEquals(isGooglePhotosConfigured(), true);
-  Deno.env.delete("GOOGLE_PHOTOS_CLIENT_ID");
-  Deno.env.delete("GOOGLE_PHOTOS_CLIENT_SECRET");
+
+  // The SHARED vars satisfy it too — no per-service vars needed.
+  for (const k of CLIENT_ENV) Deno.env.delete(k);
+  Deno.env.set("GOOGLE_CLIENT_ID", "id");
+  Deno.env.set("GOOGLE_CLIENT_SECRET", "secret");
+  assertEquals(isGooglePhotosConfigured(), true);
+
+  for (const k of CLIENT_ENV) Deno.env.delete(k);
 });

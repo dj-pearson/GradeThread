@@ -35,11 +35,22 @@ const MAX_IMPORT = 100; // bound a single import
 const DOWNLOAD_CONCURRENCY = 4;
 const IMPORT_MAX_BYTES = 15 * 1024 * 1024;
 
+// Shared Google OAuth client by default (one client can serve every Google
+// integration), with an optional per-service override so a specific service can
+// point at a different client later without disturbing the rest.
 function clientId(): string {
-  return Deno.env.get("GOOGLE_PHOTOS_CLIENT_ID") ?? "";
+  return (
+    Deno.env.get("GOOGLE_PHOTOS_CLIENT_ID") ??
+    Deno.env.get("GOOGLE_CLIENT_ID") ??
+    ""
+  );
 }
 function clientSecret(): string {
-  return Deno.env.get("GOOGLE_PHOTOS_CLIENT_SECRET") ?? "";
+  return (
+    Deno.env.get("GOOGLE_PHOTOS_CLIENT_SECRET") ??
+    Deno.env.get("GOOGLE_CLIENT_SECRET") ??
+    ""
+  );
 }
 function redirectUri(): string {
   return (
