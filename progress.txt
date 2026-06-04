@@ -3763,3 +3763,68 @@ COMPLETED, passes=true.
   never leaks the raw cause). Redaction verified via Node port.
 
 prd.json 383/568.
+
+
+## Session Notes (2026-06-04 cont.) -- Server-side plan enforcement + dunning US-382/395/401
+
+Continued into the next highest-priority cluster: server-side billing/plan
+enforcement (the US-382..US-402 band). Took the P0 anchor + two focused
+correctness fixes. Deno still couldn't be installed (deno.land blocked), so edge
+logic was verified via Node ports of the pure decision functions; frontend tsc
+re-run clean.
+
+US-382 Enforce FlipDesk plan caps + feature gates server-side [P0][Billing] --
+COMPLETED, passes=true.
+- requireFlipdesk (the single source of truth in lib/plan-gate.ts, keyed on
+  users.flipdesk_plan via effectivePlanFor) was wired ONLY into autolister +
+  workspace, so caps were effectively UI-only. Now wired into the real paths:
+  • POST /flipdesk/ebay/listings/push -> capacity activeListings. Re-publish of
+    an item already in status 'listed' passes delta=0 so a revise is never
+    blocked or double-counted.
+  • GET /flipdesk/ebay/oauth/start -> capacity marketplaces. A reconnect of an
+    existing ACTIVE eBay connection passes delta=0 so it isn't blocked (only a
+    genuinely new marketplace counts +1).
+  • /flipdesk/reconciliation/* -> router .use('*') feature gate 'reconciliation'
+    (Business) on every endpoint.
+  • POST /keys -> feature 'apiAccess' (Business), REPLACING the stale legacy
+    users.plan 'professional'/'enterprise' check (those values no longer track
+    the live FlipDesk plan, so paid resellers were mis-gated).
+  • POST /flipdesk/ai/bulk-extract -> feature 'bulkActions' (Pro) before any AI
+    quota is spent.
+  subAccounts was already enforced (US-388).
+- tests/plan-gate_test.ts extended: Free -> 402 FEATURE_LOCKED on
+  reconciliation/apiAccess/bulkActions; Pro clears bulkActions but stays locked
+  (requiredPlan=business) on reconciliation/apiAccess; Business clears all;
+  activeListings/marketplaces CAP_REACHED at the Free cap with delta=0
+  re-publish/reconnect allowed. Gate decisions verified via Node port (16/16).
+- NOT done here: an HTTP-level integration harness (needs Deno + a seeded DB);
+  the injected-deps gate tests cover the same decisions offline.
+
+US-395 Downgrade entitlement on exhausted dunning [P2][Billing] -- COMPLETED,
+passes=true.
+- A past_due subscription kept paid caps forever. Added users.past_due_since
+  (migration 00091); the webhook anchors it on the FIRST failed invoice and
+  PRESERVES it across retries (pure nextPastDueSince(prevStatus, prevSince,
+  nextStatus) used by both handleSubscriptionChange and the payment_failed
+  handler), and CLEARS it on recovery (payment_succeeded -> active sets null).
+- effectivePlanFor gains optional pastDueSince + PAST_DUE_GRACE_MS (14 days): a
+  past_due sub past the window reads as Free caps; inside the window keeps paid
+  caps; fail-open while no anchor is recorded yet. Threaded into
+  plan-gate.loadUser/requireFlipdesk AND grade-billing.runPaymentPrecedence so
+  caps + included-grade allowance both respect dunning.
+- Dunning end-states defined: canceled (NON_ENTITLING) and past_due/unpaid past
+  grace both -> Free (mapSubscriptionStatus folds Stripe 'unpaid' into
+  'past_due'). Tests in grade-pricing_test.ts (in-grace / past-grace / no-anchor
+  + nextPastDueSince anchor/preserve/clear). Verified via Node port (8/8).
+
+US-401 Prevent the per-grade price_data fallback from bypassing tax in prod
+[P3][Billing] -- COMPLETED, passes=true.
+- payments.ts perGradeCheckout's inline price_data fallback disables
+  automatic_tax (an ad-hoc one-off price can't be tax-coded). In production a
+  missing GRADE_PRICE_IDS[tier] now returns 503 'Pricing not configured'
+  (mirrors /subscribe + /credit-pack) + a 'billing.missing_grade_price_id'
+  PostHog alert + console.error; the inline fallback is gated behind
+  isProduction()===false (dev/local only). Tax stays enabled on the real-price
+  path.
+
+prd.json 386/568.

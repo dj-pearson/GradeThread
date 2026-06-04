@@ -6186,8 +6186,8 @@
         "Integration tests assert 402 CAP_REACHED/FEATURE_LOCKED for a Free user on each path"
       ],
       "priority": 382,
-      "passes": false,
-      "notes": "[P0][Billing] Audit 2026-06-03. requireFlipdesk is wired ONLY into flipdesk-autolister.ts; caps are effectively UI-only. File: lib/plan-gate.ts."
+      "passes": true,
+      "notes": "[P0][Billing] DONE 2026-06-04. requireFlipdesk (lib/plan-gate.ts, the single source of truth keyed on users.flipdesk_plan via effectivePlanFor) is now wired into the real endpoints, not just AutoLister/workspace: (1) listing publish POST /flipdesk/ebay/listings/push -> capacity activeListings (re-publish of an already-'listed' item passes delta=0 so it's never double-counted/blocked); (2) marketplace connect GET /flipdesk/ebay/oauth/start -> capacity marketplaces (reconnect of an existing active eBay connection passes delta=0 so it isn't blocked); (3) reconciliation -> router-level .use('*') feature gate 'reconciliation' (Business) on EVERY /flipdesk/reconciliation/* endpoint; (4) API keys POST /keys -> feature 'apiAccess' (Business), REPLACING the stale legacy users.plan 'professional'/'enterprise' check that mis-gated paid resellers; (5) bulk extraction POST /flipdesk/ai/bulk-extract -> feature 'bulkActions' (Pro) before any AI quota spend. subAccounts was already enforced (US-388). Tests: tests/plan-gate_test.ts extended -- Free->402 FEATURE_LOCKED on reconciliation/apiAccess/bulkActions, Pro cleared for bulkActions but still locked (requiredPlan business) on reconciliation/apiAccess, Business clears all; activeListings/marketplaces CAP_REACHED at the Free cap with delta=0 re-publish/reconnect allowed. Gate decisions verified via Node port (16/16)."
     },
     {
       "id": "US-383",
@@ -6354,8 +6354,8 @@
         "Test: a subscription stuck in past_due loses paid caps after grace"
       ],
       "priority": 395,
-      "passes": false,
-      "notes": "[P2][Billing] Audit 2026-06-03. Only paused is special-cased; past_due keeps paid caps."
+      "passes": true,
+      "notes": "[P2][Billing] DONE 2026-06-04. A past_due subscription previously kept paid caps forever. Now: migration 00091 adds users.past_due_since; the webhook anchors it on the FIRST failed invoice (invoice.payment_failed) and PRESERVES it across retries (handleSubscriptionChange + payment_failed both use the pure nextPastDueSince(prevStatus, prevSince, nextStatus)), and CLEARS it on recovery to active (invoice.payment_succeeded sets past_due_since=null). effectivePlanFor (grade-pricing.ts) gains an optional pastDueSince + PAST_DUE_GRACE_MS (14 days): a past_due sub past the window reads as Free caps, inside the window keeps paid caps (fail-open when no anchor recorded yet). Threaded into plan-gate.loadUser/requireFlipdesk AND grade-billing.runPaymentPrecedence (so both caps + included-grade allowance respect dunning). Dunning end-states defined: canceled (NON_ENTITLING) and past_due/unpaid-past-grace both -> Free (mapSubscriptionStatus folds Stripe 'unpaid' into 'past_due'). Tests: grade-pricing_test.ts (in-grace keeps / past-grace Free / no-anchor keeps; nextPastDueSince anchor/preserve/clear). Logic verified via Node port (8/8)."
     },
     {
       "id": "US-396",
@@ -6429,8 +6429,8 @@
         "The dev-only fallback is gated behind an explicit non-prod flag; monitoring alerts if it executes"
       ],
       "priority": 401,
-      "passes": false,
-      "notes": "[P3][Billing] Audit 2026-06-03. payments.ts perGradeCheckout inline price_data disables tax."
+      "passes": true,
+      "notes": "[P3][Billing] DONE 2026-06-04. payments.ts perGradeCheckout's inline price_data fallback disables automatic_tax (an ad-hoc one-off price can't be tax-coded), so a missing GRADE_PRICE_IDS[tier] in production would mint an UNTAXED charge. Now: in production a missing price ID returns 503 'Pricing not configured' (mirrors /subscribe + /credit-pack) and emits a 'billing.missing_grade_price_id' PostHog alert + console.error; the inline-price_data fallback is retained ONLY for non-production (isProduction() gate) where price IDs aren't configured. Tax stays enabled on the real-price path."
     },
     {
       "id": "US-402",

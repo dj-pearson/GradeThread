@@ -43,6 +43,7 @@ import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -94,6 +95,22 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const redirectTo = sanitizeRelativePath(c.req.query("redirect_to"));
+
+  // US-382: enforce the marketplace-connection cap server-side. A reconnect of
+  // an existing eBay connection must NOT be blocked (it updates the same row,
+  // not a new marketplace), so only count +1 when there's no active eBay
+  // connection yet.
+  const { count: activeEbay } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "marketplaces", delta: (activeEbay ?? 0) > 0 ? 0 : 1 },
+    userId,
+  });
+  if (capGate) return capGate;
 
   const state = generateState();
   const { error } = await supabaseAdmin.from("oauth_states").insert({
@@ -1712,6 +1729,23 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const itemId = await readItemId(c);
   if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+
+  // US-382: enforce the active-listing cap server-side (was UI-only). Skip the
+  // +1 when this exact item is ALREADY listed — a re-publish/revise of a live
+  // listing must not be blocked or counted twice (the cap counts items in
+  // status 'listed', which already includes it).
+  const { data: existing } = await supabaseAdmin
+    .from("inventory_items")
+    .select("status")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const alreadyListed = (existing as { status?: string } | null)?.status === "listed";
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "activeListings", delta: alreadyListed ? 0 : 1 },
+    userId,
+  });
+  if (capGate) return capGate;
 
   const result = await publishItemForOwner(userId, itemId);
   if (!result.ok) return c.json(result.body, result.status);

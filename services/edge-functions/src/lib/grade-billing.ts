@@ -57,7 +57,7 @@ export async function runPaymentPrecedence(
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select(
-      "flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at",
+      "flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at, past_due_since",
     )
     .eq("id", userId)
     .single();
@@ -66,11 +66,14 @@ export async function runPaymentPrecedence(
     throw new Error(`USER_NOT_FOUND: ${userId}`);
   }
 
-  // Paused subscriptions AND expired trials (US-383) fall back to Free caps.
+  // Paused subscriptions, expired trials (US-383), AND past_due subs beyond the
+  // dunning grace window (US-395) fall back to Free caps.
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
     user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
   );
   const includedCap = INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0;
 

@@ -17,7 +17,7 @@ import {
   type VisionImage,
 } from "../lib/ai-reconcile.ts";
 import { effectivePlanFor } from "../lib/grade-pricing.ts";
-import { effectiveAiCap } from "../lib/plan-gate.ts";
+import { effectiveAiCap, requireFlipdesk } from "../lib/plan-gate.ts";
 
 const MAX_PHOTOS = 8;
 
@@ -644,6 +644,12 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
   if (itemIds.length === 0) {
     return c.json({ error: "item_ids is required" }, 400);
   }
+
+  // US-382: bulk extraction is a gated "bulk actions" feature (Pro+). Enforce
+  // server-side before spending any AI quota — a Free/Starter caller gets 402
+  // FEATURE_LOCKED.
+  const bulkGate = await requireFlipdesk(c, { feature: "bulkActions", userId });
+  if (bulkGate) return bulkGate;
 
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);

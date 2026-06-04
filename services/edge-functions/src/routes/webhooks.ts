@@ -12,6 +12,7 @@ import {
   sendSubscriptionStartedEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { nextPastDueSince } from "../lib/grade-pricing.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -157,7 +158,7 @@ async function recordEvent(
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until, cancellation_reason, subscription_status";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -266,6 +267,13 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_pause_until: pauseUntil,
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,
       stripe_customer_id: customerId,
+      // US-395: anchor/clear the dunning grace clock across this transition
+      // (preserves the original anchor across retries; clears on recovery).
+      past_due_since: nextPastDueSince(
+        user.subscription_status,
+        user.past_due_since,
+        status,
+      ),
       // US-216: a fresh subscription means the user came back — clear any churn
       // reason left over from a prior cancellation.
       ...(event.type === "customer.subscription.created"
@@ -465,10 +473,11 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
     }
     console.log(`[Webhook] User ${user.id} cycle reset (${billingReason})`);
   } else {
-    // Any successful payment clears past_due → active.
+    // Any successful payment clears past_due → active (and the US-395 dunning
+    // grace clock).
     await supabaseAdmin
       .from("users")
-      .update({ subscription_status: "active" })
+      .update({ subscription_status: "active", past_due_since: null })
       .eq("id", user.id);
   }
 }
@@ -499,7 +508,16 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
 
   await supabaseAdmin
     .from("users")
-    .update({ subscription_status: "past_due" })
+    .update({
+      subscription_status: "past_due",
+      // US-395: start the dunning grace clock on the FIRST failure; preserve it
+      // across subsequent retry failures so it can actually elapse.
+      past_due_since: nextPastDueSince(
+        user.subscription_status,
+        user.past_due_since,
+        "past_due",
+      ),
+    })
     .eq("id", user.id);
 
   console.log(

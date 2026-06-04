@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { isProduction } from "../lib/env.ts";
+import { captureServer } from "../lib/posthog.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -394,9 +396,21 @@ async function perGradeCheckout(c: Ctx) {
 
   const priceId = GRADE_PRICE_IDS[tier];
   if (!priceId) {
-    // Pre-Stripe-setup fallback: build a one-off price_data line so
-    // local/dev environments without configured price IDs still work.
-    console.warn(`Missing Stripe price ID for grade tier ${tier}; using inline price_data`);
+    // US-401: the inline price_data fallback disables automatic_tax (a one-off
+    // ad-hoc price can't be tax-coded), so it must NEVER run in production —
+    // that would mint an untaxed charge and break tax compliance. Fail closed
+    // with 503 (mirrors /subscribe + /credit-pack), and alert. The fallback is
+    // kept ONLY for local/dev where price IDs aren't configured.
+    if (isProduction()) {
+      console.error(
+        `[payments] PROD missing GRADE_PRICE_IDS[${tier}] — refusing the untaxed inline fallback.`,
+      );
+      void captureServer(userId, "billing.missing_grade_price_id", { tier });
+      return c.json({ error: "Pricing not configured" }, 503);
+    }
+    console.warn(
+      `Missing Stripe price ID for grade tier ${tier}; using inline price_data (dev only)`,
+    );
   }
 
   // Verify the submission belongs to this user and isn't already paid.
