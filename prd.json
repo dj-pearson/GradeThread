@@ -9085,6 +9085,188 @@
       "priority": 609,
       "passes": false,
       "notes": "[P3][UX] Deep-dive 2026-06-04. sidebar.tsx FlipDesk group is 13 flat items; flipdesk/pipeline.tsx uses plain text loading while others use Skeleton."
+    },
+    {
+      "id": "US-610",
+      "title": "Condition-adjusted value engine (price-vs-grade)",
+      "description": "As a seller and as a scout, given an item (brand/category/keywords) and a condition grade, I get a condition-adjusted resale value range, so pricing and deal-scoring reflect CONDITION, not just the item identity.",
+      "acceptanceCriteria": [
+        "valueAtGrade(itemKey, grade) returns { low, median, high, sampleSize, confidence } from eBay comps bucketed by condition",
+        "Maps the 1.0-10.0 grade to eBay conditionId band(s), reusing the grade->conditionId mapping the repricing engine already applies",
+        "Returns an explicit 'insufficient comps' signal (no false precision) when the bucket sample is too thin",
+        "Pure/injectable enough to unit-test the bucketing + range math without live eBay"
+      ],
+      "priority": 610,
+      "passes": false,
+      "notes": "[P1][PriceEngine] FOUNDATION for ScoutAI (US-615+), Snap-to-Value (US-612), Condition Index (US-621). Builds on flipdesk-pricing/repricing condition-matched comps + ebay-client Browse; grade->conditionId mapping already exists in repricing.ts."
+    },
+    {
+      "id": "US-611",
+      "title": "Persist + refresh condition price curves",
+      "description": "As the platform, I want per-item price-vs-grade curves cached, so lookups are cheap and the public Condition Index can render without a live eBay call per pageview.",
+      "acceptanceCriteria": [
+        "New table condition_price_curves (item_key, brand, category, per-grade buckets, sample sizes, updated_at) with CHECK/unique constraints",
+        "Read-through cache with TTL; an on-demand refresh path (reusable by a cron) repopulates a curve from comps",
+        "Curves are aggregate/anonymized only - no per-listing PII or per-seller data stored"
+      ],
+      "priority": 611,
+      "passes": false,
+      "notes": "[P1][PriceEngine] New migration. Powers Index SEO pages + ScoutAI margin ranking without re-hitting eBay each time."
+    },
+    {
+      "id": "US-612",
+      "title": "Snap-to-Value: instant grade + resale value (web)",
+      "description": "As a logged-in user, I upload a garment photo and instantly get a condition grade ESTIMATE + a condition-adjusted resale value range - no full submission or certificate - so I can decide what my closet/inventory is worth in seconds.",
+      "acceptanceCriteria": [
+        "New endpoint: photo in -> lightweight grade (reuse the grading vision, NO certificate/submission row, NO cert hash) -> grade + value range via US-610",
+        "Requires auth; uploads go through validateImageUpload + stripImageMetadata (US-276)",
+        "Result is clearly labeled an 'estimate' with a confidence band, distinct from a certified grade",
+        "Cost-capped via the global Claude concurrency/cost ceiling (US-414)"
+      ],
+      "priority": 612,
+      "passes": false,
+      "notes": "[P1][SnapToValue] Free for logged-in users (signup-gated per product decision). Distinct from /api/grade/submit, which mints a certificate + bills. This is the viral top-of-funnel."
+    },
+    {
+      "id": "US-613",
+      "title": "Snap-to-Value on iOS (camera-native)",
+      "description": "As an iOS user, I point my camera at a garment and get its grade + resale value inline, for the frictionless point-and-scan moment.",
+      "acceptanceCriteria": [
+        "iOS camera capture -> the same Snap-to-Value endpoint (US-612) -> grade + value range shown inline",
+        "Reuses the existing iOS auth + camera/upload stack"
+      ],
+      "priority": 613,
+      "passes": false,
+      "notes": "[P2][SnapToValue][iOS] Fast-follow to US-612; web is the launch surface. The 'Shazam for what your clothes are worth' moment."
+    },
+    {
+      "id": "US-614",
+      "title": "Snap-to-Value funnel: limits + conversion",
+      "description": "As the company, I want free snaps capped and snappers converted into graders/listers, so the viral funnel turns into revenue.",
+      "acceptanceCriteria": [
+        "Per-plan monthly snap cap (free tier limited); over-cap prompts an upgrade",
+        "Each result offers CTAs: 'Get the certified grade' (-> paid grade) and 'List it with FlipDesk'",
+        "Snap usage + conversion tracked for analytics"
+      ],
+      "priority": 614,
+      "passes": false,
+      "notes": "[P1][SnapToValue][Growth] Reuse plan-gate.ts + usePlanUsage. The acquisition->monetization bridge."
+    },
+    {
+      "id": "US-615",
+      "title": "ScoutAI: on-demand sourcing ingest (search/URLs)",
+      "description": "As a power seller, I paste an eBay keyword search or listing URLs and ScoutAI fetches the candidate listings to evaluate for flips.",
+      "acceptanceCriteria": [
+        "Accept a keyword query and/or eBay listing URLs/IDs; resolve to candidate items via the eBay Browse API",
+        "Bounded fan-out (cap candidates per request); honor eBay rate limits + the circuit breaker (US-499/US-406)",
+        "Return normalized candidates: title, photo URLs, asking price, item id/URL"
+      ],
+      "priority": 615,
+      "passes": false,
+      "notes": "[P1][ScoutAI] On-demand only; saved-search auto-sweep is a later story (per product decision). Reuses ebay-client Browse + bounded concurrency."
+    },
+    {
+      "id": "US-616",
+      "title": "ScoutAI: shadow-grade candidate listings",
+      "description": "As a scout, I want each candidate listing graded from its public photos, so I have a private condition signal for items I don't own.",
+      "acceptanceCriteria": [
+        "Run the grading vision on each candidate's photos -> private shadow grade + confidence (NO certificate, NO submission row)",
+        "Only high-confidence shadow grades are surfaced as actionable; low-confidence are flagged 'uncertain'",
+        "Shadow grades are PRIVATE to the requesting user - never published, never attached to the seller's listing"
+      ],
+      "priority": 616,
+      "passes": false,
+      "notes": "[P1][ScoutAI] ToS/fairness guardrail: a derived buyer-side decision signal only. Cost-capped (US-414)."
+    },
+    {
+      "id": "US-617",
+      "title": "ScoutAI: condition-adjusted margin ranking",
+      "description": "As a scout, I want candidates scored by condition-adjusted margin, so the best flips rise to the top automatically.",
+      "acceptanceCriteria": [
+        "Per candidate: condition-adjusted value (US-610) vs asking price -> estimated margin/ROI (net of est. fees/shipping where known)",
+        "Rank candidates; flag 'underpriced for its condition' when value@shadowGrade materially exceeds asking",
+        "Hide candidates with insufficient comps or low grade-confidence (no false signals)"
+      ],
+      "priority": 617,
+      "passes": false,
+      "notes": "[P1][ScoutAI] The core arbitrage output. Reuse irr.ts / profit helpers where useful."
+    },
+    {
+      "id": "US-618",
+      "title": "ScoutAI: sourcing UI",
+      "description": "As a power seller, I want a sourcing surface that shows ranked deals at a glance.",
+      "acceptanceCriteria": [
+        "Results view: thumbnail, shadow grade + confidence, asking price, est. value range, est. margin, link to the live listing",
+        "Sort/filter by margin, grade, confidence; clear 'estimate, not a GradeThread certificate' labeling",
+        "Empty/insufficient-data + error states (US-436 discipline)"
+      ],
+      "priority": 618,
+      "passes": false,
+      "notes": "[P2][ScoutAI][UI] FlipDesk surface, e.g. /dashboard/flipdesk/scout."
+    },
+    {
+      "id": "US-619",
+      "title": "ScoutAI: plan-gating + AI-cost ceiling",
+      "description": "As the company, I want ScoutAI to be a paid pro feature with usage limits and a hard AI-cost ceiling, so it is monetized and cost-safe.",
+      "acceptanceCriteria": [
+        "Gate behind a pro/power-seller plan (requireFlipdesk + tier check); per-plan scan/candidate quotas",
+        "Atomic quota reservation per scan (reuse the AutoLister reserve_ai_action pattern, US-527)",
+        "Honors the global Claude concurrency + cost ceiling (US-414); refuses gracefully when over budget"
+      ],
+      "priority": 619,
+      "passes": false,
+      "notes": "[P1][ScoutAI][Billing] ScoutAI is paid (per product decision). Reuse plan-gate + ai-quota."
+    },
+    {
+      "id": "US-620",
+      "title": "ScoutAI: ToS / privacy / rate-limit guardrails",
+      "description": "As the platform, I want ScoutAI to stay defensible and respectful of eBay + other sellers.",
+      "acceptanceCriteria": [
+        "Cache shadow grades + comps to minimize repeat eBay calls; respect Browse rate limits + the breaker",
+        "Shadow grades never leave the requesting tenant; no public re-labeling of others' listings",
+        "Clear disclaimers; an allowlist of supported item categories to keep accuracy honest"
+      ],
+      "priority": 620,
+      "passes": false,
+      "notes": "[P2][ScoutAI][Compliance] Pairs with the tenant-isolation rules (US-268)."
+    },
+    {
+      "id": "US-621",
+      "title": "Public Condition Index pages (SEO destination)",
+      "description": "As a visitor, I want public pages showing the price-vs-grade curve + demand for a brand/category, so I can see what condition is really worth - the buzz/SEO destination.",
+      "acceptanceCriteria": [
+        "Per brand/category Index pages read persisted curves (US-611) and render a price-vs-grade chart + value-at-grade table + demand trend",
+        "Registered in public-routes.ts + entry-server.tsx (SEO sync guards pass) and prerendered to static HTML",
+        "JSON-LD (Dataset) + canonical/OG metadata"
+      ],
+      "priority": 621,
+      "passes": false,
+      "notes": "[P2][ConditionIndex][SEO] Reuses the prerender/SEO machinery (US-291..309). 'The S&P 500 of secondhand condition.'"
+    },
+    {
+      "id": "US-622",
+      "title": "Condition Index honesty / data integrity",
+      "description": "As the company, I want the Index to never show false precision, so the standard stays trustworthy.",
+      "acceptanceCriteria": [
+        "Show sample size + confidence on every curve; suppress thin or low-confidence buckets",
+        "No fabricated data points; an explicit 'insufficient data' state for sparse items",
+        "A refresh cadence keeps curves current; stale curves are labeled"
+      ],
+      "priority": 622,
+      "passes": false,
+      "notes": "[P2][ConditionIndex] Mirrors the transparency-report + 'don't mark up data that doesn't exist' discipline."
+    },
+    {
+      "id": "US-623",
+      "title": "Condition-aware sell-through forecast in the composer",
+      "description": "As a seller, I want condition-aware sell-through shown at the price input, so I can price for speed AND profit.",
+      "acceptanceCriteria": [
+        "Given item + grade + a candidate price, show est. sell-through probability + a days-to-sale band from the curve/demand",
+        "Updates live as the price changes; ties into the existing pricing/repricing surface"
+      ],
+      "priority": 623,
+      "passes": false,
+      "notes": "[P2][SellThrough] Closes the loop - the Index intelligence inside the FlipDesk listing flow."
     }
   ]
 }

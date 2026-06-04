@@ -4279,3 +4279,34 @@ verified via the certificate test. Full upload happy-path is a follow-up.
 eslint clean on e2e/ + config; ci.yml YAML validated.
 
 prd.json 423/609.
+
+
+## Roadmap addition (2026-06-04) -- ScoutAI + Snap-to-Value + Condition Index (US-610..623)
+
+New revolutionary-features cluster appended to prd.json (14 stories, all
+passes=false). Built on the unique moat: the standardized AI condition grade +
+the condition-matched-comp engine that already exists in repricing.ts.
+
+Product decisions (from the user):
+- ScoutAI = PAID pro feature, ON-DEMAND input (paste eBay keyword search / listing
+  URLs), private shadow-grades only (ToS-safe). Saved-search auto-sweep deferred.
+- Snap-to-Value = FREE but SIGNUP-GATED (the viral acquisition funnel).
+- Gating: Snap free / ScoutAI paid. (Idea #2, the condition guarantee, deferred
+  for budget; it needs the outcome-data volume these features generate.)
+
+Cluster structure + dependency:
+- FOUNDATION (US-610/611): condition-adjusted value engine (valueAtGrade) +
+  persisted price-vs-grade curves. Shared by all three features.
+- SNAP-TO-VALUE (US-612 web / 613 iOS / 614 funnel+limits): lightweight grade +
+  value range, no certificate; CTAs convert to paid grade + FlipDesk.
+- SCOUTAI (US-615 ingest / 616 shadow-grade / 617 margin-rank / 618 UI /
+  619 plan-gate+cost-ceiling / 620 ToS+privacy guardrails): the arbitrage engine.
+- CONDITION INDEX (US-621 public SEO pages / 622 data-honesty / 623 sell-through
+  forecast in the composer): the destination + the seller-facing loop.
+
+Suggested build order: 610->611 (foundation) -> 612/614 (Snap funnel) +
+615->617->619 (ScoutAI core) -> 618/620 -> 621/622 -> 613/623. Fastest buzz-to-
+effort = ScoutAI (~70% of stack already exists: vision grading + Browse comps +
+condition mapping).
+
+prd.json 423/623.
