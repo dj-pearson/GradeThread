@@ -11,6 +11,8 @@ import {
   X,
   ImageIcon,
   Combine,
+  Wand2,
+  FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { compressImage } from "@/lib/image-utils";
+import { readCaptureTime } from "@/lib/exif";
+import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
 import { useStartAutolisterBatch } from "@/hooks/use-autolister";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
@@ -44,6 +48,11 @@ interface StagedPhoto {
   width: number | null;
   height: number | null;
   bytes: number;
+  // US-532 auto-grouping signals, captured at upload. Stored as epoch-ms (not a
+  // Date) so the localStorage session round-trips cleanly. phash is the 16-hex
+  // dHash compressImage already computes (empty string if unavailable).
+  capturedAtMs: number | null;
+  phash: string;
 }
 
 interface Group {
@@ -57,6 +66,64 @@ function extForBlobType(mimeType: string): string {
   if (mimeType === "image/png") return "png";
   if (mimeType === "image/jpeg") return "jpg";
   return "webp";
+}
+
+function looksHeic(file: File): boolean {
+  const lc = file.name.toLowerCase();
+  return (
+    file.type === "image/heic" ||
+    file.type === "image/heif" ||
+    lc.endsWith(".heic") ||
+    lc.endsWith(".heif")
+  );
+}
+
+// US-531: transcode iPhone HEIC/HEIF to JPEG in the browser so those photos
+// "just work" instead of being skipped. heic2any (~1.4MB wasm) is dynamic-
+// imported ONLY when a HEIC file is actually present, so it never enters the
+// main bundle. Returns the original file unchanged for non-HEIC inputs.
+async function maybeTranscodeHeic(file: File): Promise<File> {
+  if (!looksHeic(file)) return file;
+  const { default: heic2any } = await import("heic2any");
+  const out = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+  const blob = Array.isArray(out) ? out[0]! : out;
+  const name = file.name.replace(/\.(heic|heif)$/i, ".jpg");
+  return new File([blob], name, { type: "image/jpeg" });
+}
+
+// US-530: collect Files from a drag-and-drop, recursing into dropped FOLDERS
+// (webkitGetAsEntry). Falls back to the flat file list when the entries API
+// isn't available.
+async function filesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
+  const roots: FileSystemEntry[] = [];
+  for (let i = 0; i < dt.items.length; i++) {
+    const entry = dt.items[i]?.webkitGetAsEntry?.();
+    if (entry) roots.push(entry);
+  }
+  if (roots.length === 0) return Array.from(dt.files);
+
+  const out: File[] = [];
+  async function walk(entry: FileSystemEntry): Promise<void> {
+    if (entry.isFile) {
+      const file = await new Promise<File>((res, rej) =>
+        (entry as FileSystemFileEntry).file(res, rej),
+      );
+      out.push(file);
+      return;
+    }
+    if (entry.isDirectory) {
+      const reader = (entry as FileSystemDirectoryEntry).createReader();
+      const readBatch = () =>
+        new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
+      let batch = await readBatch();
+      while (batch.length > 0) {
+        for (const e of batch) await walk(e);
+        batch = await readBatch(); // readEntries pages; loop until empty
+      }
+    }
+  }
+  for (const e of roots) await walk(e);
+  return out;
 }
 
 export function FlipdeskAutolisterPage() {
@@ -87,6 +154,7 @@ export function FlipdeskAutolisterPage() {
     })(),
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const storageKey = `autolister:state:${sessionId.current}`;
   // Lazy-rehydrate staged/groups from localStorage so a refresh recovers the
@@ -118,6 +186,7 @@ export function FlipdeskAutolisterPage() {
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -142,55 +211,57 @@ export function FlipdeskAutolisterPage() {
   );
   const ungrouped = staged.filter((p) => !groupedIds.has(p.id));
 
-  async function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | File[] | null) {
     if (!files || !ownerId) return;
-    setUploading((n) => n + files.length);
+    const list = Array.from(files);
+    setUploading((n) => n + list.length);
     const added: StagedPhoto[] = [];
-    let heicSkipped = 0;
-    for (const file of Array.from(files)) {
+    let heicFailed = 0;
+    for (const file of list) {
       try {
-        // iPhone-default HEIC/HEIF: browsers can't decode these in canvas, and
-        // Claude Vision can't read them either. Detect by mime OR extension
-        // (Safari sometimes reports an empty mime for HEIC) and SKIP with a
-        // clear message — uploading the raw bytes makes the AI step fail later
-        // with a confusing "item not found" downstream.
-        const lcName = file.name.toLowerCase();
-        const looksHeic =
-          file.type === "image/heic" ||
-          file.type === "image/heif" ||
-          lcName.endsWith(".heic") ||
-          lcName.endsWith(".heif");
-        if (looksHeic) {
-          heicSkipped++;
+        // US-532: capture EXIF time from the ORIGINAL file (incl. HEIC) before
+        // any transcode/recompression that may drop the metadata — it drives
+        // capture-time auto-grouping.
+        const capturedAt = await readCaptureTime(file).catch(() => null);
+        // US-531: iPhone HEIC/HEIF is transcoded to JPEG in the browser so it
+        // works instead of being rejected; non-HEIC files pass through.
+        let workFile: File;
+        try {
+          workFile = await maybeTranscodeHeic(file);
+        } catch (heicErr) {
+          console.warn("[autolister] HEIC transcode failed:", heicErr);
+          heicFailed++;
           continue;
         }
-        if (!file.type.startsWith("image/")) continue;
+        if (!workFile.type.startsWith("image/")) continue;
         const id = crypto.randomUUID();
-        let body: Blob = file;
-        let bodyType = file.type || "image/webp";
+        let body: Blob = workFile;
+        let bodyType = workFile.type || "image/webp";
         let width: number | null = null;
         let height: number | null = null;
+        let phash = "";
         let thumbBlob: Blob | null = null;
         let thumbType = "image/webp";
         let compressed = false;
         try {
-          const main = await compressImage(file, 2400, 0.85);
+          const main = await compressImage(workFile, 2400, 0.85);
           body = main.blob;
           bodyType = main.blob.type || "image/webp";
           width = main.width;
           height = main.height;
-          const thumb = await compressImage(file, 320, 0.7);
+          phash = main.phash; // US-532: dHash for the visual grouping pass
+          const thumb = await compressImage(workFile, 320, 0.7);
           thumbBlob = thumb.blob;
           thumbType = thumb.blob.type || "image/webp";
           compressed = true;
         } catch (compErr) {
           console.warn("[autolister] compress failed, using original:", compErr);
         }
-        // If compression failed AND the original is huge (>15MB), the AI
-        // generation will likely choke too. Skip with a clear message.
-        if (!compressed && file.size > 15 * 1024 * 1024) {
+        // If compression failed AND the file is huge (>15MB), the AI generation
+        // will likely choke too. Skip with a clear message.
+        if (!compressed && workFile.size > 15 * 1024 * 1024) {
           toast.error(
-            `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)}MB and couldn't be compressed in the browser. Please convert it to a regular JPEG and try again.`,
+            `"${workFile.name}" is ${(workFile.size / 1024 / 1024).toFixed(1)}MB and couldn't be compressed in the browser. Please convert it to a regular JPEG and try again.`,
           );
           continue;
         }
@@ -228,6 +299,8 @@ export function FlipdeskAutolisterPage() {
           width,
           height,
           bytes: body.size,
+          capturedAtMs: capturedAt ? capturedAt.getTime() : null,
+          phash,
         });
       } catch (err) {
         toast.error(
@@ -241,14 +314,13 @@ export function FlipdeskAutolisterPage() {
       setStaged((prev) => [...prev, ...added]);
       toast.success(`${added.length} photo${added.length === 1 ? "" : "s"} added.`);
     }
-    if (heicSkipped > 0) {
+    if (heicFailed > 0) {
       toast.warning(
-        `${heicSkipped} iPhone HEIC photo${heicSkipped === 1 ? "" : "s"} skipped.`,
+        `${heicFailed} HEIC photo${heicFailed === 1 ? "" : "s"} couldn't be converted.`,
         {
           description:
-            "On your iPhone: Settings → Camera → Formats → Most Compatible. " +
-            "Re-export the photos as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
-          duration: 10_000,
+            "Re-export them as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
+          duration: 8_000,
         },
       );
     }
@@ -276,6 +348,32 @@ export function FlipdeskAutolisterPage() {
       },
     ]);
     setSelected(new Set());
+  }
+
+  // US-532: auto-group the ungrouped photos into per-item listings by EXIF
+  // capture-time bursts + a dHash visual second pass. Existing manual groups are
+  // preserved; detected groups are appended so the user can then merge/split.
+  function autoGroup() {
+    const input: GroupablePhoto[] = ungrouped.map((p) => ({
+      id: p.id,
+      capturedAt: p.capturedAtMs != null ? new Date(p.capturedAtMs) : null,
+      phash: p.phash,
+    }));
+    if (input.length === 0) return;
+    const auto = autoGroupPhotos(input);
+    setGroups((prev) => [
+      ...prev,
+      ...auto.map((g, i) => ({
+        id: crypto.randomUUID(),
+        name: `Item ${prev.length + i + 1}`,
+        photoIds: g.photoIds,
+        coverId: g.coverId,
+      })),
+    ]);
+    setSelected(new Set());
+    toast.success(
+      `Auto-grouped ${input.length} photo${input.length === 1 ? "" : "s"} into ${auto.length} item${auto.length === 1 ? "" : "s"}. Tweak as needed.`,
+    );
   }
 
   function updateGroup(id: string, patch: Partial<Group>) {
@@ -475,14 +573,48 @@ export function FlipdeskAutolisterPage() {
         </Card>
       )}
 
-      {/* Upload */}
-      <Card className="p-4">
+      {/* Upload (US-530: drag-and-drop + folder + paste) */}
+      <Card
+        className={cn("p-4 transition-shadow", dragging && "ring-2 ring-primary")}
+        onDragOver={(e) => {
+          if (!entitled) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          if (!entitled) return;
+          void filesFromDataTransfer(e.dataTransfer).then((fs) => handleFiles(fs));
+        }}
+        onPaste={(e) => {
+          if (!entitled) return;
+          const imgs = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+            f.type.startsWith("image/"),
+          );
+          if (imgs.length > 0) void handleFiles(imgs);
+        }}
+      >
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,.heic,.heif"
           multiple
           className="hidden"
+          onChange={(e) => {
+            void handleFiles(e.target.files);
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          // webkitdirectory/directory are non-standard but widely supported and
+          // not in React's typed attrs — spread them past the type checker.
+          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
           onChange={(e) => {
             void handleFiles(e.target.files);
             e.target.value = "";
@@ -502,12 +634,24 @@ export function FlipdeskAutolisterPage() {
           <span className="text-sm font-medium">
             {uploading > 0
               ? `Uploading ${uploading}…`
-              : "Click to add photos (or pick a whole folder of images)"}
+              : "Drag photos or a folder here, or click to choose"}
           </span>
           <span className="text-xs">
-            Resized &amp; compressed in your browser before upload.
+            iPhone HEIC supported. Resized &amp; compressed in your browser before upload.
           </span>
         </button>
+        <div className="mt-2 flex justify-center">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => folderInputRef.current?.click()}
+            disabled={!entitled}
+          >
+            <FolderOpen className="mr-1.5 h-4 w-4" />
+            Pick a folder
+          </Button>
+        </div>
       </Card>
 
       {/* Ungrouped staging area */}
@@ -516,15 +660,26 @@ export function FlipdeskAutolisterPage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             Ungrouped photos {ungrouped.length > 0 && `(${ungrouped.length})`}
           </h2>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={createGroupFromSelection}
-            disabled={selected.size === 0}
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            New group from selected ({selected.size})
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={autoGroup}
+              disabled={ungrouped.length === 0}
+              title="Group photos into items automatically by capture time + visual similarity"
+            >
+              <Wand2 className="mr-1 h-4 w-4" />
+              Auto-group ({ungrouped.length})
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={createGroupFromSelection}
+              disabled={selected.size === 0}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              New group from selected ({selected.size})
+            </Button>
+          </div>
         </div>
         {ungrouped.length === 0 ? (
           <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
