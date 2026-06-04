@@ -15,6 +15,8 @@ import {
   FolderOpen,
   Images,
   Tags,
+  Eraser,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -23,12 +25,12 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
-import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { compressImage } from "@/lib/image-utils";
 import { readCaptureTime } from "@/lib/exif";
 import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
+import { removeImageBackground, type BgMode } from "@/lib/background-removal";
 import { useStartAutolisterBatch } from "@/hooks/use-autolister";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
@@ -57,6 +59,18 @@ interface StagedPhoto {
   // dHash compressImage already computes (empty string if unavailable).
   capturedAtMs: number | null;
   phash: string;
+  // US-535: snapshot of the pre-background-removal image so a one-tap clean can
+  // be undone. Present only after background removal; cleared on undo.
+  original?: {
+    url: string;
+    storagePath: string;
+    thumbnailUrl: string | null;
+    thumbnailStoragePath: string | null;
+    width: number | null;
+    height: number | null;
+    bytes: number;
+    phash: string;
+  };
 }
 
 // US-533: per-photo gallery roles. The cover is always "front"; the rest carry
@@ -230,6 +244,12 @@ export function FlipdeskAutolisterPage() {
   // US-533: groups currently running the AI cover/role pass.
   const [taggingGroups, setTaggingGroups] = useState<Set<string>>(new Set());
   const [taggingAll, setTaggingAll] = useState(false);
+  // US-535: studio background. Mode for the one-tap clean, photos currently
+  // being segmented, a batch-busy flag, and one-time model-download progress.
+  const [bgMode, setBgMode] = useState<BgMode>("white");
+  const [bgProcessing, setBgProcessing] = useState<Set<string>>(new Set());
+  const [bgBusy, setBgBusy] = useState(false);
+  const [modelProgress, setModelProgress] = useState<number | null>(null);
 
   // Persist whenever staged / groups change.
   useEffect(() => {
@@ -494,6 +514,166 @@ export function FlipdeskAutolisterPage() {
       else next.add(id);
       return next;
     });
+  }
+
+  // US-535: run on-device segmentation on one staged photo and swap in the
+  // cleaned result (studio-white or transparent). Keeps the staged id + capture
+  // time so grouping/order survive, snapshots the previous image into `original`
+  // for one-tap undo, writes a fresh storage key, and drops the replaced object.
+  // The cleaned image flows into BOTH the AI input and the published listing.
+  async function applyBgToPhoto(photoId: string, mode: BgMode): Promise<boolean> {
+    if (!ownerId) return false;
+    const existing = stagedById.get(photoId);
+    if (!existing) return false;
+
+    setBgProcessing((prev) => new Set(prev).add(photoId));
+    try {
+      const srcBlob = await (await fetch(existing.url)).blob();
+      const processed = await removeImageBackground(srcBlob, mode, (f) =>
+        setModelProgress(f < 1 ? f : null),
+      );
+      setModelProgress(null);
+
+      const editId = crypto.randomUUID();
+      const base = `${ownerId}/_staging/${sessionId.current}/${editId}`;
+      const path = `${base}.${processed.ext}`;
+      const { error: upErr } = await supabase.storage
+        .from("item-photos")
+        .upload(path, processed.full, {
+          upsert: false,
+          contentType: processed.contentType,
+        });
+      if (upErr) {
+        toast.error(`Could not save cleaned photo: ${upErr.message}`);
+        return false;
+      }
+      const url = supabase.storage.from("item-photos").getPublicUrl(path).data
+        .publicUrl;
+
+      let thumbnailUrl: string | null = null;
+      let thumbnailStoragePath: string | null = null;
+      const tpath = `${base}_thumb.${processed.ext}`;
+      const { error: tErr } = await supabase.storage
+        .from("item-photos")
+        .upload(tpath, processed.thumb, {
+          upsert: false,
+          contentType: processed.contentType,
+        });
+      if (!tErr) {
+        thumbnailStoragePath = tpath;
+        thumbnailUrl = supabase.storage.from("item-photos").getPublicUrl(tpath)
+          .data.publicUrl;
+      }
+
+      // Snapshot the TRUE original once; re-cleaning replaces only the cleaned
+      // objects (which become orphans), never the saved original.
+      const original = existing.original ?? {
+        url: existing.url,
+        storagePath: existing.storagePath,
+        thumbnailUrl: existing.thumbnailUrl,
+        thumbnailStoragePath: existing.thumbnailStoragePath,
+        width: existing.width,
+        height: existing.height,
+        bytes: existing.bytes,
+        phash: existing.phash,
+      };
+      const orphans = existing.original
+        ? [existing.storagePath, existing.thumbnailStoragePath].filter(
+            (p): p is string => !!p,
+          )
+        : [];
+
+      setStaged((prev) =>
+        prev.map((p) =>
+          p.id === photoId
+            ? {
+                ...p,
+                url,
+                storagePath: path,
+                thumbnailUrl,
+                thumbnailStoragePath,
+                width: processed.width,
+                height: processed.height,
+                bytes: processed.full.size,
+                phash: "",
+                original,
+              }
+            : p,
+        ),
+      );
+      if (orphans.length > 0) {
+        void supabase.storage.from("item-photos").remove(orphans);
+      }
+      return true;
+    } catch (err) {
+      setModelProgress(null);
+      toast.error(
+        `Background removal failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    } finally {
+      setBgProcessing((prev) => {
+        const next = new Set(prev);
+        next.delete(photoId);
+        return next;
+      });
+    }
+  }
+
+  // US-535: restore the pre-cleanup original and drop the cleaned objects.
+  function undoBg(photoId: string) {
+    const existing = stagedById.get(photoId);
+    if (!existing?.original) return;
+    const o = existing.original;
+    const orphans = [existing.storagePath, existing.thumbnailStoragePath].filter(
+      (p): p is string => !!p,
+    );
+    setStaged((prev) =>
+      prev.map((p) =>
+        p.id === photoId
+          ? {
+              ...p,
+              url: o.url,
+              storagePath: o.storagePath,
+              thumbnailUrl: o.thumbnailUrl,
+              thumbnailStoragePath: o.thumbnailStoragePath,
+              width: o.width,
+              height: o.height,
+              bytes: o.bytes,
+              phash: o.phash,
+              original: undefined,
+            }
+          : p,
+      ),
+    );
+    if (orphans.length > 0) {
+      void supabase.storage.from("item-photos").remove(orphans);
+    }
+  }
+
+  // US-535: one tap to clean every not-yet-cleaned staged photo. Sequential —
+  // segmentation is heavy and parallel runs would thrash memory on mobile.
+  async function applyBgToAll(mode: BgMode) {
+    if (bgBusy) return;
+    const targets = staged.filter((p) => !p.original);
+    if (targets.length === 0) {
+      toast.info("Every photo already has a clean background.");
+      return;
+    }
+    setBgBusy(true);
+    try {
+      let ok = 0;
+      for (const p of targets) {
+        if (await applyBgToPhoto(p.id, mode)) ok++;
+      }
+      if (ok > 0) {
+        toast.success(
+          `Cleaned ${ok} photo${ok === 1 ? "" : "s"} onto ${mode === "white" ? "studio white" : "a transparent background"}.`,
+        );
+      }
+    } finally {
+      setBgBusy(false);
+    }
   }
 
   function createGroupFromSelection() {
@@ -931,6 +1111,59 @@ export function FlipdeskAutolisterPage() {
         </div>
       </Card>
 
+      {/* US-535: one-tap on-device studio background across the whole batch */}
+      {staged.length > 0 && entitled && (
+        <Card className="flex flex-wrap items-center gap-3 p-3">
+          <div className="flex items-center gap-2">
+            <Eraser className="h-4 w-4 text-brand-red" />
+            <span className="text-sm font-medium">Studio background</span>
+          </div>
+          <div className="inline-flex overflow-hidden rounded-md border text-xs">
+            <button
+              type="button"
+              onClick={() => setBgMode("white")}
+              className={cn(
+                "px-2.5 py-1",
+                bgMode === "white"
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted",
+              )}
+            >
+              Studio white
+            </button>
+            <button
+              type="button"
+              onClick={() => setBgMode("transparent")}
+              className={cn(
+                "border-l px-2.5 py-1",
+                bgMode === "transparent"
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted",
+              )}
+            >
+              Transparent
+            </button>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => applyBgToAll(bgMode)}
+            disabled={bgBusy || staged.every((p) => !!p.original)}
+          >
+            {bgBusy ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Eraser className="mr-1 h-4 w-4" />
+            )}
+            Clean all ({staged.filter((p) => !p.original).length})
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {modelProgress != null
+              ? `Downloading model… ${Math.round(modelProgress * 100)}%`
+              : "Runs in your browser · no per-photo cost · first use downloads a model"}
+          </span>
+        </Card>
+      )}
+
       {/* Ungrouped staging area */}
       <div>
         <div className="mb-2 flex items-center justify-between">
@@ -966,31 +1199,67 @@ export function FlipdeskAutolisterPage() {
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7">
-            {ungrouped.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => toggleSelect(p.id)}
-                className={cn(
-                  "relative aspect-square overflow-hidden rounded-md border-2",
-                  selected.has(p.id)
-                    ? "border-primary ring-2 ring-primary/40"
-                    : "border-transparent hover:border-muted-foreground/40",
-                )}
-              >
-                <img
-                  src={p.thumbnailUrl ?? p.url}
-                  alt=""
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
-                {selected.has(p.id) && (
-                  <span className="absolute right-1 top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
-                    ✓
-                  </span>
-                )}
-              </button>
-            ))}
+            {ungrouped.map((p) => {
+              const processing = bgProcessing.has(p.id);
+              const cleaned = !!p.original;
+              return (
+                <div
+                  key={p.id}
+                  className={cn(
+                    "group relative aspect-square overflow-hidden rounded-md border-2",
+                    selected.has(p.id)
+                      ? "border-primary ring-2 ring-primary/40"
+                      : "border-transparent hover:border-muted-foreground/40",
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSelect(p.id)}
+                    aria-label="Select photo"
+                    className="absolute inset-0"
+                  >
+                    <img
+                      src={p.thumbnailUrl ?? p.url}
+                      alt=""
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  </button>
+                  {selected.has(p.id) && (
+                    <span className="pointer-events-none absolute right-1 top-1 rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground">
+                      ✓
+                    </span>
+                  )}
+                  {/* US-535: per-photo clean / undo */}
+                  {cleaned ? (
+                    <button
+                      type="button"
+                      title="Undo background removal"
+                      onClick={() => undoBg(p.id)}
+                      className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100"
+                    >
+                      <Undo2 className="h-3 w-3" />
+                      Undo
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title="Clean background"
+                      onClick={() => applyBgToPhoto(p.id, bgMode)}
+                      disabled={processing || bgBusy}
+                      className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100"
+                    >
+                      <Eraser className="h-3 w-3" />
+                    </button>
+                  )}
+                  {processing && (
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
+                      <Loader2 className="h-5 w-5 animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
