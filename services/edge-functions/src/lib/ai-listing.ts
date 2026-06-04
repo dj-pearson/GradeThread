@@ -501,6 +501,23 @@ function suggestionsToSpecifics(
   return out;
 }
 
+// US-541: confidence at/below which an AutoLister draft is routed to review.
+export const LISTING_REVIEW_CONFIDENCE = 0.7;
+
+/**
+ * US-541: a generated draft needs a human look when the model's OVERALL
+ * confidence is low, or ANY refined per-aspect confidence is low. Pure, so the
+ * triage rule is unit-tested.
+ */
+export function listingNeedsReview(
+  overallConfidence: number,
+  fieldConfidence: Record<string, number>,
+  threshold: number = LISTING_REVIEW_CONFIDENCE,
+): boolean {
+  if (overallConfidence < threshold) return true;
+  return Object.values(fieldConfidence).some((c) => c < threshold);
+}
+
 export interface GenerateListingOptions {
   // Associate the produced draft with a generation batch (US-313).
   batchId?: string | null;
@@ -649,6 +666,8 @@ export async function generateListing(
   //    drive the call; eBay-rejected free-text values for SELECTION_ONLY
   //    aspects get dropped, required gaps get filled when supported.
   let itemSpecifics: Record<string, string[]> = listing.item_specifics;
+  // US-541: per-aspect confidence from the refine pass, for needs_review triage.
+  const fieldConfidence: Record<string, number> = {};
   let extractCost = 0;
   let extractTokensIn = 0;
   let extractTokensOut = 0;
@@ -675,6 +694,12 @@ export async function generateListing(
             categoryPath,
           });
           const refinedSpecifics = suggestionsToSpecifics(refined.suggestions);
+          // US-541: capture each refined aspect's confidence (0..1) for triage.
+          for (const [name, sug] of Object.entries(refined.suggestions)) {
+            if (typeof sug.confidence === "number") {
+              fieldConfidence[name] = sug.confidence;
+            }
+          }
           // Merge: refined values WIN (they're constrained to eBay's allowed
           // set); fall back to the original AI generation for any aspect the
           // refiner didn't return (e.g. extractEbayAspects intentionally omits
@@ -781,6 +806,9 @@ export async function generateListing(
     }
   }
 
+  // US-541: route low-confidence drafts to review.
+  const needsReview = listingNeedsReview(listing.confidence, fieldConfidence);
+
   // 8. Upsert the eBay draft listing for this item (tenant-safe: item owned).
   const draftFields = {
     listing_title: listing.title,
@@ -794,6 +822,9 @@ export async function generateListing(
     price_is_estimated: priceIsEstimated,
     batch_id: opts.batchId ?? null,
     primary_photo_id: primaryPhotoId,
+    ai_confidence: listing.confidence,
+    ai_field_confidence: Object.keys(fieldConfidence).length > 0 ? fieldConfidence : null,
+    needs_review: needsReview,
   };
 
   const { data: existing } = await supabaseAdmin
