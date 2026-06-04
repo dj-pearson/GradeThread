@@ -4363,3 +4363,25 @@ deno lint clean; only the 2 pre-existing type errors; full edge suite 405 passed
 US-618 (sourcing UI at /dashboard/flipdesk/scout) is the remaining frontend piece.
 
 prd.json 430/623.
+
+
+### Snap-to-Value edge US-612 COMPLETE (funnel US-614 + iOS US-613 = follow-ups)
+
+POST /api/grade/snap (authed via the /api/grade/* groups; rate-limited). A
+logged-in user uploads ONE photo (+ optional brand/keyword) and gets a condition
+grade ESTIMATE + condition-adjusted value range — NO submission, NO certificate,
+NO billing (reuses lib/quick-grade.ts). US-276 honored: decode -> validateImageUpload
+(magic-byte, size/dims, jpeg/png/webp) -> stripImageMetadata (EXIF/GPS) before
+the photo reaches the model; never stored. chunked base64 (no stack overflow).
+Value range only when brand/keyword given (suggestCategories -> valueAtGrade);
+grade-only otherwise. Honors the grading kill-switch (US-507). Clearly labeled
+estimate + upsell to a certified grade.
+
+deno lint clean; only the 2 pre-existing type errors; full edge suite 405 passed.
+
+CLUSTER STATUS: both flagship BACKENDS shipped (ScoutAI engine + Snap-to-Value).
+Remaining = frontend/iOS: US-614 (Snap monthly-cap counter + conversion CTAs),
+US-613 (Snap iOS), US-618 (ScoutAI sourcing UI), US-621/622/623 (Condition Index
+pages + sell-through forecast).
+
+prd.json 431/623.

@@ -9124,7 +9124,7 @@
         "Cost-capped via the global Claude concurrency/cost ceiling (US-414)"
       ],
       "priority": 612,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][SnapToValue] Free for logged-in users (signup-gated per product decision). Distinct from /api/grade/submit, which mints a certificate + bills. This is the viral top-of-funnel."
     },
     {
