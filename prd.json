@@ -9201,7 +9201,7 @@
         "Empty/insufficient-data + error states (US-436 discipline)"
       ],
       "priority": 618,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][ScoutAI][UI] FlipDesk surface, e.g. /dashboard/flipdesk/scout."
     },
     {

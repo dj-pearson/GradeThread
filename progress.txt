@@ -4385,3 +4385,23 @@ US-613 (Snap iOS), US-618 (ScoutAI sourcing UI), US-621/622/623 (Condition Index
 pages + sell-through forecast).
 
 prd.json 431/623.
+
+
+### ScoutAI UI US-618 COMPLETE -- ScoutAI feature now fully end-to-end
+
+src/pages/flipdesk/scout.tsx + src/hooks/use-scout.ts (useScoutScan mutation via
+edgeFetch). Route /dashboard/flipdesk/scout; sidebar "ScoutAI" (Radar icon) gated
+on requiresFlipdeskFlag:"compPulls" (matches the backend pro gate). Search form
+(keyword / brand / eBay category, default 11450) -> ranked candidate feed:
+thumbnail, shadow-grade badge (color by grade) + confidence, asking, est. value
+range, est. margin ($ + %), "Underpriced" badge, "View on eBay" link, reason.
+Sort by margin/grade/confidence + "actionable only" filter. Estimate disclaimer
+banner (US-620). Loading skeletons, error state, empty + no-input states (US-436).
+
+tsc -b clean; eslint clean; frontend 186 tests pass (coverage 80.7/72.8/79.6/82.9).
+
+ScoutAI (US-615/616/617/618/619/620) is now COMPLETE end-to-end and demoable.
+Remaining cluster: US-621/622/623 (Condition Index + sell-through), US-614 (Snap
+funnel), US-613 (Snap iOS).
+
+prd.json 432/623.

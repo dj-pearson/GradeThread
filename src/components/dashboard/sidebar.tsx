@@ -24,6 +24,7 @@ import {
   TrendingUp,
   Layers,
   ClipboardList,
+  Radar,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,6 +81,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
       { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
       { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
+      { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: false, requiresFlipdeskFlag: "compPulls" },
       { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },
     ],
   },
