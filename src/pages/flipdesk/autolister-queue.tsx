@@ -98,6 +98,42 @@ export function FlipdeskAutolisterQueuePage() {
     },
   });
 
+  // US-541: which generated drafts the AI flagged as needing a human look, plus
+  // the specific low-confidence fields (for the badge tooltip). Keyed by
+  // listing_id; RLS scopes the read to the owner via the parent item.
+  const listingIds = useMemo(
+    () => jobs.map((j) => j.listing_id).filter((id): id is string => !!id),
+    [jobs],
+  );
+  const { data: reviewByListing = {} } = useQuery<
+    Record<string, { needsReview: boolean; fields: string[] }>
+  >({
+    queryKey: ["autolister_listing_review", batchId, listingIds.length],
+    enabled: listingIds.length > 0,
+    queryFn: async () => {
+      const { data: rows } = await supabase
+        .from("listings")
+        .select("id, needs_review, ai_field_confidence")
+        .in("id", listingIds);
+      const map: Record<string, { needsReview: boolean; fields: string[] }> = {};
+      for (
+        const r of (rows ?? []) as Array<{
+          id: string;
+          needs_review: boolean | null;
+          ai_field_confidence: Record<string, number> | null;
+        }>
+      ) {
+        const low = r.ai_field_confidence
+          ? Object.entries(r.ai_field_confidence)
+            .filter(([, c]) => c < 0.7)
+            .map(([name]) => name)
+          : [];
+        map[r.id] = { needsReview: !!r.needs_review, fields: low };
+      }
+      return map;
+    },
+  });
+
   // Notify once when the generation batch finishes (US-325 AC4).
   const notifiedRef = useRef<string | null>(null);
   const batchStatus = data?.batch.status;
@@ -355,6 +391,25 @@ export function FlipdeskAutolisterQueuePage() {
               <span className="flex-1 truncate">
                 {titles[job.inventory_item_id] ?? job.inventory_item_id}
               </span>
+
+              {/* US-541: AI flagged this draft as low-confidence — surface a
+                  "Needs review" nudge so the seller checks it before publish. */}
+              {job.status === "success" &&
+                job.listing_id &&
+                reviewByListing[job.listing_id]?.needsReview && (
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700"
+                    title={
+                      (reviewByListing[job.listing_id]?.fields.length ?? 0) > 0
+                        ? `AI is unsure about: ${reviewByListing[job.listing_id]!.fields.join(", ")}`
+                        : "The AI was uncertain about this listing — give it a look before publishing."
+                    }
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    Needs review
+                  </Badge>
+                )}
 
               {/* Generation error */}
               {job.status === "failed" && job.error && !pub && (
