@@ -34,12 +34,18 @@ final class GradeNotificationTests: XCTestCase {
 
     // MARK: - Deep-link mapping
 
-    func test_gradeReadyCategory_mapsToGradesList() {
+    func test_gradeReadyCategory_mapsToInventoryItem() {
         let route = DeepLinkRoute.from(
             category: NotificationCategoryID.gradeReady.rawValue,
             userInfo: ["inventory_item_id": "item-1"]
         )
-        XCTAssertEqual(route, .gradesList)
+        XCTAssertEqual(route, .inventoryItem(id: "item-1"))
+    }
+
+    func test_gradeReadyCategory_withoutItemId_isNil() {
+        XCTAssertNil(
+            DeepLinkRoute.from(category: NotificationCategoryID.gradeReady.rawValue, userInfo: [:])
+        )
     }
 
     func test_unknownCategory_isNil() {

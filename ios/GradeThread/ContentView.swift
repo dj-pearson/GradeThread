@@ -206,6 +206,7 @@ struct ProtectedRouteShell: View {
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
     @State private var router = AppRouter()
 
     /// US-189: PhotoIntakeView seeded from a Share Extension batch. Set
@@ -288,30 +289,34 @@ struct MainShell: View {
         sharedIntakeBatch = drained
     }
 
-    /// Translates a DeepLinkRoute into AppRouter mutations. Best-effort —
-    /// item-specific routes (which need a SwiftData fetch to push the
-    /// canvas) just land the user on the right tab for now; the
-    /// inventory list re-filters and shows the item.
+    /// Translates a DeepLinkRoute into AppRouter mutations. Item-specific
+    /// routes resolve the `LocalInventoryItem` from the cache and push its
+    /// canvas; if the row hasn't synced yet we fall back to the inventory
+    /// list so the tap is never a dead end.
     private func apply(route: DeepLinkRoute, router: AppRouter) {
         switch route {
         case .salesTab:
             router.selection = .sales
         case .marketplacesTab:
             router.selection = .marketplaces
-        case .gradesList:
-            // Land on Home, then push the Certified grades list. Reset the
-            // home path first so a tap always lands cleanly on the list.
-            router.selection = .home
-            router.homePath = NavigationPath()
-            router.homePath.append(GradesRoute())
-        case .inventoryItem:
+        case let .inventoryItem(id):
             router.selection = .inventory
-            // Pushing the canvas for a specific item id requires fetching
-            // the LocalInventoryItem first — that's a per-route TODO once
-            // we add a route descriptor that the inventory tab's
-            // navigationDestination can resolve. For now we drop the user
-            // on the inventory list where they can tap the row.
+            // Reset to the list, then push the item's canvas so the tap
+            // lands on the report regardless of prior navigation.
+            router.inventoryPath = NavigationPath()
+            if let item = fetchInventoryItem(id: id) {
+                router.inventoryPath.append(item)
+            }
         }
+    }
+
+    /// One-shot fetch of a cached inventory item by id for deep-link pushes.
+    private func fetchInventoryItem(id: String) -> LocalInventoryItem? {
+        var descriptor = FetchDescriptor<LocalInventoryItem>(
+            predicate: #Predicate { $0.id == id }
+        )
+        descriptor.fetchLimit = 1
+        return try? modelContext.fetch(descriptor).first
     }
 }
 
