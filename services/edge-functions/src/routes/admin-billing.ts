@@ -542,6 +542,124 @@ adminBillingRoutes.get("/coupons", async (c) => {
   }
 });
 
+// ── POST /coupons (US-630) ───────────────────────────────────────
+//
+// Create a Stripe coupon (+ optional promotion code) from the admin panel —
+// closes the old read-only gap (coupons were "create them in the Stripe
+// dashboard" only). super_admin + fresh MFA step-up; every create is audited.
+//
+// Body: { name?, percent_off?|amount_off?+currency, duration, duration_in_months?,
+//         max_redemptions?, redeem_by?(unix sec), promo_code? }
+adminBillingRoutes.post("/coupons", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super admin required to create coupons." }, 403);
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const percentOff = body.percent_off != null ? Number(body.percent_off) : null;
+  const amountOff = body.amount_off != null ? Number(body.amount_off) : null;
+  const currency = typeof body.currency === "string" ? body.currency.toLowerCase() : null;
+  const duration = body.duration === "forever" || body.duration === "repeating" ? body.duration : "once";
+  const durationInMonths = body.duration_in_months != null ? Number(body.duration_in_months) : null;
+
+  // Exactly one discount kind.
+  if ((percentOff == null) === (amountOff == null)) {
+    return c.json({ error: "Provide exactly one of percent_off or amount_off" }, 400);
+  }
+  if (percentOff != null && (!Number.isFinite(percentOff) || percentOff <= 0 || percentOff > 100)) {
+    return c.json({ error: "percent_off must be 1-100" }, 400);
+  }
+  if (amountOff != null) {
+    if (!Number.isFinite(amountOff) || amountOff <= 0) {
+      return c.json({ error: "amount_off must be a positive integer (in cents)" }, 400);
+    }
+    if (!currency) return c.json({ error: "currency is required with amount_off" }, 400);
+  }
+  if (duration === "repeating" && (!Number.isFinite(Number(durationInMonths)) || Number(durationInMonths) < 1)) {
+    return c.json({ error: "duration_in_months is required for a repeating coupon" }, 400);
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const params: Stripe.CouponCreateParams = { duration: duration as Stripe.CouponCreateParams.Duration };
+    if (typeof body.name === "string" && body.name.trim()) params.name = body.name.trim().slice(0, 200);
+    if (percentOff != null) params.percent_off = percentOff;
+    if (amountOff != null) {
+      params.amount_off = Math.round(amountOff);
+      params.currency = currency!;
+    }
+    if (duration === "repeating") params.duration_in_months = Math.round(Number(durationInMonths));
+    if (body.max_redemptions != null && Number.isFinite(Number(body.max_redemptions))) {
+      params.max_redemptions = Math.round(Number(body.max_redemptions));
+    }
+    if (body.redeem_by != null && Number.isFinite(Number(body.redeem_by))) {
+      params.redeem_by = Math.round(Number(body.redeem_by));
+    }
+
+    const coupon = await stripe.coupons.create(params);
+
+    // Optional human-facing promotion code referencing the new coupon.
+    let promoCode: Stripe.PromotionCode | null = null;
+    const codeStr = typeof body.promo_code === "string" ? body.promo_code.trim().toUpperCase() : "";
+    if (codeStr) {
+      promoCode = await stripe.promotionCodes.create({ coupon: coupon.id, code: codeStr.slice(0, 40) });
+    }
+
+    await auditLog(c, "admin.coupon.create", "coupon", coupon.id, {
+      percent_off: coupon.percent_off,
+      amount_off: coupon.amount_off,
+      currency: coupon.currency,
+      duration: coupon.duration,
+      duration_in_months: coupon.duration_in_months,
+      max_redemptions: coupon.max_redemptions,
+      promo_code: promoCode?.code ?? null,
+    });
+
+    return c.json({ ok: true, coupon_id: coupon.id, promo_code: promoCode?.code ?? null });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[admin-billing] coupon create failed:", msg);
+    return c.json({ error: `Coupon create failed: ${msg}` }, 500);
+  }
+});
+
+// ── POST /coupons/:id/archive (US-630) ───────────────────────────
+//
+// Delete a Stripe coupon. Existing subscriptions that already applied it keep
+// it; new redemptions are blocked and any promo codes referencing it stop
+// working. super_admin + step-up; audited.
+adminBillingRoutes.post("/coupons/:id/archive", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super admin required." }, 403);
+  }
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const couponId = c.req.param("id");
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    await stripe.coupons.del(couponId);
+    await auditLog(c, "admin.coupon.archive", "coupon", couponId, {});
+    return c.json({ ok: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[admin-billing] coupon archive failed:", msg);
+    return c.json({ error: `Archive failed: ${msg}` }, 500);
+  }
+});
+
 // ── GET /users/:id/payments ──────────────────────────────────────
 //
 // Lists the target user's recent Stripe charges + subscription state for

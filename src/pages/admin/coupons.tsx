@@ -1,4 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -7,6 +9,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -16,8 +21,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { AlertTriangle, Tag } from "lucide-react";
+import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { useAuth } from "@/hooks/use-auth";
+import { AlertTriangle, Tag, Plus, Trash2 } from "lucide-react";
 
 interface AdminCoupon {
   id: string;
@@ -76,7 +98,142 @@ function unixToDate(unix: number | null): string {
   });
 }
 
+// US-630: in-app coupon creation. Submits to the parent's step-up-aware runner.
+function CreateCouponDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  pending,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSubmit: (payload: Record<string, unknown>) => void;
+  pending: boolean;
+}) {
+  const [discountType, setDiscountType] = useState<"percent" | "amount">("percent");
+  const [percentOff, setPercentOff] = useState("10");
+  const [amountOff, setAmountOff] = useState("5");
+  const currency = "usd";
+  const [duration, setDuration] = useState<"once" | "repeating" | "forever">("once");
+  const [durationInMonths, setDurationInMonths] = useState("3");
+  const [maxRedemptions, setMaxRedemptions] = useState("");
+  const [redeemBy, setRedeemBy] = useState("");
+  const [name, setName] = useState("");
+  const [promoCode, setPromoCode] = useState("");
+
+  const submit = () => {
+    const payload: Record<string, unknown> = {
+      name: name || undefined,
+      duration,
+      max_redemptions: maxRedemptions ? Number(maxRedemptions) : undefined,
+      redeem_by: redeemBy ? Math.floor(new Date(redeemBy).getTime() / 1000) : undefined,
+      promo_code: promoCode || undefined,
+    };
+    if (discountType === "percent") payload.percent_off = Number(percentOff);
+    else {
+      payload.amount_off = Math.round(Number(amountOff) * 100); // dollars → cents
+      payload.currency = currency;
+    }
+    if (duration === "repeating") payload.duration_in_months = Number(durationInMonths);
+    onSubmit(payload);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New coupon</DialogTitle>
+          <DialogDescription>
+            Creates a Stripe coupon (and optional promo code). Requires a super-admin
+            MFA step-up.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Internal name (optional)</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Spring sale" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Discount type</Label>
+              <Select value={discountType} onValueChange={(v) => setDiscountType(v as "percent" | "amount")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent">Percent off</SelectItem>
+                  <SelectItem value="amount">Amount off</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {discountType === "percent" ? (
+              <div className="space-y-2">
+                <Label>Percent off</Label>
+                <Input type="number" value={percentOff} onChange={(e) => setPercentOff(e.target.value)} />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Amount off ({currency.toUpperCase()})</Label>
+                <Input type="number" value={amountOff} onChange={(e) => setAmountOff(e.target.value)} />
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Duration</Label>
+              <Select value={duration} onValueChange={(v) => setDuration(v as "once" | "repeating" | "forever")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="once">Once</SelectItem>
+                  <SelectItem value="repeating">Repeating</SelectItem>
+                  <SelectItem value="forever">Forever</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {duration === "repeating" && (
+              <div className="space-y-2">
+                <Label>Months</Label>
+                <Input type="number" value={durationInMonths} onChange={(e) => setDurationInMonths(e.target.value)} />
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Max redemptions (optional)</Label>
+              <Input type="number" value={maxRedemptions} onChange={(e) => setMaxRedemptions(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Redeem by (optional)</Label>
+              <Input type="date" value={redeemBy} onChange={(e) => setRedeemBy(e.target.value)} />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Promo code (optional)</Label>
+            <Input
+              value={promoCode}
+              onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
+              placeholder="SPRING25"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={pending}>
+            {pending ? "Creating…" : "Create coupon"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function AdminCouponsPage() {
+  const qc = useQueryClient();
+  const { profile } = useAuth();
+  const isSuperAdmin = profile?.role === "super_admin";
+  const [createOpen, setCreateOpen] = useState(false);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [retry, setRetry] = useState<null | (() => void)>(null);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["admin-coupons"],
     queryFn: async (): Promise<AdminCouponsResponse> => {
@@ -88,14 +245,67 @@ export function AdminCouponsPage() {
     staleTime: 60_000,
   });
 
+  // Step-up-aware fetch runner shared by create + archive. On STEP_UP_REQUIRED
+  // it stashes the retry and opens the authenticator dialog.
+  async function run(doFetch: () => Promise<Response>, onOk: (json: unknown) => void) {
+    setWorking(true);
+    try {
+      const res = await doFetch();
+      if (res.status === 403) {
+        const j = await res.json().catch(() => ({}));
+        if ((j as { code?: string })?.code === "STEP_UP_REQUIRED") {
+          setRetry(() => () => run(doFetch, onOk));
+          setStepUpOpen(true);
+          return;
+        }
+        toast.error((j as { error?: string })?.error ?? "Forbidden");
+        return;
+      }
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error((j as { error?: string }).error ?? "Action failed");
+        return;
+      }
+      onOk(j);
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const createCoupon = (payload: Record<string, unknown>) =>
+    run(
+      () => edgeFetch("/api/admin/coupons", { method: "POST", json: payload, silentGate: true }),
+      () => {
+        toast.success("Coupon created");
+        setCreateOpen(false);
+        qc.invalidateQueries({ queryKey: ["admin-coupons"] });
+      },
+    );
+
+  const archiveCoupon = (id: string) =>
+    run(
+      () => edgeFetch(`/api/admin/coupons/${id}/archive`, { method: "POST", json: {}, silentGate: true }),
+      () => {
+        toast.success("Coupon archived");
+        qc.invalidateQueries({ queryKey: ["admin-coupons"] });
+      },
+    );
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Coupons & Promo Codes</h1>
-        <p className="text-muted-foreground">
-          Read-only view of Stripe coupons + active promotion codes. Create
-          new ones in the Stripe dashboard for now.
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Coupons & Promo Codes</h1>
+          <p className="text-muted-foreground">
+            Stripe coupons + active promotion codes.
+            {isSuperAdmin ? " Create and archive them right here." : " Read-only for your role."}
+          </p>
+        </div>
+        {isSuperAdmin && (
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="mr-1 h-4 w-4" /> New coupon
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -136,6 +346,7 @@ export function AdminCouponsPage() {
                   <TableHead>Redemptions</TableHead>
                   <TableHead>Expires</TableHead>
                   <TableHead>Status</TableHead>
+                  {isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -157,6 +368,23 @@ export function AdminCouponsPage() {
                         {c.valid ? "Valid" : "Expired"}
                       </Badge>
                     </TableCell>
+                    {isSuperAdmin && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          disabled={working}
+                          onClick={() => {
+                            if (confirm(`Archive coupon ${c.id}? New redemptions will be blocked.`)) {
+                              archiveCoupon(c.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -219,6 +447,20 @@ export function AdminCouponsPage() {
           )}
         </CardContent>
       </Card>
+
+      {isSuperAdmin && (
+        <CreateCouponDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onSubmit={createCoupon}
+          pending={working}
+        />
+      )}
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => retry?.()}
+      />
     </div>
   );
 }

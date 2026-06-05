@@ -1,4 +1,4 @@
--- US-569: Growth / Promote suite schema.
+-- US-624: Growth / Promote suite schema.
 --
 -- The super-admin "Promote" surface: reusable audience segments, multi-channel
 -- broadcast campaigns (email / in-app / push), in-app announcement banners, and

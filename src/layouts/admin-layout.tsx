@@ -20,6 +20,11 @@ import {
   BookOpen,
   Activity,
   SlidersHorizontal,
+  Megaphone,
+  Layers,
+  Send,
+  Bell,
+  Gift,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
@@ -40,6 +45,17 @@ const adminNavItems = [
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
+];
+
+// Growth / Promote suite (US-632) — segments, broadcast campaigns, in-app
+// announcements. Same admin + super_admin access; the send/broadcast action is
+// additionally super_admin-gated server-side.
+const growthNavItems = [
+  { to: "/admin/growth", icon: Megaphone, label: "Overview", end: true },
+  { to: "/admin/growth/segments", icon: Layers, label: "Segments", end: false },
+  { to: "/admin/growth/campaigns", icon: Send, label: "Campaigns", end: false },
+  { to: "/admin/growth/announcements", icon: Bell, label: "Announcements", end: false },
+  { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
 ];
 
 // Content module — its own section in the admin sidebar. Same admin +
@@ -98,6 +114,22 @@ export function AdminLayout() {
 
         <nav className="mt-2 flex-1 space-y-1 overflow-y-auto px-3">
           {visibleNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={navLinkClass}
+            >
+              <item.icon className="h-5 w-5" />
+              {item.label}
+            </NavLink>
+          ))}
+
+          {/* Growth / Promote suite. */}
+          <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-white/40">
+            Growth
+          </div>
+          {growthNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

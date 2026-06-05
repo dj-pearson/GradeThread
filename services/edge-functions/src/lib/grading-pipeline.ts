@@ -16,6 +16,7 @@ import { detectPhotoReuse } from "./photo-reuse.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { captureServer } from "./posthog.ts";
+import { pushReviewNeeded } from "./transactional-push.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
 // `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
@@ -412,6 +413,12 @@ export async function processSubmission(submissionId: string) {
     if (reportError || !gradeReport) {
       console.error("[Pipeline] Failed to create grade report:", reportError);
       throw new Error("Failed to create grade report record");
+    }
+
+    // US-626: nudge the seller (iOS) when their grade was flagged for a human
+    // check. Best-effort — never blocks the pipeline.
+    if (compositeResult.needs_human_review) {
+      void pushReviewNeeded(submission.user_id, submission.title);
     }
 
     // The certificate is public the moment the report exists (its

@@ -8,6 +8,7 @@ import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
+import { AnnouncementBanner } from "@/components/announcements/announcement-banner";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -31,6 +32,7 @@ export function DashboardLayout() {
         >
           <ErrorBoundary>
             <FlipdeskOnboarding />
+            <AnnouncementBanner />
             <Outlet />
           </ErrorBoundary>
         </main>

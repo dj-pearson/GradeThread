@@ -1,4 +1,4 @@
-// US-571: APNs push-send infrastructure.
+// US-626: APNs push-send infrastructure.
 //
 // push_device_tokens registration already exists (notifications.ts /register)
 // and the iOS app defines 4 notification categories, but no server-side send
@@ -67,15 +67,18 @@ function b64urlStr(s: string): string {
   return b64url(new TextEncoder().encode(s));
 }
 
-function pemToDer(pem: string): Uint8Array {
+function pemToDer(pem: string): ArrayBuffer {
   const body = pem
     .replace(/-----BEGIN [^-]+-----/, "")
     .replace(/-----END [^-]+-----/, "")
     .replace(/\s+/g, "");
   const bin = atob(body);
-  const der = new Uint8Array(bin.length);
+  // Allocate a fresh ArrayBuffer so the result is a plain ArrayBuffer
+  // (a valid BufferSource for crypto.subtle.importKey).
+  const buf = new ArrayBuffer(bin.length);
+  const der = new Uint8Array(buf);
   for (let i = 0; i < bin.length; i++) der[i] = bin.charCodeAt(i);
-  return der;
+  return buf;
 }
 
 // Provider tokens are valid up to 60 min; refresh well before that. Cached by

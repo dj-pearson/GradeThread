@@ -894,9 +894,11 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-// ─── Broadcast / marketing email (US-572) ───────────────────────────
+// ─── Broadcast / marketing email (US-627) ───────────────────────────
 
 interface BroadcastEmailData {
+  /** Recipient user id — used to mint a no-login marketing unsubscribe link. */
+  userId: string;
   subject: string;
   /** Plain-text body; blank lines split paragraphs, single newlines → <br>. */
   body: string;
@@ -905,9 +907,10 @@ interface BroadcastEmailData {
 }
 
 /**
- * Campaign broadcast email. Unlike the transactional senders this always
- * carries the manage-preferences footer (US-572) so a recipient can opt out of
- * marketing. The send engine only calls this for users who have NOT opted out.
+ * Campaign broadcast email (US-627). This is MARKETING mail: it always renders
+ * the CAN-SPAM unsubscribe link + postal address (US-516) via the marketing
+ * footer. The send engine only calls this for users who have NOT already opted
+ * out of marketing in their notification preferences.
  */
 export async function sendBroadcastEmail(
   to: string,
@@ -931,9 +934,11 @@ export async function sendBroadcastEmail(
     ${data.ctaLabel && data.ctaUrl ? ctaButton(data.ctaLabel, data.ctaUrl) : ""}
   `;
 
+  const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
+
   return await sendEmail({
     to,
     subject: data.subject,
-    html: emailLayout(content, true),
+    html: emailLayout(content, { unsubscribeUrl }),
   });
 }

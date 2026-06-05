@@ -1,8 +1,8 @@
-// US-570: audience segment rule engine.
+// US-625: audience segment rule engine.
 //
 // Compiles a validated rule tree into a PostgREST query against public.users
 // and exposes count/preview + a paginated user iterator for the campaign send
-// engine (US-572) and announcement targeting (US-573).
+// engine (US-627) and announcement targeting (US-628).
 //
 // SECURITY: this is PLATFORM-scoped (every user is a candidate), so it
 // deliberately does NOT tenant-scope. It is reachable only from admin-gated
@@ -205,6 +205,25 @@ export async function previewSegment(
   const sampleEmails = ((sample ?? []) as Array<{ email: string }>).map((r) => r.email);
 
   return { count: count ?? 0, sampleEmails };
+}
+
+/** Does a single user satisfy a segment's rules? Used by announcement
+ *  targeting (US-628). Empty rules → everyone matches. */
+export async function userMatchesSegment(
+  userId: string,
+  rules: SegmentRules,
+): Promise<boolean> {
+  if (rules.conditions.length === 0) return true;
+  const q = applyTriples(
+    supabaseAdmin
+      .from("users")
+      .select("id", { count: "exact", head: true })
+      .eq("id", userId),
+    rules,
+  );
+  const { count, error } = await q;
+  if (error) throw new SegmentRuleError(error.message);
+  return (count ?? 0) > 0;
 }
 
 /** Stream every matching user in pages — used by the campaign send engine.

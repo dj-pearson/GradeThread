@@ -110,6 +110,12 @@ const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
 const AdminTasksPage = lazy(() => import("@/pages/admin/tasks").then(m => ({ default: m.AdminTasksPage })));
 const AdminTaskBoardPage = lazy(() => import("@/pages/admin/task-board").then(m => ({ default: m.AdminTaskBoardPage })));
+const GrowthDashboardPage = lazy(() => import("@/pages/admin/growth/dashboard").then(m => ({ default: m.GrowthDashboardPage })));
+const GrowthSegmentsPage = lazy(() => import("@/pages/admin/growth/segments").then(m => ({ default: m.GrowthSegmentsPage })));
+const GrowthCampaignsPage = lazy(() => import("@/pages/admin/growth/campaigns").then(m => ({ default: m.GrowthCampaignsPage })));
+const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announcements").then(m => ({ default: m.GrowthAnnouncementsPage })));
+const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
+const ReferralsPage = lazy(() => import("@/pages/referrals").then(m => ({ default: m.ReferralsPage })));
 
 function PageLoader() {
   return (
@@ -244,6 +250,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
               { path: "/dashboard/team", element: <SuspenseWrapper><TeamPage /></SuspenseWrapper> },
+              { path: "/dashboard/referrals", element: <SuspenseWrapper><ReferralsPage /></SuspenseWrapper> },
               // Content module moved to the admin dashboard (/admin/content/*).
               // Keep old /dashboard/content/* URLs alive via a prefix-preserving
               // redirect so existing bookmarks and in-app links don't 404.
@@ -275,6 +282,13 @@ export const router = createBrowserRouter([
               { path: "/admin/moderation", element: <SuspenseWrapper><AdminModerationPage /></SuspenseWrapper> },
               { path: "/admin/tasks", element: <SuspenseWrapper><AdminTasksPage /></SuspenseWrapper> },
               { path: "/admin/tasks/:id", element: <SuspenseWrapper><AdminTaskBoardPage /></SuspenseWrapper> },
+              // Growth / Promote suite (US-632) — admin + super_admin; the
+              // broadcast/send action is additionally super_admin-gated server-side.
+              { path: "/admin/growth", element: <SuspenseWrapper><GrowthDashboardPage /></SuspenseWrapper> },
+              { path: "/admin/growth/segments", element: <SuspenseWrapper><GrowthSegmentsPage /></SuspenseWrapper> },
+              { path: "/admin/growth/campaigns", element: <SuspenseWrapper><GrowthCampaignsPage /></SuspenseWrapper> },
+              { path: "/admin/growth/announcements", element: <SuspenseWrapper><GrowthAnnouncementsPage /></SuspenseWrapper> },
+              { path: "/admin/growth/referrals", element: <SuspenseWrapper><GrowthReferralsPage /></SuspenseWrapper> },
               // Content module — blog, social, topic bank, knowledge base,
               // analytics + settings. Lives in the admin dashboard (admin +
               // super_admin), behind the AdminMfaGate like every other admin

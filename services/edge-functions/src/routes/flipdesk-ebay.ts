@@ -46,6 +46,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -265,6 +266,8 @@ flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
         `[flipdesk-ebay] refresh failed for user ${userId}:`,
         err instanceof Error ? err.message : err
       );
+      // US-626: auto-refresh couldn't renew — nudge the user (iOS) to reconnect.
+      void pushTokenExpiring(userId);
     }
   }
   return c.json({ scanned: userIds.length, refreshed, failed });
@@ -1011,6 +1014,8 @@ async function doListingsPull(
           } else {
             await supabaseAdmin.from("sales").insert(salePayload);
             salesNew += 1;
+            // US-626: a brand-new sale → celebrate it on iOS (best-effort).
+            void pushSaleCreated(userId);
           }
 
           // Flip the item to sold. resolveStatus-equivalent: 'sold' is a

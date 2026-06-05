@@ -21,6 +21,7 @@ import { recordMetric } from "../lib/observability.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
+import { maybeQualifyReferral } from "../lib/referrals.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -710,6 +711,9 @@ async function handleCreditPackPurchase(
   const newBalance = typeof data === "number" ? data : credits;
   console.log(`[Webhook] Granted ${credits} credits to user ${userId}, new balance=${newBalance}`);
 
+  // US-629: a paid action qualifies a pending referral for this user.
+  void maybeQualifyReferral(userId);
+
   // Receipt email (US-222). Look up the user lazily so the happy path isn't
   // slowed by an extra round trip when emails are disabled.
   const user = await loadUserById(userId);
@@ -763,6 +767,9 @@ async function handlePerGradePurchase(
   failIfDbError(updateError, `mark submission ${submissionId} paid`);
 
   console.log(`[Webhook] Submission ${submissionId} paid (${tier}); kicking grading pipeline`);
+
+  // US-629: a paid grade qualifies a pending referral for this user.
+  void maybeQualifyReferral(userId);
 
   // Fire-and-forget grading run.
   processSubmission(submissionId).catch((err) => {

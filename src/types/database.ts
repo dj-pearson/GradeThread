@@ -2186,7 +2186,7 @@ export interface Database {
         Insert: WorkspaceInvitationInsert;
         Update: WorkspaceInvitationUpdate;
       };
-      // Growth / Promote suite (00090)
+      // Growth / Promote suite (00102)
       audience_segments: {
         Row: AudienceSegmentRow;
         Insert: AudienceSegmentInsert;

@@ -1,4 +1,4 @@
-// US-570 / US-572 / US-573 / US-576: Growth ("Promote") admin routes.
+// US-625 / US-627 / US-628 / US-631: Growth ("Promote") admin routes.
 //
 //   /api/admin/growth/segments*       audience segment CRUD + live preview
 //   /api/admin/growth/campaigns*      broadcast composer + multi-channel send
@@ -48,7 +48,7 @@ function requireSuperAdmin(c: Context): Response | null {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// SEGMENTS (US-570)
+// SEGMENTS (US-625)
 // ════════════════════════════════════════════════════════════════════
 
 adminGrowthRoutes.post("/segments/preview", async (c) => {
@@ -170,7 +170,7 @@ adminGrowthRoutes.delete("/segments/:id", async (c) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// CAMPAIGNS (US-572)
+// CAMPAIGNS (US-627)
 // ════════════════════════════════════════════════════════════════════
 
 const VALID_CHANNELS = new Set(["email", "in_app", "push"]);
@@ -395,7 +395,7 @@ function marketingOptedOut(
 interface DispatchResult {
   ok: boolean;
   error?: string;
-  status?: number;
+  status?: 400 | 404 | 409 | 500;
   stats?: Record<string, number>;
 }
 
@@ -490,6 +490,7 @@ export async function dispatchCampaign(id: string): Promise<DispatchResult> {
               errMsg = insErr?.message ?? null;
             } else if (channel === "email") {
               ok = await sendBroadcastEmail(user.email, {
+                userId: user.id,
                 subject: campaign.subject,
                 body: campaign.body,
                 ctaLabel: campaign.cta_label,
@@ -563,7 +564,7 @@ async function recordRecipient(
 }
 
 // ════════════════════════════════════════════════════════════════════
-// ANNOUNCEMENTS (US-573, admin side)
+// ANNOUNCEMENTS (US-628, admin side)
 // ════════════════════════════════════════════════════════════════════
 
 const VALID_VARIANTS = new Set(["info", "success", "warning", "promo"]);
@@ -681,7 +682,7 @@ adminGrowthRoutes.delete("/announcements/:id", async (c) => {
 });
 
 // ════════════════════════════════════════════════════════════════════
-// SUMMARY / ANALYTICS (US-576)
+// SUMMARY / ANALYTICS (US-631)
 // ════════════════════════════════════════════════════════════════════
 
 adminGrowthRoutes.get("/summary", async (c) => {
@@ -736,8 +737,206 @@ adminGrowthRoutes.get("/summary", async (c) => {
   });
 });
 
+// Daily time-series for the growth dashboard charts (US-631): messages
+// delivered + announcement dismissals per day over a window.
+adminGrowthRoutes.get("/timeseries", async (c) => {
+  const days = Math.min(Math.max(Number(c.req.query("days") ?? 30), 1), 90);
+  const since = new Date(Date.now() - (days - 1) * 86_400_000);
+  since.setUTCHours(0, 0, 0, 0);
+  const sinceIso = since.toISOString();
+
+  const [recips, dismissals] = await Promise.all([
+    supabaseAdmin
+      .from("campaign_recipients")
+      .select("sent_at")
+      .eq("status", "sent")
+      .gte("sent_at", sinceIso)
+      .limit(20000),
+    supabaseAdmin
+      .from("announcement_dismissals")
+      .select("dismissed_at")
+      .gte("dismissed_at", sinceIso)
+      .limit(20000),
+  ]);
+
+  // Pre-seed every day in the window so the chart is continuous.
+  const buckets = new Map<string, { delivered: number; dismissals: number }>();
+  for (let i = 0; i < days; i++) {
+    const key = new Date(since.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+    buckets.set(key, { delivered: 0, dismissals: 0 });
+  }
+  for (const r of (recips.data ?? []) as Array<{ sent_at: string | null }>) {
+    if (!r.sent_at) continue;
+    const b = buckets.get(r.sent_at.slice(0, 10));
+    if (b) b.delivered++;
+  }
+  for (const r of (dismissals.data ?? []) as Array<{ dismissed_at: string }>) {
+    const b = buckets.get(r.dismissed_at.slice(0, 10));
+    if (b) b.dismissals++;
+  }
+
+  const series = [...buckets.entries()].map(([date, v]) => ({ date, ...v }));
+  return c.json({ window_days: days, series });
+});
+
 // ════════════════════════════════════════════════════════════════════
-// CRON: scheduled-campaign dispatch (US-572)
+// REFERRALS (US-629, admin side)
+// ════════════════════════════════════════════════════════════════════
+
+// Reward sizes (grade credits) granted when a referral is approved.
+const REFERRER_REWARD_CREDITS = 5;
+const REFERRED_REWARD_CREDITS = 3;
+
+// Overview: funnel counts, top referrers, and the pending/qualified reward queue.
+adminGrowthRoutes.get("/referrals", async (c) => {
+  const headCount = (status?: string) => {
+    let q = supabaseAdmin
+      .from("referral_events")
+      .select("id", { count: "exact", head: true });
+    if (status) q = q.eq("reward_status", status);
+    return q;
+  };
+  const [codes, total, pending, qualified, granted] = await Promise.all([
+    supabaseAdmin.from("referral_codes").select("id", { count: "exact", head: true }),
+    headCount(),
+    headCount("pending"),
+    headCount("qualified"),
+    headCount("granted"),
+  ]);
+
+  // Top referrers — aggregate in JS over a bounded recent window of events.
+  const { data: events } = await supabaseAdmin
+    .from("referral_events")
+    .select("referrer_user_id, reward_status")
+    .limit(5000);
+  const tally = new Map<string, { total: number; granted: number }>();
+  for (const e of (events ?? []) as Array<{ referrer_user_id: string; reward_status: string }>) {
+    const cur = tally.get(e.referrer_user_id) ?? { total: 0, granted: 0 };
+    cur.total++;
+    if (e.reward_status === "granted") cur.granted++;
+    tally.set(e.referrer_user_id, cur);
+  }
+  const topIds = [...tally.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 10);
+  const emailById = new Map<string, string>();
+  if (topIds.length > 0) {
+    const { data: users } = await supabaseAdmin
+      .from("users")
+      .select("id, email")
+      .in("id", topIds.map(([id]) => id));
+    for (const u of (users ?? []) as Array<{ id: string; email: string }>) emailById.set(u.id, u.email);
+  }
+  const topReferrers = topIds.map(([id, v]) => ({
+    user_id: id,
+    email: emailById.get(id) ?? id,
+    total: v.total,
+    granted: v.granted,
+  }));
+
+  // Reward queue — events awaiting a grant decision, with both parties' emails.
+  const { data: queueRows } = await supabaseAdmin
+    .from("referral_events")
+    .select("id, referrer_user_id, referred_user_id, code, reward_status, created_at")
+    .in("reward_status", ["pending", "qualified"])
+    .order("created_at", { ascending: true })
+    .limit(50);
+  const queue = (queueRows ?? []) as Array<{
+    id: string;
+    referrer_user_id: string;
+    referred_user_id: string;
+    code: string;
+    reward_status: string;
+    created_at: string;
+  }>;
+  const partyIds = [...new Set(queue.flatMap((q) => [q.referrer_user_id, q.referred_user_id]))];
+  const partyEmail = new Map<string, string>();
+  if (partyIds.length > 0) {
+    const { data: users } = await supabaseAdmin.from("users").select("id, email").in("id", partyIds);
+    for (const u of (users ?? []) as Array<{ id: string; email: string }>) partyEmail.set(u.id, u.email);
+  }
+
+  return c.json({
+    funnel: {
+      codes: codes.count ?? 0,
+      total: total.count ?? 0,
+      pending: pending.count ?? 0,
+      qualified: qualified.count ?? 0,
+      granted: granted.count ?? 0,
+    },
+    rewards: { referrer_credits: REFERRER_REWARD_CREDITS, referred_credits: REFERRED_REWARD_CREDITS },
+    top_referrers: topReferrers,
+    queue: queue.map((q) => ({
+      id: q.id,
+      code: q.code,
+      reward_status: q.reward_status,
+      created_at: q.created_at,
+      referrer_email: partyEmail.get(q.referrer_user_id) ?? q.referrer_user_id,
+      referred_email: partyEmail.get(q.referred_user_id) ?? q.referred_user_id,
+    })),
+  });
+});
+
+// Approve a referral: grant grade credits to BOTH parties and mark it granted.
+// super_admin + fresh step-up (it moves real credit balances); audited.
+adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
+  const gate = requireSuperAdmin(c);
+  if (gate) return gate;
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const id = c.req.param("id");
+  const { data: event } = await supabaseAdmin
+    .from("referral_events")
+    .select("id, referrer_user_id, referred_user_id, reward_status")
+    .eq("id", id)
+    .single();
+  if (!event) return c.json({ error: "Referral not found" }, 404);
+  if (event.reward_status === "granted") return c.json({ error: "Already granted" }, 409);
+
+  // Grant to both sides via the existing row-locked ledger RPC.
+  const grant = (userId: string, credits: number) =>
+    supabaseAdmin.rpc("grant_grade_credits", {
+      p_user_id: userId,
+      p_credits: credits,
+      p_reason: "admin_grant",
+      p_stripe_payment_intent: null,
+      p_notes: `Referral reward (event ${id})`,
+    });
+  const [{ error: e1 }, { error: e2 }] = await Promise.all([
+    grant(event.referrer_user_id, REFERRER_REWARD_CREDITS),
+    grant(event.referred_user_id, REFERRED_REWARD_CREDITS),
+  ]);
+  if (e1 || e2) {
+    console.error("[admin-growth] referral grant failed:", e1 ?? e2);
+    return c.json({ error: "Credit grant failed" }, 500);
+  }
+
+  await supabaseAdmin
+    .from("referral_events")
+    .update({
+      reward_status: "granted",
+      granted_at: new Date().toISOString(),
+      referrer_reward_credits: REFERRER_REWARD_CREDITS,
+      referred_reward_credits: REFERRED_REWARD_CREDITS,
+    })
+    .eq("id", id);
+
+  await writeAuditLog(c, {
+    action: "growth.referral.grant",
+    targetType: "referral_event",
+    targetId: id,
+    details: {
+      referrer_user_id: event.referrer_user_id,
+      referred_user_id: event.referred_user_id,
+      referrer_credits: REFERRER_REWARD_CREDITS,
+      referred_credits: REFERRED_REWARD_CREDITS,
+    },
+  });
+
+  return c.json({ ok: true });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// CRON: scheduled-campaign dispatch (US-627)
 // ════════════════════════════════════════════════════════════════════
 
 // Mounted OUTSIDE /api/admin (no user JWT) — enforces the job secret itself.

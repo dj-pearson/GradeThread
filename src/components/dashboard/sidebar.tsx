@@ -26,6 +26,7 @@ import {
   ClipboardList,
   Radar,
   Camera,
+  Gift,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -90,6 +91,7 @@ const navGroups: NavGroup[] = [
   {
     items: [
       { to: "/dashboard/team", icon: Users, label: "Team", end: false },
+      { to: "/dashboard/referrals", icon: Gift, label: "Refer a friend", end: false },
       { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false, requires: "manage_billing" },
       { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false, requires: "manage_api_keys" },
       { to: "/dashboard/settings", icon: Settings, label: "Settings", end: false },

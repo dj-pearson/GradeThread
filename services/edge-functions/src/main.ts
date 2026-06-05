@@ -36,6 +36,9 @@ import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
+import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
+import { announcementRoutes } from "./routes/announcements.ts";
+import { referralRoutes } from "./routes/referrals.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
 import { contentSocialRoutes } from "./routes/content-social.ts";
 import { contentTopicsRoutes } from "./routes/content-topics.ts";
@@ -144,6 +147,10 @@ app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
+// US-628: in-app announcement reads — caller acts only on their own dismissals.
+app.use("/api/announcements/*", authMiddleware);
+// US-629 referral program — caller manages only their own code/attribution.
+app.use("/api/referrals/*", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
@@ -263,6 +270,8 @@ app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-reco
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
+app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
+app.use("/api/referrals/*", rateLimiter(30, 60_000, "referrals"));
 app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
 
 // Content AI endpoints — generation, research, image creation. Each
@@ -361,6 +370,17 @@ app.route("/api/admin/seo", adminSeoRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself.
 app.post("/api/jobs/gsc-sync", (c) => handleGscSyncCron(c));
+// US-625..US-631 Growth/Promote suite (segments, campaigns, announcements,
+// analytics). Admin JWT + MFA gated by the /api/admin/* middleware group.
+app.route("/api/admin/growth", adminGrowthRoutes);
+// US-628 user-facing announcement reads (authed, per-user scoped).
+app.route("/api/announcements", announcementRoutes);
+// US-629 referral program (authed, per-user scoped).
+app.route("/api/referrals", referralRoutes);
+// US-627 scheduled-campaign dispatch cron. OUTSIDE /api/admin so the wildcard
+// admin-JWT middleware doesn't intercept it; the handler enforces
+// X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
+app.post("/api/jobs/growth-dispatch", (c) => handleGrowthDispatchCron(c));
 app.route("/api/content/blog", contentBlogRoutes);
 app.route("/api/content/social", contentSocialRoutes);
 app.route("/api/content/topics", contentTopicsRoutes);
