@@ -53,6 +53,25 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,woff2}"],
         navigateFallback: "/index.html",
+        // Never serve the SPA shell for API calls or server-rendered/dynamic
+        // routes — those are Pages Functions (blog + certificate SSR, sitemaps,
+        // robots/llms, RSS), not client routes. Without this the SW would hand
+        // a navigation to one of these the cached index.html.
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/blog/,
+          /^\/cert\//,
+          /^\/(sitemap.*\.xml|robots\.txt|llms\.txt|rss\.xml)$/,
+        ],
+        // Stale-shell guards (US deploy-safety): purge precaches from previous
+        // builds on activate, and have a freshly-deployed SW take control of
+        // open tabs immediately instead of waiting for every tab to close.
+        // Together with the vite:preloadError reload in main.tsx, a deploy can
+        // no longer leave a client stuck on a stale index.html that references
+        // chunk hashes the new build removed.
+        cleanupOutdatedCaches: true,
+        skipWaiting: true,
+        clientsClaim: true,
         runtimeCaching: [
           {
             urlPattern: ({ url }) =>
