@@ -16,6 +16,9 @@ struct GradeScoreRing: View {
     private var color: Color { GradeScale.color(for: score) }
     private var fraction: Double { min(max(score / 10, 0), 1) }
     private var trimEnd: Double { (animateOnAppear && !revealed) ? 0 : fraction }
+    /// Score the number renders. Starts at 0 and counts up to `score` under
+    /// the same reveal animation as the ring fill.
+    private var displayedScore: Double { (animateOnAppear && !revealed) ? 0 : score }
 
     var body: some View {
         ZStack {
@@ -29,7 +32,7 @@ struct GradeScoreRing: View {
                 )
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
-                Text(String(format: "%.1f", score))
+                CountingNumber(value: displayedScore)
                     .font(.system(size: diameter * 0.30, weight: .bold, design: .rounded))
                     .foregroundStyle(color)
                 Text("of 10")
@@ -49,6 +52,23 @@ struct GradeScoreRing: View {
     }
 
     private var lineWidth: CGFloat { diameter * 0.09 }
+}
+
+/// A one-decimal number that animates between values: SwiftUI interpolates
+/// `animatableData` so the text counts up when `value` changes inside a
+/// `withAnimation`. Monospaced digits keep the width steady mid-count.
+private struct CountingNumber: View, Animatable {
+    var value: Double
+
+    var animatableData: Double {
+        get { value }
+        set { value = newValue }
+    }
+
+    var body: some View {
+        Text(String(format: "%.1f", max(0, value)))
+            .monospacedDigit()
+    }
 }
 
 /// Compact grade chip for inventory rows / canvas headers.
