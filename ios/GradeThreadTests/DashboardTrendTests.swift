@@ -24,12 +24,13 @@ final class DashboardTrendTests: XCTestCase {
         XCTAssertEqual(series.map(\.date), series.map(\.date).sorted())
     }
 
-    func test_saleToday_landsInLastBucket() {
+    func test_saleToday_landsInLastBucket() throws {
         let sale = makeSale(itemId: "a", price: 40, date: now)
         let series = DashboardTrend.dailySeries(
             sales: [sale], items: [], days: 14, now: now, calendar: cal
         )
-        XCTAssertEqual(series.last?.revenue, 40, accuracy: 0.001)
+        let last = try XCTUnwrap(series.last)
+        XCTAssertEqual(last.revenue, 40, accuracy: 0.001)
         // No other bucket got revenue.
         XCTAssertEqual(series.dropLast().reduce(0) { $0 + $1.revenue }, 0, accuracy: 0.001)
     }
@@ -43,25 +44,27 @@ final class DashboardTrendTests: XCTestCase {
         XCTAssertFalse(DashboardTrend.hasActivity(series))
     }
 
-    func test_profitNetsFeesAndCostBasis() {
+    func test_profitNetsFeesAndCostBasis() throws {
         let item = makeItem(id: "item-1", cost: 10)
         let sale = makeSale(itemId: "item-1", price: 50, fees: 5, date: now)
         let series = DashboardTrend.dailySeries(
             sales: [sale], items: [item], days: 14, now: now, calendar: cal
         )
         // 50 − 5 fees − 10 cost = 35 in today's bucket.
-        XCTAssertEqual(series.last?.profit, 35, accuracy: 0.001)
-        XCTAssertEqual(series.last?.revenue, 50, accuracy: 0.001)
+        let last = try XCTUnwrap(series.last)
+        XCTAssertEqual(last.profit, 35, accuracy: 0.001)
+        XCTAssertEqual(last.revenue, 50, accuracy: 0.001)
         XCTAssertTrue(DashboardTrend.hasActivity(series))
     }
 
-    func test_multipleSalesSameDay_aggregate() {
+    func test_multipleSalesSameDay_aggregate() throws {
         let s1 = makeSale(itemId: "a", price: 20, date: now)
         let s2 = makeSale(itemId: "b", price: 30, date: now.addingTimeInterval(-3600))
         let series = DashboardTrend.dailySeries(
             sales: [s1, s2], items: [], days: 14, now: now, calendar: cal
         )
-        XCTAssertEqual(series.last?.revenue, 50, accuracy: 0.001)
+        let last = try XCTUnwrap(series.last)
+        XCTAssertEqual(last.revenue, 50, accuracy: 0.001)
     }
 
     func test_emptyWindow_hasNoActivity() {
