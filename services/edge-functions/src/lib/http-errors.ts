@@ -11,7 +11,7 @@
 //     → logs `[repricing.list] <redacted raw error>` server-side and returns
 //       a generic 500 to the client.
 import type { Context } from "hono";
-import type { StatusCode } from "hono/utils/http-status";
+import type { StatusCode } from "hono/utils/http-status.ts";
 import { redactError } from "./log-redact.ts";
 
 export interface ErrorBody {

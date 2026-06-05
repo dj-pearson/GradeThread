@@ -708,10 +708,15 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
 
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
+  // Capture the narrowed value: the `!quota.ok` guard above narrows `quota` to
+  // the success variant here, but that narrowing does NOT propagate into the
+  // nested processItem() closure below, so read `quota.limit` once into a local
+  // (mirrors the `const { limit, used } = quota` pattern used elsewhere).
+  const quotaLimit = quota.limit;
 
   // Clamp the batch to what the monthly allowance permits.
   const remaining =
-    quota.limit === -1 ? itemIds.length : quota.limit - quota.used;
+    quotaLimit === -1 ? itemIds.length : quotaLimit - quota.used;
   const toProcess = itemIds.slice(0, Math.max(0, remaining));
   const skipped = itemIds.slice(toProcess.length);
 
@@ -747,7 +752,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       // US-387: reserve this item's action atomically. If the cap is reached
       // (including by a concurrent batch), skip it rather than processing for
       // free — reserve_ai_action is the single enforcement point across batches.
-      if (!(await reserveAiAction(userId, quota.limit))) {
+      if (!(await reserveAiAction(userId, quotaLimit))) {
         results.push({
           item_id: itemId,
           status: "failed",

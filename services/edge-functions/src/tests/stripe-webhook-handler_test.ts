@@ -46,8 +46,10 @@ function setStripeEnv() {
   Deno.env.set("STRIPE_WEBHOOK_SECRET", TEST_SECRET);
 }
 
-function post(body: string, headers: Record<string, string> = {}): Promise<Response> {
-  return webhookRoutes.request("/stripe", {
+async function post(body: string, headers: Record<string, string> = {}): Promise<Response> {
+  // Hono's app.request() is typed `Response | Promise<Response>`; the async
+  // wrapper normalizes it to the Promise<Response> this helper promises.
+  return await webhookRoutes.request("/stripe", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...headers },
     body,
