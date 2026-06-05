@@ -65,6 +65,7 @@ import {
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
@@ -359,12 +360,10 @@ export function FlipdeskPipelinePage() {
     const blob = new Blob([lines.join("\r\n")], {
       type: "text/csv;charset=utf-8",
     });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `flipdesk-items-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadBlob(
+      blob,
+      `flipdesk-items-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
     toast.success(
       `Exported ${selected.length} item${selected.length === 1 ? "" : "s"}.`,
     );

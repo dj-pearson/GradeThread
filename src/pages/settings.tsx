@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { downloadBlob } from "@/lib/download";
 import type { UserUpdate, NotificationPreferences } from "@/types/database";
 import {
   NOTIFICATION_TYPES,
@@ -385,16 +386,10 @@ export function SettingsPage() {
       });
       localStorage.setItem(key, String(Date.now()));
 
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `gradethread-export-${
-        new Date().toISOString().split("T")[0]
-      }.zip`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(
+        blob,
+        `gradethread-export-${new Date().toISOString().split("T")[0]}.zip`,
+      );
 
       toast.success("Your data export has been downloaded.");
     } catch (err) {

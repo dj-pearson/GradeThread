@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { downloadBlob } from "@/lib/download";
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import { GARMENT_TYPES, SUBMISSION_STATUSES } from "@/lib/constants";
@@ -198,15 +199,8 @@ async function exportSubmissionsCsv() {
   );
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
   const dateStr = new Date().toISOString().split("T")[0];
-  link.href = url;
-  link.download = `gradethread_export_${dateStr}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, `gradethread_export_${dateStr}.csv`);
 }
 
 function getDisputeStatusBadgeClasses(status: string): string {

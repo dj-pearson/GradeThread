@@ -1,3 +1,4 @@
+import { downloadBlob } from "@/lib/download";
 import type { ItemFullRow } from "@/types/database";
 
 // Escapes a single CSV cell. Wraps in quotes only when the value contains
@@ -101,13 +102,6 @@ export function downloadItemsCsv(rows: ItemFullRow[]): void {
   const blob = new Blob([lines.join("\n")], {
     type: "text/csv;charset=utf-8",
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
   const ts = new Date().toISOString().slice(0, 10);
-  a.download = `flipdesk-items-${ts}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, `flipdesk-items-${ts}.csv`);
 }

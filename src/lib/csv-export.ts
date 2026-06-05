@@ -1,4 +1,5 @@
 import { escapeCsvCell } from "@/lib/items-csv";
+import { downloadBlob } from "@/lib/download";
 import type { SaleRow, ExpenseRow } from "@/types/database";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/constants";
 
@@ -17,14 +18,7 @@ export function downloadCsv(
   const blob = new Blob([lines.join("\n")], {
     type: "text/csv;charset=utf-8",
   });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  downloadBlob(blob, filename);
 }
 
 function isoDate(d: string | null | undefined): string {

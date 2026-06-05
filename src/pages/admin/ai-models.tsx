@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { downloadBlob } from "@/lib/download";
 import { useAuth } from "@/hooks/use-auth";
 import type {
   AiPromptVersionRow,
@@ -752,15 +753,8 @@ export function AdminAiModelsPage() {
       }
 
       const blob = new Blob([lines.join("\n")], { type: "application/jsonl" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
       const dateStr = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `gradethread_training_data_${dateStr}.jsonl`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `gradethread_training_data_${dateStr}.jsonl`);
 
       toast.success("Training data exported", {
         description: `${lines.length} review entries exported as JSONL.`,
