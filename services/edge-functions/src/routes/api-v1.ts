@@ -43,7 +43,17 @@ const GARMENT_CATEGORIES = [
   "skirt", "dress", "sneakers", "boots", "sandals",
   "hat", "bag", "belt", "scarf", "other",
 ] as const;
-const IMAGE_TYPES = ["front", "back", "label", "detail", "defect"] as const;
+// Mirror of IMAGE_TYPES in src/lib/constants.ts (see grade.ts for the rationale
+// on the duplicated literal). label_2 / detail_2..4 / measurement_* extend the
+// core five so API callers can attach multiple tags, details, and flat
+// measurement shots for size ID.
+const IMAGE_TYPES = [
+  "front", "back", "label", "label_2",
+  "detail", "detail_2", "detail_3", "detail_4",
+  "defect",
+  "measurement_chest", "measurement_waist", "measurement_length",
+  "measurement_sleeve", "measurement_inseam",
+] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
 
 type GarmentType = (typeof GARMENT_TYPES)[number];
@@ -158,8 +168,8 @@ apiV1Routes.post("/grades", async (c) => {
       }
     }
 
-    // Must have at least one detail image
-    if (!imageTypes.includes("detail")) {
+    // Must have at least one detail image (any detail_* slot counts)
+    if (!imageTypes.some((t) => t.startsWith("detail"))) {
       errors.push("At least one 'detail' image is required");
     }
   }

@@ -74,8 +74,17 @@ const TYPE_LABEL: Record<string, string> = {
   front: "front",
   back: "back",
   label: "brand/care label",
+  label_2: "second tag",
   detail: "detail",
+  detail_2: "detail",
+  detail_3: "detail",
+  detail_4: "detail",
   defect: "defect",
+  measurement_chest: "chest measurement",
+  measurement_waist: "waist measurement",
+  measurement_length: "length measurement",
+  measurement_sleeve: "sleeve measurement",
+  measurement_inseam: "inseam measurement",
 };
 
 function label(t: string): string {
@@ -99,7 +108,8 @@ export function evaluateImageQuality(
       });
     }
   }
-  if (!present.has("detail")) {
+  // Any detail_* slot satisfies the "at least one close-up" requirement.
+  if (![...present].some((t) => t.startsWith("detail"))) {
     issues.push({
       image_type: "detail",
       problem: "missing",

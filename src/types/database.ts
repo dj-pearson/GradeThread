@@ -47,7 +47,21 @@ export interface QualityFeedback {
   assessed_at: string;
 }
 export type GradeTier = "NWT" | "NWOT" | "Excellent" | "Very Good" | "Good" | "Fair" | "Poor";
-export type ImageType = "front" | "back" | "label" | "detail" | "defect";
+export type ImageType =
+  | "front"
+  | "back"
+  | "label"
+  | "label_2"
+  | "detail"
+  | "detail_2"
+  | "detail_3"
+  | "detail_4"
+  | "defect"
+  | "measurement_chest"
+  | "measurement_waist"
+  | "measurement_length"
+  | "measurement_sleeve"
+  | "measurement_inseam";
 export type DisputeStatus = "open" | "under_review" | "resolved" | "rejected";
 export type ItemStatus =
   | "sourced"
@@ -123,13 +137,20 @@ export type FlipdeskPhotoType =
   | "front"
   | "back"
   | "tag"
+  | "tag_2"
   | "detail"
   | "detail_2"
   | "detail_3"
+  | "detail_4"
   | "interior"
   | "defect"
   | "flatlay"
-  | "on_model";
+  | "on_model"
+  | "measurement_chest"
+  | "measurement_waist"
+  | "measurement_length"
+  | "measurement_sleeve"
+  | "measurement_inseam";
 export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
 export type GradingSubmissionTier = "standard" | "premium" | "express";
 export type PayoutImportMethod = "csv_upload" | "api_sync";

@@ -6,6 +6,7 @@ import {
   Tag,
   Search,
   AlertTriangle,
+  Ruler,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,8 @@ export interface PhotoUploadItem {
   phash?: string;
 }
 
+type SlotGroup = "required" | "more" | "measurements" | "defects";
+
 interface UploadSlot {
   imageType: ImageType;
   label: string;
@@ -27,7 +30,24 @@ interface UploadSlot {
   icon: React.ElementType;
   description: string;
   slotKey: string;
+  group: SlotGroup;
 }
+
+// Section headers + helper copy, rendered in this order.
+const SLOT_GROUPS: { group: SlotGroup; title: string; hint?: string }[] = [
+  { group: "required", title: "Required" },
+  {
+    group: "more",
+    title: "More tags & details",
+    hint: "Add a second tag (e.g. a separate size tag) and extra close-ups.",
+  },
+  {
+    group: "measurements",
+    title: "Measurements",
+    hint: "No size tag? Lay the garment flat and shoot a tape measure across each point — helps us identify the size (great for Lululemon and other untagged items).",
+  },
+  { group: "defects", title: "Defects" },
+];
 
 const UPLOAD_SLOTS: UploadSlot[] = [
   {
@@ -37,6 +57,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: Shirt,
     description: "Full front view of garment",
     slotKey: "front",
+    group: "required",
   },
   {
     imageType: "back",
@@ -45,6 +66,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: Shirt,
     description: "Full back view of garment",
     slotKey: "back",
+    group: "required",
   },
   {
     imageType: "label",
@@ -53,6 +75,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: Tag,
     description: "Brand and care label",
     slotKey: "label",
+    group: "required",
   },
   {
     imageType: "detail",
@@ -61,14 +84,88 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: Search,
     description: "Close-up of key feature",
     slotKey: "detail-1",
+    group: "required",
   },
   {
-    imageType: "detail",
+    imageType: "label_2",
+    label: "Tag 2",
+    required: false,
+    icon: Tag,
+    description: "Second / size tag (optional)",
+    slotKey: "label-2",
+    group: "more",
+  },
+  {
+    imageType: "detail_2",
     label: "Detail 2",
     required: false,
     icon: Search,
     description: "Additional detail (optional)",
     slotKey: "detail-2",
+    group: "more",
+  },
+  {
+    imageType: "detail_3",
+    label: "Detail 3",
+    required: false,
+    icon: Search,
+    description: "Additional detail (optional)",
+    slotKey: "detail-3",
+    group: "more",
+  },
+  {
+    imageType: "detail_4",
+    label: "Detail 4",
+    required: false,
+    icon: Search,
+    description: "Additional detail (optional)",
+    slotKey: "detail-4",
+    group: "more",
+  },
+  {
+    imageType: "measurement_chest",
+    label: "Chest / Bust",
+    required: false,
+    icon: Ruler,
+    description: "Tape measure, pit-to-pit",
+    slotKey: "measurement-chest",
+    group: "measurements",
+  },
+  {
+    imageType: "measurement_waist",
+    label: "Waist",
+    required: false,
+    icon: Ruler,
+    description: "Tape measure across waist",
+    slotKey: "measurement-waist",
+    group: "measurements",
+  },
+  {
+    imageType: "measurement_length",
+    label: "Length",
+    required: false,
+    icon: Ruler,
+    description: "Tape measure, top to hem",
+    slotKey: "measurement-length",
+    group: "measurements",
+  },
+  {
+    imageType: "measurement_sleeve",
+    label: "Sleeve",
+    required: false,
+    icon: Ruler,
+    description: "Tape measure along sleeve",
+    slotKey: "measurement-sleeve",
+    group: "measurements",
+  },
+  {
+    imageType: "measurement_inseam",
+    label: "Inseam",
+    required: false,
+    icon: Ruler,
+    description: "Tape measure along inseam",
+    slotKey: "measurement-inseam",
+    group: "measurements",
   },
   {
     imageType: "defect",
@@ -77,6 +174,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: AlertTriangle,
     description: "Damage or flaw (optional)",
     slotKey: "defect-1",
+    group: "defects",
   },
   {
     imageType: "defect",
@@ -85,6 +183,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: AlertTriangle,
     description: "Additional defect (optional)",
     slotKey: "defect-2",
+    group: "defects",
   },
   {
     imageType: "defect",
@@ -93,6 +192,7 @@ const UPLOAD_SLOTS: UploadSlot[] = [
     icon: AlertTriangle,
     description: "Additional defect (optional)",
     slotKey: "defect-3",
+    group: "defects",
   },
 ];
 
@@ -247,110 +347,130 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
     [emitChange]
   );
 
+  function renderSlot(slot: UploadSlot) {
+    const state = getSlot(slots, slot.slotKey);
+    const Icon = slot.icon;
+
+    return (
+      <div key={slot.slotKey} className="space-y-1">
+        <div
+          className={cn(
+            "group relative flex aspect-square cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors",
+            state.preview
+              ? "border-primary bg-primary/5"
+              : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50",
+            state.isProcessing && "pointer-events-none opacity-60",
+            state.errors.length > 0 && "border-destructive/50"
+          )}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onDrop={(e) => handleDrop(slot.slotKey, e)}
+          onClick={() => fileInputRefs.current[slot.slotKey]?.click()}
+        >
+          <input
+            ref={(el) => {
+              fileInputRefs.current[slot.slotKey] = el;
+            }}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) =>
+              handleFileSelect(slot.slotKey, e.target.files?.[0])
+            }
+          />
+
+          {state.isProcessing ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              <span className="text-xs text-muted-foreground">
+                Processing...
+              </span>
+            </div>
+          ) : state.preview ? (
+            <>
+              <img
+                src={state.preview}
+                alt={slot.label}
+                className="h-full w-full rounded-lg object-cover"
+              />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemove(slot.slotKey);
+                }}
+                className="absolute right-1 top-1 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-1.5 p-2 text-center">
+              <div className="rounded-full bg-muted p-2">
+                <Icon className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div className="flex items-center gap-1">
+                <ImagePlus className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs font-medium">
+                  {slot.label}
+                  {slot.required && (
+                    <span className="text-destructive"> *</span>
+                  )}
+                </span>
+              </div>
+              <span className="text-[10px] leading-tight text-muted-foreground">
+                {slot.description}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {state.errors.length > 0 && (
+          <div className="space-y-0.5">
+            {state.errors.map((error, i) => (
+              <p
+                key={i}
+                className="text-[10px] leading-tight text-destructive"
+              >
+                {error}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Camera className="h-4 w-4" />
         <span>Upload garment photos. Required slots are marked with *</span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {UPLOAD_SLOTS.map((slot) => {
-          const state = getSlot(slots, slot.slotKey);
-          const Icon = slot.icon;
-
-          return (
-            <div key={slot.slotKey} className="space-y-1">
-              <div
-                className={cn(
-                  "group relative flex aspect-square cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-colors",
-                  state.preview
-                    ? "border-primary bg-primary/5"
-                    : "border-muted-foreground/25 hover:border-primary/50 hover:bg-accent/50",
-                  state.isProcessing && "pointer-events-none opacity-60",
-                  state.errors.length > 0 && "border-destructive/50"
-                )}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                onDrop={(e) => handleDrop(slot.slotKey, e)}
-                onClick={() => fileInputRefs.current[slot.slotKey]?.click()}
-              >
-                <input
-                  ref={(el) => {
-                    fileInputRefs.current[slot.slotKey] = el;
-                  }}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  onChange={(e) =>
-                    handleFileSelect(slot.slotKey, e.target.files?.[0])
-                  }
-                />
-
-                {state.isProcessing ? (
-                  <div className="flex flex-col items-center gap-2">
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    <span className="text-xs text-muted-foreground">
-                      Processing...
-                    </span>
-                  </div>
-                ) : state.preview ? (
-                  <>
-                    <img
-                      src={state.preview}
-                      alt={slot.label}
-                      className="h-full w-full rounded-lg object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemove(slot.slotKey);
-                      }}
-                      className="absolute right-1 top-1 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center gap-1.5 p-2 text-center">
-                    <div className="rounded-full bg-muted p-2">
-                      <Icon className="h-5 w-5 text-muted-foreground" />
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <ImagePlus className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-xs font-medium">
-                        {slot.label}
-                        {slot.required && (
-                          <span className="text-destructive"> *</span>
-                        )}
-                      </span>
-                    </div>
-                    <span className="text-[10px] leading-tight text-muted-foreground">
-                      {slot.description}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {state.errors.length > 0 && (
-                <div className="space-y-0.5">
-                  {state.errors.map((error, i) => (
-                    <p
-                      key={i}
-                      className="text-[10px] leading-tight text-destructive"
-                    >
-                      {error}
-                    </p>
-                  ))}
-                </div>
+      {SLOT_GROUPS.map(({ group, title, hint }) => {
+        const groupSlots = UPLOAD_SLOTS.filter((s) => s.group === group);
+        if (groupSlots.length === 0) return null;
+        return (
+          <div key={group} className="space-y-2">
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {title}
+              </h4>
+              {hint && (
+                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                  {hint}
+                </p>
               )}
             </div>
-          );
-        })}
-      </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {groupSlots.map(renderSlot)}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

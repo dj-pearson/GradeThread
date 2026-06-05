@@ -49,7 +49,17 @@ const GARMENT_CATEGORIES = [
   "skirt", "dress", "sneakers", "boots", "sandals",
   "hat", "bag", "belt", "scarf", "other",
 ] as const;
-const IMAGE_TYPES = ["front", "back", "label", "detail", "defect"] as const;
+// Mirror of IMAGE_TYPES in src/lib/constants.ts (edge runs in a separate Deno
+// project and can't import frontend code). label_2 = second tag shot,
+// detail_2..4 = extra close-ups, measurement_* = flat tape-measure shots for
+// size ID when there's no size tag.
+const IMAGE_TYPES = [
+  "front", "back", "label", "label_2",
+  "detail", "detail_2", "detail_3", "detail_4",
+  "defect",
+  "measurement_chest", "measurement_waist", "measurement_length",
+  "measurement_sleeve", "measurement_inseam",
+] as const;
 const REQUIRED_IMAGE_TYPES = ["front", "back", "label"];
 
 // Optional seller-declared intentional design features. Passed to the grader
@@ -192,7 +202,7 @@ gradeRoutes.post("/submit", async (c) => {
   for (const required of REQUIRED_IMAGE_TYPES) {
     if (!imageTypes.includes(required)) errors.push(`A '${required}' image is required`);
   }
-  if (!imageTypes.includes("detail")) {
+  if (!imageTypes.some((t) => t.startsWith("detail"))) {
     errors.push("At least one 'detail' image is required");
   }
 

@@ -65,13 +65,44 @@ export const SUBMISSION_STATUSES = [
   "disputed",
 ] as const;
 
-// Image types
+// Measurement photo points — flat shots with a tape measure used to derive
+// size when a garment has no/illegible size tag (e.g. used Lululemon). Shared
+// verbatim by both the grading (image_type) and FlipDesk (flipdesk_photo_type)
+// taxonomies so a measurement shot means the same thing everywhere.
+export const MEASUREMENT_PHOTO_TYPES = [
+  "measurement_chest",
+  "measurement_waist",
+  "measurement_length",
+  "measurement_sleeve",
+  "measurement_inseam",
+] as const;
+
+// Human labels for the measurement points (shared by both taxonomies).
+export const MEASUREMENT_PHOTO_LABELS: Record<
+  (typeof MEASUREMENT_PHOTO_TYPES)[number],
+  string
+> = {
+  measurement_chest: "Chest / Bust",
+  measurement_waist: "Waist",
+  measurement_length: "Length",
+  measurement_sleeve: "Sleeve",
+  measurement_inseam: "Inseam",
+};
+
+// Image types (core grading submissions). label_2 = a second tag shot (brand +
+// separate size/care tag); detail_2..4 = extra close-ups; measurement_* let a
+// seller document dimensions when there's no size tag.
 export const IMAGE_TYPES = [
   "front",
   "back",
   "label",
+  "label_2",
   "detail",
+  "detail_2",
+  "detail_3",
+  "detail_4",
   "defect",
+  ...MEASUREMENT_PHOTO_TYPES,
 ] as const;
 
 // Dispute statuses
@@ -503,24 +534,30 @@ export const FLIPDESK_PHOTO_TYPES = [
   "front",
   "back",
   "tag",
+  "tag_2",
   "detail",
   "detail_2",
   "detail_3",
+  "detail_4",
   "interior",
   "defect",
   "flatlay",
   "on_model",
+  ...MEASUREMENT_PHOTO_TYPES,
 ] as const;
 
 // Photos a clothing item should have before it can advance to "photographed".
 export const REQUIRED_PHOTO_TYPES = ["front", "back", "tag", "detail"] as const;
 export const OPTIONAL_PHOTO_TYPES = [
+  "tag_2",
   "detail_2",
   "detail_3",
+  "detail_4",
   "interior",
   "defect",
   "flatlay",
   "on_model",
+  ...MEASUREMENT_PHOTO_TYPES,
 ] as const;
 
 export const PHOTO_TYPE_LABELS: Record<
@@ -530,13 +567,20 @@ export const PHOTO_TYPE_LABELS: Record<
   front: "Front",
   back: "Back",
   tag: "Garment Tag",
+  tag_2: "Garment Tag 2",
   detail: "Detail 1",
   detail_2: "Detail 2",
   detail_3: "Detail 3",
+  detail_4: "Detail 4",
   interior: "Interior / Lining",
   defect: "Defect",
   flatlay: "Flat lay",
   on_model: "On model",
+  measurement_chest: "Measure: Chest / Bust",
+  measurement_waist: "Measure: Waist",
+  measurement_length: "Measure: Length",
+  measurement_sleeve: "Measure: Sleeve",
+  measurement_inseam: "Measure: Inseam",
 };
 
 export const LISTING_STATUSES = [
