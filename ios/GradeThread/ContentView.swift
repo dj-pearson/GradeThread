@@ -24,6 +24,10 @@ struct ContentView: View {
     @State private var lastForegroundPullAt: Date?
     private static let foregroundDebounceSeconds: TimeInterval = 60
 
+    /// First-run welcome carousel. Shown once over everything at launch
+    /// (gated by the persisted OnboardingState flag).
+    @State private var showingOnboarding = !OnboardingState().hasCompleted
+
     var body: some View {
         ProtectedRouteShell()
             .environment(authStore)
@@ -84,6 +88,12 @@ struct ContentView: View {
                 guard let route = notification.userInfo?[DeepLinkRouter.routeUserInfoKey]
                         as? DeepLinkRoute else { return }
                 handleDeepLink(route)
+            }
+            .fullScreenCover(isPresented: $showingOnboarding) {
+                OnboardingView {
+                    OnboardingState().hasCompleted = true
+                    showingOnboarding = false
+                }
             }
     }
 
