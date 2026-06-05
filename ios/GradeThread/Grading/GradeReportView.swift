@@ -11,6 +11,9 @@ struct GradeReportView: View {
     var title: String?
     /// Optional submitted-photo thumbnails (full-report path only).
     var photoURLs: [URL] = []
+    /// When provided, shows a "Dispute this grade" action (the full-report
+    /// path provides it inside the dispute window).
+    var onDispute: (() -> Void)? = nil
 
     private var defects: [GradeDefect] { report.defectsFound ?? [] }
 
@@ -27,6 +30,9 @@ struct GradeReportView: View {
                     shareCertificate(certificateURL)
                 }
                 disclaimer
+                if let onDispute {
+                    disputeButton(onDispute)
+                }
             }
             .padding(20)
         }
@@ -230,6 +236,20 @@ struct GradeReportView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
+    }
+
+    private func disputeButton(_ action: @escaping () -> Void) -> some View {
+        Button {
+            AppRouter.haptic()
+            action()
+        } label: {
+            Label("Dispute this grade", systemImage: "flag")
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.bordered)
+        .tint(.secondary)
     }
 
     private var disclaimer: some View {

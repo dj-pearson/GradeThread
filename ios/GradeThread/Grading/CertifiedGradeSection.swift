@@ -117,12 +117,20 @@ private struct ItemGradeReportSheet: View {
 
     @Query private var photos: [LocalItemPhoto]
     @State private var phase: Phase = .loading
+    @State private var disputeTarget: DisputeTarget?
 
     private enum Phase: Equatable {
         case loading
         case loaded(GradeReportDTO, URL?)
         case empty
         case failed(String)
+    }
+
+    /// Identifiable wrapper so the dispute sheet can be presented via
+    /// `.sheet(item:)` from a stable level.
+    private struct DisputeTarget: Identifiable {
+        let id = UUID()
+        let gradeReportId: String
     }
 
     init(item: LocalInventoryItem) {
@@ -151,7 +159,10 @@ private struct ItemGradeReportSheet: View {
                         report: report,
                         certificateURL: url,
                         title: item.title,
-                        photoURLs: photoURLs
+                        photoURLs: photoURLs,
+                        onDispute: GradeDisputeWindow.isOpen(createdAt: report.createdAt)
+                            ? { disputeTarget = DisputeTarget(gradeReportId: report.id) }
+                            : nil
                     )
                 case .empty:
                     ContentUnavailableView(
@@ -179,6 +190,9 @@ private struct ItemGradeReportSheet: View {
                 }
             }
             .task { await load() }
+            .sheet(item: $disputeTarget) { target in
+                DisputeSheet(gradeReportId: target.gradeReportId)
+            }
         }
     }
 
