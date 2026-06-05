@@ -298,6 +298,12 @@ struct MainShell: View {
             router.selection = .sales
         case .marketplacesTab:
             router.selection = .marketplaces
+        case .gradesList:
+            // Land on Home, then push the Certified grades list. Reset the
+            // home path first so a tap always lands cleanly on the list.
+            router.selection = .home
+            router.homePath = NavigationPath()
+            router.homePath.append(GradesRoute())
         case .inventoryItem:
             router.selection = .inventory
             // Pushing the canvas for a specific item id requires fetching

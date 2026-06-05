@@ -48,6 +48,8 @@ public enum DeepLinkRoute: Equatable {
     case salesTab(inventoryItemId: String?)
     case marketplacesTab
     case inventoryItem(id: String)
+    /// The Certified grades list (Home tab). Used by the "grade ready" tap.
+    case gradesList
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -62,6 +64,8 @@ public enum DeepLinkRoute: Equatable {
             return .salesTab(inventoryItemId: itemId)
         case NotificationCategoryID.tokenExpiring.rawValue:
             return .marketplacesTab
+        case NotificationCategoryID.gradeReady.rawValue:
+            return .gradesList
         case NotificationCategoryID.itemReviewNeeded.rawValue:
             if let itemId {
                 return .inventoryItem(id: itemId)

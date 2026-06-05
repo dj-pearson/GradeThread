@@ -143,6 +143,7 @@ Two channels:
 | Onboarding | ✅ First-run welcome carousel (`Onboarding/`), shown once at launch. |
 | Plan & credits | ✅ Settings shows FlipDesk plan, grade credit balance, included grades left this month, and a link to manage billing on the web (`Settings/PlanSection`). |
 | Grade disputes | ✅ File a dispute on a certified grade from the report view, within the 7-day window (`Grading/DisputeSheet`); mirrors the web's reasons + record. |
+| Grade-ready notification | ✅ Local notification when a freshly-graded item lands during background refresh (`Background/NewGradeNotifier`); tap deep-links to the Certified grades list. Also wires the background container so the existing new-sale detection finally fires. |
 
 See `prd.json` for the full iOS roadmap and `progress.txt` for what's
 in-flight.
