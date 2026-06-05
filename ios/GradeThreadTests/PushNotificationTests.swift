@@ -14,10 +14,11 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertEqual(NotificationCategoryID.payoutCleared.rawValue, "payout.cleared")
         XCTAssertEqual(NotificationCategoryID.tokenExpiring.rawValue, "token.expiring")
         XCTAssertEqual(NotificationCategoryID.itemReviewNeeded.rawValue, "item.review_needed")
+        XCTAssertEqual(NotificationCategoryID.gradeReady.rawValue, "grade.ready")
     }
 
-    func test_category_allCases_listsAllFour() {
-        XCTAssertEqual(NotificationCategoryID.allCases.count, 4)
+    func test_category_allCases_listsAll() {
+        XCTAssertEqual(NotificationCategoryID.allCases.count, 5)
     }
 
     func test_category_labelsAreUserReadable() {
