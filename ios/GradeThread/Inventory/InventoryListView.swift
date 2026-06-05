@@ -19,6 +19,8 @@ struct InventoryListView: View {
     @State private var selectedStage: InventoryStage = .all
     @State private var searchQuery: String = ""
     @State private var sortOption: SortOption = .newest
+    /// US: show only items that carry a certified grade.
+    @State private var gradedOnly: Bool = false
 
     // US-182 multi-select
     @State private var selection = BulkSelectionStore()
@@ -221,21 +223,27 @@ struct InventoryListView: View {
         showingDroppedIntake = true
     }
 
+    /// Standardized on ``ContentUnavailableView`` (like the rest of the app)
+    /// and differentiated: an active search or "graded only" filter shows a
+    /// "no matches" state rather than the stage's generic empty copy, so the
+    /// user isn't told the stage is empty when it's really their filter.
+    @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: selectedStage.systemImage)
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(Color.brandNavy)
-            Text(selectedStage.emptyStateTitle)
-                .font(.headline)
-            Text(selectedStage.emptyStateSubtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+            ContentUnavailableView.search(text: searchQuery)
+        } else if gradedOnly {
+            ContentUnavailableView {
+                Label("No graded items", systemImage: "checkmark.seal")
+            } description: {
+                Text("Items you grade show up here. Turn off “Graded only” to see everything.")
+            }
+        } else {
+            ContentUnavailableView {
+                Label(selectedStage.emptyStateTitle, systemImage: selectedStage.systemImage)
+            } description: {
+                Text(selectedStage.emptyStateSubtitle)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 
     // MARK: - Toolbar
@@ -287,20 +295,29 @@ struct InventoryListView: View {
     private var sortToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                ForEach(SortOption.allCases) { option in
-                    Button {
-                        sortOption = option
-                    } label: {
-                        if option == sortOption {
-                            Label(option.label, systemImage: "checkmark")
-                        } else {
-                            Label(option.label, systemImage: option.systemImage)
+                Section("Filter") {
+                    Toggle(isOn: $gradedOnly) {
+                        Label("Graded only", systemImage: "checkmark.seal")
+                    }
+                }
+                Section("Sort") {
+                    ForEach(SortOption.allCases) { option in
+                        Button {
+                            sortOption = option
+                        } label: {
+                            if option == sortOption {
+                                Label(option.label, systemImage: "checkmark")
+                            } else {
+                                Label(option.label, systemImage: option.systemImage)
+                            }
                         }
                     }
                 }
             } label: {
-                Image(systemName: "arrow.up.arrow.down.circle")
-                    .accessibilityLabel("Sort options")
+                Image(systemName: gradedOnly
+                      ? "line.3.horizontal.decrease.circle.fill"
+                      : "arrow.up.arrow.down.circle")
+                    .accessibilityLabel("Sort and filter")
             }
         }
     }
@@ -312,7 +329,8 @@ struct InventoryListView: View {
             allItems,
             stage: selectedStage,
             search: searchQuery,
-            sort: sortOption
+            sort: sortOption,
+            gradedOnly: gradedOnly
         )
     }
 

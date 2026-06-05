@@ -152,8 +152,7 @@ private struct ItemGradeReportSheet: View {
             Group {
                 switch phase {
                 case .loading:
-                    ProgressView().tint(Color.brandNavy)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    GradeReportSkeleton()
                 case let .loaded(report, url):
                     GradeReportView(
                         report: report,

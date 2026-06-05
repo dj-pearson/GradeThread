@@ -6,16 +6,21 @@ import Foundation
 /// to which stage) can be unit-tested without any SwiftUI plumbing.
 public enum InventoryFilter {
 
-    /// Applies stage + search + sort in that order. The pipeline order
-    /// matters: stage filtering is the cheapest cut, search is
-    /// substring-based on a small set of fields, sort is the final pass.
+    /// Applies stage + (optional) graded-only + search + sort in that order.
+    /// The pipeline order matters: stage filtering is the cheapest cut,
+    /// graded-only narrows further, search is substring-based on a small set
+    /// of fields, sort is the final pass.
     static func apply(
         _ items: [LocalInventoryItem],
         stage: InventoryStage,
         search: String,
-        sort: SortOption
+        sort: SortOption,
+        gradedOnly: Bool = false
     ) -> [LocalInventoryItem] {
-        let staged = items.filter { stage.matchingStatuses.contains($0.status) }
+        var staged = items.filter { stage.matchingStatuses.contains($0.status) }
+        if gradedOnly {
+            staged = staged.filter { $0.gradeValue != nil }
+        }
         let searched = filter(staged, search: search)
         return searched.sorted(by: sort.isOrdered)
     }

@@ -13,10 +13,17 @@ struct PlanSection: View {
         Section {
             switch store.phase {
             case .loading:
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text("Loading plan…").foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        HStack {
+                            SkeletonLine(widthFraction: 0.35, height: 12)
+                            Spacer()
+                            SkeletonBlock(cornerRadius: 6)
+                                .frame(width: 64, height: 14)
+                        }
+                    }
                 }
+                .padding(.vertical, 4)
             case let .ready(info):
                 readyRows(info)
             case let .failed(message):

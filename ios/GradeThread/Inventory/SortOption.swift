@@ -9,6 +9,7 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
     case oldest
     case bestROI       = "best_roi"
     case highestComp   = "highest_comp"
+    case highestGrade  = "highest_grade"
     case skuNatural    = "sku_natural"
 
     public var id: String { rawValue }
@@ -19,6 +20,7 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
         case .oldest:       return "Oldest"
         case .bestROI:      return "Best ROI"
         case .highestComp:  return "Highest comp"
+        case .highestGrade: return "Highest grade"
         case .skuNatural:   return "SKU"
         }
     }
@@ -29,6 +31,7 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
         case .oldest:       return "arrow.up.to.line"
         case .bestROI:      return "chart.line.uptrend.xyaxis"
         case .highestComp:  return "dollarsign.arrow.circlepath"
+        case .highestGrade: return "checkmark.seal"
         case .skuNatural:   return "barcode"
         }
     }
@@ -55,6 +58,14 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
             let aPrice = a.targetPrice ?? a.listingPrice ?? -.greatestFiniteMagnitude
             let bPrice = b.targetPrice ?? b.listingPrice ?? -.greatestFiniteMagnitude
             if aPrice != bPrice { return aPrice > bPrice }
+            return a.createdAt > b.createdAt
+        case .highestGrade:
+            // Highest certified grade first; ungraded items sink to the
+            // bottom (nil → -inf). Newest breaks ties so equal grades stay
+            // stable and recent.
+            let aGrade = a.gradeValue ?? -.greatestFiniteMagnitude
+            let bGrade = b.gradeValue ?? -.greatestFiniteMagnitude
+            if aGrade != bGrade { return aGrade > bGrade }
             return a.createdAt > b.createdAt
         case .skuNatural:
             return Self.naturalCompare(a.sku ?? "", b.sku ?? "") == .orderedAscending
