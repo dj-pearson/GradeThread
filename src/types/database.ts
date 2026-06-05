@@ -1539,6 +1539,190 @@ export interface GradeOutcomeRow {
   updated_at: string;
 }
 
+// ─── Growth / Promote suite (00090_growth_suite.sql) ───────────────
+
+export type CampaignChannel = "email" | "in_app" | "push";
+export type CampaignStatus =
+  | "draft"
+  | "scheduled"
+  | "sending"
+  | "sent"
+  | "failed"
+  | "canceled";
+export type CampaignRecipientStatus = "pending" | "sent" | "failed" | "skipped";
+export type AnnouncementVariant = "info" | "success" | "warning" | "promo";
+export type ReferralRewardStatus = "pending" | "qualified" | "granted" | "void";
+
+/** A single segment condition — field + operator + value, allowlist-validated
+ *  server-side in edge lib/segments.ts. */
+export interface SegmentCondition {
+  field: string;
+  op: string;
+  value: string | number | boolean | null;
+}
+
+/** Rule tree for an audience segment. `match` = AND ('all') / OR ('any'). */
+export interface SegmentRules {
+  match: "all" | "any";
+  conditions: SegmentCondition[];
+}
+
+export interface AudienceSegmentRow {
+  id: string;
+  name: string;
+  description: string | null;
+  rules: SegmentRules;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface AudienceSegmentInsert {
+  name: string;
+  description?: string | null;
+  rules?: SegmentRules;
+  is_active?: boolean;
+}
+export type AudienceSegmentUpdate = Partial<
+  Omit<AudienceSegmentRow, "id" | "created_by" | "created_at" | "updated_at">
+>;
+
+export interface GrowthCampaignRow {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  cta_label: string | null;
+  cta_url: string | null;
+  channels: CampaignChannel[];
+  segment_id: string | null;
+  status: CampaignStatus;
+  scheduled_for: string | null;
+  sent_at: string | null;
+  stats: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface GrowthCampaignInsert {
+  name: string;
+  subject: string;
+  body: string;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  channels?: CampaignChannel[];
+  segment_id?: string | null;
+  status?: CampaignStatus;
+  scheduled_for?: string | null;
+}
+export type GrowthCampaignUpdate = Partial<
+  Omit<GrowthCampaignRow, "id" | "created_by" | "created_at" | "updated_at">
+>;
+
+export interface CampaignRecipientRow {
+  id: string;
+  campaign_id: string;
+  user_id: string;
+  channel: CampaignChannel;
+  status: CampaignRecipientStatus;
+  error: string | null;
+  sent_at: string | null;
+  opened_at: string | null;
+  clicked_at: string | null;
+  created_at: string;
+}
+export interface CampaignRecipientInsert {
+  campaign_id: string;
+  user_id: string;
+  channel: CampaignChannel;
+  status?: CampaignRecipientStatus;
+  error?: string | null;
+  sent_at?: string | null;
+}
+export type CampaignRecipientUpdate = Partial<
+  Omit<CampaignRecipientRow, "id" | "campaign_id" | "user_id" | "channel" | "created_at">
+>;
+
+export interface AnnouncementRow {
+  id: string;
+  title: string;
+  body: string;
+  variant: AnnouncementVariant;
+  cta_label: string | null;
+  cta_url: string | null;
+  segment_id: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  dismissible: boolean;
+  priority: number;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface AnnouncementInsert {
+  title: string;
+  body: string;
+  variant?: AnnouncementVariant;
+  cta_label?: string | null;
+  cta_url?: string | null;
+  segment_id?: string | null;
+  starts_at?: string;
+  ends_at?: string | null;
+  dismissible?: boolean;
+  priority?: number;
+  is_active?: boolean;
+}
+export type AnnouncementUpdate = Partial<
+  Omit<AnnouncementRow, "id" | "created_by" | "created_at" | "updated_at">
+>;
+
+export interface AnnouncementDismissalRow {
+  id: string;
+  announcement_id: string;
+  user_id: string;
+  dismissed_at: string;
+}
+export interface AnnouncementDismissalInsert {
+  announcement_id: string;
+  user_id: string;
+}
+
+export interface ReferralCodeRow {
+  id: string;
+  user_id: string;
+  code: string;
+  created_at: string;
+}
+export interface ReferralCodeInsert {
+  user_id: string;
+  code: string;
+}
+
+export interface ReferralEventRow {
+  id: string;
+  referrer_user_id: string;
+  referred_user_id: string;
+  code: string;
+  reward_status: ReferralRewardStatus;
+  referrer_reward_credits: number | null;
+  referred_reward_credits: number | null;
+  qualified_at: string | null;
+  granted_at: string | null;
+  created_at: string;
+}
+export interface ReferralEventInsert {
+  referrer_user_id: string;
+  referred_user_id: string;
+  code: string;
+  reward_status?: ReferralRewardStatus;
+  referrer_reward_credits?: number | null;
+  referred_reward_credits?: number | null;
+}
+export type ReferralEventUpdate = Partial<
+  Omit<ReferralEventRow, "id" | "referrer_user_id" | "referred_user_id" | "created_at">
+>;
+
 // ─── Update types ──────────────────────────────────────────────────
 
 export type UserUpdate = Partial<Omit<UserRow, "id" | "created_at" | "updated_at">>;
@@ -1977,6 +2161,42 @@ export interface Database {
         Insert: WorkspaceInvitationInsert;
         Update: WorkspaceInvitationUpdate;
       };
+      // Growth / Promote suite (00090)
+      audience_segments: {
+        Row: AudienceSegmentRow;
+        Insert: AudienceSegmentInsert;
+        Update: AudienceSegmentUpdate;
+      };
+      growth_campaigns: {
+        Row: GrowthCampaignRow;
+        Insert: GrowthCampaignInsert;
+        Update: GrowthCampaignUpdate;
+      };
+      campaign_recipients: {
+        Row: CampaignRecipientRow;
+        Insert: CampaignRecipientInsert;
+        Update: CampaignRecipientUpdate;
+      };
+      announcements: {
+        Row: AnnouncementRow;
+        Insert: AnnouncementInsert;
+        Update: AnnouncementUpdate;
+      };
+      announcement_dismissals: {
+        Row: AnnouncementDismissalRow;
+        Insert: AnnouncementDismissalInsert;
+        Update: never;
+      };
+      referral_codes: {
+        Row: ReferralCodeRow;
+        Insert: ReferralCodeInsert;
+        Update: never;
+      };
+      referral_events: {
+        Row: ReferralEventRow;
+        Insert: ReferralEventInsert;
+        Update: ReferralEventUpdate;
+      };
     };
     Views: {
       // US-348: column-restricted public certificate projection.
@@ -2011,6 +2231,11 @@ export interface Database {
       content_generated_by: ContentGeneratedBy;
       content_topic_source: ContentTopicSource;
       workspace_role: WorkspaceRole;
+      campaign_channel: CampaignChannel;
+      campaign_status: CampaignStatus;
+      campaign_recipient_status: CampaignRecipientStatus;
+      announcement_variant: AnnouncementVariant;
+      referral_reward_status: ReferralRewardStatus;
     };
   };
 }

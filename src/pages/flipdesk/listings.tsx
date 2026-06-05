@@ -1004,7 +1004,7 @@ export function FlipdeskListingsPage() {
               variant="outline"
               onClick={async () => {
                 try {
-                  const r = await syncEbay.mutateAsync();
+                  const r = await syncEbay.mutateAsync({ full: false });
                   // Background-sync path — server returned 202, counts will
                   // land in container logs instead of this response. Show a
                   // running-in-background toast and bail.

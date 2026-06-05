@@ -8557,6 +8557,150 @@
       "priority": 568,
       "passes": false,
       "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. publish path hardcodes FIXED_PRICE; no variations."
+    },
+    {
+      "id": "US-569",
+      "title": "Growth suite database schema & TypeScript types",
+      "description": "As a super admin, I need the data model for the Promote/Growth suite so segments, campaigns, announcements, and referrals can be persisted and queried. Adds tables: audience_segments (saved rule-based cohorts), growth_campaigns (a message + channel set + target segment + schedule + status), campaign_recipients (per-user delivery ledger with channel + status + opened/clicked timestamps), announcements (in-app banners with targeting + window), announcement_dismissals, referral_codes (one per user), referral_events (attribution + reward state). All platform/admin-owned tables are RLS-gated to is_admin(); user-facing reads (active announcements, own referral code) get scoped policies. Adds is_super_admin() SQL helper.",
+      "acceptanceCriteria": [
+        "Migration 00090_growth_suite.sql creates audience_segments, growth_campaigns, campaign_recipients, announcements, announcement_dismissals, referral_codes, referral_events with enums (campaign_channel, campaign_status, announcement_variant, referral_reward_status)",
+        "public.is_super_admin() helper added (mirrors is_admin() but role='super_admin')",
+        "RLS: admin tables gated by is_admin(); announcements readable by any authenticated user when active+in-window; referral_codes/referral_events readable by their owning user",
+        "updated_at triggers via existing public.set_updated_at()",
+        "src/types/database.ts exports Row/Insert/Update for every new table plus the new enum unions, wired into the Database interface",
+        "Typecheck passes (npm run build)"
+      ],
+      "priority": 569,
+      "passes": false,
+      "notes": "[P1][Growth] Foundation for the super-admin Promote suite. One migration, additive only."
+    },
+    {
+      "id": "US-570",
+      "title": "Audience segment builder with live count preview",
+      "description": "As a super admin, I want to define reusable audience segments from user attributes so I can target campaigns and announcements precisely. Rule fields: plan (flipdesk_plan), role, signup window (created_at relative/absolute), subscription_status, activity (grades_used_this_month, last_active), grade_credit_balance, suspended. Rules combine with AND/OR. The builder previews a live matched-user count before saving. Server translates the rule JSON to a tenant-wide users query (service-role, platform scope — NOT user-scoped) and returns the count + a small sample.",
+      "acceptanceCriteria": [
+        "Edge lib/segments.ts compiles a validated rule JSON into a Supabase users query and returns {count, sampleEmails}",
+        "POST /api/admin/growth/segments/preview returns the live count for an unsaved rule",
+        "GET/POST/PATCH/DELETE /api/admin/growth/segments persists named segments; all writes audit-logged",
+        "src/pages/admin/growth/segments.tsx: rule builder UI, live count, save/edit/delete",
+        "Rule JSON is allowlist-validated server-side (no arbitrary column/operator injection)",
+        "Typecheck passes"
+      ],
+      "priority": 570,
+      "passes": false,
+      "notes": "[P1][Growth] Segment rule engine is shared by campaigns (US-572) and announcements (US-573)."
+    },
+    {
+      "id": "US-571",
+      "title": "APNs push-send infrastructure (complete the iOS pipe)",
+      "description": "As the platform, I need a server-side APNs sender so the already-registered iOS device tokens (push_device_tokens) can actually receive pushes — today registration exists but no send path does. Build lib/apns.ts: token-based (.p8) auth with ES256 JWT (cached <60min), HTTP/2 send to api.push.apple.com / api.sandbox.push.apple.com keyed by token environment, per-token result handling, and pruning of 410/BadDeviceToken responses (is_active=false). Gracefully no-ops when APNS_* env is unset (mirrors email/GSC). Exposes sendPushToUser(userId, payload) fanning out across the user's active tokens, used by transactional notifications and campaigns.",
+      "acceptanceCriteria": [
+        "lib/apns.ts signs ES256 JWT from APNS_KEY_P8/APNS_KEY_ID/APNS_TEAM_ID, caches token, targets prod/sandbox by row environment",
+        "sendPushToUser() fans out to active push_device_tokens rows and returns per-token delivery results",
+        "410 / Unregistered / BadDeviceToken responses flip push_device_tokens.is_active=false",
+        "No-ops cleanly (returns sent=0) when APNS env not configured — never throws",
+        "Wired into the 4 defined iOS categories where a server trigger already exists (e.g. token.expiring, item.review_needed) best-effort",
+        "Typecheck passes (deno check)"
+      ],
+      "priority": 571,
+      "passes": false,
+      "notes": "[P1][Growth] Enabling infra: push_device_tokens exists, iOS categories defined, but zero send code existed. Reusable by US-572."
+    },
+    {
+      "id": "US-572",
+      "title": "Multi-channel campaign composer & send engine",
+      "description": "As a super admin, I want to compose a message and broadcast it to a saved segment across email, in-app, and iOS push, so I can run promotions and announcements at scale. A campaign = subject/title + body (+ optional CTA url) + channel set + target segment + send-now or scheduled. The send engine resolves the segment to users, writes a campaign_recipients row per user/channel, and dispatches email (sendBroadcastEmail with unsubscribe), in-app (notifications insert), and push (sendPushToUser). Sending is throttled/batched, idempotent (won't double-send a recipient), respects notification_preferences opt-outs for the marketing category, requires a fresh MFA step-up, and is fully audit-logged.",
+      "acceptanceCriteria": [
+        "POST /api/admin/growth/campaigns creates a draft; POST /campaigns/:id/send dispatches (step-up required)",
+        "Send resolves segment, batches recipients, writes campaign_recipients ledger, dispatches per selected channel",
+        "Respects marketing opt-out in notification_preferences for email + push (transactional unaffected); in-app always allowed",
+        "Idempotent: re-running send skips recipients already marked sent for that channel",
+        "Scheduled campaigns dispatched by POST /api/jobs/growth-dispatch cron (job-secret gated, outside /api/admin)",
+        "email.ts sendBroadcastEmail adds a working unsubscribe/manage-preferences link",
+        "src/pages/admin/growth/campaigns.tsx: list, compose (channel + segment picker), schedule, send, per-campaign delivery stats",
+        "Typecheck passes"
+      ],
+      "priority": 572,
+      "passes": false,
+      "notes": "[P1][Growth] Core of the Promote suite. Depends on US-570 (segments) + US-571 (push)."
+    },
+    {
+      "id": "US-573",
+      "title": "In-app announcements & targeted banners",
+      "description": "As a super admin, I want to publish in-app banners (announcements) targeted to a segment and shown for a window, so I can promote features, sales, and notices without a code deploy. Variants: info, success, warning, promo. Each has title, body, optional CTA, variant, optional target segment, start/end window, dismissible flag, priority. A user-facing banner component reads the active announcements applicable to the current user and renders the highest-priority one; dismissals persist per user.",
+      "acceptanceCriteria": [
+        "GET/POST/PATCH/DELETE /api/admin/growth/announcements (admin); writes audit-logged",
+        "GET /api/announcements/active returns the active, in-window, segment-matched, non-dismissed announcements for the caller",
+        "POST /api/announcements/:id/dismiss records a dismissal",
+        "src/pages/admin/growth/announcements.tsx: CRUD + targeting + live/scheduled state",
+        "src/components/announcements/announcement-banner.tsx renders in the dashboard layout; respects variant styling + dismissal",
+        "Segment match reuses the US-570 rule engine",
+        "Typecheck passes"
+      ],
+      "priority": 573,
+      "passes": false,
+      "notes": "[P1][Growth] No deploy needed to message users in-product. Reuses segment engine."
+    },
+    {
+      "id": "US-574",
+      "title": "Referral program with attribution & reward ledger",
+      "description": "As a growth-focused operator, I want a referral program so existing users invite others and both sides get rewarded, driving organic acquisition. Each user gets a unique referral_code. A new signup carrying a ?ref code (or entered post-signup) writes a referral_events row attributing referrer to referred. On a qualifying event (e.g. referred user's first paid action), the reward becomes claimable; rewards are granted as grade credits via the existing grant_grade_credits RPC. Admin overview shows top referrers, attribution funnel, and pending/granted rewards.",
+      "acceptanceCriteria": [
+        "referral_codes auto-provisioned per user; GET /api/referrals/me returns the caller's code + stats",
+        "Signup attribution: ref code captured and a referral_events row created (status=pending), guarded against self-referral + duplicates",
+        "Qualifying event flips reward_status=qualified; admin (or cron) grants credits to both sides via grant_grade_credits, status=granted, audit-logged",
+        "src/pages/admin/growth/referrals.tsx: top referrers, funnel, reward queue with manual grant",
+        "User-facing referral surface in dashboard (share link + status)",
+        "Typecheck passes"
+      ],
+      "priority": 574,
+      "passes": false,
+      "notes": "[P2][Growth] Organic acquisition loop. Reward grants reuse grant_grade_credits ledger."
+    },
+    {
+      "id": "US-575",
+      "title": "Admin-native coupon & promo-code creation",
+      "description": "As a super admin, I want to create and archive Stripe coupons and promotion codes from inside the admin panel, closing today's read-only gap (coupons.tsx + GET /coupons only). Extends admin-billing with create/archive endpoints that proxy to Stripe and audit-log each action, and upgrades the coupons page with a create dialog (percent/amount off, duration, redemption cap, expiry, promo code text).",
+      "acceptanceCriteria": [
+        "POST /api/admin/billing/coupons creates a Stripe coupon (+ optional promotion code); step-up required",
+        "POST /api/admin/billing/coupons/:id/archive deletes/deactivates a coupon and its promo codes",
+        "Every create/archive audit-logged with actor + parameters",
+        "coupons.tsx gains a create dialog and archive action; list refreshes",
+        "Typecheck passes"
+      ],
+      "priority": 575,
+      "passes": false,
+      "notes": "[P2][Growth] Removes the 'create them in the Stripe dashboard' limitation."
+    },
+    {
+      "id": "US-576",
+      "title": "Growth analytics dashboard",
+      "description": "As a super admin, I want one dashboard that quantifies promotion impact, so I can see what's working. Aggregates campaign delivery + engagement (sent/delivered/opened/clicked/converted by channel), referral funnel (codes shared to signups to qualified to granted), and announcement engagement (impressions/dismissals/CTR). Serves as the landing page of the Growth section.",
+      "acceptanceCriteria": [
+        "GET /api/admin/growth/summary returns campaign, referral, and announcement aggregates over a selectable window",
+        "src/pages/admin/growth/dashboard.tsx: KPI cards + trend charts (recharts, matching existing admin dashboards)",
+        "Per-campaign drill-down links to the campaign's recipient stats",
+        "Auto-refresh consistent with other admin dashboards",
+        "Typecheck passes"
+      ],
+      "priority": 576,
+      "passes": false,
+      "notes": "[P2][Growth] The 'analyze' half of Promote. Reads ledgers from US-572/573/574."
+    },
+    {
+      "id": "US-577",
+      "title": "Growth section navigation, routes & super-admin gating",
+      "description": "As a super admin, I want the Promote/Growth suite surfaced as its own admin sidebar group with proper route wiring and access control, so the new pages are reachable and gated. Adds a 'Growth' nav group (Dashboard, Segments, Campaigns, Announcements, Referrals) to admin-layout, lazy route bindings in routes/index.tsx, and marks broadcast/send + coupon-create actions as super_admin-only where appropriate.",
+      "acceptanceCriteria": [
+        "admin-layout.tsx has a 'Growth' section with the five pages (icons from lucide-react)",
+        "routes/index.tsx lazy-imports and mounts /admin/growth, /admin/growth/segments, /campaigns, /announcements, /referrals under AdminRoute",
+        "Send-campaign and create-coupon gated to super_admin (server-checked, not just UI)",
+        "Pages render inside AdminMfaGate like the rest of the panel",
+        "Typecheck passes"
+      ],
+      "priority": 577,
+      "passes": false,
+      "notes": "[P1][Growth] Wiring + access control for the suite."
     }
   ]
 }

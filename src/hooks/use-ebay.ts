@@ -517,10 +517,17 @@ export interface SyncEbayListingsResponse {
 // advances to detect completion.
 export function useSyncEbayListings() {
   const qc = useQueryClient();
-  return useMutation<SyncEbayListingsResponse, Error, void>({
-    mutationFn: async () => {
+  return useMutation<
+    SyncEbayListingsResponse,
+    Error,
+    { full?: boolean } | void
+  >({
+    mutationFn: async (vars) => {
+      // full=true → one-time historical sales backfill (~24 months) instead of
+      // the incremental window.
+      const full = vars && "full" in vars ? vars.full : false;
       const res = await fetch(
-        `${edgeApiUrl()}/api/flipdesk/ebay/listings/pull`,
+        `${edgeApiUrl()}/api/flipdesk/ebay/listings/pull${full ? "?full=true" : ""}`,
         {
           method: "POST",
           headers: await ebayHeaders(),

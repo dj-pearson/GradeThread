@@ -33,6 +33,7 @@ import {
   type PolicySet,
   type RemoteOffer,
   type RemoteOrder,
+  type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
 import {
@@ -508,6 +509,44 @@ async function recordSyncRun(userId: string, s: SyncRunStats): Promise<void> {
   }
 }
 
+// Snapshot a sale we pulled from eBay but couldn't match to a FlipDesk
+// inventory_item (no SKU match, no eBay item-id match). Without this the sale
+// was silently dropped, understating Sold totals and making a "full sales"
+// backfill lossy. Upsert is idempotent under retries via the unique
+// (user_id, platform_order_id, line_item_id) key.
+async function snapshotOrphanSale(
+  userId: string,
+  order: RemoteOrder,
+  li: RemoteOrderLineItem,
+): Promise<void> {
+  try {
+    await supabaseAdmin.from("flipdesk_ebay_orphan_sales").upsert(
+      {
+        user_id: userId,
+        platform_order_id: order.orderId,
+        line_item_id: li.lineItemId ?? "",
+        ebay_item_id: li.legacyItemId,
+        sku: li.sku,
+        title: li.title,
+        sale_price: li.itemCost ? Number(li.itemCost.value) : null,
+        shipping_collected: li.shippingCost
+          ? Number(li.shippingCost.value)
+          : null,
+        tax: li.taxes ? Number(li.taxes.value) : null,
+        buyer_username: order.buyerUsername,
+        sold_at: order.creationDate,
+        currency: li.itemCost?.currency ?? "USD",
+        raw: { orderPaymentStatus: order.orderPaymentStatus },
+        match_status: "unmatched",
+        imported_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,platform_order_id,line_item_id" },
+    );
+  } catch (err) {
+    console.error("[flipdesk-ebay] failed to snapshot orphan sale:", err);
+  }
+}
+
 // Extracted from the /listings/pull handler so we can fire it as a
 // detached promise and return 202 immediately.  The sync typically takes
 // 60-120s (N eBay API calls + Supabase writes) which exceeds Cloudflare's
@@ -517,6 +556,7 @@ async function doListingsPull(
   userId: string,
   connId: string,
   lastSyncedAt: string | null,
+  backfill = false,
 ): Promise<void> {
   const startedAt = new Date().toISOString();
   let offers: RemoteOffer[];
@@ -783,12 +823,47 @@ async function doListingsPull(
     );
   }
 
+  // eBay item-id → inventory_item map, built AFTER the listing passes above so
+  // it includes any listing rows just upserted this run. Used as a fallback
+  // for matching order line items that carry no Custom Label (SKU) — common
+  // for legacy Seller-Hub listings. Tenant-scoped via the inner join on
+  // inventory_items.user_id (listings has no user_id column of its own —
+  // US-268).
+  const ebayItemIdToItemId = new Map<string, string>();
+  try {
+    const { data: ebayListingRows } = await supabaseAdmin
+      .from("listings")
+      .select("platform_listing_id, inventory_item_id, inventory_items!inner(user_id)")
+      .eq("platform", "ebay")
+      .eq("inventory_items.user_id", userId)
+      .not("platform_listing_id", "is", null);
+    for (const r of (ebayListingRows ?? []) as Array<{
+      platform_listing_id: string | null;
+      inventory_item_id: string | null;
+    }>) {
+      if (r.platform_listing_id && r.inventory_item_id) {
+        ebayItemIdToItemId.set(r.platform_listing_id, r.inventory_item_id);
+      }
+    }
+  } catch (err) {
+    console.error("[flipdesk-ebay] failed to build ebay item-id map:", err);
+  }
+
   // ── Orders sync (sold-state detection) ──────────────────────────
-  // Pulls orders modified since last_synced_at (or 90 days on first sync).
+  // Pulls orders modified since last_synced_at (or 90 days on first sync;
+  // ~24 months on an explicit backfill). Each line item is matched to an
+  // inventory_item by SKU, then by eBay item id; unmatched sales are
+  // snapshotted (not dropped).
   // Each line item's SKU is matched to inventory_items.sku; matches turn
   // into a sales row + flip inventory_items.status='sold'.
+  // Normal syncs are incremental (orders modified since last_synced_at, or a
+  // 90-day seed on first connect). A backfill ignores last_synced_at and
+  // reaches back to eBay's practical retention limit (~24 months) so sales
+  // that predate the FlipDesk connection get imported. This window applies to
+  // BOTH the orders sync and the Finances fee/payout enrichment below.
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
-  const sinceISO = lastSyncedAt ?? ninetyDaysAgo;
+  const twoYearsAgo = new Date(Date.now() - 730 * 24 * 60 * 60_000).toISOString();
+  const sinceISO = backfill ? twoYearsAgo : (lastSyncedAt ?? ninetyDaysAgo);
 
   let salesNew = 0;
   let salesUpdated = 0;
@@ -809,8 +884,16 @@ async function doListingsPull(
       for (const li of order.lineItems) {
         try {
           const sku = li.sku;
-          const itemId = sku ? skuToItemId.get(sku) ?? null : null;
+          let itemId = sku ? skuToItemId.get(sku) ?? null : null;
+          // Fallback: match by eBay item id when there's no Custom Label match
+          // (legacy listings often have no SKU on the order line item).
+          if (!itemId && li.legacyItemId) {
+            itemId = ebayItemIdToItemId.get(li.legacyItemId) ?? null;
+          }
           if (!itemId) {
+            // Don't silently drop it — snapshot the orphan sale so Sold totals
+            // stay complete and the user can link it on Reconciliation.
+            await snapshotOrphanSale(userId, order, li);
             salesSkipped += 1;
             continue;
           }
@@ -1056,7 +1139,7 @@ async function doListingsPull(
   // that finished with any errors is "partial", otherwise "success".
   await recordSyncRun(userId, {
     startedAt,
-    since: lastSyncedAt,
+    since: sinceISO,
     status: errors.length > 0 ? "partial" : "success",
     total: offers.length,
     matched,
@@ -1099,10 +1182,15 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   const lastSyncedAt =
     (conn as { id: string; last_synced_at: string | null }).last_synced_at ?? null;
 
+  // ?full=true forces a one-time historical backfill: the orders + Finances
+  // sync reaches back ~24 months instead of the incremental window, so sales
+  // that predate the FlipDesk connection get imported.
+  const backfill = c.req.query("full") === "true";
+
   // Fire-and-forget — do NOT await this. Returning 202 before the work starts
   // means the HTTP connection closes immediately, safely below Cloudflare's
   // 100s proxy timeout. The frontend polls last_synced_at to detect completion.
-  void doListingsPull(userId, connId, lastSyncedAt).catch((err) =>
+  void doListingsPull(userId, connId, lastSyncedAt, backfill).catch((err) =>
     console.error("[flipdesk-ebay] background sync crashed:", err),
   );
 

@@ -7,6 +7,7 @@ import {
   Check,
   Loader2,
   RefreshCw,
+  History,
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -130,6 +131,70 @@ export function FlipdeskMarketplacesPage() {
       toast.success("eBay sync complete. Listings updated.");
     }
   }, [connection?.last_synced_at, syncSince, qc]);
+
+  // Shared handler for both the incremental sync and the full backfill.
+  // `full` reaches back ~24 months for sales that predate the connection.
+  const runSync = async (full: boolean) => {
+    try {
+      const firedAt = new Date().toISOString();
+      const r = await syncListings.mutateAsync({ full });
+
+      if (r.started) {
+        // 202 — sync is running in the background.
+        // Start polling; show a persistent toast until done.
+        setSyncSince(firedAt);
+        syncToastId.current = toast.loading(
+          full
+            ? "Importing full eBay sales history…"
+            : "eBay sync running in background…",
+          {
+            description: full
+              ? "Reaching back ~24 months. Sales will update automatically when done."
+              : "Listings and sales will update automatically when done.",
+            duration: Infinity,
+          },
+        );
+        return;
+      }
+
+      // 200 — sync completed synchronously (shouldn't happen after the 202
+      // change, but handle gracefully).
+      const totalMatched = (r.matched ?? 0) + (r.legacy_matched ?? 0);
+      const legacyLine = (r.legacy_matched ?? 0) > 0
+        ? ` (${r.legacy_matched} legacy)`
+        : "";
+      const salesLine = (r.sales_new ?? 0) + (r.sales_updated ?? 0) > 0
+        ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${(r.sales_updated ?? 0) > 0 ? `, ${r.sales_updated} updated` : ""}`
+        : "";
+      const totalUnmatched = (r.unmatched ?? 0) + (r.legacy_unmatched ?? 0);
+      const lines: string[] = [];
+      if (totalUnmatched > 0) {
+        lines.push(
+          `Open Reconciliation to link the ${totalUnmatched} orphan${totalUnmatched === 1 ? "" : "s"} to FlipDesk SKUs.`,
+        );
+      }
+      if (r.errors && r.errors.length > 0) {
+        lines.push(
+          `Partial failure: ${r.errors[0]}` +
+            (r.errors.length > 1 ? ` (+${r.errors.length - 1} more)` : ""),
+        );
+      }
+      const description = lines.length > 0 ? lines.join(" · ") : undefined;
+      if (r.errors && r.errors.length > 0) {
+        toast.warning(
+          `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}, with errors.`,
+          { description, duration: 14000 },
+        );
+      } else {
+        toast.success(
+          `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}.`,
+          { description, duration: 8000 },
+        );
+      }
+    } catch {
+      /* surfaced by the hook */
+    }
+  };
 
   // Surface the OAuth callback result once and strip it from the URL so a
   // reload doesn't re-toast.
@@ -255,68 +320,7 @@ export function FlipdeskMarketplacesPage() {
                 <>
                   <Button
                     className="w-full"
-                    onClick={async () => {
-                      try {
-                        const firedAt = new Date().toISOString();
-                        const r = await syncListings.mutateAsync();
-
-                        if (r.started) {
-                          // 202 — sync is running in the background.
-                          // Start polling; show a persistent toast until done.
-                          setSyncSince(firedAt);
-                          syncToastId.current = toast.loading(
-                            "eBay sync running in background…",
-                            {
-                              description:
-                                "Listings and sales will update automatically when done.",
-                              duration: Infinity,
-                            },
-                          );
-                          return;
-                        }
-
-                        // 200 — sync completed synchronously (shouldn't happen
-                        // after the 202 change, but handle gracefully).
-                        const totalMatched = (r.matched ?? 0) + (r.legacy_matched ?? 0);
-                        const legacyLine = (r.legacy_matched ?? 0) > 0
-                          ? ` (${r.legacy_matched} legacy)`
-                          : "";
-                        const salesLine = (r.sales_new ?? 0) + (r.sales_updated ?? 0) > 0
-                          ? ` • ${r.sales_new} new sale${r.sales_new === 1 ? "" : "s"}${(r.sales_updated ?? 0) > 0 ? `, ${r.sales_updated} updated` : ""}`
-                          : "";
-                        const totalUnmatched = (r.unmatched ?? 0) + (r.legacy_unmatched ?? 0);
-                        const lines: string[] = [];
-                        if (totalUnmatched > 0) {
-                          lines.push(
-                            `Open Reconciliation to link the ${totalUnmatched} orphan${totalUnmatched === 1 ? "" : "s"} to FlipDesk SKUs.`,
-                          );
-                        }
-                        if (r.errors && r.errors.length > 0) {
-                          lines.push(
-                            `Partial failure: ${r.errors[0]}` +
-                              (r.errors.length > 1
-                                ? ` (+${r.errors.length - 1} more)`
-                                : ""),
-                          );
-                        }
-                        const description = lines.length > 0
-                          ? lines.join(" · ")
-                          : undefined;
-                        if (r.errors && r.errors.length > 0) {
-                          toast.warning(
-                            `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}, with errors.`,
-                            { description, duration: 14000 },
-                          );
-                        } else {
-                          toast.success(
-                            `Synced ${totalMatched} listing${totalMatched === 1 ? "" : "s"}${legacyLine}${salesLine}.`,
-                            { description, duration: 8000 },
-                          );
-                        }
-                      } catch {
-                        /* surfaced by the hook */
-                      }
-                    }}
+                    onClick={() => runSync(false)}
                     disabled={syncListings.isPending || syncSince != null}
                   >
                     {syncListings.isPending || syncSince != null ? (
@@ -326,6 +330,20 @@ export function FlipdeskMarketplacesPage() {
                     )}
                     {syncSince != null ? "Syncing…" : "Sync listings from eBay"}
                   </Button>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => runSync(true)}
+                    disabled={syncListings.isPending || syncSince != null}
+                  >
+                    <History className="mr-2 h-4 w-4" />
+                    Import full sales history
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground">
+                    One-time backfill: pulls sold orders from the last ~24
+                    months, including items not yet in FlipDesk (those land in
+                    Reconciliation).
+                  </p>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[11px] text-muted-foreground">
                       {connection.last_synced_at

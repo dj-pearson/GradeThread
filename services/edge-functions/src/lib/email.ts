@@ -811,3 +811,47 @@ function escapeHtml(text: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
+
+// ─── Broadcast / marketing email (US-572) ───────────────────────────
+
+interface BroadcastEmailData {
+  subject: string;
+  /** Plain-text body; blank lines split paragraphs, single newlines → <br>. */
+  body: string;
+  ctaLabel?: string | null;
+  ctaUrl?: string | null;
+}
+
+/**
+ * Campaign broadcast email. Unlike the transactional senders this always
+ * carries the manage-preferences footer (US-572) so a recipient can opt out of
+ * marketing. The send engine only calls this for users who have NOT opted out.
+ */
+export async function sendBroadcastEmail(
+  to: string,
+  data: BroadcastEmailData,
+): Promise<boolean> {
+  const paragraphs = data.body
+    .split(/\n{2,}/)
+    .map(
+      (p) =>
+        `<p style="margin: 0 0 16px; color: #444; font-size: 15px; line-height: 1.6;">${
+          escapeHtml(p).replace(/\n/g, "<br>")
+        }</p>`,
+    )
+    .join("");
+
+  const content = `
+    <h2 style="margin: 0 0 16px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      ${escapeHtml(data.subject)}
+    </h2>
+    ${paragraphs}
+    ${data.ctaLabel && data.ctaUrl ? ctaButton(data.ctaLabel, data.ctaUrl) : ""}
+  `;
+
+  return await sendEmail({
+    to,
+    subject: data.subject,
+    html: emailLayout(content, true),
+  });
+}
