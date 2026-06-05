@@ -602,6 +602,15 @@ export function useEbaySyncRuns(limit = 20) {
     queryKey: ["ebay_sync_runs", user?.id, limit],
     enabled: !!user,
     staleTime: 15_000,
+    // While a pull is in flight (a `running` row exists) poll every 5s so the
+    // history updates live as it finalizes — or visibly stalls on "running" if
+    // the background sync hangs. Idle otherwise.
+    refetchInterval: (query) =>
+      (query.state.data as EbaySyncRun[] | undefined)?.some(
+        (r) => r.status === "running",
+      )
+        ? 5_000
+        : false,
     queryFn: async (): Promise<EbaySyncRun[]> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/sync-runs?limit=${limit}`,

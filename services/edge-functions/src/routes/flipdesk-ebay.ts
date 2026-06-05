@@ -500,29 +500,71 @@ interface SyncRunStats {
   errors: string[];
 }
 
-async function recordSyncRun(userId: string, s: SyncRunStats): Promise<void> {
+// Insert a `running` row the moment a pull starts and return its id, so a sync
+// that HANGS (e.g. eBay API stall mid-pagination) or is killed before it can
+// finalize is still visible in the Reconciliation history as a stuck "running"
+// run — instead of leaving no trace at all (the old behavior, which made a
+// non-completing pull impossible to see from the UI). Returns null on failure;
+// callers fall back to a plain insert at the end.
+async function startSyncRun(
+  userId: string,
+  startedAt: string,
+): Promise<string | null> {
   try {
-    await supabaseAdmin.from("flipdesk_sync_runs").insert({
-      user_id: userId,
-      marketplace: "ebay",
-      status: s.status,
-      listings_total: s.total,
-      listings_matched: s.matched,
-      listings_unmatched: s.unmatched,
-      listings_skipped: s.skipped,
-      legacy_matched: s.legacyMatched,
-      legacy_unmatched: s.legacyUnmatched,
-      legacy_duplicates: s.legacyDuplicates,
-      sales_new: s.salesNew,
-      sales_updated: s.salesUpdated,
-      sales_skipped: s.salesSkipped,
-      sales_enriched: s.salesEnriched,
-      error_count: s.errors.length,
-      errors: s.errors.slice(0, 50),
-      since: s.since,
-      started_at: s.startedAt,
-      finished_at: new Date().toISOString(),
-    });
+    const { data } = await supabaseAdmin
+      .from("flipdesk_sync_runs")
+      .insert({
+        user_id: userId,
+        marketplace: "ebay",
+        status: "running",
+        started_at: startedAt,
+      })
+      .select("id")
+      .single();
+    return (data as { id: string } | null)?.id ?? null;
+  } catch (err) {
+    console.error("[flipdesk-ebay] failed to start sync run:", err);
+    return null;
+  }
+}
+
+// Finalize a run. When `runId` is present (the normal path) this UPDATES the
+// `running` row started by startSyncRun; otherwise it falls back to an INSERT.
+async function recordSyncRun(
+  userId: string,
+  s: SyncRunStats,
+  runId: string | null = null,
+): Promise<void> {
+  const fields = {
+    status: s.status,
+    listings_total: s.total,
+    listings_matched: s.matched,
+    listings_unmatched: s.unmatched,
+    listings_skipped: s.skipped,
+    legacy_matched: s.legacyMatched,
+    legacy_unmatched: s.legacyUnmatched,
+    legacy_duplicates: s.legacyDuplicates,
+    sales_new: s.salesNew,
+    sales_updated: s.salesUpdated,
+    sales_skipped: s.salesSkipped,
+    sales_enriched: s.salesEnriched,
+    error_count: s.errors.length,
+    errors: s.errors.slice(0, 50),
+    since: s.since,
+    started_at: s.startedAt,
+    finished_at: new Date().toISOString(),
+  };
+  try {
+    if (runId) {
+      await supabaseAdmin
+        .from("flipdesk_sync_runs")
+        .update(fields)
+        .eq("id", runId);
+    } else {
+      await supabaseAdmin
+        .from("flipdesk_sync_runs")
+        .insert({ user_id: userId, marketplace: "ebay", ...fields });
+    }
   } catch (err) {
     console.error("[flipdesk-ebay] failed to record sync run:", err);
   }
@@ -578,6 +620,9 @@ async function doListingsPull(
   backfill = false,
 ): Promise<void> {
   const startedAt = new Date().toISOString();
+  // Record a `running` row up front so a hung/killed pull is still visible in
+  // the Reconciliation history; both finalizers below update it via runId.
+  const runId = await startSyncRun(userId, startedAt);
   let offers: RemoteOffer[];
   try {
     offers = await listAllOffers(userId);
@@ -603,7 +648,7 @@ async function doListingsPull(
       salesSkipped: 0,
       salesEnriched: 0,
       errors: [`fetch offers: ${msg.slice(0, 200)}`],
-    });
+    }, runId);
     return;
   }
 
@@ -1172,7 +1217,7 @@ async function doListingsPull(
     salesSkipped,
     salesEnriched,
     errors,
-  });
+  }, runId);
 }
 
 // /listings/pull — validates the connection then fires the heavy sync as a
