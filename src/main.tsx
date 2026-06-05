@@ -8,6 +8,20 @@ import { router } from "@/routes";
 import { initAnalyticsFromStoredConsent } from "@/lib/analytics";
 import "@/index.css";
 
+// Stale-chunk guard. After a deploy, an already-open tab (or a stale PWA
+// service-worker precache) can still reference lazy-chunk hashes from the
+// previous build. When one of those dynamic imports 404s, Vite fires
+// `vite:preloadError` — instead of white-screening, reload once to pull the
+// fresh index.html + current chunks. The sessionStorage flag makes it reload
+// at most once per tab session, so a chunk that is genuinely gone can't cause
+// an infinite reload loop (the ErrorBoundary takes over after the one retry).
+window.addEventListener("vite:preloadError", () => {
+  const KEY = "gt:preloadErrorReloaded";
+  if (sessionStorage.getItem(KEY)) return;
+  sessionStorage.setItem(KEY, "1");
+  window.location.reload();
+});
+
 // Initialize Sentry (conditional). Error monitoring is not gated by the cookie
 // banner — it runs under legitimate interest with no advertising signals.
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
