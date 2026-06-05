@@ -223,21 +223,27 @@ struct InventoryListView: View {
         showingDroppedIntake = true
     }
 
+    /// Standardized on ``ContentUnavailableView`` (like the rest of the app)
+    /// and differentiated: an active search or "graded only" filter shows a
+    /// "no matches" state rather than the stage's generic empty copy, so the
+    /// user isn't told the stage is empty when it's really their filter.
+    @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: selectedStage.systemImage)
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(Color.brandNavy)
-            Text(selectedStage.emptyStateTitle)
-                .font(.headline)
-            Text(selectedStage.emptyStateSubtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+        if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+            ContentUnavailableView.search(text: searchQuery)
+        } else if gradedOnly {
+            ContentUnavailableView {
+                Label("No graded items", systemImage: "checkmark.seal")
+            } description: {
+                Text("Items you grade show up here. Turn off “Graded only” to see everything.")
+            }
+        } else {
+            ContentUnavailableView {
+                Label(selectedStage.emptyStateTitle, systemImage: selectedStage.systemImage)
+            } description: {
+                Text(selectedStage.emptyStateSubtitle)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding()
     }
 
     // MARK: - Toolbar
