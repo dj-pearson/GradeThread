@@ -8,6 +8,7 @@ final class BulkActionTests: XCTestCase {
 
     func test_actions_toList_includesCreateDraftAndAIEnrich() {
         let actions = BulkAction.actions(for: .toList)
+        XCTAssertTrue(actions.contains(.grade))
         XCTAssertTrue(actions.contains(.createDraft))
         XCTAssertTrue(actions.contains(.aiEnrich))
         XCTAssertTrue(actions.contains(.exportCSV))

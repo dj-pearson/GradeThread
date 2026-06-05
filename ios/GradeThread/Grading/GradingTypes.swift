@@ -146,4 +146,9 @@ struct GradingRequestBody: Encodable {
     init(inventoryItemId: String, tier: GradeTierOption) {
         self.items = [Item(inventoryItemId: inventoryItemId, tier: tier.rawValue)]
     }
+
+    /// Batch variant for bulk grading from inventory multi-select.
+    init(itemIds: [String], tier: GradeTierOption) {
+        self.items = itemIds.map { Item(inventoryItemId: $0, tier: tier.rawValue) }
+    }
 }

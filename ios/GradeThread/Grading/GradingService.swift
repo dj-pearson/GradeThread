@@ -43,6 +43,26 @@ final class GradingService {
         try await get(path: "/api/flipdesk/grading/submissions/\(submissionRef)")
     }
 
+    // MARK: - Batch (bulk grading)
+
+    func validateBatch(
+        itemIds: [String], tier: GradeTierOption
+    ) async throws -> GradingValidateResponse {
+        try await post(
+            path: "/api/flipdesk/grading/validate",
+            body: GradingRequestBody(itemIds: itemIds, tier: tier)
+        )
+    }
+
+    func submitBatch(
+        itemIds: [String], tier: GradeTierOption
+    ) async throws -> GradingSubmitResponse {
+        try await post(
+            path: "/api/flipdesk/grading/submit",
+            body: GradingRequestBody(itemIds: itemIds, tier: tier)
+        )
+    }
+
     // MARK: - Internals
 
     private func post<Body: Encodable, Response: Decodable>(

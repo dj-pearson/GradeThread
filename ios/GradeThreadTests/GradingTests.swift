@@ -242,6 +242,20 @@ final class GradingTests: XCTestCase {
         XCTAssertEqual(echo.items.first?.tier, "premium")
     }
 
+    func test_requestBody_batchEncodesAllItems() throws {
+        let body = GradingRequestBody(itemIds: ["a", "b", "c"], tier: .standard)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(body)
+        struct Echo: Decodable {
+            struct I: Decodable { let inventory_item_id: String; let tier: String }
+            let items: [I]
+        }
+        let echo = try JSONDecoder().decode(Echo.self, from: data)
+        XCTAssertEqual(echo.items.map(\.inventory_item_id), ["a", "b", "c"])
+        XCTAssertTrue(echo.items.allSatisfy { $0.tier == "standard" })
+    }
+
     // MARK: - Domain model
 
     func test_gradeFactorWeightsSumToOne() {

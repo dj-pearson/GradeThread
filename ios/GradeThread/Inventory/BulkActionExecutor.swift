@@ -36,6 +36,11 @@ public struct BulkActionExecutor {
             return await dropPrices(items, percent: percent, action: action)
         case .aiEnrich:
             return notYetWired(action: action, items: items, reason: "Wires up in a focused AI-batch pass.")
+        case .grade:
+            // Grading is intercepted by InventoryListView and routed to its
+            // own batch sheet, so this path is never taken in practice. Kept
+            // for switch exhaustiveness with a clear no-op result.
+            return notYetWired(action: action, items: items, reason: "Grading runs in its own batch flow.")
         case .exportCSV:
             // Export is a client-side bookkeeping action that doesn't
             // touch the server. Caller hands the items to a CSV writer
