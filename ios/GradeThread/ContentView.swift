@@ -669,6 +669,7 @@ private struct SettingsPlaceholder: View {
     var body: some View {
         List {
             ProfileSection()
+            PlanSection()
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
