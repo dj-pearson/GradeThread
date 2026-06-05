@@ -74,7 +74,9 @@ export interface GeneratedListing {
 
 export interface ListingGenPhoto {
   url: string;
-  type?: string; // front | back | tag | detail | defect | flatlay | on_model
+  // flipdesk_photo_type hint, e.g. front | back | tag | tag_2 | detail |
+  // detail_2..4 | interior | defect | flatlay | on_model | measurement_*
+  type?: string;
 }
 
 export interface ListingGenInput {

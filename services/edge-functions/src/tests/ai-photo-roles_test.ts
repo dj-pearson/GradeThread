@@ -67,8 +67,15 @@ Deno.test("out-of-range and unknown roles are ignored, not thrown", () => {
 });
 
 Deno.test("PHOTO_ROLES are all valid flipdesk_photo_type values", () => {
-  // Guards against drift from the DB enum (front|back|tag|detail|defect|...).
-  const enumValues = ["front", "back", "tag", "detail", "defect", "flatlay", "on_model"];
+  // Guards against drift from the DB enum. Mirrors public.flipdesk_photo_type
+  // (see migrations 00008/00035/00103). PHOTO_ROLES is a subset of this.
+  const enumValues = [
+    "front", "back", "tag", "tag_2",
+    "detail", "detail_2", "detail_3", "detail_4",
+    "interior", "defect", "flatlay", "on_model",
+    "measurement_chest", "measurement_waist", "measurement_length",
+    "measurement_sleeve", "measurement_inseam",
+  ];
   for (const r of PHOTO_ROLES) {
     assertEquals(enumValues.includes(r), true, `role ${r} not in enum`);
   }

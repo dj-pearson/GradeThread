@@ -172,10 +172,31 @@ const IMAGE_TYPE_CONTEXT: Record<string, string> = {
     "This is the BACK VIEW of the garment. Focus on overall appearance from behind, seat wear (for bottoms), back panel condition, any stains or damage not visible from front.",
   label:
     "This is the LABEL/TAG of the garment. Focus on brand identification, care instructions legibility, label condition (fading, fraying, removal), size tag presence, and material composition.",
+  label_2:
+    "This is a SECOND LABEL/TAG of the garment (e.g. a separate size or care/RN tag distinct from the brand label). Focus on brand/size/material identification and tag condition; cross-reference with the primary label.",
   detail:
     "This is a DETAIL/CLOSE-UP shot of the garment. Focus on stitching quality, seam integrity, button/zipper condition, hardware condition, and any specific areas of wear or damage shown.",
+  detail_2:
+    "This is an ADDITIONAL DETAIL/CLOSE-UP shot of the garment. Focus on stitching, seams, hardware, print/logo condition, and any specific wear or damage shown.",
+  detail_3:
+    "This is an ADDITIONAL DETAIL/CLOSE-UP shot of the garment. Focus on stitching, seams, hardware, print/logo condition, and any specific wear or damage shown.",
+  detail_4:
+    "This is an ADDITIONAL DETAIL/CLOSE-UP shot of the garment. Focus on stitching, seams, hardware, print/logo condition, and any specific wear or damage shown.",
   defect:
     "This is a DEFECT/DAMAGE close-up. Focus on identifying and assessing the specific defect shown: its type (tear, stain, hole, missing button, broken zipper, etc.), severity, repairability, and impact on overall garment condition.",
+  // Measurement shots: a tape measure laid across the garment to document size
+  // when there's no/illegible size tag. Read the dimension, NOT the garment's
+  // condition — never count the tape measure or measuring surface as a defect.
+  measurement_chest:
+    "This is a FLAT MEASUREMENT shot of the CHEST/BUST (a tape measure laid pit-to-pit or across the bust). Read the measurement to help establish size; do not assess condition or treat the tape measure as damage.",
+  measurement_waist:
+    "This is a FLAT MEASUREMENT shot of the WAIST (a tape measure across the waist). Read the measurement to help establish size; do not assess condition or treat the tape measure as damage.",
+  measurement_length:
+    "This is a FLAT MEASUREMENT shot of the LENGTH (a tape measure along the garment length). Read the measurement to help establish size; do not assess condition or treat the tape measure as damage.",
+  measurement_sleeve:
+    "This is a FLAT MEASUREMENT shot of the SLEEVE (a tape measure along the sleeve/arm). Read the measurement to help establish size; do not assess condition or treat the tape measure as damage.",
+  measurement_inseam:
+    "This is a FLAT MEASUREMENT shot of the INSEAM (a tape measure along the inseam). Read the measurement to help establish size; do not assess condition or treat the tape measure as damage.",
 };
 
 const GARMENT_TYPE_CRITERIA: Record<string, string> = {

@@ -303,8 +303,16 @@ function mapPhotoTypeForGrading(t: string): string | null {
   if (t === "front") return "front";
   if (t === "back") return "back";
   if (t === "tag") return "label";
-  if (t === "detail" || t === "detail_2" || t === "detail_3") return "detail";
+  if (t === "tag_2") return "label_2";
+  // detail_2..4 and the measurement_* shots are valid grading image_types too,
+  // so carry them through 1:1 — measurements help the grader establish size.
+  if (
+    t === "detail" || t === "detail_2" || t === "detail_3" || t === "detail_4"
+  ) {
+    return t;
+  }
   if (t === "defect") return "defect";
+  if (t.startsWith("measurement_")) return t;
   return null;
 }
 
