@@ -54,16 +54,79 @@ struct DashboardView: View {
 
     // MARK: - Populated dashboard
 
+    /// Trailing-14-day daily revenue/profit for the sparkline.
+    private var trendPoints: [DashboardTrendPoint] {
+        DashboardTrend.dailySeries(sales: sales, items: items, days: 14, now: .now)
+    }
+
+    /// Certified-graded items, newest first (for the grades card).
+    private var gradedItems: [LocalInventoryItem] {
+        items.filter { $0.gradeValue != nil }
+    }
+
     private var dashboard: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 kpiGrid
+                if DashboardTrend.hasActivity(trendPoints) { trendCard }
+                if !gradedItems.isEmpty { gradesCard }
                 if !agingItems.isEmpty { agingCard }
                 quickActions
             }
             .padding(16)
         }
         .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private var trendCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Revenue · 14 days")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(currency.formatDisplay(trendPoints.reduce(0) { $0 + $1.revenue }))
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Color.brandNavy)
+            }
+            TrendSparkline(points: trendPoints)
+                .frame(height: 56)
+        }
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var gradesCard: some View {
+        NavigationLink(value: GradesRoute()) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Certified grades")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("\(gradedItems.count) graded item\(gradedItems.count == 1 ? "" : "s")\(averageGradeSuffix)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var averageGradeSuffix: String {
+        let values = gradedItems.compactMap(\.gradeValue)
+        guard !values.isEmpty else { return "" }
+        let avg = values.reduce(0, +) / Double(values.count)
+        return " · avg \(String(format: "%.1f", avg))"
     }
 
     private var kpiGrid: some View {

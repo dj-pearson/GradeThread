@@ -17,6 +17,11 @@ public enum BulkAction: Identifiable, Hashable {
     /// because that's how the web copy reads.
     case dropPrice(percent: Int)
     case aiEnrich
+    /// Submit the selection for certified grading. Unlike the others this
+    /// doesn't run through ``BulkActionExecutor`` — the InventoryListView
+    /// intercepts it to present a dedicated batch-grading sheet (tier +
+    /// readiness + credits).
+    case grade
     case exportCSV
 
     public var id: String {
@@ -26,6 +31,7 @@ public enum BulkAction: Identifiable, Hashable {
         case .endListing:         return "end_listing"
         case .dropPrice(let pct): return "drop_price_\(pct)"
         case .aiEnrich:           return "ai_enrich"
+        case .grade:              return "grade"
         case .exportCSV:          return "export_csv"
         }
     }
@@ -37,6 +43,7 @@ public enum BulkAction: Identifiable, Hashable {
         case .endListing:         return "End listing"
         case .dropPrice(let pct): return "Drop -\(pct)%"
         case .aiEnrich:           return "AI enrich"
+        case .grade:              return "Grade"
         case .exportCSV:          return "Export CSV"
         }
     }
@@ -48,6 +55,7 @@ public enum BulkAction: Identifiable, Hashable {
         case .endListing:  return "stop.circle"
         case .dropPrice:   return "arrow.down.circle"
         case .aiEnrich:    return "sparkles"
+        case .grade:       return "checkmark.seal"
         case .exportCSV:   return "square.and.arrow.up"
         }
     }
@@ -69,6 +77,7 @@ public enum BulkAction: Identifiable, Hashable {
         case .endListing:         return "End \(count) \(suffix)?"
         case .dropPrice(let pct): return "Drop price -\(pct)% on \(count) \(suffix)?"
         case .aiEnrich:           return "Run AI enrich on \(count) \(suffix)?"
+        case .grade:              return "Grade \(count) \(suffix)?"
         case .exportCSV:          return "Export \(count) \(suffix) as CSV?"
         }
     }
@@ -78,7 +87,7 @@ public enum BulkAction: Identifiable, Hashable {
     public static func actions(for stage: InventoryStage) -> [BulkAction] {
         switch stage {
         case .toList:
-            return [.createDraft, .aiEnrich, .exportCSV]
+            return [.grade, .createDraft, .aiEnrich, .exportCSV]
         case .drafts:
             return [.exportCSV]
         case .active:

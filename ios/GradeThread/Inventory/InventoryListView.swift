@@ -26,6 +26,10 @@ struct InventoryListView: View {
     @State private var actionResult: BulkActionResult?
     private let executor = BulkActionExecutor()
 
+    // Bulk certified grading (its own sheet, not the confirmation-dialog path).
+    @State private var showingBulkGrade = false
+    @State private var bulkGradeTargetIds: [String] = []
+
     // US-184 sync
     @State private var syncStore = EbaySyncStore()
     @State private var showingSyncModal = false
@@ -51,6 +55,14 @@ struct InventoryListView: View {
         .sheet(isPresented: $showingSyncModal) {
             EbaySyncModal(store: syncStore, onDismiss: { syncStore.reset() })
         }
+        .sheet(isPresented: $showingBulkGrade) {
+            BulkGradeSheet(itemIds: bulkGradeTargetIds) {
+                // Clear selection + exit edit mode, then pull so the new
+                // grades land on each row.
+                if selection.isEditing { selection.toggleEditing() }
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            }
+        }
         .fullScreenCover(isPresented: $showingDroppedIntake, onDismiss: {
             droppedCaptures.removeAll()
         }) {
@@ -67,7 +79,16 @@ struct InventoryListView: View {
                 BulkActionBar(
                     stage: selectedStage,
                     selectedCount: selection.count,
-                    onAction: { action in pendingAction = action },
+                    onAction: { action in
+                        if action == .grade {
+                            // Grading has its own readiness + tier + credits
+                            // sheet rather than the simple confirm dialog.
+                            bulkGradeTargetIds = Array(selection.selected)
+                            showingBulkGrade = true
+                        } else {
+                            pendingAction = action
+                        }
+                    },
                     onCancel: { selection.toggleEditing() }
                 )
             }

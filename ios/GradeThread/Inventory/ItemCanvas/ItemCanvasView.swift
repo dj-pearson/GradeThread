@@ -117,6 +117,7 @@ struct ItemCanvasView: View {
             identitySection(state: state)
             pricingSection(state: state)
             photosSection
+            CertifiedGradeSection(item: item)
             measurementsSection
             compsSection(state: state)
             notesSection(state: state)

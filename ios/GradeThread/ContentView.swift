@@ -24,6 +24,10 @@ struct ContentView: View {
     @State private var lastForegroundPullAt: Date?
     private static let foregroundDebounceSeconds: TimeInterval = 60
 
+    /// First-run welcome carousel. Shown once over everything at launch
+    /// (gated by the persisted OnboardingState flag).
+    @State private var showingOnboarding = !OnboardingState().hasCompleted
+
     var body: some View {
         ProtectedRouteShell()
             .environment(authStore)
@@ -84,6 +88,12 @@ struct ContentView: View {
                 guard let route = notification.userInfo?[DeepLinkRouter.routeUserInfoKey]
                         as? DeepLinkRoute else { return }
                 handleDeepLink(route)
+            }
+            .fullScreenCover(isPresented: $showingOnboarding) {
+                OnboardingView {
+                    OnboardingState().hasCompleted = true
+                    showingOnboarding = false
+                }
             }
     }
 
@@ -312,6 +322,9 @@ private struct TabBarShell: View {
                     .navigationDestination(for: LocalInventoryItem.self) { item in
                         ItemCanvasView(item: item)
                     }
+                    .navigationDestination(for: GradesRoute.self) { _ in
+                        GradesListView()
+                    }
                     .toolbar {
                         // iPhone has no room for a Settings tab once Home
                         // lands (5-tab limit), so it rides a gear button
@@ -454,6 +467,9 @@ private struct SidebarSplitView: View {
                 }
                 .navigationDestination(for: IntakeRoute.self) { route in
                     IntakePlaceholder(route: route)
+                }
+                .navigationDestination(for: GradesRoute.self) { _ in
+                    GradesListView()
                 }
         }
     }
@@ -653,6 +669,7 @@ private struct SettingsPlaceholder: View {
     var body: some View {
         List {
             ProfileSection()
+            PlanSection()
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")

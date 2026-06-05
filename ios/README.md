@@ -137,6 +137,12 @@ Two channels:
 |-------|-------------|
 | US-168 | ✅ Project scaffold, tab bar shell, CI + release workflows |
 | US-169–US-199 | ⏳ Each ships in its own focused session |
+| Certified grading | ✅ Request a certified condition grade for an inventory item (`Grading/`): readiness + tier picker → submit via the FlipDesk→GradeThread bridge → live polling → factor-by-factor report + shareable certificate. Surfaced on the item canvas (`CertifiedGradeSection`) and as a grade chip in the inventory list. |
+| Grades history | ✅ `GradesListView` — all certified grades in one place (sort, average), reachable from a dashboard card; reports show detected defects + submitted photos. |
+| Bulk grading | ✅ Grade a multi-selection from the inventory action bar (`BulkGradeSheet`): batch readiness + tier + credits, submits the ready items. |
+| Onboarding | ✅ First-run welcome carousel (`Onboarding/`), shown once at launch. |
+| Plan & credits | ✅ Settings shows FlipDesk plan, grade credit balance, included grades left this month, and a link to manage billing on the web (`Settings/PlanSection`). |
+| Grade disputes | ✅ File a dispute on a certified grade from the report view, within the 7-day window (`Grading/DisputeSheet`); mirrors the web's reasons + record. |
 
 See `prd.json` for the full iOS roadmap and `progress.txt` for what's
 in-flight.
