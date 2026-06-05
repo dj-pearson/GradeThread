@@ -929,8 +929,23 @@ async function doListingsPull(
   // that predate the FlipDesk connection get imported. This window applies to
   // BOTH the orders sync and the Finances fee/payout enrichment below.
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60_000).toISOString();
-  const twoYearsAgo = new Date(Date.now() - 730 * 24 * 60 * 60_000).toISOString();
-  const sinceISO = backfill ? twoYearsAgo : (lastSyncedAt ?? ninetyDaysAgo);
+  // eBay's getOrders + getTransactions reject any start date that is 2 years or
+  // older (errorId 30830: "Start date must be within '2' years from present
+  // date"). A 730-day window sits exactly on that boundary and gets rejected,
+  // which threw the whole orders sync — so NO sales were imported even though
+  // the listings pull returned 202 and the UI toasted success. Use a ~23-month
+  // backfill window to stay comfortably under the cap, and clamp whatever
+  // `since` we send (a stale last_synced_at could otherwise trip the same
+  // limit). This floor applies to BOTH the orders sync and the Finances
+  // enrichment below, since they share sinceISO.
+  const ebayLookbackFloor = new Date(Date.now() - 700 * 24 * 60 * 60_000);
+  const requestedSince = backfill
+    ? ebayLookbackFloor.toISOString()
+    : (lastSyncedAt ?? ninetyDaysAgo);
+  const sinceISO =
+    new Date(requestedSince).getTime() < ebayLookbackFloor.getTime()
+      ? ebayLookbackFloor.toISOString()
+      : requestedSince;
 
   let salesNew = 0;
   let salesUpdated = 0;

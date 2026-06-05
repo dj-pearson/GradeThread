@@ -8,7 +8,15 @@
 //   2. fetch eBay's public key for that `kid` from the Notification API
 //      (GET /commerce/notification/v1/public_key/{kid}, app-token auth)
 //   3. verify `signature` (base64) over the RAW request body using that key.
-// eBay's account-deletion keys are Ed25519 (RSA also handled defensively).
+// eBay's account-deletion keys are ECDSA (P-256) with a SHA-1 digest — the
+// `algorithm`/`digest` fields of the public_key response say which. Ed25519 and
+// RSA are also handled defensively in case eBay rotates the keyset's scheme.
+//
+// GOTCHA (ECDSA): eBay sends the signature in DER/ASN.1 form (OpenSSL's native
+// EC signature encoding), but WebCrypto's verify expects raw r‖s (IEEE P1363).
+// We convert DER → raw before verifying — see derToRawEcdsa. Skipping this made
+// every genuine notification fail with "signature mismatch" → 401, which made
+// eBay retry endlessly and flag the endpoint unhealthy.
 //
 // Verifying with the wrong scheme (HMAC) rejected every real notification with
 // a 401, which made eBay retry endlessly and flag the endpoint as unhealthy.
@@ -29,7 +37,55 @@ interface EbayPublicKeyResponse {
 
 interface CachedKey {
   key: CryptoKey;
-  verifyAlg: AlgorithmIdentifier;
+  verifyAlg: AlgorithmIdentifier | EcdsaParams;
+  // ECDSA signatures arrive DER-encoded and must be converted to raw r‖s
+  // before WebCrypto can verify them. coordSize is the per-coordinate byte
+  // length for the curve (32 for P-256). null for non-ECDSA keys.
+  ecdsaCoordSize: number | null;
+}
+
+// Map eBay's `digest` field ("SHA1" | "SHA256" | ...) to a WebCrypto hash name.
+// eBay's notification keys use SHA-1; default to it when the field is absent.
+export function digestToHash(digest: string | undefined): string {
+  const d = (digest ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (d === "SHA256") return "SHA-256";
+  if (d === "SHA384") return "SHA-384";
+  if (d === "SHA512") return "SHA-512";
+  return "SHA-1";
+}
+
+// Convert a DER-encoded ECDSA signature (SEQUENCE { INTEGER r, INTEGER s }) to
+// the fixed-length raw r‖s form WebCrypto's verify() requires. Returns null if
+// the bytes aren't a well-formed DER ECDSA signature (treated as a reject).
+export function derToRawEcdsa(der: Uint8Array, coordSize: number): Uint8Array | null {
+  try {
+    let o = 0;
+    if (der[o++] !== 0x30) return null; // SEQUENCE
+    // SEQUENCE length: skip short- or long-form length octets.
+    if (der[o] & 0x80) o += (der[o] & 0x7f) + 1;
+    else o++;
+    const readInt = (): Uint8Array | null => {
+      if (der[o++] !== 0x02) return null; // INTEGER
+      const len = der[o++];
+      let v = der.subarray(o, o + len);
+      o += len;
+      // Strip the leading 0x00 sign-padding DER uses for high-bit integers.
+      while (v.length > 1 && v[0] === 0x00) v = v.subarray(1);
+      if (v.length > coordSize) return null;
+      const out = new Uint8Array(coordSize);
+      out.set(v, coordSize - v.length); // left-pad to fixed width
+      return out;
+    };
+    const r = readInt();
+    const s = readInt();
+    if (!r || !s) return null;
+    const raw = new Uint8Array(coordSize * 2);
+    raw.set(r, 0);
+    raw.set(s, coordSize);
+    return raw;
+  } catch {
+    return null;
+  }
 }
 
 // Public keys rotate rarely; cache by kid for the process lifetime.
@@ -102,7 +158,22 @@ async function loadPublicKey(kid: string): Promise<CachedKey | null> {
 
   try {
     let entry: CachedKey;
-    if (alg.includes("ED25519")) {
+    if (alg.includes("ECDSA") || alg.includes("EC_")) {
+      // eBay's notification keys are ECDSA on P-256 with a SHA-1 digest.
+      const hash = digestToHash(pk.digest);
+      const key = await crypto.subtle.importKey(
+        "spki",
+        der as unknown as ArrayBuffer,
+        { name: "ECDSA", namedCurve: "P-256" },
+        false,
+        ["verify"],
+      );
+      entry = {
+        key,
+        verifyAlg: { name: "ECDSA", hash },
+        ecdsaCoordSize: 32, // P-256
+      };
+    } else if (alg.includes("ED25519")) {
       const key = await crypto.subtle.importKey(
         "spki",
         der as unknown as ArrayBuffer,
@@ -110,16 +181,22 @@ async function loadPublicKey(kid: string): Promise<CachedKey | null> {
         false,
         ["verify"],
       );
-      entry = { key, verifyAlg: { name: "Ed25519" } };
+      entry = { key, verifyAlg: { name: "Ed25519" }, ecdsaCoordSize: null };
     } else if (alg.includes("RSA")) {
       const key = await crypto.subtle.importKey(
         "spki",
         der as unknown as ArrayBuffer,
-        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+        // RSA path is defensive (eBay uses ECDSA for notifications); SHA-256
+        // is the sensible default when no digest is advertised.
+        { name: "RSASSA-PKCS1-v1_5", hash: pk.digest ? digestToHash(pk.digest) : "SHA-256" },
         false,
         ["verify"],
       );
-      entry = { key, verifyAlg: { name: "RSASSA-PKCS1-v1_5" } };
+      entry = {
+        key,
+        verifyAlg: { name: "RSASSA-PKCS1-v1_5" },
+        ecdsaCoordSize: null,
+      };
     } else {
       console.warn(`[ebay-notify] unsupported key algorithm: ${pk.algorithm}`);
       return null;
@@ -148,6 +225,15 @@ export async function verifyEbayNotification(
     sig = base64ToBytes(parsed.signature);
   } catch {
     return false;
+  }
+  // ECDSA signatures arrive DER-encoded; WebCrypto needs raw r‖s.
+  if (entry.ecdsaCoordSize !== null) {
+    const raw = derToRawEcdsa(sig, entry.ecdsaCoordSize);
+    if (!raw) {
+      console.warn("[ebay-notify] malformed DER ECDSA signature");
+      return false;
+    }
+    sig = raw;
   }
   const data = new TextEncoder().encode(rawBody);
   try {
