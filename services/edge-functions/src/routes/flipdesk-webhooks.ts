@@ -5,6 +5,7 @@ import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { verifyEbayHmac } from "../lib/ebay-signature.ts";
+import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 
 // Inbound webhooks for FlipDesk integrations.
@@ -331,7 +332,9 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
       );
       return c.json({ error: "Missing signature" }, 401);
     }
-    const ok = await verifyEbayHmac(rawBody, signatureHeader, verificationToken);
+    // eBay signs account-deletion notifications with its OWN key (verified via
+    // eBay's published public key), NOT an HMAC of our verification token.
+    const ok = await verifyEbayNotification(rawBody, signatureHeader);
     if (!ok) {
       console.warn(
         "[flipdesk-webhooks] eBay account-deletion rejected: signature mismatch",
