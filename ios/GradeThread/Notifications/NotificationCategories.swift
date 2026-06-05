@@ -10,6 +10,7 @@ public enum NotificationCategoryID: String, CaseIterable {
     case payoutCleared    = "payout.cleared"
     case tokenExpiring    = "token.expiring"
     case itemReviewNeeded = "item.review_needed"
+    case gradeReady       = "grade.ready"
 
     /// User-facing label for the Settings UI toggle.
     public var label: String {
@@ -18,6 +19,7 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .payoutCleared:    return "Payouts cleared"
         case .tokenExpiring:    return "eBay token expiring"
         case .itemReviewNeeded: return "Items need review"
+        case .gradeReady:       return "Certified grades ready"
         }
     }
 
@@ -27,6 +29,7 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .payoutCleared:    return "Pushes when funds reach your bank."
         case .tokenExpiring:    return "Critical reminder when the eBay token expires in <7 days. Reconnect to keep syncing."
         case .itemReviewNeeded: return "Pushes when an AI grading result lands below the confidence threshold."
+        case .gradeReady:       return "Lets you know when an item's certified condition grade finishes."
         }
     }
 

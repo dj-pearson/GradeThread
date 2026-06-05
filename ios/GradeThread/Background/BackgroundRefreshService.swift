@@ -22,18 +22,30 @@ public final class BackgroundRefreshService {
 
     private static let userDefaultsToggleKey = "com.gradethread.app.bgRefresh.enabled"
     private static let lastSaleSeenIdKey = "com.gradethread.app.bgRefresh.lastSaleSeenId"
+    /// Persisted set of inventory_item ids that already carry a grade — the
+    /// baseline for "newly graded" detection.
+    private static let lastGradedIdsKey = "com.gradethread.app.bgRefresh.lastGradedIds"
     /// Hard budget so the task setTaskCompleted before iOS kills it.
     private static let budgetSeconds: TimeInterval = 25
     /// Minimum gap between scheduled runs. iOS treats this as a hint —
     /// real cadence is up to system heuristics.
     private static let earliestRefreshSeconds: TimeInterval = 30 * 60
 
-    private let modelContainer: ModelContainer?
+    // `var` (not `let`) so the App scene can inject the SwiftData container
+    // after it's constructed — the service itself is created at AppDelegate
+    // init, before the container exists. See `attachModelContainer`.
+    private var modelContainer: ModelContainer?
     private let notifier: NewSaleNotifier
+    private let gradeNotifier: NewGradeNotifier
 
-    public init(modelContainer: ModelContainer? = nil, notifier: NewSaleNotifier = NewSaleNotifier()) {
+    public init(
+        modelContainer: ModelContainer? = nil,
+        notifier: NewSaleNotifier = NewSaleNotifier(),
+        gradeNotifier: NewGradeNotifier = NewGradeNotifier()
+    ) {
         self.modelContainer = modelContainer
         self.notifier = notifier
+        self.gradeNotifier = gradeNotifier
     }
 
     // MARK: - User-controlled toggle
@@ -57,6 +69,14 @@ public final class BackgroundRefreshService {
                 BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshIdentifier)
             }
         }
+    }
+
+    /// Injects the SwiftData container once the App scene has built it. The
+    /// service is constructed at AppDelegate init (before the container
+    /// exists), so the new-sale / new-grade detection that reads the local
+    /// cache stays dormant until this is called. Idempotent.
+    public func attachModelContainer(_ container: ModelContainer) {
+        modelContainer = container
     }
 
     // MARK: - Registration
@@ -113,6 +133,7 @@ public final class BackgroundRefreshService {
             // from here, so we sleep briefly and then snapshot.
             try? await Task.sleep(nanoseconds: 8 * 1_000_000_000)
             await self.detectNewSalesAndNotify()
+            await self.detectNewGradesAndNotify()
         }
 
         task.expirationHandler = { [work] in
@@ -162,5 +183,45 @@ public final class BackgroundRefreshService {
             ])
             await notifier.notifyNewSales(count: newCount, latest: mostRecent)
         }
+    }
+
+    // MARK: - New-grade detection
+
+    /// Diffs the set of graded inventory_item ids against the persisted
+    /// baseline. Any id newly carrying a grade fires the "grade ready"
+    /// notification. First-ever run seeds the baseline silently (mirrors the
+    /// new-sale suppression) so a fresh install doesn't ping for back-catalog
+    /// grades.
+    func detectNewGradesAndNotify() async {
+        guard let container = modelContainer else { return }
+        let lastSeenArray = UserDefaults.standard.array(forKey: Self.lastGradedIdsKey) as? [String]
+        let lastSeen: Set<String>? = lastSeenArray.map { Set($0) }
+
+        // Graded items, most-recently-updated first (for the body line).
+        let gradedItems: [LocalInventoryItem] = await MainActor.run {
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<LocalInventoryItem>(
+                sortBy: [SortDescriptor(\.updatedAt, order: .reverse)]
+            )
+            let all = (try? context.fetch(descriptor)) ?? []
+            return all.filter { $0.gradeValue != nil }
+        }
+        let currentIds = Set(gradedItems.map(\.id))
+
+        // Persist the current set regardless of outcome so the first run
+        // seeds the baseline (and never notifies).
+        UserDefaults.standard.set(Array(currentIds), forKey: Self.lastGradedIdsKey)
+
+        let newlyGraded = GradeNotificationDiff.newlyGraded(current: currentIds, lastSeen: lastSeen)
+        guard !newlyGraded.isEmpty,
+              let latest = gradedItems.first(where: { newlyGraded.contains($0.id) }) else {
+            return
+        }
+
+        Telemetry.event("grade.notification", props: [
+            "count": newlyGraded.count,
+            "source": "background_refresh",
+        ])
+        await gradeNotifier.notifyNewGrades(count: newlyGraded.count, latest: latest)
     }
 }

@@ -41,6 +41,9 @@ struct GradeThreadApp: App {
                 .modelContainer(container)
                 .environment(appDelegate.photoUploadStore)
                 .environment(\.photoUploadService, appDelegate.photoUploadService)
+                // Hand the background-refresh service the live container so
+                // its new-sale / new-grade detection can read the cache.
+                .task { appDelegate.backgroundRefresh.attachModelContainer(container) }
         }
     }
 }
