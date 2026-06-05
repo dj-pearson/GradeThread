@@ -28,6 +28,15 @@ enum ItemGradeReportService {
         let confidence_score: Double
         let certificate_id: String?
         let created_at: String?
+        let defects_found: [DefectRow]?
+    }
+
+    /// grade_reports.defects_found jsonb element (snake_case).
+    private struct DefectRow: Decodable {
+        let defect: String
+        let severity: String
+        let location: String?
+        let impact_on_grade: String?
     }
 
     struct LoadedReport {
@@ -51,7 +60,7 @@ enum ItemGradeReportService {
         let rows: [ReportRow] = try await SupabaseShared.client
             .from("grade_reports")
             .select(
-                "id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, ai_summary, confidence_score, certificate_id, created_at"
+                "id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, ai_summary, confidence_score, certificate_id, created_at, defects_found"
             )
             .eq("id", value: reportId)
             .limit(1)
@@ -59,6 +68,14 @@ enum ItemGradeReportService {
             .value
         guard let row = rows.first else { return nil }
 
+        let defects = row.defects_found?.map {
+            GradeDefect(
+                defect: $0.defect,
+                severity: $0.severity,
+                location: $0.location,
+                impactOnGrade: $0.impact_on_grade
+            )
+        }
         let dto = GradeReportDTO(
             id: row.id,
             overallScore: row.overall_score,
@@ -71,7 +88,8 @@ enum ItemGradeReportService {
             aiSummary: row.ai_summary,
             confidenceScore: row.confidence_score,
             certificateId: row.certificate_id,
-            createdAt: row.created_at
+            createdAt: row.created_at,
+            defectsFound: defects
         )
         let url = CertificateLink.resolve(
             explicit: certificateUrlString,

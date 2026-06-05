@@ -169,6 +169,46 @@ final class GradingTests: XCTestCase {
         XCTAssertEqual(res.item.certificateUrl, "https://gradethread.com/cert/CERT123")
     }
 
+    func test_gradeReport_decodesDefectsWhenPresent() throws {
+        // Shape returned by the on-demand full-report fetch (edge decoder
+        // path uses convertFromSnakeCase too in this test harness).
+        let json = """
+        {
+          "id": "r", "overall_score": 6.5, "grade_tier": "Good",
+          "fabric_condition_score": 6, "structural_integrity_score": 7,
+          "cosmetic_appearance_score": 6, "functional_elements_score": 7,
+          "odor_cleanliness_score": 7, "ai_summary": "Minor wear.",
+          "confidence_score": 0.82, "certificate_id": "C1", "created_at": null,
+          "defects_found": [
+            {"defect": "pilling", "severity": "minor", "location": "cuffs", "impact_on_grade": "−0.5"},
+            {"defect": "stain", "severity": "moderate", "location": "left hem"}
+          ]
+        }
+        """
+        let report = try decode(GradeReportDTO.self, json)
+        let defects = try XCTUnwrap(report.defectsFound)
+        XCTAssertEqual(defects.count, 2)
+        XCTAssertEqual(defects[0].defect, "pilling")
+        XCTAssertEqual(defects[0].severity, "minor")
+        XCTAssertEqual(defects[0].location, "cuffs")
+        XCTAssertEqual(defects[1].location, "left hem")
+        XCTAssertNil(defects[1].impactOnGrade)
+    }
+
+    func test_gradeReport_absentDefectsIsNil() throws {
+        let json = """
+        {
+          "id": "r", "overall_score": 8, "grade_tier": "Excellent",
+          "fabric_condition_score": 8, "structural_integrity_score": 8,
+          "cosmetic_appearance_score": 8, "functional_elements_score": 8,
+          "odor_cleanliness_score": 8, "ai_summary": "Great.",
+          "confidence_score": 0.9, "certificate_id": null, "created_at": null
+        }
+        """
+        let report = try decode(GradeReportDTO.self, json)
+        XCTAssertNil(report.defectsFound)
+    }
+
     func test_statusResponse_pending_hasNoReport() throws {
         let json = """
         {
@@ -215,7 +255,7 @@ final class GradingTests: XCTestCase {
             fabricConditionScore: 1, structuralIntegrityScore: 2,
             cosmeticAppearanceScore: 3, functionalElementsScore: 4,
             odorCleanlinessScore: 5, aiSummary: "", confidenceScore: 0.8,
-            certificateId: nil, createdAt: nil
+            certificateId: nil, createdAt: nil, defectsFound: nil
         )
         XCTAssertEqual(GradeFactor.fabricCondition.score(in: report), 1)
         XCTAssertEqual(GradeFactor.structuralIntegrity.score(in: report), 2)

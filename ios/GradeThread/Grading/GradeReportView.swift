@@ -9,12 +9,18 @@ struct GradeReportView: View {
     let certificateURL: URL?
     /// Optional item title for the header.
     var title: String?
+    /// Optional submitted-photo thumbnails (full-report path only).
+    var photoURLs: [URL] = []
+
+    private var defects: [GradeDefect] { report.defectsFound ?? [] }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                if !photoURLs.isEmpty { photoStrip }
                 factorBreakdown
+                if !defects.isEmpty { defectsCard }
                 summaryCard
                 confidenceCard
                 if let certificateURL {
@@ -51,6 +57,82 @@ struct GradeReportView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var photoStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Submitted photos")
+                .font(.subheadline.weight(.semibold))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(photoURLs, id: \.self) { url in
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().scaledToFill()
+                            case .empty:
+                                ZStack { Color.secondary.opacity(0.1); ProgressView() }
+                            case .failure:
+                                ZStack {
+                                    Color.secondary.opacity(0.1)
+                                    Image(systemName: "photo").foregroundStyle(.secondary)
+                                }
+                            @unknown default:
+                                Color.secondary.opacity(0.1)
+                            }
+                        }
+                        .frame(width: 92, height: 92)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private var defectsCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Detected issues")
+                .font(.subheadline.weight(.semibold))
+            ForEach(defects) { defect in
+                HStack(alignment: .top, spacing: 10) {
+                    Circle()
+                        .fill(severityColor(defect.severity))
+                        .frame(width: 8, height: 8)
+                        .padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(defect.defect.capitalized)
+                                .font(.footnote.weight(.medium))
+                            Text(defect.severity.capitalized)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(severityColor(defect.severity))
+                        }
+                        if let location = defect.location, !location.isEmpty {
+                            Text(location.capitalized)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func severityColor(_ severity: String) -> Color {
+        switch severity.lowercased() {
+        case "major": return .brandRed
+        case "moderate": return .orange
+        default: return .secondary
+        }
     }
 
     private var factorBreakdown: some View {

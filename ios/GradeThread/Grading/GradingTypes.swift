@@ -102,7 +102,9 @@ struct GradingStatusItem: Decodable {
 
 /// The grade report subset the bridge returns. (The full `grade_reports`
 /// row has more fields — defects, per-image analysis — but the bridge
-/// status endpoint returns exactly these.)
+/// status endpoint returns exactly these.) `defectsFound` is only populated
+/// by the on-demand full-report fetch (``ItemGradeReportService``); the
+/// bridge omits it, so it decodes to nil there.
 struct GradeReportDTO: Decodable, Equatable {
     let id: String
     let overallScore: Double
@@ -116,6 +118,18 @@ struct GradeReportDTO: Decodable, Equatable {
     let confidenceScore: Double
     let certificateId: String?
     let createdAt: String?
+    var defectsFound: [GradeDefect]?
+}
+
+/// A genuine wear/damage finding (not intentional design). Mirrors
+/// `DefectFound` on the web. Drives the "Detected issues" section.
+struct GradeDefect: Decodable, Equatable, Identifiable {
+    let defect: String
+    let severity: String        // "minor" | "moderate" | "major"
+    let location: String?
+    let impactOnGrade: String?
+
+    var id: String { "\(defect)|\(location ?? "")" }
 }
 
 // MARK: - Request bodies

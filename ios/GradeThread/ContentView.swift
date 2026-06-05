@@ -312,6 +312,9 @@ private struct TabBarShell: View {
                     .navigationDestination(for: LocalInventoryItem.self) { item in
                         ItemCanvasView(item: item)
                     }
+                    .navigationDestination(for: GradesRoute.self) { _ in
+                        GradesListView()
+                    }
                     .toolbar {
                         // iPhone has no room for a Settings tab once Home
                         // lands (5-tab limit), so it rides a gear button
@@ -454,6 +457,9 @@ private struct SidebarSplitView: View {
                 }
                 .navigationDestination(for: IntakeRoute.self) { route in
                     IntakePlaceholder(route: route)
+                }
+                .navigationDestination(for: GradesRoute.self) { _ in
+                    GradesListView()
                 }
         }
     }

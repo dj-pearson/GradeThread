@@ -47,7 +47,7 @@ struct CertifiedGradeSection: View {
     private func gradedContent(score: Double) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                GradeScoreRing(score: score, tier: item.gradeLabel ?? "", diameter: 64)
+                GradeScoreRing(score: score, tier: item.gradeLabel ?? "", diameter: 64, animateOnAppear: false)
                 VStack(alignment: .leading, spacing: 3) {
                     if let label = item.gradeLabel, !label.isEmpty {
                         Text(label)
@@ -115,6 +115,7 @@ private struct ItemGradeReportSheet: View {
     @Environment(\.dismiss) private var dismiss
     let item: LocalInventoryItem
 
+    @Query private var photos: [LocalItemPhoto]
     @State private var phase: Phase = .loading
 
     private enum Phase: Equatable {
@@ -122,6 +123,20 @@ private struct ItemGradeReportSheet: View {
         case loaded(GradeReportDTO, URL?)
         case empty
         case failed(String)
+    }
+
+    init(item: LocalInventoryItem) {
+        self.item = item
+        let itemId = item.id
+        _photos = Query(
+            filter: #Predicate<LocalItemPhoto> { $0.inventoryItemId == itemId },
+            sort: \.sortOrder
+        )
+    }
+
+    /// Local photo thumbnails for the submitted-photos strip.
+    private var photoURLs: [URL] {
+        photos.compactMap { URL(string: $0.thumbnailURL ?? $0.photoURL) }
     }
 
     var body: some View {
@@ -132,7 +147,12 @@ private struct ItemGradeReportSheet: View {
                     ProgressView().tint(Color.brandNavy)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case let .loaded(report, url):
-                    GradeReportView(report: report, certificateURL: url, title: item.title)
+                    GradeReportView(
+                        report: report,
+                        certificateURL: url,
+                        title: item.title,
+                        photoURLs: photoURLs
+                    )
                 case .empty:
                     ContentUnavailableView(
                         "Report unavailable",

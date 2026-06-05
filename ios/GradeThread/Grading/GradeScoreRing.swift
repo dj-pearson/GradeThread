@@ -7,16 +7,22 @@ struct GradeScoreRing: View {
     let score: Double
     let tier: String
     var diameter: CGFloat = 96
+    /// Animate the ring filling in on first appearance. Off for the small
+    /// list/canvas chips where it'd be distracting.
+    var animateOnAppear: Bool = true
+
+    @State private var revealed = false
 
     private var color: Color { GradeScale.color(for: score) }
     private var fraction: Double { min(max(score / 10, 0), 1) }
+    private var trimEnd: Double { (animateOnAppear && !revealed) ? 0 : fraction }
 
     var body: some View {
         ZStack {
             Circle()
                 .stroke(color.opacity(0.18), lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: fraction)
+                .trim(from: 0, to: trimEnd)
                 .stroke(
                     color,
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
@@ -32,6 +38,12 @@ struct GradeScoreRing: View {
             }
         }
         .frame(width: diameter, height: diameter)
+        .onAppear {
+            guard animateOnAppear else { return }
+            withAnimation(ReducedMotion.animation(.easeOut(duration: 0.7))) {
+                revealed = true
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Grade \(String(format: "%.1f", score)) of 10, \(tier)")
     }
