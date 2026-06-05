@@ -58,6 +58,8 @@ public/logo_primary_White.psd
 services/edge-functions/deno.lock
 flipdesk-items-2026-06-01 (1).csv
 flipdesk-items-2026-06-01-cleaned.csv
+flipdesk-items-2026-06-04 (3).csv
+inventory_items_rows.csv
 
 # Test coverage artifacts (US-519)
 coverage/
