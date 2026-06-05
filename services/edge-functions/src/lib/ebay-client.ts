@@ -1345,6 +1345,10 @@ export async function listOffersForSku(
       listingId: o.listing?.listingId ?? null,
       listingStatus: o.listing?.listingStatus ?? null,
       listingDescription: o.listingDescription ?? null,
+      // title/aspects live on the inventory_item, not the offer — listAllOffers
+      // fills them in from the item that produced this offer.
+      title: null,
+      aspects: null,
     }));
 }
 
@@ -1498,11 +1502,18 @@ export interface RemoteOffer {
   // The HTML listing body. Sync writes this through to listings.listing_description
   // so eBay-side edits in Seller Hub don't leave FlipDesk's copy stale.
   listingDescription: string | null;
+  // Catalog source-of-truth fields, carried from the offer's inventory_item so
+  // the sync can drive inventory_items.title (overwrite) + brand/size/etc.
+  // (fill-if-blank). Populated by listAllOffers; no extra eBay call.
+  title: string | null;
+  aspects: Record<string, string[]> | null;
 }
 
 export interface RemoteInventoryItem {
   sku: string;
   title: string | null;
+  // eBay item specifics (product.aspects), e.g. { Brand: ["Nike"], Size: ["M"] }.
+  aspects: Record<string, string[]> | null;
 }
 
 // Lists every inventory_item registered against the seller's account.
@@ -1517,7 +1528,7 @@ export async function listAllInventoryItems(
     const payload = await fetchAuthed<{
       inventoryItems?: Array<{
         sku?: string;
-        product?: { title?: string };
+        product?: { title?: string; aspects?: Record<string, string[]> };
       }>;
       total?: number;
     }>(
@@ -1527,7 +1538,11 @@ export async function listAllInventoryItems(
     const batch = payload.inventoryItems ?? [];
     for (const it of batch) {
       if (typeof it.sku === "string" && it.sku) {
-        all.push({ sku: it.sku, title: it.product?.title ?? null });
+        all.push({
+          sku: it.sku,
+          title: it.product?.title ?? null,
+          aspects: it.product?.aspects ?? null,
+        });
       }
     }
     if (batch.length < limit) break;
@@ -1550,14 +1565,20 @@ export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
     const slice = items.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       slice.map((it) =>
-        listOffersForSku(userId, it.sku).catch((err) => {
-          // One SKU failing shouldn't kill the whole sync. Log + carry on.
-          console.error(
-            `[ebay-client] listOffersForSku(${it.sku}) failed:`,
-            err instanceof Error ? err.message : String(err)
-          );
-          return [] as RemoteOffer[];
-        })
+        listOffersForSku(userId, it.sku)
+          // Carry the item's catalog data onto each of its offers so the sync
+          // can drive inventory_items.title + specifics without a second fetch.
+          .then((offers) =>
+            offers.map((o) => ({ ...o, title: it.title, aspects: it.aspects }))
+          )
+          .catch((err) => {
+            // One SKU failing shouldn't kill the whole sync. Log + carry on.
+            console.error(
+              `[ebay-client] listOffersForSku(${it.sku}) failed:`,
+              err instanceof Error ? err.message : String(err)
+            );
+            return [] as RemoteOffer[];
+          })
       )
     );
     for (const offers of results) all.push(...offers);

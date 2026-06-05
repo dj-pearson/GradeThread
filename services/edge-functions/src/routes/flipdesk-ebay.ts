@@ -38,8 +38,16 @@ import {
 } from "../lib/ebay-client.ts";
 import {
   getAllActiveEbaySelling,
+  getItemSpecifics,
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
+import {
+  buildCatalogPatch,
+  type CatalogPatch,
+  FILL_IF_BLANK_FIELDS,
+  flattenAspects,
+  type LocalCatalog,
+} from "../lib/ebay-catalog-merge.ts";
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
@@ -656,15 +664,50 @@ async function doListingsPull(
   }
 
   // Pre-load this user's SKU → inventory_item mapping so we can do the
-  // join in memory rather than N+1 queries against Supabase.
+  // join in memory rather than N+1 queries against Supabase. Catalog fields
+  // come along so the sync can make eBay the source of truth (title overwrite,
+  // brand/size/color/style/material fill-if-blank) without a per-item read.
+  type ItemRow = { id: string; sku: string } & LocalCatalog;
   const { data: itemsBySku } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, sku")
+    .select("id, sku, title, brand, size, color, style, material")
     .eq("user_id", userId)
     .not("sku", "is", null);
   const skuToItemId = new Map<string, string>();
-  for (const r of (itemsBySku ?? []) as Array<{ id: string; sku: string }>) {
-    if (r.sku) skuToItemId.set(r.sku, r.id);
+  const itemBySku = new Map<string, ItemRow>();
+  for (const r of (itemsBySku ?? []) as ItemRow[]) {
+    if (r.sku) {
+      skuToItemId.set(r.sku, r.id);
+      itemBySku.set(r.sku, r);
+    }
+  }
+
+  // Catalog-backfill bookkeeping. GetItem (legacy specifics) is gated to items
+  // still missing a field and capped per run, so first-sync cost tapers to ~0.
+  const MAX_SPECIFICS_FETCH_PER_SYNC = 300;
+  let catalogUpdated = 0;
+  let specificsFetched = 0;
+  let specificsCapped = false;
+
+  // Apply an eBay-sourced catalog patch to a matched inventory_item, keeping
+  // our in-memory ItemRow in sync so the orders pass below sees fresh values.
+  async function applyCatalogPatch(
+    itemId: string,
+    row: ItemRow,
+    patch: CatalogPatch,
+  ): Promise<void> {
+    if (Object.keys(patch).length === 0) return;
+    // Tenant-safe: itemId came from this user's itemBySku map (US-268).
+    const { error } = await supabaseAdmin
+      .from("inventory_items")
+      .update(patch)
+      .eq("id", itemId);
+    if (error) {
+      errors.push(`catalog ${itemId}: ${error.message.slice(0, 120)}`);
+      return;
+    }
+    Object.assign(row, patch);
+    catalogUpdated += 1;
   }
 
   let matched = 0;
@@ -743,6 +786,19 @@ async function doListingsPull(
               "comped",
               "drafted",
             ]);
+        }
+        // eBay as source of truth: title overwrite, specifics fill-if-blank.
+        // Modern offers carry title + aspects (from listAllOffers) — free.
+        const localRow = sku ? itemBySku.get(sku) : undefined;
+        if (localRow) {
+          await applyCatalogPatch(
+            itemId,
+            localRow,
+            buildCatalogPatch(localRow, {
+              title: o.title,
+              specifics: flattenAspects(o.aspects),
+            }),
+          );
         }
         matched += 1;
       } else {
@@ -845,6 +901,31 @@ async function doListingsPull(
               "comped",
               "drafted",
             ]);
+          // eBay as source of truth. Legacy (GetMyeBaySelling) gives us the
+          // title for free, but NOT item specifics — fetch those via GetItem
+          // ONLY when this item still has a blank target field, and only while
+          // under the per-sync cap (so the first backfill is bounded and later
+          // syncs cost ~0 calls). Title still syncs even when the cap is hit.
+          const localRow = sku ? itemBySku.get(sku) : undefined;
+          if (localRow) {
+            const needsSpecifics = FILL_IF_BLANK_FIELDS.some(
+              (f) => !localRow[f] || !localRow[f]!.trim(),
+            );
+            let specifics: Record<string, string> = {};
+            if (needsSpecifics) {
+              if (specificsFetched < MAX_SPECIFICS_FETCH_PER_SYNC) {
+                specificsFetched += 1;
+                specifics = await getItemSpecifics(userId, l.ebayItemId);
+              } else {
+                specificsCapped = true;
+              }
+            }
+            await applyCatalogPatch(
+              itemId,
+              localRow,
+              buildCatalogPatch(localRow, { title: l.title, specifics }),
+            );
+          }
           legacyMatched += 1;
         } else {
           // Orphan: most legacy Seller-Hub listings have no Custom Label.
@@ -1215,6 +1296,8 @@ async function doListingsPull(
       `legacy_unmatched=${legacyUnmatched} legacy_duplicates=${legacyDuplicates} ` +
       `sales_new=${salesNew} sales_updated=${salesUpdated} ` +
       `sales_skipped=${salesSkipped} sales_enriched=${salesEnriched} ` +
+      `catalog_updated=${catalogUpdated} specifics_fetched=${specificsFetched}` +
+      `${specificsCapped ? ` (capped at ${MAX_SPECIFICS_FETCH_PER_SYNC}; remaining items backfill next sync)` : ""} ` +
       `errors=${errors.length}`,
   );
 

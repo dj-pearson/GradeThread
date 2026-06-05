@@ -313,3 +313,104 @@ export async function getAllActiveEbaySelling(
   }
   return all;
 }
+
+// ── GetItem (item specifics) ────────────────────────────────────────────
+//
+// GetMyeBaySelling.ActiveList does NOT return ItemSpecifics, so the catalog
+// backfill (brand/size/color/style/material → inventory_items) fetches them
+// per item via GetItem. The sync gates + caps these calls (only items still
+// missing a field, capped per run), so volume tapers to ~0 once populated.
+
+// Dedicated parser: force NameValueList + Value to arrays (a single specific or
+// single value otherwise parses as an object/string). NOTE: we must NOT force
+// `Item` to an array here (unlike the GetMyeBaySelling parser) — GetItem
+// returns exactly one <Item>.
+const getItemParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "_",
+  textNodeName: "#text",
+  isArray: (name) =>
+    name === "Errors" || name === "NameValueList" || name === "Value",
+});
+
+interface GetItemResponse {
+  GetItemResponse?: {
+    Ack?: string;
+    Errors?: Array<{ LongMessage?: string; ErrorCode?: string }>;
+    Item?: {
+      ItemSpecifics?: {
+        NameValueList?: Array<{ Name?: unknown; Value?: unknown }>;
+      };
+    };
+  };
+}
+
+// Returns eBay item specifics for one listing as { [Name]: firstValue }.
+// Best-effort: any failure logs + returns {} so one bad item can't fail the
+// whole sync.
+export async function getItemSpecifics(
+  userId: string,
+  itemId: string,
+): Promise<Record<string, string>> {
+  try {
+    const token = await getUserAccessToken(userId);
+    const { appId, certId, devId } = devEnv();
+    const body = [
+      `<?xml version="1.0" encoding="utf-8"?>`,
+      `<GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+      `  <ItemID>${xmlEscape(itemId)}</ItemID>`,
+      `  <IncludeItemSpecifics>true</IncludeItemSpecifics>`,
+      `  <DetailLevel>ReturnAll</DetailLevel>`,
+      `</GetItemRequest>`,
+    ].join("\n");
+
+    const res = await fetch(`${tradingHost()}/ws/api.dll`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/xml",
+        "X-EBAY-API-COMPATIBILITY-LEVEL": COMPAT_LEVEL,
+        "X-EBAY-API-DEV-NAME": devId,
+        "X-EBAY-API-APP-NAME": appId,
+        "X-EBAY-API-CERT-NAME": certId,
+        "X-EBAY-API-CALL-NAME": "GetItem",
+        "X-EBAY-API-SITEID": siteId(),
+        "X-EBAY-API-IAF-TOKEN": token,
+      },
+      body,
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      console.warn(
+        `[ebay-trading] GetItem(${itemId}) HTTP ${res.status}: ${text.slice(0, 200)}`,
+      );
+      return {};
+    }
+
+    const root = (getItemParser.parse(text) as GetItemResponse).GetItemResponse;
+    if (!root || root.Ack === "Failure") {
+      console.warn(
+        `[ebay-trading] GetItem(${itemId}) failed: ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
+      );
+      return {};
+    }
+
+    const nvl = root.Item?.ItemSpecifics?.NameValueList ?? [];
+    const out: Record<string, string> = {};
+    for (const nv of nvl) {
+      const name = asString(nv.Name);
+      if (!name) continue;
+      // Value may be a single string or an array (multi-value specific).
+      const values = Array.isArray(nv.Value) ? nv.Value : [nv.Value];
+      const first = values.map(asString).find((v) => v && v.trim());
+      if (first) out[name] = first;
+    }
+    return out;
+  } catch (err) {
+    console.warn(
+      `[ebay-trading] GetItem(${itemId}) threw:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return {};
+  }
+}
