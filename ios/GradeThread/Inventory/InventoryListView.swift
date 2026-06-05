@@ -19,6 +19,8 @@ struct InventoryListView: View {
     @State private var selectedStage: InventoryStage = .all
     @State private var searchQuery: String = ""
     @State private var sortOption: SortOption = .newest
+    /// US: show only items that carry a certified grade.
+    @State private var gradedOnly: Bool = false
 
     // US-182 multi-select
     @State private var selection = BulkSelectionStore()
@@ -287,20 +289,29 @@ struct InventoryListView: View {
     private var sortToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                ForEach(SortOption.allCases) { option in
-                    Button {
-                        sortOption = option
-                    } label: {
-                        if option == sortOption {
-                            Label(option.label, systemImage: "checkmark")
-                        } else {
-                            Label(option.label, systemImage: option.systemImage)
+                Section("Filter") {
+                    Toggle(isOn: $gradedOnly) {
+                        Label("Graded only", systemImage: "checkmark.seal")
+                    }
+                }
+                Section("Sort") {
+                    ForEach(SortOption.allCases) { option in
+                        Button {
+                            sortOption = option
+                        } label: {
+                            if option == sortOption {
+                                Label(option.label, systemImage: "checkmark")
+                            } else {
+                                Label(option.label, systemImage: option.systemImage)
+                            }
                         }
                     }
                 }
             } label: {
-                Image(systemName: "arrow.up.arrow.down.circle")
-                    .accessibilityLabel("Sort options")
+                Image(systemName: gradedOnly
+                      ? "line.3.horizontal.decrease.circle.fill"
+                      : "arrow.up.arrow.down.circle")
+                    .accessibilityLabel("Sort and filter")
             }
         }
     }
@@ -312,7 +323,8 @@ struct InventoryListView: View {
             allItems,
             stage: selectedStage,
             search: searchQuery,
-            sort: sortOption
+            sort: sortOption,
+            gradedOnly: gradedOnly
         )
     }
 

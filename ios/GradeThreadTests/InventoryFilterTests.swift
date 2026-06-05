@@ -95,6 +95,39 @@ final class InventoryFilterTests: XCTestCase {
         XCTAssertFalse(SortOption.skuNatural.isOrdered(ten, two))
     }
 
+    func test_sort_highestGrade_putsGradedFirst_ungradedLast() throws {
+        let context = ModelContext(try makeContainer())
+        let high = makeItem(id: "h", context: context); high.gradeValue = 9.0
+        let low = makeItem(id: "l", context: context); low.gradeValue = 5.0
+        let ungraded = makeItem(id: "u", context: context)  // nil grade
+
+        XCTAssertTrue(SortOption.highestGrade.isOrdered(high, low),
+                      "9.0 should sort before 5.0")
+        XCTAssertTrue(SortOption.highestGrade.isOrdered(low, ungraded),
+                      "a graded item should sort before an ungraded one")
+        XCTAssertFalse(SortOption.highestGrade.isOrdered(ungraded, high))
+    }
+
+    // MARK: - Graded-only filter
+
+    func test_apply_gradedOnly_dropsUngradedItems() throws {
+        let context = ModelContext(try makeContainer())
+        let graded = makeItem(id: "g", status: "cataloged", context: context)
+        graded.gradeValue = 8.0
+        let ungraded = makeItem(id: "u", status: "cataloged", context: context)
+        let items = [graded, ungraded]
+
+        let all = InventoryFilter.apply(
+            items, stage: .all, search: "", sort: .newest, gradedOnly: false
+        )
+        XCTAssertEqual(Set(all.map(\.id)), ["g", "u"])
+
+        let onlyGraded = InventoryFilter.apply(
+            items, stage: .all, search: "", sort: .newest, gradedOnly: true
+        )
+        XCTAssertEqual(onlyGraded.map(\.id), ["g"])
+    }
+
     // MARK: - InventoryFilter
 
     func test_filter_searchMatchesTitle() throws {
