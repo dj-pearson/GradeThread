@@ -26,6 +26,10 @@ struct InventoryRow: View {
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 }
+                if let grade = item.gradeValue {
+                    GradeChip(score: grade, label: item.gradeLabel)
+                        .padding(.top, 1)
+                }
             }
 
             Spacer(minLength: 8)
@@ -134,6 +138,9 @@ struct InventoryRow: View {
         if let brand = item.brand?.nonEmpty { parts.append("Brand \(brand)") }
         if let size = item.size?.nonEmpty { parts.append("Size \(size)") }
         if let priceLabel = priceLabel { parts.append(priceLabel) }
+        if let grade = item.gradeValue {
+            parts.append("Certified grade \(String(format: "%.1f", grade))")
+        }
         parts.append("Status \(statusLabel)")
         return parts.joined(separator: ". ")
     }

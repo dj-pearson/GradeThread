@@ -137,6 +137,7 @@ Two channels:
 |-------|-------------|
 | US-168 | ✅ Project scaffold, tab bar shell, CI + release workflows |
 | US-169–US-199 | ⏳ Each ships in its own focused session |
+| Certified grading | ✅ Request a certified condition grade for an inventory item (`Grading/`): readiness + tier picker → submit via the FlipDesk→GradeThread bridge → live polling → factor-by-factor report + shareable certificate. Surfaced on the item canvas (`CertifiedGradeSection`) and as a grade chip in the inventory list. |
 
 See `prd.json` for the full iOS roadmap and `progress.txt` for what's
 in-flight.
