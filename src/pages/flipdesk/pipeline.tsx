@@ -328,6 +328,10 @@ export function FlipdeskPipelinePage() {
       "Purchase price",
       "Target price",
       "List price",
+      // Header matches the import's "Link" field (import-mapping.ts) so the
+      // eBay URL round-trips out → back in. Sourced from items_full.link
+      // (listings.listing_url), which the eBay sync keeps populated.
+      "Link",
       "Grade",
     ];
     const lines = [headers.join(",")];
@@ -345,6 +349,7 @@ export function FlipdeskPipelinePage() {
           it.purchase_price,
           it.target_price,
           it.list_price,
+          it.link ?? "",
           it.grade_value,
         ]
           .map(csvCell)
