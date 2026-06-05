@@ -145,6 +145,7 @@ Two channels:
 | Grade disputes | ✅ File a dispute on a certified grade from the report view, within the 7-day window (`Grading/DisputeSheet`); mirrors the web's reasons + record. |
 | Grade-ready notification | ✅ Local notification when a freshly-graded item lands during background refresh (`Background/NewGradeNotifier`); tapping deep-links straight to that item's canvas + report. Also wires the background container so the existing new-sale detection finally fires. |
 | Deep-link to item | ✅ Notification taps (grade-ready, item-review) resolve the `LocalInventoryItem` and push its canvas, instead of dropping the user on a list (finishes the long-standing routing TODO). |
+| Skeleton loaders | ✅ Reusable shimmer skeletons (`Components/SkeletonView`) replace bare spinners on the grade report (`GradeReportSkeleton`) and Settings plan section; respect Reduce Motion. |
 
 See `prd.json` for the full iOS roadmap and `progress.txt` for what's
 in-flight.
