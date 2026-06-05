@@ -111,7 +111,9 @@
       "Bash(git commit *)",
       "Bash(git push *)",
       "Bash(rg -n \"photo_type|item_photo\" supabase/migrations/*.sql)",
-      "Bash(rg -n \"PhotoEditorDialog|interface.*Props|export function|rotate|straighten|crop|onSave|onApply|onComplete\" src/components/**/photo-editor*.tsx)"
+      "Bash(rg -n \"PhotoEditorDialog|interface.*Props|export function|rotate|straighten|crop|onSave|onApply|onComplete\" src/components/**/photo-editor*.tsx)",
+      "Bash(rg -n \"staticimgly|publicPath|staticImgly|https://static\" node_modules/@imgly/background-removal/dist/*.js)",
+      "Bash(rg -n \"removeBackground|progress|format|ImageSource|output|preferredFormat\" node_modules/@imgly/background-removal/dist/src/index.d.ts node_modules/@imgly/background-removal/dist/src/*.d.ts)"
     ]
   },
   "hooks": {
