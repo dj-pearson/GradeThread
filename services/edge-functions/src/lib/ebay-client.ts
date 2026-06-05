@@ -12,6 +12,32 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import { withRetry, isRetryableError } from "./retry.ts";
+import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
+
+// US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
+// without a deadline a bulk publish/sync can stall the container.
+const EBAY_TIMEOUT_MS = 20_000;
+
+// US-499: one shared breaker for all eBay traffic (request paths AND the
+// reprice/sync crons). Only TRANSIENT failures (5xx/429/timeout/network) count
+// toward opening — a 4xx (revoked token, bad request) means eBay is up.
+function ebayBreaker() {
+  return getBreaker("ebay", {
+    failureThreshold: 5,
+    cooldownMs: 30_000,
+    isFailure: isRetryableError,
+  });
+}
+
+// US-499: every eBay HTTP call goes through here so none can hang forever. The
+// token/taxonomy/browse paths use this directly; the authed Sell API path adds
+// the breaker on top (see fetchAuthed).
+function ebayFetch(
+  input: string | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  return fetchWithTimeout(input, init ?? {}, EBAY_TIMEOUT_MS);
+}
 
 export type EbayEnv = "sandbox" | "production";
 
@@ -207,7 +233,7 @@ export async function getUserIdentityFromToken(
   accessToken: string,
 ): Promise<{ username: string | null } | null> {
   try {
-    const res = await fetch(`${apiHost()}/commerce/identity/v1/user`, {
+    const res = await ebayFetch(`${apiHost()}/commerce/identity/v1/user`, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
@@ -241,7 +267,7 @@ export async function exchangeCodeForTokens(
     code,
     redirect_uri: ruName,
   });
-  const res = await fetch(`${apiHost()}/identity/v1/oauth2/token`, {
+  const res = await ebayFetch(`${apiHost()}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: basicAuthHeader(),
@@ -303,7 +329,7 @@ export async function refreshUserToken(
     grant_type: "refresh_token",
     refresh_token: refreshToken,
   });
-  const res = await fetch(`${apiHost()}/identity/v1/oauth2/token`, {
+  const res = await ebayFetch(`${apiHost()}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: basicAuthHeader(),
@@ -504,7 +530,7 @@ export async function suggestCategories(
   const url =
     `${apiHost()}/commerce/taxonomy/v1/category_tree/${getCategoryTreeId()}` +
     `/get_category_suggestions?q=${encodeURIComponent(query)}`;
-  const res = await fetch(url, {
+  const res = await ebayFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -581,7 +607,7 @@ export async function getCategoryName(
     const url =
       `${apiHost()}/commerce/taxonomy/v1/category_tree/${treeId}` +
       `/get_category_subtree?category_id=${encodeURIComponent(categoryId)}`;
-    const res = await fetch(url, {
+    const res = await ebayFetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": marketplaceId,
@@ -663,7 +689,7 @@ export async function getCategoryAspects(
     `/get_item_aspects_for_category?category_id=${encodeURIComponent(
       categoryId
     )}`;
-  const res = await fetch(url, {
+  const res = await ebayFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": marketplaceId,
@@ -751,7 +777,11 @@ async function fetchAuthed<T>(
   path: string,
   init?: RequestInit
 ): Promise<T> {
-  return await withRetry(() => fetchAuthedOnce<T>(userId, path, init));
+  // US-499: breaker OUTSIDE retry so a fully-retried-then-failed call counts as
+  // one failure; only transient errors trip it (isFailure: isRetryableError).
+  return await ebayBreaker().execute(() =>
+    withRetry(() => fetchAuthedOnce<T>(userId, path, init))
+  );
 }
 
 async function fetchAuthedOnce<T>(
@@ -761,7 +791,7 @@ async function fetchAuthedOnce<T>(
 ): Promise<T> {
   const token = await getUserAccessToken(userId);
   const locale = localeForMarketplace();
-  const res = await fetch(`${apiHost()}${path}`, {
+  const res = await fetchWithTimeout(`${apiHost()}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,
@@ -772,7 +802,7 @@ async function fetchAuthedOnce<T>(
       "Content-Language": locale,
       ...(init?.headers ?? {}),
     },
-  });
+  }, EBAY_TIMEOUT_MS);
   if (!res.ok) {
     const text = await res.text();
     // Throw an Error with `status` attached so withRetry's isRetryableError
@@ -1739,7 +1769,7 @@ export async function listRecentTransactions(
   for (let i = 0; i < 100; i++) {
     const url =
       `${baseHost}/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`;
-    const res = await fetch(url, {
+    const res = await ebayFetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -1891,7 +1921,7 @@ export async function searchBrowseComps(
   params.set("sort", "newlyListed");
 
   const url = `${apiHost()}/buy/browse/v1/item_summary/search?${params.toString()}`;
-  const res = await fetch(url, {
+  const res = await ebayFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
@@ -1969,7 +1999,7 @@ export async function getAppAccessToken(): Promise<string> {
     grant_type: "client_credentials",
     scope: "https://api.ebay.com/oauth/api_scope",
   });
-  const res = await fetch(`${apiHost()}/identity/v1/oauth2/token`, {
+  const res = await ebayFetch(`${apiHost()}/identity/v1/oauth2/token`, {
     method: "POST",
     headers: {
       Authorization: basicAuthHeader(),

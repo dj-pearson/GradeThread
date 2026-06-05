@@ -7,7 +7,7 @@
 // (supabase.auth.mfa.challenge/verify), which mints a token whose `amr` carries
 // a new TOTP timestamp, then retries the action with that token.
 import type { Context } from "hono";
-import { decodeJwtClaims, hasFreshStepUp } from "./jwt-claims.ts";
+import { type AuthAssuranceClaims, hasFreshStepUp } from "./jwt-claims.ts";
 import { isAdminMfaEnforced, STEP_UP_MAX_AGE_SEC } from "./env.ts";
 
 // Returns a 403 Response when the caller has NOT completed a fresh step-up,
@@ -21,9 +21,10 @@ export function requireStepUp(
   // team isn't blocked before anyone has a second factor.
   if (!isAdminMfaEnforced()) return null;
 
-  const token = c.req.header("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  const claims = decodeJwtClaims(token);
-  if (hasFreshStepUp(claims, maxAgeSec)) return null;
+  // US-357: read the assurance claims authMiddleware decoded from the VERIFIED
+  // token (never re-decode the raw header). Missing claims → fail closed.
+  const claims = c.get("authClaims") as AuthAssuranceClaims | undefined;
+  if (claims && hasFreshStepUp(claims, maxAgeSec)) return null;
 
   return c.json({
     error:

@@ -11,6 +11,9 @@ struct DashboardView: View {
     /// the shell; we only mutate `selection` / `showingAddSheet`.
     let router: AppRouter
 
+    /// US-613: presents the Snap-to-Value sheet.
+    @State private var showingSnap = false
+
     @Query(sort: \LocalInventoryItem.updatedAt, order: .forward)
     private var items: [LocalInventoryItem]
     @Query private var sales: [LocalSale]
@@ -43,6 +46,9 @@ struct DashboardView: View {
         .navigationTitle("Home")
         .refreshable {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        }
+        .sheet(isPresented: $showingSnap) {
+            SnapView(router: router)
         }
     }
 
@@ -135,6 +141,17 @@ struct DashboardView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .tint(Color.brandNavy)
+
+            // US-613: Snap-to-Value — the free "what's it worth?" scan.
+            Button {
+                AppRouter.haptic()
+                showingSnap = true
+            } label: {
+                Label("What's it worth?", systemImage: "sparkles")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
             .tint(Color.brandNavy)
 
             Button {

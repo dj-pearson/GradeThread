@@ -17,7 +17,7 @@ export const accountRoutes = new Hono<AccountEnv>();
 function getStripe(): Stripe | null {
   const key = Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) return null;
-  return new Stripe(key, { apiVersion: "2024-04-10" });
+  return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 }
 
 // Supabase storage .remove() takes an array; chunk to stay well under any

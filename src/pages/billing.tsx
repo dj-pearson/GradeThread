@@ -143,6 +143,15 @@ export function BillingPage() {
   const paused = subscription.status === "paused";
   const canceling = subscription.cancel_at_period_end;
 
+  // US-400: prefer the REAL upcoming Stripe charge (coupons / grandfathered
+  // prices / prorations) over the static plan-table price; fall back to the
+  // plan table when Stripe didn't return one.
+  const planPriceCents = subscription.interval === "yearly"
+    ? plan.priceYearlyCents
+    : plan.priceMonthlyCents;
+  const nextChargeCents = subscription.upcoming_invoice?.amount_cents ?? planPriceCents;
+  const nextChargeDate = subscription.upcoming_invoice?.next_payment_at ?? subscription.period_end;
+
   // US-393: Free users have no billing period_end. The included-grade counter
   // resets monthly off grade_reset_at; show that date when it's still upcoming,
   // otherwise the allowance has already rolled over.
@@ -313,11 +322,7 @@ export function BillingPage() {
                     "Free forever. Upgrade when you outgrow it."
                   ) : (
                     <>
-                      {dollars(
-                        subscription.interval === "yearly"
-                          ? plan.priceYearlyCents
-                          : plan.priceMonthlyCents,
-                      )}{" "}
+                      {dollars(nextChargeCents)}{" "}
                       / {subscription.interval === "yearly" ? "year" : "month"}
                     </>
                   )}
@@ -336,13 +341,9 @@ export function BillingPage() {
                     <>
                       Next charge{" "}
                       <span className="font-medium text-foreground">
-                        {dollars(
-                          subscription.interval === "yearly"
-                            ? plan.priceYearlyCents
-                            : plan.priceMonthlyCents,
-                        )}
+                        {dollars(nextChargeCents)}
                       </span>{" "}
-                      on {dateLabel(subscription.period_end)}
+                      on {dateLabel(nextChargeDate)}
                     </>
                   )}
                 </span>

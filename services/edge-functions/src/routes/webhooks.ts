@@ -2,7 +2,12 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
-import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
+import {
+  claimWebhookEvent,
+  failIfDbError,
+  isTransientWebhookError,
+  releaseWebhookEvent,
+} from "../lib/webhook-idempotency.ts";
 import {
   sendCreditPackPurchasedEmail,
   sendPaymentFailedEmail,
@@ -12,6 +17,10 @@ import {
   sendSubscriptionStartedEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { recordMetric } from "../lib/observability.ts";
+import { nextPastDueSince } from "../lib/grade-pricing.ts";
+import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
+import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -30,12 +39,16 @@ export const webhookRoutes = new Hono();
 
 // ── Stripe webhook (US-206) ──────────────────────────────────────
 //
-// All billing-state mutations flow through this endpoint. Idempotency: every
-// event we handle is recorded in public.flipdesk_subscription_events with
-// stripe_event_id UNIQUE — duplicate deliveries short-circuit early.
+// All billing-state mutations flow through this endpoint. Idempotency: the
+// authoritative claim is claimWebhookEvent (processed_webhook_events, PK
+// provider+event_id), made ONCE below before any side effect (US-390). A
+// duplicate delivery is skipped; a claim-write failure fails CLOSED (500) so
+// Stripe re-delivers. Money side effects are also individually idempotent on
+// the Stripe object id (submission payment_status guard; grant_grade_credits
+// dedupes on the payment_intent) as defense in depth.
 //
-// Handlers must be best-effort: log + return 200 on internal errors so
-// Stripe doesn't pile up retries that won't succeed without code changes.
+// Handler-internal errors currently log + return 200 (a code bug won't be
+// fixed by a Stripe retry); durable handler-failure retry is US-397.
 // Signature failures DO return 400 so Stripe surfaces a real misconfiguration.
 webhookRoutes.post("/stripe", async (c) => {
   const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY");
@@ -46,7 +59,7 @@ webhookRoutes.post("/stripe", async (c) => {
     return c.json({ error: "Webhook not configured" }, 503);
   }
 
-  const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-04-10" });
+  const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 
   const body = await c.req.text();
   const signature = c.req.header("stripe-signature");
@@ -65,12 +78,27 @@ webhookRoutes.post("/stripe", async (c) => {
 
   console.log(`[Webhook] ${event.type} (${event.id})`);
 
-  // Idempotency: skip duplicate deliveries before any side effects run. Stripe
-  // retries the same event.id for up to 72h, so dedup (not timestamp rejection)
-  // is the correct replay defense here. (US-277)
-  if (!(await claimWebhookEvent("stripe", event.id, event.type))) {
+  // Idempotency: the SINGLE authoritative claim before any side effects run.
+  // Stripe retries the same event.id for up to 72h, so dedup (not timestamp
+  // rejection) is the correct replay defense. (US-277/US-390)
+  //   • duplicate → skip (2xx).
+  //   • error (claim couldn't be written) → FAIL CLOSED with 500 so Stripe
+  //     re-delivers. Every Stripe event we handle moves money/entitlement, so
+  //     processing without a durable claim risks a double-apply on the retry.
+  const claim = await claimWebhookEvent("stripe", event.id, event.type);
+  if (claim === "duplicate") {
     console.log(`[Webhook] duplicate ${event.type} (${event.id}) — skipping`);
     return c.json({ received: true, duplicate: true });
+  }
+  if (claim === "error") {
+    // US-509: Stripe events move money/entitlement → fail CLOSED (500 so Stripe
+    // re-delivers). Record the decision so a spike of claim-write failures is
+    // visible rather than buried in a console line.
+    recordMetric("webhook.fail_closed", 1, { provider: "stripe", topic: event.type });
+    console.error(
+      `[Webhook] idempotency claim failed for ${event.type} (${event.id}) — asking Stripe to retry`,
+    );
+    return c.json({ error: "Could not record event; please retry." }, 500);
   }
 
   try {
@@ -110,21 +138,42 @@ webhookRoutes.post("/stripe", async (c) => {
         console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
   } catch (err) {
+    // US-397: distinguish a TRANSIENT DB failure (retry can fix it) from a code
+    // bug (it can't). On a transient failure, RELEASE the idempotency claim so
+    // Stripe's retry re-processes (side effects are idempotent on the object id,
+    // US-390), and return 500. On a code bug, KEEP the claim so Stripe doesn't
+    // storm a permanently-failing event, alert that the billing event was
+    // dropped, and return 200.
+    if (isTransientWebhookError(err)) {
+      await releaseWebhookEvent("stripe", event.id);
+      console.error(
+        `[Webhook] transient failure on ${event.type} (${event.id}): ${err.message} — released claim, asking Stripe to retry`,
+      );
+      return c.json({ error: "Temporary error processing event; please retry." }, 500);
+    }
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[Webhook] Error handling ${event.type} (${event.id}): ${message}`);
-    // 200 anyway — Stripe retrying won't fix code-level bugs.
+    console.error(
+      `[Webhook] DROPPED ${event.type} (${event.id}) — non-transient handler error: ${message}`,
+    );
+    void captureServer(event.id, "billing.webhook_dropped", {
+      event_type: event.type,
+      event_id: event.id,
+    });
+    // 200 — a code bug won't be fixed by a Stripe retry; the alert above flags it.
   }
 
   return c.json({ received: true });
 });
 
-// ── Idempotency helper ───────────────────────────────────────────
+// ── Subscription audit trail ─────────────────────────────────────
 type FlipdeskPlan = "free" | "starter" | "pro" | "business";
 
-/**
- * Records the event and returns true if this is the first time we've seen
- * the event_id. Returns false on duplicate delivery so the caller can skip.
- */
+// US-390: AUDIT-ONLY. The authoritative idempotency claim is now
+// claimWebhookEvent (processed_webhook_events), called once at the top of the
+// /stripe handler. recordEvent only writes the human-readable subscription
+// audit trail (flipdesk_subscription_events). A duplicate stripe_event_id here
+// is expected to be impossible (the claim already deduped) and is logged, not
+// used to gate processing — it no longer returns a "should I proceed" boolean.
 async function recordEvent(
   userId: string,
   eventType: string,
@@ -132,7 +181,7 @@ async function recordEvent(
   fromPlan: FlipdeskPlan | null,
   toPlan: FlipdeskPlan | null,
   rawPayload: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<void> {
   const { error } = await supabaseAdmin
     .from("flipdesk_subscription_events")
     .insert({
@@ -144,20 +193,13 @@ async function recordEvent(
       raw_payload: rawPayload,
     });
 
-  if (error) {
-    // 23505 = unique_violation on stripe_event_id → already processed.
-    if (error.code === "23505") {
-      console.log(`[Webhook] Duplicate event ${stripeEventId} — skipping`);
-      return false;
-    }
-    console.error(`[Webhook] Failed to record event ${stripeEventId}:`, error);
-    // Continue processing anyway — better to act than to drop.
+  if (error && error.code !== "23505") {
+    console.error(`[Webhook] Failed to write audit row for ${stripeEventId}:`, error);
   }
-  return true;
 }
 
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, flipdesk_pause_until, cancellation_reason, subscription_status";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -183,6 +225,42 @@ async function loadUserById(userId: string) {
     return null;
   }
   return data;
+}
+
+// US-391: idempotently link a Stripe customer to a user and reconcile the
+// "one user → multiple customers" case. Sets the id when unset; no-ops when it
+// already matches; on a MISMATCH keeps the stored (canonical) id and ALERTS for
+// manual reconciliation rather than silently flapping the link between
+// duplicate customers (which would scatter the user's billing history).
+async function linkStripeCustomer(userId: string, customerId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .single();
+  const current =
+    (data as { stripe_customer_id: string | null } | null)?.stripe_customer_id ?? null;
+
+  switch (reconcileCustomerLink(current, customerId)) {
+    case "noop":
+      return;
+    case "set":
+      await supabaseAdmin
+        .from("users")
+        .update({ stripe_customer_id: customerId })
+        .eq("id", userId)
+        .is("stripe_customer_id", null);
+      return;
+    case "conflict":
+      console.error(
+        `[Webhook] user ${userId} maps to multiple Stripe customers: stored=${current} incoming=${customerId} — keeping stored`,
+      );
+      void captureServer(userId, "billing.multiple_stripe_customers", {
+        stored_customer: current,
+        incoming_customer: customerId,
+      });
+      return;
+  }
 }
 
 // ── Subscription handlers ────────────────────────────────────────
@@ -228,7 +306,7 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     ? new Date(sub.pause_collection.resumes_at * 1000).toISOString()
     : null;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -236,7 +314,6 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     plan,
     { subscription_id: sub.id, status: sub.status, plan, interval },
   );
-  if (!proceed) return;
 
   // If Stripe set trial_end on a new subscription, persist it (one trial ever).
   const trialEndsAtUpdate =
@@ -244,16 +321,31 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       ? new Date(sub.trial_end * 1000).toISOString()
       : undefined;
 
-  // Clear a pending downgrade ONLY when the plan has actually transitioned to
-  // the scheduled target (the Subscription Schedule's phase 2 activated —
-  // US-217). Comparing the new plan against the stored pending plan avoids the
-  // false positive where merely *attaching* a schedule fires
-  // subscription.updated while the current plan is still unchanged — the old
-  // `metadata.plan === plan` check matched there (business === business) and
-  // wiped the pending state before the user ever saw the "Downgrade scheduled"
-  // banner.
-  const pendingCleared =
-    !!user.pending_flipdesk_plan && plan === user.pending_flipdesk_plan;
+  // US-402: clear a pending downgrade based on the Stripe SCHEDULE lifecycle +
+  // the resolved plan/interval — NOT a plan-string match. Stripe releases the
+  // schedule (sub.schedule → null) once phase 2 activates; clearing on the
+  // schedule being gone + the target reached fixes interval-only downgrades
+  // (pro/monthly → pro/yearly, where the plan string never changes) and avoids
+  // clearing prematurely when a schedule is merely attached.
+  const incomingScheduleId = sub.schedule
+    ? (typeof sub.schedule === "string" ? sub.schedule : sub.schedule.id)
+    : null;
+  const pendingCleared = shouldClearPendingDowngrade(
+    {
+      pendingPlan: user.pending_flipdesk_plan,
+      pendingInterval: user.pending_flipdesk_interval,
+      pendingScheduleId: user.pending_schedule_id,
+      pendingEffectiveAt: user.pending_effective_at,
+    },
+    plan,
+    interval,
+    incomingScheduleId,
+  );
+
+  // US-391: reconcile the customer link separately (set-if-null / alert-on-
+  // mismatch) instead of blindly overwriting stripe_customer_id below, which
+  // could silently repoint a user at a duplicate customer.
+  await linkStripeCustomer(user.id, customerId);
 
   const { error } = await supabaseAdmin
     .from("users")
@@ -265,7 +357,13 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       flipdesk_period_end: periodEnd,
       flipdesk_pause_until: pauseUntil,
       flipdesk_cancel_at_period_end: sub.cancel_at_period_end ?? false,
-      stripe_customer_id: customerId,
+      // US-395: anchor/clear the dunning grace clock across this transition
+      // (preserves the original anchor across retries; clears on recovery).
+      past_due_since: nextPastDueSince(
+        user.subscription_status,
+        user.past_due_since,
+        status,
+      ),
       // US-216: a fresh subscription means the user came back — clear any churn
       // reason left over from a prior cancellation.
       ...(event.type === "customer.subscription.created"
@@ -283,10 +381,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
     })
     .eq("id", user.id);
 
-  if (error) {
-    console.error(`[Webhook] Failed to update user ${user.id} subscription:`, error);
-    return;
-  }
+  // US-397: a failed subscription-state transition is critical — throw so the
+  // dispatcher releases the claim and Stripe retries (the update is idempotent).
+  failIfDbError(error, `subscription update for user ${user.id}`);
 
   console.log(
     `[Webhook] User ${user.id} → plan=${plan} interval=${interval} status=${status}`,
@@ -378,7 +475,7 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -386,7 +483,6 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     "free",
     { subscription_id: sub.id },
   );
-  if (!proceed) return;
 
   const { error } = await supabaseAdmin
     .from("users")
@@ -401,10 +497,8 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     })
     .eq("id", user.id);
 
-  if (error) {
-    console.error(`[Webhook] Failed to downgrade user ${user.id}:`, error);
-    return;
-  }
+  // US-397: critical downgrade transition — retry on a transient DB failure.
+  failIfDbError(error, `downgrade for user ${user.id}`);
 
   // Credit balance intentionally untouched (US-200 / US-216).
   console.log(`[Webhook] User ${user.id} → free (canceled)`);
@@ -431,7 +525,7 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -439,7 +533,6 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
     user.flipdesk_plan,
     { invoice_id: invoice.id, billing_reason: billingReason },
   );
-  if (!proceed) return;
 
   // On subscription create or renewal, reset the included-grades + AI counters
   // for the new billing cycle. Other invoice reasons (manual, upcoming, etc.)
@@ -459,17 +552,17 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
       })
       .eq("id", user.id);
 
-    if (error) {
-      console.error(`[Webhook] Failed to reset monthly counters for ${user.id}:`, error);
-      return;
-    }
+    // US-397: a missed cycle reset would over/under-charge entitlement — retry.
+    failIfDbError(error, `cycle reset for user ${user.id}`);
     console.log(`[Webhook] User ${user.id} cycle reset (${billingReason})`);
   } else {
-    // Any successful payment clears past_due → active.
-    await supabaseAdmin
+    // Any successful payment clears past_due → active (and the US-395 dunning
+    // grace clock).
+    const { error } = await supabaseAdmin
       .from("users")
-      .update({ subscription_status: "active" })
+      .update({ subscription_status: "active", past_due_since: null })
       .eq("id", user.id);
+    failIfDbError(error, `past_due→active clear for user ${user.id}`);
   }
 }
 
@@ -483,7 +576,7 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     user.id,
     event.type,
     event.id,
@@ -495,12 +588,22 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
       attempt_count: invoice.attempt_count,
     },
   );
-  if (!proceed) return;
 
-  await supabaseAdmin
+  const { error: pastDueErr } = await supabaseAdmin
     .from("users")
-    .update({ subscription_status: "past_due" })
+    .update({
+      subscription_status: "past_due",
+      // US-395: start the dunning grace clock on the FIRST failure; preserve it
+      // across subsequent retry failures so it can actually elapse.
+      past_due_since: nextPastDueSince(
+        user.subscription_status,
+        user.past_due_since,
+        "past_due",
+      ),
+    })
     .eq("id", user.id);
+  // US-397: a missed past_due transition would keep dunning entitlement — retry.
+  failIfDbError(pastDueErr, `past_due transition for user ${user.id}`);
 
   console.log(
     `[Webhook] User ${user.id} → past_due (invoice ${invoice.id}, attempt ${invoice.attempt_count})`,
@@ -539,31 +642,24 @@ async function handleCheckoutCompleted(event: Stripe.Event) {
   }
 
   // Subscription-mode sessions are handled by customer.subscription.created.
-  // We still want to attach the customer id to the user the first time.
+  // We still want to attach the customer id to the user the first time. (US-391:
+  // reconcile rather than blind-set, so a stray duplicate customer is flagged.)
   if (session.mode === "subscription" && session.customer) {
     const customerId = typeof session.customer === "string"
       ? session.customer
       : session.customer.id;
-    await supabaseAdmin
-      .from("users")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", userId)
-      .is("stripe_customer_id", null);
+    await linkStripeCustomer(userId, customerId);
     return;
   }
 
   if (session.mode !== "payment") return;
 
-  // Attach customer id on first one-time purchase too.
+  // Attach customer id on first one-time purchase too. (US-391: reconcile.)
   if (session.customer) {
     const customerId = typeof session.customer === "string"
       ? session.customer
       : session.customer.id;
-    await supabaseAdmin
-      .from("users")
-      .update({ stripe_customer_id: customerId })
-      .eq("id", userId)
-      .is("stripe_customer_id", null);
+    await linkStripeCustomer(userId, customerId);
   }
 
   if (product === "credit_pack") {
@@ -591,7 +687,7 @@ async function handleCreditPackPurchase(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -599,7 +695,6 @@ async function handleCreditPackPurchase(
     null,
     { product: "credit_pack", credits, payment_intent: paymentIntentId },
   );
-  if (!proceed) return;
 
   const { data, error } = await supabaseAdmin.rpc("grant_grade_credits", {
     p_user_id: userId,
@@ -609,10 +704,9 @@ async function handleCreditPackPurchase(
     p_notes: `Pack of ${credits} credits via session ${session.id}`,
   });
 
-  if (error) {
-    console.error(`[Webhook] grant_grade_credits failed for user ${userId}:`, error);
-    return;
-  }
+  // US-397: a dropped credit grant cheats a paying customer — retry on a
+  // transient failure (the grant is idempotent on the payment_intent, US-390).
+  failIfDbError(error, `grant_grade_credits for user ${userId}`);
   const newBalance = typeof data === "number" ? data : credits;
   console.log(`[Webhook] Granted ${credits} credits to user ${userId}, new balance=${newBalance}`);
 
@@ -645,7 +739,7 @@ async function handlePerGradePurchase(
     return;
   }
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -653,7 +747,6 @@ async function handlePerGradePurchase(
     null,
     { product: "per_grade", submission_id: submissionId, tier },
   );
-  if (!proceed) return;
 
   const { error: updateError } = await supabaseAdmin
     .from("submissions")
@@ -665,10 +758,9 @@ async function handlePerGradePurchase(
     .eq("user_id", userId)
     .eq("payment_status", "unpaid"); // idempotency — don't overwrite if already paid
 
-  if (updateError) {
-    console.error(`[Webhook] Failed to mark submission ${submissionId} paid:`, updateError);
-    return;
-  }
+  // US-397: a dropped "paid" flip leaves a paid grade unprocessed — retry on a
+  // transient failure (the update is idempotent: it only matches 'unpaid').
+  failIfDbError(updateError, `mark submission ${submissionId} paid`);
 
   console.log(`[Webhook] Submission ${submissionId} paid (${tier}); kicking grading pipeline`);
 
@@ -707,7 +799,7 @@ async function handleChargeRefunded(event: Stripe.Event) {
     return;
   }
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -715,7 +807,6 @@ async function handleChargeRefunded(event: Stripe.Event) {
     null,
     { product: "credit_pack", credits, charge_id: charge.id },
   );
-  if (!proceed) return;
 
   // US-384: clawing back the credits must actually DEBIT the wallet, not just
   // append a ledger row. The row-locked RPC subtracts from grade_credit_balance,
@@ -732,10 +823,9 @@ async function handleChargeRefunded(event: Stripe.Event) {
     p_notes: `Refund reversal for charge ${charge.id}`,
   });
 
-  if (error) {
-    console.error(`[Webhook] Refund reversal failed for user ${userId}:`, error);
-    return;
-  }
+  // US-397: a dropped refund reversal leaves clawed-back credits in the wallet —
+  // retry on a transient failure (revoke is row-locked + clamped, US-384/398).
+  failIfDbError(error, `revoke_grade_credits for user ${userId}`);
 
   const result = (data ?? {}) as {
     revoked?: number;
@@ -772,7 +862,7 @@ async function refundPerGrade(
     return;
   }
 
-  const proceed = await recordEvent(
+  await recordEvent(
     userId,
     event.type,
     event.id,
@@ -780,7 +870,6 @@ async function refundPerGrade(
     null,
     { product: "per_grade", submission_id: submissionId, charge_id: charge.id },
   );
-  if (!proceed) return;
 
   // Tenant-scoped by user_id (US-268). maybeSingle + select confirms the
   // submission actually belongs to this user before we touch its grade.
@@ -796,10 +885,9 @@ async function refundPerGrade(
     .select("id")
     .maybeSingle();
 
-  if (error) {
-    console.error(`[Webhook] per_grade refund: submission update failed (${submissionId}):`, error);
-    return;
-  }
+  // US-397: a dropped refund flag would keep a refunded grade live — retry on a
+  // transient failure (the update is idempotent on submission_id+user_id).
+  failIfDbError(error, `per_grade refund submission update (${submissionId})`);
   if (!updated) {
     console.warn(`[Webhook] per_grade refund: submission ${submissionId} not found for user ${userId}`);
     return;
@@ -811,9 +899,8 @@ async function refundPerGrade(
     .from("grade_reports")
     .update({ certificate_id: null })
     .eq("submission_id", submissionId);
-  if (certErr) {
-    console.error(`[Webhook] per_grade refund: certificate withhold failed (${submissionId}):`, certErr);
-  }
+  // US-397: keeping a refunded grade's certificate live is a trust hole — retry.
+  failIfDbError(certErr, `per_grade refund certificate withhold (${submissionId})`);
 
   console.log(
     `[Webhook] per_grade refund: submission ${submissionId} marked refunded, flagged, cert withheld`,
@@ -845,7 +932,7 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
   );
 
   if (userId && product === "per_grade" && submissionId) {
-    const proceed = await recordEvent(
+    await recordEvent(
       userId,
       event.type,
       event.id,
@@ -853,7 +940,6 @@ async function handleChargeDisputeCreated(event: Stripe.Event) {
       null,
       { product, submission_id: submissionId, dispute_id: dispute.id, reason: dispute.reason },
     );
-    if (!proceed) return;
 
     await supabaseAdmin
       .from("submissions")

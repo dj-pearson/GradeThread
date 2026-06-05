@@ -3,6 +3,8 @@ import { requireJobSecret } from "./job-auth.ts";
 import { computeAccuracySummary, computeOutcomeFeedback } from "./accuracy-tracking.ts";
 import { evalThresholds, runEval } from "./grading-eval.ts";
 import { sendGradingRegressionAlertEmail } from "./email.ts";
+import { captureException, recordMetric } from "./observability.ts";
+import { fetchWithTimeout } from "./circuit-breaker.ts";
 
 // Grading regression monitor (US-327).
 //
@@ -362,37 +364,90 @@ export async function runGradingRegressionScan(
   return { ran_at, trigger, eval: evalResult, production, alerts, severity, alerted };
 }
 
-async function dispatchAlert(
+// US-502: returns TRUE only if at least one channel ACTUALLY delivered. The
+// caller uses this to set `alerted`, which gates the cooldown — so when nothing
+// is delivered the cooldown does NOT engage and the next run retries (instead of
+// the old behavior, which marked alerted=true unconditionally and then
+// suppressed every alert for 12h even though the team never heard anything).
+export async function dispatchAlert(
   severity: Severity,
   alerts: MonitorAlert[],
   production: MonitorProductionMetrics,
   evalResult: MonitorEvalResult,
 ): Promise<boolean> {
+  const evalSummary = evalResult.ran
+    ? `${evalResult.prompt_version_name}: MAE ${evalResult.mean_absolute_error}, agreement ${(
+        (evalResult.agreement_rate ?? 0) * 100
+      ).toFixed(1)}%, ${evalResult.passed ? "passed" : "FAILED"}`
+    : `skipped (${evalResult.skipped_reason ?? "unknown"})`;
+
   const to = Deno.env.get("MONITOR_ALERT_EMAIL") || Deno.env.get("SMTP_ADMIN_EMAIL") || "";
+  const webhook = Deno.env.get("MONITOR_ALERT_WEBHOOK")?.trim() || "";
+
+  let delivered = 0;
+
+  // Channel 1: email.
   if (to) {
     try {
       await sendGradingRegressionAlertEmail(to, {
         severity,
         alerts: alerts.map((a) => ({ severity: a.severity, message: a.message })),
         production,
-        evalSummary: evalResult.ran
-          ? `${evalResult.prompt_version_name}: MAE ${evalResult.mean_absolute_error}, agreement ${(
-              (evalResult.agreement_rate ?? 0) * 100
-            ).toFixed(1)}%, ${evalResult.passed ? "passed" : "FAILED"}`
-          : `skipped (${evalResult.skipped_reason ?? "unknown"})`,
+        evalSummary,
       });
+      delivered += 1;
     } catch (err) {
-      console.error("[grading-monitor] alert email failed:", err instanceof Error ? err.message : err);
+      captureException(err, { route: "grading-monitor.alert.email", tags: { severity } });
     }
-  } else {
-    console.warn("[grading-monitor] alerts raised but no MONITOR_ALERT_EMAIL/SMTP_ADMIN_EMAIL set");
   }
 
-  // The persisted grading_monitor_runs row (severity + alerts + alert_codes) is
-  // the durable audit record — admin_audit_log requires an admin user a cron
-  // doesn't have, so we don't write there. Returning true marks the alert as
-  // raised so the cooldown dedup engages even when SMTP is unconfigured.
-  return true;
+  // Channel 2: reliable webhook (Slack incoming-webhook / generic / PagerDuty
+  // Events v2-compatible `text`+`summary` payload). 5s deadline so a hung
+  // endpoint can't wedge the cron.
+  if (webhook) {
+    try {
+      const summary = `[GradeThread grading monitor] ${severity.toUpperCase()}: ` +
+        alerts.map((a) => a.message).join(" | ") + ` (eval: ${evalSummary})`;
+      const res = await fetchWithTimeout(
+        webhook,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            text: summary, // Slack
+            summary, // PagerDuty/generic
+            severity,
+            alert_codes: [...new Set(alerts.map((a) => a.code))],
+          }),
+        },
+        5000,
+      );
+      if (res.ok) delivered += 1;
+      else {
+        captureException(
+          new Error(`grading-monitor alert webhook returned ${res.status}`),
+          { route: "grading-monitor.alert.webhook", tags: { severity } },
+        );
+      }
+      await res.body?.cancel();
+    } catch (err) {
+      captureException(err, { route: "grading-monitor.alert.webhook", tags: { severity } });
+    }
+  }
+
+  // US-502 AC#3: a raised alert that reached NO channel must itself be reported,
+  // and must NOT engage the cooldown (delivered stays 0 → alerted=false).
+  if (delivered === 0) {
+    recordMetric("grading_monitor.alert_undelivered", 1, { severity });
+    captureException(
+      new Error(
+        `grading-monitor raised ${alerts.length} alert(s) (severity ${severity}) but NO channel was configured/reachable — set MONITOR_ALERT_EMAIL or MONITOR_ALERT_WEBHOOK`,
+      ),
+      { level: "warn", route: "grading-monitor.alert", tags: { severity } },
+    );
+  }
+
+  return delivered > 0;
 }
 
 // ─── Cron entry point ───────────────────────────────────────────────

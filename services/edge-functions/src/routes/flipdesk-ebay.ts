@@ -43,6 +43,9 @@ import {
 import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
+import { failSafe } from "../lib/http-errors.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -94,6 +97,22 @@ flipdeskEbayRoutes.get("/oauth/start", async (c) => {
   }
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
   const redirectTo = sanitizeRelativePath(c.req.query("redirect_to"));
+
+  // US-382: enforce the marketplace-connection cap server-side. A reconnect of
+  // an existing eBay connection must NOT be blocked (it updates the same row,
+  // not a new marketplace), so only count +1 when there's no active eBay
+  // connection yet.
+  const { count: activeEbay } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "marketplaces", delta: (activeEbay ?? 0) > 0 ? 0 : 1 },
+    userId,
+  });
+  if (capGate) return capGate;
 
   const state = generateState();
   const { error } = await supabaseAdmin.from("oauth_states").insert({
@@ -1212,7 +1231,7 @@ flipdeskEbayRoutes.get("/sync-runs", async (c) => {
     .eq("user_id", userId)
     .order("started_at", { ascending: false })
     .limit(limit);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load sync runs.", error, "ebay.sync-runs");
   return c.json({ runs: data ?? [] });
 });
 
@@ -1800,6 +1819,23 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
   const itemId = await readItemId(c);
   if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
 
+  // US-382: enforce the active-listing cap server-side (was UI-only). Skip the
+  // +1 when this exact item is ALREADY listed — a re-publish/revise of a live
+  // listing must not be blocked or counted twice (the cap counts items in
+  // status 'listed', which already includes it).
+  const { data: existing } = await supabaseAdmin
+    .from("inventory_items")
+    .select("status")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const alreadyListed = (existing as { status?: string } | null)?.status === "listed";
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "activeListings", delta: alreadyListed ? 0 : 1 },
+    userId,
+  });
+  if (capGate) return capGate;
+
   const result = await publishItemForOwner(userId, itemId);
   if (!result.ok) return c.json(result.body, result.status);
   return c.json({
@@ -1829,6 +1865,15 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
+  // US-503: coarse overlap guard so a slow 5-min tick can't race the next one.
+  // (Per-row publish_claimed_at claim-lock below — US-528 — is the resource-
+  // level idempotency; this just stops a wasteful overlapping scan.) 4-min lease
+  // < the 5-min cadence so a crashed run frees the lock before the next tick.
+  const lock = await acquireJobLock("publish-due", 240);
+  if (!lock.acquired) {
+    return c.json({ skipped: true, reason: lock.reason, scanned: 0, published: 0 });
+  }
+  try {
   const now = new Date().toISOString();
   // US-528: a claim older than this is "stale" and reclaimable — covers a
   // publish whose container crashed/redeployed mid-run so the draft isn't
@@ -1924,6 +1969,9 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   }
 
   return c.json({ scanned: due.length, published, failed, skipped });
+  } finally {
+    await lock.release();
+  }
 });
 
 // Imports an eBay Seller Hub "Payouts" CSV into payout_imports. Server-side

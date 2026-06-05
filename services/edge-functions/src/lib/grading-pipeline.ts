@@ -50,7 +50,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 // for an abstention and again on a later failure is safe. One-time Stripe
 // payments can't be reversed by minting credits — they surface here for manual
 // handling. Never throws — a refund hiccup must not mask the original outcome.
-async function reverseChargeForUngradedSubmission(
+export async function reverseChargeForUngradedSubmission(
   submissionId: string,
   reason: string,
 ): Promise<void> {

@@ -1,0 +1,43 @@
+name: DB Migrations
+
+# US-493: prove every migration applies cleanly, in order, on a FRESH schema.
+# Fails the build if a migration references schema an earlier one didn't create —
+# the class of bug that caused the prod 500s. Uses the Supabase CLI so the
+# auth/storage/realtime schemas the migrations depend on exist (a vanilla
+# Postgres would fail on the first auth.users / storage.* reference).
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - ".github/workflows/db-migrations.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/migrations/**"
+
+concurrency:
+  group: db-migrations-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  clean-apply:
+    name: Migrations apply cleanly (supabase db reset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      # Boots the local Supabase Postgres (with auth/storage schemas) and applies
+      # EVERY migration in order. A migration that errors fails this step.
+      - name: Start local stack + apply all migrations
+        run: supabase db start
+      # Belt-and-suspenders: a clean reset re-applies from scratch.
+      - name: Reset (re-apply migrations from zero)
+        run: supabase db reset --no-seed

@@ -9,6 +9,20 @@ import {
   type PrecedenceResult,
   runPaymentPrecedence,
 } from "../lib/grade-billing.ts";
+import { captureException } from "../lib/observability.ts";
+import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
+import { quickGrade } from "../lib/quick-grade.ts";
+import { valueAtGrade } from "../lib/condition-value.ts";
+import { suggestCategories } from "../lib/ebay-client.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
+
+// US-614: free monthly Snap-to-Value cap per effective FlipDesk plan (-1 = unlimited).
+const SNAP_CAP: Record<string, number> = {
+  free: 15,
+  starter: 60,
+  pro: 200,
+  business: -1,
+};
 
 type GradeEnv = {
   Variables: {
@@ -76,7 +90,7 @@ export const gradeRoutes = new Hono<GradeEnv>();
 // lib/grade-billing.ts so the FlipDesk bridge and public API charge through
 // the same path. See runPaymentPrecedence there.
 
-function kickPipeline(submissionId: string) {
+function kickPipeline(submissionId: string, correlationId?: string) {
   // Status='processing' first; then fire-and-forget the grading pipeline.
   supabaseAdmin
     .from("submissions")
@@ -84,6 +98,14 @@ function kickPipeline(submissionId: string) {
     .eq("id", submissionId)
     .then(() => {
       processSubmission(submissionId).catch((err) => {
+        // US-491/497: a crash in the un-awaited pipeline is otherwise invisible.
+        // Report it to the tracker, correlated to the originating request, and
+        // tag the submission so the stuck-submission reaper (US-495) can refund.
+        captureException(err, {
+          route: "grade.pipeline",
+          correlationId,
+          extra: { submissionId },
+        });
         console.error(
           `[Grade] Pipeline error for ${submissionId}:`,
           err instanceof Error ? err.message : String(err),
@@ -94,6 +116,11 @@ function kickPipeline(submissionId: string) {
 
 // ── POST /submit ─────────────────────────────────────────────────
 gradeRoutes.post("/submit", async (c) => {
+  // US-507: grading kill-switch — disable the (expensive, Anthropic-dependent)
+  // pipeline during an outage/cost spike without a redeploy.
+  if (!(await isFeatureEnabled("grading"))) {
+    return c.json(featureDisabledBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const role = c.get("workspaceRole") ?? "owner";
@@ -296,7 +323,7 @@ gradeRoutes.post("/submit", async (c) => {
   }
 
   if (precedence.paid) {
-    kickPipeline(submissionId);
+    kickPipeline(submissionId, c.get("correlationId"));
     return c.json({
       submissionId,
       status: "processing",
@@ -332,6 +359,10 @@ gradeRoutes.post("/submit", async (c) => {
 // calls this after a credit-pack purchase completes (Stripe returns to a
 // success URL) so the new balance is consumed without a second click.
 gradeRoutes.post("/pay/:id", async (c) => {
+  // US-507: same grading kill-switch as /submit (this path also kicks the pipeline).
+  if (!(await isFeatureEnabled("grading"))) {
+    return c.json(featureDisabledBody("grading"), 503);
+  }
   const userId = c.get("userId");
   const ownerId = c.get("workspaceOwnerId") ?? userId;
   const submissionId = c.req.param("id");
@@ -375,7 +406,7 @@ gradeRoutes.post("/pay/:id", async (c) => {
   }
 
   if (precedence.paid) {
-    kickPipeline(submissionId);
+    kickPipeline(submissionId, c.get("correlationId"));
     return c.json({
       submissionId,
       status: "processing",
@@ -441,5 +472,143 @@ gradeRoutes.get("/status/:id", async (c) => {
     quality_feedback: submission.quality_feedback ?? null,
     created_at: submission.created_at,
     updated_at: submission.updated_at,
+  });
+});
+
+// ── POST /snap — Snap-to-Value (US-612) ──────────────────────────────
+//
+// A logged-in user uploads a garment photo and instantly gets a condition grade
+// ESTIMATE + a condition-adjusted resale value range — no submission row, no
+// certificate, no billing (quickGrade is certificate-free). This is the free,
+// signup-gated viral funnel; certified grades + listing are the upsell.
+//
+// Auth + rate limiting come from the /api/grade/* middleware groups. The image
+// is validated + EXIF-stripped (US-276) before it's sent to the model, even
+// though it is never stored.
+function decodeBase64Image(input: string): Uint8Array | null {
+  const m = input.match(/^data:image\/\w+;base64,(.+)$/);
+  const b64 = (m ? m[1] : input).trim();
+  try {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+// Chunked base64 encode — spreading multi-MB bytes into String.fromCharCode
+// overflows the call stack.
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+gradeRoutes.post("/snap", async (c) => {
+  // US-507: Snap rides the grading vision, so it honors the grading kill-switch.
+  if (!(await isFeatureEnabled("grading"))) {
+    return c.json(featureDisabledBody("grading"), 503);
+  }
+
+  let body: { image?: unknown; brand?: unknown; keyword?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (typeof body.image !== "string" || body.image.length === 0) {
+    return c.json({ error: "image (base64 or data URI) is required" }, 400);
+  }
+  const brand = typeof body.brand === "string" ? body.brand.trim() : undefined;
+  const keyword = typeof body.keyword === "string" ? body.keyword.trim() : undefined;
+
+  // US-276: sniff the real bytes (reject SVG/non-image, cap size/dims) + strip
+  // EXIF/GPS before the photo ever reaches the model. Never stored.
+  const rawBytes = decodeBase64Image(body.image);
+  if (!rawBytes) return c.json({ error: "image is not valid base64" }, 400);
+  const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png", "webp"] });
+  if (!verdict.ok) return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
+  const { bytes: clean } = stripImageMetadata(rawBytes, verdict.format);
+  const dataUri = `data:${verdict.contentType};base64,${bytesToBase64(clean)}`;
+
+  // US-614: per-plan monthly snap cap. Free is the funnel — generous but bounded;
+  // paid tiers get more / unlimited. Reserve BEFORE the (paid-for-us) grade so an
+  // over-cap user can't burn AI budget; refund on failure.
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data: planRow } = await supabaseAdmin
+    .from("users")
+    .select("flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+    .eq("id", ownerId)
+    .maybeSingle();
+  const effPlan = effectivePlanFor(
+    (planRow?.flipdesk_plan as string) ?? "free",
+    (planRow?.subscription_status as string) ?? "none",
+    (planRow?.trial_ends_at as string | null) ?? null,
+    new Date(),
+    (planRow?.past_due_since as string | null) ?? null,
+  );
+  const snapCap = SNAP_CAP[effPlan] ?? SNAP_CAP.free;
+  const { data: reserved } = await supabaseAdmin.rpc("reserve_snap", {
+    p_user_id: ownerId,
+    p_limit: snapCap,
+  });
+  if (reserved !== true) {
+    return c.json(
+      {
+        error:
+          `You've used all ${snapCap} free Snap-to-Value checks this month. Upgrade for more, or get a full certified grade.`,
+        code: "SNAP_LIMIT_REACHED",
+        action: "upgrade",
+      },
+      429,
+    );
+  }
+
+  let grade;
+  try {
+    grade = await quickGrade({
+      images: [{ dataUri, type: "front" }],
+      garment: { brand: brand ?? null, title: keyword ?? "" },
+    });
+  } catch (err) {
+    // Refund the reserved snap so a transient grading failure isn't counted.
+    await supabaseAdmin.rpc("refund_snap", { p_user_id: ownerId }).then(() => {}, () => {});
+    captureException(err, { route: "grade.snap", correlationId: c.get("correlationId") });
+    return c.json({ error: "Couldn't grade that photo. Try a clearer, well-lit shot." }, 502);
+  }
+
+  // Condition-adjusted value range — only when we can identify the item enough
+  // to comp it (brand and/or keyword). Otherwise return the grade alone.
+  let value = null;
+  if (brand || keyword) {
+    try {
+      const query = [brand, keyword].filter(Boolean).join(" ").trim();
+      const cats = await suggestCategories(query);
+      const categoryId = cats[0]?.categoryId;
+      if (categoryId) {
+        value = await valueAtGrade({ categoryId, q: keyword, brand }, grade.overallScore);
+      }
+    } catch (err) {
+      // Value is a bonus — a comp/taxonomy hiccup shouldn't fail the snap.
+      captureException(err, { level: "warn", route: "grade.snap.value" });
+    }
+  }
+
+  return c.json({
+    grade: {
+      overall_score: grade.overallScore,
+      grade_tier: grade.gradeTier,
+      confidence: grade.confidence,
+      factor_scores: grade.factorScores,
+    },
+    value, // { lowCents, medianCents, highCents, sampleSize, confidence, sufficient } | null
+    estimate: true,
+    disclaimer:
+      "This is an AI condition + value ESTIMATE from one photo — not a certified GradeThread grade or a guaranteed sale price. Get a full certified grade to list with confidence.",
   });
 });

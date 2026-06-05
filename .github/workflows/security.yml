@@ -44,6 +44,12 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: "2.8.0"
+      # US-517: frozen lockfile — fail the build if a resolved dependency
+      # (e.g. a mutable esm.sh artifact) no longer matches deno.lock's recorded
+      # integrity hash. This is the hard gate; the Dockerfile build stays lenient
+      # for availability.
+      - name: Verify dependency lockfile (frozen)
+        run: deno cache --frozen src/main.ts
       - run: deno lint
       # Matches the Dockerfile note that type-checking happens separately
       # (the container runs with --no-check for fast cold-starts).
@@ -51,7 +57,30 @@ jobs:
       # Unit tests (billing math, etc.). Integration tests that need a live
       # fixture (tenant-isolation) skip cleanly when their env isn't set.
       # --allow-read lets the US-355 RLS guard read supabase/migrations.
-      - run: deno test --allow-net --allow-env --allow-read
+      # US-519: --coverage records edge coverage; the summary is printed so edge
+      # coverage is reported separately from the frontend's vitest coverage.
+      - run: deno test --allow-net --allow-env --allow-read --coverage=cov_profile
+      - name: Edge coverage summary
+        run: deno coverage cov_profile || true
+
+  trivy-edge-image:
+    name: Trivy scan (edge Deno image)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # US-517: build the edge image and scan it (base OS + Deno runtime) for
+      # known vulnerabilities. Fails on HIGH/CRITICAL with a fix available.
+      - name: Build edge image
+        run: docker build -t gradethread-edge:scan services/edge-functions
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: gradethread-edge:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
   codeql:
     name: CodeQL (javascript-typescript)

@@ -12,6 +12,8 @@ import {
   effectivePlanFor,
   INCLUDED_STANDARD_PER_MONTH,
   isGradeTier,
+  nextPastDueSince,
+  PAST_DUE_GRACE_MS,
   suggestPack,
   TIER_CREDIT_COST,
   TIER_PRICE_CENTS,
@@ -120,4 +122,32 @@ Deno.test("computeBatchCredits: empty batch costs nothing", () => {
 
 Deno.test("computeBatchCredits: negative includedRemaining treated as zero", () => {
   assertEquals(computeBatchCredits(-3, ["standard"]), 1);
+});
+
+// ── US-395: dunning downgrade after the grace window ─────────────
+Deno.test("effectivePlanFor: past_due keeps caps in grace, drops to Free after", () => {
+  const now = new Date("2026-06-01T00:00:00Z");
+  // No anchor → fail open (keep caps) until the webhook records one.
+  assertEquals(effectivePlanFor("pro", "past_due", null, now, null), "pro");
+  // Inside the grace window → keep paid caps.
+  const recent = new Date(now.getTime() - (PAST_DUE_GRACE_MS - 60_000)).toISOString();
+  assertEquals(effectivePlanFor("pro", "past_due", null, now, recent), "pro");
+  // Past the grace window → Free caps.
+  const old = new Date(now.getTime() - (PAST_DUE_GRACE_MS + 60_000)).toISOString();
+  assertEquals(effectivePlanFor("pro", "past_due", null, now, old), "free");
+  assertEquals(effectivePlanFor("business", "past_due", null, now, old), "free");
+});
+
+Deno.test("nextPastDueSince: anchors on first failure, preserves across retries, clears on recovery", () => {
+  const now = new Date("2026-06-10T00:00:00Z");
+  // First failure (was active) → anchor = now.
+  assertEquals(nextPastDueSince("active", null, "past_due", now), now.toISOString());
+  // Retry failure (already past_due) → preserve the original anchor.
+  const orig = "2026-06-01T00:00:00Z";
+  assertEquals(nextPastDueSince("past_due", orig, "past_due", now), orig);
+  // Recovery to active / trialing → clear.
+  assertEquals(nextPastDueSince("past_due", orig, "active", now), null);
+  assertEquals(nextPastDueSince("past_due", orig, "trialing", now), null);
+  // Canceled is non-entitling anyway; value is preserved (irrelevant).
+  assertEquals(nextPastDueSince("past_due", orig, "canceled", now), orig);
 });

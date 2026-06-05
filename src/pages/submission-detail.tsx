@@ -854,9 +854,18 @@ export function SubmissionDetailPage() {
               <CardHeader>
                 <CardTitle className="text-base">AI Analysis Summary</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
                 <p className="whitespace-pre-wrap text-sm leading-relaxed">
                   {gradeReport.ai_summary}
+                </p>
+                {/* US-514: AI-transparency disclosure (mirrors the public
+                    certificate + Terms §5). */}
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  AI-generated condition estimate — not a professional appraisal
+                  or guarantee. This grade is produced automatically from photos
+                  and is an estimate of condition only; lower-confidence grades
+                  are routed to a human reviewer. See{" "}
+                  <a href="/terms" className="underline">Terms</a> §5.
                 </p>
               </CardContent>
             </Card>

@@ -27,6 +27,10 @@ import { PrivacyPage } from "@/pages/legal/privacy";
 import { TermsPage } from "@/pages/legal/terms";
 import { CookiesPage } from "@/pages/legal/cookies";
 import { AcceptableUsePage } from "@/pages/legal/acceptable-use";
+import { DpaPage } from "@/pages/legal/dpa";
+import { SubprocessorsPage } from "@/pages/legal/subprocessors";
+import { DmcaPage } from "@/pages/legal/dmca";
+import { AccessibilityPage } from "@/pages/legal/accessibility";
 import { HowItWorksPage } from "@/pages/marketing/how-it-works";
 import { PricingPage } from "@/pages/marketing/pricing";
 import { ForResellersPage } from "@/pages/marketing/for-resellers";
@@ -51,6 +55,10 @@ const PAGES: Record<string, React.ReactNode> = {
   "/terms": <TermsPage />,
   "/cookies": <CookiesPage />,
   "/acceptable-use": <AcceptableUsePage />,
+  "/dpa": <DpaPage />,
+  "/subprocessors": <SubprocessorsPage />,
+  "/dmca": <DmcaPage />,
+  "/accessibility": <AccessibilityPage />,
   // Glossary hub (US-303): the /grading/:slug route resolves its slug from
   // useParams at runtime; here we render each entry with an explicit slug prop
   // since the prerender renders a path directly with no router param match.

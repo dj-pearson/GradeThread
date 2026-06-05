@@ -68,11 +68,22 @@ export function suggestPack(creditCost: number) {
 // entitling for backward-compatibility (the column is NOT NULL in practice).
 const NON_ENTITLING_STATUSES = new Set(["none", "canceled", "incomplete"]);
 
+// US-395: dunning grace. When a renewal payment fails the subscription goes
+// `past_due` (mapSubscriptionStatus also folds Stripe's `unpaid` end-state into
+// `past_due`). We keep paid caps during a grace window so a transient decline +
+// a Stripe Smart-Retry success doesn't briefly demote a paying customer, but a
+// PERMANENTLY-failing card loses paid caps once the window elapses (a
+// `past_due` sub no longer entitles Pro forever). The defined dunning
+// end-states both drop to Free here: `canceled` (NON_ENTITLING) and a
+// past_due/`unpaid` subscription past the grace window. `now - past_due_since`.
+export const PAST_DUE_GRACE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
 export function effectivePlanFor(
   plan: string,
   subscriptionStatus: string | null,
   trialEndsAt?: string | null,
   now: Date = new Date(),
+  pastDueSince?: string | null,
 ): string {
   if (subscriptionStatus === "paused") return "free";
   if (subscriptionStatus === "trialing") {
@@ -81,10 +92,41 @@ export function effectivePlanFor(
       ? "free"
       : plan;
   }
+  if (subscriptionStatus === "past_due") {
+    // Past the grace window → Free; still in grace → keep paid caps. With no
+    // anchor recorded we fail OPEN (keep caps) — the anchor is set the moment
+    // we record the first failed invoice (US-395 webhook change).
+    if (pastDueSince && now.getTime() - new Date(pastDueSince).getTime() > PAST_DUE_GRACE_MS) {
+      return "free";
+    }
+    return plan;
+  }
   if (subscriptionStatus && NON_ENTITLING_STATUSES.has(subscriptionStatus)) {
     return "free";
   }
   return plan;
+}
+
+// US-395: compute the next users.past_due_since value across a status
+// transition. The grace clock anchors at the FIRST failed payment and survives
+// subsequent retries (so it actually elapses); it clears the moment billing
+// recovers. Pure + exported for unit tests.
+export function nextPastDueSince(
+  prevStatus: string | null,
+  prevPastDueSince: string | null,
+  nextStatus: string,
+  now: Date = new Date(),
+): string | null {
+  if (nextStatus === "past_due") {
+    // Preserve the original anchor across retries; set it on the first entry.
+    return prevStatus === "past_due" && prevPastDueSince
+      ? prevPastDueSince
+      : now.toISOString();
+  }
+  // Recovered to a good state → clear the clock. (canceled/paused/none are
+  // non-entitling regardless, so the value is irrelevant there.)
+  if (nextStatus === "active" || nextStatus === "trialing") return null;
+  return prevPastDueSince ?? null;
 }
 
 // Credits a batch of ready grades needs after included-standard coverage.

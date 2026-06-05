@@ -17,6 +17,7 @@
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
 
 const BATCH_LIMIT = 1000;
 
@@ -25,6 +26,13 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
+  // US-503: overlap guard. The WHERE clause is already idempotent (excludes
+  // downgraded rows), but the lock keeps two runs from contending. 5-min lease.
+  const lock = await acquireJobLock("trial-expiry", 300);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason });
+  }
+  try {
   const nowIso = new Date().toISOString();
 
   // Target: still 'trialing', trial window elapsed, and NO Stripe subscription
@@ -54,4 +62,7 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
     console.log(`[trial-expiry] downgraded ${downgraded} expired trial(s) to Free`);
   }
   return c.json({ ok: true, downgraded });
+  } finally {
+    await lock.release();
+  }
 }

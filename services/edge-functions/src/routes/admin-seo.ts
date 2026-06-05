@@ -10,6 +10,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
 import {
   getGscSiteUrl,
   isGscConfigured,
@@ -151,8 +152,17 @@ export async function handleGscSyncCron(c: {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  const result = await runGscSync();
-  return c.json(result, result.ok ? 200 : (result.configured ? 502 : 503));
+  // US-503: daily-ish GSC pull; overlap guard with a 10-min lease.
+  const lock = await acquireJobLock("gsc-sync", 600);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason });
+  }
+  try {
+    const result = await runGscSync();
+    return c.json(result, result.ok ? 200 : (result.configured ? 502 : 503));
+  } finally {
+    await lock.release();
+  }
 }
 
 // Top-line read for the US-309 dashboard. Returns the top 20 queries + top 20

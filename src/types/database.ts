@@ -505,8 +505,32 @@ export interface InventoryItemRow {
   ebay_aspects: Record<string, string[]> | null;
   // AutoLister: when listing fields were last AI-generated (migration 00052)
   ai_generated_aspects_at: string | null;
+  // AI photo-QA readiness (US-537, migration 00090)
+  photo_qa_score: number | null;
+  photo_qa_issues: PhotoQaIssue[] | null;
+  photo_qa_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// US-537: one issue the photo-QA vision pass found with an item's photos.
+export interface PhotoQaIssue {
+  type:
+    | "blurry"
+    | "dark"
+    | "overexposed"
+    | "cropped"
+    | "low_resolution"
+    | "cluttered_background"
+    | "glare"
+    | "tag_unreadable"
+    | "missing_angle"
+    | "other";
+  severity: "low" | "medium" | "high";
+  message: string;
+  // 1-based index of the offending photo, or null for set-level issues
+  // (e.g. a missing back/tag shot).
+  photo_index?: number | null;
 }
 
 export interface AiFieldSource {
@@ -1494,7 +1518,8 @@ export interface GradeCreditTransactionRow {
   user_id: string;
   delta: number;
   reason: GradeCreditReason;
-  balance_after: number;
+  // US-398: NULL for zero-delta audit rows (included_grant / included refund).
+  balance_after: number | null;
   submission_id: string | null;
   stripe_payment_intent_id: string | null;
   notes: string | null;
@@ -1539,7 +1564,7 @@ export interface GradeOutcomeRow {
   updated_at: string;
 }
 
-// ─── Growth / Promote suite (00090_growth_suite.sql) ───────────────
+// ─── Growth / Promote suite (00102_growth_suite.sql) ───────────────
 
 export type CampaignChannel = "email" | "in_app" | "push";
 export type CampaignStatus =

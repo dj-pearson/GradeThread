@@ -1,11 +1,17 @@
 import { createMiddleware } from "hono/factory";
 import type { User } from "@supabase/supabase-js";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { type AuthAssuranceClaims, decodeJwtClaims } from "../lib/jwt-claims.ts";
 
 type AuthEnv = {
   Variables: {
     user: User;
     userId: string;
+    // US-357: aal/amr decoded from the SAME token getUser() just verified.
+    // Downstream gates (admin AAL2, destructive step-up) read THIS, never the
+    // raw Authorization header, so assurance claims are coupled to a verified
+    // token and can't be sourced from an unverified place.
+    authClaims: AuthAssuranceClaims;
   };
 };
 
@@ -38,6 +44,8 @@ export const authMiddleware = createMiddleware<AuthEnv>(async (c, next) => {
 
   c.set("user", data.user);
   c.set("userId", data.user.id);
+  // Decode assurance claims from the verified token exactly once.
+  c.set("authClaims", decodeJwtClaims(token));
 
   await next();
 });

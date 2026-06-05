@@ -44,7 +44,27 @@ export function downloadItemsCsv(rows: ItemFullRow[]): void {
     "Tracking",
   ];
   const lines = [headers.map(escapeCsvCell).join(",")];
-  for (const r of rows) {
+
+  // Stable, human-friendly order: numbered items ascending by Item # (SKU),
+  // then un-numbered items (drafts) alphabetically by title — instead of the
+  // arbitrary view order, which interleaves drafts and listed items.
+  const sorted = [...rows].sort((a, b) => {
+    const na = Number(a.item_number);
+    const nb = Number(b.item_number);
+    const aNum = a.item_number != null && a.item_number !== "" && Number.isFinite(na);
+    const bNum = b.item_number != null && b.item_number !== "" && Number.isFinite(nb);
+    if (aNum && bNum) return na - nb;
+    if (aNum) return -1;
+    if (bNum) return 1;
+    return (a.item_title ?? "").localeCompare(b.item_title ?? "");
+  });
+
+  for (const r of sorted) {
+    // Sale-only money columns are blank until the item actually sells. The
+    // items_full view computes fees as COALESCE(platform_fees,0)+COALESCE(
+    // processing,0), so an UNSOLD item reads 0 — which looks like a real $0 fee
+    // in the sheet. Gate every sale-derived column on the presence of a sale.
+    const sold = r.sale_date != null || r.sale_price != null;
     lines.push(
       [
         r.container,
@@ -65,11 +85,11 @@ export function downloadItemsCsv(rows: ItemFullRow[]): void {
         r.list_price,
         r.sale_date?.slice(0, 10),
         r.sale_price,
-        r.fees,
-        r.tax,
-        r.shipping_cost,
-        r.net_profit,
-        r.payout,
+        sold ? r.fees : null,
+        sold ? r.tax : null,
+        sold ? r.shipping_cost : null,
+        sold ? r.net_profit : null,
+        sold ? r.payout : null,
         r.status,
         r.days_to_sell,
         r.tracking,

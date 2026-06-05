@@ -63,3 +63,12 @@ backfill-attributes.sql
 flipdesk-items-2026-06-04 (3).csv
 inventory_items_rows.csv
 flipdesk-items-2026-06-05.csv
+
+# Test coverage artifacts (US-519)
+coverage/
+services/edge-functions/cov_profile/
+
+# Playwright E2E (US-511)
+test-results/
+playwright-report/
+playwright/.cache/
