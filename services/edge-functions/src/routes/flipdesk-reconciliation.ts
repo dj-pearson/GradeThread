@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
+import { requireFlipdesk } from "../lib/plan-gate.ts";
 
 // Payout reconciliation: matches payout_imports rows to sales rows by listing ID
 // and timestamp window. Never silently mis-matches — unmatched rows stay queued.
@@ -18,6 +20,16 @@ type ReconciliationEnv = {
 };
 
 export const flipdeskReconciliationRoutes = new Hono<ReconciliationEnv>();
+
+// US-382: reconciliation is a Business-tier feature. Enforce it server-side on
+// EVERY reconciliation endpoint (was UI-only) — a Free/Starter/Pro caller gets
+// 402 FEATURE_LOCKED, which the frontend renders as the upgrade dialog.
+flipdeskReconciliationRoutes.use("*", async (c, next) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { feature: "reconciliation", userId });
+  if (gate) return gate;
+  await next();
+});
 
 // Tolerance constants for candidate scoring. eBay typically pays out 1–3
 // business days after a sale settles, with occasional 5–7 day delays for
@@ -544,10 +556,7 @@ flipdeskReconciliationRoutes.post("/dismiss/:id", async (c) => {
     .update({ reconciled: true, sale_id: null, raw_payload: nextRaw })
     .eq("id", id);
   if (error) {
-    return c.json(
-      { error: "Failed to dismiss payout", detail: error.message },
-      500,
-    );
+    return failSafe(c, 500, "Failed to dismiss payout.", error, "reconciliation.dismiss-payout");
   }
 
   return c.json({ ok: true, payout_import_id: id });

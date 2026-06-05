@@ -57,7 +57,7 @@ export async function runPaymentPrecedence(
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select(
-      "flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at",
+      "flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at, past_due_since",
     )
     .eq("id", userId)
     .single();
@@ -66,11 +66,14 @@ export async function runPaymentPrecedence(
     throw new Error(`USER_NOT_FOUND: ${userId}`);
   }
 
-  // Paused subscriptions AND expired trials (US-383) fall back to Free caps.
+  // Paused subscriptions, expired trials (US-383), AND past_due subs beyond the
+  // dunning grace window (US-395) fall back to Free caps.
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
     user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
   );
   const includedCap = INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0;
 
@@ -114,12 +117,16 @@ export async function runPaymentPrecedence(
         .from("submissions")
         .update({ payment_status: "included", paid_at: new Date().toISOString() })
         .eq("id", submissionId);
-      // Ledger row for audit, balance unchanged.
+      // Zero-delta audit row, balance unchanged. US-398: balance_after is NULL
+      // here — snapshotting user.grade_credit_balance was a NON-atomic read that
+      // could drift if a concurrent debit/grant landed between read and insert.
+      // The balance is unaffected by an included grant, so there is nothing to
+      // record; balance-changing rows still carry an atomic balance_after.
       await supabaseAdmin.from("grade_credit_transactions").insert({
         user_id: userId,
         delta: 0,
         reason: "included_grant",
-        balance_after: user.grade_credit_balance,
+        balance_after: null,
         submission_id: submissionId,
         notes: `Included Standard grade #${includedUsed + 1}/${includedCap} on ${effectivePlan}`,
       });

@@ -62,6 +62,7 @@ import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { useEbayConnection } from "@/hooks/use-ebay";
+import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
   ItemFullRow,
   ItemPhotoRow,
@@ -423,6 +424,21 @@ export function FlipdeskComposerPage() {
     }
   }
 
+  // US-623: condition-aware sell-through forecast at the price input. Called
+  // before the early returns so the hook order is stable; degrades to null when
+  // the item/price isn't ready.
+  const forecastPriceCents = (() => {
+    const p = Number.parseFloat(price);
+    return Number.isFinite(p) && p > 0 ? Math.round(p * 100) : 0;
+  })();
+  const { forecast: sellThroughForecast } = useSellThroughForecast({
+    brand: item?.brand,
+    q: item?.item_title,
+    grade: item?.grade_value ?? null,
+    priceCents: forecastPriceCents,
+    enabled: !!item,
+  });
+
   if (isLoading) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
@@ -678,6 +694,30 @@ export function FlipdeskComposerPage() {
                         Add this item's cost to see true margin.
                       </p>
                     )}
+                  </div>
+                )}
+                {/* US-623: condition-aware sell-through forecast at this price. */}
+                {sellThroughForecast && sellThroughForecast.label !== "unknown" && parsedPreviewPrice > 0 && (
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Est. sell-through</span>
+                      <span
+                        className={cn(
+                          "font-semibold tabular-nums",
+                          sellThroughForecast.label === "fast"
+                            ? "text-emerald-600"
+                            : sellThroughForecast.label === "moderate"
+                              ? "text-amber-600"
+                              : "text-muted-foreground",
+                        )}
+                      >
+                        ~{Math.round(sellThroughForecast.sellThroughPct * 100)}% in{" "}
+                        {sellThroughForecast.daysLow}–{sellThroughForecast.daysHigh} days
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      Estimate from {sellThroughForecast.sampleSize} condition-matched comps — a lower price sells faster.
+                    </p>
                   </div>
                 )}
               </div>

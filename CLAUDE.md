@@ -1,5 +1,8 @@
 # GradeThread - AI-Powered Clothing Condition Grading
 
+> **⚠️ TEMPORARY WORKFLOW OVERRIDE (pre-production sprint) — added 2026-06-04**
+> Until production launch, work directly on `main`. Do NOT create feature branches or open PRs for changes. Commit straight to `main` and push to `origin/main` when work is complete. `main` is intentionally not branch-protected during this period. **Delete this block to restore the normal branch-and-PR workflow.**
+
 ## Project Overview
 
 GradeThread is a SaaS platform that provides standardized, AI-powered condition grading for pre-owned clothing. Sellers upload garment photos and receive a numerical condition grade (1.0–10.0), a detailed condition report, and a shareable certificate. Built by Pearson Media LLC.

@@ -14,7 +14,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { evaluateAlerts, worstSeverity } = await import("../lib/grading-monitor.ts");
+const { evaluateAlerts, worstSeverity, dispatchAlert } = await import("../lib/grading-monitor.ts");
 
 const THRESHOLDS = {
   min_sample: 10,
@@ -99,4 +99,21 @@ Deno.test("high intentional-misread and dispute rates warn", () => {
   assert(alerts.find((a) => a.code === "eval_regression"));
   // No critical here → overall warn.
   assertEquals(worstSeverity(alerts), "warn");
+});
+
+// US-502: an alert that reaches NO channel must report NOT-delivered so the
+// 12h cooldown does not engage (the old code returned true unconditionally).
+// With no MONITOR_ALERT_EMAIL / SMTP_ADMIN_EMAIL / MONITOR_ALERT_WEBHOOK set,
+// dispatchAlert must return false.
+Deno.test("dispatchAlert returns false when no channel is configured", async () => {
+  for (const k of ["MONITOR_ALERT_EMAIL", "SMTP_ADMIN_EMAIL", "MONITOR_ALERT_WEBHOOK"]) {
+    Deno.env.delete(k);
+  }
+  const delivered = await dispatchAlert(
+    "critical",
+    [{ code: "low_agreement", severity: "critical", metric: "agreement_rate", value: 0.5, threshold: 0.7, message: "x" }],
+    HEALTHY,
+    { ran: false, regression_vs_baseline: false },
+  );
+  assertEquals(delivered, false);
 });

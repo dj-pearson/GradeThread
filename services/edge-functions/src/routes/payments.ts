@@ -2,6 +2,9 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { isProduction } from "../lib/env.ts";
+import { captureServer } from "../lib/posthog.ts";
+import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -86,7 +89,7 @@ function getStripe(): Stripe | null {
     console.error("STRIPE_SECRET_KEY not configured");
     return null;
   }
-  return new Stripe(key, { apiVersion: "2024-04-10" });
+  return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 }
 
 function siteUrl(): string {
@@ -113,10 +116,99 @@ async function loadUser(userId: string) {
   return await supabaseAdmin
     .from("users")
     .select(
-      "id, email, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
+      "id, email, full_name, stripe_customer_id, flipdesk_plan, subscription_status, trial_ends_at, flipdesk_subscription_id",
     )
     .eq("id", userId)
     .single();
+}
+
+// US-391: lazily ensure EXACTLY ONE Stripe customer per user, persisted before
+// the first Checkout and reused on every later session. Two concurrent first
+// checkouts previously each omitted `customer`, so Stripe minted two customers
+// and the post-hoc back-fill (.is(null)) kept only one — orphaning the other
+// and risking a lost customer↔user link. Now:
+//   • If we already have a customer id, reuse it.
+//   • Otherwise create one with a STABLE idempotency key (`customer-create:<uid>`)
+//     so even a true race resolves to a SINGLE Stripe customer, then persist it
+//     conditionally; if another request won the race, adopt the persisted id.
+async function ensureStripeCustomer(
+  stripe: Stripe,
+  user: {
+    id: string;
+    email: string | null;
+    full_name?: string | null;
+    stripe_customer_id: string | null;
+  },
+): Promise<string> {
+  if (user.stripe_customer_id) return user.stripe_customer_id;
+
+  const customer = await stripe.customers.create(
+    {
+      email: user.email ?? undefined,
+      name: user.full_name ?? undefined,
+      metadata: { user_id: user.id },
+    },
+    { idempotencyKey: customerCreateIdempotencyKey(user.id) },
+  );
+
+  // Persist only if still unset. If our conditional update matches no row,
+  // another concurrent request already linked a customer — adopt that one. The
+  // shared idempotency key means Stripe returned the SAME customer to both
+  // racers, so there is no orphaned duplicate.
+  const { data: linked } = await supabaseAdmin
+    .from("users")
+    .update({ stripe_customer_id: customer.id })
+    .eq("id", user.id)
+    .is("stripe_customer_id", null)
+    .select("stripe_customer_id")
+    .maybeSingle();
+  if (linked?.stripe_customer_id) return linked.stripe_customer_id;
+
+  const { data: fresh } = await supabaseAdmin
+    .from("users")
+    .select("stripe_customer_id")
+    .eq("id", user.id)
+    .single();
+  return fresh?.stripe_customer_id ?? customer.id;
+}
+
+// US-400: the shape the billing UI renders for the next charge.
+export interface UpcomingInvoice {
+  amount_cents: number;
+  currency: string;
+  next_payment_at: string | null;
+}
+
+// US-400: fetch the subscription's real upcoming invoice from Stripe so the UI
+// shows what will ACTUALLY be billed (coupons, grandfathered prices, prorations)
+// rather than the static FLIPDESK_PLANS table. Returns null for users without a
+// subscription and degrades gracefully (null) if Stripe is unavailable — the UI
+// then falls back to the plan-table price.
+async function fetchUpcomingInvoice(
+  customerId: string | null,
+  subscriptionId: string | null,
+): Promise<UpcomingInvoice | null> {
+  if (!customerId || !subscriptionId) return null;
+  const stripe = getStripe();
+  if (!stripe) return null;
+  try {
+    // stripe-node v15: invoices.retrieveUpcoming. Scope to the subscription so a
+    // customer with multiple products gets the right line.
+    const inv = await stripe.invoices.retrieveUpcoming({
+      customer: customerId,
+      subscription: subscriptionId,
+    });
+    const nextAt = inv.next_payment_attempt ?? inv.period_end ?? null;
+    return {
+      amount_cents: inv.amount_due,
+      currency: inv.currency,
+      next_payment_at: nextAt ? new Date(nextAt * 1000).toISOString() : null,
+    };
+  } catch (err) {
+    // No upcoming invoice (canceled/ended) or a transient Stripe error → null.
+    console.error("[billing-summary] upcoming invoice fetch failed:", err instanceof Error ? err.message : err);
+    return null;
+  }
 }
 
 // ── POST /flipdesk/subscribe (US-204) ────────────────────────────
@@ -264,14 +356,17 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
       tax_id_collection: { enabled: true },
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      sessionParams.customer_email = user.email;
-    }
+    // US-391: always bind the session to the user's single Stripe customer
+    // (created lazily here if needed) so every session reuses one customer.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
-    const session = await stripe.checkout.sessions.create(sessionParams);
+    // US-391: stable idempotency key dedupes a double-clicked subscribe within
+    // Stripe's 24h window (a user has at most one active subscription, so this
+    // can't block a legitimate distinct purchase the way it would for packs).
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      idempotencyKey: `flipdesk-subscribe:${userId}:${plan}:${interval}`,
+    });
     return c.json({ sessionId: session.id, url: session.url });
   } catch (err) {
     console.error("FlipDesk subscribe checkout failed:", err);
@@ -357,7 +452,12 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
       sessionParams.customer = user.stripe_customer_id;
       sessionParams.customer_update = { name: "auto", address: "auto" };
     } else {
-      sessionParams.customer_email = user.email;
+      // US-391: bind to the single Stripe customer (created lazily) instead of
+      // letting Checkout mint a fresh one. No session idempotency key: credit
+      // packs are intentionally repeatable, so a stable key would wrongly
+      // dedupe a legitimate second purchase within Stripe's 24h window.
+      sessionParams.customer = await ensureStripeCustomer(stripe, user);
+      sessionParams.customer_update = { name: "auto", address: "auto" };
     }
 
     const session = await stripe.checkout.sessions.create(sessionParams);
@@ -394,9 +494,21 @@ async function perGradeCheckout(c: Ctx) {
 
   const priceId = GRADE_PRICE_IDS[tier];
   if (!priceId) {
-    // Pre-Stripe-setup fallback: build a one-off price_data line so
-    // local/dev environments without configured price IDs still work.
-    console.warn(`Missing Stripe price ID for grade tier ${tier}; using inline price_data`);
+    // US-401: the inline price_data fallback disables automatic_tax (a one-off
+    // ad-hoc price can't be tax-coded), so it must NEVER run in production —
+    // that would mint an untaxed charge and break tax compliance. Fail closed
+    // with 503 (mirrors /subscribe + /credit-pack), and alert. The fallback is
+    // kept ONLY for local/dev where price IDs aren't configured.
+    if (isProduction()) {
+      console.error(
+        `[payments] PROD missing GRADE_PRICE_IDS[${tier}] — refusing the untaxed inline fallback.`,
+      );
+      void captureServer(userId, "billing.missing_grade_price_id", { tier });
+      return c.json({ error: "Pricing not configured" }, 503);
+    }
+    console.warn(
+      `Missing Stripe price ID for grade tier ${tier}; using inline price_data (dev only)`,
+    );
   }
 
   // Verify the submission belongs to this user and isn't already paid.
@@ -461,12 +573,11 @@ async function perGradeCheckout(c: Ctx) {
       allow_promotion_codes: true,
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      sessionParams.customer_email = user.email;
-    }
+    // US-391: bind to the single Stripe customer (created lazily) so the
+    // per-grade purchase reuses the user's one customer instead of minting a
+    // new one when none exists yet.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
     // US-394: key the session on (submission, tier) so a double-click or retry
     // reuses ONE Checkout Session instead of creating duplicates that could
@@ -564,12 +675,10 @@ paymentRoutes.post("/subscribe", async (c) => {
       allow_promotion_codes: true,
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      sessionParams.customer_email = user.email;
-    }
+    // US-391: bind to the single Stripe customer (created lazily) instead of
+    // letting Checkout mint a fresh one.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
     return c.json({ sessionId: session.id, url: session.url });
@@ -598,7 +707,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
       "flipdesk_plan, flipdesk_interval, subscription_status, " +
         "flipdesk_period_end, flipdesk_pause_until, flipdesk_cancel_at_period_end, " +
         "trial_ends_at, grade_credit_balance, grades_used_this_month, grade_reset_at, " +
-        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, " +
+        "ai_actions_used_this_month, ai_action_limit, stripe_customer_id, flipdesk_subscription_id, " +
         "pending_flipdesk_plan, pending_flipdesk_interval, pending_effective_at, " +
         "usage_alert_thresholds, last_warning_at",
     )
@@ -619,6 +728,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     flipdesk_cancel_at_period_end: boolean | null;
     trial_ends_at: string | null;
     stripe_customer_id: string | null;
+    flipdesk_subscription_id: string | null;
     pending_flipdesk_plan: string | null;
     pending_flipdesk_interval: string | null;
     pending_effective_at: string | null;
@@ -635,6 +745,7 @@ paymentRoutes.get("/billing-summary", async (c) => {
     activeListingsResult,
     marketplacesResult,
     ledgerResult,
+    upcomingInvoice,
   ] = await Promise.all([
     supabaseAdmin
       .from("inventory_items")
@@ -652,6 +763,10 @@ paymentRoutes.get("/billing-summary", async (c) => {
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(5),
+    // US-400: the REAL next charge from Stripe (honors coupons / grandfathered
+    // prices), fetched in parallel. Returns null for free users and degrades
+    // gracefully if Stripe is unavailable (UI falls back to the plan table).
+    fetchUpcomingInvoice(u.stripe_customer_id, u.flipdesk_subscription_id),
   ]);
 
   if (activeListingsResult.error) {
@@ -677,6 +792,8 @@ paymentRoutes.get("/billing-summary", async (c) => {
       pending_plan: u.pending_flipdesk_plan,
       pending_interval: u.pending_flipdesk_interval,
       pending_effective_at: u.pending_effective_at,
+      // US-400: actual upcoming Stripe charge, or null (free / Stripe down).
+      upcoming_invoice: upcomingInvoice,
     },
     grades: {
       credit_balance: u.grade_credit_balance,

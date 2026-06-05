@@ -16,6 +16,10 @@ concurrency:
   group: ios-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# US-522: least privilege — this workflow only needs to read the repo.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Build + test

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { RotateCcw, RotateCw, Crop, Loader2, Check } from "lucide-react";
+import { RotateCcw, RotateCw, Crop, Loader2, Check, Spline } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -34,8 +34,14 @@ interface Props {
  * Uses a hidden <img> as the source, draws to a <canvas> for transforms,
  * and fetches the image as a blob-URL to avoid canvas CORS taint.
  */
+// US-534: straighten/deskew range (degrees). Small fine angle on top of the
+// 90° rotation steps; the frame is auto-scaled to cover so corners never go
+// transparent.
+const STRAIGHTEN_MAX = 15;
+
 export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
   const [rotation, setRotation] = useState(0); // degrees: 0 | 90 | 180 | 270
+  const [fine, setFine] = useState(0); // straighten angle, -15..15
   const [cropMode, setCropMode] = useState(false);
   const [crop, setCrop] = useState<Rect>({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
   const [saving, setSaving] = useState(false);
@@ -51,6 +57,7 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
     if (!open || !src) return;
     let objectUrl: string | null = null;
     setRotation(0);
+    setFine(0);
     setCropMode(false);
     setCrop({ x: 0.05, y: 0.05, w: 0.9, h: 0.9 });
     setSaving(false);
@@ -69,7 +76,7 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
     };
   }, [open, src]);
 
-  function drawFrame(img: HTMLImageElement, rot: number) {
+  function drawFrame(img: HTMLImageElement, rot: number, fineAngle: number) {
     const canvas = canvasRef.current;
     if (!canvas || img.naturalWidth === 0) return;
     const sw = img.naturalWidth;
@@ -81,18 +88,37 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
     canvas.height = ch;
     const ctx = canvas.getContext("2d")!;
     ctx.clearRect(0, 0, cw, ch);
+    // US-534: the 90° rotation alone fills cw×ch exactly. The fine straighten
+    // angle rotates that filled frame further, so scale up by the cover factor
+    // (smallest scale that keeps the rotated cw×ch content covering the cw×ch
+    // window) to avoid transparent corners.
+    const phi = (fineAngle * Math.PI) / 180;
+    const c = Math.abs(Math.cos(phi));
+    const s = Math.abs(Math.sin(phi));
+    const cover = Math.max((cw * c + ch * s) / cw, (cw * s + ch * c) / ch);
     ctx.save();
     ctx.translate(cw / 2, ch / 2);
-    ctx.rotate((rot * Math.PI) / 180);
+    ctx.rotate(((rot + fineAngle) * Math.PI) / 180);
+    ctx.scale(cover, cover);
     ctx.drawImage(img, -sw / 2, -sh / 2);
     ctx.restore();
+  }
+
+  function redraw(rot: number, fineAngle: number) {
+    const img = hiddenImgRef.current;
+    if (img?.complete && img.naturalWidth > 0) drawFrame(img, rot, fineAngle);
   }
 
   function rotate(delta: -90 | 90) {
     const r = (rotation + delta + 360) % 360;
     setRotation(r);
-    const img = hiddenImgRef.current;
-    if (img?.complete && img.naturalWidth > 0) drawFrame(img, r);
+    redraw(r, fine);
+  }
+
+  function straighten(angle: number) {
+    const a = Math.max(-STRAIGHTEN_MAX, Math.min(STRAIGHTEN_MAX, angle));
+    setFine(a);
+    redraw(rotation, a);
   }
 
   /** Convert a pointer event to a 0-1 position relative to the canvas wrapper. */
@@ -245,6 +271,43 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
               Drag corners to resize · drag inside to move
             </p>
           )}
+
+          {/* US-534: straighten / deskew */}
+          <div className="ml-auto flex items-center gap-2">
+            <label
+              htmlFor="straighten"
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground"
+            >
+              <Spline className="h-4 w-4" />
+              Straighten
+            </label>
+            <input
+              id="straighten"
+              type="range"
+              min={-STRAIGHTEN_MAX}
+              max={STRAIGHTEN_MAX}
+              step={0.5}
+              value={fine}
+              onChange={(e) => straighten(Number(e.target.value))}
+              disabled={saving}
+              className="h-1 w-28 cursor-pointer accent-primary"
+              aria-label="Straighten angle in degrees"
+            />
+            <span className="w-10 text-right text-xs tabular-nums text-muted-foreground">
+              {fine > 0 ? `+${fine}` : fine}°
+            </span>
+            {fine !== 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => straighten(0)}
+                disabled={saving}
+              >
+                Reset
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Canvas stage */}
@@ -268,7 +331,7 @@ export function PhotoEditorDialog({ open, src, onClose, onSave }: Props) {
               className="hidden"
               onLoad={() => {
                 const img = hiddenImgRef.current;
-                if (img) drawFrame(img, rotation);
+                if (img) drawFrame(img, rotation, fine);
               }}
             />
             {/* Rotated canvas — CSS-scaled to fit the dialog */}

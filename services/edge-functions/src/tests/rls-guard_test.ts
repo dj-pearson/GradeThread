@@ -44,6 +44,10 @@ const PARENT_SCOPED = [
 const SERVICE_ROLE_ONLY = new Set([
   "flipdesk_subscription_events",
   "oauth_states",
+  // RLS enabled, zero policies by design — the OAuth import session is written
+  // and read ONLY by the service-role edge client; the SPA never touches it
+  // (migration 00089 documents "all access via the service-role edge client").
+  "google_photos_import_sessions",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

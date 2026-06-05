@@ -19,7 +19,8 @@ export interface BillingLedgerEntry {
   id: string;
   delta: number;
   reason: GradeCreditReason;
-  balance_after: number;
+  // US-398: NULL for zero-delta audit rows (included_grant / included refund).
+  balance_after: number | null;
   submission_id: string | null;
   notes: string | null;
   created_at: string;
@@ -39,6 +40,14 @@ export interface BillingSummary {
     pending_plan: FlipdeskPlan | null;
     pending_interval: BillingInterval | null;
     pending_effective_at: string | null;
+    // US-400: the REAL next charge from Stripe (honors coupons / grandfathered
+    // prices / prorations). Null for free users or if Stripe was unavailable —
+    // the UI then falls back to the static plan price.
+    upcoming_invoice: {
+      amount_cents: number;
+      currency: string;
+      next_payment_at: string | null;
+    } | null;
   };
   grades: {
     credit_balance: number;

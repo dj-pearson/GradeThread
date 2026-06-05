@@ -2,9 +2,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   isEbayConfigured,
   searchBrowseComps,
+  suggestCategories,
   updateOfferPrice,
 } from "../lib/ebay-client.ts";
 import {
@@ -12,6 +15,9 @@ import {
   gradeToConditionId,
   type ReasonCode,
 } from "../lib/repricing.ts";
+import { valueAtGrade } from "../lib/condition-value.ts";
+import { forecastSellThrough } from "../lib/sell-through.ts";
+import { failSafe, jsonError } from "../lib/http-errors.ts";
 
 // Condition-aware dynamic repricing. The scan pulls condition-matched comps per
 // active eBay listing and writes one actionable suggestion per listing. Every
@@ -187,6 +193,45 @@ flipdeskPricingRoutes.post("/scan", async (c) => {
 });
 
 // ── GET /suggestions ──────────────────────────────────────────────
+// US-623: condition-aware sell-through forecast for a candidate price. Given an
+// item identity + grade + price, returns how likely + how fast it sells at that
+// price (from the condition-matched comp range). Powers the composer's "list at
+// $X → ~N% sell in D days" hint. Best-effort: degrades to unknown rather than
+// erroring so the composer never breaks on a comp hiccup.
+flipdeskPricingRoutes.post("/forecast", async (c) => {
+  let body: { categoryId?: unknown; brand?: unknown; q?: unknown; grade?: unknown; priceCents?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const brand = typeof body.brand === "string" ? body.brand.trim() : undefined;
+  const q = typeof body.q === "string" ? body.q.trim() : undefined;
+  const grade = typeof body.grade === "number" ? body.grade : null;
+  const priceCents = typeof body.priceCents === "number" ? Math.round(body.priceCents) : 0;
+  let categoryId = typeof body.categoryId === "string" ? body.categoryId.trim() : "";
+
+  if (priceCents <= 0 || (!brand && !q && !categoryId)) {
+    return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+  }
+
+  try {
+    if (!categoryId) {
+      const cats = await suggestCategories([brand, q].filter(Boolean).join(" ").trim());
+      categoryId = cats[0]?.categoryId ?? "";
+    }
+    if (!categoryId) {
+      return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+    }
+    const value = await valueAtGrade({ categoryId, q, brand }, grade);
+    const forecast = forecastSellThrough(value, priceCents);
+    return c.json({ forecast, value });
+  } catch {
+    // Never break the composer on a comp/taxonomy hiccup — degrade to unknown.
+    return c.json({ forecast: { sellThroughPct: 0, daysLow: 0, daysHigh: 0, label: "unknown", sampleSize: 0 }, value: null });
+  }
+});
+
 flipdeskPricingRoutes.get("/suggestions", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const { data, error } = await supabaseAdmin
@@ -199,7 +244,7 @@ flipdeskPricingRoutes.get("/suggestions", async (c) => {
     .eq("status", "pending")
     .order("updated_at", { ascending: false })
     .limit(200);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return failSafe(c, 500, "Couldn't load repricing suggestions.", error, "repricing.list");
   return c.json({ suggestions: data ?? [] });
 });
 
@@ -263,7 +308,7 @@ flipdeskPricingRoutes.post("/suggestions/:id/apply", async (c) => {
     .from("listings")
     .update({ listing_price: dollars, price_is_estimated: false })
     .eq("id", listingId);
-  if (updErr) return c.json({ error: updErr.message }, 500);
+  if (updErr) return failSafe(c, 500, "Couldn't save the new price.", updErr, "repricing.apply");
 
   await supabaseAdmin
     .from("repricing_suggestions")
@@ -284,8 +329,8 @@ flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
     .eq("user_id", ownerId)
     .select("id")
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
-  if (!data) return c.json({ error: "Suggestion not found" }, 404);
+  if (error) return failSafe(c, 500, "Couldn't dismiss the suggestion.", error, "repricing.dismiss");
+  if (!data) return jsonError(c, 404, "Suggestion not found");
   return c.json({ dismissed: true });
 });
 
@@ -300,6 +345,21 @@ export async function handleRepriceScanCron(c: Context): Promise<Response> {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
-  const result = await scanListings(null, CRON_SCAN_LIMIT);
-  return c.json({ ok: true, ...result });
+  // US-507: repricing kill-switch — skip the scan (no-op) when disabled.
+  if (!(await isFeatureEnabled("repricing"))) {
+    return c.json({ ok: true, skipped: true, reason: "feature_disabled" });
+  }
+  // US-503: a scan fans out one eBay Browse call per listing and can run long;
+  // a 10-min lease keeps an overlapping tick from re-scanning + double-writing
+  // suggestions. The eBay breaker (US-499) also backs off during an outage.
+  const lock = await acquireJobLock("reprice-scan", 600);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason });
+  }
+  try {
+    const result = await scanListings(null, CRON_SCAN_LIMIT);
+    return c.json({ ok: true, ...result });
+  } finally {
+    await lock.release();
+  }
 }

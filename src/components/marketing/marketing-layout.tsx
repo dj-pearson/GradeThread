@@ -145,6 +145,18 @@ export function MarketingLayout({
               <Link to="/acceptable-use" className="hover:text-foreground">
                 Acceptable Use
               </Link>
+              <Link to="/accessibility" className="hover:text-foreground">
+                Accessibility
+              </Link>
+              <Link to="/dmca" className="hover:text-foreground">
+                DMCA
+              </Link>
+              <Link to="/subprocessors" className="hover:text-foreground">
+                Subprocessors
+              </Link>
+              <Link to="/dpa" className="hover:text-foreground">
+                DPA
+              </Link>
             </nav>
             <p className="text-xs text-muted-foreground">
               &copy; {new Date().getFullYear()} Pearson Media LLC. All rights

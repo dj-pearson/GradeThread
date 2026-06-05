@@ -18,6 +18,10 @@ const legalNav = [
   { to: "/terms", label: "Terms of Service" },
   { to: "/cookies", label: "Cookie Policy" },
   { to: "/acceptable-use", label: "Acceptable Use" },
+  { to: "/dpa", label: "Data Processing Addendum" },
+  { to: "/subprocessors", label: "Subprocessors" },
+  { to: "/dmca", label: "Copyright / DMCA" },
+  { to: "/accessibility", label: "Accessibility" },
 ];
 
 export function LegalLayout({

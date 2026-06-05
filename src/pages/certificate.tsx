@@ -11,6 +11,7 @@ import {
   BadgeCheck,
   Gauge,
   UserCheck,
+  Info,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -662,6 +663,30 @@ export function CertificatePage() {
                   </div>
                 </div>
               ))}
+          </CardContent>
+        </Card>
+
+        {/* US-514: AI-transparency disclosure. Buyers must be clearly told the
+            grade is an AI-generated estimate, not a professional appraisal or
+            guarantee. Wording mirrors Terms §5. */}
+        <Card className="border-amber-300 bg-amber-50/60">
+          <CardContent className="flex items-start gap-3 pt-6">
+            <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-amber-900">
+                AI-generated condition estimate — not a professional appraisal or
+                guarantee
+              </p>
+              <p className="text-xs text-amber-800">
+                This grade is produced by an automated AI system from the seller's
+                photos. It is an estimate of condition, not a certified appraisal,
+                authentication, or warranty of value. Confidence is shown above;
+                lower-confidence grades are routed to a human reviewer. Always
+                review the photos and item description before purchasing. See our{" "}
+                <a href="/terms" className="underline">Terms</a> (section 5) for
+                details.
+              </p>
+            </div>
           </CardContent>
         </Card>
 

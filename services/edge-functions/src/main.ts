@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/middleware";
-import { logger } from "hono/middleware";
+import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
@@ -15,6 +15,7 @@ import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
+import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import {
   flipdeskAutolisterRoutes,
   handleAutolisterReclaimCron,
@@ -23,10 +24,16 @@ import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
+import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
+import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
+import { handleEmailRetryCron } from "./lib/email-retry.ts";
+import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
+import { handleDataRetentionCron } from "./lib/data-retention.ts";
+import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { contentBlogRoutes } from "./routes/content-blog.ts";
@@ -47,7 +54,10 @@ import { rateLimiter } from "./middleware/rate-limit.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
-import { assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
+import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
+import { redactError } from "./lib/log-redact.ts";
+import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
+import { featureGate } from "./lib/feature-flags.ts";
 
 const app = new Hono();
 
@@ -99,7 +109,10 @@ app.use("*", async (c, next) => {
 });
 
 // Middleware
-app.use("*", logger());
+// US-359: custom access logger (never logs request headers / querystrings) in
+// place of Hono's logger(), so Authorization / X-API-Key / signatures can't
+// leak into log sinks.
+app.use("*", accessLogger);
 app.use(
   "*",
   cors({
@@ -153,6 +166,7 @@ app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
+app.use("/api/flipdesk/scout/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
@@ -187,6 +201,7 @@ app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
 app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
+app.use("/api/flipdesk/scout/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
 // owner); /poll + /import resolve the owner from the session row.
@@ -223,6 +238,8 @@ app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));
 app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
+// US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
+app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
 // AutoLister batch enqueue is cheap to call but kicks off heavy background
 // work — cap submissions; per-item AI cost is governed by the quota check.
 app.use("/api/flipdesk/autolister/*", rateLimiter(20, 60_000, "flipdesk-autolister"));
@@ -261,6 +278,14 @@ app.use("/api/content/social/*/suggest-hashtags", rateLimiter(30, 60_000, "conte
 app.use("/api/content/topics/research", rateLimiter(20, 60_000, "content-ai"));
 app.use("/api/content/images/*", rateLimiter(20, 60_000, "content-ai"));
 
+// US-507: content-AI kill-switch on the same expensive paths.
+app.use("/api/content/blog/*/generate", featureGate("content_ai"));
+app.use("/api/content/blog/*/compose-stream", featureGate("content_ai"));
+app.use("/api/content/blog/*/regenerate-section", featureGate("content_ai"));
+app.use("/api/content/social/*/generate", featureGate("content_ai"));
+app.use("/api/content/topics/research", featureGate("content_ai"));
+app.use("/api/content/images/*", featureGate("content_ai"));
+
 // Coarse per-IP ceiling on the unauthenticated webhook receivers — blunts
 // floods only. Legit Stripe/eBay bursts stay well under it, and a 429 just
 // makes the provider retry (idempotency in US-277 makes that safe).
@@ -286,6 +311,7 @@ app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
+app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
@@ -299,6 +325,8 @@ app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.
 app.post("/api/jobs/autolister-reclaim", (c) => handleAutolisterReclaimCron(c));
 app.route("/api/admin", adminBillingRoutes);
+// US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
+app.route("/api/admin/feature-flags", adminFlagsRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
 // US-326 public transparency report. Lives at /api/grading/public (NOT
@@ -309,6 +337,20 @@ app.route("/api/grading/public", publicGradingRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
 app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
+// US-495 stuck-submission recovery sweep. OUTSIDE the JWT groups; the handler
+// enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
+// reverses their charge so a crash/redeploy can't strand paid work.
+app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
+// US-498 transactional-email outbox retry sweep. OUTSIDE the JWT groups; the
+// handler enforces X-Internal-Job-Secret itself. Re-sends failed critical
+// emails with backoff and dead-letters after max attempts.
+app.post("/api/jobs/email-retry", (c) => handleEmailRetryCron(c));
+// US-504 periodic DB integrity scan (orphans/drift/stuck rows -> alert).
+app.post("/api/jobs/integrity-scan", (c) => handleIntegrityScanCron(c));
+// US-521 data-retention / PII purge (delete grading photos past the window).
+app.post("/api/jobs/data-retention", (c) => handleDataRetentionCron(c));
+// US-621 Condition Index refresh — rebuilds the curated price-vs-grade curves.
+app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefreshCron(c));
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
@@ -344,7 +386,22 @@ app.onError((err, c) => {
   if (err instanceof BodyTooLargeError) {
     return c.json({ error: "Request body too large", maxBytes: err.maxBytes }, 413);
   }
-  console.error("Unhandled error:", err);
+  // US-359: redact before logging (no PII/secrets in the sink) and return a
+  // generic body — never the raw error text.
+  // US-491: report the exception to the tracker with request/route/user context
+  // tagged with the release SHA, correlated to the access-log line by request id.
+  let path = c.req.path;
+  try {
+    path = new URL(c.req.url).pathname;
+  } catch { /* keep c.req.path */ }
+  captureException(err, {
+    route: `${c.req.method} ${path}`,
+    method: c.req.method,
+    url: path,
+    correlationId: readCtxVar(c, "correlationId"),
+    userId: readCtxVar(c, "userId") ?? readCtxVar(c, "workspaceOwnerId"),
+  });
+  console.error("Unhandled error:", redactError(err));
   return c.json({ error: "Internal server error" }, 500);
 });
 
@@ -352,7 +409,16 @@ app.onError((err, c) => {
 // set in production (the flag is already ignored by isDebugAllowed). (US-266)
 assertNoProdDebugFlags();
 
+// US-357: refuse to boot in production with admin MFA silently disabled. Throws
+// here (before Deno.serve) so a misconfigured deploy crashes loudly instead of
+// serving admin routes without the AAL2 gate.
+assertAdminMfaConfig();
+
 const port = parseInt(Deno.env.get("PORT") || "8787");
-console.log(`Edge functions running on port ${port}`);
+logEvent("info", "edge.boot", {
+  port,
+  release: releaseSha(),
+  errorTracking: !!Deno.env.get("SENTRY_DSN")?.trim(),
+});
 
 Deno.serve({ port }, app.fetch);

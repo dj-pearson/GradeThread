@@ -9,6 +9,7 @@ import {
   sendWelcomeEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
+import { verifyUnsubscribeToken } from "../lib/unsubscribe.ts";
 
 // Insert an in-app notification (service role bypasses RLS). Best-effort.
 async function notifyInApp(
@@ -43,6 +44,52 @@ function checkWelcomeRateLimit(ip: string): boolean {
   entry.count += 1;
   return entry.count <= WELCOME_MAX;
 }
+
+// ─── No-login marketing unsubscribe (US-516 / CAN-SPAM) ──────────────
+//
+// GET /unsubscribe?u=<userId>&t=<token>
+// Honors a one-click unsubscribe from marketing email WITHOUT a login. The
+// token is an HMAC over the user id (lib/unsubscribe.ts) so it can't be forged
+// for another user. Flips notification_preferences.product_updates.email to
+// false. Returns a tiny HTML confirmation (rendered in the browser). This path
+// is intentionally NOT under authMiddleware.
+notificationRoutes.get("/unsubscribe", async (c) => {
+  const userId = c.req.query("u") ?? "";
+  const token = c.req.query("t") ?? "";
+  const html = (msg: string, ok: boolean) =>
+    c.html(
+      `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Email preferences</title></head><body style="font-family:system-ui,sans-serif;max-width:480px;margin:64px auto;padding:0 24px;text-align:center;color:#1A1A2E"><h1 style="font-size:20px;color:#0F3460">GradeThread</h1><p style="font-size:15px;line-height:1.5">${msg}</p></body></html>`,
+      ok ? 200 : 400,
+    );
+
+  if (!userId || !token || !(await verifyUnsubscribeToken(userId, token))) {
+    return html("This unsubscribe link is invalid or has expired.", false);
+  }
+
+  // Merge product_updates.email = false into the JSONB preferences.
+  const { data: row } = await supabaseAdmin
+    .from("users")
+    .select("notification_preferences")
+    .eq("id", userId)
+    .maybeSingle();
+  const prefs =
+    (row as { notification_preferences?: Record<string, unknown> } | null)
+      ?.notification_preferences ?? {};
+  const product = (prefs.product_updates as Record<string, unknown>) ?? {};
+  const next = { ...prefs, product_updates: { ...product, email: false } };
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({ notification_preferences: next })
+    .eq("id", userId);
+  if (error) {
+    return html("Sorry — we couldn't update your preferences. Please try again.", false);
+  }
+  return html(
+    "You've been unsubscribed from GradeThread marketing emails. You'll still receive essential account and transaction messages.",
+    true,
+  );
+});
 
 // ─── User-submitted feedback (US-199) ────────────────────────────────
 //
@@ -466,6 +513,7 @@ notificationRoutes.post("/trial-check", async (c) => {
         userName: first,
         daysLeft,
         trialEndsAt: u.trial_ends_at,
+        userId: u.id, // US-516: enables the no-login marketing unsubscribe link
       }).catch((err) => {
         console.error(`[trial-check] email failed for ${u.id}:`, err);
       });

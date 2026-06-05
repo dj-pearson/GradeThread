@@ -160,6 +160,27 @@ export async function sellerUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   }));
 }
 
+// US-621: public Condition Index hub + per-item pages.
+export async function conditionIndexUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{ items: Array<{ slug: string; refreshedAt?: string }> }>(
+    env,
+    "/api/grading/public/condition-index",
+  );
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/condition-index`, lastmod: today(), changefreq: "weekly", priority: 0.7 },
+  ];
+  for (const it of data?.items ?? []) {
+    urls.push({
+      loc: `${base}/condition-index/${it.slug}`,
+      lastmod: it.refreshedAt?.slice(0, 10),
+      changefreq: "weekly",
+      priority: 0.6,
+    });
+  }
+  return urls;
+}
+
 export function urlsetXml(urls: SitemapUrl[]): string {
   const body = urls
     .map(

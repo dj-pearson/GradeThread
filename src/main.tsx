@@ -16,6 +16,8 @@ if (sentryDsn) {
     dsn: sentryDsn,
     integrations: [Sentry.browserTracingIntegration()],
     tracesSampleRate: 0.1,
+    sendDefaultPii: true,
+    release: import.meta.env.VITE_RELEASE_SHA,
   });
 }
 

@@ -155,6 +155,9 @@ export interface PlanGateUser {
   subscription_status: string;
   // US-383: an expired Pro trial drops to Free caps before the downgrade job runs.
   trial_ends_at: string | null;
+  // US-395: anchor for the dunning grace window; a past_due sub past the window
+  // loses paid caps.
+  past_due_since: string | null;
   ai_actions_used_this_month: number;
   ai_action_limit: number | null;
   grades_used_this_month: number;
@@ -179,7 +182,7 @@ const defaultDeps: PlanGateDeps = {
     const { data, error } = await supabaseAdmin
       .from("users")
       .select(
-        "flipdesk_plan, subscription_status, trial_ends_at, ai_actions_used_this_month, ai_action_limit, grades_used_this_month, grade_reset_at",
+        "flipdesk_plan, subscription_status, trial_ends_at, past_due_since, ai_actions_used_this_month, ai_action_limit, grades_used_this_month, grade_reset_at",
       )
       .eq("id", userId)
       .single();
@@ -216,12 +219,15 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
     return c.json({ error: "USER_NOT_FOUND" }, 404);
   }
 
-  // Paused subscribers AND expired trials (US-383) fall back to Free caps but
-  // don't reset counters. Shared resolution with the grading path.
+  // Paused subscribers, expired trials (US-383), AND past_due subs beyond the
+  // dunning grace window (US-395) fall back to Free caps but don't reset
+  // counters. Shared resolution with the grading path.
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
     user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
   ) as FlipdeskPlan;
   const plan = PLAN_MATRIX[effectivePlan];
 

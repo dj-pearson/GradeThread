@@ -18,6 +18,7 @@ import { createServer } from "vite";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { syncCspHash } from "./csp-hash.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
@@ -108,3 +109,27 @@ try {
 }
 
 console.log(`\n[prerender] wrote ${written} static page(s).`);
+
+// US-358: regenerate the CSP inline-script hash from the BUILT bootstrap (which
+// esbuild may have minified) and rewrite dist/_headers, so the served CSP can
+// never drift from the served index.html. The inline bootstrap sits after the
+// prerender:head markers and is preserved byte-for-byte across all routes, so
+// hashing the root dist/index.html covers every page.
+const headersPath = join(distDir, "_headers");
+if (existsSync(headersPath)) {
+  const builtIndex = readFileSync(templatePath, "utf8");
+  const headers = readFileSync(headersPath, "utf8");
+  try {
+    const synced = syncCspHash(builtIndex, headers);
+    if (synced !== headers) {
+      writeFileSync(headersPath, synced);
+      console.log("[prerender] synced CSP inline-script hash in dist/_headers.");
+    } else {
+      console.log("[prerender] CSP inline-script hash already current.");
+    }
+  } catch (e) {
+    fail(`CSP hash sync failed: ${e?.message ?? e}`);
+  }
+} else {
+  fail("dist/_headers not found — cannot sync the CSP inline-script hash.");
+}
