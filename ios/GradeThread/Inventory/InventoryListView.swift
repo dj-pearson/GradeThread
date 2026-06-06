@@ -19,8 +19,12 @@ struct InventoryListView: View {
     @State private var selectedStage: InventoryStage = .all
     @State private var searchQuery: String = ""
     @State private var sortOption: SortOption = .newest
-    /// US: show only items that carry a certified grade.
-    @State private var gradedOnly: Bool = false
+    /// Advanced multi-facet filter (brand / size / color / price / grade /
+    /// photo / recency). The old single "graded only" toggle is folded in
+    /// as `criteria.gradedOnly`.
+    @State private var criteria = InventoryFilterCriteria()
+    @State private var showingFilterSheet = false
+    @State private var savedFilters = SavedFilterStore()
 
     // US-182 multi-select
     @State private var selection = BulkSelectionStore()
@@ -45,14 +49,24 @@ struct InventoryListView: View {
     var body: some View {
         VStack(spacing: 0) {
             tabRow
+            ActiveFilterBar(criteria: $criteria)
             list
         }
         .navigationTitle("Inventory")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             sortToolbarItem
+            filterToolbarItem
             selectToolbarItem
             syncToolbarItem
+        }
+        .sheet(isPresented: $showingFilterSheet) {
+            InventoryFilterSheet(
+                criteria: $criteria,
+                facets: InventoryFacets.derive(from: allItems),
+                savedFilters: savedFilters,
+                resultCount: { resultCount(for: $0) }
+            )
         }
         .sheet(isPresented: $showingSyncModal) {
             EbaySyncModal(store: syncStore, onDismiss: { syncStore.reset() })
@@ -224,18 +238,24 @@ struct InventoryListView: View {
     }
 
     /// Standardized on ``ContentUnavailableView`` (like the rest of the app)
-    /// and differentiated: an active search or "graded only" filter shows a
-    /// "no matches" state rather than the stage's generic empty copy, so the
-    /// user isn't told the stage is empty when it's really their filter.
+    /// and differentiated: an active search or active facet filter shows a
+    /// "no matches" state (with a one-tap clear) rather than the stage's
+    /// generic empty copy, so the user isn't told the stage is empty when
+    /// it's really their filter.
     @ViewBuilder
     private var emptyState: some View {
         if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
             ContentUnavailableView.search(text: searchQuery)
-        } else if gradedOnly {
+        } else if criteria.isActive {
             ContentUnavailableView {
-                Label("No graded items", systemImage: "checkmark.seal")
+                Label("No matches", systemImage: "line.3.horizontal.decrease.circle")
             } description: {
-                Text("Items you grade show up here. Turn off “Graded only” to see everything.")
+                Text("No items in this stage match your filters.")
+            } actions: {
+                Button("Clear filters") {
+                    AppRouter.haptic()
+                    withAnimation { criteria = .empty }
+                }
             }
         } else {
             ContentUnavailableView {
@@ -295,11 +315,6 @@ struct InventoryListView: View {
     private var sortToolbarItem: some ToolbarContent {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                Section("Filter") {
-                    Toggle(isOn: $gradedOnly) {
-                        Label("Graded only", systemImage: "checkmark.seal")
-                    }
-                }
                 Section("Sort") {
                     ForEach(SortOption.allCases) { option in
                         Button {
@@ -314,10 +329,39 @@ struct InventoryListView: View {
                     }
                 }
             } label: {
-                Image(systemName: gradedOnly
+                Image(systemName: "arrow.up.arrow.down.circle")
+                    .accessibilityLabel("Sort")
+            }
+        }
+    }
+
+    /// Filter entry point with a badge showing how many facets are active,
+    /// so the user can tell the list is narrowed without scrolling the chip
+    /// bar.
+    @ToolbarContentBuilder
+    private var filterToolbarItem: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Button {
+                AppRouter.haptic()
+                showingFilterSheet = true
+            } label: {
+                Image(systemName: criteria.isActive
                       ? "line.3.horizontal.decrease.circle.fill"
-                      : "arrow.up.arrow.down.circle")
-                    .accessibilityLabel("Sort and filter")
+                      : "line.3.horizontal.decrease.circle")
+                    .overlay(alignment: .topTrailing) {
+                        if criteria.activeCount > 0 {
+                            Text("\(criteria.activeCount)")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(3)
+                                .frame(minWidth: 16, minHeight: 16)
+                                .background(Color.brandRed, in: Circle())
+                                .offset(x: 7, y: -7)
+                        }
+                    }
+                    .accessibilityLabel(criteria.isActive
+                        ? "Filters, \(criteria.activeCount) active"
+                        : "Filters")
             }
         }
     }
@@ -330,8 +374,20 @@ struct InventoryListView: View {
             stage: selectedStage,
             search: searchQuery,
             sort: sortOption,
-            gradedOnly: gradedOnly
+            criteria: criteria
         )
+    }
+
+    /// Item count the given criteria yields under the current stage +
+    /// search — feeds the filter sheet's live "Show N items" footer.
+    private func resultCount(for candidate: InventoryFilterCriteria) -> Int {
+        InventoryFilter.apply(
+            allItems,
+            stage: selectedStage,
+            search: searchQuery,
+            sort: sortOption,
+            criteria: candidate
+        ).count
     }
 
     private func stageCount(_ stage: InventoryStage) -> Int {
