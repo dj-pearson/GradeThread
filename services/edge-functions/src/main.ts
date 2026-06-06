@@ -248,8 +248,20 @@ app.use("/api/flipdesk/ai/*", rateLimiter(20, 60_000, "flipdesk-ai"));
 // US-619: ScoutAI is expensive (grades N candidates per scan) - cap tightly.
 app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
 // AutoLister batch enqueue is cheap to call but kicks off heavy background
-// work — cap submissions; per-item AI cost is governed by the quota check.
-app.use("/api/flipdesk/autolister/*", rateLimiter(20, 60_000, "flipdesk-autolister"));
+// work — cap submissions; per-item AI cost is governed by the quota check. The
+// cap applies to WRITES only (POST: batch enqueue, classify-photos, photo-qa,
+// retry). The read-only batch-status poll (GET /batch/:id) gets its own roomy
+// budget below: the queue view polls every 1.5s (~40/min) for the minutes a
+// batch generates, which would otherwise drain this write budget and 429 the
+// poll mid-run (a batch DoS-ing its own status view).
+app.use(
+  "/api/flipdesk/autolister/*",
+  rateLimiter(20, 60_000, "flipdesk-autolister", undefined, { methods: ["POST"] }),
+);
+app.use(
+  "/api/flipdesk/autolister/*",
+  rateLimiter(120, 60_000, "autolister-poll", undefined, { methods: ["GET"] }),
+);
 // Disclosure reads are cheap; the annotated-photo upload writes storage.
 app.use("/api/flipdesk/disclosure/*", rateLimiter(40, 60_000, "flipdesk-disclosure"));
 // A repricing scan fans out to one eBay Browse call per listing — cap tightly.

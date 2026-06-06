@@ -32,7 +32,7 @@ interface FakeCtx {
 }
 
 function makeCtx(
-  opts: { userId?: string; cfIp?: string; xff?: string } = {},
+  opts: { userId?: string; cfIp?: string; xff?: string; method?: string } = {},
 ): { c: unknown; rec: FakeCtx } {
   const rec: FakeCtx = { headers: {}, status: null };
   const reqHeaders: Record<string, string> = {};
@@ -40,7 +40,10 @@ function makeCtx(
   if (opts.xff) reqHeaders["x-forwarded-for"] = opts.xff;
   const c = {
     get: (k: string) => (k === "userId" ? opts.userId : undefined),
-    req: { header: (name: string) => reqHeaders[name.toLowerCase()] },
+    req: {
+      method: opts.method ?? "POST",
+      header: (name: string) => reqHeaders[name.toLowerCase()],
+    },
     header: (name: string, value: string) => {
       rec.headers[name] = value;
     },
@@ -86,6 +89,34 @@ Deno.test("returns 429 + Retry-After once the limit is exceeded", async () => {
   assertEquals(r3.rec.status, 429);
   assertEquals(r3.rec.headers["X-RateLimit-Remaining"], "0");
   assert(Number(r3.rec.headers["Retry-After"]) >= 1);
+});
+
+Deno.test("opts.methods: only the listed methods are counted/limited", async () => {
+  // GET-only limiter at 1/window: a GET over the limit is 429'd, but a POST to
+  // the same path passes straight through (left for a sibling write limiter).
+  const mw = rateLimiter(1, 60_000, "poll", memoryStore(), { methods: ["GET"] });
+  const g1 = await call(mw, { userId: "u", method: "GET" }); // 1 (allowed)
+  assert(g1.nexted);
+  const g2 = await call(mw, { userId: "u", method: "GET" }); // 2 (over)
+  assertEquals(g2.rec.status, 429);
+  // POST isn't governed by this limiter — passes through, uncounted.
+  const p = await call(mw, { userId: "u", method: "POST" });
+  assert(p.nexted);
+  assertEquals(p.rec.status, null);
+});
+
+Deno.test("opts.methods: a GET-only and POST-only limiter on one path keep separate budgets", async () => {
+  // Mirrors the autolister split: the read-poll budget and the write budget
+  // don't drain each other.
+  const store = memoryStore();
+  const writes = rateLimiter(1, 60_000, "al-write", store, { methods: ["POST"] });
+  const polls = rateLimiter(1, 60_000, "al-poll", store, { methods: ["GET"] });
+  await call(writes, { userId: "u", method: "POST" }); // write budget: 1/1
+  const overWrite = await call(writes, { userId: "u", method: "POST" });
+  assertEquals(overWrite.rec.status, 429); // writes exhausted
+  const poll = await call(polls, { userId: "u", method: "GET" }); // poll untouched
+  assert(poll.nexted);
+  assertEquals(poll.rec.status, null);
 });
 
 Deno.test("distinct scopes keep independent budgets", async () => {

@@ -60,13 +60,28 @@ function clientIp(c: Context): string | null {
 // `scope` groups requests that should share one budget (e.g. all /api/grade/*
 // calls). Distinct scopes get distinct counters so a user's grade budget isn't
 // drained by their flipdesk-ai calls.
+//
+// `opts.methods` restricts the limiter to specific HTTP methods (default: all).
+// This lets a cheap read (e.g. a status poll) and the expensive writes on the
+// same path mount as two limiters with separate budgets — the read-only poll
+// never drains the write budget. Requests whose method isn't listed pass through
+// untouched so a second, method-complementary limiter can govern them.
 export function rateLimiter(
   maxRequests = 60,
   windowMs = 60_000,
   scope = "default",
   increment: RateLimitIncrementer = defaultIncrement,
+  opts: { methods?: string[] } = {},
 ) {
+  const methodFilter = opts.methods?.map((m) => m.toUpperCase());
   return createMiddleware<RateLimitEnv>(async (c, next) => {
+    // Not one of the methods this limiter governs → leave it for whatever else
+    // is mounted on this path.
+    if (methodFilter && !methodFilter.includes(c.req.method.toUpperCase())) {
+      await next();
+      return;
+    }
+
     const userId = c.get("userId");
     const subject = userId ? `user:${userId}` : (() => {
       const ip = clientIp(c);
