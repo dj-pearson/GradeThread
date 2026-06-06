@@ -32,7 +32,12 @@ public struct InventoryFacets: Equatable {
     /// blank/whitespace values are dropped. Brands/colors sort by frequency
     /// (most common first) then alphabetically; sizes sort naturally so
     /// "S, M, L, XL, 2, 10" land in a sane order rather than lexical.
-    public static func derive(from items: [LocalInventoryItem]) -> InventoryFacets {
+    ///
+    /// Intentionally `internal` (not `public`): its parameter is the
+    /// module-internal `LocalInventoryItem` model, and a `public` signature
+    /// exposing an internal type doesn't compile. All callers (the list view
+    /// and the `@testable` tests) live in this module.
+    static func derive(from items: [LocalInventoryItem]) -> InventoryFacets {
         var brandCounts: [String: Int] = [:]
         var sizeCounts: [String: Int] = [:]
         var colorCounts: [String: Int] = [:]
