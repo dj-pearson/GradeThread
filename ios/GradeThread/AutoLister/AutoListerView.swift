@@ -5,16 +5,16 @@ import UIKit
 /// AutoLister capture + review screen. Import a batch of library photos, review
 /// the auto-derived item groups (set cover, split, merge, delete), then Generate.
 ///
-/// The Generate action is injected (`onGenerate`) so this screen stays
-/// self-contained; Phase C wires it to the create-items → upload → classify →
-/// submit pipeline and pushes the queue.
+/// Generate pushes `AutoListerQueueView`, which runs the create-items → upload →
+/// classify → submit pipeline via `AutoListerGenerator`. The shared upload
+/// service/store come from the environment (same as `PhotoIntakeView`).
 struct AutoListerView: View {
     @StateObject private var model = AutoListerReviewModel()
+    @Environment(\.photoUploadService) private var uploadService
+    @Environment(PhotoUploadStore.self) private var uploadStore
     @State private var showingPicker = false
-
-    /// Called with the reviewed groups when the user taps Generate. Default is a
-    /// no-op so the view compiles + previews standalone before the pipeline lands.
-    var onGenerate: ([PreparedGroup]) async -> Void = { _ in }
+    /// Set when the user taps Generate; drives the push to the queue.
+    @State private var pendingGroups: [PreparedGroup]?
 
     var body: some View {
         content
@@ -27,6 +27,20 @@ struct AutoListerView: View {
                     Task { await model.importPicks(results) }
                 }
                 .ignoresSafeArea()
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { pendingGroups != nil },
+                    set: { if !$0 { pendingGroups = nil } }
+                )
+            ) {
+                if let groups = pendingGroups, let service = uploadService {
+                    AutoListerQueueView(
+                        groups: groups,
+                        uploadService: service,
+                        uploadStore: uploadStore
+                    )
+                }
             }
     }
 
@@ -179,14 +193,14 @@ struct AutoListerView: View {
     private var generateBar: some View {
         let count = model.groups.count
         return Button {
-            Task { await onGenerate(model.preparedGroups()) }
+            pendingGroups = model.preparedGroups()
         } label: {
             Text("Generate \(count) listing\(count == 1 ? "" : "s")")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
-        .disabled(!model.canGenerate)
+        .disabled(!model.canGenerate || uploadService == nil)
         .padding()
         .background(.bar)
     }
