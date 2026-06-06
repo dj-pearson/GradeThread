@@ -243,6 +243,9 @@ struct MainShell: View {
             Button("Details-first (manual form)") {
                 router.startIntake(.detailsFirst)
             }
+            Button("AutoLister (batch photos → AI listings)") {
+                router.startIntake(.autoLister)
+            }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Where would you like to start?")
@@ -561,6 +564,7 @@ enum AppSection: Hashable {
 enum IntakeRoute: Hashable {
     case photoFirst
     case detailsFirst
+    case autoLister
 }
 
 /// State and selection logic for the main shell. Holds one `NavigationPath`
@@ -857,6 +861,8 @@ private struct IntakePlaceholder: View {
             PhotoIntakeView()
         case .detailsFirst:
             DetailsIntakeView()
+        case .autoLister:
+            AutoListerView()
         }
     }
 }
