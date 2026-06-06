@@ -21,6 +21,23 @@ struct AutoListerQueueView: View {
                 didStart = true
                 await generator.run(groups: groups, uploadService: uploadService, uploadStore: uploadStore)
             }
+            .onChange(of: generator.batch.phase) { _, newPhase in
+                switch newPhase {
+                case .completed: HapticFeedback.success(); logCompletion("completed")
+                case .partial:   HapticFeedback.warning(); logCompletion("partial")
+                case .failed:    HapticFeedback.error();   logCompletion("failed")
+                default:         break
+                }
+            }
+    }
+
+    private func logCompletion(_ status: String) {
+        let b = generator.batch.batch
+        Telemetry.event("autolister_batch_completed", props: [
+            "status": status,
+            "succeeded": b?.succeededCount ?? 0,
+            "failed": b?.failedCount ?? 0,
+        ])
     }
 
     @ViewBuilder
@@ -90,6 +107,8 @@ struct AutoListerQueueView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(summaryLabel)
             }
 
             if !nudges.isEmpty {

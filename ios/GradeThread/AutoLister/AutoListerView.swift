@@ -24,10 +24,14 @@ struct AutoListerView: View {
             .sheet(isPresented: $showingPicker) {
                 PhotoLibraryPicker(selectionLimit: 0) { results in
                     showingPicker = false
-                    Task { await model.importPicks(results) }
+                    Task {
+                        await model.importPicks(results)
+                        HapticFeedback.light()
+                    }
                 }
                 .ignoresSafeArea()
             }
+            .onAppear { Telemetry.event("autolister_opened") }
             .navigationDestination(
                 isPresented: Binding(
                     get: { pendingGroups != nil },
@@ -76,6 +80,7 @@ struct AutoListerView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .accessibilityHint("Pick a batch of photos from your library to group into listings.")
             .padding(.top, 4)
         }
         .padding(32)
@@ -193,6 +198,11 @@ struct AutoListerView: View {
     private var generateBar: some View {
         let count = model.groups.count
         return Button {
+            HapticFeedback.medium()
+            Telemetry.event(
+                "autolister_generate_started",
+                props: ["groups": count, "photos": model.totalPhotos]
+            )
             pendingGroups = model.preparedGroups()
         } label: {
             Text("Generate \(count) listing\(count == 1 ? "" : "s")")
@@ -201,6 +211,7 @@ struct AutoListerView: View {
         .buttonStyle(.borderedProminent)
         .controlSize(.large)
         .disabled(!model.canGenerate || uploadService == nil)
+        .accessibilityHint("Creates an item per group, uploads its photos, and generates listings with AI.")
         .padding()
         .background(.bar)
     }
