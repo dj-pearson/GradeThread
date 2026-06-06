@@ -67,7 +67,7 @@ export function profileLinkEmbedHtml(handle: string): string {
   const href = profileUrl(handle);
   return (
     `<a href="${href}" target="_blank" rel="noopener" ` +
-    `style="display:inline-block;background:#0F3460;color:#fff;text-decoration:none;` +
+    `style="display:inline-block;background:#0C1E36;color:#fff;text-decoration:none;` +
     `padding:8px 16px;border-radius:999px;font:600 14px system-ui,sans-serif">` +
     `✓ GradeThread Verified Seller</a>`
   );

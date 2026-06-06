@@ -864,18 +864,33 @@ private struct IntakePlaceholder: View {
 // MARK: - Brand colors
 
 extension Color {
-    /// Brand palette mirrors the web app (src/index.css).
-    // Read from the asset catalog (US-192) so iOS swaps to the
-    // high-contrast variant when Increase Contrast is on in
-    // Accessibility Settings. The named entries fall back to the
-    // literal RGB tone we shipped before for older bundles that
-    // don't have the colorsets.
+    /// Brand palette mirrors the refreshed media kit (design.md §2 / §4A and
+    /// the web app's src/index.css). Read from the asset catalog (US-192) so
+    /// iOS swaps to the high-contrast variant when Increase Contrast is on in
+    /// Accessibility Settings.
+    ///
+    /// `brandNavy` is the Obsidian Navy (#0C1E36) brand anchor. The Excellent
+    /// grade tier (7.0–9.0) uses the distinct Steel Navy (#0F3460) —
+    /// `brandSteelNavy` — per design.md §3B, so the anchor and the tier stay
+    /// independently tunable.
     static let brandNavy = Color(
         "BrandNavy",
         bundle: nil
     )
+    static let brandSteelNavy = Color(
+        "BrandSteelNavy",
+        bundle: nil
+    )
     static let brandRed = Color(
         "BrandRed",
+        bundle: nil
+    )
+    static let brandEmerald = Color(
+        "BrandEmerald",
+        bundle: nil
+    )
+    static let brandAmber = Color(
+        "BrandAmber",
         bundle: nil
     )
 }

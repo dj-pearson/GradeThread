@@ -9,14 +9,16 @@ import { useSaveAnnotatedPhoto, type DisclosurePhoto } from "@/hooks/use-disclos
 // defects the grader couldn't localize). Exports the composited image so it can
 // be downloaded or attached to the listing's photo set.
 
+// Severity tones follow the refreshed media kit (design.md §3B): Vibrant
+// Crimson for major defects, Amber Gold for moderate.
 const SEVERITY_COLOR: Record<string, string> = {
-  major: "#E94560",
+  major: "#F03D5F",
   moderate: "#F59E0B",
   minor: "#EAB308",
 };
 
 function severityColor(s: string): string {
-  return SEVERITY_COLOR[s] ?? "#E94560";
+  return SEVERITY_COLOR[s] ?? "#F03D5F";
 }
 
 const MAX_CANVAS_W = 900;
@@ -90,7 +92,7 @@ export function AnnotatedPhoto({
       const legendTop = h + LEGEND_PAD;
       ctx.textAlign = "left";
       ctx.font = `600 ${Math.max(13, Math.round(w / 55))}px system-ui, sans-serif`;
-      ctx.fillStyle = "#0F3460";
+      ctx.fillStyle = "#0C1E36";
       ctx.fillText("Documented condition — AI-verified by GradeThread", LEGEND_PAD, legendTop);
       ctx.font = `${Math.max(13, Math.round(w / 60))}px system-ui, sans-serif`;
       photo.annotations.forEach((a, idx) => {
@@ -108,7 +110,7 @@ export function AnnotatedPhoto({
         ctx.fillText(String(a.n), cx, y + 0.5);
         // text
         ctx.textAlign = "left";
-        ctx.fillStyle = "#1A1A2E";
+        ctx.fillStyle = "#0E0E1A";
         ctx.font = `${Math.max(13, Math.round(w / 60))}px system-ui, sans-serif`;
         const loc = a.location ? ` (${a.location})` : "";
         ctx.fillText(`${a.issue}${loc} — ${a.severity}`, LEGEND_PAD + 26, y);

@@ -104,19 +104,22 @@ enum GradeTierOption: String, CaseIterable, Identifiable {
 // MARK: - Score presentation
 
 /// Shared score → color mapping so the ring, factor bars, and row badge all
-/// agree. Matches the web thresholds (>7 green, ≥5 amber, else red).
+/// agree. Follows the design.md §3B grading tiers: Pristine/NWT (≥9.5) Emerald,
+/// Excellent/NWOT (7.0–9.0) Steel Navy, Good/Fair (5.0–6.5) Amber, and
+/// Poor/Damaged (<5.0) Crimson.
 enum GradeScale {
     static func color(for score: Double) -> Color {
-        if score > 7 { return .green }
-        if score >= 5 { return .orange }
+        if score >= 9.5 { return .brandEmerald }
+        if score >= 7.0 { return .brandSteelNavy }
+        if score >= 5.0 { return .brandAmber }
         return .brandRed
     }
 
     /// Qualitative confidence bucket. Below 0.75 routes to human review
     /// server-side, so we surface "Low" with a cautionary tone there.
     static func confidenceLabel(_ score: Double) -> (label: String, color: Color) {
-        if score > 0.85 { return ("High", .green) }
-        if score >= 0.75 { return ("Medium", .orange) }
+        if score > 0.85 { return ("High", .brandEmerald) }
+        if score >= 0.75 { return ("Medium", .brandAmber) }
         return ("Low", .brandRed)
     }
 }

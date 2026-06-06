@@ -50,28 +50,31 @@ type VerifyState =
   | { phase: "done"; result: IntegrityVerify }
   | { phase: "error" };
 
+// Grade-tier colors follow the refreshed media kit (design.md §3B): Emerald
+// Mint (#10B981 = emerald-500), Amber Gold (#F59E0B = amber-500), and Vibrant
+// Crimson (#F03D5F = brand-red / rose tints) for the lower tier.
 function getScoreColor(score: number): string {
-  if (score > 7) return "text-green-600";
-  if (score >= 5) return "text-yellow-600";
-  return "text-red-600";
+  if (score > 7) return "text-emerald-500";
+  if (score >= 5) return "text-amber-500";
+  return "text-brand-red";
 }
 
 function getScoreBorderColor(score: number): string {
-  if (score > 7) return "border-green-500";
-  if (score >= 5) return "border-yellow-500";
-  return "border-red-500";
+  if (score > 7) return "border-emerald-500";
+  if (score >= 5) return "border-amber-500";
+  return "border-brand-red";
 }
 
 function getTierBadgeClasses(score: number): string {
-  if (score > 7) return "bg-green-100 text-green-800 border-green-200";
-  if (score >= 5) return "bg-yellow-100 text-yellow-800 border-yellow-200";
-  return "bg-red-100 text-red-800 border-red-200";
+  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200";
+  return "bg-rose-100 text-rose-800 border-rose-200";
 }
 
 function getProgressColor(score: number): string {
-  if (score > 7) return "[&>div]:bg-green-500";
-  if (score >= 5) return "[&>div]:bg-yellow-500";
-  return "[&>div]:bg-red-500";
+  if (score > 7) return "[&>div]:bg-emerald-500";
+  if (score >= 5) return "[&>div]:bg-amber-500";
+  return "[&>div]:bg-brand-red";
 }
 
 function formatLabel(value: string): string {
@@ -786,7 +789,7 @@ export function CertificatePage() {
               value={certificateUrl}
               size={120}
               bgColor="transparent"
-              fgColor="#0F3460"
+              fgColor="#0C1E36"
               level="M"
             />
             <p className="text-xs text-muted-foreground">Scan to verify</p>

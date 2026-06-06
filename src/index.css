@@ -16,6 +16,7 @@
 @theme inline {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif,
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-display: "Outfit", var(--font-sans);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -26,10 +27,10 @@
   --radius-4xl: calc(var(--radius) + 16px);
 
   /* Brand colors as Tailwind utilities */
-  --color-brand-navy: #0f3460;
-  --color-brand-red: #e94560;
-  --color-brand-night: #1a1a2e;
-  --color-brand-gray: #f5f5f5;
+  --color-brand-navy: #0c1e36;
+  --color-brand-red: #f03d5f;
+  --color-brand-night: #0e0e1a;
+  --color-brand-gray: #fafafc;
 
   /* Semantic color mappings */
   --color-background: var(--background);
@@ -68,72 +69,72 @@
 /* Light mode - GradeThread brand */
 :root {
   --radius: 0.625rem;
-  --background: #f5f5f5;
-  --foreground: #1a1a2e;
+  --background: #fafafc;
+  --foreground: #0e0e1a;
   --card: #ffffff;
-  --card-foreground: #1a1a2e;
+  --card-foreground: #0e0e1a;
   --popover: #ffffff;
-  --popover-foreground: #1a1a2e;
-  --primary: #0f3460;
-  --primary-foreground: #f5f5f5;
-  --secondary: #e8edf4;
-  --secondary-foreground: #0f3460;
-  --muted: #e8edf4;
+  --popover-foreground: #0e0e1a;
+  --primary: #0c1e36;
+  --primary-foreground: #fafafc;
+  --secondary: #f0f4f8;
+  --secondary-foreground: #0c1e36;
+  --muted: #f0f4f8;
   --muted-foreground: #64748b;
-  --accent: #e94560;
+  --accent: #f03d5f;
   --accent-foreground: #ffffff;
-  --destructive: #e94560;
+  --destructive: #f03d5f;
   --border: #e2e8f0;
   --input: #e2e8f0;
-  --ring: #0f3460;
-  --chart-1: #0f3460;
-  --chart-2: #e94560;
-  --chart-3: #1a1a2e;
+  --ring: #0c1e36;
+  --chart-1: #0c1e36;
+  --chart-2: #f03d5f;
+  --chart-3: #0e0e1a;
   --chart-4: #64748b;
   --chart-5: #94a3b8;
-  --sidebar: #0f3460;
-  --sidebar-foreground: #f5f5f5;
-  --sidebar-primary: #e94560;
+  --sidebar: #0c1e36;
+  --sidebar-foreground: #fafafc;
+  --sidebar-primary: #f03d5f;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #163d6f;
-  --sidebar-accent-foreground: #f5f5f5;
-  --sidebar-border: #163d6f;
-  --sidebar-ring: #e94560;
+  --sidebar-accent: #112a4c;
+  --sidebar-accent-foreground: #fafafc;
+  --sidebar-border: #112a4c;
+  --sidebar-ring: #f03d5f;
 }
 
 /* Dark mode - GradeThread brand */
 .dark {
-  --background: #1a1a2e;
-  --foreground: #f5f5f5;
-  --card: #0f3460;
-  --card-foreground: #f5f5f5;
-  --popover: #0f3460;
-  --popover-foreground: #f5f5f5;
-  --primary: #f5f5f5;
-  --primary-foreground: #0f3460;
-  --secondary: #1e2a4a;
-  --secondary-foreground: #f5f5f5;
-  --muted: #1e2a4a;
+  --background: #0e0e1a;
+  --foreground: #fafafc;
+  --card: #0c1e36;
+  --card-foreground: #fafafc;
+  --popover: #0c1e36;
+  --popover-foreground: #fafafc;
+  --primary: #fafafc;
+  --primary-foreground: #0c1e36;
+  --secondary: #162a45;
+  --secondary-foreground: #fafafc;
+  --muted: #162a45;
   --muted-foreground: #94a3b8;
-  --accent: #e94560;
+  --accent: #f03d5f;
   --accent-foreground: #ffffff;
-  --destructive: #e94560;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.15);
-  --ring: #e94560;
+  --destructive: #f03d5f;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #f03d5f;
   --chart-1: #6d9fff;
-  --chart-2: #e94560;
-  --chart-3: #f5f5f5;
+  --chart-2: #f03d5f;
+  --chart-3: #fafafc;
   --chart-4: #94a3b8;
   --chart-5: #64748b;
-  --sidebar: #0f3460;
-  --sidebar-foreground: #f5f5f5;
-  --sidebar-primary: #e94560;
+  --sidebar: #0c1e36;
+  --sidebar-foreground: #fafafc;
+  --sidebar-primary: #f03d5f;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #163d6f;
-  --sidebar-accent-foreground: #f5f5f5;
-  --sidebar-border: rgba(255, 255, 255, 0.1);
-  --sidebar-ring: #e94560;
+  --sidebar-accent: #112a4c;
+  --sidebar-accent-foreground: #fafafc;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --sidebar-ring: #f03d5f;
 }
 
 @layer base {
@@ -201,3 +202,49 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Glassmorphism card utility */
+.glass-card {
+  background: rgba(12, 30, 54, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 0.5px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.15);
+}
+:root:not(.dark) .glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  border: 0.5px solid rgba(12, 30, 54, 0.06);
+  box-shadow: 0 8px 32px 0 rgba(12, 30, 54, 0.04);
+}
+
+/* Shimmer animation override for skeleton loaders */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, var(--muted) 25%, rgba(255, 255, 255, 0.06) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite linear;
+}
+:root:not(.dark) .animate-shimmer {
+  background: linear-gradient(90deg, var(--muted) 25%, rgba(0, 0, 0, 0.02) 50%, var(--muted) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite linear;
+}
+
+/* Dynamic grade glows */
+.glow-emerald {
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.18);
+}
+.glow-amber {
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.18);
+}
+.glow-crimson {
+  box-shadow: 0 0 16px rgba(240, 61, 95, 0.18);
+}
+

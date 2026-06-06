@@ -110,7 +110,7 @@ function FlipdeskPricingBlock() {
   return (
     <div className="space-y-6">
       <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold">
+        <h2 className="text-2xl font-bold font-display text-brand-navy dark:text-white">
           FlipDesk — your reseller workflow
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -232,7 +232,7 @@ function GradeThreadPricingBlock() {
   return (
     <div className="space-y-6">
       <div className="space-y-2 text-center">
-        <h2 className="text-2xl font-semibold">
+        <h2 className="text-2xl font-bold font-display text-brand-navy dark:text-white">
           GradeThread — pay only when you grade
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -416,13 +416,17 @@ export function LandingPage() {
       </header>
 
       {/* Hero */}
-      <section className="flex flex-col items-center justify-center px-6 py-24 text-center lg:py-32">
-        <Badge variant="secondary" className="mb-6 text-sm font-medium">
+      <section className="relative flex flex-col items-center justify-center px-6 py-24 text-center lg:py-32 overflow-hidden">
+        {/* Ambient background glows */}
+        <div className="absolute top-1/4 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 rounded-full bg-brand-red/10 blur-[100px]" />
+        <div className="absolute bottom-1/4 left-1/3 -z-10 h-96 w-96 rounded-full bg-brand-navy/15 blur-[120px] dark:bg-brand-navy/35" />
+
+        <Badge variant="secondary" className="mb-6 text-sm font-medium border-brand-navy/10 dark:border-white/10 glass-card px-4 py-1.5 rounded-full">
           The condition-grading standard for resellers
         </Badge>
-        <h1 className="max-w-3xl text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+        <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl lg:text-6xl font-display">
           The Trusted Standard for Clothing{" "}
-          <span className="text-brand-red">Condition Grading</span>
+          <span className="bg-gradient-to-r from-brand-red to-rose-500 bg-clip-text text-transparent drop-shadow-sm">Condition Grading</span>
         </h1>
         <p className="mt-6 max-w-xl text-lg text-muted-foreground">
           GradeThread gives every pre-owned garment an objective 1.0–10.0
@@ -430,18 +434,18 @@ export function LandingPage() {
           cut returns and sell faster. Run the whole reselling workflow in
           FlipDesk.
         </p>
-        <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:gap-4">
+        <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:gap-4">
           <Link to="/signup">
             <Button
               size="lg"
-              className="w-full bg-brand-navy text-white hover:bg-brand-navy/90 sm:w-auto"
+              className="w-full bg-brand-navy text-white hover:bg-brand-navy/90 sm:w-auto font-medium shadow-md shadow-brand-navy/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
               Start Grading Free
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           </Link>
           <a href="#how-it-works">
-            <Button size="lg" variant="outline" className="w-full sm:w-auto">
+            <Button size="lg" variant="outline" className="w-full sm:w-auto hover:scale-[1.02] active:scale-[0.98] transition-all glass-card">
               See How It Works
             </Button>
           </a>
@@ -449,9 +453,9 @@ export function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-t bg-card px-6 py-20">
+      <section className="border-t bg-card/50 backdrop-blur-sm px-6 py-20">
         <div className="mx-auto max-w-5xl">
-          <h2 className="text-center text-3xl font-bold">
+          <h2 className="text-center text-3xl font-extrabold font-display">
             Why GradeThread?
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
@@ -459,12 +463,12 @@ export function LandingPage() {
           </p>
           <div className="mt-12 grid gap-8 md:grid-cols-3">
             {features.map((feature) => (
-              <div key={feature.title} className="text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-navy text-white">
+              <div key={feature.title} className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-navy/20 dark:hover:border-white/10 transition-all duration-300 glass-card">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-navy/10 text-brand-navy dark:bg-brand-navy/30 dark:text-white mb-4">
                   <feature.icon className="h-6 w-6" />
                 </div>
-                <h3 className="mt-4 text-lg font-semibold">{feature.title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">
+                <h3 className="text-lg font-semibold font-display">{feature.title}</h3>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
                   {feature.description}
                 </p>
               </div>
@@ -474,7 +478,7 @@ export function LandingPage() {
             Every grade follows one published, objective methodology.{" "}
             <Link
               to="/grading-standard"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-red hover:underline decoration-brand-red underline-offset-4"
             >
               See the GradeThread grading standard
             </Link>
@@ -484,23 +488,26 @@ export function LandingPage() {
       </section>
 
       {/* How It Works */}
-      <section id="how-it-works" className="px-6 py-20">
+      <section id="how-it-works" className="px-6 py-20 relative overflow-hidden">
+        {/* Subtle background glow */}
+        <div className="absolute top-1/2 left-1/2 -z-10 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand-navy/5 blur-[100px]" />
+        
         <div className="mx-auto max-w-5xl">
-          <h2 className="text-center text-3xl font-bold">How It Works</h2>
+          <h2 className="text-center text-3xl font-extrabold font-display">How It Works</h2>
           <p className="mx-auto mt-3 max-w-2xl text-center text-muted-foreground">
             Four simple steps from photo to verified grade certificate.
           </p>
-          <div className="mt-12 grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {howItWorks.map((item) => (
-              <div key={item.step} className="relative text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-navy text-white">
-                  <item.icon className="h-6 w-6" />
+              <div key={item.step} className="relative rounded-2xl border border-border/40 bg-card/60 p-6 text-center shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-navy text-white mb-4">
+                  <item.icon className="h-5 w-5" />
                 </div>
-                <span className="absolute -top-2 left-1/2 flex h-6 w-6 -translate-x-1/2 items-center justify-center rounded-full bg-brand-red text-xs font-bold text-white">
+                <span className="absolute top-4 right-4 flex h-6 w-6 items-center justify-center rounded-full bg-brand-red text-xs font-bold text-white shadow-sm">
                   {item.step}
                 </span>
-                <h3 className="mt-4 text-base font-semibold">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                <h3 className="text-base font-semibold font-display">{item.title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   {item.description}
                 </p>
               </div>
@@ -510,13 +517,13 @@ export function LandingPage() {
       </section>
 
       {/* Now with FlipDesk */}
-      <section className="border-t bg-card px-6 py-20">
+      <section className="border-t bg-card/50 backdrop-blur-sm px-6 py-20">
         <div className="mx-auto max-w-5xl">
           <div className="flex flex-col items-center text-center">
-            <Badge className="mb-4 bg-brand-red text-white">
+            <Badge className="mb-4 bg-brand-red text-white hover:bg-brand-red shadow-sm px-3 py-1 rounded-full">
               Now with FlipDesk
             </Badge>
-            <h2 className="text-3xl font-bold">
+            <h2 className="text-3xl font-extrabold font-display">
               The full reseller workflow, built in
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
@@ -552,12 +559,12 @@ export function LandingPage() {
                   "Track payouts, fees, and per-item P&L so you always know your real margins.",
               },
             ].map((item) => (
-              <div key={item.title} className="text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red text-white">
-                  <item.icon className="h-6 w-6" />
+              <div key={item.title} className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red mb-4">
+                  <item.icon className="h-5 w-5" />
                 </div>
-                <h3 className="mt-4 text-base font-semibold">{item.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                <h3 className="text-base font-semibold font-display">{item.title}</h3>
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                   {item.description}
                 </p>
               </div>
@@ -567,7 +574,7 @@ export function LandingPage() {
             <Link to="/signup">
               <Button
                 size="lg"
-                className="bg-brand-navy text-white hover:bg-brand-navy/90"
+                className="bg-brand-navy text-white hover:bg-brand-navy/90 font-medium hover:scale-[1.02] active:scale-[0.98] transition-all"
               >
                 <Compass className="mr-2 h-4 w-4" />
                 Try FlipDesk Free
@@ -581,7 +588,7 @@ export function LandingPage() {
       <section id="pricing" className="px-6 py-20">
         <div className="mx-auto max-w-6xl space-y-16">
           <div className="space-y-3 text-center">
-            <h2 className="text-3xl font-bold">Simple, transparent pricing</h2>
+            <h2 className="text-3xl font-extrabold font-display">Simple, transparent pricing</h2>
             <p className="mx-auto max-w-2xl text-muted-foreground">
               GradeThread is two products on one bill: a workflow tool you
               subscribe to, and a grading service you pay per item. Use only
@@ -603,7 +610,7 @@ export function LandingPage() {
       {/* FAQ */}
       <section id="faq" className="border-t bg-card px-6 py-20">
         <div className="mx-auto max-w-2xl">
-          <h2 className="text-center text-3xl font-bold">
+          <h2 className="text-center text-3xl font-extrabold font-display">
             Frequently Asked Questions
           </h2>
           <div className="mt-10 rounded-lg border bg-background p-6">
@@ -616,7 +623,7 @@ export function LandingPage() {
 
       {/* Final CTA */}
       <section className="bg-brand-navy px-6 py-20 text-center text-white">
-        <h2 className="text-3xl font-bold">
+        <h2 className="text-3xl font-extrabold font-display">
           Ready to Grade Smarter?
         </h2>
         <p className="mx-auto mt-3 max-w-xl text-white/80">
