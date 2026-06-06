@@ -122,6 +122,7 @@ struct ItemCanvasView: View {
             compsSection(state: state)
             notesSection(state: state)
             statusSection(state: state)
+            specificsSection
             if canPublish {
                 publishSection
             }
@@ -145,6 +146,22 @@ struct ItemCanvasView: View {
         }
         .sheet(isPresented: $showingPhotoManager) {
             PhotoManagerView(item: item, photos: allPhotos)
+        }
+    }
+
+    /// Entry to the eBay Category + Item Specifics editor. Required item
+    /// specifics are category-driven and block publish when missing, so this
+    /// sits just above the publish action.
+    private var specificsSection: some View {
+        Section("eBay listing") {
+            NavigationLink {
+                EbayCategorySpecificsView(itemId: item.id)
+            } label: {
+                Label("Category & item specifics", systemImage: "list.bullet.rectangle")
+            }
+        } footer: {
+            Text("Set the eBay category and required item specifics so the listing can publish.")
+                .font(.caption)
         }
     }
 
