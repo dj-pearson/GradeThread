@@ -153,12 +153,14 @@ struct ItemCanvasView: View {
     /// specifics are category-driven and block publish when missing, so this
     /// sits just above the publish action.
     private var specificsSection: some View {
-        Section("eBay listing") {
+        Section {
             NavigationLink {
                 EbayCategorySpecificsView(itemId: item.id)
             } label: {
                 Label("Category & item specifics", systemImage: "list.bullet.rectangle")
             }
+        } header: {
+            Text("eBay listing")
         } footer: {
             Text("Set the eBay category and required item specifics so the listing can publish.")
                 .font(.caption)

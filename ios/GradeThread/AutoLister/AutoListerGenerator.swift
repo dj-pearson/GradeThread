@@ -160,7 +160,7 @@ final class AutoListerGenerator: ObservableObject {
         )
         struct Patch: Encodable { let sort_order: Int; let photo_type: String }
         for p in patches {
-            try? await SupabaseShared.client
+            _ = try? await SupabaseShared.client
                 .from("item_photos")
                 .update(Patch(sort_order: p.sortOrder, photo_type: p.photoType))
                 .eq("storage_path", value: p.storagePath)
