@@ -13,6 +13,7 @@ struct CertifiedGradeSection: View {
 
     @State private var showingRequest = false
     @State private var showingReport = false
+    @State private var showingDisclosure = false
 
     private var isGraded: Bool { item.gradeValue != nil }
     private var certificateURL: URL? {
@@ -40,6 +41,9 @@ struct CertifiedGradeSection: View {
         .sheet(isPresented: $showingReport) {
             ItemGradeReportSheet(item: item)
         }
+        .sheet(isPresented: $showingDisclosure) {
+            DisclosureView(itemId: item.id)
+        }
     }
 
     // MARK: - Graded
@@ -66,6 +70,14 @@ struct CertifiedGradeSection: View {
                 showingReport = true
             } label: {
                 Label("View full report", systemImage: "doc.text.magnifyingglass")
+                    .font(.subheadline.weight(.medium))
+            }
+
+            Button {
+                AppRouter.haptic()
+                showingDisclosure = true
+            } label: {
+                Label("Defect disclosure", systemImage: "exclamationmark.bubble")
                     .font(.subheadline.weight(.medium))
             }
 
