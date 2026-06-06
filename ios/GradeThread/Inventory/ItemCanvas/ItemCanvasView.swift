@@ -134,7 +134,7 @@ struct ItemCanvasView: View {
             }
         }
         .sheet(isPresented: $showingPublishDialog) {
-            PublishDialog(inventoryItemId: item.id) { response in
+            PublishDialog(inventoryItemId: item.id, acquiredCost: item.acquiredPrice) { response in
                 // Optimistic local apply so the row flips to listed
                 // before the next sync pull lands.
                 item.status = "listed"

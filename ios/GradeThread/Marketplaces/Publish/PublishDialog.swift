@@ -7,6 +7,8 @@ struct PublishDialog: View {
     @Environment(\.dismiss) private var dismiss
 
     let inventoryItemId: String
+    /// Cost basis for the live profit estimate in the composer (nil when unknown).
+    var acquiredCost: Double? = nil
     let onPublished: (PushResponse) -> Void
 
     @State private var phase: Phase = .validating
@@ -58,7 +60,11 @@ struct PublishDialog: View {
             loadingCard(text: "Checking the listing…")
 
         case .readyToPush(let summary):
-            ComposerForm(summary: summary) { edits in
+            ComposerForm(
+                summary: summary,
+                inventoryItemId: inventoryItemId,
+                acquiredCost: acquiredCost
+            ) { edits in
                 Task { await runPush(edits: edits, priceValue: summary.priceValue) }
             }
 
@@ -327,6 +333,8 @@ struct PublishDialog: View {
 /// listings draft + pushes.
 private struct ComposerForm: View {
     let summary: PublishSummary
+    let inventoryItemId: String
+    let acquiredCost: Double?
     let onPush: (ComposerEdits) -> Void
 
     @State private var title: String
@@ -334,10 +342,22 @@ private struct ComposerForm: View {
     @State private var conditionDescription: String
     @State private var description: String
 
+    // AI copy generation.
+    @State private var isGenerating = false
+    @State private var aiError: String?
+    private let copyService: ListingCopyGenerating = ListingCopyService()
+
     private static let titleLimit = 80
 
-    init(summary: PublishSummary, onPush: @escaping (ComposerEdits) -> Void) {
+    init(
+        summary: PublishSummary,
+        inventoryItemId: String,
+        acquiredCost: Double?,
+        onPush: @escaping (ComposerEdits) -> Void
+    ) {
         self.summary = summary
+        self.inventoryItemId = inventoryItemId
+        self.acquiredCost = acquiredCost
         self.onPush = onPush
         _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
         _condition = State(initialValue: EbayCondition.resolve(summary.condition))
@@ -352,6 +372,8 @@ private struct ComposerForm: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                aiCopyButton
+
                 fieldGroup("Title") {
                     HStack {
                         Spacer()
@@ -401,6 +423,7 @@ private struct ComposerForm: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.brandNavy)
                 }
+                profitEstimate
                 Text("Edit price on the item canvas.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -440,5 +463,92 @@ private struct ComposerForm: View {
                 .foregroundStyle(.secondary)
             content()
         }
+    }
+
+    // MARK: - AI copy
+
+    private var aiCopyButton: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                AppRouter.haptic()
+                Task { await generate() }
+            } label: {
+                HStack(spacing: 6) {
+                    if isGenerating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "sparkles")
+                    }
+                    Text(isGenerating ? "Writing…" : "Write title & description with AI")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(Color.brandNavy.opacity(0.12))
+                .foregroundStyle(Color.brandNavy)
+                .clipShape(Capsule())
+            }
+            .disabled(isGenerating)
+
+            if let aiError {
+                Text(aiError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private func generate() async {
+        isGenerating = true
+        aiError = nil
+        defer { isGenerating = false }
+        do {
+            let copy = try await copyService.generate(itemId: inventoryItemId)
+            title = String(copy.title.prefix(Self.titleLimit))
+            description = copy.description
+            HapticFeedback.success()
+        } catch {
+            aiError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - Profit estimate
+
+    @ViewBuilder
+    private var profitEstimate: some View {
+        let price = Double(summary.priceValue) ?? 0
+        let estimate = ListingProfit.estimate(price: price, costBasis: acquiredCost)
+        HStack(alignment: .firstTextBaseline) {
+            Text("Est. net profit")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Spacer()
+            VStack(alignment: .trailing, spacing: 1) {
+                Text("\(Self.dollars(estimate.net)) · \(Int(estimate.marginPct.rounded()))% margin")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(profitColor(estimate))
+                Text(profitDetail(estimate))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func profitColor(_ estimate: ListingProfit) -> Color {
+        if estimate.net < 0 { return .red }
+        if estimate.marginPct < 20 { return .orange }
+        return .green
+    }
+
+    private func profitDetail(_ estimate: ListingProfit) -> String {
+        var parts = ["eBay fees ~\(Self.dollars(estimate.fees))"]
+        if acquiredCost == nil {
+            parts.append("add cost for true margin")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func dollars(_ amount: Double) -> String {
+        "$" + String(format: "%.2f", amount)
     }
 }
