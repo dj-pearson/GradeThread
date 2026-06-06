@@ -302,10 +302,14 @@ final class GradingTests: XCTestCase {
     }
 
     func test_gradeScaleColorThresholds() {
-        // Boundaries match the web (>7 green, >=5 amber, else red).
-        XCTAssertEqual(GradeScale.color(for: 7.5), .green)
-        XCTAssertEqual(GradeScale.color(for: 7.0), .orange)   // not > 7
-        XCTAssertEqual(GradeScale.color(for: 5.0), .orange)
+        // Tiers follow the refreshed media kit (design.md §3B):
+        // Pristine/NWT (>=9.5) Emerald, Excellent/NWOT (7.0-9.0) Steel Navy,
+        // Good/Fair (5.0-6.5) Amber, Poor/Damaged (<5.0) Crimson.
+        XCTAssertEqual(GradeScale.color(for: 9.5), .brandEmerald)
+        XCTAssertEqual(GradeScale.color(for: 9.4), .brandSteelNavy) // just below pristine
+        XCTAssertEqual(GradeScale.color(for: 7.0), .brandSteelNavy) // inclusive floor
+        XCTAssertEqual(GradeScale.color(for: 6.9), .brandAmber)
+        XCTAssertEqual(GradeScale.color(for: 5.0), .brandAmber)
         XCTAssertEqual(GradeScale.color(for: 4.9), .brandRed)
     }
 }
