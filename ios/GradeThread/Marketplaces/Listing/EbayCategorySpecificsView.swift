@@ -38,14 +38,26 @@ struct EbayCategorySpecificsView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     Task {
-                        HapticFeedback.medium()
-                        if await model.save() { dismiss() }
+                        if await model.save() {
+                            HapticFeedback.success()
+                            Telemetry.event("ebay_specifics_saved", props: [
+                                "category": model.selectedCategoryId ?? "",
+                                "aspects": model.values.count,
+                                "missing": model.missing.count,
+                            ])
+                            dismiss()
+                        } else {
+                            HapticFeedback.error()
+                        }
                     }
                 }
                 .disabled(!model.canSave)
             }
         }
-        .task { await model.start() }
+        .task {
+            Telemetry.event("ebay_specifics_opened")
+            await model.start()
+        }
     }
 
     // MARK: - Category
@@ -109,7 +121,11 @@ struct EbayCategorySpecificsView: View {
             }
             Section {
                 Button {
-                    Task { await model.fillWithAI() }
+                    Task {
+                        await model.fillWithAI()
+                        HapticFeedback.light()
+                        Telemetry.event("ebay_specifics_ai_fill", props: ["filled": model.aiFilled.count])
+                    }
                 } label: {
                     if model.isFillingAI {
                         HStack { ProgressView(); Text("Filling with AI…") }
@@ -118,6 +134,11 @@ struct EbayCategorySpecificsView: View {
                     }
                 }
                 .disabled(model.isFillingAI)
+                .accessibilityHint("Suggests item-specific values from the item's details and photos.")
+            } footer: {
+                if !model.aiFilled.isEmpty {
+                    Text("AI filled \(model.aiFilled.count) specific\(model.aiFilled.count == 1 ? "" : "s"). Review before saving.")
+                }
             }
 
             aspectGroup(model, "Required", model.specs.filter { $0.usage == .required })
