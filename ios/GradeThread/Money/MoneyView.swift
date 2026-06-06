@@ -31,6 +31,7 @@ struct MoneyView: View {
                 if metrics.monthlyRevenue.contains(where: { $0.revenue > 0 }) {
                     revenueChart
                 }
+                repricingCard
                 expensesCard
                 salesCard
             }
@@ -155,6 +156,37 @@ struct MoneyView: View {
         }
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    // MARK: - Repricing
+
+    private var repricingCard: some View {
+        NavigationLink {
+            RepricingView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "tag.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Repricing")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Condition-aware price suggestions for your active listings")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Sales preview

@@ -13,6 +13,8 @@ struct DashboardView: View {
 
     /// US-613: presents the Snap-to-Value sheet.
     @State private var showingSnap = false
+    /// ScoutAI: presents the "find underpriced deals" sheet.
+    @State private var showingScout = false
 
     @Query(sort: \LocalInventoryItem.updatedAt, order: .forward)
     private var items: [LocalInventoryItem]
@@ -49,6 +51,9 @@ struct DashboardView: View {
         }
         .sheet(isPresented: $showingSnap) {
             SnapView(router: router)
+        }
+        .sheet(isPresented: $showingScout) {
+            ScoutView()
         }
     }
 
@@ -212,6 +217,17 @@ struct DashboardView: View {
                 showingSnap = true
             } label: {
                 Label("What's it worth?", systemImage: "sparkles")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(Color.brandNavy)
+
+            // ScoutAI — find underpriced listings to buy and flip.
+            Button {
+                AppRouter.haptic()
+                showingScout = true
+            } label: {
+                Label("Scout deals", systemImage: "binoculars")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
