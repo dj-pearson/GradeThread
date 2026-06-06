@@ -1,0 +1,139 @@
+import Foundation
+
+/// Abstraction over the ScoutAI network calls so ``ScoutStore`` can be
+/// unit-tested with a fake (no network).
+@MainActor
+protocol ScoutScanning {
+    /// Resolves a sharper eBay leaf category from free text (reuses the same
+    /// `/category/suggest` hop as comps). Returns nil when nothing resolves —
+    /// the caller then falls back to the broad apparel root.
+    func suggestCategory(for query: String) async throws -> CategorySuggestion?
+
+    /// Runs a scan: searches eBay within `categoryId` (narrowed by q/brand),
+    /// shadow-grades each candidate, and returns them ranked.
+    func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse
+}
+
+/// Talks to the edge ScoutAI route. Uses a *plain* `JSONEncoder`/`JSONDecoder`
+/// (no key-strategy conversion) because the `/scout` route reads camelCase
+/// body keys (`categoryId`) and returns camelCase — same convention as
+/// ``EbayPublishService`` and ``CompsService``, NOT the snake-casing
+/// `EdgeAPI.shared`.
+@MainActor
+final class ScoutService: ScoutScanning {
+
+    private let baseURL: URL
+    private let session: URLSession
+
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.session = session
+    }
+
+    func suggestCategory(for query: String) async throws -> CategorySuggestion? {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return nil }
+        let response: CategorySuggestResponse = try await get(
+            path: "/api/flipdesk/ebay/category/suggest",
+            query: [URLQueryItem(name: "q", value: q)]
+        )
+        return response.suggestions.first
+    }
+
+    func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse {
+        let body = ScoutScanRequest(categoryId: categoryId, q: q, brand: brand, limit: limit)
+        return try await post(path: "/api/flipdesk/scout", body: body)
+    }
+
+    // MARK: - Transport
+
+    private func get<T: Decodable>(path: String, query: [URLQueryItem]) async throws -> T {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        components.path = path
+        components.queryItems = query
+        guard let url = components.url else {
+            throw EdgeAPIError.network("Could not build URL for \(path)")
+        }
+        return try await send(URLRequest(authorizing: url, method: "GET"))
+    }
+
+    private func post<Body: Encodable, T: Decodable>(path: String, body: Body) async throws -> T {
+        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+        components.path = path
+        guard let url = components.url else {
+            throw EdgeAPIError.network("Could not build URL for \(path)")
+        }
+        var request = URLRequest(authorizing: url, method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+        return try await send(request)
+    }
+
+    private func send<T: Decodable>(_ unauthorized: URLRequest) async throws -> T {
+        var request = unauthorized
+        if let token = await SupabaseShared.currentAccessToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw EdgeAPIError.network(error.localizedDescription)
+        }
+        guard let http = response as? HTTPURLResponse else {
+            throw EdgeAPIError.network("Non-HTTP response")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            // 402 = plan gate / quota cap. Surface a friendly upsell instead of
+            // the raw "FEATURE_LOCKED" / "CAP_REACHED" code.
+            if http.statusCode == 402, let gate = try? JSONDecoder().decode(ScoutGateBody.self, from: data) {
+                if gate.error == "CAP_REACHED" || gate.cap != nil {
+                    throw ScoutError.quotaReached
+                }
+                throw ScoutError.planLocked(requiredPlan: gate.requiredPlan)
+            }
+            throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw EdgeAPIError.decoding(error.localizedDescription)
+        }
+    }
+}
+
+/// Plan-gate / quota errors (HTTP 402) from the Scout endpoint, mapped to a
+/// friendly upsell instead of a raw `FEATURE_LOCKED` / `CAP_REACHED` code.
+enum ScoutError: LocalizedError, Equatable {
+    case planLocked(requiredPlan: String?)
+    case quotaReached
+
+    var errorDescription: String? {
+        switch self {
+        case .planLocked(let plan):
+            let tier = plan?.capitalized ?? "Pro"
+            return "ScoutAI is a \(tier) feature. Upgrade your plan (Settings → Plan) to start scouting deals."
+        case .quotaReached:
+            return "You've hit your monthly AI scan limit. It resets next cycle — or upgrade for a higher cap."
+        }
+    }
+}
+
+/// Subset of the 402 plan-gate body (`{ error, requiredPlan, cap, … }`).
+private struct ScoutGateBody: Decodable {
+    let error: String?
+    let requiredPlan: String?
+    let cap: String?
+}
+
+private extension URLRequest {
+    /// Small ctor that sets the method + Accept header; the bearer token is
+    /// attached later in `send` (async).
+    init(authorizing url: URL, method: String) {
+        self.init(url: url)
+        httpMethod = method
+        setValue("application/json", forHTTPHeaderField: "Accept")
+    }
+}
