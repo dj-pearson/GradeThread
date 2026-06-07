@@ -112,7 +112,7 @@ public enum Telemetry {
             // event message + breadcrumb before it leaves the device.
             options.beforeSend = { event in
                 if let message = event.message {
-                    message.message = TelemetryScrubber.redact(message.message)
+                    message.message = message.message.map(TelemetryScrubber.redact)
                     message.formatted = message.formatted.map(TelemetryScrubber.redact)
                     event.message = message
                 }

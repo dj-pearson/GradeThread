@@ -194,7 +194,7 @@ struct CSVImportView: View {
                     if !result.errors.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Rows that didn't import").font(.subheadline.weight(.semibold))
-                            ForEach(result.errors, id: \.row) { err in
+                            ForEach(Array(result.errors.enumerated()), id: \.offset) { _, err in
                                 Text("Row \(err.row): \(err.message)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
