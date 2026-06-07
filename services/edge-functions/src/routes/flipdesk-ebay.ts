@@ -2423,6 +2423,31 @@ interface AspectSpecRaw {
   aspectValues?: Array<{ localizedValue?: string }>;
 }
 
+// eBay's "Department" aspect is required + SELECTION_ONLY for most clothing
+// categories, and we have no column for it — but the gender is almost always
+// in the title/style ("Men's Nike Hoodie"). Infer the canonical eBay value
+// from the item's text; the SELECTION_ONLY allowed-value check then validates
+// it against the category's real list before we fill it. Returns null when no
+// signal is present (→ falls through to the composer).
+function inferDepartment(item: PublishItem): string | null {
+  const text = [item.title, item.style]
+    .filter((s): s is string => typeof s === "string" && s.length > 0)
+    .join(" ")
+    .toLowerCase();
+  if (!text) return null;
+  const has = (re: RegExp) => re.test(text);
+  // Order matters: most specific first. \b avoids "men" matching inside "women".
+  if (has(/\bmaternity\b/)) return "Maternity";
+  if (has(/\b(baby|infant|newborn|toddler)\b/)) return "Baby";
+  if (has(/\bboys?\b/)) return "Boys";
+  if (has(/\bgirls?\b/)) return "Girls";
+  if (has(/\b(kids?|youth|junior|children'?s?)\b/)) return "Unisex Kids";
+  if (has(/\bunisex\b/)) return "Unisex Adult";
+  if (has(/\b(women'?s?|womens|ladies|female)\b/)) return "Women";
+  if (has(/\b(men'?s?|mens|male)\b/)) return "Men";
+  return null;
+}
+
 // Map an item's structured columns onto a category's aspects so we can fill
 // required specifics without the AI pass. Returns only aspects NOT already in
 // `existing`. SELECTION_ONLY aspects are filled only when the column value
@@ -2448,6 +2473,8 @@ function deriveAspectsFromItem(
     // Most clothing is "Regular"; a safe default the seller can change in the
     // composer. Gated to clothing so we don't mis-fill other verticals.
     { names: ["size type"], value: isClothing ? "Regular" : null },
+    // Department (Men/Women/Unisex…) inferred from the title/style.
+    { names: ["department"], value: inferDepartment(item) },
   ];
 
   const out: Record<string, string[]> = {};
