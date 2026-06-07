@@ -4688,3 +4688,16 @@ row; Help & FAQ link; eBay/Marketplaces entry point; new AppPreferences (units +
 currency) with CurrencyFormatter honoring the currency override.
 
 prd.json 471/679.
+
+
+### iOS Settings tab completion (US-194)
+
+AIAssistantSection (Settings/AIAssistantSection.swift): enable toggle + monthly
+usage meter (used vs ai_action_limit ?? plan default) + optional cap, wired to the
+users row (mirrors US-167). Added to SettingsView. Combined with US-648 the
+Settings screen now covers profile, AI assistant, notifications, marketplaces
+shortcut, plan+billing (manage-on-web), sign out, delete account. Notification
+prefs stay device-local push categories (distinct taxonomy from web's
+notification_preferences).
+
+prd.json 472/679.

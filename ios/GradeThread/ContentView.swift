@@ -758,6 +758,9 @@ struct SettingsView: View {
             // ── Account ──────────────────────────────────────────────
             ProfileSection()
             PlanSection()
+            // US-194: AI Item Assistant (toggle + monthly usage meter + cap),
+            // wired to the users row — mirrors US-167 on the web.
+            AIAssistantSection()
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
