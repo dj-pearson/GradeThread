@@ -250,6 +250,21 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
     return c.json({ error: "User not found" }, 404);
   }
 
+  // Don't let a Stripe subscription stack on top of an active App Store one
+  // (avoids double-billing). The user must manage that plan in the iOS app.
+  const { data: billing } = await supabaseAdmin
+    .from("users")
+    .select("billing_source, subscription_status")
+    .eq("id", userId)
+    .maybeSingle();
+  const b = billing as { billing_source?: string; subscription_status?: string } | null;
+  if (
+    b?.billing_source === "appstore" &&
+    ["active", "trialing", "past_due"].includes(b.subscription_status ?? "")
+  ) {
+    return c.json({ error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_app" }, 409);
+  }
+
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 

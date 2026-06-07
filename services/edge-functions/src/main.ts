@@ -5,6 +5,7 @@ import { healthRoutes } from "./routes/health.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
 import { paymentRoutes } from "./routes/payments.ts";
+import { appstoreVerifyRoutes, appstoreWebhookRoutes } from "./routes/appstore.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
@@ -321,7 +322,11 @@ app.use("/api/v1/*", rateLimiter(100, 60_000, "api-v1"));
 app.route("/health", healthRoutes);
 app.route("/api/grade", gradeRoutes);
 app.route("/api/payments", paymentRoutes);
+// StoreKit IAP: verify is authed (/api/payments/* covers it); the App Store
+// Server Notifications webhook is unauthed (verified by Apple's JWS signature).
+app.route("/api/payments/appstore", appstoreVerifyRoutes);
 app.route("/api/webhooks", webhookRoutes);
+app.route("/api/webhooks/appstore", appstoreWebhookRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/v1", apiV1Routes);
 app.route("/api/notifications", notificationRoutes);
