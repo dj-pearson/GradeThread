@@ -22,6 +22,7 @@ struct ProfileSection: View {
     var body: some View {
         Group {
             profileSection
+            verifiedSection
             inviteSection
             planSection
             dataSection
@@ -64,6 +65,19 @@ struct ProfileSection: View {
                 }
             }
             .disabled(isSavingName || !nameChanged)
+        }
+    }
+
+    private var verifiedSection: some View {
+        Section {
+            NavigationLink {
+                VerifiedView()
+            } label: {
+                Label("Verified seller", systemImage: "checkmark.seal")
+            }
+        } footer: {
+            Text("Claim your public profile — buyers can see your verified grades and stats.")
+                .font(.footnote)
         }
     }
 
