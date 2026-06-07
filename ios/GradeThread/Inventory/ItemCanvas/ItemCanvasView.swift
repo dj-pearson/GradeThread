@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftData
 import SwiftUI
 
@@ -7,13 +8,15 @@ import SwiftUI
 ///
 /// The Comps section fetches live eBay comps on demand (category-resolve →
 /// Browse search) and offers a one-tap "use median" into the target price.
-/// The Photos section is still read-only this pass; drag-to-reorder +
-/// add-photo are scoped to a follow-up story. The view binds to a single
-/// `LocalInventoryItem` passed in by the inventory list — re-renders
-/// reactively when SwiftData updates the row after a sync pull.
+/// The Photos section supports add (US-650, fills unfilled standard slots) +
+/// Manage (reorder/cover/remove); an overflow menu adds Duplicate, Delete, and
+/// Share-certificate. The view binds to a single `LocalInventoryItem` passed in
+/// by the inventory list — re-renders reactively when SwiftData updates the row
+/// after a sync pull.
 struct ItemCanvasView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.photoUploadService) private var uploadService
 
     let item: LocalInventoryItem
 
@@ -23,6 +26,12 @@ struct ItemCanvasView: View {
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
     @State private var compsStore = CompsStore()
+
+    // US-650 item-level actions
+    @State private var showingDeleteConfirmation = false
+    @State private var showingAddPhotosPicker = false
+    @State private var isAddingPhotos = false
+    @State private var actionToast: String?
     private let currencyFormatter = CurrencyFormatter()
 
     /// Statuses where "Publish to eBay" makes sense — anything pre-list
@@ -105,6 +114,44 @@ struct ItemCanvasView: View {
             }
             .disabled(!(state?.isDirty ?? false) || !(state?.isSavable ?? false) || state?.savePhase == .saving)
         }
+        // US-650: item-level actions overflow menu.
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu {
+                if !unfilledStandardSlots.isEmpty {
+                    Button {
+                        showingAddPhotosPicker = true
+                    } label: {
+                        Label("Add photos", systemImage: "photo.badge.plus")
+                    }
+                }
+                Button {
+                    Task { await duplicateItem() }
+                } label: {
+                    Label("Duplicate item", systemImage: "plus.square.on.square")
+                }
+                if let certURL = certificateShareURL {
+                    ShareLink(item: certURL) {
+                        Label("Share certificate", systemImage: "square.and.arrow.up")
+                    }
+                }
+                Divider()
+                Button(role: .destructive) {
+                    showingDeleteConfirmation = true
+                } label: {
+                    Label("Delete item", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .accessibilityLabel("Item actions")
+            }
+        }
+    }
+
+    /// Public certificate URL when the item carries a certified grade (US-650).
+    private var certificateShareURL: URL? {
+        guard item.gradeValue != nil else { return nil }
+        if let explicit = item.certificateURL, let url = URL(string: explicit) { return url }
+        return nil
     }
 
     // MARK: - Form sections
@@ -146,6 +193,36 @@ struct ItemCanvasView: View {
         }
         .sheet(isPresented: $showingPhotoManager) {
             PhotoManagerView(item: item, photos: allPhotos)
+        }
+        // US-650: add photos straight into THIS item (not a new intake).
+        .sheet(isPresented: $showingAddPhotosPicker) {
+            PhotoLibraryPicker(selectionLimit: unfilledStandardSlots.count) { results in
+                Task { await ingestAddedPhotos(results) }
+            }
+            .ignoresSafeArea()
+        }
+        .alert(
+            "Delete item?",
+            isPresented: $showingDeleteConfirmation
+        ) {
+            Button("Delete", role: .destructive) { Task { await deleteItem() } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(item.title) and its photos will be removed. This can't be undone.")
+        }
+        .overlay(alignment: .bottom) {
+            if let actionToast {
+                Text(actionToast)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Color.brandNavy, in: Capsule())
+                    .padding(.bottom, 24)
+                    .task(id: actionToast) {
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
+                        self.actionToast = nil
+                    }
+            }
         }
     }
 
@@ -239,9 +316,14 @@ struct ItemCanvasView: View {
     private var photosSection: some View {
         Section {
             if allPhotos.isEmpty {
-                Text("No photos yet. Capture from the + tab to add some.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                // US-650: offer the add action directly instead of pointing
+                // the user back to the + tab.
+                Button {
+                    showingAddPhotosPicker = true
+                } label: {
+                    Label(isAddingPhotos ? "Adding…" : "Add photos", systemImage: "photo.badge.plus")
+                }
+                .disabled(isAddingPhotos || uploadService == nil)
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
@@ -257,6 +339,12 @@ struct ItemCanvasView: View {
                 Text("Photos")
                 Spacer()
                 if !allPhotos.isEmpty {
+                    if !unfilledStandardSlots.isEmpty {
+                        Button("Add") { showingAddPhotosPicker = true }
+                            .font(.caption.weight(.semibold))
+                            .textCase(nil)
+                            .disabled(isAddingPhotos || uploadService == nil)
+                    }
                     Button("Manage") { showingPhotoManager = true }
                         .font(.caption.weight(.semibold))
                         .textCase(nil)
@@ -445,6 +533,105 @@ struct ItemCanvasView: View {
                     .font(.footnote)
                     .foregroundStyle(.orange)
             }
+        }
+    }
+
+    // MARK: - Item-level actions (US-650)
+
+    /// Standard photo slots this item doesn't have yet — the targets the
+    /// "Add photos" action fills (front/back/tag/detail, then unused defects).
+    private var unfilledStandardSlots: [PhotoSlotType] {
+        let present = Set(allPhotos.map(\.photoType))
+        var slots: [PhotoSlotType] = []
+        for slot in [PhotoSlotType.front, .back, .tag, .detail]
+        where !present.contains(slot.serverPhotoType) {
+            slots.append(slot)
+        }
+        let defectCount = allPhotos.filter { $0.photoType == "defect" }.count
+        let defectSlots: [PhotoSlotType] = [.defect1, .defect2, .defect3]
+        if defectCount < defectSlots.count {
+            slots.append(contentsOf: defectSlots[defectCount...])
+        }
+        return slots
+    }
+
+    /// Compresses picked photos and uploads them into THIS item (filling its
+    /// unfilled standard slots) via the shared upload service.
+    private func ingestAddedPhotos(_ results: [PHPickerResult]) async {
+        guard let uploadService, !results.isEmpty else { return }
+        isAddingPhotos = true
+        defer { isAddingPhotos = false }
+        let slots = unfilledStandardSlots
+        var pairs: [(slot: PhotoSlotType, capture: PhotoCapture)] = []
+        for (index, result) in results.enumerated() where index < slots.count {
+            guard let image = await result.loadImage(),
+                  let output = await PhotoCompressor.compressOffMain(image) else { continue }
+            let capture = PhotoCapture(
+                imageData: output.imageData,
+                thumbnail: output.thumbnail,
+                capturedAt: result.creationDate() ?? .now,
+                source: .library
+            )
+            pairs.append((slots[index], capture))
+        }
+        guard !pairs.isEmpty else {
+            actionToast = "Couldn't read those photos."
+            return
+        }
+        uploadService.enqueueAll(photos: pairs, inventoryItemId: item.id, userId: item.userId)
+        actionToast = "Added \(pairs.count) photo\(pairs.count == 1 ? "" : "s")."
+        HapticFeedback.success()
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+    }
+
+    /// Server-side duplicate of the item's core fields (not photos or grade).
+    private func duplicateItem() async {
+        struct Insert: Encodable {
+            let user_id: String
+            let title: String
+            let brand: String?
+            let size: String?
+            let color: String?
+            let material: String?
+            let status: String
+            let target_price: Double?
+            let acquired_price: Double?
+            let condition_notes: String?
+        }
+        let payload = Insert(
+            user_id: item.userId,
+            title: item.title + " (copy)",
+            brand: item.brand,
+            size: item.size,
+            color: item.color,
+            material: item.material,
+            status: "cataloged",
+            target_price: item.targetPrice,
+            acquired_price: item.acquiredPrice,
+            condition_notes: item.conditionNotes
+        )
+        do {
+            try await SupabaseShared.client.from("inventory_items").insert(payload).execute()
+            actionToast = "Duplicated to a new item."
+            HapticFeedback.success()
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        } catch {
+            actionToast = "Couldn't duplicate: \(error.localizedDescription)"
+            HapticFeedback.error()
+        }
+    }
+
+    /// Server delete + local delete + dismiss.
+    private func deleteItem() async {
+        let executor = BulkActionExecutor()
+        if let error = await executor.deleteItem(item) {
+            actionToast = "Couldn't delete: \(error)"
+            HapticFeedback.error()
+        } else {
+            modelContext.delete(item)
+            try? modelContext.save()
+            HapticFeedback.success()
+            dismiss()
         }
     }
 

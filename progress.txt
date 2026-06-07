@@ -4642,3 +4642,19 @@ REMAINING (29) — grouped by why they weren't taken this pass:
 
 Note on US-634: SwiftData #Index is iOS 18+ and the app deploys iOS 17, so the
 literal #Index is deferred; the dominant UI-hitch fix (off-main merge) shipped.
+
+
+### iOS capture/canvas polish (US-651 accessibility, US-650 canvas actions)
+
+US-651: PhotoIntakeView a11y — AccessibilityFocusState moves VoiceOver to the
+shutter on appear, .accessibilityHint slot progress, UIAccessibility.post
+announcements for slot-filled + upload success/failure (onChange UploadTally),
+≥44pt hit targets. DetailsIntakeView — @FocusState Field enum + .submitLabel(.next)
+/.onSubmit traversal across all text fields.
+
+US-650: ItemCanvasView overflow menu (Add photos / Duplicate / Share certificate
+/ Delete-confirmed); Add photos fills unfilled standard slots via PhotoLibrary
+Picker → compressOffMain → PhotoUploadService.enqueueAll(item.id); empty-photos
+state offers the add action directly.
+
+prd.json 468/679.

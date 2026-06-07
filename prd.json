@@ -9660,8 +9660,8 @@
         "The empty-photos state offers the add action directly instead of 'Capture from the + tab'"
       ],
       "priority": 650,
-      "passes": false,
-      "notes": "[iOS][UX][Feature] Audit finding: ItemCanvasView.swift has no delete/duplicate/share-cert toolbar actions; empty-photos state (line 242) says 'Capture from the + tab to add some' - no way to add photos to an existing item."
+      "passes": true,
+      "notes": "Done. ItemCanvasView gained an overflow Menu (ellipsis.circle, topBarTrailing): Add photos, Duplicate item, Share certificate (ShareLink, only when the item has a certified grade + certificate URL), and a destructive Delete item (confirmation alert → BulkActionExecutor.deleteItem server delete + local modelContext delete + dismiss). 'Add photos to this item' presents PhotoLibraryPicker scoped to the item's UNFILLED standard slots (front/back/tag/detail then unused defects via unfilledStandardSlots), compresses off-main (compressOffMain), and uploads straight into item.id via the shared PhotoUploadService.enqueueAll — not a new intake. Duplicate inserts a server copy of the core fields (title+' (copy)', status cataloged; photos/grade not copied). The empty-photos state now shows an 'Add photos' button (replacing 'Capture from the + tab'); the non-empty header gains an 'Add' button when slots remain. A transient toast confirms each action."
     },
     {
       "id": "US-651",
