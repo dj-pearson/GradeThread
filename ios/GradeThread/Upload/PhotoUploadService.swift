@@ -338,13 +338,17 @@ public final class PhotoUploadService {
             let slot: String
             let storage_path: String
             let local_file_url: String
+            // Client-generated row id so the SyncEngine replay UPSERTs the
+            // item_photos row (US-640) — a retry can't double-insert.
+            let photo_id: String
         }
         let payload = Payload(
             inventory_item_id: task.inventoryItemId,
             user_id: task.userId,
             slot: task.slot.rawValue,
             storage_path: task.storagePath,
-            local_file_url: task.localFileURL.path
+            local_file_url: task.localFileURL.path,
+            photo_id: UUID().uuidString
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         let context = ModelContext(container)

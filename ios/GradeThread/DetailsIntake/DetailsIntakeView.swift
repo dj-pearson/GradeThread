@@ -403,11 +403,19 @@ struct DetailsIntakeView: View {
     }
 
     private func enqueueOfflineMutation(payload: ItemInsertPayload) {
-        guard let data = try? JSONEncoder().encode(payload) else { return }
+        // Inject a client-generated id so the SyncEngine replay can UPSERT
+        // (US-640) — a retry after a partial success then updates the same row
+        // instead of creating a duplicate. `targetId` mirrors the id so the
+        // pending-changes inspector (US-641) can name the row.
+        guard let base = try? JSONEncoder().encode(payload),
+              var dict = (try? JSONSerialization.jsonObject(with: base)) as? [String: Any] else { return }
+        let id = UUID().uuidString
+        dict["id"] = id
+        guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         let mutation = LocalPendingMutation(
             kind: .createInventoryItem,
             payload: data,
-            targetId: nil
+            targetId: id
         )
         modelContext.insert(mutation)
         try? modelContext.save()

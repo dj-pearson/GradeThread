@@ -33,6 +33,7 @@ struct ContentView: View {
             .environment(authStore)
             .environment(networkMonitor)
             .environment(syncStatus)
+            .environment(\.syncEngine, syncEngine)
             .task {
                 authStore.start()
                 networkMonitor.start()
@@ -48,6 +49,10 @@ struct ContentView: View {
                     startSyncEngineIfNeeded()
                     startRealtimeIfNeeded(userId: user.id.uuidString)
                 case .signedOut:
+                    // Reset the delta-sync cursors (US-633) so the next account
+                    // does a clean full backfill instead of inheriting this
+                    // user's watermark.
+                    SyncWatermark().resetAll()
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
                     Task { await realtimeService?.stop() }

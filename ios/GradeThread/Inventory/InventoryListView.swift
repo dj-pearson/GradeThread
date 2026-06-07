@@ -16,8 +16,16 @@ struct InventoryListView: View {
     @Query(sort: \LocalInventoryItem.updatedAt, order: .reverse)
     private var allItems: [LocalInventoryItem]
 
+    @Environment(\.syncEngine) private var syncEngine
+
     @State private var selectedStage: InventoryStage = .all
     @State private var searchQuery: String = ""
+    /// Debounced mirror of `searchQuery` (US-639) — the filter re-runs against
+    /// this, not on every keystroke, so typing on a large inventory stays
+    /// responsive.
+    @State private var debouncedQuery: String = ""
+    /// Transient pull-to-refresh failure message (US-643).
+    @State private var refreshError: String?
     @State private var sortOption: SortOption = .newest
     /// Advanced multi-facet filter (brand / size / color / price / grade /
     /// photo / recency). The old single "graded only" toggle is folded in
@@ -142,19 +150,48 @@ struct InventoryListView: View {
             // @Query re-renders when SwiftData notifies.
             await refreshFromServer()
         }
+        // US-639: debounce the live search binding before it reaches the
+        // filter. `.task(id:)` cancels the prior wait on each keystroke.
+        .task(id: searchQuery) {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            debouncedQuery = searchQuery
+        }
+        // US-643: transient, non-blocking pull-to-refresh failure banner.
+        .overlay(alignment: .bottom) {
+            if let refreshError {
+                Text(refreshError)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.brandRed, in: Capsule())
+                    .padding(.bottom, 24)
+                    .shadow(radius: 6, y: 2)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .task(id: refreshError) {
+                        try? await Task.sleep(nanoseconds: 3_500_000_000)
+                        withAnimation { self.refreshError = nil }
+                    }
+            }
+        }
     }
 
     // MARK: - Layout
 
     private var tabRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        // US-639: compute every stage's count in a single pass over the items
+        // here, then look up per chip — instead of one full `.filter` pass per
+        // visible chip on every render.
+        let counts = stageCounts
+        return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(InventoryStage.userFacing) { stage in
                     Button {
                         AppRouter.haptic()
                         selectedStage = stage
                     } label: {
-                        tabChip(for: stage)
+                        tabChip(for: stage, count: counts[stage] ?? 0)
                     }
                     .buttonStyle(.plain)
                 }
@@ -165,8 +202,7 @@ struct InventoryListView: View {
         .background(Color(uiColor: .systemBackground))
     }
 
-    private func tabChip(for stage: InventoryStage) -> some View {
-        let count = stageCount(stage)
+    private func tabChip(for stage: InventoryStage, count: Int) -> some View {
         let isSelected = selectedStage == stage
         return HStack(spacing: 6) {
             Image(systemName: stage.systemImage)
@@ -244,8 +280,8 @@ struct InventoryListView: View {
     /// it's really their filter.
     @ViewBuilder
     private var emptyState: some View {
-        if !searchQuery.trimmingCharacters(in: .whitespaces).isEmpty {
-            ContentUnavailableView.search(text: searchQuery)
+        if !debouncedQuery.trimmingCharacters(in: .whitespaces).isEmpty {
+            ContentUnavailableView.search(text: debouncedQuery)
         } else if criteria.isActive {
             ContentUnavailableView {
                 Label("No matches", systemImage: "line.3.horizontal.decrease.circle")
@@ -372,10 +408,23 @@ struct InventoryListView: View {
         InventoryFilter.apply(
             allItems,
             stage: selectedStage,
-            search: searchQuery,
+            search: debouncedQuery,
             sort: sortOption,
             criteria: criteria
         )
+    }
+
+    /// Single-pass count of items per stage (US-639). Built once per render and
+    /// looked up by each chip, replacing the previous per-chip full `.filter`.
+    private var stageCounts: [InventoryStage: Int] {
+        var counts: [InventoryStage: Int] = [:]
+        for item in allItems {
+            for stage in InventoryStage.userFacing
+            where stage.matchingStatuses.contains(item.status) {
+                counts[stage, default: 0] += 1
+            }
+        }
+        return counts
     }
 
     /// Item count the given criteria yields under the current stage +
@@ -384,28 +433,31 @@ struct InventoryListView: View {
         InventoryFilter.apply(
             allItems,
             stage: selectedStage,
-            search: searchQuery,
+            search: debouncedQuery,
             sort: sortOption,
             criteria: candidate
         ).count
     }
 
-    private func stageCount(_ stage: InventoryStage) -> Int {
-        allItems.filter { stage.matchingStatuses.contains($0.status) }.count
-    }
-
     // MARK: - Refresh
 
+    /// US-643: await the actual ``SyncEngine.sync()`` so the spinner reflects
+    /// real completion, and surface a transient error on failure instead of a
+    /// fixed sleep that always "succeeds".
     private func refreshFromServer() async {
-        // No explicit @Environment for the SyncEngine because it lives
-        // on the ContentView level — we trigger a sync via a
-        // notification post that ContentView listens for. Simpler than
-        // threading an actor handle through the environment.
-        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-
-        // Give the engine a beat to start so the spinner stays visible
-        // until the first batch lands.
-        try? await Task.sleep(nanoseconds: 700_000_000)
+        guard let syncEngine else {
+            // Engine not booted yet (very early launch) — fall back to the
+            // notification path so the pull isn't a dead gesture.
+            NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            return
+        }
+        let outcome = await syncEngine.sync()
+        if case let .failed(message) = outcome {
+            await MainActor.run {
+                withAnimation { refreshError = message }
+                HapticFeedback.error()
+            }
+        }
     }
 
     // MARK: - Bulk actions (US-182)

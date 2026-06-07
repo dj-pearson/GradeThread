@@ -4487,3 +4487,44 @@ existing app; ios-ci.yml build will validate on push (no local Xcode here).
 
 THE WHOLE ScoutAI + Snap-to-Value + Condition Index cluster (US-610..623) IS NOW
 COMPLETE -- 14/14 stories. prd.json 437/623.
+
+
+### iOS Sync/Perf/Correctness cluster (US-633,634,637,640,641,643) COMPLETE
+
+Branch: claude/ios-prd-stories-yxjzT. No local Xcode here — symbols verified
+against the existing app; ios-ci.yml (xcodebuild test, macOS runner) validates
+on push.
+
+US-633 Incremental delta sync: new Persistence/SyncWatermark.swift (per-table
+UserDefaults cursor; inventory_items→updated_at, item_photos+sales→created_at).
+SyncEngine.pullRemote paginates every table (.range 500/page until drained, raw
+JSON-array count drives the loop, 50k/pass cap), .gt(cursor,watermark) when set
+(first run = full backfill), advances watermark only after a successful merge.
+Reset on sign-out.
+
+US-634 Off-main merge: new @ModelActor SyncMergeActor owns one background
+ModelContext; all merges + Realtime single-row applies run there (no more
+await MainActor.run merge), reusing the shared context. applyServerWins moved
+onto the actor. #Index deferred (iOS 18 macro; app deploys iOS 17).
+
+US-637 Widget throttle: WidgetSnapshot.hasSameRollup; publishIfChanged diffs +
+coalesces reloadAllTimelines (>=30s); snapshot computed off-main via the actor.
+
+US-640 Offline queue handlers: real per-MutationKind replay (upsert/update/
+delete/insert + photo re-upload to Storage then item_photos upsert), idempotent
+(client-generated ids stamped at enqueue in DetailsIntakeView + PhotoUpload
+Service), ordered, server-confirmed dequeue, bounded retry. Removed markFailed
+TODO stubs.
+
+US-641 Pending-changes inspector: PendingChangesView (Failed vs Queued, per-row
+Retry/Discard) via SyncEngine.pendingMutations/retry/discard + new \.syncEngine
+environment; SyncStatusBar now tappable.
+
+US-643 Real pull-to-refresh: refreshFromServer awaits SyncEngine.sync()
+(returns SyncOutcome from lastPullError); transient failure banner + haptic
+instead of a fixed sleep.
+
+Tests added to SyncTests: watermark monotonic/reset/nil/cursor-column, widget
+rollup diff, off-main merge upsert.
+
+prd.json 452/679.

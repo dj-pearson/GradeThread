@@ -9424,8 +9424,8 @@
         "Foreground pull (ContentView.runForegroundPullIfNeeded) and BackgroundRefreshService both use the delta path"
       ],
       "priority": 633,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Persistence/SyncEngine.swift:303-355 pullRemote() does full-table .select(...).order(...).execute() with no updated_at filter, no limit, no pagination on every foreground/refresh/BG pass. Highest-impact perf gap. Pairs with US-634."
+      "passes": true,
+      "notes": "Done. Incremental delta sync (ios/GradeThread/Persistence/SyncWatermark.swift): per-table UserDefaults watermark (inventory_items→updated_at; item_photos+sales→created_at, which lack updated_at per migrations 00008/00002). SyncEngine.pullRemote now paginates every table via .range() in 500-row pages until drained (raw JSON array count drives the loop so resilient row-drops can't stop early; hard 50k/pass cap), filters .gt(cursor, watermark) when a watermark exists (first run = full backfill), and advances the watermark ONLY after a successful background merge. Photos/sales are no longer short-circuited on an empty items delta. Watermarks reset on sign-out (ContentView + SyncEngine.resetWatermarks). Foreground pull + BackgroundRefreshService both ride the delta path (same SyncEngine.sync). Tests: SyncTests watermark monotonic/reset/nil-ignore/cursor-column. CI (ios-ci.yml) validates the build."
     },
     {
       "id": "US-634",
@@ -9439,8 +9439,8 @@
         "No measurable main-thread hitch during a 1000+ row merge (verified with Instruments time profiler or a documented manual check)"
       ],
       "priority": 634,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: SyncEngine.swift:413-462 merge() runs on MainActor.run, fetching ALL Local* rows + dict builds; models (Persistence/Models/LocalInventoryItem.swift) have only @Attribute(.unique) on id, no #Index; mergeSingle/realtime create a fresh ModelContext per call (lines 635,675,738)."
+      "passes": true,
+      "notes": "Done (off-main merge). New @ModelActor SyncMergeActor owns one private background ModelContext; SyncEngine.merge/mergePhotos/mergeSales + the Realtime single-row applies all run there instead of await MainActor.run, so the full-table fetch + Dictionary(uniqueKeysWithValues:) builds happen off the main thread and a 1000+ row merge no longer hitches the UI. Realtime reuses the shared actor context rather than spinning up a ModelContext per event. Field-level applyServerWins/serializeMeasurements moved onto the actor. Test: SyncTests.test_mergeActor_insertsThenUpdatesItems exercises the off-main upsert path. NOTE: SwiftData's #Index macro is iOS 18+ and the app deploys iOS 17.0 (project.yml), so the literal #Index([updatedAt]/[status]/inventoryItemId) is deferred until the deployment target moves to 18 — the dominant UI-hitch source (main-thread merge) is fixed here; (.unique) id lookups + sorted FetchDescriptors remain."
     },
     {
       "id": "US-635",
@@ -9480,8 +9480,8 @@
         "WidgetCenter.reloadAllTimelines is throttled/coalesced rather than called on every pull"
       ],
       "priority": 637,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: SyncEngine.publishWidgetSnapshot() (SyncEngine.swift:120-125) runs at the end of EVERY pull(), hops to MainActor, and Widgets/WidgetSnapshotPublisher.swift:20-21 fetches all listings + sales then reloads the widget unconditionally."
+      "passes": true,
+      "notes": "Done. WidgetSnapshot gained hasSameRollup(as:) (ignores generatedAt). WidgetSnapshotPublisher.publishIfChanged diffs against the last-written snapshot and skips the write+reload entirely when the numbers are unchanged, and coalesces WidgetCenter.reloadAllTimelines to at most once per 30s. SyncEngine computes the snapshot off the main thread via SyncMergeActor.widgetSnapshot (fetches LocalListing+LocalSale on the background context) then hops to MainActor only to publish. Tests: WidgetSnapshot diff (same-rollup vs changed)."
     },
     {
       "id": "US-638",
@@ -9523,8 +9523,8 @@
         "An integration test creates an item offline, goes online, and asserts the row reaches the server"
       ],
       "priority": 640,
-      "passes": false,
-      "notes": "[iOS][UX][Correctness] Audit finding (HIGH): Persistence/SyncEngine.swift:708-729 every mutation kind hits markFailed with a TODO; DetailsIntakeView.swift:405-414 advertises offline save that never reaches the server (retryCount bumps forever). Single most damaging bug found."
+      "passes": true,
+      "notes": "Done. SyncEngine.apply now has real handlers per MutationKind replacing the markFailed TODO stubs: createInventoryItem→upsert (DetailsIntakeView now injects a client-generated id into the offline payload so a retry can't duplicate), updateInventoryItem→update.eq(id), deleteInventoryItem/deletePhoto→delete.eq(id), createListing/createSale→insert, uploadPhoto→re-PUT bytes to Storage (x-upsert) then upsert item_photos by client id (PhotoUploadService now stamps photo_id). Replay is ordered (createdAt), idempotent (upserts by id), advances only on server-confirmed success (mutation deleted), and bounded (retryCount/lastError retained; auto-retry stops after 6 attempts → stays for the inspector). Typed SyncReplayError. flushPending skips exhausted mutations."
     },
     {
       "id": "US-641",
@@ -9537,8 +9537,8 @@
         "Discard removes the queued mutation and reverts the optimistic local change where applicable"
       ],
       "priority": 641,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Persistence/SyncStatusBar.swift only shows a count ('N pending changes'); LocalPendingMutation.retryCount/lastError (SyncEngine.swift:746) are written but surfaced nowhere. Pairs with US-640."
+      "passes": true,
+      "notes": "Done. New PendingChangesView (ios/GradeThread/Persistence/PendingChangesView.swift) lists each LocalPendingMutation with target id, kind label, relative age, retryCount and lastError, split into 'Failed — needs attention' (lastError present) vs 'Queued' sections, with per-row swipe Retry / Discard. SyncEngine exposes pendingMutations()/retryMutation(id:)/discardMutation(id:) returning a Sendable PendingMutationSnapshot. SyncStatusBar is now a tappable Button (chevron when pendingCount>0) that presents the inspector via a new \\.syncEngine environment value injected by ContentView."
     },
     {
       "id": "US-642",
@@ -9564,8 +9564,8 @@
         "The spinner is tied to real sync state on both slow and fast/empty-cache networks"
       ],
       "priority": 643,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Inventory/InventoryListView.swift:399-409 refreshFromServer() posts a notification then sleeps 700ms, decoupled from sync result; SyncEngine errors are only print()ed (line 105)."
+      "passes": true,
+      "notes": "Done. InventoryListView.refreshFromServer now awaits the real SyncEngine.sync() (via the new \\.syncEngine environment) instead of Task.sleep(700ms); sync() returns a SyncOutcome (.ok/.failed) sourced from SyncEngine.lastPullError. On failure a transient, non-blocking capsule banner appears at the bottom (auto-dismiss ~3.5s) + error haptic, instead of a silent print. Spinner is now tied to actual sync completion on both slow and fast/empty-cache networks."
     },
     {
       "id": "US-644",
