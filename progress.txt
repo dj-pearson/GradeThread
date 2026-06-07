@@ -4612,3 +4612,33 @@ references Color("BrandNavy")/Color("BrandRed") (Obsidian Navy #0C1E36 / red
 #F03D5F with light/dark variants) instead of hardcoded literals.
 
 prd.json 466/679.
+
+
+### iOS PRD pass — session summary (branch claude/ios-prd-stories-yxjzT)
+
+COMPLETED THIS SESSION (21): US-633,634,635,636,637,638,639,640,641,642,643,644,
+645,653,657,658,659,660,662,663 + flagged US-639. iOS stories now 54/83 passing.
+All verified by inspection against existing patterns; ios-ci.yml (xcodebuild test,
+macOS runner) is the build gate since no Xcode is available in this Linux env.
+
+REMAINING (29) — grouped by why they weren't taken this pass:
+- Net-new feature screens (each a substantial surface, mirrors a web counterpart):
+  US-664 financial export, US-665 analytics/P&L, US-666 payout reconciliation,
+  US-667 CSV/Sheets import, US-668 multi-channel, US-669 shipping queue,
+  US-670 workspace context, US-671 multiple eBay accounts, US-672 repricing rules,
+  US-673 offers/messages inbox, US-674 listing templates, US-675 AutoLister drafts
+  library, US-676 locations/bins/consignment, US-677 source ROI, US-678 global
+  search, US-679 expanded notification categories.
+- Need binary assets / server / cross-system changes:
+  US-654 (bundle Outfit+Inter .ttf font files — binary), US-661 (Universal Links:
+  AASA hosting on gradethread.com + edge oauth/callback redirect-to-app change).
+- Larger refactors / UX redesigns best done with a compiler in the loop:
+  US-652 design-token migration across ~25 card sites, US-655 glass/glow,
+  US-656 skeleton/empty-state parity, US-648 structured Settings, US-650 item-
+  canvas actions, US-646 intake autosave, US-647 activation checklist, US-649
+  one-tap-camera Add redesign, US-651 capture/form a11y.
+- Partial pre-existing: US-194 (settings tab — account-deletion slice already
+  shipped), US-289 (reconcile batch import — data layer already shipped).
+
+Note on US-634: SwiftData #Index is iOS 18+ and the app deploys iOS 17, so the
+literal #Index is deferred; the dominant UI-hitch fix (off-main merge) shipped.
