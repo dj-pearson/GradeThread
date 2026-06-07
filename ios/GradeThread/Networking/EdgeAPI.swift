@@ -50,6 +50,13 @@ public actor EdgeAPI {
         try await perform(method: "POST", path: path, body: body)
     }
 
+    public func putJSON<Response: Decodable, Body: Encodable>(
+        _ path: String,
+        body: Body
+    ) async throws -> Response {
+        try await perform(method: "PUT", path: path, body: body)
+    }
+
     public func deleteJSON<Response: Decodable>(_ path: String) async throws -> Response {
         try await perform(method: "DELETE", path: path, body: Optional<Empty>.none)
     }
