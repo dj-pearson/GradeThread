@@ -31,6 +31,8 @@ import {
   updateOfferPrice,
   upsertConnection,
   withdrawOffer,
+  findEligibleNegotiationItems,
+  sendOfferToInterestedBuyers,
   type PolicySet,
   type RemoteOffer,
   type RemoteOrder,
@@ -40,6 +42,11 @@ import {
 import {
   getAllActiveEbaySelling,
   getItemSpecifics,
+  getBestOffers,
+  respondToBestOffer,
+  getMemberMessages,
+  replyToMemberMessage,
+  type BestOfferAction,
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
 import {
@@ -2289,6 +2296,177 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
   } catch (err) {
     console.error("[flipdesk-ebay] comps search failed:", err);
     return c.json({ error: "Comps search failed" }, 502);
+  }
+});
+
+// ── US-673: Best offers + send-offer + buyer messages ───────────────
+//
+// All of these operate against the caller's OWN eBay account: the token is
+// resolved from the workspace owner's connection (getUserAccessToken), so a
+// caller can only ever read/respond to offers + messages on their own listings.
+// No cross-tenant id is accepted from the body for reads, and respond/reply act
+// against the caller's eBay account — there is no way to target another tenant.
+
+// GET /negotiation/offers — incoming best offers across the seller's listings.
+flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const offers = await getBestOffers(userId);
+    return c.json({ offers });
+  } catch (err) {
+    console.error("[flipdesk-ebay] getBestOffers failed:", err);
+    return c.json({ error: "Couldn't load best offers from eBay." }, 502);
+  }
+});
+
+// POST /negotiation/offers/:bestOfferId/respond — accept / decline / counter.
+// Body: { item_id, action, counter_price?, counter_quantity?, message? }
+flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const bestOfferId = c.req.param("bestOfferId");
+  let body: {
+    item_id?: unknown;
+    action?: unknown;
+    counter_price?: unknown;
+    counter_quantity?: unknown;
+    message?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  const action = body.action as BestOfferAction;
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+  if (action !== "Accept" && action !== "Decline" && action !== "Counter") {
+    return c.json({ error: "action must be Accept, Decline, or Counter" }, 400);
+  }
+  let counterPrice: number | undefined;
+  if (action === "Counter") {
+    counterPrice = Number(body.counter_price);
+    if (!Number.isFinite(counterPrice) || (counterPrice ?? 0) <= 0) {
+      return c.json({ error: "counter_price must be a positive number" }, 400);
+    }
+  }
+  try {
+    await respondToBestOffer(userId, {
+      itemId,
+      bestOfferId,
+      action,
+      counterPrice,
+      counterQuantity: Number.isFinite(Number(body.counter_quantity))
+        ? Number(body.counter_quantity)
+        : undefined,
+      sellerMessage: typeof body.message === "string" ? body.message : undefined,
+    });
+    return c.json({ ok: true, best_offer_id: bestOfferId, action });
+  } catch (err) {
+    console.error("[flipdesk-ebay] respondToBestOffer failed:", err);
+    return c.json({ error: "eBay rejected the best-offer response.", detail: String(err) }, 502);
+  }
+});
+
+// GET /negotiation/eligible — listings eligible for a send-offer-to-buyers.
+flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const items = await findEligibleNegotiationItems(userId);
+    return c.json({ items });
+  } catch (err) {
+    console.error("[flipdesk-ebay] findEligibleNegotiationItems failed:", err);
+    return c.json({ error: "Couldn't load eligible listings from eBay." }, 502);
+  }
+});
+
+// POST /negotiation/send-offer — send a discount offer to interested buyers.
+// Body: { listing_ids: string[], discount_percentage?: string, message? }
+flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { listing_ids?: unknown; discount_percentage?: unknown; message?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const listingIds = Array.isArray(body.listing_ids)
+    ? body.listing_ids.filter((x): x is string => typeof x === "string")
+    : [];
+  if (listingIds.length === 0) {
+    return c.json({ error: "listing_ids must be a non-empty array" }, 400);
+  }
+  try {
+    await sendOfferToInterestedBuyers(userId, {
+      listingIds,
+      discountPercentage:
+        typeof body.discount_percentage === "string" ? body.discount_percentage : undefined,
+      message: typeof body.message === "string" ? body.message : undefined,
+    });
+    return c.json({ ok: true, count: listingIds.length });
+  } catch (err) {
+    console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
+    return c.json({ error: "eBay rejected the offer.", detail: String(err) }, 502);
+  }
+});
+
+// GET /messages — buyer member-message inbox (last 30 days).
+flipdeskEbayRoutes.get("/messages", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const messages = await getMemberMessages(userId);
+    return c.json({ messages });
+  } catch (err) {
+    console.error("[flipdesk-ebay] getMemberMessages failed:", err);
+    return c.json({ error: "Couldn't load messages from eBay." }, 502);
+  }
+});
+
+// POST /messages/:messageId/reply — reply to a buyer message.
+// Body: { item_id, recipient_id, body }
+flipdeskEbayRoutes.post("/messages/:messageId/reply", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const messageId = c.req.param("messageId");
+  let body: { item_id?: unknown; recipient_id?: unknown; body?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
+  const text = typeof body.body === "string" ? body.body.trim() : "";
+  if (!itemId || !recipientId || !text) {
+    return c.json({ error: "item_id, recipient_id, and body are required" }, 400);
+  }
+  try {
+    await replyToMemberMessage(userId, {
+      itemId,
+      parentMessageId: messageId,
+      recipientId,
+      body: text,
+    });
+    return c.json({ ok: true, message_id: messageId });
+  } catch (err) {
+    console.error("[flipdesk-ebay] replyToMemberMessage failed:", err);
+    return c.json({ error: "eBay rejected the reply.", detail: String(err) }, 502);
   }
 });
 

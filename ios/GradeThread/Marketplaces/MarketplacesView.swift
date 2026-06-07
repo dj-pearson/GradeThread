@@ -29,6 +29,8 @@ struct MarketplacesView: View {
                     // US-671: manage multiple connected eBay stores.
                     if case .connected = store.phase {
                         ebayAccountsCard(userId: userId)
+                        // US-673: best offers + buyer messages.
+                        negotiationCard
                     }
                     if orphanCheckFailed {
                         reconciliationErrorCard(userId: userId)
@@ -135,6 +137,35 @@ struct MarketplacesView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Connect, label, and switch between multiple eBay stores")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-673: best offers + buyer messages entry point.
+    private var negotiationCard: some View {
+        NavigationLink {
+            NegotiationInboxView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Offers & messages")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Review best offers and reply to buyers without leaving the app")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

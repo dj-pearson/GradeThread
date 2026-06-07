@@ -185,6 +185,9 @@ function getScopes(): string {
       // account_handle. Used by webhooks to match eBay's account-deletion
       // notifications back to the right workspace.
       "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+      // US-673: required by /sell/negotiation/v1 (send-offer-to-interested-
+      // buyers). Users connected before this scope was added must reconnect.
+      "https://api.ebay.com/oauth/api_scope/sell.negotiation",
     ].join(" ")
   );
 }
@@ -2121,4 +2124,65 @@ export async function getAppAccessToken(): Promise<string> {
     expiresAt: Date.now() + payload.expires_in * 1000,
   };
   return payload.access_token;
+}
+
+// ── US-673: Negotiation API (seller-initiated offers to buyers) ────────────
+//
+// The Negotiation REST API lets a seller proactively send a discounted offer to
+// buyers who have shown interest (watchers / cart adds) on eligible listings.
+// Requires the sell.negotiation OAuth scope. (Incoming buyer best-offers +
+// accept/decline/counter live on the Trading API — see ebay-trading.ts.)
+
+export interface EligibleNegotiationItem {
+  listingId: string;
+  // eBay returns this only on some marketplaces; best-effort.
+  title: string | null;
+}
+
+/// Lists listings eligible for a seller-initiated offer to interested buyers.
+export async function findEligibleNegotiationItems(
+  userId: string,
+  limit = 50,
+): Promise<EligibleNegotiationItem[]> {
+  const body = await fetchAuthed<{
+    eligibleItems?: Array<{ listingId?: string; title?: string }>;
+  }>(
+    userId,
+    `/sell/negotiation/v1/find_eligible_items?limit=${limit}`,
+  );
+  return (body.eligibleItems ?? [])
+    .filter((it) => typeof it.listingId === "string")
+    .map((it) => ({ listingId: it.listingId as string, title: it.title ?? null }));
+}
+
+/// Sends a percentage-or-price offer to interested buyers on the given listings.
+/// `offerType` "PERCENTAGE_DISCOUNT" expects priceOrPercent like "10" (10% off);
+/// "PRICE" expects an absolute price value.
+export async function sendOfferToInterestedBuyers(
+  userId: string,
+  args: {
+    listingIds: string[];
+    message?: string;
+    discountPercentage?: string;
+    durationHours?: number;
+  },
+): Promise<void> {
+  const offers = args.listingIds.map((id) => ({
+    offeredItems: [{ listingId: id, quantity: 1, discountPercentage: args.discountPercentage }],
+  }));
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/negotiation/v1/send_offer_to_interested_buyers`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        offeredItems: offers.flatMap((o) => o.offeredItems),
+        message: args.message,
+        offerDuration: args.durationHours
+          ? { unit: "DAY", value: Math.max(1, Math.round(args.durationHours / 24)) }
+          : { unit: "DAY", value: 2 },
+        allowCounterOffer: true,
+      }),
+    },
+  );
 }

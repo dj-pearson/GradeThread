@@ -414,3 +414,314 @@ export async function getItemSpecifics(
     return {};
   }
 }
+
+// ── US-673: Best offers + buyer messages (Trading API) ─────────────────────
+//
+// Incoming best-offers (review / accept / decline / counter) and member-to-
+// member buyer messages live on the legacy Trading XML API, not the modern REST
+// surfaces. Shared call helper keeps the headers in one place.
+
+/// Makes one Trading API call and returns the raw XML text + HTTP status.
+async function tradingCall(
+  userId: string,
+  callName: string,
+  body: string,
+): Promise<{ ok: boolean; status: number; text: string }> {
+  const token = await getUserAccessToken(userId);
+  const { appId, certId, devId } = devEnv();
+  const res = await fetch(`${tradingHost()}/ws/api.dll`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/xml",
+      "X-EBAY-API-COMPATIBILITY-LEVEL": COMPAT_LEVEL,
+      "X-EBAY-API-DEV-NAME": devId,
+      "X-EBAY-API-APP-NAME": appId,
+      "X-EBAY-API-CERT-NAME": certId,
+      "X-EBAY-API-CALL-NAME": callName,
+      "X-EBAY-API-SITEID": siteId(),
+      "X-EBAY-API-IAF-TOKEN": token,
+    },
+    body,
+  });
+  const text = await res.text();
+  return { ok: res.ok, status: res.status, text };
+}
+
+const offersParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "_",
+  textNodeName: "#text",
+  isArray: (name) =>
+    name === "Errors" || name === "ItemBestOffers" || name === "BestOffer",
+});
+
+export interface IncomingBestOffer {
+  bestOfferId: string;
+  itemId: string;
+  itemTitle: string | null;
+  buyerUsername: string | null;
+  price: number | null;
+  currency: string;
+  quantity: number | null;
+  status: string | null; // Active, Accepted, Declined, Expired, Countered, …
+  message: string | null;
+  expiresAt: string | null;
+}
+
+/// Lists active incoming best offers across the seller's listings.
+export async function getBestOffers(userId: string): Promise<IncomingBestOffer[]> {
+  const body = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<GetBestOffersRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+    `  <BestOfferStatus>Active</BestOfferStatus>`,
+    `  <DetailLevel>ReturnAll</DetailLevel>`,
+    `</GetBestOffersRequest>`,
+  ].join("\n");
+
+  const { ok, status, text } = await tradingCall(userId, "GetBestOffers", body);
+  if (!ok) {
+    throw new Error(`eBay GetBestOffers failed (${status}): ${text.slice(0, 300)}`);
+  }
+  const root = (offersParser.parse(text) as {
+    GetBestOffersResponse?: {
+      Ack?: string;
+      Errors?: Array<{ LongMessage?: string; ErrorCode?: string }>;
+      ItemBestOffersArray?: { ItemBestOffers?: RawItemBestOffers[] };
+    };
+  }).GetBestOffersResponse;
+  if (!root || root.Ack === "Failure") {
+    throw new Error(
+      `eBay GetBestOffers (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
+    );
+  }
+  const groups = root.ItemBestOffersArray?.ItemBestOffers ?? [];
+  const out: IncomingBestOffer[] = [];
+  for (const group of groups) {
+    const itemId = asString(group.Item?.ItemID) ?? "";
+    const itemTitle = asString(group.Item?.Title);
+    const offers = group.BestOfferArray?.BestOffer ?? [];
+    for (const offer of offers) {
+      const id = asString(offer.BestOfferID);
+      if (!id) continue;
+      const price = asPriceValue(offer.Price);
+      out.push({
+        bestOfferId: id,
+        itemId,
+        itemTitle,
+        buyerUsername: asString(offer.Buyer?.UserID),
+        price: price.value,
+        currency: price.currency,
+        quantity: asNumber(offer.Quantity),
+        status: asString(offer.Status),
+        message: asString(offer.BuyerMessage),
+        expiresAt: asString(offer.ExpirationTime),
+      });
+    }
+  }
+  return out;
+}
+
+interface RawItemBestOffers {
+  Item?: { ItemID?: unknown; Title?: unknown };
+  BestOfferArray?: { BestOffer?: RawBestOffer[] };
+}
+interface RawBestOffer {
+  BestOfferID?: unknown;
+  Buyer?: { UserID?: unknown };
+  Price?: unknown;
+  Quantity?: unknown;
+  Status?: unknown;
+  BuyerMessage?: unknown;
+  ExpirationTime?: unknown;
+}
+
+export type BestOfferAction = "Accept" | "Decline" | "Counter";
+
+/// Accepts, declines, or counters an incoming best offer. A counter requires
+/// `counterPrice` (and optional `counterQuantity`, default 1).
+export async function respondToBestOffer(
+  userId: string,
+  args: {
+    itemId: string;
+    bestOfferId: string;
+    action: BestOfferAction;
+    counterPrice?: number;
+    counterQuantity?: number;
+    sellerMessage?: string;
+  },
+): Promise<void> {
+  const lines = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<RespondToBestOfferRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+    `  <ItemID>${xmlEscape(args.itemId)}</ItemID>`,
+    `  <BestOfferID>${xmlEscape(args.bestOfferId)}</BestOfferID>`,
+    `  <Action>${xmlEscape(args.action)}</Action>`,
+  ];
+  if (args.action === "Counter") {
+    if (args.counterPrice == null) {
+      throw new Error("counterPrice is required to counter a best offer.");
+    }
+    lines.push(
+      `  <CounterOfferPrice currencyID="${xmlEscape(getMarketplaceCurrency())}">${xmlEscape(String(args.counterPrice))}</CounterOfferPrice>`,
+      `  <CounterOfferQuantity>${xmlEscape(String(args.counterQuantity ?? 1))}</CounterOfferQuantity>`,
+    );
+  }
+  if (args.sellerMessage) {
+    lines.push(`  <SellerResponse>${xmlEscape(args.sellerMessage)}</SellerResponse>`);
+  }
+  lines.push(`</RespondToBestOfferRequest>`);
+
+  const { ok, status, text } = await tradingCall(
+    userId,
+    "RespondToBestOffer",
+    lines.join("\n"),
+  );
+  if (!ok) {
+    throw new Error(`eBay RespondToBestOffer failed (${status}): ${text.slice(0, 300)}`);
+  }
+  const root = (getItemParser.parse(text) as {
+    RespondToBestOfferResponse?: {
+      Ack?: string;
+      Errors?: Array<{ LongMessage?: string }>;
+    };
+  }).RespondToBestOfferResponse;
+  if (!root || root.Ack === "Failure") {
+    throw new Error(
+      `eBay RespondToBestOffer (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
+    );
+  }
+}
+
+// Site → ISO currency for the counter-offer amount (Trading wants currencyID).
+function getMarketplaceCurrency(): string {
+  switch (getMarketplaceId()) {
+    case "EBAY_GB": return "GBP";
+    case "EBAY_DE":
+    case "EBAY_FR":
+    case "EBAY_IT":
+    case "EBAY_ES": return "EUR";
+    case "EBAY_AU": return "AUD";
+    case "EBAY_CA": return "CAD";
+    default: return "USD";
+  }
+}
+
+const messagesParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "_",
+  textNodeName: "#text",
+  isArray: (name) => name === "Errors" || name === "MemberMessage",
+});
+
+export interface BuyerMessage {
+  messageId: string;
+  itemId: string | null;
+  senderUsername: string | null;
+  subject: string | null;
+  body: string | null;
+  creationDate: string | null;
+  answered: boolean;
+}
+
+/// Lists buyer member-messages from the last `days` (default 30).
+export async function getMemberMessages(
+  userId: string,
+  days = 30,
+): Promise<BuyerMessage[]> {
+  const end = new Date();
+  const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+  const body = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<GetMemberMessagesRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+    `  <MailMessageType>All</MailMessageType>`,
+    `  <StartCreationTime>${start.toISOString()}</StartCreationTime>`,
+    `  <EndCreationTime>${end.toISOString()}</EndCreationTime>`,
+    `</GetMemberMessagesRequest>`,
+  ].join("\n");
+
+  const { ok, status, text } = await tradingCall(userId, "GetMemberMessages", body);
+  if (!ok) {
+    throw new Error(`eBay GetMemberMessages failed (${status}): ${text.slice(0, 300)}`);
+  }
+  const root = (messagesParser.parse(text) as {
+    GetMemberMessagesResponse?: {
+      Ack?: string;
+      Errors?: Array<{ LongMessage?: string }>;
+      MemberMessage?: { MemberMessageExchange?: RawMessageExchange[] };
+    };
+  }).GetMemberMessagesResponse;
+  if (!root || root.Ack === "Failure") {
+    throw new Error(
+      `eBay GetMemberMessages (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
+    );
+  }
+  let exchanges = root.MemberMessage?.MemberMessageExchange ?? [];
+  if (!Array.isArray(exchanges)) exchanges = [exchanges];
+  const out: BuyerMessage[] = [];
+  for (const ex of exchanges) {
+    const q = ex.Question;
+    const id = asString(q?.MessageID);
+    if (!id) continue;
+    out.push({
+      messageId: id,
+      itemId: asString(q?.ItemID),
+      senderUsername: asString(q?.SenderID),
+      subject: asString(q?.Subject),
+      body: asString(q?.Body),
+      creationDate: asString(q?.CreationDate),
+      answered: asString(ex.MessageStatus) === "Answered",
+    });
+  }
+  return out;
+}
+
+interface RawMessageExchange {
+  Question?: {
+    MessageID?: unknown;
+    ItemID?: unknown;
+    SenderID?: unknown;
+    Subject?: unknown;
+    Body?: unknown;
+    CreationDate?: unknown;
+  };
+  MessageStatus?: unknown;
+}
+
+/// Replies to a buyer's member message (AddMemberMessageRTQ = respond to question).
+export async function replyToMemberMessage(
+  userId: string,
+  args: {
+    itemId: string;
+    parentMessageId: string;
+    recipientId: string;
+    body: string;
+  },
+): Promise<void> {
+  const xml = [
+    `<?xml version="1.0" encoding="utf-8"?>`,
+    `<AddMemberMessageRTQRequest xmlns="urn:ebay:apis:eBLBaseComponents">`,
+    `  <ItemID>${xmlEscape(args.itemId)}</ItemID>`,
+    `  <MemberMessage>`,
+    `    <Body>${xmlEscape(args.body)}</Body>`,
+    `    <ParentMessageID>${xmlEscape(args.parentMessageId)}</ParentMessageID>`,
+    `    <RecipientID>${xmlEscape(args.recipientId)}</RecipientID>`,
+    `  </MemberMessage>`,
+    `</AddMemberMessageRTQRequest>`,
+  ].join("\n");
+
+  const { ok, status, text } = await tradingCall(userId, "AddMemberMessageRTQ", xml);
+  if (!ok) {
+    throw new Error(`eBay AddMemberMessageRTQ failed (${status}): ${text.slice(0, 300)}`);
+  }
+  const root = (getItemParser.parse(text) as {
+    AddMemberMessageRTQResponse?: {
+      Ack?: string;
+      Errors?: Array<{ LongMessage?: string }>;
+    };
+  }).AddMemberMessageRTQResponse;
+  if (!root || root.Ack === "Failure") {
+    throw new Error(
+      `eBay AddMemberMessageRTQ (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
+    );
+  }
+}

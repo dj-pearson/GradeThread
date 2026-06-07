@@ -172,6 +172,10 @@ app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
+// US-673: best offers + send-offer + buyer messages.
+app.use("/api/flipdesk/ebay/negotiation/*", authMiddleware);
+app.use("/api/flipdesk/ebay/messages", authMiddleware);
+app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -209,6 +213,10 @@ app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
+// US-673: best offers + send-offer + buyer messages.
+app.use("/api/flipdesk/ebay/negotiation/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/messages/*", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
