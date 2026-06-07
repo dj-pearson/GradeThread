@@ -1,0 +1,122 @@
+// US-674 — listing template validation/normalization + the AutoLister overlay
+// patch. listing-template.ts is pure (no DB/network), so it's imported directly.
+import { assert, assertEquals } from "@std/assert";
+import {
+  buildTemplateListingPatch,
+  type ListingTemplateRow,
+  normalizeTemplateInput,
+  TEMPLATE_NAME_MAX,
+} from "../lib/listing-template.ts";
+
+// ── normalizeTemplateInput ──────────────────────────────────────────
+
+Deno.test("normalize rejects a missing/blank name", () => {
+  for (const body of [{}, { name: "" }, { name: "   " }, { name: 7 }]) {
+    const r = normalizeTemplateInput(body);
+    assert(!r.ok, `expected failure for ${JSON.stringify(body)}`);
+  }
+});
+
+Deno.test("normalize rejects an over-long name", () => {
+  const r = normalizeTemplateInput({ name: "x".repeat(TEMPLATE_NAME_MAX + 1) });
+  assert(!r.ok);
+});
+
+Deno.test("normalize trims name + blanks-to-null optional fields", () => {
+  const r = normalizeTemplateInput({
+    name: "  My preset  ",
+    description_template: "   ",
+    ebay_condition: "USED_EXCELLENT",
+    return_policy_id: "  ",
+  });
+  assert(r.ok);
+  assertEquals(r.value.name, "My preset");
+  assertEquals(r.value.description_template, null); // whitespace -> null
+  assertEquals(r.value.ebay_condition, "USED_EXCELLENT");
+  assertEquals(r.value.return_policy_id, null);
+  assertEquals(r.value.is_default, false);
+  assertEquals(r.value.sort_order, 0);
+  assertEquals(r.value.item_specifics, {});
+});
+
+Deno.test("normalize coerces item_specifics to a string map, dropping empties", () => {
+  const r = normalizeTemplateInput({
+    name: "T",
+    item_specifics: { Brand: "  Nike  ", Size: 10, Vintage: true, Junk: "  ", "": "x" },
+  });
+  assert(r.ok);
+  assertEquals(r.value.item_specifics, { Brand: "Nike", Size: "10", Vintage: "true" });
+});
+
+Deno.test("normalize truncates a float sort_order + honors is_default", () => {
+  const r = normalizeTemplateInput({ name: "T", sort_order: 3.9, is_default: true });
+  assert(r.ok);
+  assertEquals(r.value.sort_order, 3);
+  assertEquals(r.value.is_default, true);
+});
+
+// ── buildTemplateListingPatch ───────────────────────────────────────
+
+function row(overrides: Partial<ListingTemplateRow> = {}): ListingTemplateRow {
+  return {
+    description_template: null,
+    ebay_condition: null,
+    condition_description: null,
+    item_specifics: null,
+    ebay_category_id: null,
+    return_policy_id: null,
+    shipping_policy_id: null,
+    payment_policy_id: null,
+    ...overrides,
+  };
+}
+
+Deno.test("overlay appends boilerplate after the AI description", () => {
+  const patch = buildTemplateListingPatch(
+    row({ description_template: "Ships in 1 business day." }),
+    "Great wool coat.",
+  );
+  assertEquals(patch.listing_description, "Great wool coat.\n\nShips in 1 business day.");
+});
+
+Deno.test("overlay uses boilerplate alone when there's no AI description", () => {
+  const patch = buildTemplateListingPatch(
+    row({ description_template: "Terms apply." }),
+    null,
+  );
+  assertEquals(patch.listing_description, "Terms apply.");
+});
+
+Deno.test("overlay sets condition/category/specifics/policies only when present", () => {
+  const patch = buildTemplateListingPatch(
+    row({
+      ebay_condition: "USED_GOOD",
+      condition_description: "minor wear",
+      item_specifics: { Brand: "Levi's" },
+      ebay_category_id: "57988",
+      return_policy_id: "rp1",
+      shipping_policy_id: "sp1",
+      payment_policy_id: "pp1",
+    }),
+    "desc",
+  );
+  assertEquals(patch.ebay_condition, "USED_GOOD");
+  assertEquals(patch.ebay_condition_description, "minor wear");
+  assertEquals(patch.item_specifics_override, { Brand: "Levi's" });
+  assertEquals(patch.ebay_category_id, "57988");
+  assertEquals(patch.return_policy_id, "rp1");
+  assertEquals(patch.shipping_policy_id, "sp1");
+  assertEquals(patch.payment_policy_id, "pp1");
+  // Description untouched (no boilerplate on this template).
+  assertEquals(patch.listing_description, undefined);
+});
+
+Deno.test("overlay of an empty template is a no-op patch", () => {
+  const patch = buildTemplateListingPatch(row(), "desc");
+  assertEquals(Object.keys(patch).length, 0);
+});
+
+Deno.test("overlay ignores an empty item_specifics map", () => {
+  const patch = buildTemplateListingPatch(row({ item_specifics: {} }), "desc");
+  assertEquals(patch.item_specifics_override, undefined);
+});
