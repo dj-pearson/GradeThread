@@ -2430,7 +2430,7 @@ interface AspectSpecRaw {
 // it against the category's real list before we fill it. Returns null when no
 // signal is present (→ falls through to the composer).
 function inferDepartment(item: PublishItem): string | null {
-  const text = [item.title, item.style]
+  const text = [item.title, item.style, item.description]
     .filter((s): s is string => typeof s === "string" && s.length > 0)
     .join(" ")
     .toLowerCase();
@@ -2493,7 +2493,11 @@ function deriveAspectsFromItem(
       const allowed = (aspect.aspectValues ?? [])
         .map((v) => v.localizedValue ?? "")
         .filter((v) => v.length > 0);
-      const hit = allowed.find((v) => v.toLowerCase() === candidate.toLowerCase());
+      // Plural-tolerant: eBay sometimes pluralizes values (e.g. "Unisex
+      // Adults"). Compare with trailing "s" stripped from both sides.
+      const norm = (s: string) => s.toLowerCase().trim().replace(/s$/, "");
+      const cand = norm(candidate);
+      const hit = allowed.find((v) => norm(v) === cand);
       if (!hit) continue; // can't safely fill a constrained value we don't match
       out[name] = [hit];
     } else {
@@ -2695,6 +2699,27 @@ async function assemblePublishContext(
         .map((a) => a.localizedAspectName ?? "")
         .filter((n) => n && (aspectMap[n]?.length ?? 0) === 0);
       if (requiredMissing.length > 0) {
+        // Diagnostic: log WHY each missing aspect couldn't be auto-filled —
+        // its mode, a sample of eBay's allowed values, and the item text we
+        // tried to infer from. Lets us close the gap without guessing.
+        const diag = requiredMissing.map((name) => {
+          const spec = list.find((a) => a.localizedAspectName === name);
+          const allowed = (spec?.aspectValues ?? [])
+            .map((v) => v.localizedValue ?? "")
+            .filter((v) => v.length > 0);
+          return {
+            name,
+            mode: spec?.aspectConstraint?.aspectMode ?? "?",
+            allowedSample: allowed.slice(0, 12),
+            allowedCount: allowed.length,
+          };
+        });
+        console.warn(
+          `[flipdesk-ebay] required specifics unfilled for item ${itemId} ` +
+            `(category ${categoryId}): ${JSON.stringify(diag)} ` +
+            `| item title=${JSON.stringify(item.title)} style=${JSON.stringify(item.style)} ` +
+            `item_category=${JSON.stringify(item.item_category)}`,
+        );
         blockers.push(
           `Fill required eBay specifics in the composer: ${requiredMissing.slice(0, 4).join(", ")}${
             requiredMissing.length > 4 ? "…" : ""
