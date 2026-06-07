@@ -22,6 +22,7 @@ struct ProfileSection: View {
     var body: some View {
         Group {
             profileSection
+            inviteSection
             planSection
             dataSection
         }
@@ -63,6 +64,19 @@ struct ProfileSection: View {
                 }
             }
             .disabled(isSavingName || !nameChanged)
+        }
+    }
+
+    private var inviteSection: some View {
+        Section {
+            NavigationLink {
+                ReferralsView()
+            } label: {
+                Label("Invite friends", systemImage: "gift")
+            }
+        } footer: {
+            Text("Share your code — you both earn a reward when a friend grades their first item.")
+                .font(.footnote)
         }
     }
 
