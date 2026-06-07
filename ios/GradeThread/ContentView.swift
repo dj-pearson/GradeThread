@@ -328,6 +328,9 @@ struct MainShell: View {
             router.selection = .sales
         case .marketplacesTab:
             router.selection = .marketplaces
+        case .inventoryTab:
+            router.selection = .inventory
+            router.inventoryPath = NavigationPath()
         case let .inventoryItem(id):
             router.selection = .inventory
             // Reset to the list, then push the item's canvas so the tap

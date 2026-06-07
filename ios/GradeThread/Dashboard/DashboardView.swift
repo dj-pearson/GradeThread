@@ -102,9 +102,8 @@ struct DashboardView: View {
             TrendSparkline(points: trendPoints)
                 .frame(height: 56)
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     private var analyticsCard: some View {
@@ -128,9 +127,8 @@ struct DashboardView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -154,9 +152,8 @@ struct DashboardView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -229,8 +226,7 @@ struct DashboardView: View {
                 }
             }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var quickActions: some View {
@@ -352,9 +348,8 @@ private struct DashboardCard: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 }
 

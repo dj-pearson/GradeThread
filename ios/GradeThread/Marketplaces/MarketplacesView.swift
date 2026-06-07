@@ -108,8 +108,7 @@ struct MarketplacesView: View {
                         .clipShape(Capsule())
                 }
                 .padding(12)
-                .background(Color(uiColor: .secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .cardStyle(.flush)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(channel.label), coming soon")
             }
@@ -140,9 +139,8 @@ struct MarketplacesView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -173,9 +171,8 @@ struct MarketplacesView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -220,9 +217,8 @@ struct MarketplacesView: View {
             }
             Spacer()
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     // MARK: - eBay card
@@ -257,8 +253,7 @@ struct MarketplacesView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     // MARK: - Card bodies

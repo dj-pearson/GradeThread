@@ -93,8 +93,7 @@ struct PublishDialog: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func summaryCard(_ summary: PublishSummary) -> some View {
@@ -122,10 +121,9 @@ struct PublishDialog: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(8)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func blockersCard(_ blockers: [String]) -> some View {
@@ -144,10 +142,9 @@ struct PublishDialog: View {
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func successCard(_ response: PushResponse) -> some View {
@@ -192,8 +189,7 @@ struct PublishDialog: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func failureCard(message: String) -> some View {
@@ -229,8 +225,7 @@ struct PublishDialog: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func primaryButton(label: String, action: @escaping () -> Void) -> some View {
@@ -447,9 +442,8 @@ private struct ComposerForm: View {
                 .disabled(trimmedTitle.isEmpty)
                 .padding(.top, 4)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
     }
 

@@ -23,6 +23,11 @@ final class LocalInventoryItem {
     var material: String?
     var status: String
 
+    /// `sources.id` this item was acquired from, when known. Powers the
+    /// per-source ROI rollup (US-677). Optional — legacy/manual rows may have
+    /// no source. Treated as a user-owned field on sync.
+    var sourceId: String?
+
     // Pricing
     var acquiredPrice: Double?
     var targetPrice: Double?

@@ -33,6 +33,7 @@ struct MoneyView: View {
                     revenueChart
                 }
                 repricingCard
+                reconciliationCard
                 expensesCard
                 salesCard
             }
@@ -90,9 +91,8 @@ struct MoneyView: View {
                     tint: .brandNavy
                 )
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
     }
 
@@ -112,9 +112,8 @@ struct MoneyView: View {
             }
             .frame(height: 150)
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     // MARK: - Expenses
@@ -170,8 +169,7 @@ struct MoneyView: View {
                 }
             }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     // MARK: - Repricing
@@ -198,9 +196,38 @@ struct MoneyView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Payout reconciliation (US-666)
+
+    private var reconciliationCard: some View {
+        NavigationLink {
+            PayoutReconciliationView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "checklist.checked")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Payout reconciliation")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Match eBay payouts to your sales and fees")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -242,8 +269,7 @@ struct MoneyView: View {
                 }
             }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     @ViewBuilder
