@@ -25,7 +25,24 @@ struct DetailsIntakeView: View {
     @State private var showingAddSourceSheet = false
     @State private var isSaving = false
     @State private var bannerMessage: BannerMessage?
+    /// US-646: a recoverable draft from a prior (background-killed) session.
+    @State private var pendingDraft: IntakeDraftStore.Draft?
     private let currencyFormatter = CurrencyFormatter()
+
+    /// Drives the resume alert off `pendingDraft`.
+    private var showingDraftResumeBinding: Binding<Bool> {
+        Binding(get: { pendingDraft != nil }, set: { if !$0 { pendingDraft = nil } })
+    }
+
+    /// Concatenation of every form field — `.onChange` on this triggers an
+    /// autosave whenever anything the user can edit changes.
+    private var draftSignature: String {
+        [form.title, form.sku, form.brand, form.style, form.size, form.color,
+         form.material, form.category.rawValue, form.status.rawValue,
+         form.sourceId ?? "", form.container, form.sourcedBy,
+         form.purchasePriceText, form.notes,
+         ISO8601DateFormatter().string(from: form.purchaseDate)].joined(separator: "\u{1F}")
+    }
 
     // Voice + barcode shortcuts (US-179)
     @State private var dictation = SpeechDictation()
@@ -70,6 +87,27 @@ struct DetailsIntakeView: View {
             if let userId = currentUserId() {
                 await sourceStore?.refresh(userId: userId)
             }
+            // US-646: offer to resume an unsaved draft from a prior session.
+            if !form.canSubmit, let draft = IntakeDraftStore.load() {
+                pendingDraft = draft
+            }
+        }
+        // US-646: autosave the form as the user types so a background-kill
+        // doesn't lose work. Cleared on successful save / discard.
+        .onChange(of: draftSignature) { _, _ in
+            IntakeDraftStore.save(form)
+        }
+        .alert("Resume your unsaved item?", isPresented: showingDraftResumeBinding, presenting: pendingDraft) { draft in
+            Button("Resume") {
+                IntakeDraftStore.apply(draft, to: form)
+                pendingDraft = nil
+            }
+            Button("Discard", role: .destructive) {
+                IntakeDraftStore.clear()
+                pendingDraft = nil
+            }
+        } message: { draft in
+            Text("You have an unsaved \(draft.title.isEmpty ? "item" : "\"\(draft.title)\"") from \(draft.savedAt.formatted(.relative(presentation: .named))).")
         }
         .sheet(isPresented: $showingAddSourceSheet) {
             if let store = sourceStore, let userId = currentUserId() {
@@ -394,6 +432,8 @@ struct DetailsIntakeView: View {
     }
 
     private func handleSavedSuccessfully(outcome: SaveOutcome) {
+        // US-646: the work is committed (or queued) — drop the recovery draft.
+        IntakeDraftStore.clear()
         bannerMessage = BannerMessage(kind: .success, text: "Saved.")
         HapticFeedback.success()
         Telemetry.event(TelemetryEvent.intakeCompleted, props: [
@@ -410,6 +450,8 @@ struct DetailsIntakeView: View {
     }
 
     private func handleSavedOffline(outcome: SaveOutcome) {
+        // US-646: the item is durably queued (US-640) — drop the recovery draft.
+        IntakeDraftStore.clear()
         bannerMessage = BannerMessage(
             kind: .offline,
             text: "Saved offline — will sync when you reconnect."

@@ -22,9 +22,14 @@ struct PhotoIntakeView: View {
     @State private var slotForPreview: PhotoSlotType?
     @State private var showingExitConfirmation = false
 
+    // US-646: photo-capture draft recovery.
+    @State private var seededWithInitialPhotos: Bool
+    @State private var photoDraftToResume = false
+
     /// Default initializer (camera-first flow with empty slots).
     init() {
         _store = State(initialValue: PhotoIntakeStore())
+        _seededWithInitialPhotos = State(initialValue: false)
     }
 
     /// Pre-stage initializer (US-193) — accepts already-captured
@@ -37,6 +42,7 @@ struct PhotoIntakeView: View {
             preloaded.setPhoto(photo, for: slot)
         }
         _store = State(initialValue: preloaded)
+        _seededWithInitialPhotos = State(initialValue: !initialPhotos.isEmpty)
     }
 
     /// Inventory item id created when the user hits Done. Anchors every
@@ -83,6 +89,26 @@ struct PhotoIntakeView: View {
             await bootstrap()
             // US-651: move VoiceOver focus to the shutter once the camera's up.
             if permissionState == .granted { captureControlFocused = true }
+            // US-646: offer to resume an unsaved photo set from a prior session
+            // (only on a fresh, non-preseeded launch with nothing captured yet).
+            if !seededWithInitialPhotos, store.photos.isEmpty, PhotoDraftStore.hasDraft() {
+                photoDraftToResume = true
+            }
+        }
+        // US-646: persist captures as they change so a background-kill is
+        // recoverable.
+        .onChange(of: store.photos) { _, photos in
+            PhotoDraftStore.save(photos: photos)
+        }
+        .confirmationDialog(
+            "Resume your unsaved photos?",
+            isPresented: $photoDraftToResume,
+            titleVisibility: .visible
+        ) {
+            Button("Resume") { PhotoDraftStore.restore(into: store) }
+            Button("Start fresh", role: .destructive) { PhotoDraftStore.clear() }
+        } message: {
+            Text("You have photos from a session that didn't finish.")
         }
         // US-651: announce upload outcomes as they land (live region).
         .onChange(of: uploadTally) { old, new in
@@ -100,6 +126,7 @@ struct PhotoIntakeView: View {
             titleVisibility: .visible
         ) {
             Button("Discard", role: .destructive) {
+                PhotoDraftStore.clear()  // US-646: explicit discard
                 store.reset()
                 dismiss()
             }
@@ -484,6 +511,9 @@ struct PhotoIntakeView: View {
             inventoryItemId: newItemId,
             userId: userId
         )
+        // US-646: the captures are committed to the upload queue — drop the
+        // recovery draft.
+        PhotoDraftStore.clear()
         draftItemId = newItemId
     }
 

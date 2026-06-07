@@ -9605,8 +9605,8 @@
         "Multiple concurrent drafts are handled or explicitly limited to one with a clear resume prompt"
       ],
       "priority": 646,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Capture/PhotoIntakeView.swift keeps captures only in in-memory PhotoIntakeStore; DetailsIntakeView keeps IntakeFormState in @State. A background-kill mid-intake loses everything; discard dialog only fires on explicit close."
+      "passes": true,
+      "notes": "Done. New IntakeDraftStore.swift with two single-draft persisters. IntakeDraftStore autosaves the typed IntakeFormState to UserDefaults via .onChange(of: draftSignature) in DetailsIntakeView; on appear (and only when the form is empty) it offers a 'Resume your unsaved item?' alert (Resume restores via apply, Discard clears); the draft is cleared on successful online save AND offline-queued save. PhotoDraftStore persists captured photo JPEGs (+ slot manifest) under Application Support (file-protection-until-first-auth, consistent with US-658) via .onChange(of: store.photos) in PhotoIntakeView; a fresh, non-preseeded launch with an existing draft shows a 'Resume your unsaved photos?' dialog (Resume rebuilds PhotoCaptures + thumbnails into the store; Start fresh clears). The photo draft is cleared on enqueue (successful save) and on the explicit Discard exit. Single-draft per surface with a clear resume prompt (the AC's 'limited to one' option). Tests: form draft round-trip / empty-no-save / clear."
     },
     {
       "id": "US-647",

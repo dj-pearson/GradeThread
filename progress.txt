@@ -4658,3 +4658,14 @@ Picker → compressOffMain → PhotoUploadService.enqueueAll(item.id); empty-pho
 state offers the add action directly.
 
 prd.json 468/679.
+
+
+### iOS intake autosave/draft recovery (US-646)
+
+New IntakeDraftStore.swift: IntakeDraftStore (form → UserDefaults, autosave on
+field change, resume-on-appear alert, clear on save/discard) + PhotoDraftStore
+(capture JPEGs + manifest → Application Support, file-protected; resume dialog;
+clear on enqueue/discard). Wired into DetailsIntakeView + PhotoIntakeView. Tests
+added (form round-trip / empty-no-save / clear).
+
+prd.json 469/679.
