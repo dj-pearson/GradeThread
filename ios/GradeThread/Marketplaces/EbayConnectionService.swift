@@ -17,9 +17,14 @@ import UIKit
 ///      callback handler may emit different redirect shapes depending on
 ///      eBay sandbox vs production.
 ///
-/// On iOS 17.4+ this could move to `ASWebAuthenticationSession.Callback.https`
-/// with a Universal Link target. That's a polish pass — bumping the
-/// deployment target + provisioning the AASA file at gradethread.com.
+/// US-661: on iOS 17.4+ the callback now lands on an https Universal Link
+/// (`https://gradethread.com/app/oauth/ebay`) the app owns via
+/// associated-domains, so `ASWebAuthenticationSession.Callback.https` completes
+/// the in-app session deterministically and no other app can intercept the
+/// callback by claiming a custom scheme. Below 17.4 we fall back to the legacy
+/// `com.gradethread.app://oauth/ebay` scheme (the edge drops that to the web
+/// dashboard, and we poll `marketplace_connections` to confirm). The OS-version
+/// branching lives in ``OAuthWebSession``.
 @MainActor
 public final class EbayConnectionService: NSObject {
 
@@ -43,10 +48,24 @@ public final class EbayConnectionService: NSObject {
         }
     }
 
-    /// Callback path under the registered custom URL scheme. Must match
-    /// what the edge `/oauth/callback` handler eventually redirects to.
+    /// Legacy custom-scheme callback — used only on iOS < 17.4.
     public static let callbackURL = URL(string: "com.gradethread.app://oauth/ebay")!
     public static let callbackURLScheme = "com.gradethread.app"
+
+    /// US-661: https Universal Link the app claims (`applinks:gradethread.com`).
+    /// The edge `/oauth/callback` bounces here with `?ebay=<status>` and the
+    /// echoed `client_state`. Host + path must match an AASA component.
+    public static let universalLinkHost = "gradethread.com"
+    public static let universalLinkPath = "/app/oauth/ebay"
+    /// Relative redirect_to sent to `/oauth/start`. Same-origin path the edge
+    /// sanitizer allowlists (`/app`), resolved to the https Universal Link.
+    public static let universalLinkRedirectPath = "/app/oauth/ebay"
+
+    /// Whether this OS can use the Universal Link callback.
+    static var supportsUniversalLinkCallback: Bool {
+        if #available(iOS 17.4, *) { return true }
+        return false
+    }
 
     private let supabase: SupabaseClient
 
@@ -65,8 +84,12 @@ public final class EbayConnectionService: NSObject {
         // table (US-274); this is defense-in-depth so a forged callback to our
         // URL scheme carrying a *different* state is rejected here too.
         let stateNonce = Self.generateStateNonce()
-        let consent = try await fetchConsentURL(stateNonce: stateNonce)
-        let callback = try await runAuthSession(url: consent)
+        let useUniversalLink = Self.supportsUniversalLinkCallback
+        let redirectTo = useUniversalLink
+            ? Self.universalLinkRedirectPath
+            : Self.callbackURL.absoluteString
+        let consent = try await fetchConsentURL(stateNonce: stateNonce, redirectTo: redirectTo)
+        let callback = try await runAuthSession(url: consent, useUniversalLink: useUniversalLink)
         if let result = EbayConnectResult.from(callbackURL: callback, expectedState: stateNonce) {
             switch result {
             case .cancelled:    throw ConnectionError.userCancelled
@@ -158,11 +181,11 @@ public final class EbayConnectionService: NSObject {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private func fetchConsentURL(stateNonce: String) async throws -> URL {
+    private func fetchConsentURL(stateNonce: String, redirectTo: String) async throws -> URL {
         let response: ConsentResponse = try await EdgeAPI.shared.getJSON(
             "/api/flipdesk/ebay/oauth/start",
             query: [
-                URLQueryItem(name: "redirect_to", value: Self.callbackURL.absoluteString),
+                URLQueryItem(name: "redirect_to", value: redirectTo),
                 // Round-tripped back on the callback so we can verify it.
                 URLQueryItem(name: "client_state", value: stateNonce),
             ]
@@ -173,34 +196,20 @@ public final class EbayConnectionService: NSObject {
         return url
     }
 
-    private func runAuthSession(url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: Self.callbackURLScheme
-            ) { callbackURL, error in
-                if let error {
-                    let nsError = error as NSError
-                    if nsError.domain == ASWebAuthenticationSessionErrorDomain,
-                       nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        cont.resume(throwing: ConnectionError.userCancelled)
-                    } else {
-                        cont.resume(throwing: ConnectionError.network(message: error.localizedDescription))
-                    }
-                    return
-                }
-                guard let callbackURL else {
-                    cont.resume(throwing: ConnectionError.network(message: "No callback URL received."))
-                    return
-                }
-                cont.resume(returning: callbackURL)
+    private func runAuthSession(url: URL, useUniversalLink: Bool) async throws -> URL {
+        let callback: OAuthWebSession.Callback = useUniversalLink
+            ? .universalLink(host: Self.universalLinkHost, path: Self.universalLinkPath)
+            : .customScheme(Self.callbackURLScheme)
+        do {
+            return try await OAuthWebSession.run(url: url, callback: callback, anchorProvider: self)
+        } catch let error as OAuthWebSession.SessionError {
+            switch error {
+            case .cancelled:
+                throw ConnectionError.userCancelled
+            case .noCallback, .failed:
+                throw ConnectionError.network(message: error.localizedDescription
+                    ?? "eBay sign-in failed.")
             }
-            session.presentationContextProvider = self
-            // US-660: isolate the web session — no shared Safari cookie jar, so
-            // another app can't ride an existing eBay login to drive a silent
-            // "connected" state. Costs the user an explicit eBay sign-in.
-            session.prefersEphemeralWebBrowserSession = true
-            session.start()
         }
     }
 }

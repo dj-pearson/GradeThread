@@ -168,6 +168,47 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
   const ebayError = c.req.query("error");
   const ebayErrorDesc = c.req.query("error_description");
 
+  // Resolve the bounce-back destination up front. The web flow has no
+  // redirect_to and falls back to the dashboard; the iOS app (US-661) passes
+  // an https Universal Link under `/app/oauth/ebay` (with its client_state
+  // nonce already in the query) so ASWebAuthenticationSession.Callback.https
+  // completes the in-app session deterministically. We read + delete the
+  // single-use state row here (when present) so a replay can't reuse it, and
+  // so EVERY exit path — including errors — bounces back to the SAME claimed
+  // destination (otherwise the iOS web-auth session would hang on an
+  // unclaimed https URL on cancel/exchange failures).
+  let redirectTo: string | null = null;
+  let stateUserId: string | null = null;
+  let stateFound = false;
+  let stateExpired = false;
+  if (state) {
+    const { data: stateRow } = await supabaseAdmin
+      .from("oauth_states")
+      .delete()
+      .eq("state", state)
+      .eq("marketplace", "ebay")
+      .select("user_id, redirect_to, expires_at")
+      .maybeSingle();
+    if (stateRow) {
+      stateFound = true;
+      // Defense-in-depth: redirect_to was sanitized at /oauth/start, but
+      // re-check here so a legacy/oddly-stored row can't drive an open
+      // redirect. (US-274)
+      redirectTo = sanitizeRelativePath(stateRow.redirect_to);
+      stateUserId = stateRow.user_id;
+      stateExpired = new Date(stateRow.expires_at).getTime() < Date.now();
+    }
+  }
+
+  // Append the `?ebay=<status>` discriminator to whichever destination we
+  // bounce to, preserving any query the caller already passed (e.g. the iOS
+  // client_state nonce) — `&` when a query already exists, `?` otherwise.
+  const finish = (status: string) => {
+    const base = redirectTo ?? "/dashboard/flipdesk/marketplaces";
+    const sep = base.includes("?") ? "&" : "?";
+    return c.redirect(appUrl(`${base}${sep}ebay=${encodeURIComponent(status)}`));
+  };
+
   // eBay sends `error=access_denied` when the user cancels at the consent
   // screen. Other error codes (e.g. unauthorized_client) signal config bugs
   // — log the description so the operator can see it without having to dig
@@ -176,35 +217,16 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     console.error(
       `[flipdesk-ebay] consent error: ${ebayError} — ${ebayErrorDesc ?? "(no description)"}`
     );
-    const reason = ebayError === "access_denied" ? "cancelled" : ebayError;
-    return c.redirect(
-      appUrl(
-        `/dashboard/flipdesk/marketplaces?ebay=${encodeURIComponent(reason)}`
-      )
-    );
+    return finish(ebayError === "access_denied" ? "cancelled" : ebayError);
   }
   if (!code || !state) {
-    return c.redirect(appUrl("/dashboard/flipdesk/marketplaces?ebay=cancelled"));
+    return finish("cancelled");
   }
-
-  // Single-use state — read + delete in one round-trip so a replay can't reuse it.
-  const { data: stateRow, error: stateErr } = await supabaseAdmin
-    .from("oauth_states")
-    .delete()
-    .eq("state", state)
-    .eq("marketplace", "ebay")
-    .select("user_id, redirect_to, expires_at")
-    .maybeSingle();
-
-  if (stateErr || !stateRow) {
-    return c.redirect(
-      appUrl("/dashboard/flipdesk/marketplaces?ebay=invalid_state")
-    );
+  if (!stateFound || !stateUserId) {
+    return finish("invalid_state");
   }
-  if (new Date(stateRow.expires_at).getTime() < Date.now()) {
-    return c.redirect(
-      appUrl("/dashboard/flipdesk/marketplaces?ebay=state_expired")
-    );
+  if (stateExpired) {
+    return finish("state_expired");
   }
 
   try {
@@ -215,7 +237,7 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     // refresh path will backfill on the next token rotation.
     const identity = await getUserIdentityFromToken(tokens.access_token);
     await upsertConnection({
-      userId: stateRow.user_id,
+      userId: stateUserId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       accessExpiresInSeconds: tokens.expires_in,
@@ -223,17 +245,10 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     });
   } catch (err) {
     console.error("[flipdesk-ebay] OAuth exchange failed:", err);
-    return c.redirect(
-      appUrl("/dashboard/flipdesk/marketplaces?ebay=exchange_failed")
-    );
+    return finish("exchange_failed");
   }
 
-  // Defense-in-depth: redirect_to was sanitized at /oauth/start, but re-check
-  // here so a legacy/oddly-stored row can't drive an open redirect. (US-274)
-  const dest =
-    sanitizeRelativePath(stateRow.redirect_to) ??
-    "/dashboard/flipdesk/marketplaces?ebay=connected";
-  return c.redirect(appUrl(dest));
+  return finish("connected");
 });
 
 // ── OAuth: refresh ─────────────────────────────────────────────────

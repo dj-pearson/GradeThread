@@ -43,6 +43,18 @@ struct ContentView: View {
                 IntakeInbox.sweepStale()
                 Telemetry.event(TelemetryEvent.appOpen)
             }
+            // US-661: complete auth handshakes delivered as a Universal Link
+            // (password-reset / magic-link email opened from Mail lands on
+            // https://gradethread.com/app/auth-callback) or the legacy custom
+            // scheme. The in-app ASWebAuthenticationSession captures its own
+            // callback, so these only fire for links opened OUTSIDE the app.
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                guard let url = activity.webpageURL else { return }
+                Task { await authStore.handleAuthCallback(url: url) }
+            }
+            .onOpenURL { url in
+                Task { await authStore.handleAuthCallback(url: url) }
+            }
             .onChange(of: authStore.phase) { _, newPhase in
                 // Boot the sync engine the moment the user signs in;
                 // pause it when they sign out so the offline queue doesn't

@@ -20,6 +20,12 @@ additional_redirect_urls = [
   "https://gradethread.com/auth/callback",
   "https://gradethread.com/auth/reset-password",
   "https://gradethread.com/accept-invite",
+  # US-661: iOS Universal Link auth callback. The app claims this path via
+  # associated-domains (AASA at /.well-known/apple-app-site-association) so the
+  # Google sign-in + recovery/magic-link redirects land on an https URL the app
+  # owns instead of the claimable com.gradethread.app:// custom scheme. The
+  # production GoTrue's GOTRUE_URI_ALLOW_LIST must include this exact URL too.
+  "https://gradethread.com/app/auth-callback",
 ]
 jwt_expiry = 3600
 # US-375: rotate refresh tokens on every use and detect reuse of a revoked token
