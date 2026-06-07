@@ -37,6 +37,8 @@ struct MarketplacesView: View {
                     } else if orphanCount > 0 {
                         reconciliationCard
                     }
+                    // US-289: photo-dump → reconcile-session intake.
+                    reconcileIntakeCard(userId: userId)
                 }
                 // US-675: durable home for AutoLister-generated drafts + bulk edit.
                 draftsCard
@@ -137,6 +139,36 @@ struct MarketplacesView: View {
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Connect, label, and switch between multiple eBay stores")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-289: photo-dump → reconcile-session intake. Scoped to the active
+    // workspace owner (US-670).
+    private func reconcileIntakeCard(userId: String) -> some View {
+        NavigationLink {
+            ReconcileIntakeView(ownerId: WorkspaceScope.tenantOwnerId(selfId: userId))
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reconcile photo dump")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Send a batch of photos to a reconcile session to group into items on the web board")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

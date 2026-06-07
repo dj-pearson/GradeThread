@@ -573,6 +573,10 @@ actor SyncEngine {
             let storage_path: String
             let local_file_url: String
             let photo_id: String?
+            // US-289: capture-time + reconcile session carried through the
+            // offline queue so a retried upload doesn't lose them.
+            let captured_at: String?
+            let reconcile_session_id: String?
         }
         let p = try JSONDecoder().decode(UploadPayload.self, from: payload)
         let fileURL = URL(fileURLWithPath: p.local_file_url)
@@ -606,6 +610,11 @@ actor SyncEngine {
             "bytes": .integer(bytes ?? 0),
         ]
         if let photoId = p.photo_id { row["id"] = .string(photoId) }
+        // US-289: preserve capture-time + reconcile session through replay.
+        if let capturedAt = p.captured_at { row["captured_at"] = .string(capturedAt) }
+        if let sessionId = p.reconcile_session_id {
+            row["reconcile_session_id"] = .string(sessionId)
+        }
         try await SupabaseShared.client.from("item_photos").upsert(row).execute()
 
         // Clean up the staged bytes now that they're durably uploaded.

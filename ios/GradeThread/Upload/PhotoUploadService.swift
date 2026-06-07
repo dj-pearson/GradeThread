@@ -327,6 +327,15 @@ public final class PhotoUploadService {
         enqueuePendingMutation(for: task, message: message)
     }
 
+    /// ISO-8601 (internet date-time) formatter for the queued captured_at,
+    /// matching ``ItemPhotoInsert``'s encoding so replayed + direct uploads
+    /// write identical timestamps.
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     /// Backs the upload by a `LocalPendingMutation` so the next SyncEngine
     /// pass on a healthy network picks it back up. Mutation payload carries
     /// enough metadata for a clean re-upload.
@@ -341,6 +350,10 @@ public final class PhotoUploadService {
             // Client-generated row id so the SyncEngine replay UPSERTs the
             // item_photos row (US-640) — a retry can't double-insert.
             let photo_id: String
+            // US-289: carry capture-time + reconcile session so an offline
+            // retry doesn't drop them from the item_photos row.
+            let captured_at: String?
+            let reconcile_session_id: String?
         }
         let payload = Payload(
             inventory_item_id: task.inventoryItemId,
@@ -348,7 +361,9 @@ public final class PhotoUploadService {
             slot: task.slot.rawValue,
             storage_path: task.storagePath,
             local_file_url: task.localFileURL.path,
-            photo_id: UUID().uuidString
+            photo_id: UUID().uuidString,
+            captured_at: task.capturedAt.map { Self.iso8601.string(from: $0) },
+            reconcile_session_id: task.reconcileSessionId
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         let context = ModelContext(container)

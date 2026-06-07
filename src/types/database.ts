@@ -672,6 +672,13 @@ export interface ReconcileAssignmentSnapshot {
   name: string;
   clusterId: string | null;
   manual: boolean;
+  // US-289: when a photo was staged by the iOS app (uploaded to storage before
+  // an item exists), this points at the already-uploaded blob in the
+  // `item-photos` bucket. The web board hydrates a preview from it on restore
+  // and, at commit, references the existing object instead of re-uploading.
+  // Absent for browser-staged photos whose blob lives only in memory.
+  storagePath?: string | null;
+  photoType?: FlipdeskPhotoType | null;
 }
 
 export interface ReconcileSessionRow {

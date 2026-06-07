@@ -11,6 +11,9 @@ export interface CommitPhoto {
   file: File | null;
   capturedAt: Date | null;
   photoType: FlipdeskPhotoType;
+  // US-289: when the blob is already in storage (iOS-staged), commit references
+  // this existing object instead of re-uploading a (missing) in-memory File.
+  storagePath?: string | null;
 }
 
 export interface CommitCluster {
@@ -48,6 +51,24 @@ async function uploadOnePhoto(
   photo: CommitPhoto,
   sessionId: string | null,
 ): Promise<boolean> {
+  // US-289: iOS-staged photo — the blob is already in the item-photos bucket.
+  // Reference it directly instead of re-uploading (the in-memory File is gone).
+  if (!photo.file && photo.storagePath) {
+    const { data: pub } = supabase.storage
+      .from("item-photos")
+      .getPublicUrl(photo.storagePath);
+    const { error: insErr } = await supabase.from("item_photos").insert({
+      inventory_item_id: itemId,
+      photo_url: pub.publicUrl,
+      storage_path: photo.storagePath,
+      photo_type: photo.photoType,
+      sort_order: sortOrder,
+      captured_at: photo.capturedAt ? photo.capturedAt.toISOString() : null,
+      reconcile_session_id: sessionId,
+    } as never);
+    if (insErr) throw insErr;
+    return true;
+  }
   if (!photo.file) return false; // restored placeholder — nothing to upload
 
   const file = photo.file;
