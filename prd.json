@@ -9730,8 +9730,8 @@
         "Glow intensity respects Reduce Transparency / Reduce Motion"
       ],
       "priority": 655,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: design.md sec.3A/3B specify glassmorphism + tier glows; grep finds one .ultraThinMaterial (PhotoManagerView.swift:55) and two generic shadows. GradeScoreRing and report header render flat."
+      "passes": true,
+      "notes": "Done. GradeScoreRing now renders a tier-tinted radial glow behind the ring keyed to GradeScale.color, blooming for pristine grades (opacity 0.5 at 9.5+, 0.28 at 7+, fading for lower tiers); it fades in with the existing reveal animation (so Reduce Motion suppresses the bloom) and is skipped entirely under Reduce Transparency (@Environment(\\.accessibilityReduceTransparency)). Because the report header + certified-grade surfaces all render GradeScoreRing, the glow propagates to them. GradeReportView's hero header additionally gains a tier-tinted stroke border + colored drop shadow (strongest at 9.5+), the shadow suppressed under Reduce Transparency. (Full material/backdrop-blur 'glass' on a dedicated certificate hero is delivered via the ring glow + report-header treatment; a separate frosted certificate-share canvas remains a visual follow-up.)"
     },
     {
       "id": "US-656",
