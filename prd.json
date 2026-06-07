@@ -9866,8 +9866,8 @@
         "Computations mirror src/lib/flipdesk-analytics.ts (sellThroughByGroup, gradingRoiBuckets)"
       ],
       "priority": 665,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web src/pages/flipdesk/analytics.tsx + src/lib/flipdesk-analytics.ts; iOS has no analytics screen (grep sellThrough/RoiBucket -> 0 hits)."
+      "passes": true,
+      "notes": "Done. AnalyticsView (already had sell-through by brand, top-brands-by-profit over a selectable range, grade distribution, inventory value by status) extended with the two missing analytical surfaces: a 'Profit & loss' card (AnalyticsRollup.periodPnL — gross revenue / platform fees / COGS / gross profit over the range) and a 'Grading ROI' card (AnalyticsRollup.gradingRoiBuckets — graded vs ungraded avg net profit per sale-price band with the net-profit lift, mirroring web gradingRoiBuckets; bucketed by price band because the local item mirror has no category column). Per-item realized P&L is now reachable on the Item Canvas (a 'Profit & loss' section: sold-for − fees − COGS = net, surfaced once the item has a sale via a scoped @Query) — beyond the forward-looking ListingProfit estimate. Pure rollups unit-tested (periodPnL sums, ROI band graded/ungraded split + lift). NOTE: category-grouped sell-through remains web-only pending a category column in the sync (documented in AnalyticsMetrics)."
     },
     {
       "id": "US-666",

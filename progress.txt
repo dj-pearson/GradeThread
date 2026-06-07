@@ -4733,3 +4733,13 @@ range + share sheet) reachable from a Money-tab Export button. Tests added. PDF 
 a noted follow-up.
 
 prd.json 476/679.
+
+
+### iOS analytics completion (US-665)
+
+AnalyticsRollup.periodPnL + gradingRoiBuckets (price-band graded-vs-ungraded
+lift); new Profit&Loss + Grading-ROI cards in AnalyticsView. Per-item realized
+P&L section on the Item Canvas (scoped @Query on the item's sale). Tests added.
+Category-grouped sell-through stays web-only (no local category column).
+
+prd.json 477/679.

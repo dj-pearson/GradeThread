@@ -21,6 +21,8 @@ struct ItemCanvasView: View {
     let item: LocalInventoryItem
 
     @Query private var allPhotos: [LocalItemPhoto]
+    /// US-665: this item's sale(s) for the realized per-item P&L row.
+    @Query private var itemSales: [LocalSale]
     @State private var state: ItemCanvasState?
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
@@ -55,6 +57,17 @@ struct ItemCanvasView: View {
             filter: #Predicate<LocalItemPhoto> { $0.inventoryItemId == itemId },
             sort: \.sortOrder
         )
+        self._itemSales = Query(
+            filter: #Predicate<LocalSale> { $0.inventoryItemId == itemId },
+            sort: \.saleDate, order: .reverse
+        )
+    }
+
+    /// US-665: realized per-item P&L once the item has sold (sale − fees − cost).
+    private var realizedPnL: (revenue: Double, fees: Double, cogs: Double, net: Double)? {
+        guard let sale = itemSales.first else { return nil }
+        let cogs = item.acquiredPrice ?? 0
+        return (sale.salePrice, sale.platformFees, cogs, sale.salePrice - sale.platformFees - cogs)
     }
 
     var body: some View {
@@ -163,6 +176,9 @@ struct ItemCanvasView: View {
         Form {
             identitySection(state: state)
             pricingSection(state: state)
+            if let pnl = realizedPnL {
+                pnlSection(pnl)
+            }
             photosSection
             CertifiedGradeSection(item: item)
             measurementsSection
@@ -310,6 +326,22 @@ struct ItemCanvasView: View {
                 TextField("Cost", text: $state.draft.acquiredPriceText)
                     .keyboardType(.decimalPad)
             }
+        }
+    }
+
+    /// US-665: realized P&L once the item has sold.
+    private func pnlSection(_ pnl: (revenue: Double, fees: Double, cogs: Double, net: Double)) -> some View {
+        Section {
+            LabeledContent("Sold for", value: currencyFormatter.formatDisplay(pnl.revenue))
+            LabeledContent("Platform fees", value: "−" + currencyFormatter.formatDisplay(pnl.fees))
+            LabeledContent("Cost of goods", value: "−" + currencyFormatter.formatDisplay(pnl.cogs))
+            LabeledContent("Net profit") {
+                Text(currencyFormatter.formatDisplay(pnl.net))
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(pnl.net < 0 ? Color.brandRed : Color.brandEmerald)
+            }
+        } header: {
+            Text("Profit & loss")
         }
     }
 

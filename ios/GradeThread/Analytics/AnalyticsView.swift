@@ -28,6 +28,13 @@ struct AnalyticsView: View {
             items: items, sales: sales, since: range.start(now: .now))
     }
 
+    private var periodPnL: PeriodPnL {
+        AnalyticsRollup.periodPnL(items: items, sales: sales, since: range.start(now: .now))
+    }
+    private var roiBuckets: [RoiBucket] {
+        AnalyticsRollup.gradingRoiBuckets(items: items, sales: sales, since: range.start(now: .now))
+    }
+
     var body: some View {
         Group {
             if items.isEmpty && sales.isEmpty {
@@ -46,6 +53,8 @@ struct AnalyticsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 gradeHeader
                 rangeCard
+                periodPnLCard
+                gradingRoiCard
                 brandProfitCard
                 sellThroughCard
                 gradeDistributionCard
@@ -127,6 +136,75 @@ struct AnalyticsView: View {
 
     private func categoryHeight(_ count: Int) -> CGFloat {
         CGFloat(max(count, 1)) * 34 + 24
+    }
+
+    // US-665: realized P&L for the window — revenue, COGS, gross profit.
+    private var periodPnLCard: some View {
+        let pnl = periodPnL
+        return card("Profit & loss", subtitle: "\(pnl.unitsSold) sold · past \(range.label.lowercased())") {
+            VStack(spacing: 8) {
+                pnlRow("Gross revenue", pnl.grossRevenue)
+                pnlRow("Platform fees", -pnl.fees)
+                pnlRow("Cost of goods", -pnl.cogs)
+                Divider()
+                pnlRow("Gross profit", pnl.grossProfit, emphasized: true)
+            }
+        }
+    }
+
+    private func pnlRow(_ label: String, _ value: Double, emphasized: Bool = false) -> some View {
+        HStack {
+            Text(label)
+                .font(emphasized ? .subheadline.weight(.semibold) : .subheadline)
+            Spacer()
+            Text(currency.formatDisplay(value))
+                .font(emphasized ? .subheadline.weight(.bold) : .subheadline)
+                .monospacedDigit()
+                .foregroundStyle(value < 0 ? Color.brandRed : (emphasized ? Color.brandNavy : .primary))
+        }
+    }
+
+    // US-665: grading ROI — graded vs ungraded net profit by price band.
+    private var gradingRoiCard: some View {
+        card("Grading ROI", subtitle: "Avg net profit: graded vs ungraded") {
+            if roiBuckets.isEmpty {
+                notEnough()
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(roiBuckets) { bucket in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(bucket.band).font(.subheadline.weight(.medium))
+                                Spacer()
+                                if let lift = bucket.netProfitLift {
+                                    Text("\(lift >= 0 ? "+" : "")\(currency.formatDisplay(lift)) lift")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(lift >= 0 ? Color.brandEmerald : Color.brandRed)
+                                }
+                            }
+                            HStack(spacing: 16) {
+                                roiSide("Graded", bucket.gradedAvgNet, bucket.gradedCount)
+                                roiSide("Ungraded", bucket.ungradedAvgNet, bucket.ungradedCount)
+                            }
+                            if !bucket.meaningful {
+                                Text("Small sample — directional only.")
+                                    .font(.caption2).foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func roiSide(_ label: String, _ avg: Double?, _ count: Int) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(avg.map { currency.formatDisplay($0) } ?? "—")
+                .font(.subheadline.weight(.semibold)).monospacedDigit()
+            Text("\(count) sold").font(.caption2).foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // Top brands by profit (window-filtered).
