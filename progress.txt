@@ -4701,3 +4701,13 @@ prefs stay device-local push categories (distinct taxonomy from web's
 notification_preferences).
 
 prd.json 472/679.
+
+
+### iOS activation checklist (US-647)
+
+Onboarding/ActivationChecklist.swift: dismissible 3-step card (Add first item /
+Connect eBay / Enable notifications) with progress + per-step routing; notification
+permission requested here with a value-framed pre-prompt. Shown on Dashboard +
+empty state (DashboardView.emptyState rebuilt to host it).
+
+prd.json 473/679.

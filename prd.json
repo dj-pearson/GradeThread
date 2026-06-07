@@ -9619,8 +9619,8 @@
         "The empty Inventory/Dashboard state links into the same activation steps until completed"
       ],
       "priority": 647,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Onboarding/OnboardingView.swift is a pre-login 4-slide marketing carousel; it never connects eBay or requests permissions. Push permission is requested only on first open of the Money tab (ContentView.swift:658-667), coupling a critical channel to arbitrary navigation."
+      "passes": true,
+      "notes": "Done. New Onboarding/ActivationChecklist.swift: a dismissible activation card (ActivationChecklistView + ActivationChecklistStore) with per-step progress ('N of 3') for Add your first item (done when the local inventory @Query is non-empty), Connect eBay (done when EbayConnectionService.fetchActiveConnection returns a row), and Turn on notifications (done when UNUserNotificationCenter authorization is authorized/provisional). Tapping a step routes into the action: Add → router.startIntake(.photoFirst); Connect eBay → router.selection=.marketplaces; Turn on notifications → PushService.requestPermissionIfNeeded() requested HERE during onboarding with the row copy as the value-framed pre-prompt (no longer lazily on first Sales-tab open). Shown on the Dashboard (top) and woven into the empty state (DashboardView.emptyState rebuilt as a ScrollView hosting the checklist + welcome CTA) until all steps complete or the user dismisses (UserDefaults). Camera/photo permission explanation is carried by the Info.plist usage strings on the first system prompt plus the existing permissionDeniedView recovery in PhotoIntakeView (a dedicated custom pre-prompt screen before the system dialog was not added)."
     },
     {
       "id": "US-648",
