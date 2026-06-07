@@ -4,6 +4,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
   buildConsentUrl,
+  createInventoryLocation,
   createOffer,
   createOrReplaceInventoryItem,
   debugSnapshot,
@@ -441,6 +442,67 @@ flipdeskEbayRoutes.put("/policies/default", async (c) => {
       merchant_location_key: nextLocation,
     },
   });
+});
+
+// POST /policies/location → create a default eBay inventory (merchant)
+// location from a ZIP/address the seller confirms once. eBay requires an
+// ENABLED location on every offer, and there's no Seller Hub UI to make one,
+// so this fills the most common publish blocker ("merchant location").
+flipdeskEbayRoutes.post("/policies/location", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+
+  let body: {
+    postal_code?: unknown;
+    country?: unknown;
+    address_line1?: unknown;
+    city?: unknown;
+    state?: unknown;
+    name?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const country =
+    typeof body.country === "string" && body.country.trim()
+      ? body.country.trim().toUpperCase()
+      : "US";
+  const postalCode =
+    typeof body.postal_code === "string" ? body.postal_code.trim() : "";
+  // eBay needs a postal code to calculate shipping; enforce a valid US ZIP
+  // when country is US (the only marketplace FlipDesk supports today).
+  if (country === "US" && !/^\d{5}(-\d{4})?$/.test(postalCode)) {
+    return c.json({ error: "A valid US ZIP code is required." }, 400);
+  }
+
+  const str = (v: unknown): string | undefined =>
+    typeof v === "string" && v.trim() ? v.trim() : undefined;
+
+  try {
+    const result = await createInventoryLocation(ownerId, {
+      name: str(body.name),
+      address: {
+        addressLine1: str(body.address_line1),
+        city: str(body.city),
+        stateOrProvince: str(body.state),
+        postalCode: postalCode || undefined,
+        country,
+      },
+    });
+    return c.json({ ok: true, merchant_location_key: result.merchantLocationKey });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[flipdesk-ebay] /policies/location failed:", msg);
+    return c.json(
+      { error: "Could not create your eBay ship-from location.", detail: msg.slice(0, 300) },
+      502,
+    );
+  }
 });
 
 // ── Taxonomy ───────────────────────────────────────────────────────
@@ -2300,6 +2362,7 @@ interface PublishItem {
   grade_label: string | null;
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
+  item_category: string | null;
   status: string;
 }
 
@@ -2387,7 +2450,7 @@ async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, ebay_category_id, ebay_aspects, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, ebay_category_id, ebay_aspects, item_category, status"
     )
     .eq("id", itemId)
     .maybeSingle();
@@ -2462,7 +2525,43 @@ async function assemblePublishContext(
   const blockers: string[] = [];
   // Category resolution: listing-row override wins (AutoLister writes here);
   // fall back to inventory_items for legacy / single-item composer flows.
-  const categoryId = listing?.platform_category_id ?? item.ebay_category_id ?? null;
+  let categoryId = listing?.platform_category_id ?? item.ebay_category_id ?? null;
+  // Auto-resolve a real eBay leaf category when the item never got one. Items
+  // created via the single-item composer / manual catalog skip AutoLister's
+  // suggestCategories step (ai-listing.ts), so categoryId is null even though
+  // the item has a brand/title. Our internal item_category enum is NOT an eBay
+  // category, so we resolve against the Taxonomy API from the strongest free
+  // text we have and persist the result so this lookup only runs once.
+  if (!categoryId) {
+    const query = [item.brand, item.title, item.item_category]
+      .map((s) => (typeof s === "string" ? s.trim() : ""))
+      .filter((s) => s.length > 0)
+      .join(" ")
+      .trim();
+    if (query) {
+      try {
+        const suggestions = await suggestCategories(query);
+        if (suggestions.length > 0) {
+          categoryId = suggestions[0]!.categoryId;
+          // Persist so subsequent publishes (and the composer) reuse it.
+          // Prefer the listing row when one exists; always mirror onto the
+          // item so legacy/no-listing flows pick it up too.
+          if (listing?.id) {
+            await supabaseAdmin
+              .from("listings")
+              .update({ platform_category_id: categoryId })
+              .eq("id", listing.id);
+          }
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({ ebay_category_id: categoryId })
+            .eq("id", itemId);
+        }
+      } catch (err) {
+        console.error("[flipdesk-ebay] publish category auto-resolve:", err);
+      }
+    }
+  }
   if (!categoryId) blockers.push("Pick an eBay category.");
   // Aspect map: prefer item_specifics_override (the AutoLister-edited copy);
   // fall back to the inventory mirror. The inventory mirror feeds legacy flows.
@@ -2523,15 +2622,26 @@ async function assemblePublishContext(
   try {
     const policyResult = await resolveCachedDefaults(userId);
     if ("missing" in policyResult) {
-      // Include the eBay help URL so the user can jump straight to seller
-      // hub policy setup. resolveCachedDefaults always populates details.helpUrl
-      // on the missing-policies branch.
-      const help = policyResult.details?.helpUrl
-        ? ` (set them up at ${policyResult.details.helpUrl})`
-        : "";
-      blockers.push(
-        `Configure eBay business policies on your seller account: ${policyResult.missing.join(", ")}.${help}`,
+      // Split the two failure modes: business policies are configured in eBay
+      // Seller Hub, but a merchant (inventory) location can ONLY be created
+      // from FlipDesk (eBay has no Seller Hub UI for it). Pointing both at the
+      // business-policies help page is the wrong fix for a missing location.
+      const missingPolicies = policyResult.missing.filter(
+        (m) => m !== "merchant location",
       );
+      if (missingPolicies.length > 0) {
+        const help = policyResult.details?.helpUrl
+          ? ` (set them up at ${policyResult.details.helpUrl})`
+          : "";
+        blockers.push(
+          `Configure eBay business policies on your seller account: ${missingPolicies.join(", ")}.${help}`,
+        );
+      }
+      if (policyResult.missing.includes("merchant location")) {
+        blockers.push(
+          "Set your eBay ship-from location: open FlipDesk → Marketplaces → eBay and add it (one-time).",
+        );
+      }
     } else {
       policies = policyResult;
     }

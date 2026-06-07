@@ -72,6 +72,85 @@ export function useEbayConnectionIssue() {
   });
 }
 
+// ── Business policies + ship-from location ──────────────────────────
+
+export interface EbayPolicyDefaults {
+  fulfillment_policy_id: string | null;
+  payment_policy_id: string | null;
+  return_policy_id: string | null;
+  merchant_location_key: string | null;
+}
+
+export interface EbayPoliciesResponse {
+  policies: Array<{
+    policy_id: string;
+    policy_type: "fulfillment" | "payment" | "return";
+    policy_name: string;
+    is_default: boolean;
+  }>;
+  defaults: EbayPolicyDefaults;
+}
+
+// Reads the seller's cached business policies + defaults (incl. the merchant
+// location key). The edge route syncs once from eBay when the cache is empty,
+// so this also tells us whether a ship-from location exists yet. `enabled`
+// lets callers defer the call until the account is connected.
+export function useEbayPolicies(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_policies"],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<EbayPoliciesResponse> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/policies`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load eBay policies.");
+      return json as EbayPoliciesResponse;
+    },
+  });
+}
+
+// Creates the seller's default eBay ship-from (merchant inventory) location.
+// eBay requires one on every offer and has no Seller Hub UI to make it, so
+// FlipDesk creates it from a ZIP the seller confirms once.
+export function useCreateEbayLocation() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: true; merchant_location_key: string },
+    Error,
+    {
+      postal_code: string;
+      country?: string;
+      address_line1?: string;
+      city?: string;
+      state?: string;
+      name?: string;
+    }
+  >({
+    mutationFn: async (input) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/policies/location`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify(input),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.detail || json.error || "Could not save your location.");
+      }
+      return json as { ok: true; merchant_location_key: string };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ebay_policies"] });
+      toast.success("eBay ship-from location saved. You can now publish listings.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // Legacy single-header helper. Most call sites use it via
 // `Authorization: await authHeader()`; new sites should prefer the shared
 // edgeAuthHeaders() from @/lib/edge-fetch, which also attaches the

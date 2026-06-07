@@ -1222,6 +1222,82 @@ export async function setDefaultPolicies(
   }
 }
 
+// ── Merchant (inventory) location ───────────────────────────────────
+//
+// Every published offer needs a `merchantLocationKey` pointing at an ENABLED
+// inventory location. This is an Inventory-API-only concept — sellers who set
+// up fulfillment/payment/return policies in Seller Hub still won't have one,
+// which is the most common cause of a "merchant location" publish blocker.
+// There is no Seller Hub UI to create one, so FlipDesk creates a default
+// location for the seller from a ZIP/address they confirm once.
+
+export interface InventoryLocationInput {
+  // Defaults to FLIPDESK-DEFAULT. eBay keys are case-insensitive, ≤36 chars.
+  merchantLocationKey?: string;
+  name?: string;
+  address: {
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    stateOrProvince?: string;
+    postalCode?: string;
+    country: string; // ISO 3166-1 alpha-2, e.g. "US"
+  };
+}
+
+/**
+ * Create (or confirm) a merchant inventory location on the seller's eBay
+ * account and persist its key on marketplace_connections so publish and
+ * resolveCachedDefaults can read it. Idempotent: if the key already exists on
+ * eBay (re-run), we verify via GET and treat it as success rather than failing.
+ *
+ * Tenant-safe: the connection update is keyed on `userId` (workspace owner).
+ */
+export async function createInventoryLocation(
+  userId: string,
+  input: InventoryLocationInput,
+): Promise<{ merchantLocationKey: string }> {
+  const key =
+    (input.merchantLocationKey ?? "FLIPDESK-DEFAULT")
+      .replace(/[^A-Za-z0-9_-]/g, "")
+      .slice(0, 36) || "FLIPDESK-DEFAULT";
+
+  const body = {
+    location: { address: input.address },
+    name: input.name ?? "FlipDesk Default Location",
+    merchantLocationStatus: "ENABLED",
+    locationTypes: ["WAREHOUSE"],
+  };
+
+  try {
+    // Create returns 204 No Content on success.
+    await fetchAuthed<unknown>(
+      userId,
+      `/sell/inventory/v1/location/${encodeURIComponent(key)}`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  } catch (err) {
+    // The key may already exist (re-run) — eBay 400s with errorId 25803
+    // ("location already exists"). Confirm via GET before surfacing the error.
+    const existing = await fetchAuthed<{
+      locations?: Array<{ merchantLocationKey?: string }>;
+    }>(userId, `/sell/inventory/v1/location`).catch(() => null);
+    const present = existing?.locations?.some(
+      (l) => l.merchantLocationKey === key,
+    );
+    if (!present) throw err;
+  }
+
+  await supabaseAdmin
+    .from("marketplace_connections")
+    .update({ merchant_location_key: key })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+
+  return { merchantLocationKey: key };
+}
+
 export interface InventoryItemPayload {
   product: {
     title: string;

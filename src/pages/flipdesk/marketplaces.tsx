@@ -9,6 +9,7 @@ import {
   RefreshCw,
   History,
   AlertTriangle,
+  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -21,10 +22,14 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
+  useCreateEbayLocation,
   useEbayConnection,
   useEbayConnectionIssue,
+  useEbayPolicies,
   useStartEbayOauth,
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
@@ -73,6 +78,124 @@ function formatAgo(iso: string): string {
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+// Ship-from (merchant inventory) location setup. eBay requires an ENABLED
+// location on every published offer and offers no Seller Hub UI to create one,
+// so we capture a ZIP once and create it via the Inventory API. Without this,
+// publish fails with a "merchant location" blocker.
+function EbayLocationCard() {
+  const { data, isLoading } = useEbayPolicies(true);
+  const createLocation = useCreateEbayLocation();
+  const [editing, setEditing] = useState(false);
+  const [zip, setZip] = useState("");
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
+
+  const hasLocation = !!data?.defaults.merchant_location_key;
+
+  const save = async () => {
+    if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {
+      toast.error("Enter a valid US ZIP code (e.g. 90210).");
+      return;
+    }
+    try {
+      await createLocation.mutateAsync({
+        postal_code: zip.trim(),
+        country: "US",
+        state: state.trim() || undefined,
+        city: city.trim() || undefined,
+      });
+      setEditing(false);
+    } catch {
+      /* surfaced by the hook */
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5" />
+            eBay — ship-from location
+          </CardTitle>
+          {isLoading ? (
+            <Badge variant="secondary">Checking…</Badge>
+          ) : hasLocation ? (
+            <Badge className="bg-emerald-600 hover:bg-emerald-600">
+              <Check className="mr-1 h-3 w-3" />
+              Set
+            </Badge>
+          ) : (
+            <Badge variant="secondary">Setup required</Badge>
+          )}
+        </div>
+        <CardDescription>
+          eBay requires a ship-from location on every listing. There&apos;s no
+          way to add one in Seller Hub, so set it here once — it&apos;s used for
+          all your published listings.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {hasLocation && !editing ? (
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              Location set ({data?.defaults.merchant_location_key}).
+            </p>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+              Update ZIP
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1">
+                <Label htmlFor="ship-zip">ZIP code</Label>
+                <Input
+                  id="ship-zip"
+                  inputMode="numeric"
+                  placeholder="90210"
+                  value={zip}
+                  onChange={(e) => setZip(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ship-city">City (optional)</Label>
+                <Input
+                  id="ship-city"
+                  placeholder="Beverly Hills"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="ship-state">State (optional)</Label>
+                <Input
+                  id="ship-state"
+                  placeholder="CA"
+                  value={state}
+                  onChange={(e) => setState(e.target.value)}
+                />
+              </div>
+            </div>
+            <Button
+              onClick={save}
+              disabled={createLocation.isPending}
+              className="w-full sm:w-auto"
+            >
+              {createLocation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <MapPin className="mr-2 h-4 w-4" />
+              )}
+              Save ship-from location
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function MarketplaceCard({
@@ -376,6 +499,14 @@ export function FlipdeskMarketplacesPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Ship-from location — only relevant once the API connection exists,
+            since the location lives on the connected eBay account. */}
+        {connection && (
+          <div className="mt-4">
+            <EbayLocationCard />
+          </div>
+        )}
       </div>
 
       <div>
