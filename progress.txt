@@ -4723,3 +4723,13 @@ US-656: reusable SkeletonRows; replaced spinners on Sales/Money/AutoLister loadi
 AutoLister empty migrated to ContentUnavailableView. Reduce-Motion aware.
 
 prd.json 475/679.
+
+
+### iOS financial export (US-664)
+
+Money/FinancialExport.swift: pure CSV builder (summary + transactions, mirrors web
+financial-export.tsx) from local sales+items (offline); FinancialExportSheet (date
+range + share sheet) reachable from a Money-tab Export button. Tests added. PDF is
+a noted follow-up.
+
+prd.json 476/679.

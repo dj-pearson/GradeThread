@@ -8,6 +8,7 @@ import SwiftUI
 struct MoneyView: View {
     @State private var expenseStore = ExpenseStore()
     @State private var showingAddExpense = false
+    @State private var showingExport = false
 
     @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
     @Query private var items: [LocalInventoryItem]
@@ -39,6 +40,20 @@ struct MoneyView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Money")
+        .toolbar {
+            // US-664: date-ranged financial export.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingExport = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .accessibilityLabel("Export financials")
+                }
+            }
+        }
+        .sheet(isPresented: $showingExport) {
+            FinancialExportSheet()
+        }
         .task { await expenseStore.refresh() }
         .refreshable {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
