@@ -372,7 +372,7 @@ private struct TabBarShell: View {
                         // here — the standard iOS placement.
                         ToolbarItem(placement: .topBarTrailing) {
                             NavigationLink {
-                                SettingsPlaceholder()
+                                SettingsView()
                             } label: {
                                 Image(systemName: "gear")
                             }
@@ -487,7 +487,7 @@ private struct SidebarSplitView: View {
         case .marketplaces:
             MarketplacesPlaceholder()
         case .settings:
-            SettingsPlaceholder()
+            SettingsView()
         case .add:
             EmptyView()
         }
@@ -735,57 +735,96 @@ private struct MarketplacesPlaceholder: View {
     }
 }
 
-private struct SettingsPlaceholder: View {
+/// US-648: structured Settings screen (was the flat `SettingsPlaceholder`).
+/// Grouped into Account · Connections · Preferences · Notifications · Support ·
+/// About, with the destructive Delete Account isolated in its own footer section
+/// well away from Sign Out so it can't be mis-tapped.
+struct SettingsView: View {
     @Environment(AuthStore.self) private var authStore
     /// Mirrors BackgroundRefreshService.isEnabled — kept in @State so the
     /// toggle binds correctly, written through on change.
     @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
     @State private var showingFeedbackSheet = false
     @State private var showingDeleteAccountSheet = false
+    @State private var showingHelp = false
+    // US-648 preferences
+    @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
+    @State private var currencyCode: String = AppPreferences.currencyCode ?? "device"
+
+    private static let helpURL = URL(string: "https://gradethread.com/help")!
 
     var body: some View {
         List {
+            // ── Account ──────────────────────────────────────────────
             ProfileSection()
             PlanSection()
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
                 }
-                Button {
-                    showingFeedbackSheet = true
-                } label: {
-                    Label("Send feedback", systemImage: "envelope")
-                }
                 Button(role: .destructive) {
                     Task { await authStore.signOut() }
                 } label: {
                     Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
+            }
+
+            // ── Connections ──────────────────────────────────────────
+            Section {
+                NavigationLink {
+                    MarketplacesView()
+                } label: {
+                    Label("Marketplaces & eBay", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            } header: {
+                Text("Connections")
+            } footer: {
+                Text("Connect or reconnect your eBay account and review sync status.")
+                    .font(.footnote)
+            }
+
+            // ── Preferences ──────────────────────────────────────────
+            preferencesSection
+            // These each render their own Section, so they sit at the top level
+            // of the List rather than nested inside another Section.
+            realtimeSection
+            analyticsSection
+
+            // ── Notifications ────────────────────────────────────────
+            notificationPreferencesSection
+
+            // ── Support ──────────────────────────────────────────────
+            Section("Support") {
+                Button {
+                    showingFeedbackSheet = true
+                } label: {
+                    Label("Send feedback", systemImage: "envelope")
+                }
+                Button {
+                    showingHelp = true
+                } label: {
+                    Label("Help & FAQ", systemImage: "questionmark.circle")
+                }
+            }
+            // DiagnosticsSection renders its own Section — keep it top-level.
+            DiagnosticsSection()
+
+            // ── About ────────────────────────────────────────────────
+            Section("About") {
+                LabeledContent("Version", value: Self.versionString)
+            }
+
+            // ── Danger zone (isolated) ───────────────────────────────
+            Section {
                 Button(role: .destructive) {
                     showingDeleteAccountSheet = true
                 } label: {
                     Label("Delete account", systemImage: "trash")
                 }
-            }
-            Section {
-                Toggle(isOn: $bgRefreshEnabled) {
-                    Label("Refresh in background", systemImage: "arrow.clockwise.icloud")
-                }
-                .onChange(of: bgRefreshEnabled) { _, newValue in
-                    // Persist + schedule (or cancel) the next BG slot.
-                    var service = BackgroundRefreshService()
-                    service.isEnabled = newValue
-                }
-            } header: {
-                Text("Sync")
             } footer: {
-                Text("Pulls listings + sales while the app is in the background, when iOS allows. Respects the system Background App Refresh setting — turning that off in Settings overrides this toggle.")
+                Text("Permanently deletes your account and all associated data. This can't be undone.")
                     .font(.footnote)
             }
-            realtimeSection
-            notificationPreferencesSection
-            analyticsSection
-            DiagnosticsSection()
         }
         .navigationTitle("Settings")
         .sheet(isPresented: $showingFeedbackSheet) {
@@ -794,6 +833,58 @@ private struct SettingsPlaceholder: View {
         .sheet(isPresented: $showingDeleteAccountSheet) {
             DeleteAccountSheet()
         }
+        .sheet(isPresented: $showingHelp) {
+            SafariView(url: Self.helpURL).ignoresSafeArea()
+        }
+    }
+
+    /// US-648 Preferences — units + currency (no longer hardcoded), plus the
+    /// existing sync / realtime / analytics toggles.
+    private var preferencesSection: some View {
+        Section {
+            Picker(selection: $measurementUnit) {
+                ForEach(MeasurementUnit.allCases) { unit in
+                    Text(unit.label).tag(unit)
+                }
+            } label: {
+                Label("Measurement units", systemImage: "ruler")
+            }
+            .onChange(of: measurementUnit) { _, newValue in
+                AppPreferences.measurementUnit = newValue
+            }
+
+            Picker(selection: $currencyCode) {
+                Text("Device default").tag("device")
+                ForEach(AppPreferences.currencyOptions, id: \.self) { code in
+                    Text(code).tag(code)
+                }
+            } label: {
+                Label("Currency", systemImage: "dollarsign.circle")
+            }
+            .onChange(of: currencyCode) { _, newValue in
+                AppPreferences.currencyCode = (newValue == "device") ? nil : newValue
+            }
+
+            Toggle(isOn: $bgRefreshEnabled) {
+                Label("Refresh in background", systemImage: "arrow.clockwise.icloud")
+            }
+            .onChange(of: bgRefreshEnabled) { _, newValue in
+                var service = BackgroundRefreshService()
+                service.isEnabled = newValue
+            }
+        } header: {
+            Text("Preferences")
+        } footer: {
+            Text("Background refresh pulls listings + sales when iOS allows; it respects the system Background App Refresh setting. Currency affects how prices are displayed.")
+                .font(.footnote)
+        }
+    }
+
+    private static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
     }
 
     /// US-191 analytics opt-in. PostHog events route through

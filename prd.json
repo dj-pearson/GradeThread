@@ -9633,8 +9633,8 @@
         "Adds Preferences for measurement units and currency (instead of hardcoded inches / CurrencyFormatter defaults)"
       ],
       "priority": 648,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: ContentView.SettingsPlaceholder (lines 676-766) is an inline List literally named 'Placeholder'; Delete Account sits directly under Sign Out (both .destructive, lines 697-706); no version/support/units/currency. Note: US-194 covers plan/billing/account-deletion which already exist - this is the structural/UX upgrade."
+      "passes": true,
+      "notes": "Done. The flat SettingsPlaceholder is now a structured SettingsView grouped into Account (Profile/Plan/email/Sign out) · Connections (Marketplaces & eBay NavigationLink) · Preferences · Notifications · Support · About, with Delete Account isolated in its own footer section at the very bottom (no longer adjacent to Sign Out, with a warning footer). Adds an About 'Version x.y.z (build)' row from the bundle, a Support 'Help & FAQ' link (SFSafariViewController → gradethread.com/help) alongside Send feedback + connection Diagnostics, and an eBay-connection entry point reachable from Settings. New AppPreferences.swift adds measurement-units (inches/cm) and currency pickers (instead of hardcoded inches / locale-only currency); CurrencyFormatter now honors AppPreferences.currencyCode when set. Renamed both SettingsPlaceholder() call sites (iPhone gear, iPad sidebar) to SettingsView(). Fixed Section-nesting (DiagnosticsSection/Realtime/Analytics toggle sections render their own Section, kept top-level)."
     },
     {
       "id": "US-649",

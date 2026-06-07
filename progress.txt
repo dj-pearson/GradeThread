@@ -4678,3 +4678,13 @@ Add tab → one-tap photo-first capture (tabSelectionBinding .add → startIntak
 with plain-language labels. Mandatory confirmationDialog no longer triggered.
 
 prd.json 470/679.
+
+
+### iOS structured Settings (US-648)
+
+SettingsPlaceholder → structured SettingsView (Account/Connections/Preferences/
+Notifications/Support/About); Delete Account isolated from Sign Out; About version
+row; Help & FAQ link; eBay/Marketplaces entry point; new AppPreferences (units +
+currency) with CurrencyFormatter honoring the currency override.
+
+prd.json 471/679.
