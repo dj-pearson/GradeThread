@@ -23,7 +23,11 @@ struct DisclosureView: View {
                         Button("Done") { dismiss() }
                     }
                 }
-                .task { if store.phase == .idle { await store.load() } }
+                .task {
+                    guard store.phase == .idle else { return }
+                    Telemetry.event("disclosure_opened")
+                    await store.load()
+                }
         }
     }
 
@@ -62,6 +66,17 @@ struct DisclosureView: View {
                 Section {
                     photoRow(photo)
                     saveButton(photo)
+                    if let image = store.rendered[photo.id] {
+                        ShareLink(
+                            item: Image(uiImage: image),
+                            preview: SharePreview(
+                                "Defect disclosure — \(photo.imageType.capitalized)",
+                                image: Image(uiImage: image)
+                            )
+                        ) {
+                            Label("Share / Save to Photos", systemImage: "square.and.arrow.up")
+                        }
+                    }
                 } header: {
                     Text(photo.imageType.capitalized)
                 }
@@ -100,7 +115,14 @@ struct DisclosureView: View {
     @ViewBuilder
     private func saveButton(_ photo: DisclosurePhoto) -> some View {
         Button {
-            Task { await store.save(photo) }
+            Task {
+                if await store.save(photo) {
+                    HapticFeedback.success()
+                    Telemetry.event("disclosure_photo_saved", props: ["image_type": photo.imageType])
+                } else {
+                    HapticFeedback.error()
+                }
+            }
         } label: {
             if store.isSaving(photo) {
                 HStack { ProgressView(); Text("Saving…") }
@@ -112,12 +134,20 @@ struct DisclosureView: View {
             }
         }
         .disabled(store.isSaving(photo) || store.isSaved(photo) || store.rendered[photo.id] == nil)
+        .accessibilityHint("Adds this annotated photo to the item's listing photos.")
     }
 
     @ViewBuilder
     private var applyTextButton: some View {
         Button {
-            Task { await store.applyText() }
+            Task {
+                if await store.applyText() {
+                    HapticFeedback.success()
+                    Telemetry.event("disclosure_applied_to_listing")
+                } else {
+                    HapticFeedback.error()
+                }
+            }
         } label: {
             if store.isApplyingText {
                 HStack { ProgressView(); Text("Adding…") }
@@ -129,5 +159,6 @@ struct DisclosureView: View {
             }
         }
         .disabled(store.isApplyingText || store.appliedText)
+        .accessibilityHint("Appends the condition disclosure text to the eBay listing description.")
     }
 }

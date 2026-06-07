@@ -76,9 +76,10 @@ final class DisclosureStore {
 
     /// Save the composited image to the item's listing photos (server uploads +
     /// inserts the row). Triggers a sync pull so the new photo lands locally.
-    func save(_ photo: DisclosurePhoto) async {
+    @discardableResult
+    func save(_ photo: DisclosurePhoto) async -> Bool {
         guard let image = rendered[photo.id],
-              let dataURL = DisclosureRenderer.dataURL(for: image) else { return }
+              let dataURL = DisclosureRenderer.dataURL(for: image) else { return false }
         savingPhotoIds.insert(photo.id)
         defer { savingPhotoIds.remove(photo.id) }
         do {
@@ -89,20 +90,25 @@ final class DisclosureStore {
                 savedPhotoIds.insert(photo.id)
                 NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
             }
+            return res.ok
         } catch {
             errorMessage = message(error)
+            return false
         }
     }
 
     /// Append the disclosure text to the eBay listing description.
-    func applyText() async {
+    @discardableResult
+    func applyText() async -> Bool {
         isApplyingText = true
         defer { isApplyingText = false }
         do {
             let res = try await service.applyToListing(itemId: itemId)
             appliedText = res.applied || (res.alreadyPresent ?? false)
+            return appliedText
         } catch {
             errorMessage = message(error)
+            return false
         }
     }
 
