@@ -332,6 +332,9 @@ async function loadMerchantLocationKey(userId: string): Promise<string | null> {
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: read the selected (primary) connection's ship-from location.
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   return (data as { merchant_location_key: string | null } | null)
@@ -1417,6 +1420,9 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: sync the selected (primary) connection.
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!conn) {
@@ -2541,6 +2547,9 @@ async function assemblePublishContext(
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: publish through the selected (primary) connection.
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!conn) {

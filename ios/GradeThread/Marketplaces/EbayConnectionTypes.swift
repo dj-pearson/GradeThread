@@ -13,10 +13,14 @@ struct ConsentResponse: Decodable, Equatable {
 /// Row shape pulled from the `marketplace_connections` table. RLS-filtered
 /// to the signed-in user's connections. We never decode token columns —
 /// they're encrypted and only the edge service handles them.
-struct RemoteMarketplaceConnection: Decodable, Equatable {
+struct RemoteMarketplaceConnection: Decodable, Equatable, Identifiable {
     let id: String
     let marketplace: String
     let accountHandle: String?
+    /// US-671: user-supplied label so multiple eBay stores are distinguishable.
+    let label: String?
+    /// US-671: the selected/active connection sync + publish operate against.
+    let isPrimary: Bool
     let isActive: Bool
     let lastSyncedAt: String?
     let refreshError: String?
@@ -27,11 +31,60 @@ struct RemoteMarketplaceConnection: Decodable, Equatable {
         case id
         case marketplace
         case accountHandle = "account_handle"
+        case label
+        case isPrimary = "is_primary"
         case isActive = "is_active"
         case lastSyncedAt = "last_synced_at"
         case refreshError = "refresh_error"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        marketplace = try c.decode(String.self, forKey: .marketplace)
+        accountHandle = try c.decodeIfPresent(String.self, forKey: .accountHandle)
+        label = try c.decodeIfPresent(String.self, forKey: .label)
+        // Tolerate rows from before the column existed.
+        isPrimary = (try? c.decode(Bool.self, forKey: .isPrimary)) ?? false
+        isActive = try c.decode(Bool.self, forKey: .isActive)
+        lastSyncedAt = try c.decodeIfPresent(String.self, forKey: .lastSyncedAt)
+        refreshError = try c.decodeIfPresent(String.self, forKey: .refreshError)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+
+    /// Test/preview initializer.
+    init(
+        id: String,
+        marketplace: String = "ebay",
+        accountHandle: String? = nil,
+        label: String? = nil,
+        isPrimary: Bool = false,
+        isActive: Bool = true,
+        lastSyncedAt: String? = nil,
+        refreshError: String? = nil,
+        createdAt: String = "2026-01-01T00:00:00Z",
+        updatedAt: String = "2026-01-01T00:00:00Z"
+    ) {
+        self.id = id
+        self.marketplace = marketplace
+        self.accountHandle = accountHandle
+        self.label = label
+        self.isPrimary = isPrimary
+        self.isActive = isActive
+        self.lastSyncedAt = lastSyncedAt
+        self.refreshError = refreshError
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    /// Display name: label if set, else the eBay handle, else a fallback.
+    var displayName: String {
+        if let label, !label.isEmpty { return label }
+        if let accountHandle, !accountHandle.isEmpty { return accountHandle }
+        return "eBay account"
     }
 }
 

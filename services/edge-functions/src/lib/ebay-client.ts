@@ -429,6 +429,10 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: when the user has more than one connected eBay account, the one
+    // they've selected (is_primary) wins; otherwise fall back to the most
+    // recently updated (the historical single-connection behavior).
+    .order("is_primary", { ascending: false })
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();

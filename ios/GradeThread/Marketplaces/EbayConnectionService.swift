@@ -25,8 +25,19 @@ import UIKit
 /// `com.gradethread.app://oauth/ebay` scheme (the edge drops that to the web
 /// dashboard, and we poll `marketplace_connections` to confirm). The OS-version
 /// branching lives in ``OAuthWebSession``.
+/// Operations the multi-account management surface (``EbayAccountsStore``)
+/// needs, behind a protocol so the store is unit-testable with a fake (US-671).
 @MainActor
-public final class EbayConnectionService: NSObject {
+protocol EbayConnectionsProviding {
+    func fetchAllConnections(userId: String) async throws -> [RemoteMarketplaceConnection]
+    func connect(userId: String) async throws -> RemoteMarketplaceConnection
+    func disconnect(connectionId: String, userId: String) async throws
+    func setLabel(connectionId: String, userId: String, label: String?) async throws
+    func setPrimary(connectionId: String, userId: String) async throws
+}
+
+@MainActor
+public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
 
     public enum ConnectionError: LocalizedError, Equatable {
         case userCancelled
@@ -138,15 +149,17 @@ public final class EbayConnectionService: NSObject {
 
     /// Fetches the user's current active eBay connection if one exists.
     /// Used by ``MarketplaceConnectionStore`` on appear and after
-    /// connect/disconnect to refresh the UI state.
+    /// connect/disconnect to refresh the UI state. US-671: prefers the
+    /// selected (primary) connection so the summary card + sync target match.
     func fetchActiveConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
         let rows: [RemoteMarketplaceConnection] = try await supabase
             .from("marketplace_connections")
-            .select("id, marketplace, account_handle, is_active, last_synced_at, refresh_error, created_at, updated_at")
+            .select(Self.connectionColumns)
             .eq("user_id", value: userId)
             .eq("marketplace", value: "ebay")
             .eq("is_active", value: true)
-            .order("created_at", ascending: false)
+            .order("is_primary", ascending: false)
+            .order("updated_at", ascending: false)
             .limit(1)
             .execute()
             .value
@@ -159,7 +172,7 @@ public final class EbayConnectionService: NSObject {
     func fetchLatestConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
         let rows: [RemoteMarketplaceConnection] = try await supabase
             .from("marketplace_connections")
-            .select("id, marketplace, account_handle, is_active, last_synced_at, refresh_error, created_at, updated_at")
+            .select(Self.connectionColumns)
             .eq("user_id", value: userId)
             .eq("marketplace", value: "ebay")
             .order("created_at", ascending: false)
@@ -167,6 +180,58 @@ public final class EbayConnectionService: NSObject {
             .execute()
             .value
         return rows.first
+    }
+
+    static let connectionColumns =
+        "id, marketplace, account_handle, label, is_primary, is_active, last_synced_at, refresh_error, created_at, updated_at"
+
+    // MARK: - Multi-account (US-671)
+
+    /// All eBay connections for the user (active + flagged), primary first.
+    /// Backs the multi-account management surface.
+    func fetchAllConnections(userId: String) async throws -> [RemoteMarketplaceConnection] {
+        try await supabase
+            .from("marketplace_connections")
+            .select(Self.connectionColumns)
+            .eq("user_id", value: userId)
+            .eq("marketplace", value: "ebay")
+            .order("is_primary", ascending: false)
+            .order("created_at", ascending: false)
+            .execute()
+            .value
+    }
+
+    /// Renames a connection. RLS + the explicit user_id scope keep it to the
+    /// caller's row (never update a multi-tenant row by id alone — CLAUDE.md US-268).
+    func setLabel(connectionId: String, userId: String, label: String?) async throws {
+        struct LabelUpdate: Encodable { let label: String? }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await supabase
+            .from("marketplace_connections")
+            .update(LabelUpdate(label: (trimmed?.isEmpty ?? true) ? nil : trimmed))
+            .eq("id", value: connectionId)
+            .eq("user_id", value: userId)
+            .execute()
+    }
+
+    /// Selects the active connection. Clears any existing primary first (so the
+    /// one-primary partial-unique index holds), then sets this one — both scoped
+    /// to the caller's rows.
+    func setPrimary(connectionId: String, userId: String) async throws {
+        struct PrimaryFlag: Encodable { let is_primary: Bool }
+        try await supabase
+            .from("marketplace_connections")
+            .update(PrimaryFlag(is_primary: false))
+            .eq("user_id", value: userId)
+            .eq("marketplace", value: "ebay")
+            .eq("is_primary", value: true)
+            .execute()
+        try await supabase
+            .from("marketplace_connections")
+            .update(PrimaryFlag(is_primary: true))
+            .eq("id", value: connectionId)
+            .eq("user_id", value: userId)
+            .execute()
     }
 
     // MARK: - Internals
