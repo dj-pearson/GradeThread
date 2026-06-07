@@ -4761,3 +4761,73 @@ Grailed/Whatnot 'coming soon' cards) + MarketplaceChannel abstraction so a secon
 live channel slots in without a rewrite. eBay remains the live channel.
 
 prd.json 479/679.
+
+
+### iOS shared design-token & style layer (US-652)
+
+Theme/DesignTokens.swift: Spacing (4-pt scale), CornerRadius (card 16 / control
+12 / chip 9 / pill), CardStyleModifier + .cardStyle(.standard/.flush/.inset),
+and BrandPrimary/Secondary/Destructive ButtonStyles. Migrated 35 hand-rolled
+secondarySystemGroupedBackground+RoundedRectangle card sites across 10 files to
+.cardStyle(.flush) (unifies radius 14->16) + bumped 20 padding(14)->16. New
+screens use the shared modifiers. DesignTokensTests added.
+
+prd.json 480/679.
+
+
+### iOS brand fonts + typography scale (US-654)
+
+Bundled Outfit (display) + Inter (body/UI) static weights instanced from the OFL
+variable fonts under Resources/Fonts/, registered via UIAppFonts. Theme/
+Typography.swift exposes a Dynamic-Type-relative Font/BrandFont scale referenced
+by PostScript name (graceful system fallback). Applied to the grade-score ring,
+report/certificate title, analytics section headers, and tabular data rows
+(Inter + monospacedDigit). OFL attribution + BrandFontTests added.
+
+prd.json 481/679.
+
+
+### iOS payout reconciliation (US-666)
+
+Money/PayoutReconciliation{Types,Service,Store,View}.swift wires the edge payout
+route (queue/run/match/dismiss) - distinct from orphan-listing reconciliation.
+Unreconciled eBay payouts with server-scored candidate sales (collected/fees/net
+per candidate), confirm-match, server auto-match sweep, dismiss. Money-tab entry
+point. PayoutReconciliationTests via a faked provider.
+
+prd.json 482/679.
+
+
+### iOS CSV / Google Sheets import (US-667)
+
+Import/ module: CSVParser (port of web csv.ts), ImportField guess + value
+normalizers, ImportMapping -> validated drafts, SheetsImportService (edge
+/sheets/fetch-csv), CSVImportView (.fileImporter + Sheets URL), InventoryImport
+Service (supabase insert + SKU dedup + per-row errors), ImportStore orchestrator
+(source->mapping->preview->commit). Entry under Settings -> Data. CSVImportTests
+covers the pure logic. Supersedes US-289's spreadsheet path.
+
+prd.json 483/679.
+
+
+### iOS source ROI rollup + sourcing budget (US-677)
+
+Analytics/SourceROIRollup.swift: per-source profit/ROI/sell-through (unattributed
+bucket) + monthly sourcing-budget meter (spend windowed by item createdAt vs an
+AppPreferences target). Added source_id to the local item mirror + sync
+(RemoteInventoryItem/itemColumns/SyncMergeActor). AnalyticsView gains a 'Profit
+by source' card + 'Sourcing budget' meter with inline editor. SourceROIRollup
+Tests added.
+
+prd.json 484/679.
+
+
+### iOS expanded notification categories (US-679)
+
+NotificationCategoryID gains offer.received / message.received / listing.ended /
+aging.digest / payout.posted (auto Settings toggles, device-local). DeepLinkRoute
+gains .inventoryTab; routing sends offers/messages to the item canvas (or
+Marketplaces), aging digest to triage, relist to the item, payout-posted to
+Sales. APNs sends are a noted backend dependency. PushNotificationTests updated.
+
+prd.json 485/679.
