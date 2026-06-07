@@ -67,9 +67,9 @@ struct MarketplacesView: View {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.left.arrow.right")
                     .font(.system(size: 20))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
-                    .background(Color.orange.opacity(0.12))
+                    .background(Color.brandAmber.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reconciliation")

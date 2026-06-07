@@ -216,11 +216,13 @@ private enum CurrencyText {
     }
 }
 
-// Brand palette as literals — the widget target doesn't include the main
-// app's asset catalog, so we can't reference the named colorsets.
+// US-657: the widget appex now bundles the brand asset catalog (project.yml
+// widget resources), so we reference the shared colorsets — Obsidian Navy
+// (#0C1E36) and brand red (#F03D5F) — which carry proper light/dark + high-
+// contrast variants, instead of the old hardcoded #0F3460 / #E94560 literals.
 private extension Color {
-    static let brandNavyLiteral = Color(red: 0x0F / 255, green: 0x34 / 255, blue: 0x60 / 255)
-    static let brandRedLiteral = Color(red: 0xE9 / 255, green: 0x45 / 255, blue: 0x60 / 255)
+    static let brandNavyLiteral = Color("BrandNavy")
+    static let brandRedLiteral = Color("BrandRed")
 }
 
 // MARK: - Previews

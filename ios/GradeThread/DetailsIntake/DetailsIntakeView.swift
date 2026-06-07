@@ -308,10 +308,11 @@ struct DetailsIntakeView: View {
     }
 
     private func bannerColor(for kind: BannerMessage.Kind) -> Color {
+        // US-653: brand tokens instead of system semantic colors.
         switch kind {
-        case .success: return .green
-        case .offline: return .orange
-        case .failure: return .red
+        case .success: return .brandEmerald
+        case .offline: return .brandAmber
+        case .failure: return .brandRed
         }
     }
 

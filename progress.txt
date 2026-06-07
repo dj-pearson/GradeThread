@@ -4597,3 +4597,18 @@ oauth/callback redirect-to-app change (currently redirects to web). Cross-system
 not CI-verifiable from the iOS app. Documented in prd notes.
 
 prd.json 464/679.
+
+
+### iOS brand-color cluster (US-653 semantic colors, US-657 widget colors)
+
+US-653: GradeScale.color(for:) is now the single grade→color source (SnapView/
+ScoutCandidateRow local maps removed); AIExtract confidence uses GradeScale.
+confidenceLabel; InventoryRow status badge covers every pipeline stage with brand
+tokens; warnings→brandAmber, positive→brandEmerald, errors→brandRed across
+SyncStatusBar/Marketplaces/DetailsIntake/Snap/Scout/AIExtract.
+
+US-657: widget appex now bundles the brand asset catalog (project.yml) and
+references Color("BrandNavy")/Color("BrandRed") (Obsidian Navy #0C1E36 / red
+#F03D5F with light/dark variants) instead of hardcoded literals.
+
+prd.json 466/679.

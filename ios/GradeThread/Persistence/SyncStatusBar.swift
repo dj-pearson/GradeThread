@@ -62,8 +62,8 @@ struct SyncStatusBar: View {
             return Descriptor(
                 label: "\(status.pendingCount) pending change\(status.pendingCount == 1 ? "" : "s")",
                 icon: AnyView(Image(systemName: "tray.and.arrow.up")),
-                background: Color.orange.opacity(0.15),
-                foreground: .orange
+                background: Color.brandAmber.opacity(0.15),
+                foreground: Color.brandAmber
             )
         case .offline:
             return Descriptor(
@@ -78,10 +78,10 @@ struct SyncStatusBar: View {
                 icon: AnyView(
                     ProgressView()
                         .controlSize(.small)
-                        .tint(.orange)
+                        .tint(Color.brandAmber)
                 ),
-                background: Color.orange.opacity(0.15),
-                foreground: .orange
+                background: Color.brandAmber.opacity(0.15),
+                foreground: Color.brandAmber
             )
         }
     }

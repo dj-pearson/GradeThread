@@ -9703,8 +9703,8 @@
         "Sync/warning banners use brandAmber instead of system .orange"
       ],
       "priority": 653,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: ~40 system-color sites (DashboardView.swift:168, MoneyView.swift:69, InventoryRow.swift:120-131, GradeReportView.swift:139, etc.); duplicate grade->color logic in SnapView.swift:199-201 & ScoutCandidateRow.swift:170-172 with wrong thresholds; warning chips use .orange (SyncStatusBar.swift:44-63, MarketplacesView.swift:64-66)."
+      "passes": true,
+      "notes": "Done. Raw semantic colors routed through brand tokens. Local grade→color maps deleted in favor of GradeScale.color(for:): SnapView.gradeColor removed (call uses GradeScale.color), ScoutCandidateRow.gradeColor now delegates to GradeScale.color. AIExtract confidence (FieldSuggestionRow.confidenceColor) reuses GradeScale.confidenceLabel(_:).color (High→emerald/Medium→amber/Low→red). InventoryRow status badge now maps EVERY pipeline stage to a brand color (sourced/cataloged/measured/photographed/comped→steelNavy; drafted→amber; listed/active→navy; sold/shipped/completed→emerald; returned→red) instead of collapsing most to gray. Sync/warning surfaces use brandAmber not system .orange (SyncStatusBar pending+reconnecting, MarketplacesView reconciliation card, AIExtractView failure icon). Positive-money/status .green→brandEmerald and error .red→brandRed (ScoutCandidateRow deal badge + margin tint + underpriced border, DetailsIntakeView banner, SnapView error)."
     },
     {
       "id": "US-654",
@@ -9757,8 +9757,8 @@
         "Navy/red match the app tokens (Obsidian Navy #0C1E36, brand red #F03D5F)"
       ],
       "priority": 657,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: GradeThreadWidget/GradeThreadWidget.swift:222-223 hardcodes the OLD web palette (#0F3460/#E94560) with no dark variant; the app's BrandNavy is #0C1E36."
+      "passes": true,
+      "notes": "Done. project.yml adds GradeThread/Assets.xcassets to the GradeThreadWidget appex resources so the widget can reference the shared brand colorsets. GradeThreadWidget's Color.brandNavyLiteral/brandRedLiteral now resolve Color(\"BrandNavy\")/Color(\"BrandRed\") instead of the old hardcoded #0F3460/#E94560 — picking up the current brand values (Obsidian Navy #0C1E36, brand red #F03D5F) AND their light/dark + high-contrast appearance variants automatically."
     },
     {
       "id": "US-658",

@@ -81,12 +81,11 @@ struct FieldSuggestionRow: View {
         .frame(height: 4)
     }
 
+    // US-653: reuse the canonical GradeScale.confidenceLabel brand mapping
+    // (High→emerald, Medium→amber, Low→red) so AI-extract confidence reads in
+    // the same brand language as grade confidence everywhere else.
     private var confidenceColor: Color {
-        switch entry.confidence {
-        case 0.8...:  return Color.brandNavy
-        case 0.5..<0.8: return .orange
-        default:      return .red
-        }
+        GradeScale.confidenceLabel(entry.confidence).color
     }
 
     private var accessibilityLabel: String {

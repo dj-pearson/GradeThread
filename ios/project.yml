@@ -203,6 +203,11 @@ targets:
     sources:
       - path: GradeThreadWidget
       - path: Shared            # WidgetSnapshot + store shared with the app
+    resources:
+      # US-657: bundle the brand asset catalog into the widget appex so it can
+      # reference the shared BrandNavy/BrandRed colorsets (with light/dark
+      # variants) instead of hardcoded hex literals.
+      - path: GradeThread/Assets.xcassets
     info:
       path: GradeThreadWidget/Info.plist
       properties:

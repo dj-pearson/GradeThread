@@ -24,8 +24,8 @@ struct ScoutCandidateRow: View {
                                 .font(.caption2.weight(.bold))
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 3)
-                                .background(Color.green.opacity(0.15))
-                                .foregroundStyle(.green)
+                                .background(Color.brandEmerald.opacity(0.15))
+                                .foregroundStyle(Color.brandEmerald)
                                 .clipShape(Capsule())
                         }
                     }
@@ -56,7 +56,7 @@ struct ScoutCandidateRow: View {
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(candidate.underpriced ? Color.green.opacity(0.5) : .clear, lineWidth: 1)
+                .strokeBorder(candidate.underpriced ? Color.brandEmerald.opacity(0.5) : .clear, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -146,7 +146,7 @@ struct ScoutCandidateRow: View {
 
     private var marginTint: Color {
         guard let margin = candidate.estMarginCents else { return .secondary }
-        return margin > 0 ? .green : .secondary
+        return margin > 0 ? Color.brandEmerald : .secondary
     }
 
     // MARK: - Formatting
@@ -162,10 +162,10 @@ struct ScoutCandidateRow: View {
         return String(format: "%.1f", grade)
     }
 
+    // US-653: defer to the canonical brand GradeScale mapping instead of a
+    // local green/orange/red map.
     static func gradeColor(_ grade: Double?) -> Color {
         guard let grade else { return .secondary }
-        if grade >= 8 { return .green }
-        if grade >= 6 { return .orange }
-        return .red
+        return GradeScale.color(for: grade)
     }
 }

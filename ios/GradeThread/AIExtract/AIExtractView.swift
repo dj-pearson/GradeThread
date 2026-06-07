@@ -84,7 +84,7 @@ struct AIExtractView: View {
         VStack(spacing: 14) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 38, weight: .light))
-                .foregroundStyle(.orange)
+                .foregroundStyle(Color.brandAmber)
             Text("AI couldn't read these photos")
                 .font(.headline)
             Text(message)
