@@ -291,6 +291,13 @@ struct AutoListerView: View {
             } label: {
                 Label("Add photos", systemImage: "plus")
             }
+
+            // US-675: jump to the persistent drafts library (review + bulk edit).
+            NavigationLink {
+                DraftsLibraryView()
+            } label: {
+                Label("Drafts", systemImage: "square.stack.3d.up")
+            }
         }
     }
 }

@@ -103,7 +103,9 @@ Deno.test("overlay sets condition/category/specifics/policies only when present"
   assertEquals(patch.ebay_condition, "USED_GOOD");
   assertEquals(patch.ebay_condition_description, "minor wear");
   assertEquals(patch.item_specifics_override, { Brand: "Levi's" });
-  assertEquals(patch.ebay_category_id, "57988");
+  // The listing's category column is platform_category_id (publish reads that).
+  assertEquals(patch.platform_category_id, "57988");
+  assertEquals(patch.ebay_category_id, undefined);
   assertEquals(patch.return_policy_id, "rp1");
   assertEquals(patch.shipping_policy_id, "sp1");
   assertEquals(patch.payment_policy_id, "pp1");

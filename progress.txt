@@ -4883,6 +4883,27 @@ listing-template_test.ts (12) + a tenant-isolation case; iOS TemplatesTests.swif
 prd.json 487/679.
 
 
+### AutoLister drafts library + bulk-edit (US-675)
+
+iOS-side, NO new backend — the web does drafts + bulk-edit entirely via direct
+supabase (read/update `listings`) + the existing /listings/validate, so iOS
+mirrors that path under RLS. New AutoLister/Drafts/ module: DraftListing (draft
+`listings` wire model), DraftsService (direct supabase read/write; Update encoder
+writes explicit nulls so cleared fields persist; price_is_estimated=false on edit),
+DraftsLibraryStore (filters to AutoLister drafts = batch_id != null, title
+fallback, search, value/batch rollups), DraftsBulkEditStore (editable rows +
+multi-select; bulk price markup%/round-.99/condition/category/apply-template→
+policies; dirty tracking; save w/ reload-on-fail), DraftsLibraryView +
+DraftsBulkEditView (mirror autolister-drafts.tsx + autolister-bulk-edit.tsx; row
+field bindings route through store.update so edits mark dirty). Entry points:
+a persistent card in MarketplacesView + a Drafts button in the AutoLister toolbar.
+Also fixed a US-674 overlay bug: the template overlay set ebay_category_id on the
+listing, but publish reads platform_category_id — corrected (+ test). Tests:
+DraftsTests.swift (13).
+
+prd.json 488/679.
+
+
 ## iOS PRD triage — remaining pending stories (2026-06-07)
 
 Worked the iOS-touching stories this pass. 83 iOS stories total; US-669 landed
@@ -4910,8 +4931,8 @@ prd.json `notes`):
 - US-673  Best-offer + buyer messages — eBay Negotiation + Messaging APIs are
           absent on web AND in the edge; must be wired server-side first.
 - US-674  Listing templates — DONE this pass (full stack, see above).
-- US-675  AutoLister drafts library + bulk-edit — feasible (edge persists
-          batches) but a sizable new multi-select surface; deferred this pass.
+- US-675  AutoLister drafts library + bulk-edit — DONE this pass (iOS-side via
+          direct supabase, mirroring the web; see above).
 - US-676  Locations/bins + SKU labels + consignment — bundled AC needs new
           inventory_items columns + a consignment model server-side (only the
           AirPrint SKU label is purely iOS), so it can't pass until the schema

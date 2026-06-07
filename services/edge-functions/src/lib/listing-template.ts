@@ -127,7 +127,9 @@ export function buildTemplateListingPatch(
   ) {
     patch.item_specifics_override = template.item_specifics;
   }
-  if (template.ebay_category_id) patch.ebay_category_id = template.ebay_category_id;
+  // The listing's category lives in `platform_category_id` — that's what
+  // assemblePublishContext reads (listing.platform_category_id ?? item.ebay_category_id).
+  if (template.ebay_category_id) patch.platform_category_id = template.ebay_category_id;
   if (template.return_policy_id) patch.return_policy_id = template.return_policy_id;
   if (template.shipping_policy_id) {
     patch.shipping_policy_id = template.shipping_policy_id;
