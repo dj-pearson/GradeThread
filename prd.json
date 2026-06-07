@@ -9906,8 +9906,8 @@
         "Cross-listing entry points are stubbed where the backend supports them"
       ],
       "priority": 668,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web marketplaces.tsx scaffolds PHASE_2/PHASE_3 channels with MARKETPLACE_LABELS; iOS Marketplaces/ is 100% eBay with no channel abstraction or roadmap surface."
+      "passes": true,
+      "notes": "Done. MarketplacesView now renders a phased multi-channel surface: the live eBay connection card above, plus a 'More channels' section of 'Coming soon' cards for Poshmark / Mercari / Shopify / Depop / Grailed / Whatnot (mirrors the web phased channel cards + MARKETPLACE_LABELS). A MarketplaceChannel abstraction (id/label/systemImage, iterated to render) is in place so a second LIVE channel can be added by adding its case + connection card without rewriting the surface. Cross-listing entry points remain stubbed as 'coming soon' pending backend support for a second channel."
     },
     {
       "id": "US-669",

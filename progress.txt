@@ -4752,3 +4752,12 @@ sales/sources from the local cache, grouped results deep-linking to the item
 canvas; magnifyingglass entry point in the Home toolbar (router.showingGlobalSearch).
 
 prd.json 478/679.
+
+
+### iOS multi-channel surface (US-668)
+
+MarketplacesView: phased 'More channels' section (Poshmark/Mercari/Shopify/Depop/
+Grailed/Whatnot 'coming soon' cards) + MarketplaceChannel abstraction so a second
+live channel slots in without a rewrite. eBay remains the live channel.
+
+prd.json 479/679.
