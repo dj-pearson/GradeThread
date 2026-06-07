@@ -1,0 +1,235 @@
+import Charts
+import SwiftData
+import SwiftUI
+
+/// Reseller analytics: grade distribution, top brands by profit, sell-through,
+/// and inventory value by status — rendered with Swift Charts over the local
+/// SwiftData mirror (same data source as the dashboard). Reduces via
+/// ``AnalyticsRollup``. Pushed from the Home dashboard.
+struct AnalyticsView: View {
+    @Query(sort: \LocalInventoryItem.updatedAt, order: .forward)
+    private var items: [LocalInventoryItem]
+    @Query private var sales: [LocalSale]
+
+    @State private var range: AnalyticsRange = .days90
+
+    private let currency = CurrencyFormatter()
+
+    // MARK: - Derived
+
+    private var gradedCount: Int { AnalyticsRollup.gradedCount(items: items) }
+    private var averageGrade: Double? { AnalyticsRollup.averageGrade(items: items) }
+    private var gradeBuckets: [GradeBucket] { AnalyticsRollup.gradeDistribution(items: items) }
+    private var statusValues: [StatusValue] { AnalyticsRollup.inventoryValueByStatus(items: items) }
+    private var sellThrough: [SellThroughRow] { AnalyticsRollup.sellThroughByBrand(items: items) }
+
+    private var brandProfits: [BrandProfit] {
+        AnalyticsRollup.topBrandsByProfit(
+            items: items, sales: sales, since: range.start(now: .now))
+    }
+
+    var body: some View {
+        Group {
+            if items.isEmpty && sales.isEmpty {
+                emptyState
+            } else {
+                content
+            }
+        }
+        .navigationTitle("Analytics")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { Telemetry.event("analytics_opened") }
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                gradeHeader
+                rangeCard
+                brandProfitCard
+                sellThroughCard
+                gradeDistributionCard
+                inventoryValueCard
+            }
+            .padding(16)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    // MARK: - Header
+
+    private var gradeHeader: some View {
+        HStack(spacing: 12) {
+            statTile(title: "Graded", value: "\(gradedCount)", system: "checkmark.seal.fill")
+            statTile(
+                title: "Avg grade",
+                value: averageGrade.map { String(format: "%.1f", $0) } ?? "—",
+                system: "star.fill"
+            )
+        }
+    }
+
+    private func statTile(title: String, value: String, system: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: system).font(.caption).foregroundStyle(Color.brandNavy)
+                Text(title).font(.caption).foregroundStyle(.secondary)
+            }
+            Text(value)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(Color.brandNavy)
+        }
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var rangeCard: some View {
+        Picker("Range", selection: $range) {
+            ForEach(AnalyticsRange.allCases) { r in
+                Text(r.label).tag(r)
+            }
+        }
+        .pickerStyle(.segmented)
+    }
+
+    // MARK: - Cards
+
+    @ViewBuilder
+    private func card<Content: View>(
+        _ title: String,
+        subtitle: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                if let subtitle {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func notEnough() -> some View {
+        Text("Not enough data yet.")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 8)
+    }
+
+    private func categoryHeight(_ count: Int) -> CGFloat {
+        CGFloat(max(count, 1)) * 34 + 24
+    }
+
+    // Top brands by profit (window-filtered).
+    private var brandProfitCard: some View {
+        card("Top brands by profit", subtitle: "Net, past \(range.label.lowercased())") {
+            if brandProfits.isEmpty {
+                notEnough()
+            } else {
+                Chart(brandProfits) { row in
+                    BarMark(
+                        x: .value("Profit", row.netProfit),
+                        y: .value("Brand", row.brand)
+                    )
+                    .foregroundStyle(row.netProfit < 0 ? Color.brandRed : Color.brandNavy)
+                    .annotation(position: .trailing, alignment: .leading) {
+                        Text(currency.formatDisplay(row.netProfit))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .chartXAxis(.hidden)
+                .frame(height: categoryHeight(brandProfits.count))
+            }
+        }
+    }
+
+    // Sell-through by brand (all inventory that reached market).
+    private var sellThroughCard: some View {
+        card("Sell-through by brand", subtitle: "Sold vs reached market") {
+            if sellThrough.isEmpty {
+                notEnough()
+            } else {
+                Chart(sellThrough) { row in
+                    BarMark(
+                        x: .value("Sell-through", row.rate),
+                        y: .value("Brand", row.brand)
+                    )
+                    .foregroundStyle(Color.brandNavy)
+                    .annotation(position: .trailing, alignment: .leading) {
+                        Text("\(Int((row.rate * 100).rounded()))% · \(row.sold)/\(row.listed)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .chartXScale(domain: 0.0...1.0)
+                .chartXAxis(.hidden)
+                .frame(height: categoryHeight(sellThrough.count))
+            }
+        }
+    }
+
+    // Grade tier distribution.
+    private var gradeDistributionCard: some View {
+        card("Grade distribution", subtitle: "Certified items by tier") {
+            if gradeBuckets.isEmpty {
+                notEnough()
+            } else {
+                Chart(gradeBuckets) { bucket in
+                    BarMark(
+                        x: .value("Tier", bucket.tier),
+                        y: .value("Count", bucket.count)
+                    )
+                    .foregroundStyle(Color.brandNavy)
+                    .annotation(position: .top) {
+                        Text("\(bucket.count)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(height: 180)
+            }
+        }
+    }
+
+    // On-hand inventory value by status.
+    private var inventoryValueCard: some View {
+        card("Inventory value by stage", subtitle: "Capital on hand") {
+            if statusValues.isEmpty {
+                notEnough()
+            } else {
+                Chart(statusValues) { row in
+                    BarMark(
+                        x: .value("Value", row.value),
+                        y: .value("Stage", row.status.capitalized)
+                    )
+                    .foregroundStyle(Color.brandNavy)
+                    .annotation(position: .trailing, alignment: .leading) {
+                        Text(currency.formatDisplay(row.value))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .chartXAxis(.hidden)
+                .frame(height: categoryHeight(statusValues.count))
+            }
+        }
+    }
+
+    // MARK: - Empty
+
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No analytics yet", systemImage: "chart.bar.xaxis")
+        } description: {
+            Text("Catalog items, grade them, and record sales — your trends will show up here.")
+        }
+    }
+}

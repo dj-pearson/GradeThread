@@ -74,6 +74,7 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 16) {
                 kpiGrid
                 if DashboardTrend.hasActivity(trendPoints) { trendCard }
+                analyticsCard
                 if !gradedItems.isEmpty { gradesCard }
                 if !agingItems.isEmpty { agingCard }
                 quickActions
@@ -99,6 +100,34 @@ struct DashboardView: View {
         .padding(14)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var analyticsCard: some View {
+        NavigationLink {
+            AnalyticsView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Analytics")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Profit, sell-through & grade trends")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private var gradesCard: some View {
