@@ -23,8 +23,8 @@ final class InventoryImportService {
         static func == (lhs: Result, rhs: Result) -> Bool {
             lhs.inserted == rhs.inserted
                 && lhs.skippedDuplicates == rhs.skippedDuplicates
-                && lhs.errors.map(\.row) == rhs.errors.map(\.row)
-                && lhs.errors.map(\.message) == rhs.errors.map(\.message)
+                && lhs.errors.map { $0.row } == rhs.errors.map { $0.row }
+                && lhs.errors.map { $0.message } == rhs.errors.map { $0.message }
         }
     }
 

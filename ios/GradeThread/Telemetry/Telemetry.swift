@@ -112,9 +112,12 @@ public enum Telemetry {
             // event message + breadcrumb before it leaves the device.
             options.beforeSend = { event in
                 if let message = event.message {
-                    message.message = TelemetryScrubber.redact(message.message)
-                    message.formatted = message.formatted.map(TelemetryScrubber.redact)
-                    event.message = message
+                    // SDK drift: `formatted` is now a get-only String (and
+                    // `message` is optional), so rebuild the message from the
+                    // redacted formatted text — that's the string Sentry
+                    // displays/sends, so scrubbing it covers the PII exposure.
+                    event.message = SentryMessage(
+                        formatted: TelemetryScrubber.redact(message.formatted))
                 }
                 event.breadcrumbs?.forEach { crumb in
                     crumb.message = crumb.message.map(TelemetryScrubber.redact)
