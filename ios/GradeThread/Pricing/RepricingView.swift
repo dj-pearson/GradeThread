@@ -115,6 +115,14 @@ struct RepricingView: View {
 
     @ToolbarContentBuilder
     private var scanToolbarItem: some ToolbarContent {
+        // US-672: automation rules (drop X% every N days, floor, auto-accept).
+        ToolbarItem(placement: .topBarLeading) {
+            NavigationLink {
+                RepricingRulesView()
+            } label: {
+                Label("Automation", systemImage: "slider.horizontal.3")
+            }
+        }
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 AppRouter.haptic()

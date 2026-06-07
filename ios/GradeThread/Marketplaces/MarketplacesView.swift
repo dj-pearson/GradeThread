@@ -32,6 +32,8 @@ struct MarketplacesView: View {
                         reconciliationCard
                     }
                 }
+                // US-675: durable home for AutoLister-generated drafts + bulk edit.
+                draftsCard
                 // US-668: phased multi-channel surface — eBay is live above;
                 // the rest are surfaced as "coming soon" so the app reflects the
                 // real multi-marketplace roadmap.
@@ -113,6 +115,35 @@ struct MarketplacesView: View {
                 .accessibilityLabel("\(channel.label), coming soon")
             }
         }
+    }
+
+    // US-675: AutoLister drafts library entry point.
+    private var draftsCard: some View {
+        NavigationLink {
+            DraftsLibraryView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AutoLister drafts")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Review + bulk-edit generated listings before publishing")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
     }
 
     private var reconciliationCard: some View {

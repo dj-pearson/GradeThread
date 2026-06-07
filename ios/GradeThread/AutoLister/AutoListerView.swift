@@ -15,6 +15,9 @@ struct AutoListerView: View {
     @State private var showingPicker = false
     /// Set when the user taps Generate; drives the push to the queue.
     @State private var pendingGroups: [PreparedGroup]?
+    // US-674: optional listing template applied to every generated draft.
+    @State private var templateStore = TemplateStore()
+    @State private var selectedTemplateId: String?
 
     var body: some View {
         content
@@ -32,6 +35,7 @@ struct AutoListerView: View {
                 .ignoresSafeArea()
             }
             .onAppear { Telemetry.event("autolister_opened") }
+            .task { await templateStore.load() }
             .navigationDestination(
                 isPresented: Binding(
                     get: { pendingGroups != nil },
@@ -42,7 +46,8 @@ struct AutoListerView: View {
                     AutoListerQueueView(
                         groups: groups,
                         uploadService: service,
-                        uploadStore: uploadStore
+                        uploadStore: uploadStore,
+                        templateId: selectedTemplateId
                     )
                 }
             }
@@ -192,23 +197,83 @@ struct AutoListerView: View {
 
     private var generateBar: some View {
         let count = model.groups.count
-        return Button {
-            HapticFeedback.medium()
-            Telemetry.event(
-                "autolister_generate_started",
-                props: ["groups": count, "photos": model.totalPhotos]
-            )
-            pendingGroups = model.preparedGroups()
-        } label: {
-            Text("Generate \(count) listing\(count == 1 ? "" : "s")")
-                .frame(maxWidth: .infinity)
+        return VStack(spacing: 8) {
+            if !templateStore.templates.isEmpty {
+                templatePicker
+            }
+            Button {
+                HapticFeedback.medium()
+                Telemetry.event(
+                    "autolister_generate_started",
+                    props: [
+                        "groups": count,
+                        "photos": model.totalPhotos,
+                        "with_template": selectedTemplateId != nil,
+                    ]
+                )
+                pendingGroups = model.preparedGroups()
+            } label: {
+                Text("Generate \(count) listing\(count == 1 ? "" : "s")")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(!model.canGenerate || uploadService == nil)
+            .accessibilityHint("Creates an item per group, uploads its photos, and generates listings with AI.")
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.large)
-        .disabled(!model.canGenerate || uploadService == nil)
-        .accessibilityHint("Creates an item per group, uploads its photos, and generates listings with AI.")
         .padding()
         .background(.bar)
+    }
+
+    /// US-674: choose a listing template to apply to every generated draft.
+    private var templatePicker: some View {
+        Menu {
+            Button {
+                selectedTemplateId = nil
+            } label: {
+                if selectedTemplateId == nil {
+                    Label("No template", systemImage: "checkmark")
+                } else {
+                    Text("No template")
+                }
+            }
+            ForEach(templateStore.templates) { template in
+                Button {
+                    selectedTemplateId = template.id
+                } label: {
+                    if selectedTemplateId == template.id {
+                        Label(template.name, systemImage: "checkmark")
+                    } else {
+                        Text(template.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.doc")
+                Text(selectedTemplateLabel)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(Color.brandNavy.opacity(0.1))
+            .foregroundStyle(Color.brandNavy)
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+        }
+        .accessibilityLabel("Listing template")
+    }
+
+    private var selectedTemplateLabel: String {
+        guard let id = selectedTemplateId,
+              let t = templateStore.templates.first(where: { $0.id == id })
+        else { return "No template" }
+        return "Template: \(t.name)"
     }
 
     @ToolbarContentBuilder
@@ -225,6 +290,13 @@ struct AutoListerView: View {
                 showingPicker = true
             } label: {
                 Label("Add photos", systemImage: "plus")
+            }
+
+            // US-675: jump to the persistent drafts library (review + bulk edit).
+            NavigationLink {
+                DraftsLibraryView()
+            } label: {
+                Label("Drafts", systemImage: "square.stack.3d.up")
             }
         }
     }

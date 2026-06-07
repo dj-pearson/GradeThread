@@ -812,10 +812,16 @@ struct SettingsView: View {
                 } label: {
                     Label("Import inventory (CSV / Sheets)", systemImage: "square.and.arrow.down")
                 }
+                // US-674: reusable listing presets, selectable in Publish + AutoLister.
+                NavigationLink {
+                    TemplatesView()
+                } label: {
+                    Label("Listing templates", systemImage: "doc.on.doc")
+                }
             } header: {
                 Text("Data")
             } footer: {
-                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet.")
+                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, or save listing templates to reuse description, condition, and policies.")
                     .font(.footnote)
             }
 

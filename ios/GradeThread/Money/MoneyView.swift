@@ -32,6 +32,7 @@ struct MoneyView: View {
                 if metrics.monthlyRevenue.contains(where: { $0.revenue > 0 }) {
                     revenueChart
                 }
+                fulfillmentCard
                 repricingCard
                 reconciliationCard
                 expensesCard
@@ -170,6 +171,36 @@ struct MoneyView: View {
             }
         }
         .cardStyle(.flush)
+    }
+
+    // MARK: - Shipping & fulfillment (US-669)
+
+    private var fulfillmentCard: some View {
+        NavigationLink {
+            FulfillmentView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "shippingbox.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Shipping queue")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Orders sold but not yet shipped — mark shipped and add tracking")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Repricing

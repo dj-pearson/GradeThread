@@ -7,6 +7,8 @@ struct AutoListerQueueView: View {
     let groups: [PreparedGroup]
     let uploadService: PhotoUploadService
     let uploadStore: PhotoUploadStore
+    /// US-674: optional listing template applied to every generated draft.
+    var templateId: String? = nil
 
     @StateObject private var generator = AutoListerGenerator()
     @State private var didStart = false
@@ -19,7 +21,12 @@ struct AutoListerQueueView: View {
             .task {
                 guard !didStart else { return }
                 didStart = true
-                await generator.run(groups: groups, uploadService: uploadService, uploadStore: uploadStore)
+                await generator.run(
+                    groups: groups,
+                    uploadService: uploadService,
+                    uploadStore: uploadStore,
+                    templateId: templateId
+                )
             }
             .onChange(of: generator.batch.phase) { _, newPhase in
                 switch newPhase {

@@ -105,6 +105,25 @@ final class AutolisterStoreTests: XCTestCase {
         XCTAssertEqual(store.phase, .running)
     }
 
+    func test_submit_forwardsTemplateId() async {
+        // US-674: a chosen template id reaches the edge client.
+        let fake = FakeAutolisterService()
+        fake.startResult = StartBatchResponse(batchId: "B7", itemCount: 1)
+        let store = AutolisterBatchStore(service: fake)
+        await store.submit(itemIds: ["a"], templateId: "tpl-123")
+        store.stop()
+        XCTAssertEqual(fake.lastTemplateId, "tpl-123")
+    }
+
+    func test_submit_defaultTemplateIsNil() async {
+        let fake = FakeAutolisterService()
+        fake.startResult = StartBatchResponse(batchId: "B8", itemCount: 1)
+        let store = AutolisterBatchStore(service: fake)
+        await store.submit(itemIds: ["a"])
+        store.stop()
+        XCTAssertNil(fake.lastTemplateId)
+    }
+
     func test_submit_emptyIsNoop() async {
         let fake = FakeAutolisterService()
         let store = AutolisterBatchStore(service: fake)
@@ -201,9 +220,12 @@ private final class FakeAutolisterService: AutolisterBatching {
     private(set) var statusCalls = 0
     private(set) var retryCalls = 0
     private(set) var qaCalls = 0
+    /// US-674: records the template id passed to the most recent startBatch.
+    private(set) var lastTemplateId: String?
 
-    func startBatch(itemIds: [String], useComps: Bool) async throws -> StartBatchResponse {
+    func startBatch(itemIds: [String], useComps: Bool, templateId: String?) async throws -> StartBatchResponse {
         startCalls += 1
+        lastTemplateId = templateId
         if let errorToThrow { throw errorToThrow }
         return startResult
     }

@@ -18,6 +18,13 @@ import {
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
+import {
+  decideNewPriceCents,
+  isDue,
+  type ListingFacts,
+  normalizeRuleInput,
+  ruleMatchesListing,
+} from "../lib/repricing-rules.ts";
 
 // Condition-aware dynamic repricing. The scan pulls condition-matched comps per
 // active eBay listing and writes one actionable suggestion per listing. Every
@@ -359,6 +366,394 @@ export async function handleRepriceScanCron(c: Context): Promise<Response> {
   try {
     const result = await scanListings(null, CRON_SCAN_LIMIT);
     return c.json({ ok: true, ...result });
+  } finally {
+    await lock.release();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Repricing automation rules (US-672)
+// ══════════════════════════════════════════════════════════════════
+
+const RULE_COLUMNS =
+  "id, name, enabled, inventory_item_id, filter_brand, filter_category_id, " +
+  "min_age_days, drop_pct, interval_days, floor_price_cents, " +
+  "auto_accept_confidence, last_run_at, created_at, updated_at";
+
+interface RuleRow {
+  id: string;
+  enabled: boolean;
+  inventory_item_id: string | null;
+  filter_brand: string | null;
+  filter_category_id: string | null;
+  min_age_days: number;
+  drop_pct: number;
+  interval_days: number;
+  floor_price_cents: number | null;
+  auto_accept_confidence: number | null;
+}
+
+interface RuleListingRow {
+  id: string;
+  inventory_item_id: string;
+  listing_price: number;
+  listed_at: string;
+  platform_offer_id: string | null;
+  platform_category_id: string | null;
+  inventory_items: {
+    user_id: string;
+    brand: string | null;
+    ebay_category_id: string | null;
+  };
+}
+
+export interface RuleRunResult {
+  rules_evaluated: number;
+  listings_scanned: number;
+  applied: number;
+  skipped: number;
+  errors: number;
+  actions: Array<{
+    listing_id: string;
+    inventory_item_id: string;
+    old_price_cents: number;
+    new_price_cents: number;
+    reason: string;
+    ebay_synced: boolean;
+  }>;
+}
+
+async function touchRules(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await supabaseAdmin
+    .from("repricing_rules")
+    .update({ last_run_at: new Date().toISOString() })
+    .in("id", ids);
+}
+
+/**
+ * Evaluate one owner's enabled rules against their active eBay listings and
+ * apply due markdowns. Push to eBay FIRST (US-467) — a failed remote update
+ * skips the listing rather than desyncing local vs eBay. First matching, due
+ * rule wins per listing (≤ 1 action/listing/run). Every change is logged to
+ * repricing_actions.
+ */
+async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
+  const result: RuleRunResult = {
+    rules_evaluated: 0,
+    listings_scanned: 0,
+    applied: 0,
+    skipped: 0,
+    errors: 0,
+    actions: [],
+  };
+
+  const { data: ruleRows } = await supabaseAdmin
+    .from("repricing_rules")
+    .select(RULE_COLUMNS)
+    .eq("user_id", ownerId)
+    .eq("enabled", true)
+    .order("created_at", { ascending: true });
+  const rules = (ruleRows ?? []) as unknown as RuleRow[];
+  result.rules_evaluated = rules.length;
+  if (rules.length === 0) return result;
+
+  const { data: listingRows } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, listing_price, listed_at, platform_offer_id, platform_category_id, " +
+        "inventory_items!inner(user_id, brand, ebay_category_id)",
+    )
+    .eq("platform", "ebay")
+    .eq("listing_status", "active")
+    .eq("inventory_items.user_id", ownerId)
+    .limit(CRON_SCAN_LIMIT);
+  const listings = (listingRows ?? []) as unknown as RuleListingRow[];
+  result.listings_scanned = listings.length;
+  if (listings.length === 0) {
+    await touchRules(rules.map((r) => r.id));
+    return result;
+  }
+  const listingIds = listings.map((l) => l.id);
+
+  // Latest action per listing (interval anchor).
+  const { data: actionRows } = await supabaseAdmin
+    .from("repricing_actions")
+    .select("listing_id, created_at")
+    .eq("user_id", ownerId)
+    .in("listing_id", listingIds)
+    .order("created_at", { ascending: false });
+  const lastActionByListing = new Map<string, string>();
+  for (const a of (actionRows ?? []) as Array<{ listing_id: string; created_at: string }>) {
+    if (!lastActionByListing.has(a.listing_id)) {
+      lastActionByListing.set(a.listing_id, a.created_at);
+    }
+  }
+
+  // Pending comp suggestions (for auto-accept).
+  const { data: sugRows } = await supabaseAdmin
+    .from("repricing_suggestions")
+    .select("listing_id, suggested_price_cents, confidence")
+    .eq("user_id", ownerId)
+    .eq("status", "pending")
+    .in("listing_id", listingIds);
+  const suggestionByListing = new Map<
+    string,
+    { suggestedPriceCents: number; confidence: number | null }
+  >();
+  for (
+    const s of (sugRows ?? []) as Array<
+      { listing_id: string; suggested_price_cents: number; confidence: number | null }
+    >
+  ) {
+    suggestionByListing.set(s.listing_id, {
+      suggestedPriceCents: s.suggested_price_cents,
+      confidence: s.confidence,
+    });
+  }
+
+  const now = new Date();
+  for (const listing of listings) {
+    const item = listing.inventory_items;
+    const facts: ListingFacts = {
+      inventoryItemId: listing.inventory_item_id,
+      brand: item.brand,
+      categoryId: listing.platform_category_id ?? item.ebay_category_id,
+      ageDays: daysSince(listing.listed_at),
+    };
+
+    const rule = rules.find(
+      (r) =>
+        ruleMatchesListing(r, facts) &&
+        isDue(
+          lastActionByListing.get(listing.id) ?? null,
+          listing.listed_at,
+          r.interval_days,
+          now,
+        ),
+    );
+    if (!rule) {
+      result.skipped++;
+      continue;
+    }
+
+    const currentCents = Math.round(listing.listing_price * 100);
+    const decision = decideNewPriceCents({
+      currentCents,
+      dropPct: rule.drop_pct,
+      floorCents: rule.floor_price_cents,
+      autoAcceptConfidence: rule.auto_accept_confidence,
+      suggestion: suggestionByListing.get(listing.id) ?? null,
+    });
+    if (!decision) {
+      result.skipped++;
+      continue;
+    }
+
+    const newDollars = decision.newCents / 100;
+    const offerId = listing.platform_offer_id;
+    const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+    if (hasLiveOffer) {
+      try {
+        await updateOfferPrice(ownerId, offerId!, newDollars);
+      } catch (err) {
+        result.errors++;
+        console.error(
+          "[repricing-rules] updateOfferPrice failed for",
+          listing.id,
+          err instanceof Error ? err.message : String(err),
+        );
+        continue;
+      }
+    }
+
+    const { error: updErr } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_price: newDollars, price_is_estimated: false })
+      .eq("id", listing.id);
+    if (updErr) {
+      result.errors++;
+      continue;
+    }
+
+    if (decision.reason === "auto_accept") {
+      await supabaseAdmin
+        .from("repricing_suggestions")
+        .update({ status: "applied", applied_at: now.toISOString() })
+        .eq("listing_id", listing.id)
+        .eq("user_id", ownerId);
+    }
+
+    await supabaseAdmin.from("repricing_actions").insert({
+      user_id: ownerId,
+      rule_id: rule.id,
+      listing_id: listing.id,
+      inventory_item_id: listing.inventory_item_id,
+      old_price_cents: currentCents,
+      new_price_cents: decision.newCents,
+      reason: decision.reason,
+      ebay_synced: hasLiveOffer,
+    });
+
+    result.applied++;
+    result.actions.push({
+      listing_id: listing.id,
+      inventory_item_id: listing.inventory_item_id,
+      old_price_cents: currentCents,
+      new_price_cents: decision.newCents,
+      reason: decision.reason,
+      ebay_synced: hasLiveOffer,
+    });
+  }
+
+  await touchRules(rules.map((r) => r.id));
+  return result;
+}
+
+// ── GET /rules ────────────────────────────────────────────────────
+flipdeskPricingRoutes.get("/rules", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("repricing_rules")
+    .select(RULE_COLUMNS)
+    .eq("user_id", ownerId)
+    .order("created_at", { ascending: true });
+  if (error) return failSafe(c, 500, "Couldn't load repricing rules.", error, "repricing.rules.list");
+  return c.json({ rules: data ?? [] });
+});
+
+// ── POST /rules ───────────────────────────────────────────────────
+flipdeskPricingRoutes.post("/rules", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const norm = normalizeRuleInput(body);
+  if (!norm.ok) return jsonError(c, 400, norm.error);
+  const { data, error } = await supabaseAdmin
+    .from("repricing_rules")
+    .insert({ ...norm.value, user_id: ownerId })
+    .select(RULE_COLUMNS)
+    .single();
+  if (error || !data) return failSafe(c, 500, "Couldn't create the rule.", error, "repricing.rules.create");
+  return c.json({ rule: data }, 201);
+});
+
+// ── PUT /rules/:id ────────────────────────────────────────────────
+flipdeskPricingRoutes.put("/rules/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const id = c.req.param("id");
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return jsonError(c, 400, "Invalid JSON body");
+  }
+  const norm = normalizeRuleInput(body);
+  if (!norm.ok) return jsonError(c, 400, norm.error);
+  // Scoped by id AND user_id — never trust the id alone (US-268).
+  const { data, error } = await supabaseAdmin
+    .from("repricing_rules")
+    .update(norm.value)
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .select(RULE_COLUMNS)
+    .maybeSingle();
+  if (error) return failSafe(c, 500, "Couldn't update the rule.", error, "repricing.rules.update");
+  if (!data) return jsonError(c, 404, "Rule not found");
+  return c.json({ rule: data });
+});
+
+// ── DELETE /rules/:id ─────────────────────────────────────────────
+flipdeskPricingRoutes.delete("/rules/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const id = c.req.param("id");
+  const { data: existing } = await supabaseAdmin
+    .from("repricing_rules")
+    .select("id")
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!existing) return jsonError(c, 404, "Rule not found");
+  const { error } = await supabaseAdmin
+    .from("repricing_rules")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", ownerId);
+  if (error) return failSafe(c, 500, "Couldn't delete the rule.", error, "repricing.rules.delete");
+  return c.json({ ok: true });
+});
+
+// ── GET /rules/actions ────────────────────────────────────────────
+// Recent automatic price changes, for the "applied changes" feed.
+flipdeskPricingRoutes.get("/rules/actions", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("repricing_actions")
+    .select(
+      "id, rule_id, listing_id, inventory_item_id, old_price_cents, new_price_cents, reason, ebay_synced, created_at, " +
+        "inventory_items(title, brand)",
+    )
+    .eq("user_id", ownerId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return failSafe(c, 500, "Couldn't load applied changes.", error, "repricing.rules.actions");
+  return c.json({ actions: data ?? [] });
+});
+
+// ── POST /rules/run ───────────────────────────────────────────────
+// On-demand run of the caller's rules (so the user sees automation work now
+// instead of waiting for the daily cron).
+flipdeskPricingRoutes.post("/rules/run", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!(await isFeatureEnabled("repricing"))) {
+    return c.json({ ok: false, skipped: true, reason: "feature_disabled" });
+  }
+  const result = await runRulesForOwner(ownerId);
+  return c.json({ ok: true, ...result });
+});
+
+// ── Cron: run every owner's rules ─────────────────────────────────
+// Mounted in main.ts as POST /api/jobs/reprice-rules, gated by
+// X-Internal-Job-Secret (same pattern as the reprice-scan cron).
+export async function handleRepriceRulesCron(c: Context): Promise<Response> {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  if (!(await isFeatureEnabled("repricing"))) {
+    return c.json({ ok: true, skipped: true, reason: "feature_disabled" });
+  }
+  const lock = await acquireJobLock("reprice-rules", 600);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason });
+  }
+  try {
+    const { data: ownerRows } = await supabaseAdmin
+      .from("repricing_rules")
+      .select("user_id")
+      .eq("enabled", true);
+    const owners = Array.from(
+      new Set((ownerRows ?? []).map((r) => (r as { user_id: string }).user_id)),
+    );
+    let applied = 0;
+    let ownersRun = 0;
+    for (const ownerId of owners) {
+      try {
+        const r = await runRulesForOwner(ownerId);
+        applied += r.applied;
+        ownersRun++;
+      } catch (err) {
+        console.error(
+          "[repricing-rules] owner run failed",
+          ownerId,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    return c.json({ ok: true, owners_run: ownersRun, applied });
   } finally {
     await lock.release();
   }

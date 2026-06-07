@@ -9,7 +9,7 @@ import Foundation
 // unit-testable with an in-memory mock (no network).
 
 protocol AutolisterBatching {
-    func startBatch(itemIds: [String], useComps: Bool) async throws -> StartBatchResponse
+    func startBatch(itemIds: [String], useComps: Bool, templateId: String?) async throws -> StartBatchResponse
     func batchStatus(batchId: String) async throws -> BatchStatusResponse
     func retryFailed(batchId: String) async throws -> RetryFailedResponse
     func classifyPhotos(_ photos: [ClassifyPhotoInput]) async throws -> ClassifyPhotosResponse
@@ -37,6 +37,9 @@ struct AutolisterService: AutolisterBatching {
     private struct StartBatchBody: Encodable {
         let itemIds: [String]
         let useComps: Bool
+        /// US-674: optional listing template applied to every generated draft.
+        /// Omitted from the JSON when nil so existing batches are byte-identical.
+        let templateId: String?
     }
     private struct PhotoQaBody: Encodable { let itemIds: [String] }
     private struct ClassifyBody: Encodable { let photos: [ClassifyPhotoInput] }
@@ -44,8 +47,11 @@ struct AutolisterService: AutolisterBatching {
     /// `{}` is harmless.
     private struct EmptyBody: Encodable {}
 
-    func startBatch(itemIds: [String], useComps: Bool) async throws -> StartBatchResponse {
-        try await api.postJSON(Path.batch, body: StartBatchBody(itemIds: itemIds, useComps: useComps))
+    func startBatch(itemIds: [String], useComps: Bool, templateId: String?) async throws -> StartBatchResponse {
+        try await api.postJSON(
+            Path.batch,
+            body: StartBatchBody(itemIds: itemIds, useComps: useComps, templateId: templateId)
+        )
     }
 
     func batchStatus(batchId: String) async throws -> BatchStatusResponse {

@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-04
+# Last updated: 2026-06-07
 
 ## Completed Stories
 
@@ -4831,3 +4831,129 @@ Marketplaces), aging digest to triage, relist to the item, payout-posted to
 Sales. APNs sends are a noted backend dependency. PushNotificationTests updated.
 
 prd.json 485/679.
+
+
+### iOS shipping & fulfillment orders queue (US-669)
+
+Fulfillment/ module gives the daily ship workflow its own surface. The backend
+already ingests the data (sales.shipped_at / tracking_number / shipping_cost +
+buyer_username via flipdesk-ebay.ts getOrders + SHIPPING_LABEL), so this is
+purely an iOS read/write layer. FulfillmentTypes.swift (FulfillmentOrder wire
+shape, lenient money decode, sold-date ranking), FulfillmentService.swift
+(FulfillmentProviding protocol; reads `sales` + inventory_items(title) embed and
+writes shipped_at/tracking_number directly via supabase-swift under RLS, scoped
+by id like ReconciliationService — empty tracking omitted so an existing value is
+never clobbered), FulfillmentStore.swift (filters to unshipped, sorts oldest-first
+for ship-by priority, optimistic mark-shipped that reloads + surfaces the error on
+failure and nudges the sync engine on success), FulfillmentView.swift (new
+'Shipping queue' card in MoneyView -> its own list, not buried in flat SalesView;
+swipe / tap-through MarkShippedSheet with optional tracking; label cost per-row +
+summed). FulfillmentTests.swift (10 cases) via a faked provider.
+
+prd.json 486/679.
+
+
+### Listing templates — full stack (US-674)
+
+Reusable listing presets, end-to-end. BACKEND: migration 00105_listing_templates.sql
+(owner-scoped table: description boilerplate, item_specifics jsonb, default
+condition + note, ebay category, shipping/return/payment policy ids, one-default
+partial-unique index, RLS) + a template_id FK on listing_generation_batches.
+Edge: flipdesk-templates.ts CRUD (GET/POST/PUT/DELETE at /api/flipdesk/templates,
+workspace-scoped, update/delete scoped by id+user_id per US-268, single-default
+cleared before set); lib/listing-template.ts pure helpers normalizeTemplateInput +
+buildTemplateListingPatch; AutoLister POST /batch accepts template_id and the
+worker overlays the template onto each generated draft (AI text leads, boilerplate
+appended; condition/category/specifics/policies set only when present; no-template
+batches are byte-identical; covers initial/retry/reclaim).
+
+IOS: Templates/ module. CRUD goes DIRECT via supabase-swift under RLS, NOT EdgeAPI
+— EdgeAPI's snake_case key conversion would corrupt the free-form item_specifics
+map keys (e.g. "Sleeve Length"); the model uses explicit snake_case CodingKeys and
+the update payload uses an explicit encoder so blanked fields persist as NULL.
+TemplateStore (load/save/delete + single-default mirror), TemplatesView +
+TemplateEditorSheet (full editor incl. key/value specifics + condition picker +
+policy ids) under Settings -> Data. Selectable in BOTH composers: Publish
+ComposerForm "Apply template" pre-fills description/condition/note; AutoLister
+capture screen template picker threads templateId through
+startBatch/submit/run/QueueView to the server overlay. Tests: edge
+listing-template_test.ts (12) + a tenant-isolation case; iOS TemplatesTests.swift
+(13) + AutolisterStoreTests templateId passthrough.
+
+prd.json 487/679.
+
+
+### AutoLister drafts library + bulk-edit (US-675)
+
+iOS-side, NO new backend — the web does drafts + bulk-edit entirely via direct
+supabase (read/update `listings`) + the existing /listings/validate, so iOS
+mirrors that path under RLS. New AutoLister/Drafts/ module: DraftListing (draft
+`listings` wire model), DraftsService (direct supabase read/write; Update encoder
+writes explicit nulls so cleared fields persist; price_is_estimated=false on edit),
+DraftsLibraryStore (filters to AutoLister drafts = batch_id != null, title
+fallback, search, value/batch rollups), DraftsBulkEditStore (editable rows +
+multi-select; bulk price markup%/round-.99/condition/category/apply-template→
+policies; dirty tracking; save w/ reload-on-fail), DraftsLibraryView +
+DraftsBulkEditView (mirror autolister-drafts.tsx + autolister-bulk-edit.tsx; row
+field bindings route through store.update so edits mark dirty). Entry points:
+a persistent card in MarketplacesView + a Drafts button in the AutoLister toolbar.
+Also fixed a US-674 overlay bug: the template overlay set ebay_category_id on the
+listing, but publish reads platform_category_id — corrected (+ test). Tests:
+DraftsTests.swift (13).
+
+prd.json 488/679.
+
+
+### Repricing automation & scheduling rules — full stack (US-672)
+
+Server-driven automation on top of the existing one-shot comp-suggestion engine.
+BACKEND: migration 00106 (repricing_rules: scope = item or brand/category/min-age
+filter, action = drop% + interval + floor + optional auto-accept confidence; +
+repricing_actions audit log, user SELECT-only, written by the service-role
+runner). lib/repricing-rules.ts pure helpers (normalize, markdown+floor, isDue,
+scope match, decision — automation only ever LOWERS price). flipdesk-pricing.ts:
+rules CRUD (scoped by id+user_id), /rules/actions feed, /rules/run on-demand,
+runRulesForOwner (push to eBay first then update local + log; first due rule wins
+per listing) + handleRepriceRulesCron at /api/jobs/reprice-rules (job-secret +
+lock). Edge tests repricing-rules_test.ts (13) + a tenant-isolation case.
+IOS: Pricing/ gains RepricingRuleTypes + RepricingRulesService (EdgeAPI) +
+RepricingRulesStore + RepricingRulesView (rules list, enable toggle, Run now,
+applied-changes feed) + RuleEditorSheet; reached from an Automation button in the
+Repricing toolbar. Timestamps decode as raw strings (dodges the shared .iso8601
+strict parser). Tests RepricingRulesTests.swift (13).
+
+prd.json 489/679.
+
+
+## iOS PRD triage — remaining pending stories (2026-06-07)
+
+Worked the iOS-touching stories this pass. 83 iOS stories total; US-669 landed
+above. The remaining pending iOS stories were (re)triaged and stay passes=false
+because each needs cross-system / backend work that can't be implemented or
+CI-verified from the iOS target alone (full rationale lives in each story's
+prd.json `notes`):
+
+- US-289  Reconcile iOS batch import — PARTIAL (capture-time captured_at +
+          ItemPhotoInsert plumbing already CI-tested); still needs a
+          session-targeting intake/staging model + on-device build.
+- US-661  Universal Links for OAuth — needs an apple-app-site-association hosted
+          on gradethread.com (Cloudflare Pages) + the edge oauth/callback to
+          redirect to an https app-link target. Both are server-side.
+- US-670  Workspace / team context — iOS SyncEngine reads via direct supabase
+          (RLS keyed to auth.uid()=self); scoping ALL reads to the active
+          workspace needs the data layer routed through the edge with the
+          X-Workspace-Owner header (or member-read RLS). Cross-cutting.
+- US-671  Multiple eBay connections — edge eBay OAuth/token model assumes one
+          connection per user+platform; multi-account needs server-side
+          per-connection storage + routing.
+- US-672  Repricing automation/rules — DONE this pass (full stack: rules table +
+          on-demand + cron runner + iOS UI; see above).
+- US-673  Best-offer + buyer messages — eBay Negotiation + Messaging APIs are
+          absent on web AND in the edge; must be wired server-side first.
+- US-674  Listing templates — DONE this pass (full stack, see above).
+- US-675  AutoLister drafts library + bulk-edit — DONE this pass (iOS-side via
+          direct supabase, mirroring the web; see above).
+- US-676  Locations/bins + SKU labels + consignment — bundled AC needs new
+          inventory_items columns + a consignment model server-side (only the
+          AirPrint SKU label is purely iOS), so it can't pass until the schema
+          lands.
