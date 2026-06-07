@@ -158,9 +158,10 @@ struct AnalyticsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold))
+                // US-654: card/section headers use the Outfit display face.
+                Text(title).font(.brandHeadline)
                 if let subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(subtitle).font(.brandCaption).foregroundStyle(.secondary)
                 }
             }
             content()
@@ -202,8 +203,8 @@ struct AnalyticsView: View {
                 .font(emphasized ? .subheadline.weight(.semibold) : .subheadline)
             Spacer()
             Text(currency.formatDisplay(value))
-                .font(emphasized ? .subheadline.weight(.bold) : .subheadline)
-                .monospacedDigit()
+                // US-654: tabular figures use Inter with monospaced digits.
+                .font(.brandData(15, weight: emphasized ? .bold : .regular))
                 .foregroundStyle(value < 0 ? Color.brandRed : (emphasized ? Color.brandNavy : .primary))
         }
     }

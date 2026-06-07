@@ -50,11 +50,12 @@ struct GradeReportView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let title, !title.isEmpty {
                     Text(title)
-                        .font(.headline)
+                        // US-654: certificate/report title uses the Outfit display face.
+                        .font(.brandHeadline)
                         .lineLimit(2)
                 }
                 Text(report.gradeTier)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.brandSubhead)
                     .foregroundStyle(GradeScale.color(for: report.overallScore))
                 Text("Certified condition grade")
                     .font(.caption)
