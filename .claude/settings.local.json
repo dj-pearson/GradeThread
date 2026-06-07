@@ -127,7 +127,8 @@
       "Bash(curl -sS -D - -o /tmp/idx.html \"https://gradethread.com/\")",
       "Bash(curl -sS -D - -o /tmp/chunk.js \"https://gradethread.com/assets/dashboard-layout-DetFjncL.js\")",
       "PowerShell(Set-Location 'C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread'; npx eslint src/pages/admin/coupons.tsx src/pages/admin/growth/referrals.tsx src/pages/referrals.tsx src/components/dashboard/sidebar.tsx src/layouts/admin-layout.tsx 2>&1 | Select-Object -First 30; \"exit: $LASTEXITCODE\")",
-      "WebFetch(domain:developer.ebay.com)"
+      "WebFetch(domain:developer.ebay.com)",
+      "Bash(sort -t- -k2 -n)"
     ]
   },
   "hooks": {
