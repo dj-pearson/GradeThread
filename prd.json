@@ -10039,8 +10039,8 @@
         "Complements the web command-palette.tsx"
       ],
       "priority": 678,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web ships command-palette.tsx (cross-entity); iOS has rich inventory filters but no app-wide search spanning sales/listings/sources."
+      "passes": true,
+      "notes": "Done. New Inventory/GlobalSearchView.swift: a single search field over the local SwiftData cache spanning Inventory (title/brand/sku/size/color/material), Listings (platform/status + parent item title), Sales (buyer + parent item title), and Sources (name/notes/type). Results are grouped by entity type and deep-link to the relevant item canvas via NavigationLink(value: LocalInventoryItem) with the sheet's own navigationDestination → ItemCanvasView (listings/sales resolve to their parent item). Debounced (.task id) search; ContentUnavailableView for the idle + no-match states. Reachable from a consistent entry point — a magnifyingglass button in the Home toolbar → router.showingGlobalSearch presents the sheet. Complements the web command-palette."
     },
     {
       "id": "US-679",

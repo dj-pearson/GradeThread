@@ -283,6 +283,10 @@ struct MainShell: View {
         .onChange(of: scenePhase) { _, newValue in
             if newValue == .active { drainSharedInboxIfNeeded() }
         }
+        // US-678: global search sheet, reachable from the Home toolbar.
+        .sheet(isPresented: $router.showingGlobalSearch) {
+            GlobalSearchView()
+        }
         .fullScreenCover(item: $sharedIntakeBatch) { drained in
             NavigationStack {
                 PhotoIntakeView(initialPhotos: drained.slotPhotos)
@@ -366,6 +370,15 @@ private struct TabBarShell: View {
                         // — the Add tab itself is the one-tap photo-first path.
                         ToolbarItem(placement: .topBarLeading) {
                             AddMethodMenu(router: router)
+                        }
+                        // US-678: global search across inventory/listings/sales/sources.
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                router.showingGlobalSearch = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            .accessibilityLabel("Search everything")
                         }
                         // iPhone has no room for a Settings tab once Home
                         // lands (5-tab limit), so it rides a gear button
@@ -598,6 +611,8 @@ enum IntakeRoute: Hashable {
 final class AppRouter {
     var selection: AppSection = .home
     var showingAddSheet = false
+    /// US-678: presents the global search sheet.
+    var showingGlobalSearch = false
 
     var homePath = NavigationPath()
     var inventoryPath = NavigationPath()
