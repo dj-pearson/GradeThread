@@ -2363,6 +2363,9 @@ interface PublishItem {
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
   item_category: string | null;
+  color: string | null;
+  material: string | null;
+  style: string | null;
   status: string;
 }
 
@@ -2413,6 +2416,66 @@ interface PublishContextErr {
 
 type PublishContext = PublishContextOk | PublishContextErr;
 
+// eBay getCategoryAspects raw aspect shape (subset we read).
+interface AspectSpecRaw {
+  localizedAspectName?: string;
+  aspectConstraint?: { aspectRequired?: boolean; aspectMode?: string };
+  aspectValues?: Array<{ localizedValue?: string }>;
+}
+
+// Map an item's structured columns onto a category's aspects so we can fill
+// required specifics without the AI pass. Returns only aspects NOT already in
+// `existing`. SELECTION_ONLY aspects are filled only when the column value
+// matches one of eBay's allowed values (case-insensitive); FREE_TEXT/SUGGESTED
+// aspects accept the raw value. Aspect names are matched case-insensitively
+// against eBay's localizedAspectName plus a few synonyms eBay uses across
+// clothing categories.
+function deriveAspectsFromItem(
+  item: PublishItem,
+  aspectList: AspectSpecRaw[],
+  existing: Record<string, string[]>,
+): Record<string, string[]> {
+  const isClothing = item.item_category === "clothing";
+  const concepts: Array<{ names: string[]; value: string | null }> = [
+    { names: ["brand"], value: item.brand },
+    { names: ["size"], value: item.size },
+    { names: ["color", "colour"], value: item.color },
+    {
+      names: ["material", "fabric type", "outer shell material"],
+      value: item.material,
+    },
+    { names: ["style", "type"], value: item.style },
+    // Most clothing is "Regular"; a safe default the seller can change in the
+    // composer. Gated to clothing so we don't mis-fill other verticals.
+    { names: ["size type"], value: isClothing ? "Regular" : null },
+  ];
+
+  const out: Record<string, string[]> = {};
+  for (const aspect of aspectList) {
+    const name = (aspect.localizedAspectName ?? "").trim();
+    if (!name) continue;
+    if ((existing[name]?.length ?? 0) > 0) continue; // already set
+    const lname = name.toLowerCase();
+    const match = concepts.find(
+      (cpt) => cpt.value && cpt.value.trim() && cpt.names.includes(lname),
+    );
+    const candidate = match?.value?.trim();
+    if (!candidate) continue;
+
+    if (aspect.aspectConstraint?.aspectMode === "SELECTION_ONLY") {
+      const allowed = (aspect.aspectValues ?? [])
+        .map((v) => v.localizedValue ?? "")
+        .filter((v) => v.length > 0);
+      const hit = allowed.find((v) => v.toLowerCase() === candidate.toLowerCase());
+      if (!hit) continue; // can't safely fill a constrained value we don't match
+      out[name] = [hit];
+    } else {
+      out[name] = [candidate];
+    }
+  }
+  return out;
+}
+
 async function assemblePublishContext(
   userId: string,
   itemId: string
@@ -2450,7 +2513,7 @@ async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, ebay_category_id, ebay_aspects, item_category, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, ebay_category_id, ebay_aspects, item_category, color, material, style, status"
     )
     .eq("id", itemId)
     .maybeSingle();
@@ -2574,19 +2637,39 @@ async function assemblePublishContext(
     try {
       const aspectsResp = await getCategoryAspects(categoryId);
       const raw = (aspectsResp.aspects as Record<string, unknown>).aspects;
-      const list = Array.isArray(raw)
-        ? (raw as Array<{
-            localizedAspectName?: string;
-            aspectConstraint?: { aspectRequired?: boolean };
-          }>)
-        : [];
+      const list = Array.isArray(raw) ? (raw as AspectSpecRaw[]) : [];
+
+      // Auto-fill specifics from the item's structured columns so manually
+      // cataloged items (which never ran AutoLister's AI aspect pass) don't
+      // block publish on Brand/Size/Color/etc. that we already know. Only
+      // fills aspects not already present; SELECTION_ONLY aspects are filled
+      // only when the column value matches one of eBay's allowed values.
+      const derived = deriveAspectsFromItem(item, list, aspectMap);
+      if (Object.keys(derived).length > 0) {
+        Object.assign(aspectMap, derived);
+        // Persist so the offer payload AND the composer's specifics editor
+        // reflect what we filled. item_specifics_override is the listing-level
+        // canonical copy; mirror to the item when there's no listing row yet.
+        if (listing?.id) {
+          await supabaseAdmin
+            .from("listings")
+            .update({ item_specifics_override: aspectMap })
+            .eq("id", listing.id);
+        } else {
+          await supabaseAdmin
+            .from("inventory_items")
+            .update({ ebay_aspects: aspectMap })
+            .eq("id", itemId);
+        }
+      }
+
       requiredMissing = list
         .filter((a) => a.aspectConstraint?.aspectRequired)
         .map((a) => a.localizedAspectName ?? "")
         .filter((n) => n && (aspectMap[n]?.length ?? 0) === 0);
       if (requiredMissing.length > 0) {
         blockers.push(
-          `Fill required eBay specifics: ${requiredMissing.slice(0, 4).join(", ")}${
+          `Fill required eBay specifics in the composer: ${requiredMissing.slice(0, 4).join(", ")}${
             requiredMissing.length > 4 ? "…" : ""
           }`
         );
