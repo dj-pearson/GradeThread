@@ -10,8 +10,15 @@ struct AnalyticsView: View {
     @Query(sort: \LocalInventoryItem.updatedAt, order: .forward)
     private var items: [LocalInventoryItem]
     @Query private var sales: [LocalSale]
+    @Query private var sources: [LocalSource]
 
     @State private var range: AnalyticsRange = .days90
+
+    // US-677 sourcing budget (monthly). Loaded from AppPreferences on appear so
+    // edits re-render the meter without a round-trip through UserDefaults reads.
+    @State private var sourcingBudget: Double? = AppPreferences.sourcingBudget
+    @State private var showingBudgetEditor = false
+    @State private var budgetDraft = ""
 
     private let currency = CurrencyFormatter()
 
@@ -35,6 +42,23 @@ struct AnalyticsView: View {
         AnalyticsRollup.gradingRoiBuckets(items: items, sales: sales, since: range.start(now: .now))
     }
 
+    // US-677: per-source ROI rollup (all-time spend, window-agnostic — a source's
+    // payback is a lifetime question, not a trailing-window one).
+    private var sourceROI: [SourceROIRow] {
+        SourceROIRollup.bySource(items: items, sales: sales, sources: sources)
+    }
+
+    /// Start of the current calendar month — the sourcing-budget window.
+    private var monthStart: Date {
+        let cal = Calendar.current
+        return cal.date(from: cal.dateComponents([.year, .month], from: .now)) ?? .now
+    }
+
+    private var budgetStatus: SourcingBudgetStatus? {
+        guard let budget = sourcingBudget else { return nil }
+        return SourceROIRollup.budgetStatus(items: items, budget: budget, since: monthStart)
+    }
+
     var body: some View {
         Group {
             if items.isEmpty && sales.isEmpty {
@@ -55,6 +79,8 @@ struct AnalyticsView: View {
                 rangeCard
                 periodPnLCard
                 gradingRoiCard
+                sourcingBudgetCard
+                sourceROICard
                 brandProfitCard
                 sellThroughCard
                 gradeDistributionCard
@@ -63,6 +89,26 @@ struct AnalyticsView: View {
             .padding(16)
         }
         .background(Color(uiColor: .systemGroupedBackground))
+        .onAppear { sourcingBudget = AppPreferences.sourcingBudget }
+        .alert("Monthly sourcing budget", isPresented: $showingBudgetEditor) {
+            TextField("Amount", text: $budgetDraft)
+                .keyboardType(.decimalPad)
+            Button("Save") {
+                let cleaned = budgetDraft.filter { $0.isNumber || $0 == "." }
+                let value = Double(cleaned)
+                AppPreferences.sourcingBudget = value
+                sourcingBudget = AppPreferences.sourcingBudget
+            }
+            if sourcingBudget != nil {
+                Button("Remove budget", role: .destructive) {
+                    AppPreferences.sourcingBudget = nil
+                    sourcingBudget = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Track how much you've spent sourcing this month against a target.")
+        }
     }
 
     // MARK: - Header
@@ -89,9 +135,8 @@ struct AnalyticsView: View {
                 .foregroundStyle(Color.brandNavy)
         }
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     private var rangeCard: some View {
@@ -113,17 +158,17 @@ struct AnalyticsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold))
+                // US-654: card/section headers use the Outfit display face.
+                Text(title).font(.brandHeadline)
                 if let subtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(subtitle).font(.brandCaption).foregroundStyle(.secondary)
                 }
             }
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     private func notEnough() -> some View {
@@ -158,8 +203,8 @@ struct AnalyticsView: View {
                 .font(emphasized ? .subheadline.weight(.semibold) : .subheadline)
             Spacer()
             Text(currency.formatDisplay(value))
-                .font(emphasized ? .subheadline.weight(.bold) : .subheadline)
-                .monospacedDigit()
+                // US-654: tabular figures use Inter with monospaced digits.
+                .font(.brandData(15, weight: emphasized ? .bold : .regular))
                 .foregroundStyle(value < 0 ? Color.brandRed : (emphasized ? Color.brandNavy : .primary))
         }
     }
@@ -297,6 +342,79 @@ struct AnalyticsView: View {
                 }
                 .chartXAxis(.hidden)
                 .frame(height: categoryHeight(statusValues.count))
+            }
+        }
+    }
+
+    // US-677: monthly sourcing budget meter (spent vs target).
+    private var sourcingBudgetCard: some View {
+        card("Sourcing budget", subtitle: "Spent this month vs target") {
+            if let status = budgetStatus {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(currency.formatDisplay(status.spent))
+                            .font(.title3.weight(.bold)).monospacedDigit()
+                            .foregroundStyle(status.isOver ? Color.brandRed : Color.brandNavy)
+                        Text("of \(currency.formatDisplay(status.budget))")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Edit") {
+                            budgetDraft = String(Int(status.budget))
+                            showingBudgetEditor = true
+                        }
+                        .font(.caption.weight(.semibold))
+                    }
+                    ProgressView(value: status.fraction)
+                        .tint(status.isOver ? Color.brandRed : Color.brandNavy)
+                    Text(status.isOver
+                        ? "Over budget by \(currency.formatDisplay(-status.remaining))"
+                        : "\(currency.formatDisplay(status.remaining)) remaining")
+                        .font(.caption)
+                        .foregroundStyle(status.isOver ? Color.brandRed : .secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Set a monthly target to track sourcing spend.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button("Set budget") {
+                        budgetDraft = ""
+                        showingBudgetEditor = true
+                    }
+                    .buttonStyle(.brandSecondary)
+                }
+            }
+        }
+    }
+
+    // US-677: profit + sell-through grouped by acquisition source.
+    private var sourceROICard: some View {
+        card("Profit by source", subtitle: "ROI on what you've sourced") {
+            if sourceROI.isEmpty {
+                notEnough()
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(sourceROI.prefix(8)) { row in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(row.sourceName).font(.subheadline.weight(.medium)).lineLimit(1)
+                                Spacer()
+                                Text(currency.formatDisplay(row.netProfit))
+                                    .font(.subheadline.weight(.bold)).monospacedDigit()
+                                    .foregroundStyle(row.netProfit < 0 ? Color.brandRed : Color.brandEmerald)
+                            }
+                            HStack(spacing: 12) {
+                                Text("\(row.soldCount)/\(row.acquiredCount) sold")
+                                Text("·")
+                                Text("\(Int((row.sellThrough * 100).rounded()))% sell-through")
+                                if let roi = row.roi {
+                                    Text("·")
+                                    Text("\(Int((roi * 100).rounded()))% ROI")
+                                }
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
         }
     }

@@ -57,10 +57,11 @@ struct GradeScoreRing: View {
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
                 CountingNumber(value: displayedScore)
-                    .font(.system(size: diameter * 0.30, weight: .bold, design: .rounded))
+                    // US-654: the hero grade number uses the Outfit display face.
+                    .font(.brandScore(diameter * 0.30))
                     .foregroundStyle(color)
                 Text("of 10")
-                    .font(.system(size: diameter * 0.11, weight: .medium))
+                    .font(.custom(BrandFont.interMedium, size: diameter * 0.11))
                     .foregroundStyle(.secondary)
             }
         }

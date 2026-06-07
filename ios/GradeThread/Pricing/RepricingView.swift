@@ -190,9 +190,8 @@ private struct RepricingCard: View {
 
             actions
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     private var reasonBadge: some View {

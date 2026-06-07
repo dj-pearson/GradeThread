@@ -11,6 +11,14 @@ public enum NotificationCategoryID: String, CaseIterable {
     case tokenExpiring    = "token.expiring"
     case itemReviewNeeded = "item.review_needed"
     case gradeReady       = "grade.ready"
+    // US-679: expanded reseller alert categories. The backend stamps these
+    // `categoryIdentifier`s once the corresponding APNs sends ship (noted as a
+    // dependency); the receive side + Settings toggles + tap routing are ready.
+    case offerReceived    = "offer.received"
+    case messageReceived  = "message.received"
+    case listingEnded     = "listing.ended"
+    case agingDigest      = "aging.digest"
+    case payoutPosted     = "payout.posted"
 
     /// User-facing label for the Settings UI toggle.
     public var label: String {
@@ -20,6 +28,11 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .tokenExpiring:    return "eBay token expiring"
         case .itemReviewNeeded: return "Items need review"
         case .gradeReady:       return "Certified grades ready"
+        case .offerReceived:    return "Best offers received"
+        case .messageReceived:  return "Buyer messages"
+        case .listingEnded:     return "Listing ended / relist"
+        case .agingDigest:      return "Aging stock digest"
+        case .payoutPosted:     return "Payouts posted"
         }
     }
 
@@ -30,6 +43,11 @@ public enum NotificationCategoryID: String, CaseIterable {
         case .tokenExpiring:    return "Critical reminder when the eBay token expires in <7 days. Reconnect to keep syncing."
         case .itemReviewNeeded: return "Pushes when an AI grading result lands below the confidence threshold."
         case .gradeReady:       return "Lets you know when an item's certified condition grade finishes."
+        case .offerReceived:    return "Pushes when a buyer sends a best offer you can accept, decline or counter."
+        case .messageReceived:  return "Pushes when a buyer sends you a message."
+        case .listingEnded:     return "Pushes when a listing ends unsold so you can relist it."
+        case .agingDigest:      return "A periodic summary of stock that's been sitting too long."
+        case .payoutPosted:     return "Pushes when eBay posts a payout (before it clears your bank)."
         }
     }
 

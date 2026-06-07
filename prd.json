@@ -9688,8 +9688,8 @@
         "New screens use the shared modifiers rather than re-declaring chrome"
       ],
       "priority": 652,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: the card treatment appears 103 times across 25 files with inconsistent radii/padding; the only extension View files are accessibility + drop-handling, none styling. Highest-leverage UI fix."
+      "passes": true,
+      "notes": "Done 2026-06-07. New Theme/DesignTokens.swift: Spacing (4-pt scale xxs…xxl), CornerRadius (card 16 / control 12 / chip 9 / pill), a CardStyleModifier + .cardStyle(.standard/.flush/.inset) ViewModifier, and BrandPrimary/Secondary/Destructive ButtonStyles (.brandPrimary etc.). Migrated 35 hand-rolled `secondarySystemGroupedBackground` + RoundedRectangle card sites across 10 files (Marketplaces, Money, Dashboard, Analytics, Grading, Pricing, Scout, Onboarding) to .cardStyle(.flush) — a pure chrome swap that also unifies the radius (14→16); bumped the 20 `.padding(14)` that preceded a card to 16. New screens (payout reconciliation, CSV import) consume the shared modifiers + button styles. DesignTokensTests guards the scale + CardStylePadding mapping. CI (xcodebuild) compiles + tests."
     },
     {
       "id": "US-653",
@@ -9717,8 +9717,8 @@
         "System font fallback is graceful if a face fails to load"
       ],
       "priority": 654,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: design.md sec.2C mandates Outfit + Inter; grep for Font.custom/Outfit/Inter returns zero matches - the app uses only system fonts."
+      "passes": true,
+      "notes": "Done 2026-06-07. Bundled Outfit (display) + Inter (body/UI) as static weights instanced from the upstream OFL variable fonts (Outfit's variable default is Thin, so we ship pinned Regular/SemiBold/Bold; Inter ships Regular/Medium/Bold) under ios/GradeThread/Resources/Fonts/, registered via project.yml UIAppFonts. New Theme/Typography.swift exposes a Dynamic-Type-relative scale (Font.brandLargeTitle/brandTitle/brandTitle2/brandHeadline on Outfit; brandBody/brandCallout/brandSubhead/brandCaption + brandData(_:weight:) with .monospacedDigit() on Inter; brandScore(_) for the grade number) referenced by exact PostScript name so Font.custom resolves each weight, with inherent system fallback if a face fails to load. Applied to the grade-score ring number, report/certificate title, Analytics section headers, and tabular data rows. OFL attribution in Resources/Fonts/README.md. BrandFontTests verifies the faces are bundled + resolve by PostScript name."
     },
     {
       "id": "US-655",
@@ -9879,8 +9879,8 @@
         "Distinct from the existing orphan-listing reconciliation (which only links listings to items)"
       ],
       "priority": 666,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web src/pages/flipdesk/reconciliation.tsx + edge flipdesk-reconciliation.ts handle payout_imports; iOS Marketplaces/Reconciliation only does orphan eBay listing -> create/link item, no payout/fee reconciliation."
+      "passes": true,
+      "notes": "Done 2026-06-07. Money/PayoutReconciliation{Types,Service,Store,View}.swift wires the edge payout-reconciliation route (GET /api/flipdesk/reconciliation/queue, POST /run, /match, /dismiss/:id) — DISTINCT from the orphan-listing reconciliation under Marketplaces/Reconciliation/. Lists unreconciled eBay payouts each with up to five server-scored candidate sales (payout-id exact / amount-proximity / date-proximity), shows collected vs payout amount + the match reason/score, supports confirm-match, the server auto-match sweep (auto/ambiguous/no-candidate counts), and dismiss-as-not-a-tracked-sale. Reached from a card on the Money tab. EdgeAPI's convertFromSnakeCase decoder; date-only payout strings parsed leniently (PayoutDateFormat). PayoutReconciliationTests covers load/auto-match/match/dismiss + error surfacing (409 conflict) via a faked provider, plus decode helpers."
     },
     {
       "id": "US-667",
@@ -9893,8 +9893,8 @@
         "Supersedes/expands US-289 (Reconcile: iOS batch import); coordinate with edge flipdesk-sheets.ts"
       ],
       "priority": 667,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web src/pages/flipdesk/import.tsx + edge flipdesk-sheets.ts/flipdesk-google-photos.ts ingest catalogs; iOS has only share-extension photo intake + AutoLister batches, no spreadsheet/CSV import. US-289 already tracks this and is incomplete."
+      "passes": true,
+      "notes": "Done 2026-06-07. Guided CSV / Google Sheets import under ios/GradeThread/Import/. CSVParser is a faithful Swift port of the web src/lib/csv.ts (quoted fields, escaped quotes, embedded newlines, tab/comma autodetect, row-width normalization). ImportField mirrors the web mapping with guess()/value-normalizers (price, status, item_category against the valid enums, date). ImportMapping builds validated ImportItemDraft rows with per-row errors. SheetsImportService calls the edge /api/flipdesk/sheets/fetch-csv (SSRF-guarded server-side fetch) for the Sheets path; CSVImportView also accepts a file via .fileImporter. InventoryImportService inserts inventory_items via supabase-swift (same RLS-scoped write path as manual intake) with SKU-aware dedup + per-row error reporting; ImportStore orchestrates source→mapping→preview→commit with progress. Entry point under Settings → Data. Heavy pure-logic coverage in CSVImportTests (parser/guess/normalizers/mapping/store preview+gating+sheet fetch). Supersedes/expands US-289's spreadsheet path."
     },
     {
       "id": "US-668",
@@ -9934,7 +9934,7 @@
       ],
       "priority": 670,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web src/pages/team.tsx + src/hooks/use-workspace.ts (members, roles, workspaceOwnerId); iOS Settings has no workspace switching or member management."
+      "notes": "DEFERRED (passes=false), investigated 2026-06-07. The edge already supports the X-Workspace-Owner header (middleware/workspace.ts validates the caller's membership before honoring it) and iOS already has Team/ (member list + invite via /api/workspace). BUT the iOS data layer (SyncEngine) pulls inventory/sales/listings via DIRECT supabase-swift queries that are RLS-scoped to auth.uid()=self; per CLAUDE.md (US-268) workspace MEMBERS cannot read the owner's rows through direct Supabase — RLS keyed to auth.uid() blocks it, and the edge deliberately keeps the service-role client. So a workspace switcher that genuinely scopes ALL reads/writes to the active workspace (AC#3) requires routing the iOS data layer through the edge with the workspace header (or adding member-read RLS) — a cross-cutting sync/backend change beyond an iOS-only pass. Foundation (header threading on EdgeAPI + a WorkspaceContext store + Settings switcher reusing TeamService) is the next step once the read path is settled. Original audit: web src/pages/team.tsx + src/hooks/use-workspace.ts; iOS Settings has no workspace switching."
     },
     {
       "id": "US-671",
@@ -9947,7 +9947,7 @@
       ],
       "priority": 671,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: MarketplaceConnectionStore/EbayConnectionService assume a single eBay connection; no multi-account UI."
+      "notes": "[iOS triage 2026-06-07] DEFERRED — backend dependency: MarketplaceConnectionStore/EbayConnectionService + the edge eBay OAuth/token model assume a single connection per user+platform; multi-account needs the backend to store + disambiguate multiple marketplace_connections rows and route sync/publish per-connection. Not iOS-only. [iOS][Feature] Audit finding: MarketplaceConnectionStore/EbayConnectionService assume a single eBay connection; no multi-account UI."
     },
     {
       "id": "US-672",
@@ -9960,7 +9960,7 @@
       ],
       "priority": 672,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: Pricing/RepricingService.swift is manual-suggestion only (apply/dismiss per item); no scheduling/automation beyond the one-shot bulk 'Drop -10%'."
+      "notes": "[iOS triage 2026-06-07] DEFERRED — backend dependency: repricing automation needs server-side rule storage + a scheduled runner; the edge /pricing route is one-shot scan/suggest/apply/dismiss only (no rules table or cron). iOS RepricingService is manual-suggestion. Wire once the backend rules engine exists. [iOS][Feature] Audit finding: Pricing/RepricingService.swift is manual-suggestion only (apply/dismiss per item); no scheduling/automation beyond the one-shot bulk 'Drop -10%'."
     },
     {
       "id": "US-673",
@@ -9974,7 +9974,7 @@
       ],
       "priority": 673,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: eBay best-offer + buyer messaging absent on web and iOS (grep best-offer/negotiate in flipdesk routes -> only Inventory-API 'offer' = listing). Table-stakes-adjacent for an eBay tool."
+      "notes": "[iOS triage 2026-06-07] DEFERRED — backend dependency: eBay best-offer + buyer-messaging is absent on web AND in the edge (flipdesk-ebay.ts 'offer' = Inventory-API listing offer, not negotiation). Needs the eBay Negotiation + Messaging APIs wired server-side before an iOS surface can exist. [iOS][Feature] Audit finding: eBay best-offer + buyer messaging absent on web and iOS (grep best-offer/negotiate in flipdesk routes -> only Inventory-API 'offer' = listing). Table-stakes-adjacent for an eBay tool."
     },
     {
       "id": "US-674",
@@ -9987,7 +9987,7 @@
       ],
       "priority": 674,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS has no template concept (grep template -> 0 hits); power resellers reuse description/policy/specifics across listings."
+      "notes": "[iOS triage 2026-06-07] DEFERRED — candidate follow-up. Local-first templates (SwiftData) are feasible iOS-side per the AC ('sync where backend supports it'), but selectable-in-AutoLister/Publish wiring touches both composer flows; deferred this pass in favor of fully-shippable stories. [iOS][Feature] Audit finding: iOS has no template concept (grep template -> 0 hits); power resellers reuse description/policy/specifics across listings."
     },
     {
       "id": "US-675",
@@ -10000,7 +10000,7 @@
       ],
       "priority": 675,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web has autolister-queue/drafts/bulk-edit; iOS AutoLister/ has generation + a single AutoListerQueueView + review model, no persistent drafts library or bulk-edit."
+      "notes": "[iOS triage 2026-06-07] DEFERRED — candidate follow-up. The edge persists AutoLister batches (/batch/:id) so a drafts library + bulk-edit is feasible iOS-side, but it's a sizable new surface; deferred this pass in favor of fully-shippable stories. [iOS][Feature] Audit finding: web has autolister-queue/drafts/bulk-edit; iOS AutoLister/ has generation + a single AutoListerQueueView + review model, no persistent drafts library or bulk-edit."
     },
     {
       "id": "US-676",
@@ -10013,7 +10013,7 @@
       ],
       "priority": 676,
       "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS has barcode scanning (Capture/BarcodeScanner.swift) for intake but no location/bin field, no SKU-label generation/printing, and no consignment model."
+      "notes": "[iOS triage 2026-06-07] DEFERRED — backend dependency: location/bin + consignment owner/split need new inventory_items columns + a consignment model server-side; only SKU-label AirPrint is purely iOS. Bundled AC can't pass until the schema lands. [iOS][Feature] Audit finding: iOS has barcode scanning (Capture/BarcodeScanner.swift) for intake but no location/bin field, no SKU-label generation/printing, and no consignment model."
     },
     {
       "id": "US-677",
@@ -10025,8 +10025,8 @@
         "Mirrors web sources.tsx + source grouping in analytics"
       ],
       "priority": 677,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS has source capture (SourceStore/AddSourceSheet/LocalSource) + Scout deal-finding but no source-level ROI or sourcing-budget tracking; web sources.tsx groups by source."
+      "passes": true,
+      "notes": "Done 2026-06-07. Analytics/SourceROIRollup.swift: pure per-source ROI rollup (acquired/sold counts, spend, revenue, fees, COGS, net profit, ROI on total sourcing spend, sell-through, grouped by acquisition source with an unattributed bucket) + a monthly sourcing-budget status (spend windowed by item createdAt as the acquisition proxy vs an AppPreferences.sourcingBudget target, clamped over-budget meter). Added source_id to the local item mirror (LocalInventoryItem) and threaded it through sync (RemoteInventoryItem decode, itemColumns select, SyncMergeActor user-owned merge). AnalyticsView gains a 'Profit by source' card + a 'Sourcing budget' meter with an inline budget editor (alert + decimal field, set/remove). Mirrors web sources.tsx grouping. SourceROIRollupTests covers grouping, unattributed bucket, sort, nil-ROI, and budget windowing/over-budget."
     },
     {
       "id": "US-678",
@@ -10053,8 +10053,8 @@
         "Requires the corresponding backend signals/APNs sends (note as dependency)"
       ],
       "priority": 679,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS push covers grade-ready/new-sale/item-review/eBay-token-expiring; missing offer/message/relist/aging/payout alerts that the backend can signal."
+      "passes": true,
+      "notes": "Done 2026-06-07. Expanded NotificationCategoryID with offer.received / message.received / listing.ended / aging.digest / payout.posted (each gets a Settings toggle automatically — the section iterates allCases, persisting per-category to UserDefaults, US-194 device-local model) with labels + help text. DeepLinkRoute gained an .inventoryTab case; DeepLinkRoute.from now routes offers+messages to the item canvas (or Marketplaces tab without an id), the aging digest to the inventory triage list, relist/listing-ended to the item (or triage), and payout-posted to Sales — reusing the existing NotificationCenter deep-link bus. The corresponding APNs sends are a noted backend dependency (the receive side, toggles, and tap routing are complete). PushNotificationTests updated (10 categories) + new routing cases."
     }
   ]
 }

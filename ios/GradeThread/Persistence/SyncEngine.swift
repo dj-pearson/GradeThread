@@ -191,6 +191,7 @@ actor SyncEngine {
         let color: String?
         let material: String?
         let status: String
+        let source_id: String?
         let target_price: Double?
         let acquired_price: Double?
         let grade_value: Double?
@@ -203,6 +204,7 @@ actor SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case id, user_id, title, brand, sku, size, color, material, status
+            case source_id
             case target_price, acquired_price, grade_value, grade_label
             case certificate_url, condition_notes, measurements, created_at, updated_at
         }
@@ -218,6 +220,7 @@ actor SyncEngine {
             color = try c.decodeIfPresent(String.self, forKey: .color)
             material = try c.decodeIfPresent(String.self, forKey: .material)
             status = try c.decode(String.self, forKey: .status)
+            source_id = try c.decodeIfPresent(String.self, forKey: .source_id)
             target_price = try c.decodeIfPresent(Double.self, forKey: .target_price)
             acquired_price = try c.decodeIfPresent(Double.self, forKey: .acquired_price)
             grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
@@ -391,7 +394,7 @@ actor SyncEngine {
     }
 
     private static let itemColumns =
-        "id,user_id,title,brand,sku,size,color,material,status,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        "id,user_id,title,brand,sku,size,color,material,status,source_id,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"

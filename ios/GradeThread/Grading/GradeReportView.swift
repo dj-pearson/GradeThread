@@ -50,11 +50,12 @@ struct GradeReportView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let title, !title.isEmpty {
                     Text(title)
-                        .font(.headline)
+                        // US-654: certificate/report title uses the Outfit display face.
+                        .font(.brandHeadline)
                         .lineLimit(2)
                 }
                 Text(report.gradeTier)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.brandSubhead)
                     .foregroundStyle(GradeScale.color(for: report.overallScore))
                 Text("Certified condition grade")
                     .font(.caption)
@@ -64,8 +65,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
         // US-655: tier-tinted border + glow on the report hero, strongest for a
         // pristine grade. Suppressed under Reduce Transparency.
         .overlay(
@@ -105,8 +105,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var defectsCard: some View {
@@ -139,8 +138,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func severityColor(_ severity: String) -> Color {
@@ -161,8 +159,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func factorRow(_ factor: GradeFactor) -> some View {
@@ -204,8 +201,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var confidenceCard: some View {
@@ -226,8 +222,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func shareCertificate(_ url: URL) -> some View {

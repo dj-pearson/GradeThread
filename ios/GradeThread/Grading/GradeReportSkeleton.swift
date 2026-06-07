@@ -30,8 +30,7 @@ struct GradeReportSkeleton: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var factorCard: some View {
@@ -46,8 +45,7 @@ struct GradeReportSkeleton: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var summaryCard: some View {
@@ -59,7 +57,6 @@ struct GradeReportSkeleton: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 }
