@@ -55,6 +55,10 @@ struct PhotoIntakeView: View {
     @State private var isLoadingLibraryPicks = false
     @State private var stagedPhotos: [PhotoCapture] = []
     @State private var showingStagingTray = false
+
+    /// US-651: VoiceOver focus is moved here when the camera is ready so the
+    /// user lands on the primary action instead of hunting for it.
+    @AccessibilityFocusState private var captureControlFocused: Bool
     private static let libraryPickLimit = 8
 
     private enum PermissionState: Equatable {
@@ -75,7 +79,20 @@ struct PhotoIntakeView: View {
             overlay
         }
         .navigationBarBackButtonHidden(true)
-        .task { await bootstrap() }
+        .task {
+            await bootstrap()
+            // US-651: move VoiceOver focus to the shutter once the camera's up.
+            if permissionState == .granted { captureControlFocused = true }
+        }
+        // US-651: announce upload outcomes as they land (live region).
+        .onChange(of: uploadTally) { old, new in
+            if new.uploaded > old.uploaded {
+                announce("Photo uploaded. \(new.uploaded) of \(store.visibleSlots.count) uploaded.")
+            }
+            if new.failed > old.failed {
+                announce("Photo upload failed. Double-tap the slot to retry.")
+            }
+        }
         .onDisappear { camera.stop() }
         .confirmationDialog(
             "Discard captured photos?",
@@ -340,6 +357,8 @@ struct PhotoIntakeView: View {
             }
             .disabled(permissionState != .granted || isCapturing)
             .accessibilityLabel("Capture photo")
+            .accessibilityHint("\(store.photos.count) of \(store.visibleSlots.count) slots filled")
+            .accessibilityFocused($captureControlFocused)
 
             // Right-side spacer balances the layout. Reserved for a future
             // "switch camera" button (front-facing capture isn't part of
@@ -377,6 +396,29 @@ struct PhotoIntakeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+    }
+
+    // MARK: - Accessibility (US-651)
+
+    /// Tally of upload outcomes across the visible slots, used to drive
+    /// success/failure VoiceOver announcements via `.onChange`.
+    private struct UploadTally: Equatable { let uploaded: Int; let failed: Int }
+
+    private var uploadTally: UploadTally {
+        var uploaded = 0
+        var failed = 0
+        for slot in store.visibleSlots {
+            guard let phase = uploadPhase(for: slot) else { continue }
+            if case .uploaded = phase { uploaded += 1 }
+            else if case .failed = phase { failed += 1 }
+        }
+        return UploadTally(uploaded: uploaded, failed: failed)
+    }
+
+    /// Posts a VoiceOver announcement (live region) when VoiceOver is running.
+    private func announce(_ message: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: message)
     }
 
     // MARK: - Actions
@@ -571,6 +613,8 @@ struct PhotoIntakeView: View {
                     source: .camera
                 )
                 store.recordCapture(photo)
+                // US-651: announce slot-filled progress as a live region.
+                announce("Photo captured. \(store.photos.count) of \(store.visibleSlots.count) slots filled.")
             } catch {
                 startupError = error.localizedDescription
             }

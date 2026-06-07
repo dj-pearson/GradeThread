@@ -15,6 +15,13 @@ struct DetailsIntakeView: View {
 
     @State private var form = IntakeFormState()
     @State private var sourceStore: SourceStore?
+
+    /// US-651: explicit field order so the keyboard 'Next' key walks the form
+    /// top-to-bottom instead of dismissing after each field.
+    private enum Field: Hashable {
+        case title, sku, brand, style, size, color, material, container, sourcedBy, purchasePrice
+    }
+    @FocusState private var focusedField: Field?
     @State private var showingAddSourceSheet = false
     @State private var isSaving = false
     @State private var bannerMessage: BannerMessage?
@@ -114,11 +121,17 @@ struct DetailsIntakeView: View {
         Section("Item") {
             TextField("Title", text: $form.title)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .title)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .sku }
 
             HStack {
                 TextField("SKU", text: $form.sku)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($focusedField, equals: .sku)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .brand }
                 Button {
                     AppRouter.haptic()
                     showingBarcodeScanner = true
@@ -133,21 +146,36 @@ struct DetailsIntakeView: View {
 
             TextField("Brand", text: $form.brand)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .brand)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .style }
 
             TextField("Style", text: $form.style)
                 .textInputAutocapitalization(.sentences)
+                .focused($focusedField, equals: .style)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .size }
 
             TextField("Size", text: $form.size)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .size)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .color }
 
             TextField("Color", text: $form.color)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .color)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .material }
 
             TextField("Material", text: $form.material)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .material)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .container }
 
             Picker("Category", selection: $form.category) {
                 ForEach(FlipdeskCategory.allCases) { c in
@@ -170,9 +198,15 @@ struct DetailsIntakeView: View {
             TextField("Container", text: $form.container)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .container)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .sourcedBy }
 
             TextField("Sourced by", text: $form.sourcedBy)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .sourcedBy)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .purchasePrice }
 
             DatePicker(
                 "Purchase date",
@@ -183,8 +217,13 @@ struct DetailsIntakeView: View {
             HStack {
                 Text(currencyFormatter.symbol)
                     .foregroundStyle(.secondary)
+                // decimalPad has no Return key, so this is the end of the
+                // keyboard-driven traversal; .done dismisses.
                 TextField("Purchase price", text: $form.purchasePriceText)
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .purchasePrice)
+                    .submitLabel(.done)
+                    .onSubmit { focusedField = nil }
             }
         }
     }

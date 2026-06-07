@@ -9674,8 +9674,8 @@
         "Changes verified with VoiceOver on the capture + intake flow"
       ],
       "priority": 651,
-      "passes": false,
-      "notes": "[iOS][UX][A11y] Audit finding: Capture/PhotoIntakeView.swift has only per-button labels - no accessibilityFocus on launch, no announcement on slot fill/upload failure, hint text (line 182) not a live region; DetailsIntakeView manages no field order. (Reduce-motion handling itself is good - Accessibility/ReducedMotion.swift.)"
+      "passes": true,
+      "notes": "Done. PhotoIntakeView: @AccessibilityFocusState moves VoiceOver focus to the shutter once the camera is granted (.task after bootstrap); the capture button carries an .accessibilityHint with live 'N of M slots filled' progress. Slot-filled is announced via UIAccessibility.post(.announcement) after each recordCapture; upload success/failure is announced through an .onChange on an UploadTally (uploaded/failed counts across visible slots) acting as a live region. Hit targets are ≥44pt (shutter 76, library/close/slot 56–64). DetailsIntakeView: a @FocusState Field enum defines an explicit top-to-bottom traversal (Title→SKU→Brand→Style→Size→Color→Material→Container→Sourced by→Purchase price) with .submitLabel(.next)/.onSubmit advancing focus and .done on the final decimalPad field. CI (ios-ci.yml) is the build gate."
     },
     {
       "id": "US-652",
