@@ -1,0 +1,192 @@
+import SwiftUI
+
+/// Settings → Data → Consignors (US-676). Lists consignors with CRUD and a
+/// route to the per-consignor payout report.
+struct ConsignorsView: View {
+    @State private var store = ConsignorStore()
+    @State private var editing: EditingTarget?
+    @State private var showReport = false
+
+    var body: some View {
+        List {
+            Section {
+                Button {
+                    editing = .new
+                } label: {
+                    Label("Add consignor", systemImage: "plus.circle")
+                }
+                Button {
+                    showReport = true
+                } label: {
+                    Label("Payout report", systemImage: "chart.bar.doc.horizontal")
+                }
+            }
+
+            switch store.phase {
+            case .loading:
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            case .failed(let message):
+                Section {
+                    ContentUnavailableView(
+                        "Couldn't load consignors",
+                        systemImage: "exclamationmark.triangle",
+                        description: Text(message)
+                    )
+                }
+            case .ready:
+                if store.isEmpty {
+                    Section {
+                        ContentUnavailableView(
+                            "No consignors yet",
+                            systemImage: "person.2",
+                            description: Text("Add a consignor to track items you sell on their behalf and what you owe them.")
+                        )
+                    }
+                } else {
+                    Section {
+                        ForEach(store.consignors) { consignor in
+                            Button {
+                                editing = .existing(consignor)
+                            } label: {
+                                consignorRow(consignor)
+                            }
+                            .tint(.primary)
+                        }
+                    } header: {
+                        Text("\(store.consignors.count) consignor\(store.consignors.count == 1 ? "" : "s")")
+                    }
+                }
+            }
+        }
+        .navigationTitle("Consignors")
+        .task { await store.load() }
+        .sheet(item: $editing) { target in
+            ConsignorEditorSheet(store: store, target: target)
+        }
+        .sheet(isPresented: $showReport) {
+            NavigationStack {
+                ConsignmentReportView(store: store)
+            }
+        }
+        .alert(
+            "Something went wrong",
+            isPresented: Binding(
+                get: { store.actionError != nil },
+                set: { if !$0 { store.actionError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(store.actionError ?? "")
+        }
+    }
+
+    @ViewBuilder
+    private func consignorRow(_ consignor: Consignor) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(consignor.name).font(.body)
+            HStack(spacing: 8) {
+                Text("\(Int(consignor.defaultSplitPct))% split")
+                if let email = consignor.contactEmail, !email.isEmpty {
+                    Text("·")
+                    Text(email)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    enum EditingTarget: Identifiable {
+        case new
+        case existing(Consignor)
+        var id: String {
+            switch self {
+            case .new: return "new"
+            case .existing(let c): return c.id
+            }
+        }
+    }
+}
+
+/// Create / edit a consignor.
+struct ConsignorEditorSheet: View {
+    let store: ConsignorStore
+    let target: ConsignorsView.EditingTarget
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft = ConsignorDraft()
+    @State private var isSaving = false
+
+    private var editingId: String? {
+        if case .existing(let c) = target { return c.id }
+        return nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Consignor") {
+                    TextField("Name", text: $draft.name)
+                        .textInputAutocapitalization(.words)
+                    TextField("Email (optional)", text: $draft.contactEmail)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    TextField("Phone (optional)", text: $draft.contactPhone)
+                        .keyboardType(.phonePad)
+                }
+                Section {
+                    VStack(alignment: .leading) {
+                        Text("Consignor's split: \(Int(draft.defaultSplitPct))%")
+                        Slider(value: $draft.defaultSplitPct, in: 0...100, step: 5)
+                    }
+                } header: {
+                    Text("Default split")
+                } footer: {
+                    Text("The consignor's share of net proceeds (sale price minus fees) when an item has no per-item override. You keep \(Int(100 - draft.defaultSplitPct))%.")
+                }
+                Section("Notes") {
+                    TextField("Notes (optional)", text: $draft.notes, axis: .vertical)
+                        .lineLimit(2...5)
+                }
+
+                if case .existing(let consignor) = target {
+                    Section {
+                        Button(role: .destructive) {
+                            Task {
+                                await store.delete(consignor)
+                                dismiss()
+                            }
+                        } label: {
+                            Label("Delete consignor", systemImage: "trash")
+                        }
+                    } footer: {
+                        Text("Items currently linked to this consignor keep their sale history; they just lose the consignor link.")
+                    }
+                }
+            }
+            .navigationTitle(editingId == nil ? "New Consignor" : "Edit Consignor")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task {
+                            isSaving = true
+                            let ok = await store.save(draft, editingId: editingId)
+                            isSaving = false
+                            if ok { dismiss() }
+                        }
+                    }
+                    .disabled(!draft.isValid || isSaving)
+                }
+            }
+            .onAppear {
+                if case .existing(let c) = target { draft = ConsignorDraft(c) }
+            }
+        }
+    }
+}

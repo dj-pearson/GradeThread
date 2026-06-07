@@ -192,6 +192,9 @@ actor SyncEngine {
         let material: String?
         let status: String
         let source_id: String?
+        let location_bin: String?
+        let consignor_id: String?
+        let consignment_split_pct: Double?
         let target_price: Double?
         let acquired_price: Double?
         let grade_value: Double?
@@ -205,6 +208,7 @@ actor SyncEngine {
         private enum CodingKeys: String, CodingKey {
             case id, user_id, title, brand, sku, size, color, material, status
             case source_id
+            case location_bin, consignor_id, consignment_split_pct
             case target_price, acquired_price, grade_value, grade_label
             case certificate_url, condition_notes, measurements, created_at, updated_at
         }
@@ -221,6 +225,9 @@ actor SyncEngine {
             material = try c.decodeIfPresent(String.self, forKey: .material)
             status = try c.decode(String.self, forKey: .status)
             source_id = try c.decodeIfPresent(String.self, forKey: .source_id)
+            location_bin = try c.decodeIfPresent(String.self, forKey: .location_bin)
+            consignor_id = try c.decodeIfPresent(String.self, forKey: .consignor_id)
+            consignment_split_pct = try c.decodeIfPresent(Double.self, forKey: .consignment_split_pct)
             target_price = try c.decodeIfPresent(Double.self, forKey: .target_price)
             acquired_price = try c.decodeIfPresent(Double.self, forKey: .acquired_price)
             grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
@@ -394,7 +401,7 @@ actor SyncEngine {
     }
 
     private static let itemColumns =
-        "id,user_id,title,brand,sku,size,color,material,status,source_id,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        "id,user_id,title,brand,sku,size,color,material,status,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"

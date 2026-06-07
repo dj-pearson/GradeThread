@@ -830,10 +830,16 @@ struct SettingsView: View {
                 } label: {
                     Label("Listing templates", systemImage: "doc.on.doc")
                 }
+                // US-676: consignors + per-consignor payout report.
+                NavigationLink {
+                    ConsignorsView()
+                } label: {
+                    Label("Consignors", systemImage: "person.2.badge.gearshape")
+                }
             } header: {
                 Text("Data")
             } footer: {
-                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, or save listing templates to reuse description, condition, and policies.")
+                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, save listing templates to reuse description, condition, and policies, or manage consignors and their payout splits.")
                     .font(.footnote)
             }
 

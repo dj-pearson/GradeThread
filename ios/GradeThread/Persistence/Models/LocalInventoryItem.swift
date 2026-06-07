@@ -28,6 +28,16 @@ final class LocalInventoryItem {
     /// no source. Treated as a user-owned field on sync.
     var sourceId: String?
 
+    /// Storage location / bin label (US-676), e.g. "Tote A3", "Rack 2".
+    /// User-owned free-form text; powers the "filter by location" facet.
+    var locationBin: String?
+
+    /// `consignors.id` when this item is held on consignment (US-676), with an
+    /// optional per-item split override (consignor's % of net proceeds). Both
+    /// user-owned on sync.
+    var consignorId: String?
+    var consignmentSplitPct: Double?
+
     // Pricing
     var acquiredPrice: Double?
     var targetPrice: Double?
