@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-04
+# Last updated: 2026-06-07
 
 ## Completed Stories
 
@@ -4831,3 +4831,60 @@ Marketplaces), aging digest to triage, relist to the item, payout-posted to
 Sales. APNs sends are a noted backend dependency. PushNotificationTests updated.
 
 prd.json 485/679.
+
+
+### iOS shipping & fulfillment orders queue (US-669)
+
+Fulfillment/ module gives the daily ship workflow its own surface. The backend
+already ingests the data (sales.shipped_at / tracking_number / shipping_cost +
+buyer_username via flipdesk-ebay.ts getOrders + SHIPPING_LABEL), so this is
+purely an iOS read/write layer. FulfillmentTypes.swift (FulfillmentOrder wire
+shape, lenient money decode, sold-date ranking), FulfillmentService.swift
+(FulfillmentProviding protocol; reads `sales` + inventory_items(title) embed and
+writes shipped_at/tracking_number directly via supabase-swift under RLS, scoped
+by id like ReconciliationService — empty tracking omitted so an existing value is
+never clobbered), FulfillmentStore.swift (filters to unshipped, sorts oldest-first
+for ship-by priority, optimistic mark-shipped that reloads + surfaces the error on
+failure and nudges the sync engine on success), FulfillmentView.swift (new
+'Shipping queue' card in MoneyView -> its own list, not buried in flat SalesView;
+swipe / tap-through MarkShippedSheet with optional tracking; label cost per-row +
+summed). FulfillmentTests.swift (10 cases) via a faked provider.
+
+prd.json 486/679.
+
+
+## iOS PRD triage — remaining pending stories (2026-06-07)
+
+Worked the iOS-touching stories this pass. 83 iOS stories total; US-669 landed
+above. The remaining pending iOS stories were (re)triaged and stay passes=false
+because each needs cross-system / backend work that can't be implemented or
+CI-verified from the iOS target alone (full rationale lives in each story's
+prd.json `notes`):
+
+- US-289  Reconcile iOS batch import — PARTIAL (capture-time captured_at +
+          ItemPhotoInsert plumbing already CI-tested); still needs a
+          session-targeting intake/staging model + on-device build.
+- US-661  Universal Links for OAuth — needs an apple-app-site-association hosted
+          on gradethread.com (Cloudflare Pages) + the edge oauth/callback to
+          redirect to an https app-link target. Both are server-side.
+- US-670  Workspace / team context — iOS SyncEngine reads via direct supabase
+          (RLS keyed to auth.uid()=self); scoping ALL reads to the active
+          workspace needs the data layer routed through the edge with the
+          X-Workspace-Owner header (or member-read RLS). Cross-cutting.
+- US-671  Multiple eBay connections — edge eBay OAuth/token model assumes one
+          connection per user+platform; multi-account needs server-side
+          per-connection storage + routing.
+- US-672  Repricing automation/rules — needs a server-side rules table + a
+          scheduled runner; the edge /pricing route is one-shot scan/suggest/
+          apply/dismiss only.
+- US-673  Best-offer + buyer messages — eBay Negotiation + Messaging APIs are
+          absent on web AND in the edge; must be wired server-side first.
+- US-674  Listing templates — local-first is feasible iOS-side, but the AC's
+          "selectable in AutoLister + Publish" wiring touches both composer
+          flows; deferred to keep this pass to fully-shippable work.
+- US-675  AutoLister drafts library + bulk-edit — feasible (edge persists
+          batches) but a sizable new multi-select surface; deferred this pass.
+- US-676  Locations/bins + SKU labels + consignment — bundled AC needs new
+          inventory_items columns + a consignment model server-side (only the
+          AirPrint SKU label is purely iOS), so it can't pass until the schema
+          lands.
