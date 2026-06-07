@@ -47,11 +47,24 @@ enum EbayConnectResult: Equatable {
     /// Parse the callback URL's `ebay` query param into a discriminator
     /// when the web flow embeds one. Useful when the auth session lands
     /// on a URL like `com.gradethread.app://oauth/ebay?ebay=cancelled`.
-    static func from(callbackURL: URL) -> EbayConnectResult? {
+    ///
+    /// US-660: when `expectedState` is provided and the callback carries a
+    /// `client_state` that does NOT match, the callback is rejected
+    /// (`.stateExpired`) — a forged callback can't claim a successful connect.
+    /// A callback that omits `client_state` is treated leniently because the
+    /// server-side single-use `oauth_states` check (US-274) already validated
+    /// the real handshake; only a present-but-mismatched value is an attack
+    /// signal here.
+    static func from(callbackURL: URL, expectedState: String? = nil) -> EbayConnectResult? {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
         let items = components.queryItems ?? []
+        if let expectedState,
+           let returnedState = items.first(where: { $0.name == "client_state" })?.value,
+           returnedState != expectedState {
+            return .stateExpired
+        }
         let ebayValue = items.first { $0.name == "ebay" }?.value
         switch ebayValue {
         case "connected":

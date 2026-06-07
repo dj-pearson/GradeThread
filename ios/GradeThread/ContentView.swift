@@ -38,6 +38,9 @@ struct ContentView: View {
                 authStore.start()
                 networkMonitor.start()
                 startSyncEngineIfNeeded()
+                // US-659: drop stale share-extension batches the main app never
+                // got around to presenting.
+                IntakeInbox.sweepStale()
                 Telemetry.event(TelemetryEvent.appOpen)
             }
             .onChange(of: authStore.phase) { _, newPhase in
@@ -53,6 +56,11 @@ struct ContentView: View {
                     // does a clean full backfill instead of inheriting this
                     // user's watermark.
                     SyncWatermark().resetAll()
+                    // US-659: wipe the App Group intake inbox + the persisted
+                    // APNs token so the next user can't inherit staged photos
+                    // or this device's push registration.
+                    IntakeInbox.removeAll()
+                    PushService.shared.clearTokenOnSignOut()
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
                     Task { await realtimeService?.stop() }
@@ -261,6 +269,15 @@ struct MainShell: View {
             guard let route = notification.userInfo?[DeepLinkRouter.routeUserInfoKey]
                     as? DeepLinkRoute else { return }
             apply(route: route, router: router)
+        }
+        // US-663: cover sensitive financial figures (Dashboard/Money/widget-
+        // backed views all live under this shell) in the App Switcher snapshot
+        // and while the app is inactive, so payout/sales numbers aren't exposed.
+        .overlay {
+            if scenePhase != .active {
+                PrivacyCoverView()
+                    .transition(.opacity)
+            }
         }
         .task { drainSharedInboxIfNeeded() }
         .onChange(of: scenePhase) { _, newValue in
@@ -868,6 +885,26 @@ private struct IntakePlaceholder: View {
             DetailsIntakeView()
         case .autoLister:
             AutoListerView()
+        }
+    }
+}
+
+// MARK: - Privacy cover (US-663)
+
+/// Brand-colored cover shown over the app while it's inactive/backgrounded so
+/// the App Switcher thumbnail never leaks payout/sales figures.
+private struct PrivacyCoverView: View {
+    var body: some View {
+        ZStack {
+            Color.brandNavy.ignoresSafeArea()
+            VStack(spacing: 12) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text("GradeThread")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
         }
     }
 }

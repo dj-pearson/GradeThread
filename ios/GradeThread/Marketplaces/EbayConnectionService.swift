@@ -60,9 +60,14 @@ public final class EbayConnectionService: NSObject {
     /// Runs the full connect handshake and resolves to the new row when
     /// successful. Throws on cancel, expired state, or network failure.
     func connect(userId: String) async throws -> RemoteMarketplaceConnection {
-        let consent = try await fetchConsentURL()
+        // US-660: client-side CSRF nonce (mirrors the Apple Sign-In pattern).
+        // The server already enforces single-use state via the oauth_states
+        // table (US-274); this is defense-in-depth so a forged callback to our
+        // URL scheme carrying a *different* state is rejected here too.
+        let stateNonce = Self.generateStateNonce()
+        let consent = try await fetchConsentURL(stateNonce: stateNonce)
         let callback = try await runAuthSession(url: consent)
-        if let result = EbayConnectResult.from(callbackURL: callback) {
+        if let result = EbayConnectResult.from(callbackURL: callback, expectedState: stateNonce) {
             switch result {
             case .cancelled:    throw ConnectionError.userCancelled
             case .stateExpired: throw ConnectionError.stateExpired
@@ -88,7 +93,7 @@ public final class EbayConnectionService: NSObject {
     /// Disconnects via direct supabase update — sets is_active=false and
     /// scrubs the encrypted token columns. The server-side cron + refresh
     /// worker will skip the row going forward.
-    public func disconnect(connectionId: String) async throws {
+    public func disconnect(connectionId: String, userId: String) async throws {
         struct Disconnect: Encodable {
             let is_active: Bool
             let access_token_encrypted: String?
@@ -102,6 +107,9 @@ public final class EbayConnectionService: NSObject {
                 refresh_token_encrypted: nil
             ))
             .eq("id", value: connectionId)
+            // US-660 / explicit-scoping rule: never update a row by id alone on
+            // a multi-tenant table — pin it to the caller's user_id too.
+            .eq("user_id", value: userId)
             .execute()
     }
 
@@ -140,10 +148,24 @@ public final class EbayConnectionService: NSObject {
 
     // MARK: - Internals
 
-    private func fetchConsentURL() async throws -> URL {
+    /// Cryptographically-random URL-safe nonce for the OAuth `state` round-trip.
+    static func generateStateNonce() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func fetchConsentURL(stateNonce: String) async throws -> URL {
         let response: ConsentResponse = try await EdgeAPI.shared.getJSON(
             "/api/flipdesk/ebay/oauth/start",
-            query: [URLQueryItem(name: "redirect_to", value: Self.callbackURL.absoluteString)]
+            query: [
+                URLQueryItem(name: "redirect_to", value: Self.callbackURL.absoluteString),
+                // Round-tripped back on the callback so we can verify it.
+                URLQueryItem(name: "client_state", value: stateNonce),
+            ]
         )
         guard let url = URL(string: response.consentUrl) else {
             throw ConnectionError.network(message: "Server returned an invalid consent URL.")
@@ -174,10 +196,10 @@ public final class EbayConnectionService: NSObject {
                 cont.resume(returning: callbackURL)
             }
             session.presentationContextProvider = self
-            // Don't isolate cookies — sharing the user's eBay browser
-            // login state means they hit "Sign in" once and reconnects
-            // are a single tap.
-            session.prefersEphemeralWebBrowserSession = false
+            // US-660: isolate the web session — no shared Safari cookie jar, so
+            // another app can't ride an existing eBay login to drive a silent
+            // "connected" state. Costs the user an explicit eBay sign-in.
+            session.prefersEphemeralWebBrowserSession = true
             session.start()
         }
     }

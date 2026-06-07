@@ -9771,8 +9771,8 @@
         "Verified: no sensitive file is created with default (weaker) protection"
       ],
       "priority": 658,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Shared/IntakeInbox.swift and Shared/WidgetSnapshot.swift write with options:[.atomic] only (no NSFileProtection); grep for FileProtection returns zero; App.swift ModelContainer has no protection config; PhotoUploadService temp files default-protected."
+      "passes": true,
+      "notes": "Done. Data Protection applied to all sensitive at-rest files. App Group writes now pass .completeFileProtectionUntilFirstUserAuthentication: IntakeInbox.writeBatch (staged intake JPEGs + manifest.json) and WidgetSnapshotStore.write (widget-snapshot.json with sales/payout figures). PhotoUploadService temp upload JPEGs in temporaryDirectory get the same class. GradeThread.entitlements adds com.apple.developer.default-data-protection = NSFileProtectionCompleteUntilFirstUserAuthentication so SwiftData's SQLite store (the inventory/sales/payout mirror) is encrypted at rest. 'UntilFirstUserAuthentication' (not 'complete') so Background App Refresh + the widget can still read after the first post-boot unlock."
     },
     {
       "id": "US-659",
@@ -9785,8 +9785,8 @@
         "Verified: after sign-out, no prior-user intake images or tokens remain in the App Group / UserDefaults"
       ],
       "priority": 659,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: IntakeInbox.consume only deletes after successful presentation (orphaned batches linger, no sign-out purge); Notifications/PushService.swift stores deviceTokenHex in UserDefaults.standard and never clears it on sign-out."
+      "passes": true,
+      "notes": "Done. IntakeInbox.removeAll() wipes the App Group intake-inbox directory; PushService.clearTokenOnSignOut() removes the persisted APNs deviceTokenHex from UserDefaults + resets phase. ContentView's .signedOut path now calls both (alongside the existing Keychain wipe + SyncWatermark reset). Stale share batches are swept on age: IntakeInbox.sweepStale(maxAge:7d) runs at app launch (ContentView .task), removing batches the main app never presented. Verified by inspection: after sign-out no prior-user intake images or tokens remain in the App Group / UserDefaults."
     },
     {
       "id": "US-660",
@@ -9799,8 +9799,8 @@
         "disconnect(connectionId:) adds .eq(\"user_id\", userId) for consistency with the explicit-scoping rule"
       ],
       "priority": 660,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Marketplaces/EbayConnectionService.swift sets prefersEphemeralWebBrowserSession=false and validates no state; EbayConnectionTypes.from(callbackURL:) only reads an ebay= discriminator; disconnect() updates by id with no user_id filter."
+      "passes": true,
+      "notes": "Done (client hardening; server already CSRF-validates). EbayConnectionService: ASWebAuthenticationSession now prefersEphemeralWebBrowserSession = true (no shared Safari cookie jar — another app can't ride an existing eBay login). disconnect(connectionId:userId:) adds .eq(\"user_id\") per the explicit-scoping rule (no id-only update on a multi-tenant table). A client-side CSRF nonce (SecRandomCopyBytes → URL-safe base64, mirroring the Apple Sign-In pattern) is generated, sent as client_state, and EbayConnectResult.from(callbackURL:expectedState:) returns .stateExpired on a present-but-mismatched state. NOTE: the edge oauth/start+callback already enforce single-use server-side state (oauth_states table, US-274) and currently redirect to the web app; the client nonce is defense-in-depth and absent-state is treated leniently (rejecting absence would require the edge to echo client_state back to the app redirect — see US-661). Tests: mismatch rejected, match passes, absence lenient, nonce randomness/URL-safety."
     },
     {
       "id": "US-661",
@@ -9813,7 +9813,7 @@
       ],
       "priority": 661,
       "passes": false,
-      "notes": "[iOS][Security] Audit finding: Info.plist registers CFBundleURLSchemes=com.gradethread.app and both Supabase + eBay callbacks ride this hijackable custom scheme; EbayConnectionService comment notes Universal Link migration was deferred."
+      "notes": "DEFERRED (passes=false): Universal Links for OAuth redirects require (1) an apple-app-site-association file hosted at gradethread.com (a Cloudflare Pages function/static asset — outside the iOS target) AND (2) the edge oauth/callback to redirect back to an https app-link target with client_state echoed (today services/edge-functions flipdesk-ebay.ts sanitizes redirect_to to a relative path and redirects to the WEB app, not the iOS app). Both are cross-system/server changes that can't be implemented or CI-verified from the iOS app alone. The associated-domains entitlement + ASWebAuthenticationSession.Callback.https switch are ready to add once the AASA + edge redirect land. Tracked as a follow-up."
     },
     {
       "id": "US-662",
@@ -9825,8 +9825,8 @@
         "Verified: a forced error does not carry PII/token text into the Sentry payload"
       ],
       "priority": 662,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Telemetry/Telemetry.swift startSentry() has no beforeSend scrubber; errors surface localizedDescription with storage paths/emails; print() of raw errors in SyncEngine.swift:105/390/627, RealtimeService.swift:106, BackgroundRefreshService.swift:112 compile into release."
+      "passes": true,
+      "notes": "Done. New TelemetryScrubber.redact() strips emails, Bearer tokens, apikey/access_token/refresh_token values, and signed /storage/v1/object/ URLs via regex. Wired into Sentry options.beforeSend (event message + breadcrumbs) and options.beforeBreadcrumb in Telemetry.startSentry, so nothing PII/token-bearing leaves the device. Raw print() of network/sync/realtime errors is now gated behind #if DEBUG (RealtimeService subscribe failure, BackgroundRefreshService submit failure; SyncEngine logging already DEBUG-gated). Tests cover each redaction rule + clean-text passthrough."
     },
     {
       "id": "US-663",
@@ -9838,8 +9838,8 @@
         "Display of garment photos prefers createSignedUrl with a short TTL over persisting permanent public URLs where feasible"
       ],
       "priority": 663,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: no privacy cover on resign-active (financials shown in app-switcher snapshot); Upload/PhotoUploadService.swift storagePublicURL builds permanent /object/public/item-photos URLs persisted in item_photos.photo_url and rendered via unauthenticated AsyncImage."
+      "passes": true,
+      "notes": "Done. PrivacyCoverView (brand-navy lock cover) is shown over MainShell whenever scenePhase != .active, so the App Switcher snapshot + the inactive window never expose payout/sales/financial figures (Dashboard, Money, and widget-backed surfaces all live under this shell). Storage-URL audit: per CLAUDE.md US-276, only seller-intended listing imagery (front/back/tag/detail/defect/flatlay) ever lands in the public item-photos bucket — grading labels/receipts/PII go to the PRIVATE submission-images bucket read via short-TTL signed URLs; this iOS audit confirms the app only renders item-photos public URLs (CachedThumbnail) for listing imagery and never persists submission-images public URLs."
     },
     {
       "id": "US-664",

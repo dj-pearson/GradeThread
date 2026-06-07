@@ -369,7 +369,9 @@ public final class PhotoUploadService {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("photo-upload-\(UUID().uuidString).jpg")
         do {
-            try data.write(to: url, options: [.atomic])
+            // US-658: encrypt the staged upload JPEG at rest (it can sit in the
+            // background upload queue while the device locks).
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return url
         } catch {
             return nil

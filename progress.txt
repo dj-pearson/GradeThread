@@ -4568,3 +4568,32 @@ US-639 (implemented in the cluster-A InventoryListView pass, flagged now):
 debounced .searchable (250ms) → debouncedQuery; single-pass memoized stageCounts.
 
 prd.json 459/679.
+
+
+### iOS Security cluster (US-658,659,660,662,663 done; US-661 deferred)
+
+US-658 Data protection: .completeFileProtectionUntilFirstUserAuthentication on
+IntakeInbox JPEGs+manifest, WidgetSnapshotStore, PhotoUploadService temp JPEGs;
+default-data-protection entitlement (NSFileProtectionCompleteUntilFirstUser
+Authentication) encrypts the SwiftData store.
+
+US-659 Sign-out hygiene: IntakeInbox.removeAll() + PushService.clearTokenOnSign
+Out() wired into ContentView .signedOut; IntakeInbox.sweepStale(7d) on launch.
+
+US-660 eBay OAuth hardening: prefersEphemeralWebBrowserSession=true; disconnect
+scoped by user_id; client CSRF nonce (client_state) verified in EbayConnect
+Result.from(expectedState:) (mismatch rejected, absence lenient — server already
+single-use-validates). Tests added.
+
+US-662 Telemetry scrubbing: TelemetryScrubber (emails/Bearer/apikey/tokens/
+storage URLs) wired into Sentry beforeSend+beforeBreadcrumb; remaining raw
+prints gated behind #if DEBUG. Tests added.
+
+US-663 Privacy cover: PrivacyCoverView over MainShell when scenePhase != .active;
+storage-URL audit note (only public item-photos listing imagery rendered).
+
+US-661 Universal Links DEFERRED: needs AASA hosted on gradethread.com + edge
+oauth/callback redirect-to-app change (currently redirects to web). Cross-system;
+not CI-verifiable from the iOS app. Documented in prd notes.
+
+prd.json 464/679.

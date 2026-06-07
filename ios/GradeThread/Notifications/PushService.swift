@@ -90,6 +90,14 @@ public final class PushService {
         phase = .registrationFailed(message: error.localizedDescription)
     }
 
+    /// US-659: clear the persisted APNs token on sign-out so the next user on
+    /// this device doesn't inherit the previous user's push registration.
+    public func clearTokenOnSignOut() {
+        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
+        deviceTokenHex = nil
+        phase = .unknown
+    }
+
     private func registerWithEdge(tokenHex: String) async {
         struct Body: Encodable {
             let device_token: String

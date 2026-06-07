@@ -115,7 +115,9 @@ public enum WidgetSnapshotStore {
         guard let url = fileURL else { return false }
         do {
             let data = try encoder.encode(snapshot)
-            try data.write(to: url, options: [.atomic])
+            // US-658: encrypt the cross-process snapshot (sales/payout figures)
+            // at rest; the widget reads it after first unlock.
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             return false
