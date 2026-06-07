@@ -82,6 +82,37 @@ final class EbayConnectionTests: XCTestCase {
         XCTAssertNil(EbayConnectResult.from(callbackURL: url))
     }
 
+    // US-660: client-state CSRF nonce verification.
+    func test_callbackParse_mismatchedState_rejected() {
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=connected&client_state=forged")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .stateExpired
+        )
+    }
+
+    func test_callbackParse_matchingState_passesThrough() {
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=connected&client_state=real-nonce")!
+        XCTAssertNil(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"))
+    }
+
+    func test_callbackParse_absentState_isLenient() {
+        // Server-side single-use state already validated the real handshake;
+        // an absent client_state is not treated as an attack.
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=cancelled")!
+        XCTAssertEqual(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"), .cancelled)
+    }
+
+    func test_stateNonce_isRandomAndURLSafe() {
+        let a = EbayConnectionService.generateStateNonce()
+        let b = EbayConnectionService.generateStateNonce()
+        XCTAssertNotEqual(a, b)
+        XCTAssertFalse(a.contains("+"))
+        XCTAssertFalse(a.contains("/"))
+        XCTAssertFalse(a.contains("="))
+        XCTAssertFalse(a.isEmpty)
+    }
+
     func test_callbackParse_errorMessage() {
         let url = URL(string: "com.gradethread.app://oauth/ebay?error=invalid_scope")!
         XCTAssertEqual(EbayConnectResult.from(callbackURL: url), .error(message: "invalid_scope"))

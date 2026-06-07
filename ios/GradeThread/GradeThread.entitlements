@@ -21,5 +21,12 @@
     <array>
         <string>group.com.gradethread.app</string>
     </array>
+    <!-- US-658: Data Protection. Encrypts files written by the app at rest —
+         including SwiftData's SQLite store (the local mirror of inventory /
+         sales / payout figures) — keyed to the device passcode. "Until first
+         user authentication" (not "complete") so Background App Refresh + the
+         widget can still read after the first post-boot unlock. -->
+    <key>com.apple.developer.default-data-protection</key>
+    <string>NSFileProtectionCompleteUntilFirstUserAuthentication</string>
 </dict>
 </plist>

@@ -33,10 +33,14 @@ struct ContentView: View {
             .environment(authStore)
             .environment(networkMonitor)
             .environment(syncStatus)
+            .environment(\.syncEngine, syncEngine)
             .task {
                 authStore.start()
                 networkMonitor.start()
                 startSyncEngineIfNeeded()
+                // US-659: drop stale share-extension batches the main app never
+                // got around to presenting.
+                IntakeInbox.sweepStale()
                 Telemetry.event(TelemetryEvent.appOpen)
             }
             .onChange(of: authStore.phase) { _, newPhase in
@@ -48,6 +52,15 @@ struct ContentView: View {
                     startSyncEngineIfNeeded()
                     startRealtimeIfNeeded(userId: user.id.uuidString)
                 case .signedOut:
+                    // Reset the delta-sync cursors (US-633) so the next account
+                    // does a clean full backfill instead of inheriting this
+                    // user's watermark.
+                    SyncWatermark().resetAll()
+                    // US-659: wipe the App Group intake inbox + the persisted
+                    // APNs token so the next user can't inherit staged photos
+                    // or this device's push registration.
+                    IntakeInbox.removeAll()
+                    PushService.shared.clearTokenOnSignOut()
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
                     Task { await realtimeService?.stop() }
@@ -257,9 +270,22 @@ struct MainShell: View {
                     as? DeepLinkRoute else { return }
             apply(route: route, router: router)
         }
+        // US-663: cover sensitive financial figures (Dashboard/Money/widget-
+        // backed views all live under this shell) in the App Switcher snapshot
+        // and while the app is inactive, so payout/sales numbers aren't exposed.
+        .overlay {
+            if scenePhase != .active {
+                PrivacyCoverView()
+                    .transition(.opacity)
+            }
+        }
         .task { drainSharedInboxIfNeeded() }
         .onChange(of: scenePhase) { _, newValue in
             if newValue == .active { drainSharedInboxIfNeeded() }
+        }
+        // US-678: global search sheet, reachable from the Home toolbar.
+        .sheet(isPresented: $router.showingGlobalSearch) {
+            GlobalSearchView()
         }
         .fullScreenCover(item: $sharedIntakeBatch) { drained in
             NavigationStack {
@@ -340,12 +366,26 @@ private struct TabBarShell: View {
                         GradesListView()
                     }
                     .toolbar {
+                        // US-649: secondary "choose a different add method" menu
+                        // — the Add tab itself is the one-tap photo-first path.
+                        ToolbarItem(placement: .topBarLeading) {
+                            AddMethodMenu(router: router)
+                        }
+                        // US-678: global search across inventory/listings/sales/sources.
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                router.showingGlobalSearch = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                            }
+                            .accessibilityLabel("Search everything")
+                        }
                         // iPhone has no room for a Settings tab once Home
                         // lands (5-tab limit), so it rides a gear button
                         // here — the standard iOS placement.
                         ToolbarItem(placement: .topBarTrailing) {
                             NavigationLink {
-                                SettingsPlaceholder()
+                                SettingsView()
                             } label: {
                                 Image(systemName: "gear")
                             }
@@ -437,12 +477,9 @@ private struct SidebarSplitView: View {
         .navigationTitle("GradeThread")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    AppRouter.haptic()
-                    router.showingAddSheet = true
-                } label: {
-                    Label("Add", systemImage: "plus.circle.fill")
-                }
+                // US-649: iPad has room for the explicit method menu in the
+                // sidebar toolbar (default = photo-first on a plain tap).
+                AddMethodMenu(router: router, primaryLabel: "Add")
             }
         }
     }
@@ -463,7 +500,7 @@ private struct SidebarSplitView: View {
         case .marketplaces:
             MarketplacesPlaceholder()
         case .settings:
-            SettingsPlaceholder()
+            SettingsView()
         case .add:
             EmptyView()
         }
@@ -574,6 +611,8 @@ enum IntakeRoute: Hashable {
 final class AppRouter {
     var selection: AppSection = .home
     var showingAddSheet = false
+    /// US-678: presents the global search sheet.
+    var showingGlobalSearch = false
 
     var homePath = NavigationPath()
     var inventoryPath = NavigationPath()
@@ -590,9 +629,13 @@ final class AppRouter {
             set: { newValue in
                 Self.haptic()
                 if newValue == .add {
-                    // Don't change `selection`: that snaps the tab bar back
-                    // visually after the brief tap state.
-                    self.showingAddSheet = true
+                    // US-649: the Add tab is now a one-tap shortcut straight
+                    // into the photo-first capture flow — the most frequent
+                    // action — instead of a mandatory 3-way mode dialog. The
+                    // other modes live in the Home toolbar "Add" menu + the
+                    // iPad sidebar Add menu. Don't change `selection`: that
+                    // snaps the tab bar back after the brief tap state.
+                    self.startIntake(.photoFirst)
                     return
                 }
                 self.selection = newValue
@@ -640,6 +683,40 @@ final class AppRouter {
     }
 }
 
+// MARK: - Add-method menu (US-649)
+
+/// Secondary "choose how to add" control. The Add *tab* is a one-tap shortcut
+/// into photo-first capture; this menu (Home toolbar + iPad sidebar) exposes the
+/// less-frequent Details + AutoLister paths in plain language.
+private struct AddMethodMenu: View {
+    let router: AppRouter
+    var primaryLabel: String? = nil
+
+    var body: some View {
+        Menu {
+            Button {
+                AppRouter.haptic()
+                router.startIntake(.photoFirst)
+            } label: { Label("Take photos", systemImage: "camera") }
+            Button {
+                AppRouter.haptic()
+                router.startIntake(.detailsFirst)
+            } label: { Label("Type details", systemImage: "square.and.pencil") }
+            Button {
+                AppRouter.haptic()
+                router.startIntake(.autoLister)
+            } label: { Label("Bulk list with AI", systemImage: "wand.and.stars") }
+        } label: {
+            if let primaryLabel {
+                Label(primaryLabel, systemImage: "plus.circle.fill")
+            } else {
+                Image(systemName: "plus.circle")
+                    .accessibilityLabel("Add an item")
+            }
+        }
+    }
+}
+
 // MARK: - Tab placeholders
 
 /// Each tab gets a stub until its dedicated story lands. They're real
@@ -673,57 +750,99 @@ private struct MarketplacesPlaceholder: View {
     }
 }
 
-private struct SettingsPlaceholder: View {
+/// US-648: structured Settings screen (was the flat `SettingsPlaceholder`).
+/// Grouped into Account · Connections · Preferences · Notifications · Support ·
+/// About, with the destructive Delete Account isolated in its own footer section
+/// well away from Sign Out so it can't be mis-tapped.
+struct SettingsView: View {
     @Environment(AuthStore.self) private var authStore
     /// Mirrors BackgroundRefreshService.isEnabled — kept in @State so the
     /// toggle binds correctly, written through on change.
     @State private var bgRefreshEnabled: Bool = BackgroundRefreshService().isEnabled
     @State private var showingFeedbackSheet = false
     @State private var showingDeleteAccountSheet = false
+    @State private var showingHelp = false
+    // US-648 preferences
+    @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
+    @State private var currencyCode: String = AppPreferences.currencyCode ?? "device"
+
+    private static let helpURL = URL(string: "https://gradethread.com/help")!
 
     var body: some View {
         List {
+            // ── Account ──────────────────────────────────────────────
             ProfileSection()
             PlanSection()
+            // US-194: AI Item Assistant (toggle + monthly usage meter + cap),
+            // wired to the users row — mirrors US-167 on the web.
+            AIAssistantSection()
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
-                }
-                Button {
-                    showingFeedbackSheet = true
-                } label: {
-                    Label("Send feedback", systemImage: "envelope")
                 }
                 Button(role: .destructive) {
                     Task { await authStore.signOut() }
                 } label: {
                     Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                 }
+            }
+
+            // ── Connections ──────────────────────────────────────────
+            Section {
+                NavigationLink {
+                    MarketplacesView()
+                } label: {
+                    Label("Marketplaces & eBay", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            } header: {
+                Text("Connections")
+            } footer: {
+                Text("Connect or reconnect your eBay account and review sync status.")
+                    .font(.footnote)
+            }
+
+            // ── Preferences ──────────────────────────────────────────
+            preferencesSection
+            // These each render their own Section, so they sit at the top level
+            // of the List rather than nested inside another Section.
+            realtimeSection
+            analyticsSection
+
+            // ── Notifications ────────────────────────────────────────
+            notificationPreferencesSection
+
+            // ── Support ──────────────────────────────────────────────
+            Section("Support") {
+                Button {
+                    showingFeedbackSheet = true
+                } label: {
+                    Label("Send feedback", systemImage: "envelope")
+                }
+                Button {
+                    showingHelp = true
+                } label: {
+                    Label("Help & FAQ", systemImage: "questionmark.circle")
+                }
+            }
+            // DiagnosticsSection renders its own Section — keep it top-level.
+            DiagnosticsSection()
+
+            // ── About ────────────────────────────────────────────────
+            Section("About") {
+                LabeledContent("Version", value: Self.versionString)
+            }
+
+            // ── Danger zone (isolated) ───────────────────────────────
+            Section {
                 Button(role: .destructive) {
                     showingDeleteAccountSheet = true
                 } label: {
                     Label("Delete account", systemImage: "trash")
                 }
-            }
-            Section {
-                Toggle(isOn: $bgRefreshEnabled) {
-                    Label("Refresh in background", systemImage: "arrow.clockwise.icloud")
-                }
-                .onChange(of: bgRefreshEnabled) { _, newValue in
-                    // Persist + schedule (or cancel) the next BG slot.
-                    var service = BackgroundRefreshService()
-                    service.isEnabled = newValue
-                }
-            } header: {
-                Text("Sync")
             } footer: {
-                Text("Pulls listings + sales while the app is in the background, when iOS allows. Respects the system Background App Refresh setting — turning that off in Settings overrides this toggle.")
+                Text("Permanently deletes your account and all associated data. This can't be undone.")
                     .font(.footnote)
             }
-            realtimeSection
-            notificationPreferencesSection
-            analyticsSection
-            DiagnosticsSection()
         }
         .navigationTitle("Settings")
         .sheet(isPresented: $showingFeedbackSheet) {
@@ -732,6 +851,58 @@ private struct SettingsPlaceholder: View {
         .sheet(isPresented: $showingDeleteAccountSheet) {
             DeleteAccountSheet()
         }
+        .sheet(isPresented: $showingHelp) {
+            SafariView(url: Self.helpURL).ignoresSafeArea()
+        }
+    }
+
+    /// US-648 Preferences — units + currency (no longer hardcoded), plus the
+    /// existing sync / realtime / analytics toggles.
+    private var preferencesSection: some View {
+        Section {
+            Picker(selection: $measurementUnit) {
+                ForEach(MeasurementUnit.allCases) { unit in
+                    Text(unit.label).tag(unit)
+                }
+            } label: {
+                Label("Measurement units", systemImage: "ruler")
+            }
+            .onChange(of: measurementUnit) { _, newValue in
+                AppPreferences.measurementUnit = newValue
+            }
+
+            Picker(selection: $currencyCode) {
+                Text("Device default").tag("device")
+                ForEach(AppPreferences.currencyOptions, id: \.self) { code in
+                    Text(code).tag(code)
+                }
+            } label: {
+                Label("Currency", systemImage: "dollarsign.circle")
+            }
+            .onChange(of: currencyCode) { _, newValue in
+                AppPreferences.currencyCode = (newValue == "device") ? nil : newValue
+            }
+
+            Toggle(isOn: $bgRefreshEnabled) {
+                Label("Refresh in background", systemImage: "arrow.clockwise.icloud")
+            }
+            .onChange(of: bgRefreshEnabled) { _, newValue in
+                var service = BackgroundRefreshService()
+                service.isEnabled = newValue
+            }
+        } header: {
+            Text("Preferences")
+        } footer: {
+            Text("Background refresh pulls listings + sales when iOS allows; it respects the system Background App Refresh setting. Currency affects how prices are displayed.")
+                .font(.footnote)
+        }
+    }
+
+    private static var versionString: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return "\(version) (\(build))"
     }
 
     /// US-191 analytics opt-in. PostHog events route through
@@ -863,6 +1034,26 @@ private struct IntakePlaceholder: View {
             DetailsIntakeView()
         case .autoLister:
             AutoListerView()
+        }
+    }
+}
+
+// MARK: - Privacy cover (US-663)
+
+/// Brand-colored cover shown over the app while it's inactive/backgrounded so
+/// the App Switcher thumbnail never leaks payout/sales figures.
+private struct PrivacyCoverView: View {
+    var body: some View {
+        ZStack {
+            Color.brandNavy.ignoresSafeArea()
+            VStack(spacing: 12) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text("GradeThread")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.9))
+            }
         }
     }
 }

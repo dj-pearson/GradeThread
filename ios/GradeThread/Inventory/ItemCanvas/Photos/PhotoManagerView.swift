@@ -130,18 +130,14 @@ private struct PhotoManagerRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: URL(string: photo.thumbnailURL ?? photo.photoURL)) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                case .empty, .failure:
-                    Image(systemName: "photo")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.secondary.opacity(0.12))
-                @unknown default:
-                    EmptyView()
-                }
+            CachedThumbnail(
+                url: URL(string: photo.thumbnailURL ?? photo.photoURL),
+                maxDimension: 56
+            ) {
+                Image(systemName: "photo")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.secondary.opacity(0.12))
             }
             .frame(width: 56, height: 56)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

@@ -22,9 +22,14 @@ struct PhotoIntakeView: View {
     @State private var slotForPreview: PhotoSlotType?
     @State private var showingExitConfirmation = false
 
+    // US-646: photo-capture draft recovery.
+    @State private var seededWithInitialPhotos: Bool
+    @State private var photoDraftToResume = false
+
     /// Default initializer (camera-first flow with empty slots).
     init() {
         _store = State(initialValue: PhotoIntakeStore())
+        _seededWithInitialPhotos = State(initialValue: false)
     }
 
     /// Pre-stage initializer (US-193) — accepts already-captured
@@ -37,6 +42,7 @@ struct PhotoIntakeView: View {
             preloaded.setPhoto(photo, for: slot)
         }
         _store = State(initialValue: preloaded)
+        _seededWithInitialPhotos = State(initialValue: !initialPhotos.isEmpty)
     }
 
     /// Inventory item id created when the user hits Done. Anchors every
@@ -55,6 +61,10 @@ struct PhotoIntakeView: View {
     @State private var isLoadingLibraryPicks = false
     @State private var stagedPhotos: [PhotoCapture] = []
     @State private var showingStagingTray = false
+
+    /// US-651: VoiceOver focus is moved here when the camera is ready so the
+    /// user lands on the primary action instead of hunting for it.
+    @AccessibilityFocusState private var captureControlFocused: Bool
     private static let libraryPickLimit = 8
 
     private enum PermissionState: Equatable {
@@ -75,7 +85,40 @@ struct PhotoIntakeView: View {
             overlay
         }
         .navigationBarBackButtonHidden(true)
-        .task { await bootstrap() }
+        .task {
+            await bootstrap()
+            // US-651: move VoiceOver focus to the shutter once the camera's up.
+            if permissionState == .granted { captureControlFocused = true }
+            // US-646: offer to resume an unsaved photo set from a prior session
+            // (only on a fresh, non-preseeded launch with nothing captured yet).
+            if !seededWithInitialPhotos, store.photos.isEmpty, PhotoDraftStore.hasDraft() {
+                photoDraftToResume = true
+            }
+        }
+        // US-646: persist captures as they change so a background-kill is
+        // recoverable.
+        .onChange(of: store.photos) { _, photos in
+            PhotoDraftStore.save(photos: photos)
+        }
+        .confirmationDialog(
+            "Resume your unsaved photos?",
+            isPresented: $photoDraftToResume,
+            titleVisibility: .visible
+        ) {
+            Button("Resume") { PhotoDraftStore.restore(into: store) }
+            Button("Start fresh", role: .destructive) { PhotoDraftStore.clear() }
+        } message: {
+            Text("You have photos from a session that didn't finish.")
+        }
+        // US-651: announce upload outcomes as they land (live region).
+        .onChange(of: uploadTally) { old, new in
+            if new.uploaded > old.uploaded {
+                announce("Photo uploaded. \(new.uploaded) of \(store.visibleSlots.count) uploaded.")
+            }
+            if new.failed > old.failed {
+                announce("Photo upload failed. Double-tap the slot to retry.")
+            }
+        }
         .onDisappear { camera.stop() }
         .confirmationDialog(
             "Discard captured photos?",
@@ -83,6 +126,7 @@ struct PhotoIntakeView: View {
             titleVisibility: .visible
         ) {
             Button("Discard", role: .destructive) {
+                PhotoDraftStore.clear()  // US-646: explicit discard
                 store.reset()
                 dismiss()
             }
@@ -340,6 +384,8 @@ struct PhotoIntakeView: View {
             }
             .disabled(permissionState != .granted || isCapturing)
             .accessibilityLabel("Capture photo")
+            .accessibilityHint("\(store.photos.count) of \(store.visibleSlots.count) slots filled")
+            .accessibilityFocused($captureControlFocused)
 
             // Right-side spacer balances the layout. Reserved for a future
             // "switch camera" button (front-facing capture isn't part of
@@ -377,6 +423,29 @@ struct PhotoIntakeView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black)
+    }
+
+    // MARK: - Accessibility (US-651)
+
+    /// Tally of upload outcomes across the visible slots, used to drive
+    /// success/failure VoiceOver announcements via `.onChange`.
+    private struct UploadTally: Equatable { let uploaded: Int; let failed: Int }
+
+    private var uploadTally: UploadTally {
+        var uploaded = 0
+        var failed = 0
+        for slot in store.visibleSlots {
+            guard let phase = uploadPhase(for: slot) else { continue }
+            if case .uploaded = phase { uploaded += 1 }
+            else if case .failed = phase { failed += 1 }
+        }
+        return UploadTally(uploaded: uploaded, failed: failed)
+    }
+
+    /// Posts a VoiceOver announcement (live region) when VoiceOver is running.
+    private func announce(_ message: String) {
+        guard UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: message)
     }
 
     // MARK: - Actions
@@ -442,6 +511,9 @@ struct PhotoIntakeView: View {
             inventoryItemId: newItemId,
             userId: userId
         )
+        // US-646: the captures are committed to the upload queue — drop the
+        // recovery draft.
+        PhotoDraftStore.clear()
         draftItemId = newItemId
     }
 
@@ -527,7 +599,7 @@ struct PhotoIntakeView: View {
         var staged: [PhotoCapture] = []
         for result in results {
             guard let image = await result.loadImage() else { continue }
-            guard let output = PhotoCompressor.compress(image) else { continue }
+            guard let output = await PhotoCompressor.compressOffMain(image) else { continue }
             // Read the original PHAsset capture time before compression strips
             // EXIF (US-289); fall back to now if the library isn't readable.
             let capturedAt = result.creationDate() ?? .now
@@ -560,7 +632,8 @@ struct PhotoIntakeView: View {
             defer { isCapturing = false }
             do {
                 let image = try await camera.capturePhoto()
-                guard let output = PhotoCompressor.compress(image) else {
+                // US-636: compress off the main actor.
+                guard let output = await PhotoCompressor.compressOffMain(image) else {
                     startupError = "Couldn't compress the photo."
                     return
                 }
@@ -570,6 +643,8 @@ struct PhotoIntakeView: View {
                     source: .camera
                 )
                 store.recordCapture(photo)
+                // US-651: announce slot-filled progress as a live region.
+                announce("Photo captured. \(store.photos.count) of \(store.visibleSlots.count) slots filled.")
             } catch {
                 startupError = error.localizedDescription
             }

@@ -71,7 +71,7 @@ public final class MarketplaceConnectionStore {
         guard case let .connected(conn) = phase else { return }
         phase = .loading
         do {
-            try await service.disconnect(connectionId: conn.id)
+            try await service.disconnect(connectionId: conn.id, userId: userId)
             phase = .disconnected
         } catch {
             // Failed disconnect — restore the previous state so the

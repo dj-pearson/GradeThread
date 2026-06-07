@@ -27,6 +27,37 @@ final class AnalyticsRollupTests: XCTestCase {
         return LocalSale(id: id, inventoryItemId: item, salePrice: price, saleDate: date, platformFees: fees)
     }
 
+    // MARK: Period P&L + grading ROI (US-665)
+
+    func test_periodPnL_sumsRevenueFeesCogs() {
+        let items = [item("a", cost: 10), item("b", cost: 20)]
+        let sales = [sale("s1", item: "a", price: 100, fees: 12), sale("s2", item: "b", price: 50, fees: 5)]
+        let pnl = AnalyticsRollup.periodPnL(items: items, sales: sales, since: nil)
+        XCTAssertEqual(pnl.grossRevenue, 150)
+        XCTAssertEqual(pnl.fees, 17)
+        XCTAssertEqual(pnl.cogs, 30)
+        XCTAssertEqual(pnl.grossProfit, 103)
+        XCTAssertEqual(pnl.unitsSold, 2)
+    }
+
+    func test_gradingRoiBuckets_separatesGradedVsUngradedByBand() {
+        let items = [
+            item("g", cost: 10, grade: 9.0),   // graded
+            item("u", cost: 10),               // ungraded
+        ]
+        // Same Under-$50 band; graded nets more.
+        let sales = [
+            sale("s1", item: "g", price: 40, fees: 0),  // net 30 graded
+            sale("s2", item: "u", price: 30, fees: 0),  // net 20 ungraded
+        ]
+        let buckets = AnalyticsRollup.gradingRoiBuckets(items: items, sales: sales, since: nil)
+        let band = buckets.first { $0.band == "Under $50" }
+        XCTAssertNotNil(band)
+        XCTAssertEqual(band?.gradedAvgNet, 30)
+        XCTAssertEqual(band?.ungradedAvgNet, 20)
+        XCTAssertEqual(band?.netProfitLift, 10)
+    }
+
     // MARK: Range
 
     func test_range_start() {

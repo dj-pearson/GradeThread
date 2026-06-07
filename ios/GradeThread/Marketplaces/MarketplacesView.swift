@@ -15,6 +15,10 @@ struct MarketplacesView: View {
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
     @State private var orphanCount: Int = 0
+    /// US-645: track whether the last orphan-count query *failed* so a network
+    /// error doesn't masquerade as "all reconciled" (count silently 0) and make
+    /// the reconciliation card vanish.
+    @State private var orphanCheckFailed = false
 
     var body: some View {
         ScrollView {
@@ -22,10 +26,16 @@ struct MarketplacesView: View {
                 headerCard
                 if let userId = currentUserId() {
                     connectionCard(userId: userId)
-                    if orphanCount > 0 {
+                    if orphanCheckFailed {
+                        reconciliationErrorCard(userId: userId)
+                    } else if orphanCount > 0 {
                         reconciliationCard
                     }
                 }
+                // US-668: phased multi-channel surface — eBay is live above;
+                // the rest are surfaced as "coming soon" so the app reflects the
+                // real multi-marketplace roadmap.
+                comingSoonChannelsSection
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
@@ -54,6 +64,58 @@ struct MarketplacesView: View {
         }
     }
 
+    // US-668: phased channel abstraction. Adding a second *live* channel means
+    // adding a `.live` case here + its connection card — the rest of the surface
+    // (and cross-listing entry points) iterate over this list.
+    private struct MarketplaceChannel: Identifiable {
+        let id: String
+        let label: String
+        let systemImage: String
+    }
+
+    private static let phasedChannels: [MarketplaceChannel] = [
+        .init(id: "poshmark", label: "Poshmark", systemImage: "bag"),
+        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox"),
+        .init(id: "shopify", label: "Shopify", systemImage: "cart"),
+        .init(id: "depop", label: "Depop", systemImage: "tshirt"),
+        .init(id: "grailed", label: "Grailed", systemImage: "tag"),
+        .init(id: "whatnot", label: "Whatnot", systemImage: "video"),
+    ]
+
+    private var comingSoonChannelsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("More channels")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Self.phasedChannels) { channel in
+                HStack(spacing: 12) {
+                    Image(systemName: channel.systemImage)
+                        .font(.system(size: 18))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 36)
+                        .background(Color.secondary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    Text(channel.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("Coming soon")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.brandNavy)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.brandNavy.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .padding(12)
+                .background(Color(uiColor: .secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(channel.label), coming soon")
+            }
+        }
+    }
+
     private var reconciliationCard: some View {
         NavigationLink {
             ReconciliationView()
@@ -61,9 +123,9 @@ struct MarketplacesView: View {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.left.arrow.right")
                     .font(.system(size: 20))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
-                    .background(Color.orange.opacity(0.12))
+                    .background(Color.brandAmber.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reconciliation")
@@ -75,6 +137,39 @@ struct MarketplacesView: View {
                 }
                 Spacer()
                 Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// US-645: a failed check shows a distinct "couldn't check — tap to retry"
+    /// card instead of silently hiding reconciliation as if everything matched.
+    private func reconciliationErrorCard(userId: String) -> some View {
+        Button {
+            Task { await refreshOrphanCount(userId: userId) }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.brandAmber)
+                    .frame(width: 40, height: 40)
+                    .background(Color.brandAmber.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Couldn't check reconciliation")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Tap to retry")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.clockwise")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
@@ -98,8 +193,11 @@ struct MarketplacesView: View {
                 .execute()
                 .value
             orphanCount = rows.count
+            orphanCheckFailed = false
         } catch {
-            orphanCount = 0
+            // Don't zero the count — keep the last known value and flag the
+            // failure so the UI can offer a retry rather than implying zero.
+            orphanCheckFailed = true
         }
     }
 

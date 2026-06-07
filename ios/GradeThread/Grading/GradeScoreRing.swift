@@ -13,6 +13,10 @@ struct GradeScoreRing: View {
 
     @State private var revealed = false
 
+    /// US-655: a tier-tinted glow makes a high grade feel celebratory. Honors
+    /// Reduce Transparency (the glow is a blurred translucent layer).
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     private var color: Color { GradeScale.color(for: score) }
     private var fraction: Double { min(max(score / 10, 0), 1) }
     private var trimEnd: Double { (animateOnAppear && !revealed) ? 0 : fraction }
@@ -20,8 +24,28 @@ struct GradeScoreRing: View {
     /// the same reveal animation as the ring fill.
     private var displayedScore: Double { (animateOnAppear && !revealed) ? 0 : score }
 
+    /// Glow strength keyed to the tier — pristine (9.5+) blooms, mid grades are
+    /// subtle, low grades barely glow.
+    private var glowOpacity: Double {
+        if score >= 9.5 { return 0.5 }
+        if score >= 7.0 { return 0.28 }
+        if score >= 5.0 { return 0.15 }
+        return 0.10
+    }
+
     var body: some View {
         ZStack {
+            // US-655: tier-tinted radial glow behind the ring. Skipped under
+            // Reduce Transparency; fades in with the same reveal animation as
+            // the fill (so Reduce Motion suppresses the bloom too).
+            if !reduceTransparency {
+                Circle()
+                    .fill(color)
+                    .blur(radius: diameter * 0.20)
+                    .opacity(revealed || !animateOnAppear ? glowOpacity : 0)
+                    .scaleEffect(0.92)
+                    .allowsHitTesting(false)
+            }
             Circle()
                 .stroke(color.opacity(0.18), lineWidth: lineWidth)
             Circle()

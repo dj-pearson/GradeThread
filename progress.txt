@@ -4487,3 +4487,277 @@ existing app; ios-ci.yml build will validate on push (no local Xcode here).
 
 THE WHOLE ScoutAI + Snap-to-Value + Condition Index cluster (US-610..623) IS NOW
 COMPLETE -- 14/14 stories. prd.json 437/623.
+
+
+### iOS Sync/Perf/Correctness cluster (US-633,634,637,640,641,643) COMPLETE
+
+Branch: claude/ios-prd-stories-yxjzT. No local Xcode here — symbols verified
+against the existing app; ios-ci.yml (xcodebuild test, macOS runner) validates
+on push.
+
+US-633 Incremental delta sync: new Persistence/SyncWatermark.swift (per-table
+UserDefaults cursor; inventory_items→updated_at, item_photos+sales→created_at).
+SyncEngine.pullRemote paginates every table (.range 500/page until drained, raw
+JSON-array count drives the loop, 50k/pass cap), .gt(cursor,watermark) when set
+(first run = full backfill), advances watermark only after a successful merge.
+Reset on sign-out.
+
+US-634 Off-main merge: new @ModelActor SyncMergeActor owns one background
+ModelContext; all merges + Realtime single-row applies run there (no more
+await MainActor.run merge), reusing the shared context. applyServerWins moved
+onto the actor. #Index deferred (iOS 18 macro; app deploys iOS 17).
+
+US-637 Widget throttle: WidgetSnapshot.hasSameRollup; publishIfChanged diffs +
+coalesces reloadAllTimelines (>=30s); snapshot computed off-main via the actor.
+
+US-640 Offline queue handlers: real per-MutationKind replay (upsert/update/
+delete/insert + photo re-upload to Storage then item_photos upsert), idempotent
+(client-generated ids stamped at enqueue in DetailsIntakeView + PhotoUpload
+Service), ordered, server-confirmed dequeue, bounded retry. Removed markFailed
+TODO stubs.
+
+US-641 Pending-changes inspector: PendingChangesView (Failed vs Queued, per-row
+Retry/Discard) via SyncEngine.pendingMutations/retry/discard + new \.syncEngine
+environment; SyncStatusBar now tappable.
+
+US-643 Real pull-to-refresh: refreshFromServer awaits SyncEngine.sync()
+(returns SyncOutcome from lastPullError); transient failure banner + haptic
+instead of a fixed sleep.
+
+Tests added to SyncTests: watermark monotonic/reset/nil/cursor-column, widget
+rollup diff, off-main merge upsert.
+
+prd.json 452/679.
+
+
+### iOS Image/List-UX cluster (US-635,636,642,644,645) COMPLETE
+
+US-635 CachedThumbnail (Components/CachedThumbnail.swift): NSCache decoded-image
+cache + disk URLCache + ImageIO downsampling (CGImageSourceCreateThumbnailAt
+Index) + tap-to-retry; replaced raw AsyncImage at InventoryRow/ItemCanvas/Grade
+Report/PhotoManager/ScoutCandidateRow.
+
+US-636 Off-main compression: PhotoCompressor.compressOffMain + compressBatch
+(bounded concurrency, autorelease). PhotosDropHandler.process now async; SnapStore
+/AutoListerReviewModel/PhotoIntakeView use compressOffMain. PhotosDropTests async.
+
+US-642 Swipe actions on inventory rows (stage-appropriate: Shipped/-10%/Delete),
+confirmed delete, haptics, via unified perform() + executor.deleteItem.
+
+US-644 Bulk undo/progress/failures: executor onProgress callback + BulkProgressHUD;
+BulkFailuresView per-item reasons; BulkUndoBar snackbar with executor.revert
+Statuses for safe status actions.
+
+US-645 No-data vs fetch-failed: MarketplacesView orphan check shows retry card on
+error (no longer zeroes); BulkActionExecutor.fetchActiveListings throws so
+end/drop report a network failure not 'no listing'; CachedThumbnail retry on load
+fail.
+
+prd.json 457/679.
+
+
+### iOS Networking-efficiency (US-638) + search debounce flag (US-639)
+
+US-638: Networking/Backoff.swift exponential helper. GradeRequestStore.poll +
+EbaySyncService poll loops now back off instead of constant intervals. EdgeAPI
+getJSON(cacheTTL:) in-memory TTL cache for idempotent GETs + bounded
+retry-with-backoff for transient (.network/.serverError) only (4xx fail fast).
+CompsService caches category-suggest per title. Backoff test added.
+
+US-639 (implemented in the cluster-A InventoryListView pass, flagged now):
+debounced .searchable (250ms) → debouncedQuery; single-pass memoized stageCounts.
+
+prd.json 459/679.
+
+
+### iOS Security cluster (US-658,659,660,662,663 done; US-661 deferred)
+
+US-658 Data protection: .completeFileProtectionUntilFirstUserAuthentication on
+IntakeInbox JPEGs+manifest, WidgetSnapshotStore, PhotoUploadService temp JPEGs;
+default-data-protection entitlement (NSFileProtectionCompleteUntilFirstUser
+Authentication) encrypts the SwiftData store.
+
+US-659 Sign-out hygiene: IntakeInbox.removeAll() + PushService.clearTokenOnSign
+Out() wired into ContentView .signedOut; IntakeInbox.sweepStale(7d) on launch.
+
+US-660 eBay OAuth hardening: prefersEphemeralWebBrowserSession=true; disconnect
+scoped by user_id; client CSRF nonce (client_state) verified in EbayConnect
+Result.from(expectedState:) (mismatch rejected, absence lenient — server already
+single-use-validates). Tests added.
+
+US-662 Telemetry scrubbing: TelemetryScrubber (emails/Bearer/apikey/tokens/
+storage URLs) wired into Sentry beforeSend+beforeBreadcrumb; remaining raw
+prints gated behind #if DEBUG. Tests added.
+
+US-663 Privacy cover: PrivacyCoverView over MainShell when scenePhase != .active;
+storage-URL audit note (only public item-photos listing imagery rendered).
+
+US-661 Universal Links DEFERRED: needs AASA hosted on gradethread.com + edge
+oauth/callback redirect-to-app change (currently redirects to web). Cross-system;
+not CI-verifiable from the iOS app. Documented in prd notes.
+
+prd.json 464/679.
+
+
+### iOS brand-color cluster (US-653 semantic colors, US-657 widget colors)
+
+US-653: GradeScale.color(for:) is now the single grade→color source (SnapView/
+ScoutCandidateRow local maps removed); AIExtract confidence uses GradeScale.
+confidenceLabel; InventoryRow status badge covers every pipeline stage with brand
+tokens; warnings→brandAmber, positive→brandEmerald, errors→brandRed across
+SyncStatusBar/Marketplaces/DetailsIntake/Snap/Scout/AIExtract.
+
+US-657: widget appex now bundles the brand asset catalog (project.yml) and
+references Color("BrandNavy")/Color("BrandRed") (Obsidian Navy #0C1E36 / red
+#F03D5F with light/dark variants) instead of hardcoded literals.
+
+prd.json 466/679.
+
+
+### iOS PRD pass — session summary (branch claude/ios-prd-stories-yxjzT)
+
+COMPLETED THIS SESSION (21): US-633,634,635,636,637,638,639,640,641,642,643,644,
+645,653,657,658,659,660,662,663 + flagged US-639. iOS stories now 54/83 passing.
+All verified by inspection against existing patterns; ios-ci.yml (xcodebuild test,
+macOS runner) is the build gate since no Xcode is available in this Linux env.
+
+REMAINING (29) — grouped by why they weren't taken this pass:
+- Net-new feature screens (each a substantial surface, mirrors a web counterpart):
+  US-664 financial export, US-665 analytics/P&L, US-666 payout reconciliation,
+  US-667 CSV/Sheets import, US-668 multi-channel, US-669 shipping queue,
+  US-670 workspace context, US-671 multiple eBay accounts, US-672 repricing rules,
+  US-673 offers/messages inbox, US-674 listing templates, US-675 AutoLister drafts
+  library, US-676 locations/bins/consignment, US-677 source ROI, US-678 global
+  search, US-679 expanded notification categories.
+- Need binary assets / server / cross-system changes:
+  US-654 (bundle Outfit+Inter .ttf font files — binary), US-661 (Universal Links:
+  AASA hosting on gradethread.com + edge oauth/callback redirect-to-app change).
+- Larger refactors / UX redesigns best done with a compiler in the loop:
+  US-652 design-token migration across ~25 card sites, US-655 glass/glow,
+  US-656 skeleton/empty-state parity, US-648 structured Settings, US-650 item-
+  canvas actions, US-646 intake autosave, US-647 activation checklist, US-649
+  one-tap-camera Add redesign, US-651 capture/form a11y.
+- Partial pre-existing: US-194 (settings tab — account-deletion slice already
+  shipped), US-289 (reconcile batch import — data layer already shipped).
+
+Note on US-634: SwiftData #Index is iOS 18+ and the app deploys iOS 17, so the
+literal #Index is deferred; the dominant UI-hitch fix (off-main merge) shipped.
+
+
+### iOS capture/canvas polish (US-651 accessibility, US-650 canvas actions)
+
+US-651: PhotoIntakeView a11y — AccessibilityFocusState moves VoiceOver to the
+shutter on appear, .accessibilityHint slot progress, UIAccessibility.post
+announcements for slot-filled + upload success/failure (onChange UploadTally),
+≥44pt hit targets. DetailsIntakeView — @FocusState Field enum + .submitLabel(.next)
+/.onSubmit traversal across all text fields.
+
+US-650: ItemCanvasView overflow menu (Add photos / Duplicate / Share certificate
+/ Delete-confirmed); Add photos fills unfilled standard slots via PhotoLibrary
+Picker → compressOffMain → PhotoUploadService.enqueueAll(item.id); empty-photos
+state offers the add action directly.
+
+prd.json 468/679.
+
+
+### iOS intake autosave/draft recovery (US-646)
+
+New IntakeDraftStore.swift: IntakeDraftStore (form → UserDefaults, autosave on
+field change, resume-on-appear alert, clear on save/discard) + PhotoDraftStore
+(capture JPEGs + manifest → Application Support, file-protected; resume dialog;
+clear on enqueue/discard). Wired into DetailsIntakeView + PhotoIntakeView. Tests
+added (form round-trip / empty-no-save / clear).
+
+prd.json 469/679.
+
+
+### iOS one-tap Add (US-649)
+
+Add tab → one-tap photo-first capture (tabSelectionBinding .add → startIntake
+(.photoFirst)). Mode picker demoted to AddMethodMenu (Home toolbar + iPad sidebar)
+with plain-language labels. Mandatory confirmationDialog no longer triggered.
+
+prd.json 470/679.
+
+
+### iOS structured Settings (US-648)
+
+SettingsPlaceholder → structured SettingsView (Account/Connections/Preferences/
+Notifications/Support/About); Delete Account isolated from Sign Out; About version
+row; Help & FAQ link; eBay/Marketplaces entry point; new AppPreferences (units +
+currency) with CurrencyFormatter honoring the currency override.
+
+prd.json 471/679.
+
+
+### iOS Settings tab completion (US-194)
+
+AIAssistantSection (Settings/AIAssistantSection.swift): enable toggle + monthly
+usage meter (used vs ai_action_limit ?? plan default) + optional cap, wired to the
+users row (mirrors US-167). Added to SettingsView. Combined with US-648 the
+Settings screen now covers profile, AI assistant, notifications, marketplaces
+shortcut, plan+billing (manage-on-web), sign out, delete account. Notification
+prefs stay device-local push categories (distinct taxonomy from web's
+notification_preferences).
+
+prd.json 472/679.
+
+
+### iOS activation checklist (US-647)
+
+Onboarding/ActivationChecklist.swift: dismissible 3-step card (Add first item /
+Connect eBay / Enable notifications) with progress + per-step routing; notification
+permission requested here with a value-framed pre-prompt. Shown on Dashboard +
+empty state (DashboardView.emptyState rebuilt to host it).
+
+prd.json 473/679.
+
+
+### iOS premium polish (US-655 glow, US-656 skeletons)
+
+US-655: GradeScoreRing tier-tinted radial glow (blooms at 9.5+) + GradeReportView
+hero border/shadow; both respect Reduce Transparency, glow reveal respects Reduce
+Motion.
+
+US-656: reusable SkeletonRows; replaced spinners on Sales/Money/AutoLister loading;
+AutoLister empty migrated to ContentUnavailableView. Reduce-Motion aware.
+
+prd.json 475/679.
+
+
+### iOS financial export (US-664)
+
+Money/FinancialExport.swift: pure CSV builder (summary + transactions, mirrors web
+financial-export.tsx) from local sales+items (offline); FinancialExportSheet (date
+range + share sheet) reachable from a Money-tab Export button. Tests added. PDF is
+a noted follow-up.
+
+prd.json 476/679.
+
+
+### iOS analytics completion (US-665)
+
+AnalyticsRollup.periodPnL + gradingRoiBuckets (price-band graded-vs-ungraded
+lift); new Profit&Loss + Grading-ROI cards in AnalyticsView. Per-item realized
+P&L section on the Item Canvas (scoped @Query on the item's sale). Tests added.
+Category-grouped sell-through stays web-only (no local category column).
+
+prd.json 477/679.
+
+
+### iOS global search (US-678)
+
+Inventory/GlobalSearchView.swift: debounced search across inventory/listings/
+sales/sources from the local cache, grouped results deep-linking to the item
+canvas; magnifyingglass entry point in the Home toolbar (router.showingGlobalSearch).
+
+prd.json 478/679.
+
+
+### iOS multi-channel surface (US-668)
+
+MarketplacesView: phased 'More channels' section (Poshmark/Mercari/Shopify/Depop/
+Grailed/Whatnot 'coming soon' cards) + MarketplaceChannel abstraction so a second
+live channel slots in without a rewrite. eBay remains the live channel.
+
+prd.json 479/679.

@@ -34,6 +34,53 @@ public enum PhotoCompressor {
         return Output(imageData: data, thumbnail: thumb)
     }
 
+    /// Off-main single compress (US-636). Runs the resize + JPEG encode on a
+    /// background task so `@MainActor` callers (capture, library import, snap)
+    /// never block the UI on a full-resolution encode.
+    public static func compressOffMain(
+        _ image: UIImage,
+        maxLongEdge: CGFloat = defaultMaxLongEdge,
+        quality: CGFloat = defaultJPEGQuality
+    ) async -> Output? {
+        await Task.detached(priority: .userInitiated) {
+            autoreleasepool { compress(image, maxLongEdge: maxLongEdge, quality: quality) }
+        }.value
+    }
+
+    /// Batched off-main compression with bounded concurrency (US-636). Resizes
+    /// at most `maxConcurrent` images at a time, each inside its own
+    /// `autoreleasepool`, so only a few full-resolution `UIImage`s are resident
+    /// at once — a 30-image drop won't spike memory into a jetsam kill. Output
+    /// order matches the input; failures are `nil`.
+    public static func compressBatch(
+        _ images: [UIImage],
+        maxConcurrent: Int = 3,
+        maxLongEdge: CGFloat = defaultMaxLongEdge,
+        quality: CGFloat = defaultJPEGQuality
+    ) async -> [Output?] {
+        guard !images.isEmpty else { return [] }
+        var results = [Output?](repeating: nil, count: images.count)
+        var next = 0
+        while next < images.count {
+            let upper = min(next + max(maxConcurrent, 1), images.count)
+            await withTaskGroup(of: (Int, Output?).self) { group in
+                for index in next..<upper {
+                    let image = images[index]
+                    group.addTask(priority: .userInitiated) {
+                        autoreleasepool {
+                            (index, compress(image, maxLongEdge: maxLongEdge, quality: quality))
+                        }
+                    }
+                }
+                for await (index, output) in group {
+                    results[index] = output
+                }
+            }
+            next = upper
+        }
+        return results
+    }
+
     /// Aspect-preserving resize. If the input is already within the budget
     /// we return it unchanged — re-encoding a smaller-than-budget image
     /// would just lose quality for no size win.

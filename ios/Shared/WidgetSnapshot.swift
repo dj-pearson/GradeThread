@@ -9,7 +9,7 @@ import Foundation
 ///
 /// Both targets compile this file (project.yml lists Shared/ under both
 /// sources). Reuses the same App Group as ``IntakeInbox``.
-public struct WidgetSnapshot: Codable, Equatable {
+public struct WidgetSnapshot: Codable, Equatable, Sendable {
     /// When the main app computed this rollup. The widget shows a
     /// relative "Updated 5m ago" so a stale snapshot is obvious rather
     /// than silently wrong.
@@ -50,6 +50,18 @@ public struct WidgetSnapshot: Codable, Equatable {
         self.soldTodayGross = soldTodayGross
         self.pendingPayoutCount = pendingPayoutCount
         self.pendingPayoutNet = pendingPayoutNet
+    }
+
+    /// True when every rollup figure matches `other`, ignoring `generatedAt`.
+    /// Used by the publisher (US-637) to skip a widget-timeline reload when the
+    /// numbers haven't actually changed since the last publish.
+    public func hasSameRollup(as other: WidgetSnapshot) -> Bool {
+        isSignedIn == other.isSignedIn
+            && activeListings == other.activeListings
+            && soldTodayCount == other.soldTodayCount
+            && soldTodayGross == other.soldTodayGross
+            && pendingPayoutCount == other.pendingPayoutCount
+            && pendingPayoutNet == other.pendingPayoutNet
     }
 
     /// Signed-out placeholder. Distinct from an all-zero signed-in
@@ -103,7 +115,9 @@ public enum WidgetSnapshotStore {
         guard let url = fileURL else { return false }
         do {
             let data = try encoder.encode(snapshot)
-            try data.write(to: url, options: [.atomic])
+            // US-658: encrypt the cross-process snapshot (sales/payout figures)
+            // at rest; the widget reads it after first unlock.
+            try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             return true
         } catch {
             return false

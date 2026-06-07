@@ -108,6 +108,23 @@ public enum Telemetry {
             options.enableAutoPerformanceTracing = true
             // Distinguish dev/release in the dashboard.
             options.environment = PushService.environmentName
+            // US-662: scrub PII / tokens / signed Storage URLs out of every
+            // event message + breadcrumb before it leaves the device.
+            options.beforeSend = { event in
+                if let message = event.message {
+                    message.message = TelemetryScrubber.redact(message.message)
+                    message.formatted = message.formatted.map(TelemetryScrubber.redact)
+                    event.message = message
+                }
+                event.breadcrumbs?.forEach { crumb in
+                    crumb.message = crumb.message.map(TelemetryScrubber.redact)
+                }
+                return event
+            }
+            options.beforeBreadcrumb = { crumb in
+                crumb.message = crumb.message.map(TelemetryScrubber.redact)
+                return crumb
+            }
         }
     }
 

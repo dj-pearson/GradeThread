@@ -15,6 +15,8 @@ struct DashboardView: View {
     @State private var showingSnap = false
     /// ScoutAI: presents the "find underpriced deals" sheet.
     @State private var showingScout = false
+    /// US-647: post-signup activation checklist.
+    @State private var activation = ActivationChecklistStore()
 
     @Query(sort: \LocalInventoryItem.updatedAt, order: .forward)
     private var items: [LocalInventoryItem]
@@ -72,6 +74,9 @@ struct DashboardView: View {
     private var dashboard: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if !activation.isDismissed, !activation.allComplete(hasItem: !items.isEmpty) {
+                    ActivationChecklistView(router: router, hasItem: !items.isEmpty, store: activation)
+                }
                 kpiGrid
                 if DashboardTrend.hasActivity(trendPoints) { trendCard }
                 analyticsCard
@@ -277,21 +282,40 @@ struct DashboardView: View {
 
     // MARK: - Empty (first-run) state
 
+    /// US-647: the empty state links into the same activation steps (the
+    /// checklist) so a brand-new user has a guided path, not just a CTA.
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("Welcome to GradeThread", systemImage: "shippingbox")
-        } description: {
-            Text("Capture an item to start building your inventory. Your value, listings, and sales will show up here.")
-        } actions: {
-            Button {
-                AppRouter.haptic()
-                router.showingAddSheet = true
-            } label: {
-                Label("Capture your first item", systemImage: "camera.fill")
+        ScrollView {
+            VStack(spacing: 20) {
+                if !activation.isDismissed {
+                    ActivationChecklistView(router: router, hasItem: false, store: activation)
+                }
+                VStack(spacing: 10) {
+                    Image(systemName: "shippingbox")
+                        .font(.system(size: 48, weight: .light))
+                        .foregroundStyle(Color.brandNavy)
+                    Text("Welcome to GradeThread")
+                        .font(.title3.weight(.semibold))
+                    Text("Capture an item to start building your inventory. Your value, listings, and sales will show up here.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button {
+                        AppRouter.haptic()
+                        router.startIntake(.photoFirst)
+                    } label: {
+                        Label("Capture your first item", systemImage: "camera.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.brandNavy)
+                    .padding(.top, 4)
+                }
+                .padding(.top, 12)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.brandNavy)
+            .padding(16)
+            .frame(maxWidth: .infinity)
         }
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 

@@ -132,6 +132,117 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(store.pendingCount, 5)
     }
 
+    // MARK: - Backoff (US-638)
+
+    func test_backoff_isExponentialAndCapped() {
+        XCTAssertEqual(Backoff.delayNanos(attempt: 0, base: 1, cap: 8), 1_000_000_000)
+        XCTAssertEqual(Backoff.delayNanos(attempt: 1, base: 1, cap: 8), 2_000_000_000)
+        XCTAssertEqual(Backoff.delayNanos(attempt: 2, base: 1, cap: 8), 4_000_000_000)
+        XCTAssertEqual(Backoff.delayNanos(attempt: 3, base: 1, cap: 8), 8_000_000_000)
+        // Capped beyond the ceiling.
+        XCTAssertEqual(Backoff.delayNanos(attempt: 9, base: 1, cap: 8), 8_000_000_000)
+    }
+
+    // MARK: - SyncWatermark (US-633)
+
+    func test_watermark_firstReadIsNil() {
+        let wm = SyncWatermark(defaults: freshDefaults())
+        XCTAssertNil(wm.value(for: .inventoryItems))
+    }
+
+    func test_watermark_advanceIsMonotonic() {
+        let wm = SyncWatermark(defaults: freshDefaults())
+        wm.advance(.inventoryItems, to: "2026-06-01T00:00:00Z")
+        XCTAssertEqual(wm.value(for: .inventoryItems), "2026-06-01T00:00:00Z")
+        // A stale candidate must not rewind the cursor.
+        wm.advance(.inventoryItems, to: "2026-05-01T00:00:00Z")
+        XCTAssertEqual(wm.value(for: .inventoryItems), "2026-06-01T00:00:00Z")
+        // A newer candidate advances it.
+        wm.advance(.inventoryItems, to: "2026-07-01T00:00:00Z")
+        XCTAssertEqual(wm.value(for: .inventoryItems), "2026-07-01T00:00:00Z")
+    }
+
+    func test_watermark_nilOrEmptyCandidateIsIgnored() {
+        let wm = SyncWatermark(defaults: freshDefaults())
+        wm.advance(.sales, to: nil)
+        wm.advance(.sales, to: "")
+        XCTAssertNil(wm.value(for: .sales))
+    }
+
+    func test_watermark_resetClearsAllTables() {
+        let wm = SyncWatermark(defaults: freshDefaults())
+        wm.advance(.inventoryItems, to: "2026-06-01T00:00:00Z")
+        wm.advance(.sales, to: "2026-06-01T00:00:00Z")
+        wm.resetAll()
+        XCTAssertNil(wm.value(for: .inventoryItems))
+        XCTAssertNil(wm.value(for: .sales))
+    }
+
+    func test_watermark_cursorColumns() {
+        XCTAssertEqual(SyncWatermark.Table.inventoryItems.cursorColumn, "updated_at")
+        XCTAssertEqual(SyncWatermark.Table.itemPhotos.cursorColumn, "created_at")
+        XCTAssertEqual(SyncWatermark.Table.sales.cursorColumn, "created_at")
+    }
+
+    // MARK: - WidgetSnapshot diff (US-637)
+
+    func test_widgetSnapshot_sameRollupIgnoresGeneratedAt() {
+        let a = WidgetSnapshot(generatedAt: Date(timeIntervalSince1970: 0), isSignedIn: true,
+                               activeListings: 3, soldTodayCount: 1, soldTodayGross: 50,
+                               pendingPayoutCount: 2, pendingPayoutNet: 80)
+        let b = WidgetSnapshot(generatedAt: Date(timeIntervalSince1970: 9999), isSignedIn: true,
+                               activeListings: 3, soldTodayCount: 1, soldTodayGross: 50,
+                               pendingPayoutCount: 2, pendingPayoutNet: 80)
+        XCTAssertTrue(a.hasSameRollup(as: b))
+    }
+
+    func test_widgetSnapshot_differentRollupDetected() {
+        let a = WidgetSnapshot.placeholder
+        let b = WidgetSnapshot(generatedAt: .now, isSignedIn: true,
+                               activeListings: a.activeListings + 1, soldTodayCount: a.soldTodayCount,
+                               soldTodayGross: a.soldTodayGross, pendingPayoutCount: a.pendingPayoutCount,
+                               pendingPayoutNet: a.pendingPayoutNet)
+        XCTAssertFalse(a.hasSameRollup(as: b))
+    }
+
+    // MARK: - SyncMergeActor off-main merge (US-634)
+
+    func test_mergeActor_insertsThenUpdatesItems() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Linen blazer", updated: "2026-06-01T00:00:00Z")],
+            primaryPhotos: [:]
+        )
+        var rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.title, "Linen blazer")
+
+        // Re-merge the same id with a new title → upsert, not duplicate.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Linen blazer (updated)", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:]
+        )
+        rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.title, "Linen blazer (updated)")
+    }
+
+    private static func remoteItem(
+        id: String, title: String, updated: String
+    ) -> SyncEngine.RemoteInventoryItem {
+        let json = """
+        {"id":"\(id)","user_id":"u1","title":"\(title)","status":"cataloged",
+         "created_at":"2026-01-01T00:00:00Z","updated_at":"\(updated)"}
+        """.data(using: .utf8)!
+        return try! JSONDecoder().decode(SyncEngine.RemoteInventoryItem.self, from: json)
+    }
+
+    private func freshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "sync-test-\(UUID().uuidString)")!
+    }
+
     // MARK: - Helpers
 
     private func inMemoryContainer() throws -> ModelContainer {

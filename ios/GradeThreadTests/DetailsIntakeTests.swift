@@ -4,6 +4,48 @@ import XCTest
 @MainActor
 final class DetailsIntakeTests: XCTestCase {
 
+    // MARK: - IntakeDraftStore (US-646)
+
+    func test_intakeDraft_roundTripsFormFields() {
+        IntakeDraftStore.clear()
+        defer { IntakeDraftStore.clear() }
+
+        let form = IntakeFormState()
+        form.title = "Wool coat"
+        form.brand = "Pendleton"
+        form.size = "L"
+        form.category = .clothing
+        form.status = .sourced
+        form.notes = "small moth hole"
+        IntakeDraftStore.save(form)
+
+        let loaded = IntakeDraftStore.load()
+        XCTAssertNotNil(loaded)
+
+        let restored = IntakeFormState()
+        IntakeDraftStore.apply(loaded!, to: restored)
+        XCTAssertEqual(restored.title, "Wool coat")
+        XCTAssertEqual(restored.brand, "Pendleton")
+        XCTAssertEqual(restored.size, "L")
+        XCTAssertEqual(restored.status, .sourced)
+        XCTAssertEqual(restored.notes, "small moth hole")
+    }
+
+    func test_intakeDraft_emptyFormSavesNothing() {
+        IntakeDraftStore.clear()
+        defer { IntakeDraftStore.clear() }
+        IntakeDraftStore.save(IntakeFormState())  // all defaults → no content
+        XCTAssertNil(IntakeDraftStore.load())
+    }
+
+    func test_intakeDraft_clearRemovesDraft() {
+        let form = IntakeFormState()
+        form.title = "Temp"
+        IntakeDraftStore.save(form)
+        IntakeDraftStore.clear()
+        XCTAssertNil(IntakeDraftStore.load())
+    }
+
     // MARK: - IntakeFormState
 
     func test_canSubmit_requiresTitle() {

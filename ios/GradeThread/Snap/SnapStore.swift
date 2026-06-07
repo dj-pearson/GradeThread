@@ -33,13 +33,18 @@ final class SnapStore: ObservableObject {
     var canEvaluate: Bool { image != nil && !isLoading }
 
     func evaluate() async {
-        guard let img = image, let output = PhotoCompressor.compress(img) else {
+        guard let img = image else {
             errorMessage = "Couldn't read that photo. Try another."
             return
         }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
+        // US-636: compress off the main actor so the spinner stays smooth.
+        guard let output = await PhotoCompressor.compressOffMain(img) else {
+            errorMessage = "Couldn't read that photo. Try another."
+            return
+        }
         do {
             result = try await service.snap(
                 imageData: output.imageData,
