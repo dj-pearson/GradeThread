@@ -18,6 +18,7 @@
 //   TEST_USER_A_LISTING_ID      a listings.id
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
 //   TEST_USER_A_TEMPLATE_ID     a listing_templates.id (US-674)
+//   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
@@ -134,6 +135,30 @@ Deno.test({
     });
     await del.body?.cancel();
     assertDenied(del.status, "DELETE listing template");
+  },
+});
+
+Deno.test({
+  // US-672: repricing rules CRUD is scoped by user_id. B's PUT/DELETE on A's
+  // rule are scoped, so they hit 0 rows and return 404.
+  name: "B cannot update or delete A's repricing rule",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_RULE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_RULE_ID")!;
+    const put = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ name: "pwned", drop_pct: 50 }),
+    });
+    await put.body?.cancel();
+    assertDenied(put.status, "PUT repricing rule");
+
+    const del = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertDenied(del.status, "DELETE repricing rule");
   },
 });
 

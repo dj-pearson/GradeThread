@@ -24,7 +24,11 @@ import {
 } from "./routes/flipdesk-autolister.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
-import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
+import {
+  flipdeskPricingRoutes,
+  handleRepriceRulesCron,
+  handleRepriceScanCron,
+} from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
@@ -350,6 +354,9 @@ app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 // middleware above doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync cron).
 app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
+// US-672 repricing-automation cron — applies owner-defined rules. Same
+// X-Internal-Job-Secret gate as reprice-scan.
+app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));
 // US-525 AutoLister reclaim sweeper. OUTSIDE the /api/flipdesk/autolister/*
 // JWT wildcard so a cron (no user token) can reach it; the handler enforces
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.

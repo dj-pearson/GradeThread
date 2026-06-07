@@ -4904,6 +4904,27 @@ DraftsTests.swift (13).
 prd.json 488/679.
 
 
+### Repricing automation & scheduling rules — full stack (US-672)
+
+Server-driven automation on top of the existing one-shot comp-suggestion engine.
+BACKEND: migration 00106 (repricing_rules: scope = item or brand/category/min-age
+filter, action = drop% + interval + floor + optional auto-accept confidence; +
+repricing_actions audit log, user SELECT-only, written by the service-role
+runner). lib/repricing-rules.ts pure helpers (normalize, markdown+floor, isDue,
+scope match, decision — automation only ever LOWERS price). flipdesk-pricing.ts:
+rules CRUD (scoped by id+user_id), /rules/actions feed, /rules/run on-demand,
+runRulesForOwner (push to eBay first then update local + log; first due rule wins
+per listing) + handleRepriceRulesCron at /api/jobs/reprice-rules (job-secret +
+lock). Edge tests repricing-rules_test.ts (13) + a tenant-isolation case.
+IOS: Pricing/ gains RepricingRuleTypes + RepricingRulesService (EdgeAPI) +
+RepricingRulesStore + RepricingRulesView (rules list, enable toggle, Run now,
+applied-changes feed) + RuleEditorSheet; reached from an Automation button in the
+Repricing toolbar. Timestamps decode as raw strings (dodges the shared .iso8601
+strict parser). Tests RepricingRulesTests.swift (13).
+
+prd.json 489/679.
+
+
 ## iOS PRD triage — remaining pending stories (2026-06-07)
 
 Worked the iOS-touching stories this pass. 83 iOS stories total; US-669 landed
@@ -4925,9 +4946,8 @@ prd.json `notes`):
 - US-671  Multiple eBay connections — edge eBay OAuth/token model assumes one
           connection per user+platform; multi-account needs server-side
           per-connection storage + routing.
-- US-672  Repricing automation/rules — needs a server-side rules table + a
-          scheduled runner; the edge /pricing route is one-shot scan/suggest/
-          apply/dismiss only.
+- US-672  Repricing automation/rules — DONE this pass (full stack: rules table +
+          on-demand + cron runner + iOS UI; see above).
 - US-673  Best-offer + buyer messages — eBay Negotiation + Messaging APIs are
           absent on web AND in the edge; must be wired server-side first.
 - US-674  Listing templates — DONE this pass (full stack, see above).
