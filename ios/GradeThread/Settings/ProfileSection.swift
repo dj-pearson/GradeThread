@@ -23,6 +23,7 @@ struct ProfileSection: View {
         Group {
             profileSection
             verifiedSection
+            teamSection
             inviteSection
             planSection
             dataSection
@@ -78,6 +79,27 @@ struct ProfileSection: View {
         } footer: {
             Text("Claim your public profile — buyers can see your verified grades and stats.")
                 .font(.footnote)
+        }
+    }
+
+    private var ownerId: String? {
+        if case let .signedIn(user) = authStore.phase { return user.id.uuidString }
+        return nil
+    }
+
+    @ViewBuilder
+    private var teamSection: some View {
+        if let ownerId {
+            Section {
+                NavigationLink {
+                    TeamView(ownerId: ownerId)
+                } label: {
+                    Label("Team", systemImage: "person.2")
+                }
+            } footer: {
+                Text("Invite teammates to your workspace and manage their access.")
+                    .font(.footnote)
+            }
         }
     }
 
