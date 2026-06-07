@@ -4711,3 +4711,15 @@ permission requested here with a value-framed pre-prompt. Shown on Dashboard +
 empty state (DashboardView.emptyState rebuilt to host it).
 
 prd.json 473/679.
+
+
+### iOS premium polish (US-655 glow, US-656 skeletons)
+
+US-655: GradeScoreRing tier-tinted radial glow (blooms at 9.5+) + GradeReportView
+hero border/shadow; both respect Reduce Transparency, glow reveal respects Reduce
+Motion.
+
+US-656: reusable SkeletonRows; replaced spinners on Sales/Money/AutoLister loading;
+AutoLister empty migrated to ContentUnavailableView. Reduce-Motion aware.
+
+prd.json 475/679.

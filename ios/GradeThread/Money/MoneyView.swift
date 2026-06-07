@@ -130,7 +130,8 @@ struct MoneyView: View {
 
             switch expenseStore.phase {
             case .loading:
-                rowMessage { ProgressView() }
+                // US-656: shimmer skeleton rows instead of a bare spinner.
+                SkeletonRows(count: 3, showsLeadingBlock: false)
             case .failed(let message):
                 rowMessage {
                     Text(message).font(.footnote).foregroundStyle(.secondary)

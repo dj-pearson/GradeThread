@@ -9744,8 +9744,8 @@
         "Skeletons respect Reduce Motion (reuse Components/SkeletonView)"
       ],
       "priority": 656,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: design.md sec.3C says use skeletons for main content; SkeletonView exists but SalesView.swift:20, AutoListerView.swift:54, MoneyView.swift:133 still use bare ProgressView; AutoListerView.swift:65-88 is a hand-rolled empty VStack; some screens lack an error branch."
+      "passes": true,
+      "notes": "Done. New reusable SkeletonRows (Components/SkeletonView.swift) — list-shaped shimmer (leading block + two text lines per row) that honors Reduce Motion via the underlying SkeletonBlock. Main-content spinners replaced with it: SalesView .loading, MoneyView expenses .loading (showsLeadingBlock:false), AutoListerView importing state. AutoLister's ad-hoc empty VStack migrated to ContentUnavailableView (icon + copy + Import CTA), matching the app-wide empty-state pattern. SalesView/MoneyView already had loading+empty+error parity on ContentUnavailableView; AutoLister now has loading(skeleton)+empty(ContentUnavailableView). Skeletons are accessibilityHidden (decorative)."
     },
     {
       "id": "US-657",

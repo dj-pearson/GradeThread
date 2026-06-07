@@ -17,8 +17,8 @@ struct SalesView: View {
     private var content: some View {
         switch store.phase {
         case .loading:
-            ProgressView("Loading sales…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // US-656: shimmer skeleton instead of a bare spinner.
+            ScrollView { SkeletonRows(count: 6) }
 
         case .failed(let message):
             ContentUnavailableView {

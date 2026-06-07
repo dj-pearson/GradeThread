@@ -51,8 +51,8 @@ struct AutoListerView: View {
     @ViewBuilder
     private var content: some View {
         if model.isImporting && model.isEmpty {
-            ProgressView("Importing photos…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // US-656: shimmer skeleton instead of a bare spinner.
+            ScrollView { SkeletonRows(count: 4) }
         } else if model.isEmpty {
             emptyState
         } else {
@@ -62,17 +62,14 @@ struct AutoListerView: View {
 
     // MARK: - Empty state
 
+    /// US-656: standardized on ContentUnavailableView (like the rest of the app)
+    /// instead of an ad-hoc VStack.
     private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "square.stack.3d.up.fill")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(Color.brandNavy)
-            Text("Batch-list with AutoLister")
-                .font(.title3.weight(.semibold))
+        ContentUnavailableView {
+            Label("Batch-list with AutoLister", systemImage: "square.stack.3d.up.fill")
+        } description: {
             Text("Import a batch of photos and we'll group them into items, then generate eBay listings with AI.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        } actions: {
             Button {
                 showingPicker = true
             } label: {
@@ -80,11 +77,9 @@ struct AutoListerView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .tint(Color.brandNavy)
             .accessibilityHint("Pick a batch of photos from your library to group into listings.")
-            .padding(.top, 4)
         }
-        .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Review list
