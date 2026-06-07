@@ -275,23 +275,15 @@ struct ItemCanvasView: View {
     private func photoCell(_ photo: LocalItemPhoto) -> some View {
         let url = URL(string: photo.thumbnailURL ?? photo.photoURL)
         ZStack(alignment: .bottomLeading) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty, .failure:
-                    Image(systemName: "photo")
-                        .font(.system(size: 22, weight: .light))
-                        .frame(width: 84, height: 84)
-                        .background(Color.secondary.opacity(0.12))
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 84, height: 84)
-                        .clipped()
-                @unknown default:
-                    EmptyView()
-                }
+            // US-635: cached + downsampled to the 84pt grid cell.
+            CachedThumbnail(url: url, maxDimension: 84) {
+                Image(systemName: "photo")
+                    .font(.system(size: 22, weight: .light))
+                    .frame(width: 84, height: 84)
+                    .background(Color.secondary.opacity(0.12))
             }
+            .frame(width: 84, height: 84)
+            .clipped()
             Text(photo.photoType.capitalized)
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5)

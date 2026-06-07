@@ -46,22 +46,12 @@ struct InventoryRow: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let urlString = item.primaryPhotoURL, let url = URL(string: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty:
-                    placeholderThumbnail
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    placeholderThumbnail
-                @unknown default:
-                    placeholderThumbnail
-                }
-            }
-        } else {
+        // US-635: cached + downsampled (56pt cell never decodes full-res, and
+        // scroll-back reuses the cached image instead of refetching).
+        CachedThumbnail(
+            url: item.primaryPhotoURL.flatMap { URL(string: $0) },
+            maxDimension: 56
+        ) {
             placeholderThumbnail
         }
     }

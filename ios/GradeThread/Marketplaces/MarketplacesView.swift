@@ -15,6 +15,10 @@ struct MarketplacesView: View {
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
     @State private var orphanCount: Int = 0
+    /// US-645: track whether the last orphan-count query *failed* so a network
+    /// error doesn't masquerade as "all reconciled" (count silently 0) and make
+    /// the reconciliation card vanish.
+    @State private var orphanCheckFailed = false
 
     var body: some View {
         ScrollView {
@@ -22,7 +26,9 @@ struct MarketplacesView: View {
                 headerCard
                 if let userId = currentUserId() {
                     connectionCard(userId: userId)
-                    if orphanCount > 0 {
+                    if orphanCheckFailed {
+                        reconciliationErrorCard(userId: userId)
+                    } else if orphanCount > 0 {
                         reconciliationCard
                     }
                 }
@@ -85,6 +91,39 @@ struct MarketplacesView: View {
         .buttonStyle(.plain)
     }
 
+    /// US-645: a failed check shows a distinct "couldn't check — tap to retry"
+    /// card instead of silently hiding reconciliation as if everything matched.
+    private func reconciliationErrorCard(userId: String) -> some View {
+        Button {
+            Task { await refreshOrphanCount(userId: userId) }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.brandAmber)
+                    .frame(width: 40, height: 40)
+                    .background(Color.brandAmber.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Couldn't check reconciliation")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Tap to retry")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(14)
+            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func refreshOrphanCount(userId: String) async {
         // Lightweight count query — we only need the badge number here;
         // the full list loads when the user opens ReconciliationView.
@@ -98,8 +137,11 @@ struct MarketplacesView: View {
                 .execute()
                 .value
             orphanCount = rows.count
+            orphanCheckFailed = false
         } catch {
-            orphanCount = 0
+            // Don't zero the count — keep the last known value and flag the
+            // failure so the UI can offer a retry rather than implying zero.
+            orphanCheckFailed = true
         }
     }
 

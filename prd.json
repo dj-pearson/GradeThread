@@ -9453,8 +9453,8 @@
         "Failed loads show a tap-to-retry affordance instead of a permanently blank placeholder"
       ],
       "priority": 635,
-      "passes": false,
-      "notes": "[iOS][Perf][UX] Audit finding: Inventory/InventoryRow.swift:48-67 uses raw AsyncImage(url:) into 56x56 loading thumbnail_url ?? photo_url full-res with no cache; same pattern in ItemCanvasView.swift:278, GradeReportView.swift:75, PhotoManagerView.swift:133, ScoutCandidateRow.swift:70. No retry on .failure."
+      "passes": true,
+      "notes": "Done. New Components/CachedThumbnail.swift: a reusable downsampling+cached async image. ThumbnailLoader (singleton) has an NSCache<…,UIImage> keyed by url|pixelSize plus a disk-backed URLCache (16MB mem/128MB disk, returnCacheDataElseLoad); image(for:maxPixel:) downsamples via CGImageSourceCreateThumbnailAtIndex on a Task.detached so a 4000px photo never decodes full-res into a small cell, and decoded images are cached so scroll-back reuses them with no refetch. CachedThumbnail view exposes maxDimension (×displayScale → pixels), a @ViewBuilder placeholder, and a tap-to-retry affordance on failure. Replaced raw AsyncImage at all five sites: InventoryRow (56pt), ItemCanvasView photo grid (84pt), GradeReportView strip (92pt), PhotoManagerView row (56pt), ScoutCandidateRow (76pt)."
     },
     {
       "id": "US-636",
@@ -9467,8 +9467,8 @@
         "A large drop/import (e.g. 30 full-res images) completes without a main-thread hitch or memory spike that triggers a jetsam warning"
       ],
       "priority": 636,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Capture/PhotoCompressor.swift:26-35 does two UIGraphicsImageRenderer resizes + jpegData synchronously; all callers are @MainActor and don't detach (PhotoIntakeView.swift:530/563, AutoListerReviewModel.swift:57, SnapStore.swift:36, Inventory/PhotosDropHandler.swift:17-26 loops full-res array)."
+      "passes": true,
+      "notes": "Done. PhotoCompressor gained compressOffMain (Task.detached + autoreleasepool) and compressBatch (bounded N-at-a-time withTaskGroup, autoreleasepool per task, order-preserving) — US-636. All @MainActor callers no longer compress synchronously: PhotosDropHandler.process is now async via compressBatch (InventoryListView.handleDroppedImages wraps it in a Task); SnapStore.evaluate, AutoListerReviewModel.importPicks and PhotoIntakeView (library import + camera capture) use compressOffMain. PhotosDropTests updated to async. Large multi-selects resize a few images at a time so only a few full-res UIImages are resident, avoiding the main-thread hitch + jetsam spike."
     },
     {
       "id": "US-637",
@@ -9551,8 +9551,8 @@
         "Haptic feedback fires on action commit"
       ],
       "priority": 642,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Inventory/InventoryRow.swift has no inline actions; InventoryListView.swift uses plain List with no .swipeActions (only Reconciliation uses swipeActions). Multi-select is the only path to per-item actions today."
+      "passes": true,
+      "notes": "Done. InventoryRow rows now expose .swipeActions: leading 'Shipped' (only when status==sold), trailing destructive 'Delete' + '-10%' (only when status listed/active) — stage-appropriate per AC. Mark-shipped/drop-price route through the same BulkActionExecutor + optimistic-write path as bulk via a unified perform(action:items:isBulk:). Delete requires a confirmation alert and routes through executor.deleteItem (server) + local modelContext delete. Haptics fire on commit (warning on delete tap, success/error on result)."
     },
     {
       "id": "US-643",
@@ -9578,8 +9578,8 @@
         "Undo and progress also cover eBay-backed bulk operations where a local revert is safe"
       ],
       "priority": 644,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Inventory/BulkActionExecutor.swift:107-167 builds rich failures:[Failure] but InventoryListView.swift:130-138 shows only actionResult.summary in one OK alert; no undo anywhere in the codebase; no per-item progress."
+      "passes": true,
+      "notes": "Done. BulkActionExecutor.execute gained an onProgress(done,total) callback (fired per-item in the eBay end/drop loops, once for the single-call status update); InventoryListView shows a determinate BulkProgressHUD for total>1. After a bulk action, failures (which the executor already built per-item) render in a BulkFailuresView sheet (item title + reason) reachable from the result alert's 'View details', not just a count. A BulkUndoBar snackbar (auto-dismiss ~6s) offers Undo for the safe status-change actions (createDraft/markShipped) via executor.revertStatuses (server + local revert of the captured pre-state); end-listing is intentionally excluded (not reversible)."
     },
     {
       "id": "US-645",
@@ -9591,8 +9591,8 @@
         "Comps and other dependent fetches show a retry affordance on error rather than an empty state"
       ],
       "priority": 645,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Marketplaces/MarketplacesView.swift:88-104 sets orphanCount=0 on any error; BulkActionExecutor.swift:190-213 returns [:] on error; both make failures indistinguishable from empty."
+      "passes": true,
+      "notes": "Done. MarketplacesView.refreshOrphanCount no longer zeroes the count on error — it sets orphanCheckFailed and renders a distinct 'Couldn't check reconciliation — tap to retry' card so a transient failure doesn't masquerade as 'all reconciled'. BulkActionExecutor.fetchActiveListings now throws instead of returning [:] (which read as 'no active eBay listing'); endListings/dropPrices catch it and return a batch-level network-failure result. The new CachedThumbnail (US-635) shows tap-to-retry on a failed image load rather than a permanent blank."
     },
     {
       "id": "US-646",

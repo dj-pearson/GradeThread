@@ -72,19 +72,11 @@ struct GradeReportView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(photoURLs, id: \.self) { url in
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable().scaledToFill()
-                            case .empty:
-                                ZStack { Color.secondary.opacity(0.1); ProgressView() }
-                            case .failure:
-                                ZStack {
-                                    Color.secondary.opacity(0.1)
-                                    Image(systemName: "photo").foregroundStyle(.secondary)
-                                }
-                            @unknown default:
+                        // US-635: cached + downsampled to the 92pt strip cell.
+                        CachedThumbnail(url: url, maxDimension: 92) {
+                            ZStack {
                                 Color.secondary.opacity(0.1)
+                                Image(systemName: "photo").foregroundStyle(.secondary)
                             }
                         }
                         .frame(width: 92, height: 92)

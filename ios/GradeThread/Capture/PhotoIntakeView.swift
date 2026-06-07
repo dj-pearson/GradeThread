@@ -527,7 +527,7 @@ struct PhotoIntakeView: View {
         var staged: [PhotoCapture] = []
         for result in results {
             guard let image = await result.loadImage() else { continue }
-            guard let output = PhotoCompressor.compress(image) else { continue }
+            guard let output = await PhotoCompressor.compressOffMain(image) else { continue }
             // Read the original PHAsset capture time before compression strips
             // EXIF (US-289); fall back to now if the library isn't readable.
             let capturedAt = result.creationDate() ?? .now
@@ -560,7 +560,8 @@ struct PhotoIntakeView: View {
             defer { isCapturing = false }
             do {
                 let image = try await camera.capturePhoto()
-                guard let output = PhotoCompressor.compress(image) else {
+                // US-636: compress off the main actor.
+                guard let output = await PhotoCompressor.compressOffMain(image) else {
                     startupError = "Couldn't compress the photo."
                     return
                 }

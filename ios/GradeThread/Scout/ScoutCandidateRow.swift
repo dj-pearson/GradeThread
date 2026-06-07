@@ -66,14 +66,11 @@ struct ScoutCandidateRow: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let urlString = candidate.imageUrl, let url = URL(string: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image): image.resizable().scaledToFill()
-                default:                  placeholder
-                }
-            }
-        } else {
+        // US-635: cached + downsampled to the 76pt cell.
+        CachedThumbnail(
+            url: candidate.imageUrl.flatMap { URL(string: $0) },
+            maxDimension: 76
+        ) {
             placeholder
         }
     }

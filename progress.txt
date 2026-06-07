@@ -4528,3 +4528,29 @@ Tests added to SyncTests: watermark monotonic/reset/nil/cursor-column, widget
 rollup diff, off-main merge upsert.
 
 prd.json 452/679.
+
+
+### iOS Image/List-UX cluster (US-635,636,642,644,645) COMPLETE
+
+US-635 CachedThumbnail (Components/CachedThumbnail.swift): NSCache decoded-image
+cache + disk URLCache + ImageIO downsampling (CGImageSourceCreateThumbnailAt
+Index) + tap-to-retry; replaced raw AsyncImage at InventoryRow/ItemCanvas/Grade
+Report/PhotoManager/ScoutCandidateRow.
+
+US-636 Off-main compression: PhotoCompressor.compressOffMain + compressBatch
+(bounded concurrency, autorelease). PhotosDropHandler.process now async; SnapStore
+/AutoListerReviewModel/PhotoIntakeView use compressOffMain. PhotosDropTests async.
+
+US-642 Swipe actions on inventory rows (stage-appropriate: Shipped/-10%/Delete),
+confirmed delete, haptics, via unified perform() + executor.deleteItem.
+
+US-644 Bulk undo/progress/failures: executor onProgress callback + BulkProgressHUD;
+BulkFailuresView per-item reasons; BulkUndoBar snackbar with executor.revert
+Statuses for safe status actions.
+
+US-645 No-data vs fetch-failed: MarketplacesView orphan check shows retry card on
+error (no longer zeroes); BulkActionExecutor.fetchActiveListings throws so
+end/drop report a network failure not 'no listing'; CachedThumbnail retry on load
+fail.
+
+prd.json 457/679.

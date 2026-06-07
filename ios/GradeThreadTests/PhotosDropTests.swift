@@ -7,14 +7,14 @@ final class PhotosDropTests: XCTestCase {
 
     // MARK: - PhotosDropHandler
 
-    func test_process_emptyArray_returnsEmpty() {
-        let captures = PhotosDropHandler.process([])
+    func test_process_emptyArray_returnsEmpty() async {
+        let captures = await PhotosDropHandler.process([])
         XCTAssertTrue(captures.isEmpty)
     }
 
-    func test_process_realImage_returnsCapture() {
+    func test_process_realImage_returnsCapture() async {
         let image = makeImage(size: CGSize(width: 1200, height: 1600))
-        let captures = PhotosDropHandler.process([image])
+        let captures = await PhotosDropHandler.process([image])
         XCTAssertEqual(captures.count, 1)
         XCTAssertEqual(captures.first?.source, .library)
         // Compressor downscales to 2048px max — 1600 → unchanged
@@ -23,13 +23,13 @@ final class PhotosDropTests: XCTestCase {
         XCTAssertFalse(captures.first?.imageData.isEmpty ?? true)
     }
 
-    func test_process_multipleImages_keepsOrder() {
+    func test_process_multipleImages_keepsOrder() async {
         let images = [
             makeImage(size: CGSize(width: 400, height: 300), color: .red),
             makeImage(size: CGSize(width: 400, height: 300), color: .green),
             makeImage(size: CGSize(width: 400, height: 300), color: .blue),
         ]
-        let captures = PhotosDropHandler.process(images)
+        let captures = await PhotosDropHandler.process(images)
         XCTAssertEqual(captures.count, 3)
         // Each capture has distinct id but library-sourced.
         XCTAssertTrue(captures.allSatisfy { $0.source == .library })
