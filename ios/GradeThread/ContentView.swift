@@ -362,6 +362,11 @@ private struct TabBarShell: View {
                         GradesListView()
                     }
                     .toolbar {
+                        // US-649: secondary "choose a different add method" menu
+                        // — the Add tab itself is the one-tap photo-first path.
+                        ToolbarItem(placement: .topBarLeading) {
+                            AddMethodMenu(router: router)
+                        }
                         // iPhone has no room for a Settings tab once Home
                         // lands (5-tab limit), so it rides a gear button
                         // here — the standard iOS placement.
@@ -459,12 +464,9 @@ private struct SidebarSplitView: View {
         .navigationTitle("GradeThread")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    AppRouter.haptic()
-                    router.showingAddSheet = true
-                } label: {
-                    Label("Add", systemImage: "plus.circle.fill")
-                }
+                // US-649: iPad has room for the explicit method menu in the
+                // sidebar toolbar (default = photo-first on a plain tap).
+                AddMethodMenu(router: router, primaryLabel: "Add")
             }
         }
     }
@@ -612,9 +614,13 @@ final class AppRouter {
             set: { newValue in
                 Self.haptic()
                 if newValue == .add {
-                    // Don't change `selection`: that snaps the tab bar back
-                    // visually after the brief tap state.
-                    self.showingAddSheet = true
+                    // US-649: the Add tab is now a one-tap shortcut straight
+                    // into the photo-first capture flow — the most frequent
+                    // action — instead of a mandatory 3-way mode dialog. The
+                    // other modes live in the Home toolbar "Add" menu + the
+                    // iPad sidebar Add menu. Don't change `selection`: that
+                    // snaps the tab bar back after the brief tap state.
+                    self.startIntake(.photoFirst)
                     return
                 }
                 self.selection = newValue
@@ -659,6 +665,40 @@ final class AppRouter {
     /// per-action tuning happens in one place.
     static func haptic() {
         Task { @MainActor in HapticFeedback.light() }
+    }
+}
+
+// MARK: - Add-method menu (US-649)
+
+/// Secondary "choose how to add" control. The Add *tab* is a one-tap shortcut
+/// into photo-first capture; this menu (Home toolbar + iPad sidebar) exposes the
+/// less-frequent Details + AutoLister paths in plain language.
+private struct AddMethodMenu: View {
+    let router: AppRouter
+    var primaryLabel: String? = nil
+
+    var body: some View {
+        Menu {
+            Button {
+                AppRouter.haptic()
+                router.startIntake(.photoFirst)
+            } label: { Label("Take photos", systemImage: "camera") }
+            Button {
+                AppRouter.haptic()
+                router.startIntake(.detailsFirst)
+            } label: { Label("Type details", systemImage: "square.and.pencil") }
+            Button {
+                AppRouter.haptic()
+                router.startIntake(.autoLister)
+            } label: { Label("Bulk list with AI", systemImage: "wand.and.stars") }
+        } label: {
+            if let primaryLabel {
+                Label(primaryLabel, systemImage: "plus.circle.fill")
+            } else {
+                Image(systemName: "plus.circle")
+                    .accessibilityLabel("Add an item")
+            }
+        }
     }
 }
 

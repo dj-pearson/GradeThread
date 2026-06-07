@@ -4669,3 +4669,12 @@ clear on enqueue/discard). Wired into DetailsIntakeView + PhotoIntakeView. Tests
 added (form round-trip / empty-no-save / clear).
 
 prd.json 469/679.
+
+
+### iOS one-tap Add (US-649)
+
+Add tab → one-tap photo-first capture (tabSelectionBinding .add → startIntake
+(.photoFirst)). Mode picker demoted to AddMethodMenu (Home toolbar + iPad sidebar)
+with plain-language labels. Mandatory confirmationDialog no longer triggered.
+
+prd.json 470/679.

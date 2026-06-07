@@ -9646,8 +9646,8 @@
         "Labels are plain-language for first-time users"
       ],
       "priority": 649,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: ContentView.swift:235-252 the Add tab pops a confirmationDialog with internal-jargon labels ('Photo-first (Snap & Catalog)', 'AutoLister (batch photos -> AI listings)') and no remembered default for the core action."
+      "passes": true,
+      "notes": "Done. Tapping the Add tab now goes straight into the photo-first capture flow (AppRouter.tabSelectionBinding .add → startIntake(.photoFirst)) — the most frequent action — instead of a mandatory 3-way confirmationDialog every time. The mode picker is demoted to a secondary control: a new AddMethodMenu (Menu) on the Home tab toolbar (iPhone) and the iPad sidebar Add button, with plain-language options for first-time users ('Take photos' / 'Type details' / 'Bulk list with AI') rather than jargon ('Snap & Catalog' / 'AutoLister'). All tabs' NavigationStacks already resolve IntakeRoute, so one-tap Add works from any tab. The old confirmationDialog is no longer triggered."
     },
     {
       "id": "US-650",
