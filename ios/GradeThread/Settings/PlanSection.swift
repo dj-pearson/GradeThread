@@ -4,10 +4,17 @@ import SwiftUI
 /// credit balance, included grades remaining this month, and a link out to
 /// manage billing on the web (Stripe checkout/portal lives there).
 struct PlanSection: View {
+    @Environment(AuthStore.self) private var authStore
     @State private var store = PlanStore()
     @State private var showingBilling = false
+    @State private var showingPaywall = false
 
     private static let billingURL = URL(string: "https://gradethread.com/dashboard/billing")!
+
+    private var userId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
+    }
 
     var body: some View {
         Section {
@@ -47,6 +54,11 @@ struct PlanSection: View {
         .sheet(isPresented: $showingBilling) {
             SafariView(url: Self.billingURL).ignoresSafeArea()
         }
+        .sheet(isPresented: $showingPaywall) {
+            if let userId {
+                NavigationStack { PaywallView(userId: userId) }
+            }
+        }
     }
 
     @ViewBuilder
@@ -65,6 +77,15 @@ struct PlanSection: View {
                 "Included grades",
                 value: "\(remaining) of \(usage.cap) left this month"
             )
+        }
+
+        if userId != nil {
+            Button {
+                AppRouter.haptic()
+                showingPaywall = true
+            } label: {
+                Label("See plans & credits", systemImage: "sparkles")
+            }
         }
 
         Button {

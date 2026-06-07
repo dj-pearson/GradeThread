@@ -1,0 +1,95 @@
+import Foundation
+
+/// iOS StoreKit product catalog (pure). Mirrors the server PRODUCT_MAP in
+/// services/edge-functions/src/lib/appstore/products.ts — the product ids MUST
+/// match the App Store Connect identifiers and the server map exactly.
+///
+/// Prices are shown from StoreKit when products load; `fallbackPrice` (web parity)
+/// is only a placeholder for when the product list can't be fetched.
+
+enum IAPKind: Equatable {
+    case subscription(plan: String, interval: String)
+    case consumable(credits: Int)
+}
+
+struct IAPCatalogEntry: Identifiable, Equatable {
+    let productId: String
+    let kind: IAPKind
+    let title: String
+    let blurb: String
+    let fallbackPrice: String
+    var id: String { productId }
+}
+
+enum IAPCatalog {
+    static let all: [IAPCatalogEntry] = [
+        IAPCatalogEntry(
+            productId: "com.gradethread.sub.starter.monthly",
+            kind: .subscription(plan: "starter", interval: "monthly"),
+            title: "Starter", blurb: "250 listings · 200 AI actions · 10 grades/mo",
+            fallbackPrice: "$29/mo"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.sub.starter.yearly",
+            kind: .subscription(plan: "starter", interval: "yearly"),
+            title: "Starter", blurb: "250 listings · 200 AI actions · 10 grades/mo",
+            fallbackPrice: "$290/yr"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.sub.pro.monthly",
+            kind: .subscription(plan: "pro", interval: "monthly"),
+            title: "Pro", blurb: "1,000 listings · 1,000 AI actions · 30 grades · AutoLister",
+            fallbackPrice: "$59/mo"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.sub.pro.yearly",
+            kind: .subscription(plan: "pro", interval: "yearly"),
+            title: "Pro", blurb: "1,000 listings · 1,000 AI actions · 30 grades · AutoLister",
+            fallbackPrice: "$590/yr"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.sub.business.monthly",
+            kind: .subscription(plan: "business", interval: "monthly"),
+            title: "Business", blurb: "Unlimited listings · team seats · API · reconciliation",
+            fallbackPrice: "$99/mo"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.sub.business.yearly",
+            kind: .subscription(plan: "business", interval: "yearly"),
+            title: "Business", blurb: "Unlimited listings · team seats · API · reconciliation",
+            fallbackPrice: "$990/yr"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.credits.10", kind: .consumable(credits: 10),
+            title: "10 grade credits", blurb: "Never expire", fallbackPrice: "$24.99"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.credits.25", kind: .consumable(credits: 25),
+            title: "25 grade credits", blurb: "Never expire", fallbackPrice: "$59.99"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.credits.50", kind: .consumable(credits: 50),
+            title: "50 grade credits", blurb: "Never expire", fallbackPrice: "$109.99"),
+        IAPCatalogEntry(
+            productId: "com.gradethread.credits.100", kind: .consumable(credits: 100),
+            title: "100 grade credits", blurb: "Never expire", fallbackPrice: "$199.99"),
+    ]
+
+    /// Fail-closed classification (mirrors the server's classifyProduct).
+    static func classify(_ productId: String) -> IAPKind? {
+        all.first { $0.productId == productId }?.kind
+    }
+
+    static func entry(for productId: String) -> IAPCatalogEntry? {
+        all.first { $0.productId == productId }
+    }
+
+    static var allIds: [String] { all.map(\.productId) }
+
+    /// Subscription tiers for one billing interval, in display order.
+    static func subscriptions(interval: String) -> [IAPCatalogEntry] {
+        all.filter {
+            if case let .subscription(_, i) = $0.kind { return i == interval }
+            return false
+        }
+    }
+
+    static var consumables: [IAPCatalogEntry] {
+        all.filter {
+            if case .consumable = $0.kind { return true }
+            return false
+        }
+    }
+}

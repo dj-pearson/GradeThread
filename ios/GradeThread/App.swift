@@ -43,7 +43,12 @@ struct GradeThreadApp: App {
                 .environment(\.photoUploadService, appDelegate.photoUploadService)
                 // Hand the background-refresh service the live container so
                 // its new-sale / new-grade detection can read the cache.
-                .task { appDelegate.backgroundRefresh.attachModelContainer(container) }
+                .task {
+                    appDelegate.backgroundRefresh.attachModelContainer(container)
+                    // Drain StoreKit transaction updates (renewals/refunds/
+                    // deferred buys): report + finish each. Detached, lives on.
+                    _ = StoreKitService.startTransactionListener()
+                }
         }
     }
 }

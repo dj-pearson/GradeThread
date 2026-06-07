@@ -1,0 +1,162 @@
+import SwiftUI
+
+/// View-model for the paywall. Loads StoreKit prices + the user's current
+/// billing state, gates purchasing (block subscriptions when an active Stripe
+/// sub is managed on web), and drives purchases through `StoreKitProviding`. The
+/// derived gating + `buy` flow are unit-tested with a fake service; `load`'s
+/// Supabase fetch is impure and not unit-tested.
+@MainActor
+@Observable
+final class PaywallStore {
+
+    enum Phase: Equatable {
+        case loading
+        case ready
+        case failed(String)
+    }
+
+    /// Snapshot of the user's billing state, fetched after load/purchase.
+    struct BillingSnapshot: Equatable {
+        var plan: String
+        var status: String?
+        var source: String?
+        var credits: Int
+    }
+
+    private let service: StoreKitProviding
+    private let billingFetcher: () async -> BillingSnapshot?
+    let userId: UUID
+
+    var phase: Phase = .loading
+    var prices: [String: String] = [:]
+    /// Selected subscription billing interval for display ("monthly"/"yearly").
+    var interval: String = "monthly"
+
+    // Current billing state (server truth).
+    var currentPlan: String = "free"
+    var billingSource: String?
+    var subscriptionStatus: String?
+    var creditBalance: Int = 0
+
+    // Purchase flow.
+    var purchasingId: String?
+    var purchaseError: String?
+    var purchaseSucceeded = false
+
+    init(
+        userId: UUID,
+        service: StoreKitProviding = StoreKitService(),
+        billingFetcher: @escaping () async -> BillingSnapshot? = PaywallStore.liveBillingFetcher
+    ) {
+        self.userId = userId
+        self.service = service
+        self.billingFetcher = billingFetcher
+    }
+
+    // MARK: - Derived (pure, tested)
+
+    private static let entitlingStatuses: Set<String> = ["active", "trialing", "past_due"]
+
+    /// True when an active Stripe subscription owns the plan — App Store
+    /// subscription purchases are blocked (managed on the web instead).
+    var managedOnWeb: Bool {
+        billingSource == "stripe" && Self.entitlingStatuses.contains(subscriptionStatus ?? "")
+    }
+
+    func isCurrentPlan(_ plan: String) -> Bool {
+        currentPlan.lowercased() == plan.lowercased()
+    }
+
+    func canPurchase(_ entry: IAPCatalogEntry) -> Bool {
+        guard purchasingId == nil else { return false }
+        switch entry.kind {
+        case let .subscription(plan, _):
+            return !managedOnWeb && !isCurrentPlan(plan)
+        case .consumable:
+            return true
+        }
+    }
+
+    func price(for entry: IAPCatalogEntry) -> String {
+        prices[entry.productId] ?? entry.fallbackPrice
+    }
+
+    // MARK: - Load
+
+    func load() async {
+        phase = .loading
+        prices = await service.loadPrices(ids: IAPCatalog.allIds)
+        await refreshBilling()
+        phase = .ready
+    }
+
+    // MARK: - Purchase
+
+    @discardableResult
+    func buy(_ entry: IAPCatalogEntry) async -> Bool {
+        guard canPurchase(entry) else { return false }
+        purchasingId = entry.productId
+        purchaseError = nil
+        defer { purchasingId = nil }
+
+        let outcome = await service.purchase(productId: entry.productId, appAccountToken: userId)
+        switch outcome {
+        case .success:
+            purchaseSucceeded = true
+            await refreshBilling()
+            return true
+        case .userCancelled, .pending:
+            return false
+        case .verificationFailed:
+            purchaseError = "Your purchase couldn't be verified. If you were charged, it'll apply shortly."
+            return false
+        case let .failed(message):
+            purchaseError = message
+            return false
+        }
+    }
+
+    func restore() async {
+        await service.restore()
+        await refreshBilling()
+    }
+
+    // MARK: - Helpers (impure; not unit-tested)
+
+    private func refreshBilling() async {
+        if let snapshot = await billingFetcher() {
+            currentPlan = snapshot.plan
+            subscriptionStatus = snapshot.status
+            billingSource = snapshot.source
+            creditBalance = snapshot.credits
+        }
+        // Else keep prior values; the paywall still renders with defaults.
+    }
+
+    /// Live billing fetch from Supabase (RLS-scoped to the caller). Impure;
+    /// injected so tests can stub it.
+    static let liveBillingFetcher: () async -> BillingSnapshot? = {
+        struct Row: Decodable {
+            let flipdesk_plan: String?
+            let subscription_status: String?
+            let billing_source: String?
+            let grade_credit_balance: Int?
+        }
+        do {
+            let rows: [Row] = try await SupabaseShared.client
+                .from("users")
+                .select("flipdesk_plan, subscription_status, billing_source, grade_credit_balance")
+                .limit(1)
+                .execute()
+                .value
+            guard let row = rows.first else { return nil }
+            return BillingSnapshot(
+                plan: row.flipdesk_plan ?? "free",
+                status: row.subscription_status,
+                source: row.billing_source,
+                credits: row.grade_credit_balance ?? 0)
+        } catch {
+            return nil
+        }
+    }
+}
