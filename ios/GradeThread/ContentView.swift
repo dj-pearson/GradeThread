@@ -765,6 +765,7 @@ struct SettingsView: View {
     @State private var showingFeedbackSheet = false
     @State private var showingDeleteAccountSheet = false
     @State private var showingHelp = false
+    @State private var showingImport = false   // US-667 CSV / Sheets import
     // US-648 preferences
     @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
     @State private var currencyCode: String = AppPreferences.currencyCode ?? "device"
@@ -801,6 +802,20 @@ struct SettingsView: View {
                 Text("Connections")
             } footer: {
                 Text("Connect or reconnect your eBay account and review sync status.")
+                    .font(.footnote)
+            }
+
+            // ── Data ─────────────────────────────────────────────────
+            Section {
+                Button {
+                    showingImport = true
+                } label: {
+                    Label("Import inventory (CSV / Sheets)", systemImage: "square.and.arrow.down")
+                }
+            } header: {
+                Text("Data")
+            } footer: {
+                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet.")
                     .font(.footnote)
             }
 
@@ -856,6 +871,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingHelp) {
             SafariView(url: Self.helpURL).ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingImport) {
+            CSVImportView()
         }
     }
 
