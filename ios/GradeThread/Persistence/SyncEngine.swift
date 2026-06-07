@@ -327,12 +327,20 @@ actor SyncEngine {
 
     private func pullRemote() async -> Result<PullPayload, Error> {
         do {
+            // US-670: scope the pull to the active workspace owner. Additive
+            // workspace-member RLS (00042) returns the OWNER's rows to a member,
+            // so without this filter a member's cache would mix every workspace
+            // they belong to. Resolve once: the selected workspace, else self.
+            let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
+            let ownerId = WorkspaceScope.activeOwnerId ?? selfId
+
             // Items — delta on updated_at, paginated (US-633).
             let items = try await paginatedFetch(
                 table: "inventory_items",
                 columns: Self.itemColumns,
                 cursor: SyncWatermark.Table.inventoryItems.cursorColumn,
                 watermark: watermark.value(for: .inventoryItems),
+                scopeUserId: ownerId,
                 decode: Self.decodeItemsResiliently
             )
 
@@ -355,6 +363,7 @@ actor SyncEngine {
                 columns: Self.saleColumns,
                 cursor: SyncWatermark.Table.sales.cursorColumn,
                 watermark: watermark.value(for: .sales),
+                scopeUserId: ownerId,
                 decode: Self.decodeSalesResiliently
             )) ?? []
 
@@ -374,12 +383,15 @@ actor SyncEngine {
         columns: String,
         cursor: String,
         watermark: String?,
+        scopeUserId: String? = nil,
         decode: (Data) -> [T]
     ) async throws -> [T] {
         var out: [T] = []
         var offset = 0
         while true {
             var query = SupabaseShared.client.from(table).select(columns)
+            // US-670: workspace scoping for tables with a user_id column.
+            if let scopeUserId { query = query.eq("user_id", value: scopeUserId) }
             if let watermark { query = query.gt(cursor, value: watermark) }
             let response = try await query
                 .order(cursor, ascending: true)

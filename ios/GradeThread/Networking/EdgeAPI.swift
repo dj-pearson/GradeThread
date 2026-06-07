@@ -157,6 +157,14 @@ public actor EdgeAPI {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
 
+        // US-670: scope edge operations to the active workspace. Omitted when
+        // personal (the edge workspace middleware defaults the tenant to the
+        // caller); when set, the middleware validates the caller's membership
+        // before honoring it.
+        if let workspaceOwner = WorkspaceScope.activeOwnerId {
+            request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
+        }
+
         if let body, !(body is Empty) {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             do {
