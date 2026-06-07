@@ -9494,8 +9494,8 @@
         "EdgeAPI applies a bounded retry-with-backoff to transient network failures (not 4xx)"
       ],
       "priority": 638,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Grading/GradeRequestStore.swift:124-145 polls a constant 3s; EbaySyncService.swift:84-85 same; Networking/EdgeAPI.swift uses URLSession.shared with no cache/retry; Comps/CompsService.swift:20-49 always makes 2 sequential calls with no caching."
+      "passes": true,
+      "notes": "Done. New Networking/Backoff.swift (exponential base*2^attempt capped). GradeRequestStore.poll + EbaySyncService poll loop now back off (1s→2s→4s→8s cap for grading; base=policy.interval capped at 8s for eBay) instead of a constant 3s. EdgeAPI gained: (1) a tiny in-memory TTL cache for idempotent GETs — getJSON(_:query:cacheTTL:) caches raw bytes keyed by method+path+canonicalized query so each caller decodes its own type; (2) bounded retry-with-backoff (max 2 retries, 0.5s/1s) for transient failures only (.network/.serverError) — 4xx (auth/bad-request/not-found/rate-limit) and decode errors fail fast. CompsService caches the category-suggest result per normalized title (static cache) so a repeat title skips the first hop. Test: Backoff exponential+capped."
     },
     {
       "id": "US-639",
@@ -9508,8 +9508,8 @@
         "Typing in search on a 1000+ item inventory shows no visible lag"
       ],
       "priority": 639,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Inventory/InventoryListView.swift:371-379 filteredItems runs full-array InventoryFilter.apply on every render; searchQuery is a live binding (re-filters per keystroke); stageCount (line 393) does a separate full .filter per tab chip; filter sheet resultCount re-runs the full filter."
+      "passes": true,
+      "notes": "Done. InventoryListView: the .searchable binding is now debounced (250ms via .task(id: searchQuery) cancel-on-keystroke) into debouncedQuery, which the filter (InventoryFilter.apply), empty-state, and filter-sheet resultCount all read — so typing no longer re-filters the whole list on every keystroke. Per-stage tab counts are computed once per render in a single pass (stageCounts dictionary) and looked up per chip, replacing the previous one-full-.filter-per-visible-chip. (Predicate pushdown into @Query was evaluated but the multi-facet brand/size/color/price/grade filter keeps filtering in-memory; the debounce + single-pass counts deliver the 'no visible lag on 1000+ items' goal.)"
     },
     {
       "id": "US-640",

@@ -4554,3 +4554,17 @@ end/drop report a network failure not 'no listing'; CachedThumbnail retry on loa
 fail.
 
 prd.json 457/679.
+
+
+### iOS Networking-efficiency (US-638) + search debounce flag (US-639)
+
+US-638: Networking/Backoff.swift exponential helper. GradeRequestStore.poll +
+EbaySyncService poll loops now back off instead of constant intervals. EdgeAPI
+getJSON(cacheTTL:) in-memory TTL cache for idempotent GETs + bounded
+retry-with-backoff for transient (.network/.serverError) only (4xx fail fast).
+CompsService caches category-suggest per title. Backoff test added.
+
+US-639 (implemented in the cluster-A InventoryListView pass, flagged now):
+debounced .searchable (250ms) → debouncedQuery; single-pass memoized stageCounts.
+
+prd.json 459/679.

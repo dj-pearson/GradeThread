@@ -132,6 +132,17 @@ final class SyncTests: XCTestCase {
         XCTAssertEqual(store.pendingCount, 5)
     }
 
+    // MARK: - Backoff (US-638)
+
+    func test_backoff_isExponentialAndCapped() {
+        XCTAssertEqual(Backoff.delayNanos(attempt: 0, base: 1, cap: 8), 1_000_000_000)
+        XCTAssertEqual(Backoff.delayNanos(attempt: 1, base: 1, cap: 8), 2_000_000_000)
+        XCTAssertEqual(Backoff.delayNanos(attempt: 2, base: 1, cap: 8), 4_000_000_000)
+        XCTAssertEqual(Backoff.delayNanos(attempt: 3, base: 1, cap: 8), 8_000_000_000)
+        // Capped beyond the ceiling.
+        XCTAssertEqual(Backoff.delayNanos(attempt: 9, base: 1, cap: 8), 8_000_000_000)
+    }
+
     // MARK: - SyncWatermark (US-633)
 
     func test_watermark_firstReadIsNil() {

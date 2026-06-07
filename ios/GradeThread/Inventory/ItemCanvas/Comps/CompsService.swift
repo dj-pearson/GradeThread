@@ -12,6 +12,12 @@ final class CompsService: CompsProviding {
     private let baseURL: URL
     private let session: URLSession
 
+    /// US-638: cache the resolved category per normalized title so a repeated
+    /// lookup (same title, different brand/size) doesn't re-pay the
+    /// category-suggest hop. Static so it persists across short-lived service
+    /// instances; accessed only from this `@MainActor` type.
+    private static var categoryCache: [String: CategorySuggestResponse] = [:]
+
     init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = .shared) {
         self.baseURL = baseURL
         self.session = session
@@ -23,11 +29,18 @@ final class CompsService: CompsProviding {
         let query = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }
 
-        // Hop 1: resolve a category from the title.
-        let suggestion: CategorySuggestResponse = try await get(
-            path: "/api/flipdesk/ebay/category/suggest",
-            query: [URLQueryItem(name: "q", value: query)]
-        )
+        // Hop 1: resolve a category from the title — cached per title (US-638).
+        let cacheKey = query.lowercased()
+        let suggestion: CategorySuggestResponse
+        if let cached = Self.categoryCache[cacheKey] {
+            suggestion = cached
+        } else {
+            suggestion = try await get(
+                path: "/api/flipdesk/ebay/category/suggest",
+                query: [URLQueryItem(name: "q", value: query)]
+            )
+            Self.categoryCache[cacheKey] = suggestion
+        }
         guard let top = suggestion.suggestions.first else { return nil }
 
         // Hop 2: comps within that category, narrowed by brand/size when set.

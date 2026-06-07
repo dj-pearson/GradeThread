@@ -45,7 +45,8 @@ final class GradeRequestStore {
     // Polling cadence: ~2 minutes total. Standard SLA is hours, but the AI
     // pipeline usually finishes in seconds — we poll for the common fast path
     // and fall back to `.stillProcessing` (sync delivers the rest).
-    private let pollIntervalNanos: UInt64 = 3_000_000_000
+    // US-638: poll cadence is now exponential backoff (see Backoff) rather than
+    // a constant interval.
     private let maxPolls = 40
 
     // `service` defaults to nil (not `GradingService()`): a default argument is
@@ -122,7 +123,7 @@ final class GradeRequestStore {
     }
 
     private func poll(ref: String) async {
-        for _ in 0..<maxPolls {
+        for attempt in 0..<maxPolls {
             // Bail if the sheet was torn down / a newer flow started.
             if Task.isCancelled { return }
             do {
@@ -138,7 +139,9 @@ final class GradeRequestStore {
             } catch {
                 // Transient poll error — keep trying within the window.
             }
-            try? await Task.sleep(nanoseconds: pollIntervalNanos)
+            // US-638: exponential backoff (1s→2s→4s→… capped) instead of a
+            // constant 3s loop, so a long grade stops hammering the endpoint.
+            try? await Task.sleep(nanoseconds: Backoff.delayNanos(attempt: attempt, base: 1, cap: 8))
         }
         // Window elapsed without a terminal state.
         phase = .stillProcessing
