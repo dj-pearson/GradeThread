@@ -75,15 +75,23 @@ jobs:
       - name: Build edge image
         run: docker build -t gradethread-edge:scan services/edge-functions
       - name: Trivy vulnerability scan
-        # NOTE: tags are v-prefixed (aquasecurity deleted the old unprefixed
-        # tags, which is why the original @0.28.0 stopped resolving). Pin to the
-        # v-prefixed equivalent of the originally-tested release.
-        uses: aquasecurity/trivy-action@v0.28.0
-        with:
-          image-ref: gradethread-edge:scan
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
+        # Run Trivy from its official Docker image against the locally built edge
+        # image (via the host docker socket). This deliberately avoids the
+        # aquasecurity/trivy-action wrapper: their tag cleanup deleted the tags a
+        # range of releases depend on (e.g. @0.28.0 → setup-trivy@v0.2.1, now
+        # 404), and the newer wrapper's release-download installer flaked on the
+        # runner. The pinned image is reproducible and pulls from Docker Hub.
+        # Fails (exit 1) on HIGH/CRITICAL with a fix available; --ignore-unfixed
+        # keeps it from blocking on advisories with no upstream patch yet.
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$HOME/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.65.0 image \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            gradethread-edge:scan
 
   codeql:
     name: CodeQL (javascript-typescript)
