@@ -181,10 +181,15 @@ function getScopes(): string {
       // Required by /sell/finances/v1/transaction for fees + payout sync
       // (lets sales rows flip from "Pending" to "Cleared" with real numbers).
       "https://api.ebay.com/oauth/api_scope/sell.finances",
-      // US-315: required by /commerce/identity/v1/user to capture the seller's
-      // account_handle. Used by webhooks to match eBay's account-deletion
-      // notifications back to the right workspace.
-      "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+      // NOTE: commerce.identity.readonly is intentionally NOT requested.
+      // It is an eBay-restricted identity scope that is granted in Sandbox but
+      // NOT on our Production keyset (eBay gates it behind extra licensing), so
+      // including it makes the production consent screen fail with
+      // `invalid_scope` and blocks every (re)connect. getUserIdentityFromToken
+      // already degrades gracefully (account_handle stays null) without it.
+      // If the production keyset is ever granted this scope, re-add the line
+      // below and have all sellers re-consent at /oauth/start:
+      //   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
     ].join(" ")
   );
 }
