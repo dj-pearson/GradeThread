@@ -58,6 +58,11 @@ export function EbayCategoryPicker({
     initialCategoryId
   );
   const [categoryPath, setCategoryPath] = useState<string | null>(null);
+  // "Change category" mode: re-open the search over an already-chosen category
+  // WITHOUT clearing it (or its specifics) first. Picking a new leaf applies it;
+  // cancelling keeps the current one. This is how a seller re-categorizes a
+  // draft (e.g. men's → women's) from the editor.
+  const [changing, setChanging] = useState(false);
 
   // aspectValues: { [aspectName]: string[] }. We always store arrays so MULTI-
   // cardinality aspects fit the same shape. SINGLE aspects use a length-1 array.
@@ -138,6 +143,7 @@ export function EbayCategoryPicker({
     setCategoryId(s.categoryId);
     setCategoryPath(s.categoryTreePath);
     setQuery("");
+    setChanging(false);
     onCategoryChange?.(s.categoryId);
   }
 
@@ -282,7 +288,7 @@ export function EbayCategoryPicker({
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Category search / chosen path */}
-        {categoryPath || categoryId ? (
+        {(categoryPath || categoryId) && !changing ? (
           <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 p-3 text-sm">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -292,11 +298,37 @@ export function EbayCategoryPicker({
                 {categoryPath ?? `Category ${categoryId}`}
               </div>
             </div>
-            <Check className="h-4 w-4 text-emerald-600" />
+            <div className="flex shrink-0 items-center gap-2">
+              <Check className="h-4 w-4 text-emerald-600" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setChanging(true);
+                  setQuery("");
+                }}
+              >
+                Change category
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="space-y-2">
-            <Label>Search eBay categories</Label>
+            <div className="flex items-center justify-between">
+              <Label>Search eBay categories</Label>
+              {categoryId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setChanging(false);
+                    setQuery("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
