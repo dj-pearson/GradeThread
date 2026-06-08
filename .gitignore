@@ -52,10 +52,11 @@ public/logo_primary.psd
 /keys
 public/logo_primary_White.psd
 
-# Deno lockfile: NOT committed — local tooling is Deno 2.x (writes lockfile v5)
-# but the edge container pins Deno 1.46.3, which cannot read v5 and crashes on
-# boot. Versions are already pinned in deno.json import map. See COOLIFY.md.
-services/edge-functions/deno.lock
+# Deno lockfile: COMMITTED. The edge container now pins Deno 2.8.0 (Dockerfile),
+# which reads lockfile v5 fine, and the Security workflow's deno-check job runs
+# `deno cache --frozen src/main.ts` (US-517) — a frozen check requires the
+# lockfile to be tracked. (The old reason for ignoring it — a Deno 1.46.3
+# container that couldn't read v5 — no longer applies.)
 flipdesk-items-2026-06-01 (1).csv
 flipdesk-items-2026-06-01-cleaned.csv
 backfill-attributes-review.csv
@@ -72,3 +73,4 @@ services/edge-functions/cov_profile/
 test-results/
 playwright-report/
 playwright/.cache/
+flipdesk-items-2026-06-08.csv
