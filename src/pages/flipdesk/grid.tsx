@@ -18,6 +18,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
@@ -410,9 +411,7 @@ export function FlipdeskGridPage() {
         </CardHeader>
         <CardContent className="px-0">
           {isLoading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              Loading…
-            </div>
+            <TableLoadingSkeleton rows={10} columns={8} />
           ) : pageRows.length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               No rows.

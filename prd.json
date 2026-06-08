@@ -10715,8 +10715,8 @@
         "Frontend build + eslint clean"
       ],
       "priority": 727,
-      "passes": false,
-      "notes": "[P1][UX/Polish] From the UI/UX audit: most pages show plain 'Loading…' text; src/components/ui/skeleton.tsx exists but is underused and index.css .animate-shimmer is defined-but-unused. Pairs with [[US-726]]."
+      "passes": true,
+      "notes": "[P1][UX/Polish] SHIPPED 2026-06-08. New src/components/ui/skeletons.tsx: TableLoadingSkeleton ({rows,columns} — header row + N rows approximating the real column count, first cell narrower) and MetricCardSkeleton (label bar over value bar), both built on the existing <Skeleton> animate-pulse primitive so there's ONE consistent loading style app-wide. Replaced the bare table-loading text on flipdesk/listings.tsx ('Loading items…' → TableLoadingSkeleton rows=10 cols=7), flipdesk/grid.tsx ('Loading…' → cols=8) and flipdesk/expenses.tsx ('Loading…' → rows=6 cols=5). Removed the dead .animate-shimmer keyframes + .animate-shimmer/:root:not(.dark) rules from index.css (verified zero references) — chose remove-over-use to keep a single pulse style. inventory.tsx + submissions.tsx already render their own skeletons (left as-is); autolister-queue.tsx uses a spinner for its single-batch view (acceptable, not a table); pipeline.tsx kanban loader left (column-shaped, not a table). tsc -b + eslint + vitest (278) green. Pairs with [[US-726]]."
     },
     {
       "id": "US-728",

@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
@@ -174,9 +175,7 @@ export function FlipdeskExpensesPage() {
         </CardHeader>
         <CardContent className="px-0">
           {isLoading ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              Loading…
-            </div>
+            <TableLoadingSkeleton rows={6} columns={5} />
           ) : expenses.length === 0 ? (
             <EmptyState
               icon={Wallet}

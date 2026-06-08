@@ -217,26 +217,6 @@
   box-shadow: 0 8px 32px 0 rgba(12, 30, 54, 0.04);
 }
 
-/* Shimmer animation override for skeleton loaders */
-@keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-.animate-shimmer {
-  background: linear-gradient(90deg, var(--muted) 25%, rgba(255, 255, 255, 0.06) 50%, var(--muted) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.6s infinite linear;
-}
-:root:not(.dark) .animate-shimmer {
-  background: linear-gradient(90deg, var(--muted) 25%, rgba(0, 0, 0, 0.02) 50%, var(--muted) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.6s infinite linear;
-}
-
 /* Dynamic grade glows */
 .glow-emerald {
   box-shadow: 0 0 16px rgba(16, 185, 129, 0.18);
