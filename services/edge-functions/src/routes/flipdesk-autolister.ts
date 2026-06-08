@@ -284,6 +284,21 @@ async function processBatch(
         .from("listing_generation_jobs")
         .update({ status: "success", listing_id: result.listingId, error: null })
         .eq("id", job.id);
+      // Auto-advance the item to 'drafted' so a generated listing lands in the
+      // Drafts tab directly — no manual "move to draft" step (web + iOS). Guarded
+      // to pre-publish statuses so re-generating a live/sold item isn't regressed.
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ status: "drafted" })
+        .eq("id", job.inventory_item_id)
+        .eq("user_id", ownerId)
+        .in("status", [
+          "sourced",
+          "cataloged",
+          "measured",
+          "photographed",
+          "comped",
+        ]);
       // US-674: apply the batch's template to the generated draft (no-op when
       // none was selected). Best-effort — overlay failure must not fail the job.
       try {
@@ -710,6 +725,62 @@ flipdeskAutolisterRoutes.post("/batch/:id/retry-failed", async (c) => {
   );
 
   return c.json({ batch_id: batchId, retried: jobs.length }, 202);
+});
+
+// POST /batch/:id/resume — user-triggered resume of a STRANDED batch (jobs left
+// 'pending'/'running' after the background worker was interrupted by a container
+// restart). Same logic the reclaim cron runs, but on demand so the seller can
+// unstick a 0/N batch immediately instead of waiting for (or relying on) the
+// cron being configured.
+flipdeskAutolisterRoutes.post("/batch/:id/resume", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const batchId = c.req.param("id");
+
+  const { data: batch, error: batchErr } = await supabaseAdmin
+    .from("listing_generation_batches")
+    .select("id, use_comps")
+    .eq("id", batchId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (batchErr) return c.json({ error: "Could not load batch." }, 500);
+  if (!batch) return c.json({ error: "Batch not found" }, 404);
+  const useComps = (batch as { use_comps?: boolean }).use_comps !== false;
+
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+  const limit = quota.limit;
+
+  // Non-terminal jobs = the ones that never finished. Reset to 'pending' so the
+  // worker's claim picks them up cleanly.
+  const { data: openJobs, error: jobsErr } = await supabaseAdmin
+    .from("listing_generation_jobs")
+    .select("id, inventory_item_id, attempts")
+    .eq("batch_id", batchId)
+    .in("status", ["pending", "running"]);
+  if (jobsErr) return c.json({ error: "Could not load jobs." }, 500);
+  const jobs = (openJobs ?? []) as Array<
+    { id: string; inventory_item_id: string; attempts: number }
+  >;
+  if (jobs.length === 0) {
+    return c.json({ error: "Nothing to resume — no unfinished jobs." }, 400);
+  }
+
+  await supabaseAdmin
+    .from("listing_generation_batches")
+    .update({ status: "running", error: null })
+    .eq("id", batchId);
+  await supabaseAdmin
+    .from("listing_generation_jobs")
+    .update({ status: "pending", error: null })
+    .in("id", jobs.map((j) => j.id));
+
+  void processBatch(batchId, ownerId, jobs, useComps, limit).catch((err) =>
+    console.error("[flipdesk-autolister] resume batch crashed:", err)
+  );
+
+  return c.json({ batch_id: batchId, resumed: jobs.length }, 202);
 });
 
 // GET /batch/:id — batch + per-job status for progress polling.

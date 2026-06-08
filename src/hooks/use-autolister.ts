@@ -285,6 +285,24 @@ export function useRetryFailedAutolister() {
   });
 }
 
+// Resumes a STRANDED batch (jobs stuck 'pending'/'running' because the
+// background worker was interrupted). Lets the seller unstick a 0/N batch
+// immediately instead of waiting on the reclaim cron.
+export function useResumeAutolister() {
+  return useMutation<{ batch_id: string; resumed: number }, Error, { batchId: string }>({
+    mutationFn: async ({ batchId }) => {
+      const res = await edgeFetch(
+        `/api/flipdesk/autolister/batch/${batchId}/resume`,
+        { method: "POST" },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not resume generation.");
+      return json as { batch_id: string; resumed: number };
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // ── US-721/US-723: per-marketplace listing fields ───────────────────────
 
 export interface PlatformKitVariant {

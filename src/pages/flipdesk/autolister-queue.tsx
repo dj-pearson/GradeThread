@@ -33,6 +33,7 @@ import {
 import {
   useAutolisterBatch,
   useBulkPublish,
+  useResumeAutolister,
   useRetryFailedAutolister,
   useRunPhotoQa,
   type AutolisterJob,
@@ -74,6 +75,7 @@ export function FlipdeskAutolisterQueuePage() {
   const queryClient = useQueryClient();
   const { data, isLoading, error } = useAutolisterBatch(batchId);
   const retryFailedMutation = useRetryFailedAutolister();
+  const resumeMutation = useResumeAutolister();
   const bulkPublish = useBulkPublish();
   const { data: ebayConnection } = useEbayConnection();
 
@@ -213,6 +215,11 @@ export function FlipdeskAutolisterQueuePage() {
     .filter((j) => j.status === "failed")
     .map((j) => j.inventory_item_id);
   const succeededJobs = jobs.filter((j) => j.status === "success");
+  // Jobs that never finished — if these sit unchanged, the background worker was
+  // interrupted (container restart). The "Resume generation" button re-runs them.
+  const pendingCount = jobs.filter(
+    (j) => j.status === "pending" || j.status === "running",
+  ).length;
 
   // Open the confirmation dialog (US-321) and run pre-flight /listings/validate
   // on each succeeded item in parallel. Blockers render per-row and gate the
@@ -329,6 +336,17 @@ export function FlipdeskAutolisterQueuePage() {
     queryClient.invalidateQueries({ queryKey: ["autolister_batch", batchId] });
   }
 
+  async function resumeBatch() {
+    if (pendingCount === 0 || !batchId) return;
+    try {
+      const res = await resumeMutation.mutateAsync({ batchId });
+      toast.success(`Resuming ${res.resumed} item${res.resumed === 1 ? "" : "s"}…`);
+      queryClient.invalidateQueries({ queryKey: ["autolister_batch", batchId] });
+    } catch {
+      /* hook surfaces the error toast */
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -341,6 +359,21 @@ export function FlipdeskAutolisterQueuePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {pendingCount > 0 && (
+            <Button
+              variant="secondary"
+              onClick={resumeBatch}
+              disabled={resumeMutation.isPending}
+              title="Re-run items still waiting — use this if generation stalled at 0/N after a server restart."
+            >
+              {resumeMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Resume {pendingCount} stuck
+            </Button>
+          )}
           {failedItemIds.length > 0 && !isRunning && (
             <Button
               variant="secondary"
