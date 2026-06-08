@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Card,
   CardContent,
@@ -35,7 +35,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { GARMENT_TYPES, ITEM_STATUSES } from "@/lib/constants";
@@ -51,29 +50,6 @@ function formatLabel(value: string): string {
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-}
-
-function getStatusBadgeClasses(status: string): string {
-  switch (status) {
-    case "acquired":
-      return "border-slate-200 bg-slate-100 text-slate-800";
-    case "grading":
-      return "border-blue-200 bg-blue-100 text-blue-800";
-    case "graded":
-      return "border-indigo-200 bg-indigo-100 text-indigo-800";
-    case "listed":
-      return "border-yellow-200 bg-yellow-100 text-yellow-800";
-    case "sold":
-      return "border-green-200 bg-green-100 text-green-800";
-    case "shipped":
-      return "border-cyan-200 bg-cyan-100 text-cyan-800";
-    case "completed":
-      return "border-emerald-200 bg-emerald-100 text-emerald-800";
-    case "returned":
-      return "border-red-200 bg-red-100 text-red-800";
-    default:
-      return "";
-  }
 }
 
 function formatCurrency(amount: number | null): string {
@@ -445,12 +421,7 @@ export function InventoryPage() {
                           {item.brand ?? "—"}
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={cn(getStatusBadgeClasses(item.status))}
-                          >
-                            {formatLabel(item.status)}
-                          </Badge>
+                          <StatusBadge status={item.status} />
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           —

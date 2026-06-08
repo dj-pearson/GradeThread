@@ -489,6 +489,59 @@ export const ITEM_STATUS_LABELS: Record<
   wearing: "Wearing",
 };
 
+// Single source of truth for status badge colors (consumed by <StatusBadge>).
+// Statuses are grouped into a small set of semantic "tones" by pipeline phase
+// so the same status looks identical everywhere it appears. Each tone's
+// classes carry light + dark variants tuned to pass WCAG AA contrast.
+export type StatusTone =
+  | "neutral"
+  | "prep"
+  | "grading"
+  | "pricing"
+  | "live"
+  | "success"
+  | "danger"
+  | "muted";
+
+export const STATUS_TONE_CLASSES: Record<StatusTone, string> = {
+  neutral:
+    "border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300",
+  prep: "border-sky-300 bg-sky-100 text-sky-800 dark:border-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
+  grading:
+    "border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-300",
+  pricing:
+    "border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+  live: "border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
+  success:
+    "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
+  danger:
+    "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-300",
+  muted: "border-border bg-muted text-muted-foreground",
+};
+
+export const ITEM_STATUS_TONE: Record<
+  (typeof ITEM_STATUSES)[number],
+  StatusTone
+> = {
+  sourced: "neutral",
+  acquired: "neutral",
+  cataloged: "prep",
+  measured: "prep",
+  photographed: "prep",
+  grading: "grading",
+  graded: "grading",
+  comped: "pricing",
+  drafted: "pricing",
+  listed: "live",
+  sold: "success",
+  shipped: "success",
+  completed: "success",
+  returned: "danger",
+  archived: "muted",
+  keeping: "muted",
+  wearing: "muted",
+};
+
 // ─── FlipDesk ────────────────────────────────────────────────────
 
 // Pipeline columns in display order with the next-action hint.

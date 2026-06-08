@@ -36,6 +36,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +68,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
@@ -233,28 +233,6 @@ function daysSince(iso: string | null | undefined): number | null {
   return Math.floor((Date.now() - t) / DAY_MS);
 }
 
-const STATUS_BADGE_VARIANT: Record<
-  string,
-  "default" | "secondary" | "outline" | "destructive"
-> = {
-  sold: "default",
-  shipped: "default",
-  completed: "default",
-  listed: "default",
-  drafted: "secondary",
-  photographed: "secondary",
-  measured: "secondary",
-  cataloged: "secondary",
-  sourced: "secondary",
-  acquired: "secondary",
-  grading: "secondary",
-  graded: "secondary",
-  comped: "secondary",
-  returned: "destructive",
-  archived: "outline",
-  keeping: "outline",
-  wearing: "outline",
-};
 
 function scoreColor(score: number): string {
   if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
@@ -1636,14 +1614,10 @@ export function FlipdeskListingsPage() {
                             </>
                           )}
                           <TableCell>
-                            <Badge
-                              variant={
-                                STATUS_BADGE_VARIANT[it.status] ?? "secondary"
-                              }
+                            <StatusBadge
+                              status={it.status}
                               className="text-[10px]"
-                            >
-                              {ITEM_STATUS_LABELS[it.status]}
-                            </Badge>
+                            />
                           </TableCell>
                           {!isSold && !isActive && (
                             <TableCell className="text-right">

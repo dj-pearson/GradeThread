@@ -10729,8 +10729,8 @@
         "No remaining inline status-color literals in the touched pages; a test asserts every status enum value has a mapping"
       ],
       "priority": 728,
-      "passes": false,
-      "notes": "[P2][UX/Polish] From the UI/UX audit: three separate status-color systems (inventory.tsx, listings.tsx, next-action-badge.tsx) and ad-hoc text-green/amber-600 without dark-mode variants. Feeds [[US-729]] mobile cards which reuse the badge."
+      "passes": true,
+      "notes": "[P2][UX/Polish] SHIPPED 2026-06-08. Single source of truth in constants.ts: a StatusTone palette (neutral/prep/grading/pricing/live/success/danger/muted) → STATUS_TONE_CLASSES (each with light+dark variants tuned for WCAG AA: border-X-300 bg-X-100 text-X-800 / dark:bg-X-950/50 dark:text-X-300) and ITEM_STATUS_TONE mapping all 17 item statuses to a tone by pipeline phase. New src/components/ui/status-badge.tsx <StatusBadge status> reads the label + tone maps. Replaced the two competing item-status color schemes: inventory.tsx (deleted its hardcoded getStatusBadgeClasses switch — those used light-only colors that failed dark mode) and flipdesk/listings.tsx (deleted its STATUS_BADGE_VARIANT shadcn-variant map) now both render <StatusBadge>; removed the now-dead imports. New status-badge.test.tsx asserts EVERY ITEM_STATUSES value resolves to a label + tone + classes, plus a render check. tsc -b + eslint + vitest (280) green. SCOPE NOTE: next-action-badge.tsx is a different concern (next-ACTION tones todo/ready/done, not item statuses) so it's intentionally left; centralizing the separate listing/sale/submission status enums onto the same tone palette is a clean follow-up. Feeds [[US-729]] (mobile cards reuse StatusBadge)."
     },
     {
       "id": "US-729",
