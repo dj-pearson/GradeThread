@@ -8,6 +8,12 @@ import {
   CreditCard,
   Info,
   CheckCheck,
+  Award,
+  Hourglass,
+  Tag,
+  DollarSign,
+  ArrowRightLeft,
+  Banknote,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -25,25 +31,48 @@ import type { NotificationRow, NotificationType } from "@/types/database";
 function getNotificationIcon(type: NotificationType) {
   switch (type) {
     case "grade_complete":
-      return CheckCircle2;
+    case "grading_ready":
+      return Award;
+    case "grading_submitted":
+      return Hourglass;
     case "dispute_update":
       return AlertTriangle;
     case "billing":
       return CreditCard;
     case "system":
       return Info;
+    case "item_status_change":
+      return ArrowRightLeft;
+    case "listing_live":
+      return Tag;
+    case "sale_recorded":
+      return DollarSign;
+    case "payout_imported":
+      return Banknote;
+    default:
+      return CheckCircle2;
   }
 }
 
 function getNotificationIconColor(type: NotificationType): string {
   switch (type) {
     case "grade_complete":
-      return "text-green-600";
+    case "grading_ready":
+    case "listing_live":
+    case "sale_recorded":
+      return "text-emerald-600";
+    case "grading_submitted":
+      return "text-violet-600";
     case "dispute_update":
       return "text-yellow-600";
     case "billing":
+    case "payout_imported":
       return "text-blue-600";
+    case "item_status_change":
+      return "text-sky-600";
     case "system":
+      return "text-muted-foreground";
+    default:
       return "text-muted-foreground";
   }
 }

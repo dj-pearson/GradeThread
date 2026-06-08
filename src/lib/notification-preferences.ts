@@ -6,6 +6,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   dispute_updates: { email: true, in_app: true },
   billing_alerts: { email: true },
   product_updates: { email: true },
+  selling_activity: { email: true, in_app: true },
 };
 
 // Fills any missing keys with defaults so older/partial rows stay safe to read.
@@ -28,6 +29,10 @@ export function withPreferenceDefaults(
     product_updates: {
       ...DEFAULT_NOTIFICATION_PREFERENCES.product_updates,
       ...prefs?.product_updates,
+    },
+    selling_activity: {
+      ...DEFAULT_NOTIFICATION_PREFERENCES.selling_activity,
+      ...prefs?.selling_activity,
     },
   };
 }
@@ -63,5 +68,12 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
     label: "Product updates",
     description: "New features and occasional product announcements.",
     channels: ["email"],
+  },
+  {
+    key: "selling_activity",
+    label: "Selling activity",
+    description:
+      "When a listing goes live, an item sells, or a payout is imported.",
+    channels: ["email", "in_app"],
   },
 ];

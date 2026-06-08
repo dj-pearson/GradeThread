@@ -11,6 +11,7 @@ import {
 } from "./ai-grading.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
+import { notifyUser } from "./notify.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { detectPhotoReuse } from "./photo-reuse.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
@@ -466,6 +467,9 @@ export async function processSubmission(submissionId: string) {
       .eq("id", submissionId);
 
     // --- Step 7b: Sync a linked inventory item, if any ---
+    // Captured at function scope so the grade-ready notification (step 9) can
+    // deep-link straight to the FlipDesk item rather than the bare submission.
+    let linkedItemId: string | null = null;
     try {
       const { data: linkedItem } = await supabaseAdmin
         .from("inventory_items")
@@ -474,6 +478,7 @@ export async function processSubmission(submissionId: string) {
         .maybeSingle();
 
       if (linkedItem) {
+        linkedItemId = (linkedItem as { id: string }).id;
         const itemUpdate: Record<string, unknown> = {
           grade_report_id: gradeReport.id,
           grade_value: compositeResult.overall_score,
@@ -575,6 +580,25 @@ export async function processSubmission(submissionId: string) {
         );
       }
     })();
+
+    // --- Step 10: In-app "grade ready" notification (fire-and-forget) ---
+    // Deep-links to the FlipDesk item when this grade came from the bridge,
+    // otherwise to the submission. Respects the grade_complete in-app pref.
+    notifyUser(submission.user_id, {
+      type: "grading_ready",
+      title: "Grade ready",
+      message: `${submission.title} graded ${compositeResult.overall_score.toFixed(
+        1,
+      )} · ${compositeResult.grade_tier}.`,
+      link: linkedItemId
+        ? `/dashboard/flipdesk/items/${linkedItemId}`
+        : `/dashboard/submissions/${submissionId}`,
+    }).catch((notifyErr) => {
+      console.error(
+        `[Pipeline] In-app notification error for submission ${submissionId}:`,
+        notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+      );
+    });
 
     return gradeReport;
   } catch (error) {

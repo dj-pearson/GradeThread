@@ -113,7 +113,17 @@ export type WorkspaceRole =
   | "listing_manager"
   | "admin"
   | "owner";
-export type NotificationType = "grade_complete" | "dispute_update" | "billing" | "system";
+export type NotificationType =
+  | "grade_complete"
+  | "grading_submitted"
+  | "grading_ready"
+  | "dispute_update"
+  | "billing"
+  | "system"
+  | "item_status_change"
+  | "listing_live"
+  | "sale_recorded"
+  | "payout_imported";
 
 // ─── FlipDesk enums ────────────────────────────────────────────────
 export type FlipdeskSourceType =
@@ -185,6 +195,9 @@ export interface NotificationPreferences {
   dispute_updates: { email: boolean; in_app: boolean };
   billing_alerts: { email: boolean };
   product_updates: { email: boolean };
+  // Selling lifecycle: listing went live, sale recorded, payout imported,
+  // item status changed (US-737).
+  selling_activity: { email: boolean; in_app: boolean };
 }
 
 export type UserUseCase = "seller" | "buyer" | "consignment" | "developer";
