@@ -10884,7 +10884,7 @@
       ],
       "priority": 739,
       "passes": false,
-      "notes": "[P3][Cohesion] From the cross-functional audit: use-keyboard-shortcuts.ts exists but is used in only ~2 places and shortcuts differ per module. Pairs with [[US-738]]."
+      "notes": "[P3][Cohesion] PARTIAL 2026-06-08. SHIPPED: a global, discoverable shortcuts system. New src/components/dashboard/shortcuts-help.tsx — a '?'-triggered dialog (mounted once in dashboard-layout.tsx) listing the real shortcuts (⌘K palette, / quick search, ? help, Esc, N new on list pages, palette ↑↓/↵, grid ⌘Z); also opens via the OPEN_SHORTCUTS_EVENT, dispatched from a new command-palette action ('Keyboard shortcuts') AND a header keyboard-icon button. command-palette.tsx now also opens on '/' (GitHub-style quick search) when not typing. isTypingTarget() is exported from use-keyboard-shortcuts.ts (now strictly boolean with a contenteditable-attribute fallback so it's correct under jsdom too) and reused by the palette's '/' guard, keeping the typing-guard consistent everywhere. New src/hooks/__tests__/use-keyboard-shortcuts.test.tsx (5 cases: plain-key fire, input-guard, allowInInput, ctrlOrMeta, isTypingTarget). tsc -b + eslint + vitest (275) green. DEFERRED: per-page select-all / bulk-edit / status-change shortcuts on listings.tsx — that file is being virtualized ([[US-733]]) and consolidated ([[US-740]]) and those shortcuts need page-specific selection context, so they should land with that rework to avoid churn. Pairs with [[US-738]]."
     },
     {
       "id": "US-740",

@@ -10,14 +10,20 @@ export interface KeyboardShortcut {
   ctrlOrMeta?: boolean;
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
+/**
+ * True when the event target is a field the user is typing into, so global
+ * single-key shortcuts (n, /, ?) shouldn't hijack the keystroke. Exported so
+ * non-hook listeners (e.g. the command palette's `/`) share the same rule.
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  // isContentEditable is the truth in real browsers; fall back to the
+  // attribute so the guard also works under jsdom (which doesn't implement it).
   return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    target.isContentEditable
+    target.isContentEditable === true ||
+    target.getAttribute("contenteditable") === "true"
   );
 }
 

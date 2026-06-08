@@ -1,5 +1,13 @@
 import { useNavigate } from "react-router-dom";
-import { LogOut, Settings, CreditCard, Shield, Sun, Moon } from "lucide-react";
+import {
+  LogOut,
+  Settings,
+  CreditCard,
+  Shield,
+  Sun,
+  Moon,
+  Keyboard,
+} from "lucide-react";
 import { signOut } from "@/lib/auth";
 import { useAuth } from "@/hooks/use-auth";
 import { useThemeStore } from "@/stores/theme-store";
@@ -15,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MobileNav } from "@/components/dashboard/sidebar";
 import { NotificationCenter } from "@/components/dashboard/notification-center";
+import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
 import { WorkspaceSwitcher } from "@/components/dashboard/workspace-switcher";
 
 export function Header() {
@@ -55,6 +64,19 @@ export function Header() {
 
       <div className="flex items-center gap-2">
         <NotificationCenter />
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden sm:inline-flex"
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent(OPEN_SHORTCUTS_EVENT))
+          }
+          aria-label="Keyboard shortcuts"
+          title="Keyboard shortcuts (?)"
+        >
+          <Keyboard className="h-4 w-4" />
+        </Button>
 
         <Button
           variant="ghost"

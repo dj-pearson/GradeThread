@@ -4,6 +4,7 @@ import { Header } from "@/components/dashboard/header";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
+import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
 import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
@@ -39,6 +40,8 @@ export function DashboardLayout() {
       </div>
       {/* Global Cmd/Ctrl-K command palette */}
       <CommandPalette />
+      {/* Global "?" keyboard-shortcuts reference */}
+      <ShortcutsHelp />
       {/* First-login onboarding */}
       <OnboardingFlow />
       {/* Soft upgrade triggers — toasts when a plan cap crosses threshold (US-209) */}

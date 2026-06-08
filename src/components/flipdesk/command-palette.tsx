@@ -22,6 +22,7 @@ import {
   Users,
   KeyRound,
   Gift,
+  Keyboard,
 } from "lucide-react";
 import {
   Dialog,
@@ -33,6 +34,8 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRecentStore } from "@/stores/recent-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
+import { isTypingTarget } from "@/hooks/use-keyboard-shortcuts";
+import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
 import { cn } from "@/lib/utils";
 import type { ItemFullRow, SourceRow } from "@/types/database";
 
@@ -98,12 +101,24 @@ export function CommandPalette() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Global Cmd/Ctrl-K toggle.
+  // Global open triggers: Cmd/Ctrl-K toggles; "/" opens for quick search
+  // (GitHub-style) as long as the user isn't already typing in a field.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
+        return;
+      }
+      if (
+        e.key === "/" &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !isTypingTarget(e.target)
+      ) {
+        e.preventDefault();
+        setOpen(true);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -263,6 +278,16 @@ export function CommandPalette() {
         label: "Go to Referrals",
         icon: <Gift className="h-4 w-4" />,
         run: () => go("/dashboard/referrals"),
+      },
+      {
+        kind: "action",
+        id: "shortcuts",
+        label: "Keyboard shortcuts",
+        icon: <Keyboard className="h-4 w-4" />,
+        run: () => {
+          setOpen(false);
+          window.dispatchEvent(new CustomEvent(OPEN_SHORTCUTS_EVENT));
+        },
       },
       {
         kind: "action",
