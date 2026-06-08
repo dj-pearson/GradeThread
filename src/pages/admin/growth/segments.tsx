@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Card,
   CardContent,
@@ -437,8 +438,12 @@ export function GrowthSegmentsPage() {
         <Skeleton className="h-40 w-full" />
       ) : !data || data.segments.length === 0 ? (
         <Card>
-          <CardContent className="p-10 text-center text-muted-foreground">
-            No segments yet. Create one to target a campaign.
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Users}
+              title="No segments yet"
+              description="Create a segment to target a campaign at a specific group of users."
+            />
           </CardContent>
         </Card>
       ) : (

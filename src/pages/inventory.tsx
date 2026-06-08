@@ -10,6 +10,7 @@ import {
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -379,22 +380,16 @@ export function InventoryPage() {
           {isLoading ? (
             <LoadingSkeleton />
           ) : items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Package className="h-12 w-12 text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">
-                No inventory items yet
-              </h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Add your first item to start tracking your inventory.
-              </p>
-              <Button
-                className="mt-4"
-                onClick={() => navigate("/dashboard/inventory/new")}
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                Add Your First Item
-              </Button>
-            </div>
+            <EmptyState
+              icon={Package}
+              title="No inventory items yet"
+              description="Add your first item to start tracking your inventory."
+              action={{
+                label: "Add your first item",
+                to: "/dashboard/inventory/new",
+                icon: Plus,
+              }}
+            />
           ) : (
             <>
               <div className="overflow-x-auto">

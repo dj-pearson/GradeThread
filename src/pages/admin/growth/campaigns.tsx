@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Card,
   CardContent,
@@ -292,8 +293,12 @@ export function GrowthCampaignsPage() {
         <Skeleton className="h-48 w-full" />
       ) : !data || data.campaigns.length === 0 ? (
         <Card>
-          <CardContent className="p-10 text-center text-muted-foreground">
-            No campaigns yet.
+          <CardContent className="p-0">
+            <EmptyState
+              icon={Send}
+              title="No campaigns yet"
+              description="Create a campaign to reach a segment by email, in-app, or push."
+            />
           </CardContent>
         </Card>
       ) : (

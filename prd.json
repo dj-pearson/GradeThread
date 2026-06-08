@@ -10700,8 +10700,8 @@
         "Frontend build + eslint clean; a render test covers the no-data vs no-matches branches"
       ],
       "priority": 726,
-      "passes": false,
-      "notes": "[P1][UX/Polish] From the UI/UX audit. inventory.tsx already has the icon+heading+CTA pattern to use as the reference; flipdesk/listings.tsx empty states lack icons, expenses.tsx + admin/growth/* are text-only. Pairs with [[US-727]] (skeletons) and [[US-728]] (status colors)."
+      "passes": true,
+      "notes": "[P1][UX/Polish] SHIPPED 2026-06-08. New src/components/ui/empty-state.tsx: icon + heading + description + optional primary `action` and `secondaryAction` (each {label, to? | onClick?, icon?}); `to` renders a router Link, otherwise an onClick button; brand/semantic tokens only. Adopted on 5 surfaces spanning all three product areas: inventory.tsx (refactored off the inline reference pattern → routed CTA), submissions.tsx (demonstrates the no-data vs no-matches split — primary 'Submit your first garment' when truly empty, 'Clear filters' secondary when a status/garment filter is active), flipdesk/expenses.tsx (was bare text → CTA opens the add-expense dialog), admin/growth/campaigns.tsx + segments.tsx (were text-only → icon+heading+description). New src/components/ui/__tests__/empty-state.test.tsx (3 cases: routed no-data CTA, no-matches Clear-filters onClick, title-only). tsc -b + eslint + vitest (278) green. REMAINING (incremental, same component): finances.tsx, the giant flipdesk/listings.tsx empty states (left until its US-733 virtualization / US-740 consolidation), and the autolister-queue 'Nothing to publish' dialog. Pairs with [[US-727]] and [[US-728]]."
     },
     {
       "id": "US-727",

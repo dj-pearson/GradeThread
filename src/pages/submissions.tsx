@@ -14,6 +14,7 @@ import {
   Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
@@ -502,20 +503,31 @@ export function SubmissionsPage() {
           {isLoading ? (
             <LoadingSkeleton />
           ) : submissions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">No submissions yet</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Submit your first garment for grading to get started.
-              </p>
-              <Button
-                className="mt-4"
-                onClick={() => navigate("/dashboard/submissions/new")}
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                Submit Your First Garment
-              </Button>
-            </div>
+            statusFilter !== "all" || garmentTypeFilter !== "all" ? (
+              <EmptyState
+                icon={FileText}
+                title="No matching submissions"
+                description="No submissions match the current filters."
+                secondaryAction={{
+                  label: "Clear filters",
+                  onClick: () => {
+                    setStatusFilter("all");
+                    setGarmentTypeFilter("all");
+                  },
+                }}
+              />
+            ) : (
+              <EmptyState
+                icon={FileText}
+                title="No submissions yet"
+                description="Submit your first garment for grading to get started."
+                action={{
+                  label: "Submit your first garment",
+                  to: "/dashboard/submissions/new",
+                  icon: Plus,
+                }}
+              />
+            )
           ) : (
             <>
               <div className="overflow-x-auto">

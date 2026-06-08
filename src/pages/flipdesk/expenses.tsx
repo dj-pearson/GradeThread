@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -177,10 +178,16 @@ export function FlipdeskExpensesPage() {
               Loading…
             </div>
           ) : expenses.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No expenses logged. Click <strong>Add expense</strong> to start
-              tracking overhead.
-            </div>
+            <EmptyState
+              icon={Wallet}
+              title="No expenses logged"
+              description="Track overhead like shipping supplies, mileage, and subscriptions to get a true profit picture."
+              action={{
+                label: "Add expense",
+                onClick: () => setDialogOpen(true),
+                icon: Plus,
+              }}
+            />
           ) : (
             <Table>
               <TableHeader>
