@@ -44,10 +44,9 @@ struct AccountExportService {
     }
 
     /// Writes export bytes to a temp file the share sheet can hand off.
+    /// US-694: protected at rest and written under the swept `Exports/` dir;
+    /// the caller deletes it once the share sheet dismisses.
     func writeTempFile(_ data: Data) throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gradethread-export.json")
-        try data.write(to: url, options: [.atomic])
-        return url
+        try SecureTempFile.write(data, filename: "gradethread-export.json")
     }
 }

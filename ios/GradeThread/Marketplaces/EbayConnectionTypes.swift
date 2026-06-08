@@ -104,23 +104,30 @@ enum EbayConnectResult: Equatable {
     /// US-660: when `expectedState` is provided and the callback carries a
     /// `client_state` that does NOT match, the callback is rejected
     /// (`.stateExpired`) — a forged callback can't claim a successful connect.
-    /// A callback that omits `client_state` is treated leniently because the
-    /// server-side single-use `oauth_states` check (US-274) already validated
-    /// the real handshake; only a present-but-mismatched value is an attack
-    /// signal here.
+    ///
+    /// US-699: on the SUCCESS path (`ebay=connected`) the nonce is now
+    /// *required*, not merely checked-when-present. A callback that claims
+    /// success but omits `client_state` is rejected (`.stateExpired`) so a
+    /// forged `?ebay=connected` can't bypass the nonce on the client side. The
+    /// server-side single-use `oauth_states` check (US-274) remains the real
+    /// gate; this is defense-in-depth. Cancellation/error callbacks (which
+    /// grant no capability) stay lenient about an absent state.
     static func from(callbackURL: URL, expectedState: String? = nil) -> EbayConnectResult? {
         guard let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
         let items = components.queryItems ?? []
-        if let expectedState,
-           let returnedState = items.first(where: { $0.name == "client_state" })?.value,
-           returnedState != expectedState {
+        let returnedState = items.first(where: { $0.name == "client_state" })?.value
+        if let expectedState, let returnedState, returnedState != expectedState {
             return .stateExpired
         }
         let ebayValue = items.first { $0.name == "ebay" }?.value
         switch ebayValue {
         case "connected":
+            // Success must carry the matching nonce when one was expected.
+            if expectedState != nil, returnedState == nil {
+                return .stateExpired
+            }
             return nil  // caller polls marketplace_connections to fetch the row
         case "cancelled":
             return .cancelled

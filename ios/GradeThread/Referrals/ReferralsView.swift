@@ -189,7 +189,8 @@ struct ReferralsView: View {
 
     private func copyCode() {
         guard let code = store.me?.code, !code.isEmpty else { return }
-        UIPasteboard.general.string = code
+        // US-697: keep the referral code local-only with a short expiry.
+        SecurePasteboard.copy(code)
         HapticFeedback.light()
         copied = true
         Task {

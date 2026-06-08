@@ -103,9 +103,11 @@ public final class RealtimeService {
         do {
             try await channel.subscribeWithError()
         } catch {
-            // US-662: keep error detail out of release logs.
+            // US-662 / US-698: keep error detail out of release logs, and even
+            // in DEBUG log the redacted localizedDescription rather than the
+            // full error (which can embed the channel topic / access token).
             #if DEBUG
-            print("[Realtime] subscribe failed: \(error)")
+            print("[Realtime] subscribe failed: \(TelemetryScrubber.redact(error.localizedDescription))")
             #endif
             phase = .reconnecting
         }

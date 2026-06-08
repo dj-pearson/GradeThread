@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-07
+# Last updated: 2026-06-08
 
 ## Completed Stories
 
@@ -5014,3 +5014,54 @@ were typechecked (`tsc -p tsconfig.app.json` clean).
           storagePath and commits by referencing the staged objects (no
           re-upload). SyncEngine .uploadPhoto replay now carries captured_at +
           reconcile_session_id. Tests: ReconcileSessionTests (6) + existing (8).
+
+## iOS deep-dive audit wave (2026-06-08) -- US-680..707
+
+A code-grounded audit of the native iOS app (39k LOC) across four dimensions
+produced 28 new stories (US-680..707) appended to prd.json: UX (listing/
+management ease, US-680..687), UI/brand consistency (US-688..693), security
+(US-694..699), and accessibility (US-700..707). NOTE: this is a Linux
+container with no xcodebuild; Swift changes match existing patterns + ship
+unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
+
+### Security batch (US-694..699) COMPLETE
+
+- US-694  File-protect + auto-delete export temp files. New
+          Security/SecureTempFile.swift: writes financial CSV (FinancialExport)
+          + account JSON (AccountExportService) with
+          .completeFileProtectionUntilFirstUserAuthentication into a swept
+          Exports/ subdir; share sheets delete the file on completion
+          (UIActivityViewController.completionWithItemsHandler); sweep() runs at
+          launch + on sign-out (ContentView). Tests: SecureTempFileTests (4).
+
+- US-695  Scrub Sentry breadcrumb DATA (not just messages). Telemetry
+          beforeSend/beforeBreadcrumb now call scrubBreadcrumb(), which redacts
+          crumb.message AND every string value in crumb.data (the swizzled HTTP
+          breadcrumbs' url/http.url keys carried signed-storage tokens
+          unredacted). Tests: TelemetryTests +2.
+
+- US-696  Optional Face ID / passcode app lock. New Security/AppLock.swift
+          (@Observable, injectable evaluator for tests): cold-launch starts
+          locked when enabled; foreground re-prompts; backgrounding re-arms;
+          re-entrancy guard prevents the system-auth scene-phase bounce from
+          double-prompting; falls open when no biometrics/passcode configured.
+          MainShell shows AppLockCoverView until unlocked; ContentView re-arms on
+          .background. Settings AppLockToggleSection (disabled when unavailable).
+          NSFaceIDUsageDescription added to project.yml. Tests: AppLockTests (9).
+
+- US-697  Pasteboard hardening. New Security/SecurePasteboard.swift copies
+          capability values (workspace invite-accept URLs in TeamView x2,
+          referral code in ReferralsView) with .localOnly + 2-min .expirationDate
+          so they don't sync via Universal Clipboard or linger.
+
+- US-698  Realtime debug log redaction + CI guard. RealtimeService logs
+          TelemetryScrubber.redact(error.localizedDescription) instead of the
+          full \(error). New ios/Scripts/no-ungated-print.py (tracks #if DEBUG
+          nesting) wired into ios-ci.yml fails the build on any ungated print()
+          in app sources.
+
+- US-699  Require OAuth state nonce on the eBay connect SUCCESS path.
+          EbayConnectResult.from now rejects ?ebay=connected lacking a matching
+          client_state (when expectedState supplied) as .stateExpired; cancel/
+          error callbacks stay lenient. Defense-in-depth atop the server's
+          single-use oauth_states gate. Tests: EbayConnectionTests +2.

@@ -10253,7 +10253,7 @@
         "Unit test asserts the written file's NSFileProtectionKey resource value is the protected class"
       ],
       "priority": 694,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Security] Audit 2026-06-08. Sec gap #1: export temp files write .atomic only, no protection class, never deleted; breaks US-658 invariant. CI validates build."
     },
     {
@@ -10266,7 +10266,7 @@
         "Confirm Sentry does not capture request/response bodies"
       ],
       "priority": 695,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Security] Audit 2026-06-08. Sec gap #2: TelemetryScrubber only scrubs .message; swizzled HTTP breadcrumbs store URL in crumb.data, unredacted. CI validates build."
     },
     {
@@ -10280,7 +10280,7 @@
         "Unit test covers the lock-state gating logic"
       ],
       "priority": 696,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/Security] Audit 2026-06-08. Sec gap #3: no LAContext/biometric anywhere; privacy cover only hides switcher thumbnail. CI validates build."
     },
     {
@@ -10293,7 +10293,7 @@
         "Items are flagged so the OS hides previews where applicable"
       ],
       "priority": 697,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Security] Audit 2026-06-08. Sec gap #4: TeamView/ReferralsView use plain UIPasteboard.general.string, no expiry/localOnly. CI validates build."
     },
     {
@@ -10306,7 +10306,7 @@
         "Existing #if DEBUG-gated prints pass the check"
       ],
       "priority": 698,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Security] Audit 2026-06-08. Sec gap #5: RealtimeService prints full \\(error) (debug). All prints currently DEBUG-gated. CI validates build."
     },
     {
@@ -10319,7 +10319,7 @@
         "Unit test asserts from(callbackURL: ...?ebay=connected, expectedState: X) with no client_state returns stateExpired"
       ],
       "priority": 699,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/Security] Audit 2026-06-08. Sec gap #6: EbayConnectResult.from accepts ebay=connected with no client_state (server oauth_states is the real gate). CI validates build."
     },
     {

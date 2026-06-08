@@ -143,7 +143,9 @@ struct TeamView: View {
 
             HStack(spacing: 12) {
                 Button {
-                    UIPasteboard.general.string = invite.acceptUrl
+                    // US-697: invite-accept URLs are capability tokens — copy
+                    // local-only with a short expiry.
+                    SecurePasteboard.copy(invite.acceptUrl)
                     HapticFeedback.light()
                     copiedInvite = true
                     Task { try? await Task.sleep(for: .seconds(2)); copiedInvite = false }
@@ -282,7 +284,8 @@ struct TeamView: View {
 
     private func copyAcceptLink(_ invite: WorkspaceInvitation) {
         if let url = store.acceptURL(for: invite) {
-            UIPasteboard.general.string = url.absoluteString
+            // US-697: capability URL — local-only + short expiry.
+            SecurePasteboard.copy(url.absoluteString)
             HapticFeedback.light()
         }
     }

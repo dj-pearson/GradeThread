@@ -1,4 +1,5 @@
 import XCTest
+import Sentry
 @testable import GradeThread
 
 @MainActor
@@ -102,5 +103,35 @@ final class TelemetryTests: XCTestCase {
     func test_scrubber_leavesCleanTextUntouched() {
         let input = "sync merged 42 rows in 1.2s"
         XCTAssertEqual(TelemetryScrubber.redact(input), input)
+    }
+
+    // MARK: - Breadcrumb data scrubbing (US-695)
+
+    func test_scrubBreadcrumb_redactsUrlInStructuredData() {
+        // Swizzled HTTP breadcrumbs store the request URL in crumb.data["url"];
+        // the message-only scrub never touched it.
+        let crumb = Breadcrumb()
+        crumb.message = "request to seller@example.com"
+        crumb.data = [
+            "url": "https://api.gradethread.com/storage/v1/object/sign/x?token=abc",
+            "method": "GET",
+            "status_code": 200,
+        ]
+        Telemetry.scrubBreadcrumb(crumb)
+
+        let url = crumb.data?["url"] as? String
+        XCTAssertEqual(url, "[redacted-storage-url]")
+        // Non-sensitive values pass through untouched (string + non-string).
+        XCTAssertEqual(crumb.data?["method"] as? String, "GET")
+        XCTAssertEqual(crumb.data?["status_code"] as? Int, 200)
+        // Message is still scrubbed too.
+        XCTAssertFalse(crumb.message?.contains("seller@example.com") ?? true)
+    }
+
+    func test_scrubBreadcrumb_handlesNilData() {
+        let crumb = Breadcrumb()
+        crumb.message = "Bearer eyJabc.def"
+        Telemetry.scrubBreadcrumb(crumb)
+        XCTAssertTrue(crumb.message?.contains("Bearer [redacted]") ?? false)
     }
 }

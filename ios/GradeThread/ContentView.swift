@@ -28,11 +28,17 @@ struct ContentView: View {
     /// (gated by the persisted OnboardingState flag).
     @State private var showingOnboarding = !OnboardingState().hasCompleted
 
+    /// US-696: optional Face ID / passcode lock. Owned here so it survives
+    /// scene-phase transitions; MainShell renders its cover and Settings
+    /// toggles it.
+    @State private var appLock = AppLock()
+
     var body: some View {
         ProtectedRouteShell()
             .environment(authStore)
             .environment(networkMonitor)
             .environment(syncStatus)
+            .environment(appLock)
             .environment(\.syncEngine, syncEngine)
             .task {
                 authStore.start()
@@ -41,6 +47,9 @@ struct ContentView: View {
                 // US-659: drop stale share-extension batches the main app never
                 // got around to presenting.
                 IntakeInbox.sweepStale()
+                // US-694: clear any financial/account exports an interrupted
+                // share sheet left behind in the protected Exports/ dir.
+                SecureTempFile.sweep()
                 Telemetry.event(TelemetryEvent.appOpen)
             }
             // US-661: complete auth handshakes delivered as a Universal Link
@@ -72,6 +81,9 @@ struct ContentView: View {
                     // APNs token so the next user can't inherit staged photos
                     // or this device's push registration.
                     IntakeInbox.removeAll()
+                    // US-694: wipe any lingering financial/account exports so
+                    // the next user can't read the previous user's exports.
+                    SecureTempFile.sweep()
                     PushService.shared.clearTokenOnSignOut()
                     Task { await syncEngine?.stop() }
                     syncEngine = nil
@@ -107,6 +119,8 @@ struct ContentView: View {
                     // Pause the channel to save battery + data while
                     // the user's away. Re-opens on next .active above.
                     Task { await realtimeService?.pause() }
+                    // US-696: re-arm the app lock so re-entry requires auth.
+                    appLock.lockIfEnabled()
                 }
             }
             .onReceive(
@@ -257,6 +271,7 @@ struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
+    @Environment(AppLock.self) private var appLock
     @State private var router = AppRouter()
 
     /// US-189: PhotoIntakeView seeded from a Share Extension batch. Set
@@ -310,15 +325,28 @@ struct MainShell: View {
         // US-663: cover sensitive financial figures (Dashboard/Money/widget-
         // backed views all live under this shell) in the App Switcher snapshot
         // and while the app is inactive, so payout/sales numbers aren't exposed.
+        // US-696: when the app lock is engaged, show the unlock cover instead —
+        // it stays up until biometric/passcode auth succeeds.
         .overlay {
-            if scenePhase != .active {
+            if appLock.state == .locked {
+                AppLockCoverView { Task { await appLock.authenticate() } }
+                    .transition(.opacity)
+            } else if scenePhase != .active {
                 PrivacyCoverView()
                     .transition(.opacity)
             }
         }
-        .task { drainSharedInboxIfNeeded() }
+        .task {
+            drainSharedInboxIfNeeded()
+            // US-696: cold-launch / first-render unlock prompt.
+            if appLock.state == .locked { await appLock.authenticate() }
+        }
         .onChange(of: scenePhase) { _, newValue in
-            if newValue == .active { drainSharedInboxIfNeeded() }
+            if newValue == .active {
+                drainSharedInboxIfNeeded()
+                // US-696: prompt to unlock when returning to the foreground.
+                if appLock.state == .locked { Task { await appLock.authenticate() } }
+            }
         }
         // US-678: global search sheet, reachable from the Home toolbar.
         .sheet(isPresented: $router.showingGlobalSearch) {
@@ -876,6 +904,8 @@ struct SettingsView: View {
             // These each render their own Section, so they sit at the top level
             // of the List rather than nested inside another Section.
             realtimeSection
+            // US-696: optional Face ID / passcode app lock.
+            AppLockToggleSection()
             analyticsSection
 
             // ── Notifications ────────────────────────────────────────
@@ -1071,6 +1101,34 @@ private struct RealtimeToggleSection: View {
     }
 }
 
+/// US-696: opt-in app lock. Toggling on takes effect on the next time the app
+/// is backgrounded + reopened; the device must have biometrics or a passcode
+/// configured (the toggle is disabled otherwise so we don't strand the user).
+private struct AppLockToggleSection: View {
+    @Environment(AppLock.self) private var appLock
+    @State private var isEnabled = false
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $isEnabled) {
+                Label("Require Face ID / passcode", systemImage: "faceid")
+            }
+            .disabled(!appLock.isAvailable)
+            .onChange(of: isEnabled) { _, newValue in
+                appLock.isEnabled = newValue
+            }
+        } header: {
+            Text("Security")
+        } footer: {
+            Text(appLock.isAvailable
+                 ? "Require Face ID, Touch ID, or your device passcode each time you reopen GradeThread. Protects your sales, payouts, and account if someone gets your unlocked phone."
+                 : "Set up Face ID, Touch ID, or a passcode in iOS Settings to enable an app lock.")
+                .font(.footnote)
+        }
+        .onAppear { isEnabled = appLock.isEnabled }
+    }
+}
+
 /// Analytics opt-in section. Reads + writes Telemetry.isAnalyticsEnabled.
 /// Footer is explicit that crashes are still reported — they're errors,
 /// not analytics, and users typically expect crash reports to keep
@@ -1163,6 +1221,39 @@ private struct PrivacyCoverView: View {
                     .foregroundStyle(.white.opacity(0.9))
             }
         }
+    }
+}
+
+// MARK: - App lock cover (US-696)
+
+/// Shown over the shell while the optional app lock is engaged. Identical
+/// chrome to the privacy cover plus an Unlock button so the user can re-trigger
+/// authentication if the system prompt was dismissed.
+private struct AppLockCoverView: View {
+    let onUnlock: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.brandNavy.ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 40, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                Text("GradeThread is locked")
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.9))
+                Button(action: onUnlock) {
+                    Label("Unlock", systemImage: "faceid")
+                        .font(.headline)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 12)
+                }
+                .background(.white.opacity(0.15), in: Capsule())
+                .foregroundStyle(.white)
+                .accessibilityHint("Authenticate with Face ID, Touch ID, or your passcode to unlock the app")
+            }
+        }
+        .accessibilityAddTraits(.isModal)
     }
 }
 

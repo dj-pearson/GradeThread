@@ -41,6 +41,9 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Lint — no ungated print() in app sources (US-698)
+        run: python3 ios/Scripts/no-ungated-print.py
+
       - name: Install XcodeGen + xcbeautify
         run: brew install xcodegen xcbeautify
 
