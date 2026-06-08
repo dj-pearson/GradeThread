@@ -145,21 +145,33 @@ struct RuleRunResult: Decodable {
 
     var appliedCount: Int { applied ?? 0 }
     var scannedCount: Int { listingsScanned ?? 0 }
+}
 
+// Custom decoding lives in an extension so the synthesized memberwise
+// initializer (used by tests) is preserved.
+extension RuleRunResult {
     enum CodingKeys: String, CodingKey {
         case ok, applied, listingsScanned, rulesEvaluated, skipped, reason
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        ok = (try? c.decode(Bool.self, forKey: .ok)) ?? false
-        applied = try c.decodeIfPresent(Int.self, forKey: .applied)
-        listingsScanned = try c.decodeIfPresent(Int.self, forKey: .listingsScanned)
-        rulesEvaluated = try c.decodeIfPresent(Int.self, forKey: .rulesEvaluated)
+        let ok = (try? c.decode(Bool.self, forKey: .ok)) ?? false
+        let applied = try c.decodeIfPresent(Int.self, forKey: .applied)
+        let listingsScanned = try c.decodeIfPresent(Int.self, forKey: .listingsScanned)
+        let rulesEvaluated = try c.decodeIfPresent(Int.self, forKey: .rulesEvaluated)
         // `skipped` is a count on a normal run but a Bool flag when the feature
         // is disabled ({"skipped":true}); accept either, keeping only the count.
-        skipped = try? c.decode(Int.self, forKey: .skipped)
-        reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        let skipped = try? c.decode(Int.self, forKey: .skipped)
+        let reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        self.init(
+            ok: ok,
+            applied: applied,
+            listingsScanned: listingsScanned,
+            rulesEvaluated: rulesEvaluated,
+            skipped: skipped,
+            reason: reason
+        )
     }
 }
 
