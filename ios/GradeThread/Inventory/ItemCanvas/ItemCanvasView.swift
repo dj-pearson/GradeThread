@@ -206,7 +206,13 @@ struct ItemCanvasView: View {
                 pnlSection(pnl)
             }
             photosSection
-            CertifiedGradeSection(item: item)
+            CertifiedGradeSection(
+                item: item,
+                // US-746: a graded, still-publishable item can jump straight to
+                // the existing publish flow (parent owns the dialog + post-
+                // publish handling); nil once listed so the CTA disappears.
+                onListItem: canPublish ? { showingPublishDialog = true } : nil
+            )
             measurementsSection
             compsSection(state: state)
             notesSection(state: state)

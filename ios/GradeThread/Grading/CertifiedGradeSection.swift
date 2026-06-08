@@ -10,6 +10,10 @@ import SwiftUI
 ///    "view full report" / "get an updated grade" actions.
 struct CertifiedGradeSection: View {
     let item: LocalInventoryItem
+    /// US-746: when set (item is graded and still publishable), the graded
+    /// state shows a "List this item" CTA that triggers the parent's publish
+    /// flow — closing the grade→list gap so they aren't two disconnected steps.
+    var onListItem: (() -> Void)? = nil
 
     @State private var showingRequest = false
     @State private var showingReport = false
@@ -63,6 +67,26 @@ struct CertifiedGradeSection: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+            }
+
+            // US-746: a graded item's primary next action is to list it.
+            if let onListItem {
+                Button {
+                    AppRouter.haptic()
+                    onListItem()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "tag.fill")
+                        Text("List this item")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.brandNavy)
+                    .foregroundStyle(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
 
             Button {
