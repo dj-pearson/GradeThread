@@ -67,7 +67,7 @@ final class FulfillmentStore {
         }
     }
 
-    static func decodeOrdersResiliently(_ data: Data) -> [FulfillmentOrder] {
+    nonisolated static func decodeOrdersResiliently(_ data: Data) -> [FulfillmentOrder] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<FulfillmentOrder>].self, from: data
         ) else { return [] }
