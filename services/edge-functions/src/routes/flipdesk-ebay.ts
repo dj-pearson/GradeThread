@@ -2050,10 +2050,15 @@ export async function publishItemForOwner(
         description: ctx.summary.description,
         aspects: ctx.summary.aspects,
         imageUrls: photos.map((p) => p.public_url),
+        // eBay requires a Brand+MPN product identifier (error 25002
+        // <BrandMPN>). Default Brand to "Unbranded" and MPN to "Does Not
+        // Apply" — the standard values for used items without a manufacturer
+        // part number — so the offer publishes instead of being rejected.
         brand:
           typeof item.brand === "string" && item.brand.trim()
             ? item.brand.trim()
-            : undefined,
+            : "Unbranded",
+        mpn: "Does Not Apply",
       },
       condition: ctx.summary.condition,
       conditionDescription:
@@ -2163,8 +2168,14 @@ export async function publishItemForOwner(
       }
     }
     return {
+      // 422, NOT 5xx: a publish rejection (eBay 400, policy gap, etc.) is a
+      // business failure, not a gateway error. Traefik/Coolify intercepts
+      // gateway-class 5xx (502/503/504) with its own error page that strips
+      // CORS headers, so the browser shows an opaque CORS error instead of the
+      // real eBay message. 422 stays inside the app's CORS-handled path so the
+      // dialog can surface `detail` to the seller.
       ok: false,
-      status: 502,
+      status: 422,
       body: { ok: false, error: "Publish failed", detail: msg.slice(0, 1000) },
     };
   }
