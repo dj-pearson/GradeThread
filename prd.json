@@ -11010,7 +11010,7 @@
       ],
       "priority": 748,
       "passes": false,
-      "notes": "[P1][iOS/Cohesion] The #1 cohesion finding ('feels like many apps stitched together'): there's no Item↔Listing↔Sale thread — a sale row doesn't open its item, the item canvas doesn't show its active listings, and the Dashboard grades card is view-only. Files: Sales/SalesView.swift, Money/MoneyView.swift, Inventory/ItemCanvas/ItemCanvasView.swift, Dashboard/DashboardView.swift, ContentView.swift. Pairs with [[US-746]]."
+      "notes": "[P1][iOS/Cohesion] PARTIAL 2026-06-08 (item→listings half shipped + iOS-CI-verified; sale→item nav deferred — see below). DONE: ItemCanvasView now @Query's the item's LocalListing rows (mirroring the existing itemSales @Query) and renders a 'Listings' section showing each listing's platform + status + price with a Link out to the live listing (externalURL) — so a listed item is no longer a dead-end; you can see and open its listing from the item. no-ungated-print gate passes; compiles on iOS CI (the macOS runner — can't build Swift on Windows). DEFERRED to a US-750 cycle: the sale→item and Dashboard-grades→item navigation. Reason: SalesView/MoneyView read RemoteSale from the shadow SalesStore (the US-750 issue), and cross-tab navigation from the Sales tab into the item canvas is entangled with that Remote/Local split — cleaner to do AFTER US-750 unifies sales on LocalSale (then LocalSale.inventoryItemId → push the item is straightforward). Files touched: Inventory/ItemCanvas/ItemCanvasView.swift. Sequence: [[US-750]] then the rest of this. Pairs with [[US-746]]."
     },
     {
       "id": "US-749",

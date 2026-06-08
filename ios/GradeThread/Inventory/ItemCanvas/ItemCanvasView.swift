@@ -293,6 +293,41 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// US-748: where this item is listed, with a link out to the live listing —
+    /// part of the Item↔Listing↔Sale thread so the item isn't a dead-end once
+    /// it goes live.
+    private var listingsSection: some View {
+        Section {
+            ForEach(itemListings) { listing in
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(listing.platform == "ebay" ? "eBay" : listing.platform.capitalized)
+                            .font(.subheadline.weight(.medium))
+                        Text(listing.listingStatus.capitalized)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(currencyFormatter.formatDisplay(listing.listingPrice))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let raw = listing.externalURL, let url = URL(string: raw) {
+                        Link(destination: url) {
+                            Image(systemName: "arrow.up.right.square")
+                        }
+                        .accessibilityLabel("Open live listing")
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        } header: {
+            Text(itemListings.count == 1 ? "Listing" : "Listings")
+        } footer: {
+            Text("Where this item is listed. Tap the arrow to open the live listing.")
+                .font(.caption)
+        }
+    }
+
     /// Entry to the eBay Category + Item Specifics editor. Required item
     /// specifics are category-driven and block publish when missing, so this
     /// sits just above the publish action.
