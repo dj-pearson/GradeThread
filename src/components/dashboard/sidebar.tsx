@@ -3,7 +3,6 @@ import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   FileText,
-  Package,
   DollarSign,
   Lightbulb,
   Menu,
@@ -61,7 +60,8 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
       { to: "/dashboard/snap", icon: Camera, label: "What's it worth?", end: false },
       { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
-      { to: "/dashboard/inventory", icon: Package, label: "Inventory", end: false },
+      // Inventory consolidated into the FlipDesk section (US-740) — no duplicate
+      // here; the single canonical inventory lives under FlipDesk.
       { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
       { to: "/dashboard/analytics/suggestions", icon: Lightbulb, label: "Price Suggestions", end: false },
     ],

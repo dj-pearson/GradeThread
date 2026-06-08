@@ -60,9 +60,6 @@ const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => 
 const SnapToValuePage = lazy(() => import("@/pages/snap").then(m => ({ default: m.SnapToValuePage })));
 const BulkSubmissionPage = lazy(() => import("@/pages/bulk-submission").then(m => ({ default: m.BulkSubmissionPage })));
 const SubmissionDetailPage = lazy(() => import("@/pages/submission-detail").then(m => ({ default: m.SubmissionDetailPage })));
-const InventoryPage = lazy(() => import("@/pages/inventory").then(m => ({ default: m.InventoryPage })));
-const InventoryAddPage = lazy(() => import("@/pages/inventory-add").then(m => ({ default: m.InventoryAddPage })));
-const InventoryDetailPage = lazy(() => import("@/pages/inventory-detail").then(m => ({ default: m.InventoryDetailPage })));
 const FinancesPage = lazy(() => import("@/pages/finances").then(m => ({ default: m.FinancesPage })));
 const SettingsPage = lazy(() => import("@/pages/settings").then(m => ({ default: m.SettingsPage })));
 const AccountPage = lazy(() => import("@/pages/account").then(m => ({ default: m.AccountPage })));
@@ -169,6 +166,18 @@ function ContentRedirect() {
   return <Navigate to={`${target}${search}`} replace />;
 }
 
+// US-740: the legacy core inventory is consolidated into the richer FlipDesk
+// inventory. Redirect the detail route to the FlipDesk item canvas, preserving
+// the :id and any query so existing deep links keep working.
+function InventoryItemRedirect() {
+  const { pathname, search } = useLocation();
+  const target = pathname.replace(
+    /^\/dashboard\/inventory\//,
+    "/dashboard/flipdesk/items/",
+  );
+  return <Navigate to={`${target}${search}`} replace />;
+}
+
 export const router = createBrowserRouter([
   {
     element: <RootLayout />,
@@ -236,9 +245,12 @@ export const router = createBrowserRouter([
               { path: "/dashboard/submissions/new", element: <SuspenseWrapper><NewSubmissionPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/bulk", element: <SuspenseWrapper><BulkSubmissionPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/:id", element: <SuspenseWrapper><SubmissionDetailPage /></SuspenseWrapper> },
-              { path: "/dashboard/inventory", element: <SuspenseWrapper><InventoryPage /></SuspenseWrapper> },
-              { path: "/dashboard/inventory/new", element: <SuspenseWrapper><InventoryAddPage /></SuspenseWrapper> },
-              { path: "/dashboard/inventory/:id", element: <SuspenseWrapper><InventoryDetailPage /></SuspenseWrapper> },
+              // US-740: consolidated into the FlipDesk inventory (the canonical
+              // multi-view surface). Legacy routes redirect so all inbound links
+              // (sidebar, finances, price-suggestions, dashboard) keep working.
+              { path: "/dashboard/inventory", element: <Navigate to="/dashboard/flipdesk/inventory" replace /> },
+              { path: "/dashboard/inventory/new", element: <Navigate to="/dashboard/flipdesk/intake" replace /> },
+              { path: "/dashboard/inventory/:id", element: <InventoryItemRedirect /> },
               { path: "/dashboard/finances", element: <SuspenseWrapper><FinancesPage /></SuspenseWrapper> },
               { path: "/dashboard/analytics/suggestions", element: <SuspenseWrapper><PriceSuggestionsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk", element: <SuspenseWrapper><FlipdeskOverviewPage /></SuspenseWrapper> },
