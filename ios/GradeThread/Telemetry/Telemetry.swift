@@ -135,7 +135,12 @@ public enum Telemetry {
     /// US-695: redact a breadcrumb's message and every string value in its
     /// structured `data` (notably `url` / `http.url` from swizzled networking
     /// breadcrumbs, which can carry signed-storage tokens or bearer creds).
-    static func scrubBreadcrumb(_ crumb: Breadcrumb) {
+    ///
+    /// `nonisolated` because Sentry's `beforeSend` / `beforeBreadcrumb` hooks run
+    /// off the main actor, and this is pure work (mutates the passed-in crumb,
+    /// calls the nonisolated `TelemetryScrubber.redact`) with no main-actor
+    /// state — so it must not inherit the enum's `@MainActor` isolation.
+    nonisolated static func scrubBreadcrumb(_ crumb: Breadcrumb) {
         crumb.message = crumb.message.map(TelemetryScrubber.redact)
         guard let data = crumb.data else { return }
         crumb.data = data.mapValues { value in

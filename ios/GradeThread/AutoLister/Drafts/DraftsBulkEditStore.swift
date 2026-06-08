@@ -232,7 +232,12 @@ final class DraftsBulkEditStore {
     /// single blocker/failure doesn't sink the batch. Per-row local issues
     /// (notably "No category") gate publish before any network call — the
     /// AutoLister flow's whole point is reaching live listings (US-681).
-    func publishSelected(service publish: EbayPublishService = EbayPublishService()) async {
+    func publishSelected(service publish: EbayPublishService? = nil) async {
+        // Default is nil (not `EbayPublishService()`): a default argument is
+        // evaluated in the caller's nonisolated context, but EbayPublishService's
+        // init is @MainActor — construct it inside this @MainActor method body
+        // instead (same pattern as CompsStore / SnapStore / BulkGradeStore).
+        let publish = publish ?? EbayPublishService()
         let targets = rows.filter { targetIds.contains($0.id) }
         guard !targets.isEmpty else { return }
         // Require saved edits so the server reflects the latest category/price.
