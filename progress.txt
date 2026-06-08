@@ -5182,21 +5182,26 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           next unfilled standard slot then additional .detail photos; stale
           "from the + tab" footer copy corrected. COMPLETE.
 
-- US-680  Bulk "Publish to eBay" from inventory. DEFERRED (passes:false). A real
-          batch publish must drive the eBay validate+push per item (the logic
-          currently lives inside PublishDialog's view-bound runValidate/runPush
-          via EbayPublishService) and aggregate per-item blockers. That requires
-          extracting a headless batch-publish service and is high regression risk
-          to land WITHOUT a compiler (this is a Linux container; no xcodebuild).
-          Recommended: factor EbayPublishService validate/push into a batch
-          endpoint + a BulkAction.publish wired through BulkActionExecutor with
-          the existing BulkActionResult.failures aggregation, then verify on a
-          macOS runner/device.
+- US-680  Bulk "Publish to eBay" from inventory. COMPLETE. EbayPublishService
+          already exposes headless validate(inventoryItemId:) + push(...), so a
+          new BulkAction.publish (added to the .toList and .drafts bottom-bar
+          sets) routes through BulkActionExecutor.publishItems: per item it
+          validates (blockers -> per-item failure), then pushes, aggregating into
+          the existing BulkActionResult.failures with the progress HUD + "View
+          details" path. Optimistic local status -> "listed" on success (matches
+          the single-item path). Tests: BulkActionTests +2 (the network handler
+          mirrors the untested endListing/dropPrice pattern; EbayPublishService
+          isn't injectable).
 
-- US-681  Publish AutoLister drafts from the AutoLister surface. DEFERRED
-          (passes:false). Same dependency as US-680 (a reusable batch publish
-          path) plus making DraftsLibraryView rows interactive. Best landed
-          together with US-680's headless publish service, with device verify.
+- US-681  Publish AutoLister drafts from the AutoLister surface. COMPLETE.
+          DraftsBulkEditStore.publishSelected validates+pushes each targeted
+          draft via EbayPublishService keyed on its inventoryItemId; per-row
+          local issues (notably "No category") gate publish before any network
+          call (the AC's needs-category gate); requires saved edits first;
+          results surface in a summary alert with per-item failures.
+          DraftsBulkEditView gains a "Publish (n)" toolbar button; DraftsLibrary
+          rows are now NavigationLinks into the batch's bulk-edit (review +
+          publish) instead of dead rows.
 
 - US-682  Land on the created item after intake (+ seed title). COMPLETE.
           PhotoIntakeView now mirrors the freshly-created row into SwiftData

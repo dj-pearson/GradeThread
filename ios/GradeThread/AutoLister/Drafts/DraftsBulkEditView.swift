@@ -19,6 +19,20 @@ struct DraftsBulkEditView: View {
             .navigationTitle("Bulk edit")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // US-681: publish the selection (or all rows) straight to eBay.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        Task { await store.publishSelected() }
+                    } label: {
+                        if store.isPublishing {
+                            ProgressView()
+                        } else {
+                            Label("Publish (\(store.publishTargetCount))", systemImage: "paperplane.fill")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .disabled(store.isPublishing || store.isSaving || store.publishTargetCount == 0)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await store.save() }
@@ -46,6 +60,17 @@ struct DraftsBulkEditView: View {
                 presenting: store.actionError
             ) { _ in
                 Button("OK", role: .cancel) { store.actionError = nil }
+            } message: { Text($0) }
+            // US-681: publish result summary (per-item failures included).
+            .alert(
+                "Publish to eBay",
+                isPresented: Binding(
+                    get: { store.publishSummary != nil },
+                    set: { if !$0 { store.publishSummary = nil } }
+                ),
+                presenting: store.publishSummary
+            ) { _ in
+                Button("OK", role: .cancel) { store.publishSummary = nil }
             } message: { Text($0) }
     }
 

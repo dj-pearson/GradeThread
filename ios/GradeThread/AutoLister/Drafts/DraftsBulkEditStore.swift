@@ -99,6 +99,9 @@ final class DraftsBulkEditStore {
     var isSaving = false
     var actionError: String?
     var lastSavedCount: Int?
+    // US-681: bulk-publish drafts to eBay from the AutoLister surface.
+    var isPublishing = false
+    var publishSummary: String?
 
     init(service: DraftsProviding = DraftsService(), batchId: String? = nil) {
         self.service = service
@@ -218,5 +221,63 @@ final class DraftsBulkEditStore {
         }
         lastSavedCount = saved
         for i in rows.indices { rows[i].dirty = false }
+    }
+
+    // MARK: - Publish (US-681)
+
+    /// Count of rows the publish action will target (selection, else all rows).
+    var publishTargetCount: Int { rows.filter { targetIds.contains($0.id) }.count }
+
+    /// Validates + pushes each targeted draft to eBay, one at a time, so a
+    /// single blocker/failure doesn't sink the batch. Per-row local issues
+    /// (notably "No category") gate publish before any network call — the
+    /// AutoLister flow's whole point is reaching live listings (US-681).
+    func publishSelected(service publish: EbayPublishService = EbayPublishService()) async {
+        let targets = rows.filter { targetIds.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        // Require saved edits so the server reflects the latest category/price.
+        if targets.contains(where: \.dirty) {
+            actionError = "Save your changes before publishing."
+            return
+        }
+        isPublishing = true
+        defer { isPublishing = false }
+
+        var ok = 0
+        var fails: [String] = []
+        for row in targets {
+            if !row.issues.isEmpty {
+                fails.append("\(displayTitle(row)): \(row.issues.joined(separator: ", "))")
+                continue
+            }
+            switch await publish.validate(inventoryItemId: row.itemId) {
+            case .validated(let r) where r.blockers.isEmpty:
+                switch await publish.push(inventoryItemId: row.itemId) {
+                case .pushed:          ok += 1
+                case .blockers(let b): fails.append("\(displayTitle(row)): \(b.joined(separator: ", "))")
+                case .noOfferId:       fails.append("\(displayTitle(row)): no eBay offer — sync first")
+                case .failed(let m):   fails.append("\(displayTitle(row)): \(m)")
+                case .validated, .priceUpdated, .ended:
+                    fails.append("\(displayTitle(row)): unexpected response")
+                }
+            case .validated(let r): fails.append("\(displayTitle(row)): \(r.blockers.joined(separator: ", "))")
+            case .blockers(let b):  fails.append("\(displayTitle(row)): \(b.joined(separator: ", "))")
+            case .noOfferId:        fails.append("\(displayTitle(row)): no eBay offer — sync first")
+            case .failed(let m):    fails.append("\(displayTitle(row)): \(m)")
+            case .pushed, .priceUpdated, .ended:
+                fails.append("\(displayTitle(row)): unexpected response")
+            }
+        }
+
+        publishSummary = fails.isEmpty
+            ? "Published \(ok) draft\(ok == 1 ? "" : "s") to eBay."
+            : "Published \(ok) of \(targets.count); \(fails.count) failed:\n" + fails.joined(separator: "\n")
+        // Published items leave the drafts pool — refresh from server truth.
+        if ok > 0 { await load() }
+    }
+
+    private func displayTitle(_ row: DraftEditRow) -> String {
+        let t = row.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? titleFallback(for: row) : t
     }
 }

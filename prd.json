@@ -10067,7 +10067,7 @@
         "Unit test covers a mixed batch: some publish, some blocked, results aggregated correctly"
       ],
       "priority": 680,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/UX] Audit 2026-06-08. UX gap #1: BulkAction.actions(for:) offers no publish action; createDraft only flips status. Biggest drag on items-listed-per-week. Linux container has no xcodebuild; iOS CI (ios-ci.yml) validates the build."
     },
     {
@@ -10081,7 +10081,7 @@
         "Unit test covers bulk publish of drafts including a needs-category blocker"
       ],
       "priority": 681,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/UX] Audit 2026-06-08. UX gap #2: AutoLister flow stops at draft generation; DraftsLibraryView rows non-interactive, no publish anywhere in AutoLister. CI validates build."
     },
     {
