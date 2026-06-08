@@ -10813,8 +10813,8 @@
         "Suspense fallback reuses the MetricCardSkeleton/chart skeleton from US-727"
       ],
       "priority": 734,
-      "passes": false,
-      "notes": "[P2][Perf] From the performance audit: Recharts (~300KB uncompressed) is imported eagerly across analytics/admin/finance pages. Depends on [[US-727]] for the skeleton fallback."
+      "passes": true,
+      "notes": "[P2][Perf] SHIPPED 2026-06-08. React.lazy + Suspense the recharts-backed chart components on the two highest-traffic pages: dashboard.tsx lazy-loads GradeCharts, finances.tsx lazy-loads all six chart panels (FinancialCharts/CashFlow/TimeOnMarket/RoiAnalytics/InventoryAging/GradePriceCorrelation) — each wrapped in <Suspense fallback={<ChartSkeleton/>}> so the page shell + stat cards + section headings paint immediately and recharts streams in. New ChartSkeleton added to src/components/ui/skeletons.tsx (US-727). VERIFIED via production build: recharts core is now its own chunk (CartesianChart-*.js ~330KB) loaded only by the chart chunks; grep confirms the dashboard-*.js and finances-*.js entry chunks no longer contain recharts. vite.config.ts deliberately keeps recharts route-split (existing comment) so no manualChunk change was needed — the lazy boundaries are the win. The inline-chart admin pages (admin/dashboard, admin/ai-models, admin/system, admin/growth/dashboard, flipdesk/analytics) are ALREADY lazy ROUTES, so recharts is never in the eager bundle for them; lazy-ing their inline charts is a lower-value follow-up. tsc -b + eslint + vitest (287) + production build green. Depends on [[US-727]]."
     },
     {
       "id": "US-735",

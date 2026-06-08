@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { InventoryItemRow, SaleRow, ShipmentRow, ListingRow } from "@/types/database";
@@ -17,13 +17,41 @@ import {
 import { cn } from "@/lib/utils";
 import { computePnl } from "@/lib/pnl";
 import { ProfitTable } from "@/components/finances/profit-table";
-import { FinancialCharts } from "@/components/finances/financial-charts";
-import { CashFlow } from "@/components/finances/cash-flow";
 import { FinancialExport } from "@/components/finances/financial-export";
-import { TimeOnMarket } from "@/components/finances/time-on-market";
-import { RoiAnalytics } from "@/components/finances/roi-analytics";
-import { InventoryAging } from "@/components/finances/inventory-aging";
-import { GradePriceCorrelation } from "@/components/finances/grade-price-correlation";
+import { ChartSkeleton } from "@/components/ui/skeletons";
+
+// The six chart panels each pull in Recharts — lazy-load them so the page
+// shell + stat cards paint first and the chart bundle streams in after.
+const FinancialCharts = lazy(() =>
+  import("@/components/finances/financial-charts").then((m) => ({
+    default: m.FinancialCharts,
+  })),
+);
+const CashFlow = lazy(() =>
+  import("@/components/finances/cash-flow").then((m) => ({
+    default: m.CashFlow,
+  })),
+);
+const TimeOnMarket = lazy(() =>
+  import("@/components/finances/time-on-market").then((m) => ({
+    default: m.TimeOnMarket,
+  })),
+);
+const RoiAnalytics = lazy(() =>
+  import("@/components/finances/roi-analytics").then((m) => ({
+    default: m.RoiAnalytics,
+  })),
+);
+const InventoryAging = lazy(() =>
+  import("@/components/finances/inventory-aging").then((m) => ({
+    default: m.InventoryAging,
+  })),
+);
+const GradePriceCorrelation = lazy(() =>
+  import("@/components/finances/grade-price-correlation").then((m) => ({
+    default: m.GradePriceCorrelation,
+  })),
+);
 
 type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
 
@@ -402,13 +430,15 @@ export function FinancesPage() {
         <p className="mb-4 text-sm text-muted-foreground">
           Revenue trends, cost analysis, and top performers.
         </p>
-        <FinancialCharts
-          items={data?.items ?? []}
-          sales={data?.sales ?? []}
-          shipments={data?.shipments ?? []}
-          periodStart={getPeriodStartDate(period)}
-          isLoading={isLoading}
-        />
+        <Suspense fallback={<ChartSkeleton />}>
+          <FinancialCharts
+            items={data?.items ?? []}
+            sales={data?.sales ?? []}
+            shipments={data?.shipments ?? []}
+            periodStart={getPeriodStartDate(period)}
+            isLoading={isLoading}
+          />
+        </Suspense>
       </div>
 
       {/* ROI Analytics */}
@@ -418,12 +448,14 @@ export function FinancesPage() {
           See which brands, categories, and acquisition sources yield the best
           margins.
         </p>
-        <RoiAnalytics
-          items={data?.items ?? []}
-          sales={data?.sales ?? []}
-          periodStart={getPeriodStartDate(period)}
-          isLoading={isLoading}
-        />
+        <Suspense fallback={<ChartSkeleton />}>
+          <RoiAnalytics
+            items={data?.items ?? []}
+            sales={data?.sales ?? []}
+            periodStart={getPeriodStartDate(period)}
+            isLoading={isLoading}
+          />
+        </Suspense>
       </div>
 
       {/* Inventory Value & Aging */}
@@ -433,7 +465,9 @@ export function FinancesPage() {
           Capital tied up in unsold inventory, bracketed by how long it's been
           held.
         </p>
-        <InventoryAging items={data?.items ?? []} isLoading={isLoading} />
+        <Suspense fallback={<ChartSkeleton />}>
+          <InventoryAging items={data?.items ?? []} isLoading={isLoading} />
+        </Suspense>
       </div>
 
       {/* Grade-to-Price Correlation */}
@@ -442,11 +476,13 @@ export function FinancesPage() {
         <p className="mb-4 text-sm text-muted-foreground">
           How condition grades relate to the prices your items sell for.
         </p>
-        <GradePriceCorrelation
-          items={data?.items ?? []}
-          sales={data?.sales ?? []}
-          isLoading={isLoading}
-        />
+        <Suspense fallback={<ChartSkeleton />}>
+          <GradePriceCorrelation
+            items={data?.items ?? []}
+            sales={data?.sales ?? []}
+            isLoading={isLoading}
+          />
+        </Suspense>
       </div>
 
       {/* Cash Flow Timeline */}
@@ -455,13 +491,15 @@ export function FinancesPage() {
         <p className="mb-4 text-sm text-muted-foreground">
           Track money in and out with a running cash position.
         </p>
-        <CashFlow
-          items={data?.items ?? []}
-          sales={data?.sales ?? []}
-          shipments={data?.shipments ?? []}
-          periodStart={getPeriodStartDate(period)}
-          isLoading={isLoading}
-        />
+        <Suspense fallback={<ChartSkeleton />}>
+          <CashFlow
+            items={data?.items ?? []}
+            sales={data?.sales ?? []}
+            shipments={data?.shipments ?? []}
+            periodStart={getPeriodStartDate(period)}
+            isLoading={isLoading}
+          />
+        </Suspense>
       </div>
 
       {/* Time on Market Analytics */}
@@ -470,13 +508,15 @@ export function FinancesPage() {
         <p className="mb-4 text-sm text-muted-foreground">
           Track how long items stay listed and identify slow-moving inventory.
         </p>
-        <TimeOnMarket
-          items={data?.items ?? []}
-          sales={data?.sales ?? []}
-          listings={data?.listings ?? []}
-          periodStart={getPeriodStartDate(period)}
-          isLoading={isLoading}
-        />
+        <Suspense fallback={<ChartSkeleton />}>
+          <TimeOnMarket
+            items={data?.items ?? []}
+            sales={data?.sales ?? []}
+            listings={data?.listings ?? []}
+            periodStart={getPeriodStartDate(period)}
+            isLoading={isLoading}
+          />
+        </Suspense>
       </div>
 
       {/* Profit/Loss per Item Table */}

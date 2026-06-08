@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -20,7 +21,14 @@ import {
   DollarSign,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { GradeCharts } from "@/components/dashboard/grade-charts";
+import { ChartSkeleton } from "@/components/ui/skeletons";
+
+// Defer the Recharts bundle so the dashboard shell paints before charts load.
+const GradeCharts = lazy(() =>
+  import("@/components/dashboard/grade-charts").then((m) => ({
+    default: m.GradeCharts,
+  })),
+);
 import { ListingSuggestions } from "@/components/analytics/listing-suggestions";
 import { FlipdeskPromoCard } from "@/components/flipdesk/flipdesk-promo-card";
 import { UsageMeters } from "@/components/billing/usage-meter";
@@ -322,7 +330,9 @@ export function DashboardPage() {
       </div>
 
       {/* Analytics charts */}
-      <GradeCharts />
+      <Suspense fallback={<ChartSkeleton />}>
+        <GradeCharts />
+      </Suspense>
 
       {/* Listing optimization suggestions */}
       {inventoryData && (

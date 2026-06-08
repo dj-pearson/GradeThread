@@ -45,3 +45,14 @@ export function MetricCardSkeleton({ className }: { className?: string }) {
     </div>
   );
 }
+
+// Chart placeholder — used as the Suspense fallback while a lazily-loaded
+// Recharts component (and the recharts chunk) streams in.
+export function ChartSkeleton({ className }: { className?: string }) {
+  return (
+    <div className={cn("rounded-lg border p-4", className)} aria-hidden="true">
+      <Skeleton className="h-4 w-32" />
+      <Skeleton className="mt-4 h-48 w-full" />
+    </div>
+  );
+}
