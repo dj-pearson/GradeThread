@@ -44,6 +44,55 @@ docker-compose up          # Start with Docker
 deno run --allow-net --allow-env --allow-read src/main.ts  # Direct run
 ```
 
+## Local Verification (CI parity before you push)
+
+`npm run verify` is the local mirror of GitHub Actions — run it before committing
+so broken code never ships. It runs the same commands the CI jobs run, in the
+same order, and prints a ✓/✗ summary (`scripts/verify.mjs`).
+
+```bash
+npm run verify            # default: web + edge + db lanes
+npm run verify:web        # ci.yml build job:   eslint, tsc -b, vitest+coverage, build, npm audit
+npm run verify:edge       # security.yml deno:  deno lint, deno check, deno test, frozen lockfile
+npm run verify:db         # db-migrations.yml:  supabase db start + db reset (needs Docker)
+npm run verify:security   # security.yml trivy: npm audit + build edge image + trivy scan (needs Docker)
+node scripts/verify.mjs --e2e   # add the Playwright e2e suite
+node scripts/verify.mjs --all   # everything
+```
+
+**Prerequisites** (all installed locally except where noted):
+- Node + npm, Deno 2.x — the web + edge lanes work with no extra setup.
+- **Docker Desktop running** — required for the `db` and `security` lanes. If the
+  daemon is down those lanes are *skipped with a warning* (not failed), so a quick
+  `npm run verify` still works; turn Docker on before pushing migration or edge
+  Dockerfile changes. (Running `supabase db reset` locally would have caught both
+  the `config.toml` schema break and the duplicate-migration-number collision.)
+- **gitleaks** + **trivy** via `scoop install gitleaks trivy`.
+
+**Self-hosted Supabase caveat:** the `db` lane's `supabase db start` / `db reset`
+boot a **local, throwaway** Supabase stack in Docker on localhost — it exists
+ONLY to prove migrations apply cleanly on a fresh schema (exactly what
+`db-migrations.yml` does). It is **completely separate from the self-hosted
+production instance** at `api.gradethread.com` and never connects to or mutates
+it. Do NOT `supabase link` / `supabase db push` from here expecting to reach prod
+(those target Supabase Cloud projects); production migrations are applied by the
+self-hosted deploy process, not the CLI. `config.toml` (`project_id`, the
+`env()`-interpolated Google OAuth creds, ports) configures only this local stack.
+
+**Git hooks** (auto-enabled by the `prepare` script on `npm install`, which sets
+`core.hooksPath .githooks`):
+- `pre-commit` → gitleaks secret scan on staged changes (install gitleaks to
+  activate it; otherwise it warns and lets the commit through).
+- `pre-push` → `npm run verify`. Bypass a slow/WIP push with `git push --no-verify`,
+  or trim the command in `.githooks/pre-push`.
+
+**iOS is the one gap:** Swift / `xcodebuild` is macOS-only, so on Windows the iOS
+app can't be built/tested locally (you only get `python3 ios/Scripts/no-ungated-print.py`).
+`iOS CI` (ci runs on macOS runners) is the safety net there.
+
+> Hook/shell scripts are pinned to LF via `.gitattributes` — a CRLF shebang
+> breaks Git-for-Windows' `sh` ("bad interpreter: …^M"). Don't remove that rule.
+
 ## Project Structure
 
 ```

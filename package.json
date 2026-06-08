@@ -14,6 +14,11 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "e2e": "playwright test",
+    "verify": "node scripts/verify.mjs",
+    "verify:web": "node scripts/verify.mjs --web",
+    "verify:edge": "node scripts/verify.mjs --edge",
+    "verify:db": "node scripts/verify.mjs --db",
+    "verify:security": "node scripts/verify.mjs --security",
     "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },

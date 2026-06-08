@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Pre-push gate — run the local CI mirror so broken code never leaves the machine.
+#
+# Enabled with the rest of the hooks via `git config core.hooksPath .githooks`
+# (the package.json "prepare" script does this on `npm install`).
+#
+# Runs the web + edge + db lanes (see scripts/verify.mjs). The db lane is skipped
+# automatically when Docker isn't running, so this still works without Docker —
+# but turn Docker on before pushing migration changes so they're validated.
+#
+# Too slow for a quick push? Bypass with:  git push --no-verify
+# Or trim what runs by editing the command below (e.g. `npm run verify:web`).
+
+set -euo pipefail
+
+echo "[pre-push] Running local CI mirror (npm run verify)…"
+echo "[pre-push] Bypass with: git push --no-verify"
+npm run verify
