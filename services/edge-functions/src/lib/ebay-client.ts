@@ -1571,6 +1571,44 @@ export async function updateOfferFields(
   );
 }
 
+// Brings an EXISTING (unpublished) offer in line with the current draft before
+// re-publishing. eBay's PUT /offer/{id} replaces the whole body, so we
+// round-trip the current state and overwrite the mutable fields — crucially
+// listingPolicies (a stale/invalid shipping policy here is the usual cause of
+// publish error 25007), plus price, category, description, quantity and the
+// merchant location. Without this, re-selecting a policy never reaches an offer
+// that was created earlier with the wrong one.
+export async function syncExistingOffer(
+  userId: string,
+  offerId: string,
+  fields: {
+    availableQuantity: number;
+    categoryId: string;
+    listingDescription: string;
+    listingPolicies: {
+      fulfillmentPolicyId: string;
+      paymentPolicyId: string;
+      returnPolicyId: string;
+      bestOfferTerms?: { bestOfferEnabled: boolean };
+    };
+    pricingSummary: { price: { value: string; currency: string } };
+    merchantLocationKey: string;
+  },
+): Promise<void> {
+  const current = await getOffer(userId, offerId);
+  current.availableQuantity = fields.availableQuantity;
+  current.categoryId = fields.categoryId;
+  current.listingDescription = fields.listingDescription;
+  current.listingPolicies = fields.listingPolicies;
+  current.pricingSummary = fields.pricingSummary;
+  current.merchantLocationKey = fields.merchantLocationKey;
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}`,
+    { method: "PUT", body: JSON.stringify(current) },
+  );
+}
+
 // Withdraws a published offer — ends the live eBay listing. The offer
 // record itself stays, so a future re-publish reuses the same offerId.
 export async function withdrawOffer(

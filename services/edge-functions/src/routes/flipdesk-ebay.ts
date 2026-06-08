@@ -27,6 +27,7 @@ import {
   setDefaultPolicies,
   suggestCategories,
   syncBusinessPolicies,
+  syncExistingOffer,
   updateOfferFields,
   updateOfferPrice,
   upsertConnection,
@@ -2101,6 +2102,30 @@ export async function publishItemForOwner(
       const found = existing.find((o) => !!o.offerId);
       if (!found) throw err;
       offerId = found.offerId;
+      // The existing offer was created on an earlier attempt and may carry a
+      // stale shipping policy / price / category (eBay 25007 keeps firing on
+      // publish until the offer itself is corrected). Push the current draft +
+      // selected policies onto it before publishing.
+      await syncExistingOffer(ownerId, offerId, {
+        availableQuantity: ctx.summary.quantity,
+        categoryId: ctx.summary.categoryId,
+        listingDescription: ctx.summary.description,
+        listingPolicies: {
+          fulfillmentPolicyId: policies.fulfillmentPolicyId,
+          paymentPolicyId: policies.paymentPolicyId,
+          returnPolicyId: policies.returnPolicyId,
+          ...(ctx.summary.bestOfferEnabled
+            ? { bestOfferTerms: { bestOfferEnabled: true } }
+            : {}),
+        },
+        pricingSummary: {
+          price: {
+            value: ctx.summary.priceValue,
+            currency: ctx.summary.currency,
+          },
+        },
+        merchantLocationKey: policies.merchantLocationKey,
+      });
     }
 
     // 4. Publish.
