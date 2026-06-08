@@ -35,9 +35,15 @@ on:
         default: ""
 
 concurrency:
-  # Don't queue concurrent releases — they fight over the keychain.
+  # Serialize releases (they fight over the keychain) AND cancel an in-progress
+  # build when a newer commit lands: during active development on main a flurry
+  # of ios/** pushes would otherwise queue into hours of back-to-back archives
+  # where only the last build matters. Cancelling is safe — each job gets a
+  # fresh runner with an ephemeral $RUNNER_TEMP keychain, so nothing leaks.
+  # (A deliberate `ios-v*` tag release won't be racing main pushes in practice;
+  # cut the tag once main is quiet, or trigger via workflow_dispatch.)
   group: ios-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # US-522: least privilege. The release flow reads the repo and authenticates to
 # TestFlight via job secrets (App Store Connect API key) — it never writes back
