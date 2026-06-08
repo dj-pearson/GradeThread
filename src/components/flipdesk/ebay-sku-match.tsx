@@ -68,7 +68,8 @@ function useItemsFull() {
   return useQuery({
     queryKey: ["items_full", user?.id],
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
+    // 15-min freshness — mutations invalidate items_full explicitly (US-735).
+    staleTime: 15 * 60 * 1000,
     queryFn: async (): Promise<ItemFullRow[]> => {
       const { data, error } = await (
         supabase.from as unknown as (

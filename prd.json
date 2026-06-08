@@ -10827,8 +10827,8 @@
         "No layout shift introduced; build + eslint clean"
       ],
       "priority": 735,
-      "passes": false,
-      "notes": "[P2][Perf] From the performance audit: responsive-image.tsx is well-built but only used on marketing pages; dashboard photo grids use raw <img>. CF Image Resizing is intentionally disabled (see project memory) — keep the graceful fallback."
+      "passes": true,
+      "notes": "[P2][Perf] SHIPPED 2026-06-08. Refetch tune (the substantive win): items_full staleTime raised 5m -> 15m at all four query definitions (listings.tsx, grid.tsx, pipeline.tsx, ebay-sku-match.tsx) — safe because every mutation already calls invalidateQueries(['items_full']) explicitly, so a longer window only skips redundant passive refetch-on-mount when hopping between flipdesk views, never stale-after-edit. Images: CORRECTION to the audit — the photo surfaces are ALREADY optimized. grid.tsx/listings.tsx render NO <img> (the tables show no thumbnail), and the actual photo grids (photo-manager, photo-uploader, ebay-comps-panel, composer thumbnail strip, autolister, scout, reconcile) ALL already use loading='lazy' + the smaller thumbnail_url with a photo_url fallback; the composer hero is intentionally eager (LCP). Added decoding='async' to the item-photo grid (photo-manager.tsx, the most-rendered surface) to move decode off the main thread. responsive-image.tsx wasn't adopted because these object-cover thumbnails have no fixed intrinsic width/height it needs, and CF Image Resizing is disabled anyway (project memory) — loading=lazy + thumbnail_url is the correct, no-CLS approach here. tsc -b + eslint + vitest (287) green."
     },
     {
       "id": "US-736",

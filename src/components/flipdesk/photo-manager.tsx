@@ -273,6 +273,7 @@ function SortablePhoto({
           src={photo.thumbnail_url ?? photo.photo_url}
           alt={PHOTO_TYPE_LABELS[photo.photo_type]}
           loading="lazy"
+          decoding="async"
           className="h-full w-full object-cover"
         />
         <button

@@ -407,7 +407,9 @@ export function FlipdeskListingsPage() {
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", user?.id],
     enabled: !!user,
-    staleTime: 5 * 60 * 1000,
+    // 15-min freshness — mutations invalidate items_full explicitly, so a
+    // longer window only skips redundant passive refetches (US-735).
+    staleTime: 15 * 60 * 1000,
     queryFn: async (): Promise<ItemFullRow[]> => {
       const { data, error } = await (
         supabase.from as unknown as (
