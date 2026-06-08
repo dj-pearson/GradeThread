@@ -214,7 +214,7 @@ private struct MessageReplySheet: View {
     let message: BuyerMessage
     let onSubmit: (String) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var body = ""
+    @State private var replyText = ""
 
     var body: some View {
         NavigationStack {
@@ -223,7 +223,7 @@ private struct MessageReplySheet: View {
                     Section("Buyer wrote") { Text(original).font(.callout) }
                 }
                 Section("Your reply") {
-                    TextField("Reply…", text: $body, axis: .vertical).lineLimit(3...8)
+                    TextField("Reply…", text: $replyText, axis: .vertical).lineLimit(3...8)
                 }
             }
             .navigationTitle("Reply")
@@ -232,10 +232,10 @@ private struct MessageReplySheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Send") {
-                        onSubmit(body)
+                        onSubmit(replyText)
                         dismiss()
                     }
-                    .disabled(body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
