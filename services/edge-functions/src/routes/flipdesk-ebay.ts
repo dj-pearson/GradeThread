@@ -63,6 +63,7 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
+import { notifyUser } from "../lib/notify.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -867,7 +868,10 @@ async function doListingsPull(
         }
         // Forward-only status — don't regress sold/shipped items.
         if (isActive) {
-          await supabaseAdmin
+          // .select() returns only the rows actually flipped (those that were
+          // in a pre-list status), so we emit the "live" notification once on
+          // the real transition, not on every re-sync of an already-listed item.
+          const { data: flipped } = await supabaseAdmin
             .from("inventory_items")
             .update({ status: "listed" })
             .eq("id", itemId)
@@ -879,7 +883,20 @@ async function doListingsPull(
               "photographed",
               "comped",
               "drafted",
-            ]);
+            ])
+            .select("id, title");
+          const live = (flipped ?? [])[0] as
+            | { id: string; title: string | null }
+            | undefined;
+          if (live) {
+            // US-737: item went live on a marketplace.
+            void notifyUser(userId, {
+              type: "listing_live",
+              title: "Listing is live",
+              message: `${live.title ?? "Your item"} is now listed on eBay.`,
+              link: `/dashboard/flipdesk/items/${itemId}`,
+            });
+          }
         }
         // eBay as source of truth: title overwrite, specifics fill-if-blank.
         // Modern offers carry title + aspects (from listAllOffers) — free.
@@ -1275,7 +1292,18 @@ async function doListingsPull(
             salesNew += 1;
             // US-626: a brand-new sale → celebrate it on iOS (best-effort).
             // Only for genuine completed sales, never a cancelled/refunded one.
-            if (saleStatus === "completed") void pushSaleCreated(userId);
+            if (saleStatus === "completed") {
+              void pushSaleCreated(userId);
+              // US-737: in-app "sold" notification. This branch only runs for a
+              // genuinely NEW completed sale (the `existing` dedup guard above),
+              // so it fires once per sale, not on every re-sync.
+              void notifyUser(userId, {
+                type: "sale_recorded",
+                title: "Item sold",
+                message: `${li.title ?? "An item"} sold for $${itemCost.toFixed(2)}.`,
+                link: `/dashboard/flipdesk/items/${itemId}`,
+              });
+            }
           }
 
           if (saleStatus === "completed") {

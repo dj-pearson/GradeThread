@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
+import { notifyUser } from "../lib/notify.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
@@ -238,6 +239,16 @@ async function handlePayoutEvent(
     console.log(
       `[flipdesk-webhooks] payout ${payoutId} processed: inserted=${inserted} duplicates=${duplicates}`,
     );
+    // US-737: a genuinely new payout arrived from eBay (async, not a manual
+    // CSV upload) → notify so the user knows money landed and can reconcile.
+    if (inserted > 0) {
+      void notifyUser(userId, {
+        type: "payout_imported",
+        title: "Payout received",
+        message: `A ${currency ?? "USD"} ${amountValue} payout was imported from eBay.`,
+        link: "/dashboard/flipdesk/reconciliation",
+      });
+    }
   } catch (err) {
     console.error(
       `[flipdesk-webhooks] payout ingest failed for ${payoutId}:`,
