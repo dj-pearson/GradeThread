@@ -57,10 +57,15 @@ interface EditRow {
   // Populated when the user picks via search; the DB only stores the leaf id, so
   // it's empty for categories loaded from the server until re-picked.
   categoryPath: string;
-  // eBay "Department" specific (Men/Women/…) — the most common required aspect
-  // that blocks publish. Edited here, then merged into item_specifics_override
-  // on save. `specifics` holds the rest of the override so the merge is lossless.
+  // eBay item specifics edited inline. Department/Brand/Size/Color are the
+  // required clothing aspects that most often block publish; they're merged into
+  // item_specifics_override on save. A blank value falls back to the item's
+  // derived column server-side. `specifics` holds the rest of the override
+  // verbatim so the merge stays lossless.
   department: string;
+  brand: string;
+  size: string;
+  color: string;
   specifics: Record<string, string[]>;
   // Server-side validation blockers (US-320) — populated by "Validate" actions.
   validationBlockers: string[] | null;
@@ -97,17 +102,41 @@ export function FlipdeskAutolisterBulkEditPage() {
     () => (data ?? []).map((r) => r.inventory_item_id),
     [data],
   );
-  const { data: titles = {} } = useQuery<Record<string, string>>({
-    queryKey: ["autolister_bulk_titles", batchId, itemIds.length],
+  // The item's structured attributes back the placeholders below: when a row's
+  // Brand/Size/Color override is empty, the server derives the aspect from these
+  // columns, so showing them as placeholders tells the seller what will be used.
+  type ItemAttrs = {
+    title: string;
+    brand: string;
+    size: string;
+    color: string;
+  };
+  const { data: itemAttrs = {} } = useQuery<Record<string, ItemAttrs>>({
+    queryKey: ["autolister_bulk_item_attrs", batchId, itemIds.length],
     enabled: itemIds.length > 0,
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("inventory_items")
-        .select("id, title")
+        .select("id, title, brand, size, color")
         .in("id", itemIds);
-      const map: Record<string, string> = {};
-      for (const r of (rows ?? []) as Array<{ id: string; title: string }>) {
-        map[r.id] = r.title;
+      const map: Record<string, ItemAttrs> = {};
+      for (
+        const r of (rows ?? []) as Array<
+          {
+            id: string;
+            title: string | null;
+            brand: string | null;
+            size: string | null;
+            color: string | null;
+          }
+        >
+      ) {
+        map[r.id] = {
+          title: r.title ?? "",
+          brand: r.brand ?? "",
+          size: r.size ?? "",
+          color: r.color ?? "",
+        };
       }
       return map;
     },
@@ -126,16 +155,18 @@ export function FlipdeskAutolisterBulkEditPage() {
     path: string;
   } | null>(null);
   const [bulkDepartment, setBulkDepartment] = useState("");
+  const [bulkBrand, setBulkBrand] = useState("");
 
   // Seed editable rows once the drafts load.
   useEffect(() => {
     if (!data) return;
     setRows(
       data.map((r) => {
-        // Split Department out of the override so the dropdown owns it; `specifics`
-        // keeps the remaining aspects untouched for a lossless merge on save.
+        // Split the inline-editable aspects out of the override so their fields
+        // own them; `specifics` keeps the remaining aspects untouched for a
+        // lossless merge on save.
         const override = r.item_specifics_override ?? {};
-        const { Department, ...rest } = override;
+        const { Department, Brand, Size, Color, ...rest } = override;
         return {
           id: r.id,
           itemId: r.inventory_item_id,
@@ -148,6 +179,9 @@ export function FlipdeskAutolisterBulkEditPage() {
           categoryId: r.platform_category_id ?? "",
           categoryPath: "",
           department: Department?.[0] ?? "",
+          brand: Brand?.[0] ?? "",
+          size: Size?.[0] ?? "",
+          color: Color?.[0] ?? "",
           specifics: rest,
           validationBlockers: null,
           dirty: false,
@@ -203,11 +237,19 @@ export function FlipdeskAutolisterBulkEditPage() {
           dirty.slice(i, i + CONCURRENCY).map(async (r) => {
             const price = Number.parseFloat(r.price);
             const qty = Number.parseInt(r.quantity, 10);
-            // Re-merge Department into the rest of the specifics. A blank
-            // selection drops the key; null the whole column when nothing's left.
+            // Re-merge the inline aspects back into the rest of the specifics. A
+            // blank value drops the key (server re-derives it from the item's
+            // column); null the whole column when nothing's left.
             const mergedSpecifics: Record<string, string[]> = { ...r.specifics };
-            if (r.department) mergedSpecifics.Department = [r.department];
-            else delete mergedSpecifics.Department;
+            const setOrDrop = (key: string, value: string) => {
+              const v = value.trim();
+              if (v) mergedSpecifics[key] = [v];
+              else delete mergedSpecifics[key];
+            };
+            setOrDrop("Department", r.department);
+            setOrDrop("Brand", r.brand);
+            setOrDrop("Size", r.size);
+            setOrDrop("Color", r.color);
             const { error: upErr } = await supabase
               .from("listings")
               .update({
@@ -549,6 +591,27 @@ export function FlipdeskAutolisterBulkEditPage() {
           </Button>
         </div>
         <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Brand
+            </label>
+            <Input
+              value={bulkBrand}
+              onChange={(e) => setBulkBrand(e.target.value)}
+              className="h-8 w-32"
+              placeholder="e.g. Nike"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!bulkBrand.trim()}
+            onClick={() => applyToTargets(() => ({ brand: bulkBrand.trim() }))}
+          >
+            Apply
+          </Button>
+        </div>
+        <div className="flex items-end gap-1.5">
           <Button
             size="sm"
             variant="secondary"
@@ -592,6 +655,9 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="w-44 p-2">Condition</th>
               <th className="w-48 p-2">Category</th>
               <th className="w-36 p-2">Department</th>
+              <th className="w-28 p-2">Brand</th>
+              <th className="w-24 p-2">Size</th>
+              <th className="w-28 p-2">Color</th>
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
               <th className="w-52 p-2">Schedule</th>
@@ -622,7 +688,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     <Input
                       value={r.title}
                       onChange={(e) => patchRow(r.id, { title: e.target.value })}
-                      placeholder={titles[r.itemId] ?? "Title"}
+                      placeholder={itemAttrs[r.itemId]?.title ?? "Title"}
                       className={cn(
                         "h-8",
                         r.title.length > TITLE_MAX && "border-destructive",
@@ -693,6 +759,30 @@ export function FlipdeskAutolisterBulkEditPage() {
                   </td>
                   <td className="p-2">
                     <Input
+                      value={r.brand}
+                      onChange={(e) => patchRow(r.id, { brand: e.target.value })}
+                      className="h-8"
+                      placeholder={itemAttrs[r.itemId]?.brand || "—"}
+                    />
+                  </td>
+                  <td className="p-2">
+                    <Input
+                      value={r.size}
+                      onChange={(e) => patchRow(r.id, { size: e.target.value })}
+                      className="h-8"
+                      placeholder={itemAttrs[r.itemId]?.size || "—"}
+                    />
+                  </td>
+                  <td className="p-2">
+                    <Input
+                      value={r.color}
+                      onChange={(e) => patchRow(r.id, { color: e.target.value })}
+                      className="h-8"
+                      placeholder={itemAttrs[r.itemId]?.color || "—"}
+                    />
+                  </td>
+                  <td className="p-2">
+                    <Input
                       type="number"
                       min="1"
                       value={r.quantity}
@@ -728,7 +818,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={10} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={13} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>
