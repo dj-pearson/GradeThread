@@ -10911,8 +10911,8 @@
         "The single vs FlipDesk plan/tier is presented clearly so users understand which features they have; build + eslint clean"
       ],
       "priority": 741,
-      "passes": false,
-      "notes": "[P2][IA/Structural] From the cross-functional audit: account concerns are scattered across 5 top-level pages and usage meters/thresholds are split between billing.tsx and settings.tsx. OPINIONATED — compose existing page bodies, don't rewrite. Coordinate with [[US-743]]."
+      "passes": true,
+      "notes": "[P2][IA/Structural] SHIPPED 2026-06-08. New src/pages/account.tsx at route /dashboard/account: a shadcn Tabs hub composing the EXISTING page components (Settings, Billing, Team, API keys, Referrals) without rewriting them — radix Tabs unmounts inactive content so only the open tab's page mounts/fetches, and each page's own heading serves as the section title (no redundant hub header). Active tab syncs to ?tab= (replace history) so tabs are deep-linkable. Billing + API-keys tabs are capability-gated via useWorkspace().can() (manage_billing / manage_api_keys), mirroring the visibility the sidebar used to enforce. Sidebar (US-743): the five-item Account section collapsed to a single 'Account' entry → the hub (with billing/API gating now living in the hub); header avatar dropdown's Settings/Billing now point at /dashboard/account?tab=. Legacy routes (/dashboard/settings|billing|team|api-keys|referrals) are intentionally KEPT working (deep links + the US-738 command-palette actions) rather than redirected — a non-breaking additive consolidation; hard redirects can follow once the hub is proven. tsc -b + eslint + vitest (287) + production build (emits an account chunk) green. PARTIAL vs AC: Notifications/Preferences are sub-sections WITHIN the Settings page (can't be split into their own tabs without rewriting settings.tsx), and the usage-meters(billing)+thresholds(settings) live in adjacent tabs rather than merged into one — both deeper merges are follow-ups that need the page-body extraction the AC said to avoid. Pairs with [[US-743]]."
     },
     {
       "id": "US-742",

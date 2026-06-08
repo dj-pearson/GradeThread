@@ -1,0 +1,73 @@
+import { useSearchParams } from "react-router-dom";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useWorkspace } from "@/hooks/use-workspace";
+import type { WorkspaceCapability } from "@/lib/workspace-permissions";
+import { SettingsPage } from "@/pages/settings";
+import { BillingPage } from "@/pages/billing";
+import { TeamPage } from "@/pages/team";
+import { ApiKeysPage } from "@/pages/api-keys";
+import { ReferralsPage } from "@/pages/referrals";
+
+// Unified Account hub (US-741). One destination with tabs, composed from the
+// existing standalone pages rather than rewriting them — radix Tabs unmounts
+// inactive content, so only the open tab's page mounts/fetches. The active
+// page's own heading doubles as the section title (no redundant hub header).
+const TABS: { value: string; label: string; requires?: WorkspaceCapability }[] =
+  [
+    { value: "settings", label: "Settings" },
+    { value: "billing", label: "Billing", requires: "manage_billing" },
+    { value: "team", label: "Team" },
+    { value: "api-keys", label: "API keys", requires: "manage_api_keys" },
+    { value: "referrals", label: "Referrals" },
+  ];
+
+export function AccountPage() {
+  const [params, setParams] = useSearchParams();
+  const { can } = useWorkspace();
+
+  // Mirror the per-capability gating the sidebar used to apply, so members
+  // without billing/API rights don't see those tabs.
+  const visible = TABS.filter((t) => !t.requires || can(t.requires));
+  const allowed = new Set(visible.map((t) => t.value));
+
+  const raw = params.get("tab");
+  const tab = raw && allowed.has(raw) ? raw : "settings";
+
+  function onTab(next: string) {
+    // Deep-linkable + replace so tab switches don't pile up history entries.
+    const n = new URLSearchParams(params);
+    n.set("tab", next);
+    setParams(n, { replace: true });
+  }
+
+  return (
+    <Tabs value={tab} onValueChange={onTab} className="space-y-6">
+      <TabsList className="flex-wrap">
+        {visible.map((t) => (
+          <TabsTrigger key={t.value} value={t.value}>
+            {t.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      <TabsContent value="settings">
+        <SettingsPage />
+      </TabsContent>
+      {allowed.has("billing") && (
+        <TabsContent value="billing">
+          <BillingPage />
+        </TabsContent>
+      )}
+      <TabsContent value="team">
+        <TeamPage />
+      </TabsContent>
+      {allowed.has("api-keys") && (
+        <TabsContent value="api-keys">
+          <ApiKeysPage />
+        </TabsContent>
+      )}
+      <TabsContent value="referrals">
+        <ReferralsPage />
+      </TabsContent>
+    </Tabs>
+  );
+}

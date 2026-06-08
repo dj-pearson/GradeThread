@@ -65,6 +65,7 @@ const InventoryAddPage = lazy(() => import("@/pages/inventory-add").then(m => ({
 const InventoryDetailPage = lazy(() => import("@/pages/inventory-detail").then(m => ({ default: m.InventoryDetailPage })));
 const FinancesPage = lazy(() => import("@/pages/finances").then(m => ({ default: m.FinancesPage })));
 const SettingsPage = lazy(() => import("@/pages/settings").then(m => ({ default: m.SettingsPage })));
+const AccountPage = lazy(() => import("@/pages/account").then(m => ({ default: m.AccountPage })));
 const BillingPage = lazy(() => import("@/pages/billing").then(m => ({ default: m.BillingPage })));
 const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
 const TeamPage = lazy(() => import("@/pages/team").then(m => ({ default: m.TeamPage })));
@@ -276,6 +277,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/expenses", element: <SuspenseWrapper><FlipdeskExpensesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/grading-roi", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
+              { path: "/dashboard/account", element: <SuspenseWrapper><AccountPage /></SuspenseWrapper> },
               { path: "/dashboard/settings", element: <SuspenseWrapper><SettingsPage /></SuspenseWrapper> },
               { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },

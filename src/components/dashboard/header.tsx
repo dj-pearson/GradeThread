@@ -111,11 +111,15 @@ export function Header() {
             <p className="text-xs text-muted-foreground">{user?.email}</p>
           </div>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => navigate("/dashboard/settings")}>
+          <DropdownMenuItem
+            onClick={() => navigate("/dashboard/account?tab=settings")}
+          >
             <Settings className="mr-2 h-4 w-4" />
             Settings
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => navigate("/dashboard/billing")}>
+          <DropdownMenuItem
+            onClick={() => navigate("/dashboard/account?tab=billing")}
+          >
             <CreditCard className="mr-2 h-4 w-4" />
             Billing
           </DropdownMenuItem>

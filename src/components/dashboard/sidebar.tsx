@@ -6,9 +6,6 @@ import {
   Package,
   DollarSign,
   Lightbulb,
-  CreditCard,
-  Key,
-  Settings,
   Menu,
   MapPin,
   Plug,
@@ -18,7 +15,6 @@ import {
   Wallet,
   BarChart3,
   Boxes,
-  Users,
   Sparkles,
   ShieldCheck,
   TrendingUp,
@@ -26,8 +22,8 @@ import {
   ClipboardList,
   Radar,
   Camera,
-  Gift,
   ChevronDown,
+  CircleUser,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -92,13 +88,11 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
-    title: "Account",
+    // Account, billing, team, API keys, and referrals are consolidated into
+    // one hub (US-741) reached from this single entry; its tabs gate billing/
+    // API by capability. Direct routes still work for deep links + ⌘K.
     items: [
-      { to: "/dashboard/team", icon: Users, label: "Team", end: false },
-      { to: "/dashboard/referrals", icon: Gift, label: "Refer a friend", end: false },
-      { to: "/dashboard/billing", icon: CreditCard, label: "Billing", end: false, requires: "manage_billing" },
-      { to: "/dashboard/api-keys", icon: Key, label: "API Keys", end: false, requires: "manage_api_keys" },
-      { to: "/dashboard/settings", icon: Settings, label: "Settings", end: false },
+      { to: "/dashboard/account", icon: CircleUser, label: "Account", end: false },
     ],
   },
 ];
