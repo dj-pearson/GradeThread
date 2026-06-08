@@ -27,7 +27,9 @@ import {
   Radar,
   Camera,
   Gift,
+  ChevronDown,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -58,6 +60,7 @@ type NavGroup = { title?: string; items: NavItem[]; adminOnly?: boolean };
 
 const navGroups: NavGroup[] = [
   {
+    title: "Grading",
     items: [
       { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
       { to: "/dashboard/snap", icon: Camera, label: "What's it worth?", end: false },
@@ -89,6 +92,7 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: "Account",
     items: [
       { to: "/dashboard/team", icon: Users, label: "Team", end: false },
       { to: "/dashboard/referrals", icon: Gift, label: "Refer a friend", end: false },
@@ -98,6 +102,16 @@ const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+const COLLAPSE_KEY = "gt-sidebar-collapsed";
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const profile = useAuthStore((s) => s.profile);
@@ -109,6 +123,30 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const flipdeskFlags =
     FLIPDESK_PLANS[(billing?.subscription.plan as FlipdeskPlanKey) ?? "free"]
       .gateFlags;
+  const { pathname } = useLocation();
+  // Per-section collapse state, persisted so the user's layout sticks.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(
+    loadCollapsed,
+  );
+
+  function toggleGroup(title: string) {
+    setCollapsed((prev) => {
+      const next = { ...prev, [title]: !prev[title] };
+      try {
+        localStorage.setItem(COLLAPSE_KEY, JSON.stringify(next));
+      } catch {
+        /* storage may be unavailable (private mode) — ignore */
+      }
+      return next;
+    });
+  }
+
+  function groupHasActiveRoute(items: NavItem[]): boolean {
+    return items.some((item) =>
+      item.end ? pathname === item.to : pathname.startsWith(item.to),
+    );
+  }
+
   return (
     <nav className="mt-2 flex-1 space-y-4 px-3">
       {navGroups
@@ -122,34 +160,56 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           return true;
         });
         if (visibleItems.length === 0) return null;
+        // A collapsed section is force-opened while it contains the active
+        // route, so the current page's nav item is never hidden.
+        const hasActive = groupHasActiveRoute(visibleItems);
+        const isCollapsed =
+          !!group.title && (collapsed[group.title] ?? false) && !hasActive;
         return (
         <div key={gi} className="space-y-1">
           {group.title && (
-            <div className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40">
-              {group.title}
-            </div>
-          )}
-          {visibleItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              onClick={onNavigate}
-              title={`${item.label} — press ⌘K / Ctrl+K to jump anywhere`}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-white/15 text-white"
-                    : "text-white/70 hover:bg-white/10 hover:text-white"
-                }`
-              }
+            <button
+              type="button"
+              onClick={() => toggleGroup(group.title!)}
+              aria-expanded={!isCollapsed}
+              className="flex w-full items-center justify-between rounded-md px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/40 transition-colors hover:text-white/70"
             >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </NavLink>
-          ))}
-          {/* Pinned saved views render below the FlipDesk group */}
-          {group.title === "FlipDesk" && <PinnedViews onNavigate={onNavigate} />}
+              {group.title}
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  isCollapsed && "-rotate-90",
+                )}
+              />
+            </button>
+          )}
+          {!isCollapsed && (
+            <>
+              {visibleItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={onNavigate}
+                  title={`${item.label} — press ⌘K / Ctrl+K to jump anywhere`}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                      isActive
+                        ? "bg-white/15 text-white"
+                        : "text-white/70 hover:bg-white/10 hover:text-white"
+                    }`
+                  }
+                >
+                  <item.icon className="h-5 w-5" />
+                  {item.label}
+                </NavLink>
+              ))}
+              {/* Pinned saved views render below the FlipDesk group */}
+              {group.title === "FlipDesk" && (
+                <PinnedViews onNavigate={onNavigate} />
+              )}
+            </>
+          )}
         </div>
         );
       })}

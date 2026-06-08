@@ -10939,8 +10939,8 @@
         "Verified on desktop and the mobile sheet variant; build + eslint clean"
       ],
       "priority": 743,
-      "passes": false,
-      "notes": "[P3][IA/Structural] From the cross-functional audit: flat sidebar with dual 'Inventory' labels and a 17-vs-6 imbalance signals two apps. Coordinate with [[US-740]] and [[US-741]] so labels track the consolidated routes."
+      "passes": true,
+      "notes": "[P3][IA/Structural] SHIPPED 2026-06-08. sidebar.tsx already had a NavGroup structure with optional titles but the core and account groups were UNTITLED (reading as one flat list). Titled all three sections now: 'Grading' (Overview, What's it worth?, Submissions, Inventory, Finances, Price Suggestions), the existing 'FlipDesk', and 'Account' (Team, Refer a friend, Billing, API Keys, Settings) — which disambiguates the duplicate 'Inventory' labels by section (Grading>Inventory vs FlipDesk>Inventory) ahead of the US-740 consolidation. Made the titled sections COLLAPSIBLE to tame the 14-item FlipDesk wall: each title is a button (aria-expanded, ChevronDown that rotates) toggling its items; state persists to localStorage ('gt-sidebar-collapsed'). Crucially, a collapsed section is FORCE-OPENED whenever it contains the active route (groupHasActiveRoute via useLocation), so the current page's nav item is never hidden, and active-state highlighting is unchanged. SidebarNav is shared by the desktop <aside> and the mobile <Sheet>, so it works in both. tsc -b + eslint + vitest (287) green. Pairs with [[US-740]]/[[US-741]] (labels will track those routes as they land)."
     },
     {
       "id": "US-744",
