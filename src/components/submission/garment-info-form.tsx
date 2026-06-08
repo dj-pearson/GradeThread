@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { FieldError, FormErrorSummary } from "@/components/ui/form-feedback";
 import { GARMENT_TYPES, GARMENT_CATEGORIES } from "@/lib/constants";
 
 type GarmentType = (typeof GARMENT_TYPES)[number];
@@ -113,7 +114,16 @@ export function GarmentInfoForm({
     const newErrors = validate();
     setErrors(newErrors);
 
-    if (Object.keys(newErrors).length > 0) return;
+    if (Object.keys(newErrors).length > 0) {
+      // Land keyboard focus on the first field that needs attention.
+      const firstId = newErrors.garmentType
+        ? "garment-type"
+        : newErrors.garmentCategory
+          ? "garment-category"
+          : "title";
+      document.getElementById(firstId)?.focus();
+      return;
+    }
 
     onSubmit({
       garmentType: garmentType as GarmentType,
@@ -126,6 +136,9 @@ export function GarmentInfoForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <FormErrorSummary
+        errors={[errors.garmentType, errors.garmentCategory, errors.title]}
+      />
       <div className="space-y-2">
         <Label htmlFor="garment-type">
           Garment Type <span className="text-destructive">*</span>
@@ -135,6 +148,9 @@ export function GarmentInfoForm({
             id="garment-type"
             className="w-full"
             aria-invalid={!!errors.garmentType}
+            aria-describedby={
+              errors.garmentType ? "garment-type-error" : undefined
+            }
           >
             <SelectValue placeholder="Select garment type" />
           </SelectTrigger>
@@ -146,9 +162,7 @@ export function GarmentInfoForm({
             ))}
           </SelectContent>
         </Select>
-        {errors.garmentType && (
-          <p className="text-sm text-destructive">{errors.garmentType}</p>
-        )}
+        <FieldError id="garment-type-error">{errors.garmentType}</FieldError>
       </div>
 
       <div className="space-y-2">
@@ -160,6 +174,9 @@ export function GarmentInfoForm({
             id="garment-category"
             className="w-full"
             aria-invalid={!!errors.garmentCategory}
+            aria-describedby={
+              errors.garmentCategory ? "garment-category-error" : undefined
+            }
           >
             <SelectValue placeholder="Select category" />
           </SelectTrigger>
@@ -171,9 +188,9 @@ export function GarmentInfoForm({
             ))}
           </SelectContent>
         </Select>
-        {errors.garmentCategory && (
-          <p className="text-sm text-destructive">{errors.garmentCategory}</p>
-        )}
+        <FieldError id="garment-category-error">
+          {errors.garmentCategory}
+        </FieldError>
       </div>
 
       <div className="space-y-2">
@@ -202,14 +219,11 @@ export function GarmentInfoForm({
           placeholder="e.g. Vintage Levi's 501 Jeans"
           maxLength={100}
           aria-invalid={!!errors.title}
+          aria-describedby={errors.title ? "title-error" : undefined}
         />
         <div className="flex items-center justify-between">
-          {errors.title ? (
-            <p className="text-sm text-destructive">{errors.title}</p>
-          ) : (
-            <span />
-          )}
-          <p className="text-xs text-muted-foreground">
+          <FieldError id="title-error">{errors.title}</FieldError>
+          <p className="ml-auto text-xs text-muted-foreground">
             {title.length}/100
           </p>
         </div>

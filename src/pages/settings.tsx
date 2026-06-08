@@ -26,6 +26,7 @@ import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
 import { signOut, signOutEverywhere, signOutOtherSessions } from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
+import { FieldError } from "@/components/ui/form-feedback";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -64,6 +65,7 @@ export function SettingsPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
 
   const [prefs, setPrefs] = useState<NotificationPreferences>(() =>
     withPreferenceDefaults(profile?.notification_preferences)
@@ -185,20 +187,25 @@ export function SettingsPage() {
   }
 
   async function handleChangePassword() {
+    setPasswordError(null);
     if (!newPassword || !confirmPassword) {
-      toast.error("Please fill in all password fields");
+      setPasswordError("Please fill in all password fields.");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      toast.error("New passwords do not match");
+      setPasswordError("New passwords do not match.");
+      document.getElementById("confirmPassword")?.focus();
       return;
     }
 
     // US-367: enforce the shared password policy (was a weaker 6-char check).
     const pwCheck = checkPassword(newPassword);
     if (!pwCheck.ok) {
-      toast.error(pwCheck.reason ?? "Password does not meet the requirements");
+      setPasswordError(
+        pwCheck.reason ?? "Password does not meet the requirements.",
+      );
+      document.getElementById("newPassword")?.focus();
       return;
     }
 
@@ -771,8 +778,12 @@ export function SettingsPage() {
                 id="newPassword"
                 type="password"
                 value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
+                onChange={(e) => {
+                  setNewPassword(e.target.value);
+                  if (passwordError) setPasswordError(null);
+                }}
                 placeholder="Enter new password"
+                aria-invalid={!!passwordError}
               />
               <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
             </div>
@@ -783,9 +794,17 @@ export function SettingsPage() {
                 id="confirmPassword"
                 type="password"
                 value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                  if (passwordError) setPasswordError(null);
+                }}
                 placeholder="Confirm new password"
+                aria-invalid={!!passwordError}
+                aria-describedby={
+                  passwordError ? "password-error" : undefined
+                }
               />
+              <FieldError id="password-error">{passwordError}</FieldError>
             </div>
 
             <Button

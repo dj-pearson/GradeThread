@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/form-feedback";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import { advanceItemStatus } from "@/lib/status-writer";
@@ -57,6 +58,7 @@ export function RecordSaleDialog({
     sale_date: new Date().toISOString().slice(0, 10),
   });
   const [saving, setSaving] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (item) {
@@ -99,9 +101,11 @@ export function RecordSaleDialog({
   async function save() {
     if (!item) return;
     if (n(form.sale_price) <= 0) {
-      toast.error("Enter the sale price.");
+      setPriceError("Enter a sale price greater than 0.");
+      document.getElementById("sale-price")?.focus();
       return;
     }
+    setPriceError(null);
     setSaving(true);
     try {
       const insert: SaleInsert = {
@@ -151,9 +155,14 @@ export function RecordSaleDialog({
 
         <div className="grid grid-cols-2 gap-3">
           <Field
+            id="sale-price"
             label="Sale price"
             value={form.sale_price}
-            onChange={(v) => set("sale_price", v)}
+            onChange={(v) => {
+              set("sale_price", v);
+              if (priceError) setPriceError(null);
+            }}
+            error={priceError}
             autoFocus
           />
           <Field
@@ -243,23 +252,33 @@ function Field({
   value,
   onChange,
   autoFocus,
+  id,
+  error,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   autoFocus?: boolean;
+  id?: string;
+  error?: string | null;
 }) {
   return (
     <div className="space-y-1">
-      <Label className="text-xs">{label}</Label>
+      <Label className="text-xs" htmlFor={id}>
+        {label}
+      </Label>
       <Input
+        id={id}
         type="number"
         step="0.01"
         inputMode="decimal"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         autoFocus={autoFocus}
+        aria-invalid={!!error}
+        aria-describedby={error && id ? `${id}-error` : undefined}
       />
+      {error && <FieldError id={id ? `${id}-error` : undefined}>{error}</FieldError>}
     </div>
   );
 }

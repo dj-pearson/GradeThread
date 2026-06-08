@@ -10771,8 +10771,8 @@
         "At least the submission garment-info form, record-sale, and one settings form adopt the standard; build + eslint clean"
       ],
       "priority": 731,
-      "passes": false,
-      "notes": "[P2][UX/Forms] From the UI/UX audit: forms validate on submit and surface errors mostly via toast; submitting/disabled+spinner state is inconsistent. garment-info-form.tsx and billing-actions-card.tsx are the good references to generalize."
+      "passes": true,
+      "notes": "[P2][UX/Forms] SHIPPED 2026-06-08. New src/components/ui/form-feedback.tsx generalizes the pattern: <FieldError id> (inline role=alert message, renders null when empty) + <FormErrorSummary errors> (a destructive-bordered box listing every field that needs attention, filtering empties). Adopted in all three named forms: (1) garment-info-form.tsx — FormErrorSummary at the top on submit, inline FieldError per field with aria-describedby, and focus jumps to the first invalid field; (2) record-sale-dialog.tsx — the sale-price check moved from a toast to an inline FieldError under the field (with aria-invalid + focus), keeping its existing Loader2+disabled submit spinner; (3) settings.tsx password form — client-side checks (empty/mismatch/weak) moved from toasts to an inline FieldError with focus, keeping its existing spinner. Submit-spinner standard (disabled + Loader2, the billing-actions-card pattern) was already present in the dialog/settings forms and is now the documented norm. New src/components/ui/__tests__/form-feedback.test.tsx (4 cases: FieldError empty/alert, FormErrorSummary filtering). tsc -b clean for these files (only the concurrent agent's routes/index.tsx error remains) + eslint + vitest (287) green."
     },
     {
       "id": "US-732",
