@@ -42,7 +42,7 @@ struct InventoryRow: View {
 
             Spacer(minLength: 8)
 
-            statusBadge
+            StatusBadge(status: item.status)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -72,16 +72,6 @@ struct InventoryRow: View {
                 .font(.system(size: 22, weight: .light))
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var statusBadge: some View {
-        Text(statusLabel)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(statusForeground)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(statusBackground)
-            .clipShape(Capsule())
     }
 
     // MARK: - Derived strings
@@ -117,31 +107,6 @@ struct InventoryRow: View {
         return nil
     }
 
-    private var statusLabel: String {
-        item.status
-            .split(separator: "_")
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
-    }
-
-    // US-653: every pipeline stage gets a brand-token color rather than
-    // collapsing most stages to gray. Sourced→comped (pre-list prep) read as
-    // steel-navy work-in-progress; drafted as amber (ready, needs action);
-    // listed as brand navy; sold/shipped/completed emerald; returned red.
-    private var statusForeground: Color {
-        switch item.status {
-        case "sold", "shipped", "completed":              return .brandEmerald
-        case "listed", "active":                          return .brandNavy
-        case "drafted":                                   return .brandAmber
-        case "returned":                                  return .brandRed
-        case "sourced", "cataloged", "measured",
-             "photographed", "comped":                    return .brandSteelNavy
-        default:                                          return .secondary
-        }
-    }
-
-    private var statusBackground: Color { statusForeground.opacity(0.12) }
-
     private var accessibilityLabel: String {
         var parts: [String] = [item.title]
         if let brand = item.brand?.nonEmpty { parts.append("Brand \(brand)") }
@@ -150,7 +115,7 @@ struct InventoryRow: View {
         if let grade = item.gradeValue {
             parts.append("Certified grade \(String(format: "%.1f", grade))")
         }
-        parts.append("Status \(statusLabel)")
+        parts.append("Status \(StatusBadge.label(for: item.status))")
         return parts.joined(separator: ". ")
     }
 }

@@ -96,7 +96,11 @@ struct SkeletonRows: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .top)
-        .accessibilityHidden(true)
+        // US-757: announce the loading state instead of hiding it entirely —
+        // the shimmer rows are decorative, but VoiceOver should say "Loading…"
+        // so the user knows to wait rather than hearing silence.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading…")
     }
 }
 

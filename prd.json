@@ -11009,8 +11009,8 @@
         "Navigation links reuse the existing value-based NavigationStack routing; no duplicate data fetches (read from the shared SwiftData store)"
       ],
       "priority": 748,
-      "passes": false,
-      "notes": "[P1][iOS/Cohesion] PARTIAL 2026-06-08 (item→listings half shipped + iOS-CI-verified; sale→item nav deferred — see below). DONE: ItemCanvasView now @Query's the item's LocalListing rows (mirroring the existing itemSales @Query) and renders a 'Listings' section showing each listing's platform + status + price with a Link out to the live listing (externalURL) — so a listed item is no longer a dead-end; you can see and open its listing from the item. no-ungated-print gate passes; compiles on iOS CI (the macOS runner — can't build Swift on Windows). UPDATE 2026-06-08: the sale→item half is NOW DONE — landed with the [[US-750]] sales-cache unification, where SalesView (now reading LocalSale) makes each sale row a NavigationLink to ItemCanvasView when the item is cached. REMAINING: only the Dashboard 'Certified grades' card drill-into-a-specific-graded-item (view-only today). Files touched: Inventory/ItemCanvas/ItemCanvasView.swift (item→listings), Sales/SalesView.swift (sale→item, via US-750). Pairs with [[US-746]]."
+      "passes": true,
+      "notes": "[P1][iOS/Cohesion] COMPLETED 2026-06-08 — the Item↔Listing↔Sale thread is now navigable in all directions (the #1 cohesion gap). (1) item→listings: ItemCanvasView @Query's the item's LocalListing rows (mirroring the itemSales @Query) and shows a 'Listings' section with platform/status/price + a Link out to the live listing. (2) sale→item: SalesView (rewritten to LocalSale in [[US-750]]) makes each sale row a NavigationLink to ItemCanvasView. (3) grades→item: ALREADY existed — GradesListView rows are NavigationLink(value: item) into the item canvas, and the Dashboard 'Certified grades' card is a NavigationLink(value: GradesRoute()) into that list (the audit's 'view-only' read was slightly off). All three CI-verified on the macOS runner (can't build Swift on Windows); no-ungated-print gate passes. Files: Inventory/ItemCanvas/ItemCanvasView.swift, Sales/SalesView.swift (+ existing Grading/GradesListView.swift, Dashboard/DashboardView.swift). Pairs with [[US-746]]; unblocked by [[US-750]]."
     },
     {
       "id": "US-749",
@@ -11079,7 +11079,7 @@
       ],
       "priority": 753,
       "passes": false,
-      "notes": "[P2][iOS/UI] From the UI audit: the design system (DesignTokens/Typography/cardStyle/button styles) is strong (A−), but /Components only has SkeletonView + CachedThumbnail — most views hand-roll badges/cards (~40+ ad-hoc instances). A shared StatusBadge aligned with the web tones (US-728) plus InfoCard/DataRow cuts duplication. Files: ios/GradeThread/Components/*, Inventory/InventoryRow.swift, Sales/SalesView.swift, Money/MoneyView.swift."
+      "notes": "[P2][iOS/UI] PARTIAL 2026-06-08 (StatusBadge shipped; InfoCard/DataRow + broader adoption remain). DONE: new ios/GradeThread/Components/StatusBadge.swift — a shared item-status badge with a single status→tone map (sold/shipped/completed emerald, listed navy, drafted amber, returned red, pre-list-prep incl. grading/graded steel-navy, mirroring web tones US-728 + the prior US-653 colors) plus a static label(for:)/tone(for:) so callers reuse the mapping. Adopted in InventoryRow.swift: the hand-rolled statusBadge + statusForeground/statusBackground/statusLabel computed vars were deleted and replaced with StatusBadge(status:), and the accessibilityLabel reuses StatusBadge.label(for:). CI-verified (macOS runner); no-ungated-print gate passes. REMAINING: extract InfoCard + DataRow components and adopt StatusBadge/InfoCard across the other hand-rolled badge/card sites (Sales/Money/Marketplaces — the audit counted ~40+). Files: Components/StatusBadge.swift, Inventory/InventoryRow.swift. Aligns with web [[US-728]]."
     },
     {
       "id": "US-754",
@@ -11133,7 +11133,7 @@
       ],
       "priority": 757,
       "passes": false,
-      "notes": "[P2][iOS/A11y] From the UI audit: a11y is already very good, but loading containers aren't announced, image retry buttons lack labels, intake form fields lack explicit labels, and there are small polish gaps (no form-focus haptics; pull-to-refresh uses the default spinner on several tabs). Files: Components/SkeletonView.swift, Components/CachedThumbnail.swift, DetailsIntake/DetailsIntakeView.swift, Haptics/HapticFeedback.swift, Dashboard/DashboardView.swift, Marketplaces/MarketplacesView.swift, Money/MoneyView.swift."
+      "notes": "[P2][iOS/A11y] PARTIAL 2026-06-08. DONE: SkeletonView.swift's SkeletonRows now announces 'Loading…' to VoiceOver (was fully accessibilityHidden, so VO users heard silence) via accessibilityElement(children:.ignore)+accessibilityLabel — the shimmer rows stay decorative but the container announces the loading state. Also confirmed CachedThumbnail's retry control ALREADY has accessibilityLabel('Retry loading image') (audit was stale on that). CI-verified; no-ungated-print gate passes. REMAINING: explicit accessibilityLabels on the intake/expense form TextFields/Pickers, light haptics on form-field focus / voice-dictation start-stop (extend HapticFeedback), and the brand-navy pull-to-refresh tint on Dashboard/Marketplaces/Money (skipped for now — .tint on a refreshable also tints other controls, so it needs care). Files: Components/SkeletonView.swift (done), Components/CachedThumbnail.swift (already labeled), DetailsIntake/DetailsIntakeView.swift, Haptics/HapticFeedback.swift."
     }
   ]
 }
