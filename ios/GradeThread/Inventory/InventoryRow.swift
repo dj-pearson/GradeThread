@@ -11,7 +11,7 @@ struct InventoryRow: View {
         HStack(spacing: 12) {
             thumbnail
                 .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
@@ -58,7 +58,7 @@ struct InventoryRow: View {
 
     private var placeholderThumbnail: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
             Image(systemName: "tshirt")
                 .font(.system(size: 22, weight: .light))

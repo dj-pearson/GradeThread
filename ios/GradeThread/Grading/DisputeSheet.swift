@@ -104,7 +104,7 @@ struct DisputeSheet: View {
                     .padding(.vertical, 8)
                     .background(canSubmit ? Color.brandNavy : Color.secondary.opacity(0.4))
                     .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                 }
                 .disabled(!canSubmit || phase == .submitting)
                 .listRowBackground(Color.clear)

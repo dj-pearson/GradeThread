@@ -69,7 +69,7 @@ struct GradeReportView: View {
         // US-655: tier-tinted border + glow on the report hero, strongest for a
         // pristine grade. Suppressed under Reduce Transparency.
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous)
                 .strokeBorder(
                     GradeScale.color(for: report.overallScore)
                         .opacity(report.overallScore >= 9.5 ? 0.5 : 0.15),
@@ -98,7 +98,7 @@ struct GradeReportView: View {
                             }
                         }
                         .frame(width: 92, height: 92)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                     }
                 }
             }
@@ -234,7 +234,7 @@ struct GradeReportView: View {
                     .padding(.vertical, 12)
                     .background(Color.brandNavy)
                     .foregroundStyle(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
             Text("Buyers can verify this grade on a public certificate page — fewer “not as described” disputes.")
                 .font(.caption)
@@ -263,6 +263,6 @@ struct GradeReportView: View {
             .foregroundStyle(.secondary)
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+            .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 }

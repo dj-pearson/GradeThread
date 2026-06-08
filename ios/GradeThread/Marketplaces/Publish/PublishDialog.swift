@@ -57,7 +57,8 @@ struct PublishDialog: View {
     private var content: some View {
         switch phase {
         case .validating:
-            loadingCard(text: "Checking the listing…")
+            // US-692: initial content load → skeleton, not a bare spinner.
+            validatingSkeleton
 
         case .readyToPush(let summary):
             ComposerForm(
@@ -83,6 +84,21 @@ struct PublishDialog: View {
     }
 
     // MARK: - Reusable card builders
+
+    /// US-692: skeleton of the composer form while the publish pre-flight runs,
+    /// instead of a centered spinner.
+    private var validatingSkeleton: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SkeletonLine(widthFraction: 0.4, height: 14)
+            SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 44)
+            SkeletonLine(widthFraction: 0.55, height: 14)
+            SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 88)
+            SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 44)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel("Checking the listing")
+    }
 
     private func loadingCard(text: String) -> some View {
         VStack(spacing: 12) {

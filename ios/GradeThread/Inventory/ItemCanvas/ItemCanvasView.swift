@@ -291,7 +291,7 @@ struct ItemCanvasView: View {
                 .padding(.vertical, 10)
                 .background(Color.brandNavy)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
             .listRowBackground(Color.clear)
             .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
@@ -474,7 +474,7 @@ struct ItemCanvasView: View {
                 .clipShape(Capsule())
                 .padding(4)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
         // US-705: each photo reads as "<type> photo" instead of an unlabeled image.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(photo.photoType.capitalized) photo")

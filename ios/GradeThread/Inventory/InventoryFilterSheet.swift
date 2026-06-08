@@ -229,7 +229,7 @@ struct InventoryFilterSheet: View {
                 .padding(.vertical, 14)
                 .background(Color.brandNavy)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)

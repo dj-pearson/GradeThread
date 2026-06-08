@@ -121,8 +121,7 @@ struct EbaySyncModal: View {
                 )
             }
             .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .cardStyle(.flush)  // US-691: unified card chrome
             .padding(.horizontal, 16)
 
             Button {

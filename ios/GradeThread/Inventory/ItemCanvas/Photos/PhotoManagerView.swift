@@ -52,7 +52,7 @@ struct PhotoManagerView: View {
                 if isSaving {
                     ProgressView()
                         .padding(20)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.control))
                 }
             }
             .alert(
@@ -140,7 +140,7 @@ private struct PhotoManagerRow: View {
                     .background(Color.secondary.opacity(0.12))
             }
             .frame(width: 56, height: 56)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(photo.photoType.capitalized)

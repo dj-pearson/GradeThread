@@ -5111,3 +5111,31 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           values (Scout metrics triad) already pair lineLimit(1)+minimumScaleFactor.
           NOTE: decorative SF Symbols are paired with text labels (VoiceOver
           ignores them); final AX5 visual no-clip check is a device/CI step.
+
+### UI / brand-consistency batch (US-688..693)
+
+- US-689  Corner-radius literals -> CornerRadius tokens. Compile-safe sweep
+          (tokens are CGFloat constants): 56 replacements across 28 files via a
+          value mapping (16/14 -> .card, 12/10 -> .control, 9/8 -> .chip),
+          skipping the Disclosure PDF renderer + DesignTokens. Remaining literals
+          are intentional bespoke skeleton corners (SlotThumbnail 11, small
+          SkeletonBlock 4/6). COMPLETE.
+
+- US-691  Migrate hand-rolled card chrome to .cardStyle(). The raw
+          secondarySystemGroupedBackground + RoundedRectangle pattern in
+          LinkItemSheet, EbaySyncModal, AutoListerView, AIExtractView (x3),
+          BulkGradeSheet (x2), GradeRequestSheet now uses .cardStyle(.flush).
+          Only ScoutCandidateRow retains bespoke chrome (its conditional emerald
+          deal-border overlay). grep secondarySystemGroupedBackground outside
+          DesignTokens is now just that one intentional site. COMPLETE.
+
+- US-692  Skeletons on primary content loads. PublishDialog .validating renders
+          a composer-form skeleton (the .pushing ACTION keeps its spinner, which
+          is correct); MarketplacesView connection-check renders a skeleton panel
+          instead of a bare inline spinner. COMPLETE.
+
+- US-693  Dashboard loading vs empty. DashboardView already had a first-run
+          empty state; added a skeleton KPI-grid loading state shown when the
+          dashboard is empty AND the first sync is still running (SyncStatusStore
+          .phase == .syncing), so a fresh launch no longer flashes the Welcome
+          card before data lands. COMPLETE.

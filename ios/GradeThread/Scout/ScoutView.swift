@@ -86,7 +86,7 @@ struct ScoutView: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     // MARK: - Results
@@ -97,8 +97,8 @@ struct ScoutView: View {
             errorCard(message)
         } else if store.isLoading {
             VStack(spacing: 12) {
-                SkeletonBlock(cornerRadius: 14).frame(height: 150)
-                SkeletonBlock(cornerRadius: 14).frame(height: 150)
+                SkeletonBlock(cornerRadius: CornerRadius.card).frame(height: 150)
+                SkeletonBlock(cornerRadius: CornerRadius.card).frame(height: 150)
             }
         } else if let response = store.response {
             if store.displayedCandidates.isEmpty {

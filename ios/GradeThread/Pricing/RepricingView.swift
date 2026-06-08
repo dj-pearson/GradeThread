@@ -30,7 +30,7 @@ struct RepricingView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     ForEach(0..<3, id: \.self) { _ in
-                        SkeletonBlock(cornerRadius: 14).frame(height: 150)
+                        SkeletonBlock(cornerRadius: CornerRadius.card).frame(height: 150)
                     }
                 }
                 .padding(16)

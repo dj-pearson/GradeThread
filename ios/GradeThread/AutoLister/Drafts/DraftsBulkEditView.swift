@@ -193,7 +193,7 @@ private struct DraftEditRowView: View {
                             }
                             .padding(.horizontal, 8).padding(.vertical, 6)
                             .background(Color(uiColor: .tertiarySystemFill))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
                             conditionMenu(current: row.condition)
 

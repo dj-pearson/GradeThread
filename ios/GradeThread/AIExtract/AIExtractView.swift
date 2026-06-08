@@ -149,7 +149,7 @@ struct AIExtractView: View {
         }
         .padding(12)
         .background(Color.brandNavy.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func summaryCard(_ text: String) -> some View {
@@ -163,8 +163,8 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
     }
 
     private func fieldsCard(_ entries: [FieldSuggestionEntry]) -> some View {
@@ -197,8 +197,8 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
     }
 
     private func measurementsCard(_ measurements: [AIExtractStore.Measurement]) -> some View {
@@ -232,8 +232,8 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
     }
 
     private var applyRow: some View {
@@ -248,7 +248,7 @@ struct AIExtractView: View {
                     .padding(.vertical, 14)
                     .background(Color(uiColor: .secondarySystemBackground))
                     .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
 
             Button {
@@ -263,7 +263,7 @@ struct AIExtractView: View {
                 .padding(.vertical, 14)
                 .background(Color.brandNavy)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
             .disabled(isApplying)
         }

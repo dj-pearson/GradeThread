@@ -22,6 +22,11 @@ struct DashboardView: View {
     private var items: [LocalInventoryItem]
     @Query private var sales: [LocalSale]
 
+    /// US-693: lets the empty branch tell "first sync still running" apart from
+    /// "genuinely no data yet" so a fresh launch shows skeletons, not a
+    /// premature Welcome card.
+    @Environment(SyncStatusStore.self) private var syncStatus
+
     private let currency = CurrencyFormatter()
 
     private var metrics: DashboardMetrics {
@@ -42,7 +47,13 @@ struct DashboardView: View {
     var body: some View {
         Group {
             if items.isEmpty && sales.isEmpty {
-                emptyState
+                // US-693: while the very first sync is still pulling, show
+                // skeleton cards instead of flashing the Welcome empty state.
+                if syncStatus.phase == .syncing {
+                    loadingState
+                } else {
+                    emptyState
+                }
             } else {
                 dashboard
             }
@@ -274,6 +285,36 @@ struct DashboardView: View {
             .tint(Color.brandNavy)
         }
         .padding(.top, 4)
+    }
+
+    // MARK: - Loading (first-sync) state
+
+    /// US-693: skeleton KPI grid shown while the initial sync is in flight so
+    /// the home tab doesn't flash a Welcome card before data lands.
+    private var loadingState: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                LazyVGrid(
+                    columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+                    spacing: 12
+                ) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        VStack(alignment: .leading, spacing: 8) {
+                            SkeletonLine(widthFraction: 0.5, height: 11)
+                            SkeletonLine(widthFraction: 0.7, height: 20)
+                            SkeletonLine(widthFraction: 0.4, height: 10)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+                        .padding(16)
+                        .cardStyle(.flush)
+                    }
+                }
+                SkeletonBlock(cornerRadius: CornerRadius.card).frame(height: 96)
+            }
+            .padding(16)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .accessibilityLabel("Loading your dashboard")
     }
 
     // MARK: - Empty (first-run) state

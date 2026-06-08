@@ -15,7 +15,7 @@ struct ScoutCandidateRow: View {
                 HStack(alignment: .top, spacing: 12) {
                     thumbnail
                         .frame(width: 76, height: 76)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
 
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(alignment: .top, spacing: 6) {
@@ -66,10 +66,10 @@ struct ScoutCandidateRow: View {
         .padding(12)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous)
                 .strokeBorder(candidate.underpriced ? Color.brandEmerald.opacity(0.5) : .clear, lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
     }
 
     /// US-703: composed VoiceOver label — title, deal flag, shadow grade +

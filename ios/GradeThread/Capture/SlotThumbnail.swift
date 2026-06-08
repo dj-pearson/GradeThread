@@ -34,10 +34,10 @@ struct SlotThumbnail: View {
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
                     .fill(Color.white.opacity(isFilled ? 0 : 0.08))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
                             .stroke(
                                 isActive ? Color.brandNavy : Color.white.opacity(0.4),
                                 lineWidth: isActive ? 3 : 1

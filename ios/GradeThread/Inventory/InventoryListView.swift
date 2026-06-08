@@ -668,7 +668,7 @@ private struct BulkProgressHUD: View {
                 .foregroundStyle(.secondary)
         }
         .padding(20)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
         .shadow(radius: 12)
     }
 }

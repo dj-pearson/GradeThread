@@ -115,7 +115,7 @@ struct CertifiedGradeSection: View {
             .padding(.vertical, 10)
             .background(Color.brandNavy)
             .foregroundStyle(.white)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
         }
         .listRowBackground(Color.clear)
         .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))

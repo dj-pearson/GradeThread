@@ -368,7 +368,7 @@ struct DetailsIntakeView: View {
         .padding(.vertical, 10)
         .background(Color.brandNavy)
         .foregroundStyle(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func secondaryButtonLabel(title: String) -> some View {
@@ -378,7 +378,7 @@ struct DetailsIntakeView: View {
             .padding(.vertical, 10)
             .background(Color(uiColor: .secondarySystemBackground))
             .foregroundStyle(Color.brandNavy)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func bannerIcon(for kind: BannerMessage.Kind) -> String {

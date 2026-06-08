@@ -10188,7 +10188,7 @@
         "Inventory row, ItemCanvas tiles, and list cards share one thumbnail radius"
       ],
       "priority": 689,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #2: 70 raw cornerRadius literals vs 6 token uses; 28x12,14x10,11x14,9x8. CI validates build."
     },
     {
@@ -10214,7 +10214,7 @@
         "grep secondarySystemGroupedBackground outside DesignTokens.swift is 0"
       ],
       "priority": 691,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #4: raw card chrome in 7 files; primary screens draw their own RoundedRectangles. CI validates build."
     },
     {
@@ -10227,7 +10227,7 @@
         "No regression in screens that already use skeletons"
       ],
       "priority": 692,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #5: 74 ProgressView() across 44 files vs skeletons in 13; primary flows show bare spinners. CI validates build."
     },
     {
@@ -10240,7 +10240,7 @@
         "No flash of zeroed cards before data resolves"
       ],
       "priority": 693,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #6: DashboardView has no ProgressView/Skeleton/ContentUnavailableView/isLoading. CI validates build."
     },
     {

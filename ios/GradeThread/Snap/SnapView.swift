@@ -90,9 +90,9 @@ struct SnapView: View {
                 .scaledToFit()
                 .frame(maxHeight: 280)
                 .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
         } else {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
                 .fill(Color.secondary.opacity(0.1))
                 .frame(height: 220)
                 .overlay {
@@ -164,7 +164,7 @@ struct SnapView: View {
                 .foregroundStyle(.secondary)
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                .background(Color.yellow.opacity(0.12), in: RoundedRectangle(cornerRadius: CornerRadius.chip))
 
             HStack(spacing: 10) {
                 Button {
@@ -190,7 +190,7 @@ struct SnapView: View {
             }
         }
         .padding()
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     // MARK: - Helpers

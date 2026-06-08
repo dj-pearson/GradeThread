@@ -338,10 +338,10 @@ struct PhotoIntakeView: View {
                                 .frame(width: 64, height: 64)
                                 .background(.white.opacity(0.08))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
                                         .stroke(.white.opacity(0.4), style: .init(lineWidth: 1, dash: [4, 3]))
                                 )
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                             Text("Defect")
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.7))
