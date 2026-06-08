@@ -1,13 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
+import {
+  Loader2,
+  Save,
+  AlertTriangle,
+  ArrowRight,
+  ShieldCheck,
+  Search,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useEbayCategorySuggest } from "@/hooks/use-ebay";
 import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 
@@ -40,6 +53,10 @@ interface EditRow {
   bestOffer: boolean;
   scheduledAt: string;
   categoryId: string;
+  // Human-readable category path for display (e.g. "…> Women > Women's Clothing").
+  // Populated when the user picks via search; the DB only stores the leaf id, so
+  // it's empty for categories loaded from the server until re-picked.
+  categoryPath: string;
   // eBay "Department" specific (Men/Women/…) — the most common required aspect
   // that blocks publish. Edited here, then merged into item_specifics_override
   // on save. `specifics` holds the rest of the override so the merge is lossless.
@@ -104,7 +121,10 @@ export function FlipdeskAutolisterBulkEditPage() {
   const [bulkCondition, setBulkCondition] = useState("");
   const [bulkQty, setBulkQty] = useState("");
   const [bulkSchedule, setBulkSchedule] = useState("");
-  const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkCategory, setBulkCategory] = useState<{
+    id: string;
+    path: string;
+  } | null>(null);
   const [bulkDepartment, setBulkDepartment] = useState("");
 
   // Seed editable rows once the drafts load.
@@ -126,6 +146,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           bestOffer: r.best_offer_enabled ?? false,
           scheduledAt: isoToLocalInput(r.scheduled_publish_at),
           categoryId: r.platform_category_id ?? "",
+          categoryPath: "",
           department: Department?.[0] ?? "",
           specifics: rest,
           validationBlockers: null,
@@ -476,20 +497,26 @@ export function FlipdeskAutolisterBulkEditPage() {
         <div className="flex items-end gap-1.5">
           <div>
             <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
-              eBay category id
+              eBay category
             </label>
-            <Input
-              value={bulkCategoryId}
-              onChange={(e) => setBulkCategoryId(e.target.value)}
-              className="h-8 w-32"
-              placeholder="e.g. 11450"
+            <CategorySearchControl
+              categoryId={bulkCategory?.id ?? ""}
+              categoryPath={bulkCategory?.path ?? ""}
+              align="start"
+              triggerClassName="w-56"
+              onPick={(id, path) => setBulkCategory({ id, path })}
             />
           </div>
           <Button
             size="sm"
             variant="secondary"
-            disabled={!bulkCategoryId.trim()}
-            onClick={() => applyToTargets(() => ({ categoryId: bulkCategoryId.trim() }))}
+            disabled={!bulkCategory}
+            onClick={() =>
+              applyToTargets(() => ({
+                categoryId: bulkCategory!.id,
+                categoryPath: bulkCategory!.path,
+              }))
+            }
           >
             Apply
           </Button>
@@ -563,7 +590,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="p-2">Title</th>
               <th className="w-28 p-2">Price</th>
               <th className="w-44 p-2">Condition</th>
-              <th className="w-28 p-2">Category</th>
+              <th className="w-48 p-2">Category</th>
               <th className="w-36 p-2">Department</th>
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
@@ -638,11 +665,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                     </select>
                   </td>
                   <td className="p-2">
-                    <Input
-                      value={r.categoryId}
-                      onChange={(e) => patchRow(r.id, { categoryId: e.target.value })}
-                      className="h-8"
-                      placeholder="—"
+                    <CategorySearchControl
+                      categoryId={r.categoryId}
+                      categoryPath={r.categoryPath}
+                      triggerClassName="w-full"
+                      onPick={(id, path) =>
+                        patchRow(r.id, { categoryId: id, categoryPath: path })
+                      }
+                      onClear={() =>
+                        patchRow(r.id, { categoryId: "", categoryPath: "" })
+                      }
                     />
                   </td>
                   <td className="p-2">
@@ -705,5 +737,125 @@ export function FlipdeskAutolisterBulkEditPage() {
         </table>
       </Card>
     </div>
+  );
+}
+
+// Small debounce so each keystroke across many rows doesn't hammer the Taxonomy
+// suggest endpoint. The query only fires once the value settles for `ms`.
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
+// Taxonomy-backed category search in a popover. Used both per-row and in the
+// bulk-apply toolbar. Renders the picked leaf's path (or its id when the path
+// isn't known yet) on the trigger; searching hits eBay's live category tree via
+// useEbayCategorySuggest, so every eBay category is reachable with nothing
+// hardcoded. The popover content is portaled, so the table's horizontal scroll
+// container never clips the results.
+function CategorySearchControl({
+  categoryId,
+  categoryPath,
+  onPick,
+  onClear,
+  triggerClassName,
+  align = "center",
+}: {
+  categoryId: string;
+  categoryPath: string;
+  onPick: (id: string, path: string) => void;
+  onClear?: () => void;
+  triggerClassName?: string;
+  align?: "start" | "center" | "end";
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const debounced = useDebounced(query.trim(), 250);
+  const suggest = useEbayCategorySuggest(debounced);
+  const results = suggest.data ?? [];
+
+  const label = categoryPath || (categoryId ? `Category #${categoryId}` : "");
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex h-8 items-center gap-1.5 truncate rounded-md border border-input bg-transparent px-2 text-left text-xs",
+            !label && "text-muted-foreground",
+            triggerClassName,
+          )}
+          title={label || "Search eBay categories"}
+        >
+          <Search className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <span className="truncate">{label || "Search category…"}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align={align} className="w-80 p-0">
+        <div className="border-b p-2">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="e.g. women's blouse, men's blazer"
+              className="h-8 pl-7 text-xs"
+            />
+            {suggest.isFetching && (
+              <Loader2 className="absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-muted-foreground" />
+            )}
+          </div>
+        </div>
+        <div className="max-h-64 overflow-y-auto">
+          {debounced.length < 2 ? (
+            <div className="p-3 text-xs text-muted-foreground">
+              Type at least 2 characters to search eBay categories.
+            </div>
+          ) : results.length === 0 && !suggest.isFetching ? (
+            <div className="p-3 text-xs text-muted-foreground">
+              No matches. Try a different keyword.
+            </div>
+          ) : (
+            results.map((s) => (
+              <button
+                key={s.categoryId}
+                type="button"
+                onClick={() => {
+                  onPick(s.categoryId, s.categoryTreePath);
+                  setOpen(false);
+                  setQuery("");
+                }}
+                className="block w-full border-b px-3 py-2 text-left text-xs last:border-b-0 hover:bg-muted/50"
+              >
+                <div className="font-medium">{s.categoryName}</div>
+                <div className="text-muted-foreground">{s.categoryTreePath}</div>
+              </button>
+            ))
+          )}
+        </div>
+        {categoryId && onClear && (
+          <div className="border-t p-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full text-xs"
+              onClick={() => {
+                onClear();
+                setOpen(false);
+                setQuery("");
+              }}
+            >
+              Clear category
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
