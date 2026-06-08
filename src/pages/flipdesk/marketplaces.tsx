@@ -30,8 +30,10 @@ import {
   useEbayConnection,
   useEbayConnectionIssue,
   useEbayPolicies,
+  useSetDefaultPolicies,
   useStartEbayOauth,
   useSyncEbayListings,
+  useSyncEbayPolicies,
 } from "@/hooks/use-ebay";
 
 const PHASE_2 = ["poshmark", "mercari", "shopify"] as const;
@@ -78,6 +80,140 @@ function formatAgo(iso: string): string {
   const day = Math.floor(hr / 24);
   if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+// Business-policy defaults. eBay attaches a fulfillment (shipping), payment, and
+// return policy to every published offer. We auto-pick a default on first sync,
+// but that guess can be wrong/invalid (publish then fails with eBay 25007
+// "invalid shipping policy"). This card lets the seller choose the correct
+// default per type and re-sync the list from eBay when it's stale.
+const POLICY_KINDS = [
+  { type: "fulfillment", label: "Shipping policy", key: "fulfillment_policy_id" },
+  { type: "payment", label: "Payment policy", key: "payment_policy_id" },
+  { type: "return", label: "Return policy", key: "return_policy_id" },
+] as const;
+
+function EbayBusinessPoliciesCard() {
+  const { data, isLoading } = useEbayPolicies(true);
+  const setDefaults = useSetDefaultPolicies();
+  const resync = useSyncEbayPolicies();
+
+  // Local selection seeded from the saved defaults; re-seed when data changes.
+  const [selection, setSelection] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!data) return;
+    setSelection({
+      fulfillment_policy_id: data.defaults.fulfillment_policy_id ?? "",
+      payment_policy_id: data.defaults.payment_policy_id ?? "",
+      return_policy_id: data.defaults.return_policy_id ?? "",
+    });
+  }, [data]);
+
+  const policies = data?.policies ?? [];
+  const dirty = !!data &&
+    POLICY_KINDS.some(
+      (k) =>
+        (selection[k.key] ?? "") !==
+        (data.defaults[k.key] ?? ""),
+    );
+
+  const save = async () => {
+    const payload: Record<string, string> = {};
+    for (const k of POLICY_KINDS) {
+      if (selection[k.key]) payload[k.key] = selection[k.key]!;
+    }
+    try {
+      await setDefaults.mutateAsync(payload);
+    } catch {
+      /* surfaced by the hook */
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5" />
+            eBay — business policies
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => resync.mutate()}
+            disabled={resync.isPending}
+          >
+            {resync.isPending ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
+            Re-sync from eBay
+          </Button>
+        </div>
+        <CardDescription>
+          eBay attaches a shipping, payment, and return policy to every listing.
+          Pick the default for each — these are used when you publish. If a
+          publish fails with &quot;invalid shipping policy,&quot; re-sync and
+          re-pick the right one here.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading your eBay policies…
+          </div>
+        ) : policies.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No business policies found on your eBay account yet. Create shipping,
+            payment, and return policies in eBay Seller Hub, then click
+            &quot;Re-sync from eBay.&quot;
+          </p>
+        ) : (
+          <>
+            {POLICY_KINDS.map((kind) => {
+              const options = policies.filter((p) => p.policy_type === kind.type);
+              return (
+                <div key={kind.type} className="space-y-1">
+                  <Label className="text-xs">{kind.label}</Label>
+                  <select
+                    value={selection[kind.key] ?? ""}
+                    onChange={(e) =>
+                      setSelection((prev) => ({
+                        ...prev,
+                        [kind.key]: e.target.value,
+                      }))
+                    }
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
+                  >
+                    <option value="">
+                      {options.length === 0
+                        ? "None on your account"
+                        : "Select a policy…"}
+                    </option>
+                    {options.map((p) => (
+                      <option key={p.policy_id} value={p.policy_id}>
+                        {p.policy_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+            <div className="flex justify-end pt-1">
+              <Button onClick={save} disabled={!dirty || setDefaults.isPending}>
+                {setDefaults.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Save defaults
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // Ship-from (merchant inventory) location setup. eBay requires an ENABLED
@@ -503,8 +639,9 @@ export function FlipdeskMarketplacesPage() {
         {/* Ship-from location — only relevant once the API connection exists,
             since the location lives on the connected eBay account. */}
         {connection && (
-          <div className="mt-4">
+          <div className="mt-4 space-y-4">
             <EbayLocationCard />
+            <EbayBusinessPoliciesCard />
           </div>
         )}
       </div>

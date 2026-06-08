@@ -111,6 +111,76 @@ export function useEbayPolicies(enabled = true) {
   });
 }
 
+// Forces a fresh pull of the seller's business policies from eBay (the UI
+// "Re-sync" button). Use this when the cached policy ids are stale — e.g. a
+// publish fails with "invalid shipping policy" because the cached default no
+// longer resolves on eBay.
+export function useSyncEbayPolicies() {
+  const qc = useQueryClient();
+  return useMutation<
+    { synced: number; merchant_location_key: string | null; missing: string[] },
+    Error,
+    void
+  >({
+    mutationFn: async () => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/policies/sync`,
+        { method: "POST", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not sync eBay policies.");
+      return json as {
+        synced: number;
+        merchant_location_key: string | null;
+        missing: string[];
+      };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["ebay_policies"] });
+      toast.success(`Synced ${data.synced} business policies from eBay.`);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// Sets which fulfillment/payment/return policy (and merchant location) is the
+// default used on every published offer. Lets the seller fix a wrong/invalid
+// auto-selected default that causes eBay publish errors (e.g. 25007).
+export function useSetDefaultPolicies() {
+  const qc = useQueryClient();
+  return useMutation<
+    EbayPoliciesResponse,
+    Error,
+    {
+      fulfillment_policy_id?: string;
+      payment_policy_id?: string;
+      return_policy_id?: string;
+      merchant_location_key?: string;
+    }
+  >({
+    mutationFn: async (selection) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/policies/default`,
+        {
+          method: "PUT",
+          headers: await ebayHeaders(),
+          body: JSON.stringify(selection),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not save default policies.");
+      }
+      return json as EbayPoliciesResponse;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ebay_policies"] });
+      toast.success("Default policies saved.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // Creates the seller's default eBay ship-from (merchant inventory) location.
 // eBay requires one on every offer and has no Seller Hub UI to make it, so
 // FlipDesk creates it from a ZIP the seller confirms once.
