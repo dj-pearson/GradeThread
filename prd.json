@@ -10800,7 +10800,7 @@
       ],
       "priority": 733,
       "passes": false,
-      "notes": "[P1][Perf] From the performance audit (its #1 finding): no virtualization lib exists and big tables render every row. Routes are ALREADY lazy-loaded (verified) so no route-splitting story is needed. Pairs with [[US-729]] (the mobile card list can virtualize too)."
+      "notes": "[P1][Perf] DEFERRED/DESCOPED 2026-06-08 after verifying the premise. The audit's claim that these tables 'render every row' is mostly FALSE: submissions.tsx is SERVER-paginated to PAGE_SIZE=20 rows (.range) — virtualization there is pointless; flipdesk/listings.tsx renders pageRows = filtered.slice(pageStart, pageStart+pageSize) with pageSize default 100 (max 200 via the page-size dropdown); flipdesk/grid.tsx PAGE_SIZE=100; autolister-queue is bounded by the 200-item batch cap. So no table renders 'thousands of DOM nodes' — they're all bounded to <=200. Net: the AC's 'drop a 100-row page by >80% nodes' is a marginal win, while correctly virtualizing real <table> markup (sticky header, select-all-on-page, sortable columns, per-tab conditional cells) on the PRIMARY inventory surface is high-risk and genuinely needs visual QA (scroll smoothness, selection, header) that can't be done headless. RECOMMENDATION: only pursue if profiling at pageSize=200 shows real jank; if so, scope it to ONLY the listings table behind a row-count threshold (lists <=60 keep today's exact render) using @tanstack/react-virtual with the tbody top/bottom spacer-row technique, and verify with the run/verify skill. NOT shipping blind to main. The other two perf stories ([[US-734]] recharts lazy-load, [[US-735]] staleTime) delivered the verified wins this round."
     },
     {
       "id": "US-734",
