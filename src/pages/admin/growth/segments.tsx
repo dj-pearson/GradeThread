@@ -207,7 +207,13 @@ function RuleBuilder({
               />
             )}
 
-            <Button variant="ghost" size="icon" className="ml-auto" onClick={() => removeCondition(i)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto"
+              onClick={() => removeCondition(i)}
+              aria-label="Remove condition"
+            >
               <X className="h-4 w-4" />
             </Button>
           </div>

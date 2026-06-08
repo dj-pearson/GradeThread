@@ -884,7 +884,12 @@ export function ItemCanvas({
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" disabled={saving}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={saving}
+                  aria-label="Item actions"
+                >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>

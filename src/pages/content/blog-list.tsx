@@ -188,7 +188,12 @@ export function BlogListPage() {
                           className="mr-2 inline-flex"
                           title="View live"
                         >
-                          <Button variant="ghost" size="icon" className="h-7 w-7">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            aria-label="View live post"
+                          >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
                         </a>
@@ -198,6 +203,7 @@ export function BlogListPage() {
                         size="icon"
                         className="h-7 w-7 text-destructive"
                         title="Delete"
+                        aria-label="Delete post"
                         onClick={async () => {
                           if (
                             await confirm({

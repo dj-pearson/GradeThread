@@ -241,7 +241,12 @@ export function ApiKeysPage() {
                     <div className="flex-1 rounded-md border bg-muted p-3 font-mono text-sm break-all">
                       {newlyCreatedKey}
                     </div>
-                    <Button variant="outline" size="icon" onClick={handleCopyKey}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={handleCopyKey}
+                      aria-label={copied ? "API key copied" : "Copy API key"}
+                    >
                       {copied ? (
                         <Check className="h-4 w-4 text-green-600" />
                       ) : (
@@ -386,6 +391,7 @@ export function ApiKeysPage() {
                         size="icon"
                         className="text-destructive hover:text-destructive"
                         onClick={() => setRevokeKeyId(key.id)}
+                        aria-label="Revoke API key"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
