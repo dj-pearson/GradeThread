@@ -475,6 +475,9 @@ struct ItemCanvasView: View {
                 .padding(4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        // US-705: each photo reads as "<type> photo" instead of an unlabeled image.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(photo.photoType.capitalized) photo")
     }
 
     private var measurementsSection: some View {
@@ -557,6 +560,8 @@ struct ItemCanvasView: View {
                     Divider()
                     compStat("High", lookup.stats.max)
                 }
+                // US-705: read the price triad as one coherent element.
+                .accessibilityElement(children: .combine)
                 Text("Based on \(lookup.stats.count) active eBay listing\(lookup.stats.count == 1 ? "" : "s") · \(lookup.categoryPath)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)

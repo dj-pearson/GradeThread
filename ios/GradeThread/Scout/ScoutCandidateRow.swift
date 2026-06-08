@@ -8,40 +8,50 @@ struct ScoutCandidateRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                thumbnail
-                    .frame(width: 76, height: 76)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            // US-703: the informational content collapses into ONE VoiceOver
+            // element with a curated label (instead of `.combine`, which
+            // fragmented the text AND swallowed the eBay link below).
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    thumbnail
+                        .frame(width: 76, height: 76)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .top, spacing: 6) {
-                        Text(candidate.title)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        Spacer(minLength: 0)
-                        if candidate.underpriced {
-                            Label("Deal", systemImage: "arrow.up.right")
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(Color.brandEmerald.opacity(0.15))
-                                .foregroundStyle(Color.brandEmerald)
-                                .clipShape(Capsule())
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(alignment: .top, spacing: 6) {
+                            Text(candidate.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(2)
+                            Spacer(minLength: 0)
+                            if candidate.underpriced {
+                                Label("Deal", systemImage: "arrow.up.right")
+                                    .font(.caption2.weight(.bold))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3)
+                                    .background(Color.brandEmerald.opacity(0.15))
+                                    .foregroundStyle(Color.brandEmerald)
+                                    .clipShape(Capsule())
+                            }
                         }
+                        gradeLine
                     }
-                    gradeLine
                 }
-            }
 
-            metricsRow
+                metricsRow
 
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(candidate.reason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
-                if let urlString = candidate.itemWebUrl, let url = URL(string: urlString) {
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilitySummary)
+
+            // The link stays a separate, reachable accessibility element.
+            if let urlString = candidate.itemWebUrl, let url = URL(string: urlString) {
+                HStack {
+                    Spacer(minLength: 0)
                     Link(destination: url) {
                         HStack(spacing: 3) {
                             Text("eBay")
@@ -49,6 +59,7 @@ struct ScoutCandidateRow: View {
                         }
                         .font(.caption.weight(.semibold))
                     }
+                    .accessibilityLabel("View on eBay")
                 }
             }
         }
@@ -59,7 +70,25 @@ struct ScoutCandidateRow: View {
                 .strokeBorder(candidate.underpriced ? Color.brandEmerald.opacity(0.5) : .clear, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityElement(children: .combine)
+    }
+
+    /// US-703: composed VoiceOver label — title, deal flag, shadow grade +
+    /// confidence, the asking/value/margin triad, and the reason, so the deal
+    /// signal is spoken rather than implied by the border colour. Internal so
+    /// the composition is unit-tested.
+    var accessibilitySummary: String {
+        var parts: [String] = [candidate.title]
+        if candidate.underpriced { parts.append("Deal") }
+        if let grade = candidate.shadowGrade {
+            parts.append("shadow grade \(Self.gradeText(grade)) out of 10")
+        }
+        parts.append("\(Int((candidate.gradeConfidence * 100).rounded())) percent confidence")
+        if !candidate.actionable { parts.append("uncertain") }
+        parts.append("asking \(Self.dollars(candidate.askingCents))")
+        if candidate.valueMedianCents != nil { parts.append("estimated value \(valueText)") }
+        if candidate.estMarginCents != nil { parts.append("estimated margin \(marginText)") }
+        parts.append(candidate.reason)
+        return parts.joined(separator: ", ")
     }
 
     // MARK: - Subviews

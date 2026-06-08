@@ -17,6 +17,15 @@ struct GradeScoreRing: View {
     /// Reduce Transparency (the glow is a blurred translucent layer).
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
+    /// US-707: the ring (and the score font derived from its diameter) must
+    /// grow with Dynamic Type. `typeScale` is 100 at the default content size
+    /// and scales up with the user's setting; we clamp the factor so the small
+    /// list/canvas chips don't blow out their rows at AX5.
+    @ScaledMetric(relativeTo: .largeTitle) private var typeScale: CGFloat = 100
+    private var effectiveDiameter: CGFloat {
+        diameter * min(max(typeScale / 100, 1.0), 1.6)
+    }
+
     private var color: Color { GradeScale.color(for: score) }
     private var fraction: Double { min(max(score / 10, 0), 1) }
     private var trimEnd: Double { (animateOnAppear && !revealed) ? 0 : fraction }
@@ -41,7 +50,7 @@ struct GradeScoreRing: View {
             if !reduceTransparency {
                 Circle()
                     .fill(color)
-                    .blur(radius: diameter * 0.20)
+                    .blur(radius: effectiveDiameter * 0.20)
                     .opacity(revealed || !animateOnAppear ? glowOpacity : 0)
                     .scaleEffect(0.92)
                     .allowsHitTesting(false)
@@ -58,14 +67,15 @@ struct GradeScoreRing: View {
             VStack(spacing: 0) {
                 CountingNumber(value: displayedScore)
                     // US-654: the hero grade number uses the Outfit display face.
-                    .font(.brandScore(diameter * 0.30))
+                    // US-707: size derives from the Dynamic-Type-scaled diameter.
+                    .font(.brandScore(effectiveDiameter * 0.30))
                     .foregroundStyle(color)
                 Text("of 10")
-                    .font(.custom(BrandFont.interMedium, size: diameter * 0.11))
+                    .font(.custom(BrandFont.interMedium, size: effectiveDiameter * 0.11))
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(width: diameter, height: diameter)
+        .frame(width: effectiveDiameter, height: effectiveDiameter)
         .onAppear {
             guard animateOnAppear else { return }
             withAnimation(ReducedMotion.animation(.easeOut(duration: 0.7))) {
@@ -76,7 +86,7 @@ struct GradeScoreRing: View {
         .accessibilityLabel("Grade \(String(format: "%.1f", score)) of 10, \(tier)")
     }
 
-    private var lineWidth: CGFloat { diameter * 0.09 }
+    private var lineWidth: CGFloat { effectiveDiameter * 0.09 }
 }
 
 /// A one-decimal number that animates between values: SwiftUI interpolates

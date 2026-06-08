@@ -133,6 +133,8 @@ private struct FilterChip: View {
         .padding(.vertical, 6)
         .background(Color.brandNavy.opacity(0.12))
         .clipShape(Capsule())
+        // US-706: the visual chip is ~28pt tall; expand the tap target to 44pt.
+        .frame(minHeight: 44)
         .contentShape(Capsule())
         .onTapGesture {
             AppRouter.haptic()

@@ -47,6 +47,22 @@ public final class EbaySyncStore {
         }
         stageTimer?.cancel()
         stageTimer = nil
+        // US-701: announce the outcome — the modal swaps content silently.
+        A11yAnnounce.announce(completionAnnouncement(completion))
+    }
+
+    /// US-701: VoiceOver summary of a finished sync.
+    func completionAnnouncement(_ completion: EbaySyncCompletion) -> String {
+        switch completion {
+        case .completed(let s):
+            return "eBay sync complete. \(s.listingsCount) listings, \(s.salesCount) sales."
+        case .timedOut:
+            return "eBay sync timed out."
+        case .connectionFlagged(let msg):
+            return "eBay connection needs attention. \(msg)"
+        case .failed(let msg):
+            return "eBay sync failed. \(msg)"
+        }
     }
 
     public func reset() {

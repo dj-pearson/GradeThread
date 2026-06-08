@@ -314,6 +314,16 @@ struct PhotoIntakeView: View {
                             }
                         }
                     )
+                    // US-704: VoiceOver/Switch Control can't do the long-press,
+                    // so expose delete as an accessibility action on filled slots.
+                    .accessibilityActions {
+                        if store.photos[slot] != nil {
+                            Button("Delete photo") {
+                                AppRouter.haptic()
+                                store.clearPhoto(at: slot)
+                            }
+                        }
+                    }
                 }
 
                 if store.canAddDefectSlot {

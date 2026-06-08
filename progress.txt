@@ -5065,3 +5065,49 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           client_state (when expectedState supplied) as .stateExpired; cancel/
           error callbacks stay lenient. Defense-in-depth atop the server's
           single-use oauth_states gate. Tests: EbayConnectionTests +2.
+
+### Accessibility batch (US-700..707) COMPLETE
+
+- US-700  VoiceOver chart descriptors. Every BarMark in AnalyticsView (top
+          brands, sell-through, grade distribution, inventory value by stage) +
+          MoneyView (monthly revenue) now carries .accessibilityLabel +
+          .accessibilityValue so each bar reads category + value (WCAG 1.1.1).
+          Empty states already render descriptive text.
+
+- US-701  Announce + focus async results app-wide. New Accessibility/
+          A11yAnnounce.swift (announce + screenChanged, no-op without VoiceOver).
+          Wired: GradeRequestSheet (screenChanged focuses "Grade X.X of 10,
+          tier" when the report renders), ScoutStore.scan (result count / failure),
+          EbaySyncStore.apply (completion summary), DetailsIntakeView save banner.
+          Tests: AccessibilityAnnounceTests (EbaySyncStore.completionAnnouncement).
+
+- US-702  Selected trait + non-color cue on stage/filter tabs. Inventory stage
+          chips add .accessibilityAddTraits(.isSelected) + a count-bearing label;
+          (WCAG 1.4.1, no longer color-only).
+
+- US-703  Curate Scout candidate card a11y. ScoutCandidateRow swaps
+          children:.combine (which swallowed the inner eBay Link) for a curated
+          children:.ignore info element + composed accessibilitySummary; the eBay
+          link is now a separate reachable element labeled "View on eBay"; Deal/
+          Uncertain are spoken, not color-only. Tests: AccessibilityAnnounceTests.
+
+- US-704  Accessible delete for capture slots. PhotoIntakeView filled slots
+          expose .accessibilityActions { Button("Delete photo") } so VoiceOver/
+          Switch Control can delete without the long-press (WCAG 2.5.1/2.1.1).
+
+- US-705  Curate ItemCanvas VoiceOver. Photo cells read "<type> photo"
+          (children:.ignore + label); the comps Low/Median/High triad reads as
+          one combined element; grade surfaced via the already-labeled
+          GradeScoreRing/CertifiedGradeSection.
+
+- US-706  >=44pt hit targets. Inventory stage chips + ActiveFilterBar FilterChip
+          get .frame(minHeight: 44) + .contentShape so the touch target meets the
+          44pt minimum without enlarging the visual chip.
+
+- US-707  Dynamic Type for fixed sizes + the grade ring. GradeScoreRing now
+          derives its diameter (and the score/of-10 fonts off it) from a
+          @ScaledMetric(relativeTo:.largeTitle) factor clamped 1.0-1.6, so the
+          hero score grows with Dynamic Type instead of staying fixed. Key data
+          values (Scout metrics triad) already pair lineLimit(1)+minimumScaleFactor.
+          NOTE: decorative SF Symbols are paired with text labels (VoiceOver
+          ignores them); final AX5 visual no-clip check is a device/CI step.

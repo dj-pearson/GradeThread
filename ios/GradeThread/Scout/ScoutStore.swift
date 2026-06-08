@@ -80,9 +80,17 @@ final class ScoutStore: ObservableObject {
                 brand: br.isEmpty ? nil : br,
                 limit: Self.scanLimit
             )
+            // US-701: announce the result so VoiceOver users know the scan
+            // finished (the spinner silently swaps to the results list).
+            let shown = displayedCandidates.count
+            A11yAnnounce.announce(
+                shown == 0
+                    ? "Scan complete. No candidates found."
+                    : "Scan complete. \(shown) \(shown == 1 ? "candidate" : "candidates") found.")
         } catch {
             response = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            A11yAnnounce.announce("Scan failed. \(errorMessage ?? "")")
         }
     }
 

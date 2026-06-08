@@ -10332,7 +10332,7 @@
         "Charts with no data expose a single descriptive element, not an empty container"
       ],
       "priority": 700,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/A11y] Audit 2026-06-08. A11y gap #1: 5 Swift Charts (AnalyticsView, MoneyView) have zero chart a11y. WCAG 1.1.1. CI validates build."
     },
     {
@@ -10346,7 +10346,7 @@
         "Pattern factored into a small reusable helper so future async surfaces reuse it"
       ],
       "priority": 701,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/A11y] Audit 2026-06-08. A11y gap #2: UIAccessibility.post used once (PhotoIntake only); grade/sync/scout/save swap content silently. WCAG 4.1.3. CI validates build."
     },
     {
@@ -10359,7 +10359,7 @@
         "Applies to inventory stage chips and the active filter bar"
       ],
       "priority": 702,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #3: stage filter selection via color+weight only, no .isSelected trait. WCAG 1.4.1. CI validates build."
     },
     {
@@ -10372,7 +10372,7 @@
         "Deal/Uncertain states are in the spoken label, not implied by border color alone"
       ],
       "priority": 703,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #4: ScoutCandidateRow uses children:.combine which swallows the inner Link. CI validates build."
     },
     {
@@ -10385,7 +10385,7 @@
         "Visible long-press affordance retained for sighted users"
       ],
       "priority": 704,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #5: slot delete is LongPressGesture-only, no accessibilityAction. WCAG 2.5.1/2.1.1. CI validates build."
     },
     {
@@ -10398,7 +10398,7 @@
         "Comps rows are individually navigable with price + condition in the label"
       ],
       "priority": 705,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #6: ItemCanvasView (846 lines) has 1 accessibilityLabel; photos/comps/grade header unlabeled. WCAG 1.3.1/4.1.2. CI validates build."
     },
     {
@@ -10411,7 +10411,7 @@
         "Verified against the 44pt target"
       ],
       "priority": 706,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/A11y] Audit 2026-06-08. A11y gap #7: FilterChip/stage chips ~28-30pt tall. Apple HIG / WCAG 2.5.5. CI validates build."
     },
     {
@@ -10425,7 +10425,7 @@
         "Dashboard cards, Inventory rows, and Money tiles render without clipping at accessibilityExtraExtraExtraLarge on the smallest device"
       ],
       "priority": 707,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/A11y+UI] Audit 2026-06-08. Merges A11y gap #8 + UI gap #7: 30 .font(.system(size:)) hits; GradeScoreRing sizes off fixed diameter; 50 fixed frames vs 3 minimumScaleFactor. CI validates build."
     }
   ]

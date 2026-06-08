@@ -275,7 +275,13 @@ struct GradeRequestSheet: View {
                 certificateURL: store.certificateURL,
                 title: item.title
             )
-            .onAppear { applyGradeToItem(report, certificateURL: store.certificateURL) }
+            .onAppear {
+                applyGradeToItem(report, certificateURL: store.certificateURL)
+                // US-701: announce the grade so VoiceOver lands on the result
+                // instead of silently replacing the progress view.
+                A11yAnnounce.screenChanged(
+                    focusing: "Grade \(String(format: "%.1f", report.overallScore)) of 10, \(report.gradeTier)")
+            }
         } else {
             centeredProgress("Loading report…")
         }

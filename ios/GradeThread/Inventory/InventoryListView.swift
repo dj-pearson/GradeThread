@@ -247,6 +247,13 @@ struct InventoryListView: View {
                         tabChip(for: stage, count: counts[stage] ?? 0)
                     }
                     .buttonStyle(.plain)
+                    // US-706: guarantee a 44pt touch target even though the
+                    // visual chip is shorter.
+                    .frame(minHeight: 44)
+                    .contentShape(Capsule())
+                    // US-702: selection must not be conveyed by colour alone.
+                    .accessibilityLabel("\(stage.label), \(counts[stage] ?? 0) items")
+                    .accessibilityAddTraits(selectedStage == stage ? .isSelected : [])
                 }
             }
             .padding(.horizontal, 16)

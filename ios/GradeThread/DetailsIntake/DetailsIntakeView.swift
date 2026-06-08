@@ -97,6 +97,11 @@ struct DetailsIntakeView: View {
         .onChange(of: draftSignature) { _, _ in
             IntakeDraftStore.save(form)
         }
+        // US-701: announce save outcome (success / saved-offline / failed) so
+        // VoiceOver users hear it — the banner is a plain Section otherwise.
+        .onChange(of: bannerMessage) { _, newValue in
+            if let newValue { A11yAnnounce.announce(newValue.text) }
+        }
         .alert("Resume your unsaved item?", isPresented: showingDraftResumeBinding, presenting: pendingDraft) { draft in
             Button("Resume") {
                 IntakeDraftStore.apply(draft, to: form)

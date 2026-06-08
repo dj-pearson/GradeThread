@@ -110,6 +110,9 @@ struct MoneyView: View {
                     y: .value("Revenue", month.revenue)
                 )
                 .foregroundStyle(Color.brandNavy)
+                // US-700: each month bar is readable to VoiceOver.
+                .accessibilityLabel(month.label)
+                .accessibilityValue(currency.formatDisplay(month.revenue))
             }
             .frame(height: 150)
         }
