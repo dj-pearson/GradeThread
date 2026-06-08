@@ -61,6 +61,7 @@ import { estimateListingProfit } from "@/lib/listing-profit";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
+import { ListingKit } from "@/components/flipdesk/listing-kit";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
@@ -996,6 +997,8 @@ export function FlipdeskComposerPage() {
           Publish to eBay
         </Button>
       </div>
+
+      <ListingKit itemId={item.id} />
 
       <PublishToEbayDialog
         open={publishOpen}

@@ -284,3 +284,51 @@ export function useRetryFailedAutolister() {
     onError: (err) => toast.error(err.message),
   });
 }
+
+// ── US-721/US-723: per-marketplace listing fields ───────────────────────
+
+export interface PlatformKitVariant {
+  platform: string;
+  title: string;
+  description: string;
+  condition: { value: string; label: string } | null;
+  category: string;
+  brand: string | null;
+  color: string | null;
+  size: string | null;
+  price: number;
+  tags: string[];
+  confidence: number;
+  validation: {
+    platform: string;
+    ok: boolean;
+    issues: { field: string; level: "error" | "warning"; message: string }[];
+  };
+}
+
+/**
+ * POST /api/flipdesk/autolister/platform-fields — AI-generate (and persist)
+ * tailored listing fields for the requested non-eBay marketplaces, so the
+ * copy-paste Listing Kit (US-723) has ready content. Returns the variants;
+ * the server also writes them to listings.platform_fields.
+ */
+export function useGeneratePlatformFields() {
+  return useMutation<
+    { listing_id: string; variants: PlatformKitVariant[] },
+    Error,
+    { itemId: string; platforms: string[] }
+  >({
+    mutationFn: async ({ itemId, platforms }) => {
+      const res = await edgeFetch("/api/flipdesk/autolister/platform-fields", {
+        method: "POST",
+        json: { item_id: itemId, platforms },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json.error || "Could not generate marketplace fields.");
+      }
+      return json as { listing_id: string; variants: PlatformKitVariant[] };
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}

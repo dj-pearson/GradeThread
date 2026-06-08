@@ -10659,7 +10659,7 @@
       ],
       "priority": 723,
       "passes": false,
-      "notes": "[P1][FlipDesk/UX] Source: Cross_Listing.md — the explicit ask: make copy-paste easy for platforms without API push. Plugs into the existing composer + autolister-bulk-edit/drafts UI. Depends on [[US-721]]; pairs with [[US-716]]."
+      "notes": "[P1][FlipDesk/UX] PARTIAL 2026-06-08. SHIPPED: src/components/flipdesk/listing-kit.tsx mounted in the composer (src/pages/flipdesk/composer.tsx). Per-platform tabs (Poshmark/Mercari/Depop/Grailed) render every registry field with a one-tap Copy button, live char-count vs each platform's limit (red over), 'Copy all fields', per-platform validation banner (US-725 errors/warnings), and an 'Open <platform>' link. 'Generate for all marketplaces' calls the US-721 endpoint (useGeneratePlatformFields in use-autolister.ts) and seeds from persisted listings.platform_fields. Title/description are inline-editable for copy. Frontend build + eslint clean. REMAINING: persist inline edits back to the DB (currently local-only); 'Send to extension' is a disabled stub pending US-716; the photo block shows count/cap but the download lands in US-724; category is the passthrough query pending US-722. Depends on [[US-721]]; pairs with [[US-716]]."
     },
     {
       "id": "US-724",
