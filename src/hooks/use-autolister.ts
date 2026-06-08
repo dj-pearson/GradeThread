@@ -392,3 +392,27 @@ export function useApplyReconcile() {
     onError: (err) => toast.error(err.message),
   });
 }
+
+// After-the-fact binding: ties an already-created AutoLister item (just photos +
+// AI draft) to an EXISTING inventory item by the seller's SKU, moving the photos
+// + draft onto it and archiving the source. Solves the "I uploaded first, now I
+// want to attach it to my existing #695" case (retyping the SKU 409s on the
+// unique constraint). Returns the target item id to reconcile against.
+export function useLinkToExisting() {
+  return useMutation<
+    { ok: true; target_item_id: string },
+    Error,
+    { sourceItemId: string; targetSku: string }
+  >({
+    mutationFn: async ({ sourceItemId, targetSku }) => {
+      const res = await edgeFetch("/api/flipdesk/autolister/reconcile/link", {
+        method: "POST",
+        json: { source_item_id: sourceItemId, target_sku: targetSku },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not link to that SKU.");
+      return json as { ok: true; target_item_id: string };
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}

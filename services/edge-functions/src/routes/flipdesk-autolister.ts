@@ -1001,3 +1001,74 @@ flipdeskAutolisterRoutes.post("/reconcile/apply", async (c) => {
 
   return c.json({ ok: true, inventory_item_id: itemId });
 });
+
+// POST /reconcile/link  Body: { source_item_id, target_sku }
+// After-the-fact binding: re-points an AutoLister item's photos + generated
+// draft onto an EXISTING inventory item identified by the seller's SKU, then
+// archives the now-empty source. Needed because SKU is unique per user, so you
+// can't simply retype an existing SKU onto the new item (it 409s). The caller
+// then reconciles against the target. Tenant-scoped (US-268): both items are
+// verified owned before anything moves.
+flipdeskAutolisterRoutes.post("/reconcile/link", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { source_item_id?: unknown; target_sku?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const sourceId = typeof body.source_item_id === "string" ? body.source_item_id : "";
+  const targetSku = typeof body.target_sku === "string" ? body.target_sku.trim() : "";
+  if (!sourceId) return c.json({ error: "source_item_id is required" }, 400);
+  if (!targetSku) return c.json({ error: "target_sku is required" }, 400);
+
+  const { data: source } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("id", sourceId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!source) return c.json({ error: "Item not found for this workspace" }, 404);
+
+  const { data: target } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("user_id", ownerId)
+    .eq("sku", targetSku)
+    .maybeSingle();
+  if (!target) {
+    return c.json({ error: `No inventory item with SKU "${targetSku}"` }, 404);
+  }
+  const targetId = (target as { id: string }).id;
+  if (targetId === sourceId) {
+    return c.json({ error: "That SKU already belongs to this item." }, 400);
+  }
+
+  // Re-point the photos and the generated draft to the target item.
+  const { error: photoErr } = await supabaseAdmin
+    .from("item_photos")
+    .update({ inventory_item_id: targetId } as never)
+    .eq("inventory_item_id", sourceId);
+  if (photoErr) {
+    console.error("[AutoLister] reconcile link photo move failed:", photoErr);
+    return c.json({ error: "Could not move photos to the existing item" }, 502);
+  }
+  const { error: listingErr } = await supabaseAdmin
+    .from("listings")
+    .update({ inventory_item_id: targetId } as never)
+    .eq("inventory_item_id", sourceId);
+  if (listingErr) {
+    console.error("[AutoLister] reconcile link listing move failed:", listingErr);
+    return c.json({ error: "Could not move the draft to the existing item" }, 502);
+  }
+
+  // Archive (don't hard-delete) the now-empty source so generation-job FKs and
+  // history stay intact; archived items drop out of the active inventory views.
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({ status: "archived" } as never)
+    .eq("id", sourceId)
+    .eq("user_id", ownerId);
+
+  return c.json({ ok: true, target_item_id: targetId });
+});
