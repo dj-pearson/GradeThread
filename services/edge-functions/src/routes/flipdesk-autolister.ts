@@ -17,6 +17,12 @@ import {
   buildTemplateListingPatch,
   type ListingTemplateRow,
 } from "../lib/listing-template.ts";
+import {
+  buildMergeWrites,
+  buildReconcileDiff,
+  type ReconcileItemRow,
+  type ReconcileListingRow,
+} from "../lib/reconcile-fields.ts";
 
 // Columns the template overlay needs to patch a generated draft (US-674).
 const TEMPLATE_OVERLAY_COLUMNS =
@@ -872,4 +878,126 @@ flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
     console.error("[AutoLister] platform-fields failed", err);
     return c.json({ error: msg }, status);
   }
+});
+
+// Loads an owned inventory item + its most-recent eBay listing draft for
+// reconciliation. Tenant-scoped (US-268): the item is fetched by id AND
+// user_id, and the listing only via that verified item's id.
+async function loadReconcilePair(
+  ownerId: string,
+  itemId: string,
+): Promise<
+  | { ok: true; item: ReconcileItemRow; listing: ReconcileListingRow }
+  | { ok: false; status: 404; error: string }
+> {
+  const { data: itemRow } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, sku, title, brand, size, color, material, style, description, target_price")
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!itemRow) {
+    return { ok: false, status: 404, error: "Item not found for this workspace" };
+  }
+  const { data: listingRow } = await supabaseAdmin
+    .from("listings")
+    .select("id, listing_title, listing_description, listing_price, item_specifics_override")
+    .eq("inventory_item_id", itemId)
+    .eq("platform", "ebay")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!listingRow) {
+    return { ok: false, status: 404, error: "No generated draft to reconcile yet" };
+  }
+  return {
+    ok: true,
+    item: itemRow as ReconcileItemRow,
+    listing: listingRow as ReconcileListingRow,
+  };
+}
+
+// POST /reconcile/diff  Body: { inventory_item_id }
+// Returns the field-by-field comparison (original sheet value vs AI value) for
+// a matched item, so the seller can pick per field in the AutoLister review.
+flipdeskAutolisterRoutes.post("/reconcile/diff", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { inventory_item_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.inventory_item_id === "string" ? body.inventory_item_id : "";
+  if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+
+  const pair = await loadReconcilePair(ownerId, itemId);
+  if (!pair.ok) return c.json({ error: pair.error }, pair.status);
+
+  const fields = buildReconcileDiff(pair.item, pair.listing);
+  // has_original: does the inventory record carry sheet-imported attributes
+  // (beyond the title an AutoLister item is seeded with)? If so there's a real
+  // prior record to reconcile against; if not, this is a fresh AutoLister item.
+  const hasOriginal = fields.some((f) => f.key !== "title" && f.original !== "");
+  return c.json({
+    inventory_item_id: itemId,
+    sku: pair.item.sku,
+    has_original: hasOriginal,
+    conflicts: fields.filter((f) => f.differs).length,
+    fields,
+  });
+});
+
+// POST /reconcile/apply  Body: { inventory_item_id, choices: { [field]: "original"|"ai" } }
+// Writes the chosen winners to BOTH the listing draft (so they reach eBay) and
+// the inventory_items record (so the seller's inventory stays in sync).
+flipdeskAutolisterRoutes.post("/reconcile/apply", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { inventory_item_id?: unknown; choices?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.inventory_item_id === "string" ? body.inventory_item_id : "";
+  if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
+
+  // Sanitize choices to the allowed shape (string → "original" | "ai").
+  const rawChoices = (body.choices && typeof body.choices === "object")
+    ? body.choices as Record<string, unknown>
+    : {};
+  const choices: Record<string, "original" | "ai"> = {};
+  for (const [k, v] of Object.entries(rawChoices)) {
+    if (v === "original" || v === "ai") choices[k] = v;
+  }
+
+  const pair = await loadReconcilePair(ownerId, itemId);
+  if (!pair.ok) return c.json({ error: pair.error }, pair.status);
+
+  const { itemUpdate, listingColUpdate, aspectUpdate } = buildMergeWrites(
+    pair.item,
+    pair.listing,
+    choices,
+  );
+
+  const { error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .update(itemUpdate as never)
+    .eq("id", itemId)
+    .eq("user_id", ownerId);
+  if (itemErr) {
+    console.error("[AutoLister] reconcile item write failed:", itemErr);
+    return c.json({ error: "Could not update inventory item" }, 502);
+  }
+
+  const { error: listingErr } = await supabaseAdmin
+    .from("listings")
+    .update({ ...listingColUpdate, item_specifics_override: aspectUpdate } as never)
+    .eq("id", pair.listing.id);
+  if (listingErr) {
+    console.error("[AutoLister] reconcile listing write failed:", listingErr);
+    return c.json({ error: "Could not update listing draft" }, 502);
+  }
+
+  return c.json({ ok: true, inventory_item_id: itemId });
 });

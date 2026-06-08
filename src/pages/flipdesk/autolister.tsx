@@ -92,6 +92,11 @@ const ROLE_ORDER: Record<PhotoRole, number> = {
 interface Group {
   id: string;
   name: string;
+  // The seller's own inventory SKU / listing number. When it matches an
+  // existing inventory item, the photo group binds to that item (instead of
+  // creating a duplicate) so the AI draft can be reconciled against the
+  // sheet-imported record field-by-field. Optional → round-trips older sessions.
+  sku?: string;
   photoIds: string[];
   coverId: string;
   // photoId -> role. Optional so sessions persisted before US-533 (and freshly
@@ -1082,17 +1087,43 @@ export function FlipdeskAutolisterPage() {
           return ROLE_ORDER[roleOf(a)] - ROLE_ORDER[roleOf(b)];
         });
 
-        const { data: item, error: itemErr } = await supabase
-          .from("inventory_items")
-          .insert({
-            user_id: ownerId,
-            title: g.name.trim() || "AutoLister item",
-            status: "photographed",
-          } as never)
-          .select("id")
-          .single();
-        if (itemErr || !item) throw itemErr ?? new Error("Item create failed");
-        const itemId = (item as { id: string }).id;
+        // SKU binding: if the seller gave a SKU that already exists in their
+        // inventory, attach the photos to THAT item (the SKU is unique per user,
+        // so a new insert would fail anyway) and keep its sheet-imported fields
+        // for field-by-field reconciliation against the AI draft. Otherwise
+        // create a fresh item, stamping the SKU when provided.
+        const sku = g.sku?.trim() || "";
+        let itemId: string;
+        let existingId: string | null = null;
+        if (sku) {
+          const { data: existing } = await supabase
+            .from("inventory_items")
+            .select("id")
+            .eq("user_id", ownerId)
+            .eq("sku", sku)
+            .maybeSingle();
+          existingId = (existing as { id: string } | null)?.id ?? null;
+        }
+        if (existingId) {
+          itemId = existingId;
+          await supabase
+            .from("inventory_items")
+            .update({ status: "photographed" } as never)
+            .eq("id", itemId);
+        } else {
+          const { data: item, error: itemErr } = await supabase
+            .from("inventory_items")
+            .insert({
+              user_id: ownerId,
+              title: g.name.trim() || "AutoLister item",
+              sku: sku || null,
+              status: "photographed",
+            } as never)
+            .select("id")
+            .single();
+          if (itemErr || !item) throw itemErr ?? new Error("Item create failed");
+          itemId = (item as { id: string }).id;
+        }
 
         const photoRows = ordered.map((p, idx) => ({
           inventory_item_id: itemId,
@@ -1554,6 +1585,13 @@ export function FlipdeskAutolisterPage() {
                   onChange={(e) => updateGroup(g.id, { name: e.target.value })}
                   className="h-8 max-w-xs"
                   placeholder="Item name"
+                />
+                <Input
+                  value={g.sku ?? ""}
+                  onChange={(e) => updateGroup(g.id, { sku: e.target.value })}
+                  className="h-8 w-28"
+                  placeholder="SKU / #"
+                  title="Your inventory SKU. If it matches an existing item, the AI draft is reconciled against it."
                 />
                 <Badge variant="secondary">{g.photoIds.length} photos</Badge>
                 <div className="ml-auto flex items-center gap-1">

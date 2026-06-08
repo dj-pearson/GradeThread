@@ -332,3 +332,63 @@ export function useGeneratePlatformFields() {
     onError: (err) => toast.error(err.message),
   });
 }
+
+// ── Inventory reconciliation (sheet record ⇄ AI draft) ──────────────────
+// When an AutoLister photo group was bound to an existing inventory item by
+// SKU, the AI-generated draft can be reconciled field-by-field against the
+// seller's imported record. Shared edge endpoints power web + iOS identically.
+
+export interface ReconcileFieldDiff {
+  key: string;
+  label: string;
+  original: string;
+  ai: string;
+  differs: boolean;
+  suggested: "original" | "ai";
+}
+
+export interface ReconcileDiffResponse {
+  inventory_item_id: string;
+  sku: string | null;
+  has_original: boolean;
+  conflicts: number;
+  fields: ReconcileFieldDiff[];
+}
+
+// Lazy: fetches the field diff for one item. Pass enabled=false until the
+// reconcile panel is opened so a big batch doesn't fire N calls eagerly.
+export function useReconcileDiff(itemId: string, enabled: boolean) {
+  return useQuery<ReconcileDiffResponse, Error>({
+    queryKey: ["autolister_reconcile_diff", itemId],
+    enabled: enabled && !!itemId,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/autolister/reconcile/diff", {
+        method: "POST",
+        json: { inventory_item_id: itemId },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load comparison.");
+      return json as ReconcileDiffResponse;
+    },
+  });
+}
+
+export function useApplyReconcile() {
+  return useMutation<
+    { ok: true; inventory_item_id: string },
+    Error,
+    { itemId: string; choices: Record<string, "original" | "ai"> }
+  >({
+    mutationFn: async ({ itemId, choices }) => {
+      const res = await edgeFetch("/api/flipdesk/autolister/reconcile/apply", {
+        method: "POST",
+        json: { inventory_item_id: itemId, choices },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not save your picks.");
+      return json as { ok: true; inventory_item_id: string };
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}

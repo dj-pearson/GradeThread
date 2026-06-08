@@ -38,6 +38,7 @@ import {
   type AutolisterJob,
 } from "@/hooks/use-autolister";
 import { useEbayConnection } from "@/hooks/use-ebay";
+import { ReconcilePanel } from "@/components/flipdesk/reconcile-panel";
 import type { PhotoQaIssue } from "@/types/database";
 import { cn } from "@/lib/utils";
 
@@ -439,8 +440,8 @@ export function FlipdeskAutolisterQueuePage() {
         {jobs.map((job) => {
           const pub = bulkPublish.results[job.inventory_item_id];
           return (
+            <div key={job.id} className="space-y-1.5">
             <div
-              key={job.id}
               className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
             >
               <StatusIcon status={job.status} />
@@ -513,6 +514,16 @@ export function FlipdeskAutolisterQueuePage() {
                   </Button>
                 )
               )}
+            </div>
+
+            {/* Field-by-field reconcile against the seller's imported record —
+                only meaningful once the draft exists (status success). */}
+            {job.status === "success" && (
+              <ReconcilePanel
+                itemId={job.inventory_item_id}
+                title={titleOf(job.inventory_item_id)}
+              />
+            )}
             </div>
           );
         })}
