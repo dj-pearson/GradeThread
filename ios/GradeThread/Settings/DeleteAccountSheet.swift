@@ -19,7 +19,7 @@ struct DeleteAccountSheet: View {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         Label("This can't be undone", systemImage: "exclamationmark.triangle.fill")
-                            .font(.headline)
+                            .font(.brandHeadline)
                             .foregroundStyle(.red)
                         Text("Deleting your account permanently removes your inventory, photos, listings, sales, and marketplace connections from GradeThread. Listings already live on eBay are not affected and must be ended there.")
                             .font(.subheadline)

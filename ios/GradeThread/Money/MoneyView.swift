@@ -327,7 +327,7 @@ private struct MoneyStatTile: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text(value.isEmpty ? "—" : value)
-                .font(.headline)
+                .font(.brandHeadline)
                 .foregroundStyle(tint)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)

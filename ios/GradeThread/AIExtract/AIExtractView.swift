@@ -57,7 +57,7 @@ struct AIExtractView: View {
         VStack(spacing: 14) {
             ProgressView().tint(Color.brandNavy)
             Text("Uploading photos…")
-                .font(.headline)
+                .font(.brandHeadline)
             Text("\(complete) of \(total) ready")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -69,7 +69,7 @@ struct AIExtractView: View {
         VStack(spacing: 16) {
             ProgressView().tint(Color.brandNavy).scaleEffect(1.4)
             Text("AI is reading your photos…")
-                .font(.headline)
+                .font(.brandHeadline)
             Text("~10 seconds")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -86,7 +86,7 @@ struct AIExtractView: View {
                 .font(.system(size: 38, weight: .light))
                 .foregroundStyle(Color.brandAmber)
             Text("AI couldn't read these photos")
-                .font(.headline)
+                .font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

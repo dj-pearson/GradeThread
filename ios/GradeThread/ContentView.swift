@@ -247,7 +247,7 @@ struct ProtectedRouteShell: View {
             VStack(spacing: 16) {
                 ProgressView().tint(Color.brandNavy)
                 Text("GradeThread")
-                    .font(.title3.weight(.semibold))
+                    .font(.brandTitle2)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -614,7 +614,7 @@ private struct SidebarSplitView: View {
                 .font(.system(size: 56, weight: .light))
                 .foregroundStyle(Color.brandNavy)
             Text(detailLandingTitle)
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
             Text(detailLandingSubtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -1217,7 +1217,7 @@ private struct PrivacyCoverView: View {
                     .font(.system(size: 40, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.9))
                 Text("GradeThread")
-                    .font(.headline)
+                    .font(.brandHeadline)
                     .foregroundStyle(.white.opacity(0.9))
             }
         }
@@ -1240,11 +1240,11 @@ private struct AppLockCoverView: View {
                     .font(.system(size: 40, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.9))
                 Text("GradeThread is locked")
-                    .font(.headline)
+                    .font(.brandHeadline)
                     .foregroundStyle(.white.opacity(0.9))
                 Button(action: onUnlock) {
                     Label("Unlock", systemImage: "faceid")
-                        .font(.headline)
+                        .font(.brandHeadline)
                         .padding(.horizontal, 24)
                         .padding(.vertical, 12)
                 }

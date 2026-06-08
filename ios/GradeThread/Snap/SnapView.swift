@@ -39,8 +39,8 @@ struct SnapView: View {
                                 .frame(maxWidth: .infinity)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.brandNavy)
+                    // US-690: brand primary CTA.
+                    .buttonStyle(.brandPrimary)
                     .disabled(!store.canEvaluate)
 
                     if let message = store.errorMessage {
@@ -151,7 +151,7 @@ struct SnapView: View {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(valueText(result.value))
-                        .font(.title3.weight(.semibold))
+                        .font(.brandTitle2)
                     Text(valueSubtitle(result.value))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -175,8 +175,7 @@ struct SnapView: View {
                     Label("Get certified grade", systemImage: "checkmark.seal.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.brandNavy)
+                .buttonStyle(.brandPrimary)  // US-690
 
                 Button {
                     AppRouter.haptic()
@@ -185,8 +184,7 @@ struct SnapView: View {
                 } label: {
                     Label("List it", systemImage: "shippingbox").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.bordered)
-                .tint(Color.brandNavy)
+                .buttonStyle(.brandSecondary)  // US-690
             }
         }
         .padding()

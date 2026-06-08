@@ -102,7 +102,7 @@ struct PhotoStagingTray: View {
                 .font(.system(size: 42, weight: .light))
                 .foregroundStyle(Color.brandNavy)
             Text("All set")
-                .font(.headline)
+                .font(.brandHeadline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

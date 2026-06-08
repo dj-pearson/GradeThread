@@ -84,7 +84,7 @@ struct BulkGradeSheet: View {
         let total = itemIds.count
         return HStack(spacing: 12) {
             Image(systemName: ready == total ? "checkmark.circle.fill" : "checkmark.circle")
-                .font(.title2)
+                .font(.brandTitle2)
                 .foregroundStyle(ready > 0 ? .green : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(ready) of \(total) ready to grade")

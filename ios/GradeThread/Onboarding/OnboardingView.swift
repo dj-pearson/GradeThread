@@ -101,7 +101,7 @@ struct OnboardingView: View {
             }
         } label: {
             Text(isLastPage ? "Get started" : "Next")
-                .font(.headline)
+                .font(.brandHeadline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 15)
                 .background(Color.brandNavy)

@@ -115,7 +115,7 @@ struct PublishDialog: View {
     private func summaryCard(_ summary: PublishSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Ready to publish")
-                .font(.headline)
+                .font(.brandHeadline)
             Group {
                 LabeledContent("Title", value: summary.title)
                 if let condition = summary.condition {
@@ -145,7 +145,7 @@ struct PublishDialog: View {
     private func blockersCard(_ blockers: [String]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Fix these before pushing", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
+                .font(.brandHeadline)
                 .foregroundStyle(.orange)
             ForEach(Array(blockers.enumerated()), id: \.offset) { _, blocker in
                 Label(blocker, systemImage: "circle.fill")
@@ -169,7 +169,7 @@ struct PublishDialog: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.green)
             Text("Live on eBay")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
             Text("Listing \(response.listingId)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -214,7 +214,7 @@ struct PublishDialog: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.red)
             Text("Publish failed")
-                .font(.headline)
+                .font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

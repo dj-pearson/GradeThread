@@ -10175,7 +10175,7 @@
         "Spot check confirms Outfit on headings and Inter on body/data rows across >=8 primary screens"
       ],
       "priority": 688,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/UI] Audit 2026-06-08. UI gap #1: Typography.swift (US-654) used in only 3/267 files; 42 .font(.system) calls instead. CI validates build."
     },
     {
@@ -10201,7 +10201,7 @@
         "Spot check shows consistent navy primary and red destructive across >=6 screens"
       ],
       "priority": 690,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #3: brand button styles used 10x vs 52x system bordered. CI validates build."
     },
     {

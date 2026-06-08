@@ -105,7 +105,7 @@ struct AutoListerView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Item \(model.displayIndex(of: group))")
-                    .font(.headline)
+                    .font(.brandHeadline)
                 Spacer()
                 Text("\(group.photoIds.count) photo\(group.photoIds.count == 1 ? "" : "s")")
                     .font(.caption)

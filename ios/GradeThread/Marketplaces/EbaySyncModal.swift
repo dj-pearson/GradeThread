@@ -74,7 +74,7 @@ struct EbaySyncModal: View {
         VStack(spacing: 14) {
             ProgressView().tint(Color.brandNavy)
             Text("Starting sync…")
-                .font(.headline)
+                .font(.brandHeadline)
             continueInBackgroundButton
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -84,7 +84,7 @@ struct EbaySyncModal: View {
         VStack(spacing: 16) {
             ProgressView().tint(Color.brandNavy).scaleEffect(1.3)
             Text(store.phase.stageLabel ?? "Syncing…")
-                .font(.headline)
+                .font(.brandHeadline)
             Text("This usually takes 30–60 seconds for an established account. You can keep using the app while it finishes.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -101,7 +101,7 @@ struct EbaySyncModal: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.green)
             Text("Sync complete")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
 
             VStack(spacing: 8) {
                 summaryRow(
@@ -149,7 +149,7 @@ struct EbaySyncModal: View {
                 .font(.system(size: 44))
                 .foregroundStyle(.orange)
             Text("Still syncing in the background")
-                .font(.headline)
+                .font(.brandHeadline)
                 .multilineTextAlignment(.center)
             Text("eBay didn't finish in the time we waited. Pull-to-refresh the list in a minute or two — fresh items will show up automatically.")
                 .font(.subheadline)
@@ -185,7 +185,7 @@ struct EbaySyncModal: View {
                 .font(.system(size: 44))
                 .foregroundStyle(color)
             Text(title)
-                .font(.headline)
+                .font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

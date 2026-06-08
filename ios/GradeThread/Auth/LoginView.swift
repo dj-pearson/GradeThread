@@ -124,7 +124,7 @@ struct LoginView: View {
                     ProgressView().tint(.white)
                 } else {
                     Text(mode == .signIn ? "Sign in" : "Create account")
-                        .font(.headline)
+                        .font(.brandHeadline)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -178,7 +178,7 @@ struct LoginView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "globe")
                     Text("Continue with Google")
-                        .font(.headline)
+                        .font(.brandHeadline)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)

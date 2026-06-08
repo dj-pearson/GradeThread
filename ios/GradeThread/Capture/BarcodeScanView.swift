@@ -109,7 +109,7 @@ struct BarcodeScanView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.white)
             Text("Camera access is off")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
                 .foregroundStyle(.white)
             Text("Turn it on in Settings to scan SKU barcodes.")
                 .font(.subheadline)

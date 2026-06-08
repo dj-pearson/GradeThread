@@ -242,15 +242,14 @@ struct DashboardView: View {
 
     private var quickActions: some View {
         VStack(spacing: 10) {
+            // US-690: brand button styles for the primary/secondary CTAs.
             Button {
                 AppRouter.haptic()
                 router.showingAddSheet = true
             } label: {
                 Label("Add an item", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.brandNavy)
+            .buttonStyle(.brandPrimary)
 
             // US-613: Snap-to-Value — the free "what's it worth?" scan.
             Button {
@@ -258,10 +257,8 @@ struct DashboardView: View {
                 showingSnap = true
             } label: {
                 Label("What's it worth?", systemImage: "sparkles")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .tint(Color.brandNavy)
+            .buttonStyle(.brandSecondary)
 
             // ScoutAI — find underpriced listings to buy and flip.
             Button {
@@ -269,20 +266,16 @@ struct DashboardView: View {
                 showingScout = true
             } label: {
                 Label("Scout deals", systemImage: "binoculars")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .tint(Color.brandNavy)
+            .buttonStyle(.brandSecondary)
 
             Button {
                 AppRouter.haptic()
                 router.selection = .inventory
             } label: {
                 Label("View inventory", systemImage: "shippingbox")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .tint(Color.brandNavy)
+            .buttonStyle(.brandSecondary)
         }
         .padding(.top, 4)
     }
@@ -332,7 +325,7 @@ struct DashboardView: View {
                         .font(.system(size: 48, weight: .light))
                         .foregroundStyle(Color.brandNavy)
                     Text("Welcome to GradeThread")
-                        .font(.title3.weight(.semibold))
+                        .font(.brandTitle2)
                     Text("Capture an item to start building your inventory. Your value, listings, and sales will show up here.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

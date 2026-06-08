@@ -63,8 +63,8 @@ struct ScoutView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.brandNavy)
+            // US-690: brand primary CTA.
+            .buttonStyle(.brandPrimary)
             .disabled(!store.canSearch)
 
             Text("Searches eBay apparel by default; a keyword sharpens the category for tighter comps.")

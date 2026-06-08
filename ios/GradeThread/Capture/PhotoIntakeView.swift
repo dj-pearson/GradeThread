@@ -412,7 +412,7 @@ struct PhotoIntakeView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.white)
             Text("Camera access is off")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
                 .foregroundStyle(.white)
             Text("Turn it on in Settings to capture photos. Or use the Library button (coming soon) to pick from your Photos.")
                 .font(.subheadline)

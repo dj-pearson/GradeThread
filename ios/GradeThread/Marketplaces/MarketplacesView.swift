@@ -337,7 +337,7 @@ struct MarketplacesView: View {
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Connected accounts")
-                    .font(.headline)
+                    .font(.brandHeadline)
                 Text("Manage where your items sell.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -355,7 +355,7 @@ struct MarketplacesView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("eBay")
-                    .font(.title3.weight(.semibold))
+                    .font(.brandTitle2)
                 Spacer()
                 statusPill
             }

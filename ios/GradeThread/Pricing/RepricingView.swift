@@ -225,7 +225,7 @@ private struct RepricingCard: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text(RepricingStore.centsDollars(suggestion.suggestedPriceCents))
-                .font(.title3.weight(.bold))
+                .font(.brandTitle2)
                 .foregroundStyle(suggestion.reason.tint)
             if let pct = suggestion.deltaPct {
                 Text(Self.signedPct(pct))

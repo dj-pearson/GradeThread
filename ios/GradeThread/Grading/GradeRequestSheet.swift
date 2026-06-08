@@ -243,7 +243,7 @@ struct GradeRequestSheet: View {
             ProgressView()
                 .controlSize(.large)
                 .tint(Color.brandNavy)
-            Text(title).font(.headline)
+            Text(title).font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

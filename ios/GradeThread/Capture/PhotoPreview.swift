@@ -36,7 +36,7 @@ struct PhotoPreview: View {
                     Spacer()
 
                     Text(slot.label)
-                        .font(.headline)
+                        .font(.brandHeadline)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)

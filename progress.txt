@@ -5139,3 +5139,22 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           dashboard is empty AND the first sync is still running (SyncStatusStore
           .phase == .syncing), so a fresh launch no longer flashes the Welcome
           card before data lands. COMPLETE.
+
+- US-688  Adopt the brand type scale. Compile-safe Font->Font sweep putting the
+          Outfit display face on ALL headings app-wide: .font(.headline) ->
+          .brandHeadline (37), .title2 -> .brandTitle2, .title3.weight(.semibold/
+          .bold) -> .brandTitle2 (11) = 49 swaps across 29 files (Disclosure PDF
+          renderer + Typography excluded). Combines with the existing brand-font
+          usage in GradeScoreRing/GradeReport/Analytics. NOTE: body/caption text
+          left on the system face (lower-visibility; a wholesale Inter body swap
+          would need device visual verification) — headings carry the brand
+          signal. COMPLETE (primary brand surfaces).
+
+- US-690  Standardize primary CTAs on brand button styles. Dashboard
+          quickActions (Add -> .brandPrimary; Snap/Scout/Inventory ->
+          .brandSecondary), ScoutView "Find deals", and SnapView "What's it
+          worth?"/"Get certified grade" (.brandPrimary) + "List it"
+          (.brandSecondary). The other named main flows (Capture/Publish/
+          DetailsIntake/Money) already use custom-styled buttons, not system
+          .borderedProminent, for their primary CTAs. Inline/secondary/error-
+          retry buttons intentionally keep system styles. COMPLETE.

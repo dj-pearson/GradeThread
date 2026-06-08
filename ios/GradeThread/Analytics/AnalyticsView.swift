@@ -365,7 +365,7 @@ struct AnalyticsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(currency.formatDisplay(status.spent))
-                            .font(.title3.weight(.bold)).monospacedDigit()
+                            .font(.brandTitle2).monospacedDigit()
                             .foregroundStyle(status.isOver ? Color.brandRed : Color.brandNavy)
                         Text("of \(currency.formatDisplay(status.budget))")
                             .font(.subheadline).foregroundStyle(.secondary)

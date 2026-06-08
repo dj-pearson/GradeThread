@@ -92,7 +92,7 @@ struct PayoutReconciliationView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(currency.formatDisplay(entry.payoutImport.amount))
-                        .font(.headline).monospacedDigit()
+                        .font(.brandHeadline).monospacedDigit()
                     Text("Paid \(PayoutDateFormat.display(entry.payoutImport.payoutDate))")
                         .font(.caption).foregroundStyle(.secondary)
                 }
