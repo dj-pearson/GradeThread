@@ -1,57 +1,58 @@
+import SwiftData
 import SwiftUI
 
-/// Read-only Sales tab: lists the user's sales with a net-proceeds total.
-/// Replaces the old US-184 placeholder. Pull-to-refresh re-fetches.
+/// Sales tab. US-750: reads sales from the shared SwiftData cache (`LocalSale`)
+/// like MoneyView/ItemCanvas do, instead of a separate `RemoteSale` fetch via
+/// `SalesStore` that could drift from the numbers shown elsewhere. US-748: each
+/// row links to its inventory item, so a sale is no longer a dead-end.
 struct SalesView: View {
-    @State private var store = SalesStore()
+    @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
+    @Query private var items: [LocalInventoryItem]
     private let currency = CurrencyFormatter()
+
+    private var titlesByItemId: [String: String] {
+        Dictionary(items.map { ($0.id, $0.title) }, uniquingKeysWith: { a, _ in a })
+    }
+    private var itemsById: [String: LocalInventoryItem] {
+        Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+    /// Net proceeds = sale price − marketplace fees, matching MoneyView.
+    private var totalNet: Double {
+        sales.reduce(0) { $0 + ($1.salePrice - $1.platformFees) }
+    }
 
     var body: some View {
         content
             .navigationTitle("Sales")
-            .task { await store.refresh() }
-            .refreshable { await store.refresh() }
+            // Pull-to-refresh fires a full sync pull (same channel as Inventory
+            // and Money) which re-populates the shared cache.
+            .refreshable {
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch store.phase {
-        case .loading:
-            // US-656: shimmer skeleton instead of a bare spinner.
-            ScrollView { SkeletonRows(count: 6) }
-
-        case .failed(let message):
-            ContentUnavailableView {
-                Label("Couldn't load sales", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(message)
-            } actions: {
-                Button("Try again") { Task { await store.refresh() } }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.brandNavy)
-            }
-
-        case .ready(let sales) where sales.isEmpty:
+        if sales.isEmpty {
             ContentUnavailableView(
                 "No sales yet",
                 systemImage: "dollarsign.circle",
                 description: Text("Sold items from your synced marketplaces show up here.")
             )
-
-        case .ready(let sales):
+        } else {
             List {
                 Section {
                     HStack {
                         Text("Net proceeds")
                         Spacer()
-                        Text(currency.formatDisplay(store.totalNet))
+                        Text(currency.formatDisplay(totalNet))
                             .font(.brandHeadline)
                             .foregroundStyle(Color.brandNavy)
                     }
                 }
                 Section {
                     ForEach(sales) { sale in
-                        SaleRow(sale: sale, currency: currency)
+                        saleEntry(sale)
                     }
                 } header: {
                     Text("\(sales.count) sale\(sales.count == 1 ? "" : "s")")
@@ -59,19 +60,38 @@ struct SalesView: View {
             }
         }
     }
+
+    /// US-748: a sale row links to its item when we have it cached locally,
+    /// otherwise it renders non-navigating (orphan sale not yet synced).
+    @ViewBuilder
+    private func saleEntry(_ sale: LocalSale) -> some View {
+        let title = titlesByItemId[sale.inventoryItemId] ?? "Untitled item"
+        if let item = itemsById[sale.inventoryItemId] {
+            NavigationLink {
+                ItemCanvasView(item: item)
+            } label: {
+                SaleRow(title: title, sale: sale, currency: currency)
+            }
+        } else {
+            SaleRow(title: title, sale: sale, currency: currency)
+        }
+    }
 }
 
 private struct SaleRow: View {
-    let sale: RemoteSale
+    let title: String
+    let sale: LocalSale
     let currency: CurrencyFormatter
+
+    private var net: Double { sale.salePrice - sale.platformFees }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(sale.itemTitle ?? "Untitled item")
+            Text(title)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(2)
             HStack(spacing: 6) {
-                Text(sale.date, format: .dateTime.month().day().year())
+                Text(sale.saleDate, format: .dateTime.month().day().year())
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if let buyer = sale.buyerUsername, !buyer.isEmpty {
@@ -84,7 +104,7 @@ private struct SaleRow: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(currency.formatDisplay(sale.salePrice))
                         .font(.subheadline.weight(.semibold))
-                    Text("net \(currency.formatDisplay(sale.net))")
+                    Text("net \(currency.formatDisplay(net))")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
