@@ -95,6 +95,8 @@ targets:
           - UIInterfaceOrientationLandscapeRight
         NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading and to scan SKU barcodes when cataloging items."
         NSPhotoLibraryUsageDescription: "GradeThread imports photos from your library so you can grade existing garment shots."
+        # US-696: optional Face ID / passcode app lock.
+        NSFaceIDUsageDescription: "GradeThread can use Face ID to lock the app so your sales, payouts, and account stay private."
         ITSAppUsesNonExemptEncryption: false
         # US-654: register the bundled brand typefaces so Font.custom can
         # resolve them by PostScript name (graceful system fallback if a face

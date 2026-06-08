@@ -1,6 +1,7 @@
 import PhotosUI
 import SwiftData
 import SwiftUI
+import UIKit
 
 /// Full item canvas — inline-editable form covering identity, pricing,
 /// photos, measurements, comps, and notes. Saves via supabase-swift with
@@ -35,6 +36,8 @@ struct ItemCanvasView: View {
     // US-650 item-level actions
     @State private var showingDeleteConfirmation = false
     @State private var showingAddPhotosPicker = false
+    // US-687: camera capture straight into this item.
+    @State private var showingCameraCapture = false
     @State private var isAddingPhotos = false
     @State private var actionToast: String?
     private let currencyFormatter = CurrencyFormatter()
@@ -145,12 +148,19 @@ struct ItemCanvasView: View {
         // US-650: item-level actions overflow menu.
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                if !unfilledStandardSlots.isEmpty {
+                // US-687: add photos to this item — camera or library, always
+                // available (extra shots land as additional detail photos).
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
                     Button {
-                        showingAddPhotosPicker = true
+                        showingCameraCapture = true
                     } label: {
-                        Label("Add photos", systemImage: "photo.badge.plus")
+                        Label("Take photo", systemImage: "camera")
                     }
+                }
+                Button {
+                    showingAddPhotosPicker = true
+                } label: {
+                    Label("Add from library", systemImage: "photo.badge.plus")
                 }
                 Button {
                     Task { await duplicateItem() }
@@ -226,10 +236,19 @@ struct ItemCanvasView: View {
         .sheet(isPresented: $showingPhotoManager) {
             PhotoManagerView(item: item, photos: allPhotos)
         }
-        // US-650: add photos straight into THIS item (not a new intake).
+        // US-650/US-687: add photos straight into THIS item (not a new intake).
+        // selectionLimit 0 = unlimited, so users can add extra/detail shots
+        // beyond the standard slots.
         .sheet(isPresented: $showingAddPhotosPicker) {
-            PhotoLibraryPicker(selectionLimit: unfilledStandardSlots.count) { results in
+            PhotoLibraryPicker(selectionLimit: 0) { results in
                 Task { await ingestAddedPhotos(results) }
+            }
+            .ignoresSafeArea()
+        }
+        // US-687: camera capture into this item.
+        .fullScreenCover(isPresented: $showingCameraCapture) {
+            CameraPicker { image in
+                Task { await ingestCapturedImage(image) }
             }
             .ignoresSafeArea()
         }
@@ -276,8 +295,46 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// US-683: what's missing before this item can be listed, from local signals.
+    private var publishBlockers: [String] {
+        PublishReadiness.blockers(
+            title: item.title,
+            hasPhotos: !allPhotos.isEmpty,
+            targetPrice: item.targetPrice,
+            status: item.status
+        )
+    }
+
     private var publishSection: some View {
         Section {
+            // US-683: surface readiness up front so the user fixes blockers
+            // before opening the publish sheet (where they used to only appear
+            // after a round-trip).
+            if !publishBlockers.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Before you list", systemImage: "checklist")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandAmber)
+                    ForEach(publishBlockers, id: \.self) { blocker in
+                        Label(blocker, systemImage: "circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 8, trailing: 0))
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
+            } else {
+                Label("Ready to list", systemImage: "checkmark.seal.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandEmerald)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
+            }
             Button {
                 AppRouter.haptic()
                 showingPublishDialog = true
@@ -291,7 +348,7 @@ struct ItemCanvasView: View {
                 .padding(.vertical, 10)
                 .background(Color.brandNavy)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
             .listRowBackground(Color.clear)
             .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
@@ -406,13 +463,30 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// US-687: camera + library options shared by the empty-state, header, and
+    /// toolbar add controls.
+    @ViewBuilder
+    private func addPhotosMenuItems() -> some View {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            Button {
+                showingCameraCapture = true
+            } label: {
+                Label("Take photo", systemImage: "camera")
+            }
+        }
+        Button {
+            showingAddPhotosPicker = true
+        } label: {
+            Label("Add from library", systemImage: "photo.badge.plus")
+        }
+    }
+
     private var photosSection: some View {
         Section {
             if allPhotos.isEmpty {
-                // US-650: offer the add action directly instead of pointing
-                // the user back to the + tab.
-                Button {
-                    showingAddPhotosPicker = true
+                // US-650/US-687: add photos directly (camera or library).
+                Menu {
+                    addPhotosMenuItems()
                 } label: {
                     Label(isAddingPhotos ? "Adding…" : "Add photos", systemImage: "photo.badge.plus")
                 }
@@ -432,12 +506,13 @@ struct ItemCanvasView: View {
                 Text("Photos")
                 Spacer()
                 if !allPhotos.isEmpty {
-                    if !unfilledStandardSlots.isEmpty {
-                        Button("Add") { showingAddPhotosPicker = true }
-                            .font(.caption.weight(.semibold))
-                            .textCase(nil)
-                            .disabled(isAddingPhotos || uploadService == nil)
+                    // US-687: always available; extra shots become detail photos.
+                    Menu {
+                        addPhotosMenuItems()
+                    } label: {
+                        Text("Add").font(.caption.weight(.semibold)).textCase(nil)
                     }
+                    .disabled(isAddingPhotos || uploadService == nil)
                     Button("Manage") { showingPhotoManager = true }
                         .font(.caption.weight(.semibold))
                         .textCase(nil)
@@ -446,7 +521,8 @@ struct ItemCanvasView: View {
             }
         } footer: {
             if !allPhotos.isEmpty {
-                Text("Tap Manage to reorder, set the cover, or remove photos. Add new photos from the + tab.")
+                // US-687: corrected copy — adding happens here, not the + tab.
+                Text("Tap Add to capture or import more photos, or Manage to reorder, set the cover, or remove photos.")
                     .font(.footnote)
             }
         }
@@ -474,7 +550,10 @@ struct ItemCanvasView: View {
                 .clipShape(Capsule())
                 .padding(4)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
+        // US-705: each photo reads as "<type> photo" instead of an unlabeled image.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(photo.photoType.capitalized) photo")
     }
 
     private var measurementsSection: some View {
@@ -557,6 +636,8 @@ struct ItemCanvasView: View {
                     Divider()
                     compStat("High", lookup.stats.max)
                 }
+                // US-705: read the price triad as one coherent element.
+                .accessibilityElement(children: .combine)
                 Text("Based on \(lookup.stats.count) active eBay listing\(lookup.stats.count == 1 ? "" : "s") · \(lookup.categoryPath)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -648,15 +729,23 @@ struct ItemCanvasView: View {
         return slots
     }
 
-    /// Compresses picked photos and uploads them into THIS item (filling its
-    /// unfilled standard slots) via the shared upload service.
+    /// US-687: the slot a newly-added photo at `offset` should fill — unfilled
+    /// standard slots first, then extra `.detail` shots once the standard set
+    /// is full (so users aren't capped at front/back/tag/detail + 3 defects).
+    private func slotForAddedPhoto(offset: Int) -> PhotoSlotType {
+        let slots = unfilledStandardSlots
+        return offset < slots.count ? slots[offset] : .detail
+    }
+
+    /// Compresses picked photos and uploads them into THIS item. Fills unfilled
+    /// standard slots first, then adds extras as detail photos (US-687).
     private func ingestAddedPhotos(_ results: [PHPickerResult]) async {
         guard let uploadService, !results.isEmpty else { return }
         isAddingPhotos = true
         defer { isAddingPhotos = false }
-        let slots = unfilledStandardSlots
         var pairs: [(slot: PhotoSlotType, capture: PhotoCapture)] = []
-        for (index, result) in results.enumerated() where index < slots.count {
+        var accepted = 0
+        for result in results {
             guard let image = await result.loadImage(),
                   let output = await PhotoCompressor.compressOffMain(image) else { continue }
             let capture = PhotoCapture(
@@ -665,7 +754,8 @@ struct ItemCanvasView: View {
                 capturedAt: result.creationDate() ?? .now,
                 source: .library
             )
-            pairs.append((slots[index], capture))
+            pairs.append((slotForAddedPhoto(offset: accepted), capture))
+            accepted += 1
         }
         guard !pairs.isEmpty else {
             actionToast = "Couldn't read those photos."
@@ -673,6 +763,32 @@ struct ItemCanvasView: View {
         }
         uploadService.enqueueAll(photos: pairs, inventoryItemId: item.id, userId: item.userId)
         actionToast = "Added \(pairs.count) photo\(pairs.count == 1 ? "" : "s")."
+        HapticFeedback.success()
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+    }
+
+    /// US-687: compresses a freshly-captured camera image and uploads it into
+    /// THIS item (next unfilled standard slot, else an extra detail photo).
+    private func ingestCapturedImage(_ image: UIImage) async {
+        guard let uploadService else { return }
+        isAddingPhotos = true
+        defer { isAddingPhotos = false }
+        guard let output = await PhotoCompressor.compressOffMain(image) else {
+            actionToast = "Couldn't process that photo."
+            return
+        }
+        let capture = PhotoCapture(
+            imageData: output.imageData,
+            thumbnail: output.thumbnail,
+            capturedAt: .now,
+            source: .camera
+        )
+        uploadService.enqueueAll(
+            photos: [(slotForAddedPhoto(offset: 0), capture)],
+            inventoryItemId: item.id,
+            userId: item.userId
+        )
+        actionToast = "Added 1 photo."
         HapticFeedback.success()
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }

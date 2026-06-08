@@ -35,6 +35,8 @@ public struct BulkActionExecutor {
         switch action {
         case .createDraft:
             return await updateStatus(items, to: "drafted", action: action, onProgress: onProgress)
+        case .publish:
+            return await publishItems(items, action: action, onProgress: onProgress)
         case .markShipped:
             return await updateStatus(items, to: "shipped", action: action, onProgress: onProgress)
         case .endListing:
@@ -130,6 +132,65 @@ public struct BulkActionExecutor {
                 }
             )
         }
+    }
+
+    // MARK: - Bulk publish (US-680)
+
+    /// Validates then pushes each selected item to eBay, one at a time, so a
+    /// single blocked/failed item doesn't take the whole batch down. Items that
+    /// aren't ready (missing category/specifics/price → validate blockers) are
+    /// reported as per-item failures with the reason rather than pushed.
+    private func publishItems(
+        _ items: [LocalInventoryItem],
+        action: BulkAction,
+        onProgress: (@MainActor (Int, Int) -> Void)? = nil
+    ) async -> BulkActionResult {
+        let publish = EbayPublishService()
+        var succeeded = 0
+        var failures: [BulkActionResult.Failure] = []
+
+        for (index, item) in items.enumerated() {
+            defer { onProgress?(index + 1, items.count) }
+
+            // 1) Pre-flight validate — surfaces eBay metadata blockers per item.
+            switch await publish.validate(inventoryItemId: item.id) {
+            case .validated(let response) where !response.blockers.isEmpty:
+                failures.append(.init(itemId: item.id, message: response.blockers.joined(separator: "; ")))
+                continue
+            case .blockers(let blockers):
+                failures.append(.init(itemId: item.id, message: blockers.joined(separator: "; ")))
+                continue
+            case .noOfferId:
+                failures.append(.init(itemId: item.id, message: "No active eBay offer linked. Sync from Marketplaces, then try again."))
+                continue
+            case .failed(let message):
+                failures.append(.init(itemId: item.id, message: message))
+                continue
+            case .validated:
+                break  // ready — fall through to push
+            case .pushed, .priceUpdated, .ended:
+                failures.append(.init(itemId: item.id, message: "Unexpected response from server."))
+                continue
+            }
+
+            // 2) Push.
+            switch await publish.push(inventoryItemId: item.id) {
+            case .pushed:
+                succeeded += 1
+                // Optimistic local apply, matching the single-item publish path.
+                item.status = "listed"
+                item.updatedAt = .now
+            case .blockers(let blockers):
+                failures.append(.init(itemId: item.id, message: blockers.joined(separator: "; ")))
+            case .noOfferId:
+                failures.append(.init(itemId: item.id, message: "No active eBay offer linked. Sync from Marketplaces, then try again."))
+            case .failed(let message):
+                failures.append(.init(itemId: item.id, message: message))
+            case .validated, .priceUpdated, .ended:
+                failures.append(.init(itemId: item.id, message: "Unexpected response from server."))
+            }
+        }
+        return BulkActionResult(action: action, succeeded: succeeded, failures: failures)
     }
 
     // MARK: - eBay-backed handlers (US-185)

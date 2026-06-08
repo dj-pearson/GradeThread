@@ -75,11 +75,17 @@ struct DraftsLibraryView: View {
 
             Section {
                 ForEach(store.filtered(matching: search)) { draft in
-                    DraftLibraryRow(
-                        title: store.title(for: draft),
-                        draft: draft,
-                        currency: currency
-                    )
+                    // US-681: a row tap opens the bulk-edit (review + publish)
+                    // scoped to this draft's batch, instead of being a dead row.
+                    NavigationLink {
+                        DraftsBulkEditView(batchId: draft.batchId)
+                    } label: {
+                        DraftLibraryRow(
+                            title: store.title(for: draft),
+                            draft: draft,
+                            currency: currency
+                        )
+                    }
                 }
             } header: {
                 Text("Drafts")

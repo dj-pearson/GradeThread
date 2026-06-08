@@ -105,7 +105,7 @@ struct AutoListerView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Item \(model.displayIndex(of: group))")
-                    .font(.headline)
+                    .font(.brandHeadline)
                 Spacer()
                 Text("\(group.photoIds.count) photo\(group.photoIds.count == 1 ? "" : "s")")
                     .font(.caption)
@@ -130,10 +130,7 @@ struct AutoListerView: View {
             }
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
+        .cardStyle(.flush)  // US-691: unified card chrome
     }
 
     private func thumbnail(_ photo: PhotoCapture, in group: ReviewGroup) -> some View {
@@ -142,7 +139,7 @@ struct AutoListerView: View {
             .resizable()
             .scaledToFill()
             .frame(width: 92, height: 92)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control))
             .overlay(alignment: .topLeading) {
                 if isCover {
                     Label("Cover", systemImage: "star.fill")
@@ -156,7 +153,7 @@ struct AutoListerView: View {
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: CornerRadius.control)
                     .strokeBorder(isCover ? Color.brandNavy : .clear, lineWidth: 2)
             )
             .contextMenu { photoMenu(photo, in: group) }

@@ -12,6 +12,7 @@ import UIKit
 /// "Add detail / defect" button — up to three.
 struct PhotoIntakeView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var store: PhotoIntakeStore
@@ -167,12 +168,17 @@ struct PhotoIntakeView: View {
                     userId: currentUserId() ?? "",
                     photos: capturedEntries(),
                     onComplete: {
-                        // Once the AI step finishes (Apply / Skip / error),
-                        // we bounce back through the camera and out to
-                        // the navigation stack the user came from.
+                        // US-682: once the AI step finishes (Apply / Skip /
+                        // error), land the user ON the item they just created
+                        // (canvas) instead of bouncing back to the camera tab.
+                        // Reuses the proven deep-link route; a pull keeps the
+                        // local row fresh. From the canvas, the Add control
+                        // (every tab, US-684) starts the next item.
                         store.reset()
                         draftItemId = nil
                         dismiss()
+                        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                        DeepLinkRouter.post(.inventoryItem(id: itemId))
                     }
                 )
             }
@@ -314,6 +320,16 @@ struct PhotoIntakeView: View {
                             }
                         }
                     )
+                    // US-704: VoiceOver/Switch Control can't do the long-press,
+                    // so expose delete as an accessibility action on filled slots.
+                    .accessibilityActions {
+                        if store.photos[slot] != nil {
+                            Button("Delete photo") {
+                                AppRouter.haptic()
+                                store.clearPhoto(at: slot)
+                            }
+                        }
+                    }
                 }
 
                 if store.canAddDefectSlot {
@@ -328,10 +344,10 @@ struct PhotoIntakeView: View {
                                 .frame(width: 64, height: 64)
                                 .background(.white.opacity(0.08))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
                                         .stroke(.white.opacity(0.4), style: .init(lineWidth: 1, dash: [4, 3]))
                                 )
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                             Text("Defect")
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.7))
@@ -402,7 +418,7 @@ struct PhotoIntakeView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.white)
             Text("Camera access is off")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
                 .foregroundStyle(.white)
             Text("Turn it on in Settings to capture photos. Or use the Library button (coming soon) to pick from your Photos.")
                 .font(.subheadline)
@@ -505,6 +521,19 @@ struct PhotoIntakeView: View {
             startupError = "Couldn't create item: \(error.localizedDescription)"
             return
         }
+
+        // US-682: mirror the new row into the local cache immediately so the
+        // post-intake deep link lands on the item's canvas (not the list). The
+        // next sync pull upserts it by id; it won't be pruned as stale because
+        // it already exists server-side.
+        let localItem = LocalInventoryItem(
+            id: newItemId,
+            userId: userId,
+            title: "Untitled item",
+            status: "cataloged"
+        )
+        modelContext.insert(localItem)
+        try? modelContext.save()
 
         service.enqueueAll(
             photos: entries,

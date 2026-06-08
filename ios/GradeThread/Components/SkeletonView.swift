@@ -83,7 +83,7 @@ struct SkeletonRows: View {
             ForEach(0..<count, id: \.self) { _ in
                 HStack(spacing: 12) {
                     if showsLeadingBlock {
-                        SkeletonBlock(cornerRadius: 8)
+                        SkeletonBlock(cornerRadius: CornerRadius.chip)
                             .frame(width: 44, height: 44)
                     }
                     VStack(alignment: .leading, spacing: 6) {

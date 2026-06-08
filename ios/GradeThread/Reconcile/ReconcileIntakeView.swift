@@ -45,7 +45,7 @@ struct ReconcileIntakeView: View {
                                     .resizable()
                                     .scaledToFill()
                                     .frame(width: 64, height: 64)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip))
                             }
                         }
                         .padding(.vertical, 4)

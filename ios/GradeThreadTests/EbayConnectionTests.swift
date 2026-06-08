@@ -98,9 +98,26 @@ final class EbayConnectionTests: XCTestCase {
 
     func test_callbackParse_absentState_isLenient() {
         // Server-side single-use state already validated the real handshake;
-        // an absent client_state is not treated as an attack.
+        // for callbacks that grant NO capability (cancel/error) an absent
+        // client_state is not treated as an attack.
         let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=cancelled")!
         XCTAssertEqual(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"), .cancelled)
+    }
+
+    func test_callbackParse_connectedWithoutState_rejected() {
+        // US-699: the SUCCESS path requires the nonce when one was expected —
+        // a forged ?ebay=connected with no client_state must not claim success.
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=connected")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .stateExpired)
+    }
+
+    func test_callbackParse_connectedNoExpectedState_stillLenient() {
+        // When the caller didn't supply an expected nonce (legacy path), a
+        // connected callback still resolves to nil → poll for the row.
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=connected")!
+        XCTAssertNil(EbayConnectResult.from(callbackURL: url))
     }
 
     func test_stateNonce_isRandomAndURLSafe() {

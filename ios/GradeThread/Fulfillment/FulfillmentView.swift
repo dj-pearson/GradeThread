@@ -73,7 +73,7 @@ struct FulfillmentView: View {
                         .font(.subheadline.weight(.medium))
                     Spacer()
                     Text("\(store.needsShippingCount)")
-                        .font(.headline)
+                        .font(.brandHeadline)
                         .foregroundStyle(Color.brandNavy)
                 }
                 if store.totalLabelCost > 0 {

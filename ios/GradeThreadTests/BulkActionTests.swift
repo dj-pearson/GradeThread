@@ -29,6 +29,20 @@ final class BulkActionTests: XCTestCase {
         XCTAssertFalse(actions.contains(.endListing))
     }
 
+    func test_actions_toListAndDrafts_includePublish() {
+        // US-680: bulk publish to eBay is offered from the pre-list stages.
+        XCTAssertTrue(BulkAction.actions(for: .toList).contains(.publish))
+        XCTAssertTrue(BulkAction.actions(for: .drafts).contains(.publish))
+        XCTAssertFalse(BulkAction.actions(for: .sold).contains(.publish))
+    }
+
+    func test_publish_surface() {
+        XCTAssertEqual(BulkAction.publish.id, "publish")
+        XCTAssertEqual(BulkAction.publish.label, "Publish")
+        XCTAssertFalse(BulkAction.publish.isDestructive)
+        XCTAssertEqual(BulkAction.publish.confirmationTitle(count: 3), "Publish 3 items to eBay?")
+    }
+
     func test_actions_all_restrictedToExport() {
         // Mixed-status selection only allows the uniform action so a
         // careless bulk doesn't corrupt half the rows.

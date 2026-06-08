@@ -36,7 +36,7 @@ struct PhotoPreview: View {
                     Spacer()
 
                     Text(slot.label)
-                        .font(.headline)
+                        .font(.brandHeadline)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
@@ -57,7 +57,7 @@ struct PhotoPreview: View {
                             .padding(.vertical, 14)
                             .background(.red.opacity(0.85))
                             .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
                     }
 
                     Button {
@@ -69,7 +69,7 @@ struct PhotoPreview: View {
                             .padding(.vertical, 14)
                             .background(Color.brandNavy)
                             .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
                     }
                 }
                 .padding(.horizontal, 16)

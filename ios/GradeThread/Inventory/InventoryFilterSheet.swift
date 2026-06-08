@@ -59,7 +59,7 @@ struct InventoryFilterSheet: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { commit() }
-                        .font(.headline)
+                        .font(.brandHeadline)
                 }
             }
             .safeAreaInset(edge: .bottom) { resultFooter }
@@ -224,12 +224,12 @@ struct InventoryFilterSheet: View {
         let count = resultCount(draft)
         return Button { commit() } label: {
             Text(count == 1 ? "Show 1 item" : "Show \(count) items")
-                .font(.headline)
+                .font(.brandHeadline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(Color.brandNavy)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 16)

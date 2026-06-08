@@ -156,7 +156,9 @@ struct FinancialExportSheet: View {
                 }
             }
             .sheet(item: $exportURL) { wrapper in
-                ShareSheet(items: [wrapper.url])
+                // US-694: delete the protected temp file once the share sheet
+                // hands it off, so financial exports don't accumulate in tmp.
+                ShareSheet(items: [wrapper.url]) { SecureTempFile.delete(wrapper.url) }
             }
         }
     }
@@ -165,9 +167,11 @@ struct FinancialExportSheet: View {
         let start = startOfDay(startDate)
         let end = endOfDay(endDate)
         let csv = FinancialExport.csv(sales: sales, items: items, start: start, end: end)
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent(FinancialExport.filename(start: start, end: end))
-        guard (try? csv.data(using: .utf8)?.write(to: url, options: [.atomic])) != nil else { return }
+        // US-694: write the financial CSV with file protection into the swept
+        // Exports/ subdirectory instead of bare-.atomic into tmp.
+        guard let data = csv.data(using: .utf8),
+              let url = try? SecureTempFile.write(data, filename: FinancialExport.filename(start: start, end: end))
+        else { return }
         exportURL = ExportURL(url: url)
         HapticFeedback.success()
     }
@@ -181,8 +185,11 @@ struct FinancialExportSheet: View {
 
     private struct ShareSheet: UIViewControllerRepresentable {
         let items: [Any]
+        var onComplete: (() -> Void)?
         func makeUIViewController(context: Context) -> UIActivityViewController {
-            UIActivityViewController(activityItems: items, applicationActivities: nil)
+            let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            controller.completionWithItemsHandler = { _, _, _, _ in onComplete?() }
+            return controller
         }
         func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
     }

@@ -44,7 +44,8 @@ struct ProfileSection: View {
             Text(errorMessage ?? "")
         }
         .sheet(item: $exportFile) { file in
-            ShareSheet(items: [file.url])
+            // US-694: drop the protected account-export file once shared.
+            ShareSheet(items: [file.url]) { SecureTempFile.delete(file.url) }
         }
     }
 
@@ -199,8 +200,11 @@ private struct ExportFile: Identifiable {
 /// Thin UIActivityViewController wrapper for the data-export share sheet.
 private struct ShareSheet: UIViewControllerRepresentable {
     let items: [Any]
+    var onComplete: (() -> Void)?
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: items, applicationActivities: nil)
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in onComplete?() }
+        return controller
     }
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }

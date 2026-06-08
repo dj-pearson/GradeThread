@@ -11,7 +11,7 @@ struct InventoryRow: View {
         HStack(spacing: 12) {
             thumbnail
                 .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
@@ -28,6 +28,14 @@ struct InventoryRow: View {
                 }
                 if let grade = item.gradeValue {
                     GradeChip(score: grade, label: item.gradeLabel)
+                        .padding(.top, 1)
+                }
+                // US-683: at-a-glance "ready to list" cue (primaryPhotoURL is
+                // the row's stand-in for "has photos").
+                if isReadyToList {
+                    Label("Ready to list", systemImage: "checkmark.seal.fill")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.brandEmerald)
                         .padding(.top, 1)
                 }
             }
@@ -58,7 +66,7 @@ struct InventoryRow: View {
 
     private var placeholderThumbnail: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
             Image(systemName: "tshirt")
                 .font(.system(size: 22, weight: .light))
@@ -81,6 +89,17 @@ struct InventoryRow: View {
     private var subtitle: String {
         let parts = [item.brand, item.size].compactMap { $0?.nonEmpty }
         return parts.isEmpty ? "—" : parts.joined(separator: " · ")
+    }
+
+    /// US-683: ready-to-list from local signals (primaryPhotoURL stands in for
+    /// "has photos" since the row doesn't query the full photo list).
+    private var isReadyToList: Bool {
+        PublishReadiness.isReady(
+            title: item.title,
+            hasPhotos: item.primaryPhotoURL?.nonEmpty != nil,
+            targetPrice: item.targetPrice,
+            status: item.status
+        )
     }
 
     private var priceLabel: String? {

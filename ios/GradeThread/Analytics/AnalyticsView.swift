@@ -269,6 +269,9 @@ struct AnalyticsView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    // US-700: make each bar readable to VoiceOver.
+                    .accessibilityLabel(row.brand)
+                    .accessibilityValue("\(currency.formatDisplay(row.netProfit)) net profit")
                 }
                 .chartXAxis(.hidden)
                 .frame(height: categoryHeight(brandProfits.count))
@@ -293,6 +296,9 @@ struct AnalyticsView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    // US-700
+                    .accessibilityLabel(row.brand)
+                    .accessibilityValue("\(Int((row.rate * 100).rounded())) percent sell-through, \(row.sold) of \(row.listed) sold")
                 }
                 .chartXScale(domain: 0.0...1.0)
                 .chartXAxis(.hidden)
@@ -316,6 +322,9 @@ struct AnalyticsView: View {
                     .annotation(position: .top) {
                         Text("\(bucket.count)").font(.caption2).foregroundStyle(.secondary)
                     }
+                    // US-700
+                    .accessibilityLabel("Tier \(bucket.tier)")
+                    .accessibilityValue("\(bucket.count) items")
                 }
                 .frame(height: 180)
             }
@@ -339,6 +348,9 @@ struct AnalyticsView: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+                    // US-700
+                    .accessibilityLabel(row.status.capitalized)
+                    .accessibilityValue("\(currency.formatDisplay(row.value)) on hand")
                 }
                 .chartXAxis(.hidden)
                 .frame(height: categoryHeight(statusValues.count))
@@ -353,7 +365,7 @@ struct AnalyticsView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline) {
                         Text(currency.formatDisplay(status.spent))
-                            .font(.title3.weight(.bold)).monospacedDigit()
+                            .font(.brandTitle2).monospacedDigit()
                             .foregroundStyle(status.isOver ? Color.brandRed : Color.brandNavy)
                         Text("of \(currency.formatDisplay(status.budget))")
                             .font(.subheadline).foregroundStyle(.secondary)

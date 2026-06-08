@@ -118,7 +118,7 @@ struct GradeRequestSheet: View {
             .foregroundStyle(.green)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(14)
-            .background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.green.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func blockersBanner(_ validatedItem: GradingValidatedItem) -> some View {
@@ -139,7 +139,7 @@ struct GradeRequestSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func tierPicker(_ store: GradeRequestStore) -> some View {
@@ -177,7 +177,7 @@ struct GradeRequestSheet: View {
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
                     .stroke(selected ? Color.brandNavy : Color.secondary.opacity(0.25), lineWidth: selected ? 2 : 1)
             )
         }
@@ -199,7 +199,7 @@ struct GradeRequestSheet: View {
                 .foregroundStyle(Color.brandNavy)
         }
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .cardStyle(.flush)  // US-691: unified card chrome
     }
 
     /// What this grade costs the user: free if covered by an included
@@ -218,7 +218,7 @@ struct GradeRequestSheet: View {
             .foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func submitButton(_ store: GradeRequestStore) -> some View {
@@ -243,7 +243,7 @@ struct GradeRequestSheet: View {
             ProgressView()
                 .controlSize(.large)
                 .tint(Color.brandNavy)
-            Text(title).font(.headline)
+            Text(title).font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -275,7 +275,13 @@ struct GradeRequestSheet: View {
                 certificateURL: store.certificateURL,
                 title: item.title
             )
-            .onAppear { applyGradeToItem(report, certificateURL: store.certificateURL) }
+            .onAppear {
+                applyGradeToItem(report, certificateURL: store.certificateURL)
+                // US-701: announce the grade so VoiceOver lands on the result
+                // instead of silently replacing the progress view.
+                A11yAnnounce.screenChanged(
+                    focusing: "Grade \(String(format: "%.1f", report.overallScore)) of 10, \(report.gradeTier)")
+            }
         } else {
             centeredProgress("Loading report…")
         }

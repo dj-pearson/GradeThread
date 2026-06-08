@@ -97,6 +97,11 @@ struct DetailsIntakeView: View {
         .onChange(of: draftSignature) { _, _ in
             IntakeDraftStore.save(form)
         }
+        // US-701: announce save outcome (success / saved-offline / failed) so
+        // VoiceOver users hear it — the banner is a plain Section otherwise.
+        .onChange(of: bannerMessage) { _, newValue in
+            if let newValue { A11yAnnounce.announce(newValue.text) }
+        }
         .alert("Resume your unsaved item?", isPresented: showingDraftResumeBinding, presenting: pendingDraft) { draft in
             Button("Resume") {
                 IntakeDraftStore.apply(draft, to: form)
@@ -363,7 +368,7 @@ struct DetailsIntakeView: View {
         .padding(.vertical, 10)
         .background(Color.brandNavy)
         .foregroundStyle(.white)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func secondaryButtonLabel(title: String) -> some View {
@@ -373,7 +378,7 @@ struct DetailsIntakeView: View {
             .padding(.vertical, 10)
             .background(Color(uiColor: .secondarySystemBackground))
             .foregroundStyle(Color.brandNavy)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func bannerIcon(for kind: BannerMessage.Kind) -> String {

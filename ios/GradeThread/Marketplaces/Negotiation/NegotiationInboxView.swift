@@ -106,7 +106,7 @@ struct NegotiationInboxView: View {
             Text(offer.itemTitle ?? "Item \(offer.itemId)").font(.subheadline.weight(.semibold))
             HStack {
                 if let price = offer.price {
-                    Text(price.formatted(.currency(code: offer.currency))).font(.headline)
+                    Text(price.formatted(.currency(code: offer.currency))).font(.brandHeadline)
                 }
                 if let buyer = offer.buyerUsername {
                     Text("from \(buyer)").font(.caption).foregroundStyle(.secondary)

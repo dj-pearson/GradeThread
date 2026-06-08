@@ -104,7 +104,7 @@ struct MarketplacesView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 36, height: 36)
                         .background(Color.secondary.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
                     Text(channel.label)
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(.primary)
@@ -252,7 +252,7 @@ struct MarketplacesView: View {
                     .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
                     .background(Color.brandAmber.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reconciliation")
                         .font(.subheadline.weight(.semibold))
@@ -284,7 +284,7 @@ struct MarketplacesView: View {
                     .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
                     .background(Color.brandAmber.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Couldn't check reconciliation")
                         .font(.subheadline.weight(.semibold))
@@ -334,10 +334,10 @@ struct MarketplacesView: View {
                 .foregroundStyle(Color.brandNavy)
                 .frame(width: 48, height: 48)
                 .background(Color.brandNavy.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text("Connected accounts")
-                    .font(.headline)
+                    .font(.brandHeadline)
                 Text("Manage where your items sell.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -355,19 +355,20 @@ struct MarketplacesView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("eBay")
-                    .font(.title3.weight(.semibold))
+                    .font(.brandTitle2)
                 Spacer()
                 statusPill
             }
 
             switch store.phase {
             case .loading:
-                HStack {
-                    ProgressView()
-                    Text("Checking connection…")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                // US-692: skeleton the connection panel instead of a bare spinner.
+                VStack(alignment: .leading, spacing: 10) {
+                    SkeletonLine(widthFraction: 0.5, height: 14)
+                    SkeletonLine(widthFraction: 0.7, height: 12)
+                    SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 38)
                 }
+                .accessibilityLabel("Checking connection")
             case .disconnected:
                 disconnectedBody(userId: userId)
             case .connected(let conn):

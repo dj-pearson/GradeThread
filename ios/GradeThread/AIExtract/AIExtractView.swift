@@ -57,7 +57,7 @@ struct AIExtractView: View {
         VStack(spacing: 14) {
             ProgressView().tint(Color.brandNavy)
             Text("Uploading photos…")
-                .font(.headline)
+                .font(.brandHeadline)
             Text("\(complete) of \(total) ready")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -69,7 +69,7 @@ struct AIExtractView: View {
         VStack(spacing: 16) {
             ProgressView().tint(Color.brandNavy).scaleEffect(1.4)
             Text("AI is reading your photos…")
-                .font(.headline)
+                .font(.brandHeadline)
             Text("~10 seconds")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -86,7 +86,7 @@ struct AIExtractView: View {
                 .font(.system(size: 38, weight: .light))
                 .foregroundStyle(Color.brandAmber)
             Text("AI couldn't read these photos")
-                .font(.headline)
+                .font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -149,7 +149,7 @@ struct AIExtractView: View {
         }
         .padding(12)
         .background(Color.brandNavy.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     private func summaryCard(_ text: String) -> some View {
@@ -163,8 +163,8 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
     }
 
     private func fieldsCard(_ entries: [FieldSuggestionEntry]) -> some View {
@@ -197,8 +197,8 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
     }
 
     private func measurementsCard(_ measurements: [AIExtractStore.Measurement]) -> some View {
@@ -232,8 +232,8 @@ struct AIExtractView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
     }
 
     private var applyRow: some View {
@@ -248,7 +248,7 @@ struct AIExtractView: View {
                     .padding(.vertical, 14)
                     .background(Color(uiColor: .secondarySystemBackground))
                     .foregroundStyle(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
 
             Button {
@@ -263,7 +263,7 @@ struct AIExtractView: View {
                 .padding(.vertical, 14)
                 .background(Color.brandNavy)
                 .foregroundStyle(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
             .disabled(isApplying)
         }
@@ -461,6 +461,17 @@ struct AIExtractView: View {
                 )
             }
             update.measurements = measurementsDict
+        }
+
+        // US-682: seed a usable title from accepted brand/style when the AI
+        // didn't surface an explicit title, so the new item isn't left as
+        // "Untitled item" and is easy to find back in the list.
+        if update.title == nil {
+            let seed = [update.brand, update.style ?? update.size]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            if !seed.isEmpty { update.title = seed }
         }
 
         if !sources.isEmpty {

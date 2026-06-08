@@ -61,6 +61,16 @@ struct InventoryListView: View {
     @State private var droppedCaptures: [PhotoSlotType: PhotoCapture] = [:]
     @State private var showingDroppedIntake = false
 
+    // US-685: per-row quick actions — publish to eBay + quick price edit
+    // without pushing the full canvas.
+    @State private var publishItem: LocalInventoryItem?
+    @State private var priceEditItem: LocalInventoryItem?
+
+    /// Statuses where listing to eBay makes sense (pre-list pipeline stages).
+    private static let publishableStatuses: Set<String> = [
+        "photographed", "graded", "comped", "drafted", "measured", "cataloged", "sourced",
+    ]
+
     var body: some View {
         VStack(spacing: 0) {
             tabRow
@@ -178,6 +188,17 @@ struct InventoryListView: View {
                 BulkFailuresView(result: result, items: allItems)
             }
         }
+        // US-685: publish a single row to eBay without entering the canvas.
+        .sheet(item: $publishItem) { item in
+            PublishDialog(inventoryItemId: item.id, acquiredCost: item.acquiredPrice) { _ in
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            }
+        }
+        // US-685: quick price edit from the row.
+        .sheet(item: $priceEditItem) { item in
+            QuickPriceSheet(item: item)
+                .presentationDetents([.height(220)])
+        }
         // US-644: progress HUD for longer multi-item batches.
         .overlay {
             if let progress = actionProgress, progress.total > 1 {
@@ -247,6 +268,13 @@ struct InventoryListView: View {
                         tabChip(for: stage, count: counts[stage] ?? 0)
                     }
                     .buttonStyle(.plain)
+                    // US-706: guarantee a 44pt touch target even though the
+                    // visual chip is shorter.
+                    .frame(minHeight: 44)
+                    .contentShape(Capsule())
+                    // US-702: selection must not be conveyed by colour alone.
+                    .accessibilityLabel("\(stage.label), \(counts[stage] ?? 0) items")
+                    .accessibilityAddTraits(selectedStage == stage ? .isSelected : [])
                 }
             }
             .padding(.horizontal, 16)
@@ -308,6 +336,31 @@ struct InventoryListView: View {
                             Label("Shipped", systemImage: "shippingbox.fill")
                         }
                         .tint(Color.brandEmerald)
+                    }
+                    // US-685: list a ready item to eBay straight from the row.
+                    if Self.publishableStatuses.contains(item.status) {
+                        Button {
+                            HapticFeedback.light()
+                            publishItem = item
+                        } label: {
+                            Label("Publish", systemImage: "paperplane.fill")
+                        }
+                        .tint(Color.brandNavy)
+                    }
+                }
+                // US-685: quick actions without pushing the canvas.
+                .contextMenu {
+                    if Self.publishableStatuses.contains(item.status) {
+                        Button {
+                            publishItem = item
+                        } label: {
+                            Label("Publish to eBay", systemImage: "paperplane")
+                        }
+                    }
+                    Button {
+                        priceEditItem = item
+                    } label: {
+                        Label("Edit price", systemImage: "tag")
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -661,7 +714,7 @@ private struct BulkProgressHUD: View {
                 .foregroundStyle(.secondary)
         }
         .padding(20)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous))
         .shadow(radius: 12)
     }
 }

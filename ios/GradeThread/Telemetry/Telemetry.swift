@@ -108,8 +108,11 @@ public enum Telemetry {
             options.enableAutoPerformanceTracing = true
             // Distinguish dev/release in the dashboard.
             options.environment = PushService.environmentName
-            // US-662: scrub PII / tokens / signed Storage URLs out of every
-            // event message + breadcrumb before it leaves the device.
+            // US-662 + US-695: scrub PII / tokens / signed Storage URLs out of
+            // every event message AND breadcrumb (message *and* structured
+            // `data`) before it leaves the device. The auto HTTP-breadcrumbs
+            // from `enableSwizzling` store the request URL in `crumb.data["url"]`
+            // / `["http.url"]`, which the message-only scrub never touched.
             options.beforeSend = { event in
                 if let message = event.message {
                     // SDK drift: `formatted` is now a get-only String (and
@@ -119,15 +122,27 @@ public enum Telemetry {
                     event.message = SentryMessage(
                         formatted: TelemetryScrubber.redact(message.formatted))
                 }
-                event.breadcrumbs?.forEach { crumb in
-                    crumb.message = crumb.message.map(TelemetryScrubber.redact)
-                }
+                event.breadcrumbs?.forEach(scrubBreadcrumb)
                 return event
             }
             options.beforeBreadcrumb = { crumb in
-                crumb.message = crumb.message.map(TelemetryScrubber.redact)
+                scrubBreadcrumb(crumb)
                 return crumb
             }
+        }
+    }
+
+    /// US-695: redact a breadcrumb's message and every string value in its
+    /// structured `data` (notably `url` / `http.url` from swizzled networking
+    /// breadcrumbs, which can carry signed-storage tokens or bearer creds).
+    static func scrubBreadcrumb(_ crumb: Breadcrumb) {
+        crumb.message = crumb.message.map(TelemetryScrubber.redact)
+        guard let data = crumb.data else { return }
+        crumb.data = data.mapValues { value in
+            if let string = value as? String {
+                return TelemetryScrubber.redact(string)
+            }
+            return value
         }
     }
 

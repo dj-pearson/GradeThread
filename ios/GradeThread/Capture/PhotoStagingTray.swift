@@ -49,7 +49,7 @@ struct PhotoStagingTray: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: 56, height: 56)
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
                         Text("Picked from library")
                             .font(.subheadline)
@@ -102,7 +102,7 @@ struct PhotoStagingTray: View {
                 .font(.system(size: 42, weight: .light))
                 .foregroundStyle(Color.brandNavy)
             Text("All set")
-                .font(.headline)
+                .font(.brandHeadline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

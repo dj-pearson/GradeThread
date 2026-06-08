@@ -97,7 +97,7 @@ struct BarcodeScanView: View {
     private var viewfinder: some View {
         // 280×120 frame fits both EAN/UPC strip codes and QR squares
         // comfortably without aggressive zoom.
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
+        RoundedRectangle(cornerRadius: CornerRadius.card, style: .continuous)
             .stroke(.white.opacity(0.9), lineWidth: 3)
             .frame(width: 280, height: 120)
             .shadow(color: .black.opacity(0.5), radius: 4)
@@ -109,7 +109,7 @@ struct BarcodeScanView: View {
                 .font(.system(size: 48, weight: .light))
                 .foregroundStyle(.white)
             Text("Camera access is off")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
                 .foregroundStyle(.white)
             Text("Turn it on in Settings to scan SKU barcodes.")
                 .font(.subheadline)

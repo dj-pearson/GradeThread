@@ -11,6 +11,8 @@ import Foundation
 /// pending the AI-batch pass.
 public enum BulkAction: Identifiable, Hashable {
     case createDraft
+    /// US-680: validate + push each selected item to eBay in one batch.
+    case publish
     case markShipped
     case endListing
     /// Percent reduction (e.g. 10 for -10%). Surfaced as a single button
@@ -27,6 +29,7 @@ public enum BulkAction: Identifiable, Hashable {
     public var id: String {
         switch self {
         case .createDraft:        return "create_draft"
+        case .publish:            return "publish"
         case .markShipped:        return "mark_shipped"
         case .endListing:         return "end_listing"
         case .dropPrice(let pct): return "drop_price_\(pct)"
@@ -39,6 +42,7 @@ public enum BulkAction: Identifiable, Hashable {
     public var label: String {
         switch self {
         case .createDraft:        return "Create draft"
+        case .publish:            return "Publish"
         case .markShipped:        return "Mark shipped"
         case .endListing:         return "End listing"
         case .dropPrice(let pct): return "Drop -\(pct)%"
@@ -51,6 +55,7 @@ public enum BulkAction: Identifiable, Hashable {
     public var systemImage: String {
         switch self {
         case .createDraft: return "doc.text"
+        case .publish:     return "paperplane.fill"
         case .markShipped: return "shippingbox.fill"
         case .endListing:  return "stop.circle"
         case .dropPrice:   return "arrow.down.circle"
@@ -73,6 +78,7 @@ public enum BulkAction: Identifiable, Hashable {
         let suffix = count == 1 ? "item" : "items"
         switch self {
         case .createDraft:        return "Create \(count) \(suffix) as drafts?"
+        case .publish:            return "Publish \(count) \(suffix) to eBay?"
         case .markShipped:        return "Mark \(count) \(suffix) as shipped?"
         case .endListing:         return "End \(count) \(suffix)?"
         case .dropPrice(let pct): return "Drop price -\(pct)% on \(count) \(suffix)?"
@@ -87,9 +93,9 @@ public enum BulkAction: Identifiable, Hashable {
     public static func actions(for stage: InventoryStage) -> [BulkAction] {
         switch stage {
         case .toList:
-            return [.grade, .createDraft, .aiEnrich, .exportCSV]
+            return [.publish, .grade, .createDraft, .aiEnrich, .exportCSV]
         case .drafts:
-            return [.exportCSV]
+            return [.publish, .exportCSV]
         case .active:
             return [.dropPrice(percent: 10), .endListing, .exportCSV]
         case .sold:

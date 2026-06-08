@@ -57,7 +57,8 @@ struct PublishDialog: View {
     private var content: some View {
         switch phase {
         case .validating:
-            loadingCard(text: "Checking the listing…")
+            // US-692: initial content load → skeleton, not a bare spinner.
+            validatingSkeleton
 
         case .readyToPush(let summary):
             ComposerForm(
@@ -84,6 +85,21 @@ struct PublishDialog: View {
 
     // MARK: - Reusable card builders
 
+    /// US-692: skeleton of the composer form while the publish pre-flight runs,
+    /// instead of a centered spinner.
+    private var validatingSkeleton: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            SkeletonLine(widthFraction: 0.4, height: 14)
+            SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 44)
+            SkeletonLine(widthFraction: 0.55, height: 14)
+            SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 88)
+            SkeletonBlock(cornerRadius: CornerRadius.control).frame(height: 44)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel("Checking the listing")
+    }
+
     private func loadingCard(text: String) -> some View {
         VStack(spacing: 12) {
             ProgressView().tint(Color.brandNavy).scaleEffect(1.2)
@@ -99,7 +115,7 @@ struct PublishDialog: View {
     private func summaryCard(_ summary: PublishSummary) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Ready to publish")
-                .font(.headline)
+                .font(.brandHeadline)
             Group {
                 LabeledContent("Title", value: summary.title)
                 if let condition = summary.condition {
@@ -129,7 +145,7 @@ struct PublishDialog: View {
     private func blockersCard(_ blockers: [String]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Fix these before pushing", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
+                .font(.brandHeadline)
                 .foregroundStyle(.orange)
             ForEach(Array(blockers.enumerated()), id: \.offset) { _, blocker in
                 Label(blocker, systemImage: "circle.fill")
@@ -153,7 +169,7 @@ struct PublishDialog: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.green)
             Text("Live on eBay")
-                .font(.title3.weight(.semibold))
+                .font(.brandTitle2)
             Text("Listing \(response.listingId)")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -198,7 +214,7 @@ struct PublishDialog: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.red)
             Text("Publish failed")
-                .font(.headline)
+                .font(.brandHeadline)
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

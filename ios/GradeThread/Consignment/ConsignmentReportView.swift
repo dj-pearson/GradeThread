@@ -27,7 +27,7 @@ struct ConsignmentReportView: View {
             } else {
                 Section {
                     LabeledContent("Total owed", value: money(totalOwed))
-                        .font(.headline)
+                        .font(.brandHeadline)
                 }
                 Section("By consignor") {
                     ForEach(rows) { row in

@@ -30,7 +30,7 @@ struct RepricingView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     ForEach(0..<3, id: \.self) { _ in
-                        SkeletonBlock(cornerRadius: 14).frame(height: 150)
+                        SkeletonBlock(cornerRadius: CornerRadius.card).frame(height: 150)
                     }
                 }
                 .padding(16)
@@ -225,7 +225,7 @@ private struct RepricingCard: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             Text(RepricingStore.centsDollars(suggestion.suggestedPriceCents))
-                .font(.title3.weight(.bold))
+                .font(.brandTitle2)
                 .foregroundStyle(suggestion.reason.tint)
             if let pct = suggestion.deltaPct {
                 Text(Self.signedPct(pct))

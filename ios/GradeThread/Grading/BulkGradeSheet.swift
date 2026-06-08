@@ -84,7 +84,7 @@ struct BulkGradeSheet: View {
         let total = itemIds.count
         return HStack(spacing: 12) {
             Image(systemName: ready == total ? "checkmark.circle.fill" : "checkmark.circle")
-                .font(.title2)
+                .font(.brandTitle2)
                 .foregroundStyle(ready > 0 ? .green : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(ready) of \(total) ready to grade")
@@ -99,7 +99,7 @@ struct BulkGradeSheet: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .cardStyle(.flush)  // US-691: unified card chrome
     }
 
     private func tierPicker(_ store: BulkGradeStore) -> some View {
@@ -146,7 +146,7 @@ struct BulkGradeSheet: View {
             }
         }
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+        .cardStyle(.flush)  // US-691: unified card chrome
     }
 
     private var creditsBanner: some View {
@@ -154,7 +154,7 @@ struct BulkGradeSheet: View {
             .font(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
-            .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+            .background(Color.brandRed.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func blockedList(_ store: BulkGradeStore) -> some View {
@@ -176,7 +176,7 @@ struct BulkGradeSheet: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
     }
 
     private func submitButton(_ store: BulkGradeStore) -> some View {

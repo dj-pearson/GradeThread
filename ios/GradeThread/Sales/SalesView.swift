@@ -45,7 +45,7 @@ struct SalesView: View {
                         Text("Net proceeds")
                         Spacer()
                         Text(currency.formatDisplay(store.totalNet))
-                            .font(.headline)
+                            .font(.brandHeadline)
                             .foregroundStyle(Color.brandNavy)
                     }
                 }

@@ -84,7 +84,7 @@ struct LinkItemSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .cardStyle(.flush)  // US-691: unified card chrome
     }
 
     private func row(for item: LocalInventoryItem) -> some View {

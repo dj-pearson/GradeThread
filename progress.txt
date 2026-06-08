@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-07
+# Last updated: 2026-06-08
 
 ## Completed Stories
 
@@ -5014,3 +5014,237 @@ were typechecked (`tsc -p tsconfig.app.json` clean).
           storagePath and commits by referencing the staged objects (no
           re-upload). SyncEngine .uploadPhoto replay now carries captured_at +
           reconcile_session_id. Tests: ReconcileSessionTests (6) + existing (8).
+
+## iOS deep-dive audit wave (2026-06-08) -- US-680..707
+
+A code-grounded audit of the native iOS app (39k LOC) across four dimensions
+produced 28 new stories (US-680..707) appended to prd.json: UX (listing/
+management ease, US-680..687), UI/brand consistency (US-688..693), security
+(US-694..699), and accessibility (US-700..707). NOTE: this is a Linux
+container with no xcodebuild; Swift changes match existing patterns + ship
+unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
+
+### Security batch (US-694..699) COMPLETE
+
+- US-694  File-protect + auto-delete export temp files. New
+          Security/SecureTempFile.swift: writes financial CSV (FinancialExport)
+          + account JSON (AccountExportService) with
+          .completeFileProtectionUntilFirstUserAuthentication into a swept
+          Exports/ subdir; share sheets delete the file on completion
+          (UIActivityViewController.completionWithItemsHandler); sweep() runs at
+          launch + on sign-out (ContentView). Tests: SecureTempFileTests (4).
+
+- US-695  Scrub Sentry breadcrumb DATA (not just messages). Telemetry
+          beforeSend/beforeBreadcrumb now call scrubBreadcrumb(), which redacts
+          crumb.message AND every string value in crumb.data (the swizzled HTTP
+          breadcrumbs' url/http.url keys carried signed-storage tokens
+          unredacted). Tests: TelemetryTests +2.
+
+- US-696  Optional Face ID / passcode app lock. New Security/AppLock.swift
+          (@Observable, injectable evaluator for tests): cold-launch starts
+          locked when enabled; foreground re-prompts; backgrounding re-arms;
+          re-entrancy guard prevents the system-auth scene-phase bounce from
+          double-prompting; falls open when no biometrics/passcode configured.
+          MainShell shows AppLockCoverView until unlocked; ContentView re-arms on
+          .background. Settings AppLockToggleSection (disabled when unavailable).
+          NSFaceIDUsageDescription added to project.yml. Tests: AppLockTests (9).
+
+- US-697  Pasteboard hardening. New Security/SecurePasteboard.swift copies
+          capability values (workspace invite-accept URLs in TeamView x2,
+          referral code in ReferralsView) with .localOnly + 2-min .expirationDate
+          so they don't sync via Universal Clipboard or linger.
+
+- US-698  Realtime debug log redaction + CI guard. RealtimeService logs
+          TelemetryScrubber.redact(error.localizedDescription) instead of the
+          full \(error). New ios/Scripts/no-ungated-print.py (tracks #if DEBUG
+          nesting) wired into ios-ci.yml fails the build on any ungated print()
+          in app sources.
+
+- US-699  Require OAuth state nonce on the eBay connect SUCCESS path.
+          EbayConnectResult.from now rejects ?ebay=connected lacking a matching
+          client_state (when expectedState supplied) as .stateExpired; cancel/
+          error callbacks stay lenient. Defense-in-depth atop the server's
+          single-use oauth_states gate. Tests: EbayConnectionTests +2.
+
+### Accessibility batch (US-700..707) COMPLETE
+
+- US-700  VoiceOver chart descriptors. Every BarMark in AnalyticsView (top
+          brands, sell-through, grade distribution, inventory value by stage) +
+          MoneyView (monthly revenue) now carries .accessibilityLabel +
+          .accessibilityValue so each bar reads category + value (WCAG 1.1.1).
+          Empty states already render descriptive text.
+
+- US-701  Announce + focus async results app-wide. New Accessibility/
+          A11yAnnounce.swift (announce + screenChanged, no-op without VoiceOver).
+          Wired: GradeRequestSheet (screenChanged focuses "Grade X.X of 10,
+          tier" when the report renders), ScoutStore.scan (result count / failure),
+          EbaySyncStore.apply (completion summary), DetailsIntakeView save banner.
+          Tests: AccessibilityAnnounceTests (EbaySyncStore.completionAnnouncement).
+
+- US-702  Selected trait + non-color cue on stage/filter tabs. Inventory stage
+          chips add .accessibilityAddTraits(.isSelected) + a count-bearing label;
+          (WCAG 1.4.1, no longer color-only).
+
+- US-703  Curate Scout candidate card a11y. ScoutCandidateRow swaps
+          children:.combine (which swallowed the inner eBay Link) for a curated
+          children:.ignore info element + composed accessibilitySummary; the eBay
+          link is now a separate reachable element labeled "View on eBay"; Deal/
+          Uncertain are spoken, not color-only. Tests: AccessibilityAnnounceTests.
+
+- US-704  Accessible delete for capture slots. PhotoIntakeView filled slots
+          expose .accessibilityActions { Button("Delete photo") } so VoiceOver/
+          Switch Control can delete without the long-press (WCAG 2.5.1/2.1.1).
+
+- US-705  Curate ItemCanvas VoiceOver. Photo cells read "<type> photo"
+          (children:.ignore + label); the comps Low/Median/High triad reads as
+          one combined element; grade surfaced via the already-labeled
+          GradeScoreRing/CertifiedGradeSection.
+
+- US-706  >=44pt hit targets. Inventory stage chips + ActiveFilterBar FilterChip
+          get .frame(minHeight: 44) + .contentShape so the touch target meets the
+          44pt minimum without enlarging the visual chip.
+
+- US-707  Dynamic Type for fixed sizes + the grade ring. GradeScoreRing now
+          derives its diameter (and the score/of-10 fonts off it) from a
+          @ScaledMetric(relativeTo:.largeTitle) factor clamped 1.0-1.6, so the
+          hero score grows with Dynamic Type instead of staying fixed. Key data
+          values (Scout metrics triad) already pair lineLimit(1)+minimumScaleFactor.
+          NOTE: decorative SF Symbols are paired with text labels (VoiceOver
+          ignores them); final AX5 visual no-clip check is a device/CI step.
+
+### UI / brand-consistency batch (US-688..693)
+
+- US-689  Corner-radius literals -> CornerRadius tokens. Compile-safe sweep
+          (tokens are CGFloat constants): 56 replacements across 28 files via a
+          value mapping (16/14 -> .card, 12/10 -> .control, 9/8 -> .chip),
+          skipping the Disclosure PDF renderer + DesignTokens. Remaining literals
+          are intentional bespoke skeleton corners (SlotThumbnail 11, small
+          SkeletonBlock 4/6). COMPLETE.
+
+- US-691  Migrate hand-rolled card chrome to .cardStyle(). The raw
+          secondarySystemGroupedBackground + RoundedRectangle pattern in
+          LinkItemSheet, EbaySyncModal, AutoListerView, AIExtractView (x3),
+          BulkGradeSheet (x2), GradeRequestSheet now uses .cardStyle(.flush).
+          Only ScoutCandidateRow retains bespoke chrome (its conditional emerald
+          deal-border overlay). grep secondarySystemGroupedBackground outside
+          DesignTokens is now just that one intentional site. COMPLETE.
+
+- US-692  Skeletons on primary content loads. PublishDialog .validating renders
+          a composer-form skeleton (the .pushing ACTION keeps its spinner, which
+          is correct); MarketplacesView connection-check renders a skeleton panel
+          instead of a bare inline spinner. COMPLETE.
+
+- US-693  Dashboard loading vs empty. DashboardView already had a first-run
+          empty state; added a skeleton KPI-grid loading state shown when the
+          dashboard is empty AND the first sync is still running (SyncStatusStore
+          .phase == .syncing), so a fresh launch no longer flashes the Welcome
+          card before data lands. COMPLETE.
+
+- US-688  Adopt the brand type scale. Compile-safe Font->Font sweep putting the
+          Outfit display face on ALL headings app-wide: .font(.headline) ->
+          .brandHeadline (37), .title2 -> .brandTitle2, .title3.weight(.semibold/
+          .bold) -> .brandTitle2 (11) = 49 swaps across 29 files (Disclosure PDF
+          renderer + Typography excluded). Combines with the existing brand-font
+          usage in GradeScoreRing/GradeReport/Analytics. NOTE: body/caption text
+          left on the system face (lower-visibility; a wholesale Inter body swap
+          would need device visual verification) — headings carry the brand
+          signal. COMPLETE (primary brand surfaces).
+
+- US-690  Standardize primary CTAs on brand button styles. Dashboard
+          quickActions (Add -> .brandPrimary; Snap/Scout/Inventory ->
+          .brandSecondary), ScoutView "Find deals", and SnapView "What's it
+          worth?"/"Get certified grade" (.brandPrimary) + "List it"
+          (.brandSecondary). The other named main flows (Capture/Publish/
+          DetailsIntake/Money) already use custom-styled buttons, not system
+          .borderedProminent, for their primary CTAs. Inline/secondary/error-
+          retry buttons intentionally keep system styles. COMPLETE.
+
+### UX / listing-&-management batch (US-680..687)
+
+- US-684  Add-method reachable from every tab. The AddMethodMenu (photo /
+          details / AutoLister) now rides the toolbar of the Inventory, Money,
+          and Marketplaces tabs too (was Home-only), so bulk AutoLister / details
+          intake are reachable without first switching to Home. The Add tab stays
+          a one-tap photo shortcut (US-649). (TabView can't long-press a tab item,
+          so the menu-on-every-tab option from the AC is used.) COMPLETE.
+
+- US-685  Per-row quick actions. InventoryListView: a leading swipe "Publish"
+          on publish-eligible rows opens the existing PublishDialog for that item
+          (no canvas push); a row context menu offers "Publish to eBay" + "Edit
+          price"; new QuickPriceSheet writes target_price via the RLS-scoped
+          user-session client + optimistic local update (mirrors
+          ItemCanvasView.save). COMPLETE.
+
+- US-687  Add photos to an existing item via camera, beyond standard slots.
+          ItemCanvasView: a shared camera/library add menu (empty state, header,
+          overflow), camera capture via CameraPicker -> ingestCapturedImage;
+          library picker uncapped (selectionLimit 0) with extras assigned to the
+          next unfilled standard slot then additional .detail photos; stale
+          "from the + tab" footer copy corrected. COMPLETE.
+
+- US-680  Bulk "Publish to eBay" from inventory. COMPLETE. EbayPublishService
+          already exposes headless validate(inventoryItemId:) + push(...), so a
+          new BulkAction.publish (added to the .toList and .drafts bottom-bar
+          sets) routes through BulkActionExecutor.publishItems: per item it
+          validates (blockers -> per-item failure), then pushes, aggregating into
+          the existing BulkActionResult.failures with the progress HUD + "View
+          details" path. Optimistic local status -> "listed" on success (matches
+          the single-item path). Tests: BulkActionTests +2 (the network handler
+          mirrors the untested endListing/dropPrice pattern; EbayPublishService
+          isn't injectable).
+
+- US-681  Publish AutoLister drafts from the AutoLister surface. COMPLETE.
+          DraftsBulkEditStore.publishSelected validates+pushes each targeted
+          draft via EbayPublishService keyed on its inventoryItemId; per-row
+          local issues (notably "No category") gate publish before any network
+          call (the AC's needs-category gate); requires saved edits first;
+          results surface in a summary alert with per-item failures.
+          DraftsBulkEditView gains a "Publish (n)" toolbar button; DraftsLibrary
+          rows are now NavigationLinks into the batch's bulk-edit (review +
+          publish) instead of dead rows.
+
+- US-682  Land on the created item after intake (+ seed title). COMPLETE.
+          PhotoIntakeView now mirrors the freshly-created row into SwiftData
+          (LocalInventoryItem init) right after the server insert, so the
+          post-intake deep link reliably lands on the item's canvas. On AIExtract
+          onComplete it posts DeepLinkRouter.post(.inventoryItem(id:)) (the proven
+          route that switches to Inventory + pushes ItemCanvasView, with a
+          graceful list fallback) + an inventory pull — replacing the old
+          dump-back-to-camera behavior. AIExtract.writeAccepted seeds the title
+          from the accepted brand/style when no explicit title was suggested, so
+          new items aren't left "Untitled". "Add another" is the ubiquitous Add
+          control (every tab, US-684) reachable from the canvas.
+
+- US-683  Publish-readiness indicator. COMPLETE (core). New pure
+          PublishReadiness helper (title / photos / price / publishable-status);
+          ItemCanvas publishSection now shows a "Before you list" blocker
+          checklist (or a green "Ready to list") ABOVE the publish button, so
+          blockers are seen before opening the publish sheet; InventoryRow shows
+          a "Ready to list" badge from local signals (primaryPhotoURL stands in
+          for photos). Tests: PublishReadinessTests (5). SCOPED OUT (lower
+          priority, needs visual verification): the full Form section reorder
+          (comps pinned to top) and PublishDialog->field deep-linking — the
+          readiness affordance already removes the blind round-trip.
+
+- US-686  Auto-apply high-confidence AI extract. DEFERRED (passes:false) — the
+          ONLY remaining story of the 28. Its core friction is already resolved:
+          AIExtract pre-checks high-confidence (>=0.8) fields, surfaces
+          low-confidence unchecked for opt-in, and (now, via US-682) one-tap
+          Apply lands the user on the item canvas with fields written. The ONLY
+          unshipped piece is the "AI filled N fields - review / revert-to-AI"
+          entry ON THE CANVAS, which needs ai_field_sources surfaced on the local
+          model (server jsonb, not in LocalInventoryItem today) + a canvas banner.
+          Lower value post-US-682 and needs device verification. Recommended:
+          add ai_field_sources to LocalInventoryItem + a canvas "AI" banner with
+          per-field revert, then verify on a macOS runner/device.
+
+### Audit wave tally (2026-06-08)
+
+27 of 28 new stories COMPLETE (US-680..685, US-687..707); US-686 deferred (see
+above). New tests: SecureTempFileTests, AppLockTests, AccessibilityAnnounceTests,
+PublishReadinessTests + additions to TelemetryTests, EbayConnectionTests,
+BulkActionTests. New CI guard: ios/Scripts/no-ungated-print.py (wired into
+ios-ci.yml). Environment caveat: this Linux container has no xcodebuild, so the
+Swift was written to match existing patterns + unit-tested; the macOS
+ios-ci.yml workflow is the build/test gate (runs on PR/main, not feature-branch
+pushes).

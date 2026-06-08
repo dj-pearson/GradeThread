@@ -109,7 +109,7 @@ struct BrandPrimaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline)
+            .font(.brandHeadline)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
@@ -127,7 +127,7 @@ struct BrandSecondaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline)
+            .font(.brandHeadline)
             .foregroundStyle(Color.brandNavy.opacity(isEnabled ? 1 : 0.4))
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
@@ -145,7 +145,7 @@ struct BrandDestructiveButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.headline)
+            .font(.brandHeadline)
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, Spacing.sm)
