@@ -31,6 +31,25 @@ struct ReconcileSnapshotEntry: Encodable, Equatable {
         self.photoType = photoType
     }
 
+    enum CodingKeys: String, CodingKey {
+        case id, capturedAt, name, clusterId, manual, storagePath, photoType
+    }
+
+    // Encode nil optionals as explicit JSON null (not omitted) so the JSONB the
+    // web board reads always carries `capturedAt`/`clusterId` keys. The
+    // synthesized encoder uses `encodeIfPresent` for optionals, which would drop
+    // them; use `encode` to force null.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(capturedAt, forKey: .capturedAt)
+        try c.encode(name, forKey: .name)
+        try c.encode(clusterId, forKey: .clusterId)
+        try c.encode(manual, forKey: .manual)
+        try c.encode(storagePath, forKey: .storagePath)
+        try c.encode(photoType, forKey: .photoType)
+    }
+
     private static let iso: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
