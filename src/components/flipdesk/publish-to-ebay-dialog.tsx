@@ -186,7 +186,7 @@ export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
                       <select
                         value={department}
                         onChange={(e) => setDepartment(e.target.value)}
-                        className="h-9 flex-1 rounded-md border border-input bg-transparent px-2 text-sm"
+                        className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm text-foreground [&>option]:bg-background [&>option]:text-foreground"
                         aria-label="Department"
                       >
                         <option value="">Select Department…</option>

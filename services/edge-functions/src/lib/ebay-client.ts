@@ -1470,7 +1470,7 @@ export async function publishOffer(
     try {
       return await fetchAuthedOnce<{ listingId: string }>(
         userId,
-        `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish_`,
+        `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish`,
         { method: "POST" }
       );
     } catch (err) {
