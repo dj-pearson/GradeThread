@@ -48,6 +48,9 @@ public enum DeepLinkRoute: Equatable {
     case salesTab(inventoryItemId: String?)
     case marketplacesTab
     case inventoryItem(id: String)
+    /// Opens the Inventory list (no specific row) — used by the aging-stock
+    /// digest (US-679) so the tap lands on triage.
+    case inventoryTab
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -58,10 +61,23 @@ public enum DeepLinkRoute: Equatable {
         let itemId = userInfo["inventory_item_id"] as? String
         switch category {
         case NotificationCategoryID.saleCreated.rawValue,
-             NotificationCategoryID.payoutCleared.rawValue:
+             NotificationCategoryID.payoutCleared.rawValue,
+             NotificationCategoryID.payoutPosted.rawValue:
             return .salesTab(inventoryItemId: itemId)
-        case NotificationCategoryID.tokenExpiring.rawValue:
+        case NotificationCategoryID.tokenExpiring.rawValue,
+             NotificationCategoryID.offerReceived.rawValue,
+             NotificationCategoryID.messageReceived.rawValue:
+            // Offers + buyer messages live on the Marketplaces surface; without
+            // an item id we can't target a row, so land on the tab.
+            if let itemId { return .inventoryItem(id: itemId) }
             return .marketplacesTab
+        case NotificationCategoryID.agingDigest.rawValue:
+            // Digest is a summary across many items → open the triage list.
+            return .inventoryTab
+        case NotificationCategoryID.listingEnded.rawValue:
+            // Relist prompt → open the specific item if we have it, else triage.
+            if let itemId { return .inventoryItem(id: itemId) }
+            return .inventoryTab
         case NotificationCategoryID.gradeReady.rawValue,
              NotificationCategoryID.itemReviewNeeded.rawValue:
             // Open the specific item's canvas (its certified-grade report

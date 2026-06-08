@@ -9,6 +9,15 @@ import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
+import {
+  buildTemplateListingPatch,
+  type ListingTemplateRow,
+} from "../lib/listing-template.ts";
+
+// Columns the template overlay needs to patch a generated draft (US-674).
+const TEMPLATE_OVERLAY_COLUMNS =
+  "description_template, ebay_condition, condition_description, item_specifics, " +
+  "ebay_category_id, return_policy_id, shipping_policy_id, payment_policy_id";
 
 // FlipDesk AutoLister batch generation (US-313).
 // Mounted at /api/flipdesk/autolister (authed + workspace context).
@@ -154,6 +163,29 @@ async function finalizeBatch(batchId: string): Promise<void> {
 }
 
 /**
+ * US-674: load the listing template attached to a batch (if any) for the
+ * generated-draft overlay. Returns null when the batch has no template or the
+ * lookup fails — the overlay is best-effort and never blocks generation.
+ */
+async function loadBatchTemplate(
+  batchId: string,
+): Promise<ListingTemplateRow | null> {
+  const { data: batchRow } = await supabaseAdmin
+    .from("listing_generation_batches")
+    .select("template_id")
+    .eq("id", batchId)
+    .maybeSingle();
+  const templateId = (batchRow as { template_id?: string | null } | null)?.template_id;
+  if (!templateId) return null;
+  const { data: tpl } = await supabaseAdmin
+    .from("listing_templates")
+    .select(TEMPLATE_OVERLAY_COLUMNS)
+    .eq("id", templateId)
+    .maybeSingle();
+  return (tpl as ListingTemplateRow | null) ?? null;
+}
+
+/**
  * Background worker: generate a listing for each job with bounded concurrency.
  * Partial failures never abort the batch — each job records its own
  * status/error/attempts. Quota is enforced atomically per item (US-527); a
@@ -168,6 +200,27 @@ async function processBatch(
   limit: number,
 ): Promise<void> {
   const jobStaleBefore = new Date(Date.now() - JOB_STALE_MS).toISOString();
+
+  // US-674: load the batch's template once (covers the initial run, retry, and
+  // reclaim/resume paths, which all call processBatch). Best-effort — a missing
+  // template just means no overlay; generation proceeds unchanged.
+  const template = await loadBatchTemplate(batchId);
+
+  /** Overlay the template onto a freshly-generated listing draft. */
+  async function applyTemplate(listingId: string): Promise<void> {
+    if (!template) return;
+    const { data: current } = await supabaseAdmin
+      .from("listings")
+      .select("listing_description")
+      .eq("id", listingId)
+      .maybeSingle();
+    const patch = buildTemplateListingPatch(
+      template,
+      (current as { listing_description?: string | null } | null)?.listing_description ?? null,
+    );
+    if (Object.keys(patch).length === 0) return;
+    await supabaseAdmin.from("listings").update(patch).eq("id", listingId);
+  }
 
   async function runJob(
     job: { id: string; inventory_item_id: string; attempts?: number },
@@ -221,6 +274,13 @@ async function processBatch(
         .from("listing_generation_jobs")
         .update({ status: "success", listing_id: result.listingId, error: null })
         .eq("id", job.id);
+      // US-674: apply the batch's template to the generated draft (no-op when
+      // none was selected). Best-effort — overlay failure must not fail the job.
+      try {
+        await applyTemplate(result.listingId);
+      } catch (overlayErr) {
+        console.error("[flipdesk-autolister] template overlay failed:", overlayErr);
+      }
     } catch (err) {
       // Generation failed (incl. timeout) — give the reserved quota slot back.
       await refundAiAction(ownerId);
@@ -252,7 +312,7 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  let body: { item_ids?: unknown; use_comps?: unknown };
+  let body: { item_ids?: unknown; use_comps?: unknown; template_id?: unknown };
   try {
     body = await c.req.json();
   } catch {
@@ -265,6 +325,10 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
     )
     : [];
   const useComps = body.use_comps !== false; // default true
+  // US-674: optional listing template applied to every generated draft.
+  const templateId = typeof body.template_id === "string" && body.template_id.trim()
+    ? body.template_id.trim()
+    : null;
 
   if (itemIds.length === 0) {
     return c.json({ error: "item_ids must be a non-empty array" }, 400);
@@ -306,6 +370,23 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
     );
   }
 
+  // US-674: a supplied template MUST belong to this workspace (US-268). Verify
+  // before we persist it on the batch; the worker re-reads it from the batch.
+  if (templateId) {
+    const { data: tpl, error: tplErr } = await supabaseAdmin
+      .from("listing_templates")
+      .select("id")
+      .eq("id", templateId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (tplErr) {
+      return c.json({ error: "Could not verify the selected template." }, 500);
+    }
+    if (!tpl) {
+      return c.json({ error: "Template not found in your workspace." }, 404);
+    }
+  }
+
   // Create the batch + one job per item.
   const { data: batch, error: batchErr } = await supabaseAdmin
     .from("listing_generation_batches")
@@ -315,6 +396,7 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
       source: "autolister",
       item_count: itemIds.length,
       use_comps: useComps,
+      template_id: templateId,
     })
     .select("id")
     .single();

@@ -181,15 +181,21 @@ function getScopes(): string {
       // Required by /sell/finances/v1/transaction for fees + payout sync
       // (lets sales rows flip from "Pending" to "Cleared" with real numbers).
       "https://api.ebay.com/oauth/api_scope/sell.finances",
-      // NOTE: commerce.identity.readonly is intentionally NOT requested.
-      // It is an eBay-restricted identity scope that is granted in Sandbox but
-      // NOT on our Production keyset (eBay gates it behind extra licensing), so
-      // including it makes the production consent screen fail with
-      // `invalid_scope` and blocks every (re)connect. getUserIdentityFromToken
-      // already degrades gracefully (account_handle stays null) without it.
-      // If the production keyset is ever granted this scope, re-add the line
-      // below and have all sellers re-consent at /oauth/start:
+      // NOTE: the two eBay-restricted scopes below are intentionally NOT
+      // requested. They are granted in Sandbox but NOT on our Production
+      // keyset (eBay gates them behind extra licensing/contracts), so
+      // including them makes the production consent screen fail with
+      // `invalid_scope` and blocks every (re)connect. Both features degrade
+      // without their scope (identity → account_handle stays null; negotiation
+      // → /sell/negotiation calls 403). If the production keyset is ever
+      // granted them, re-add the line(s) and have sellers re-consent at
+      // /oauth/start:
+      //   commerce.identity.readonly  (US-315): /commerce/identity/v1/user →
+      //     seller account_handle, used by account-deletion webhook matching.
       //   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
+      //   sell.negotiation            (US-673): /sell/negotiation/v1 send-
+      //     offer-to-interested-buyers.
+      //   "https://api.ebay.com/oauth/api_scope/sell.negotiation",
     ].join(" ")
   );
 }
@@ -434,6 +440,10 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: when the user has more than one connected eBay account, the one
+    // they've selected (is_primary) wins; otherwise fall back to the most
+    // recently updated (the historical single-connection behavior).
+    .order("is_primary", { ascending: false })
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -2122,4 +2132,65 @@ export async function getAppAccessToken(): Promise<string> {
     expiresAt: Date.now() + payload.expires_in * 1000,
   };
   return payload.access_token;
+}
+
+// ── US-673: Negotiation API (seller-initiated offers to buyers) ────────────
+//
+// The Negotiation REST API lets a seller proactively send a discounted offer to
+// buyers who have shown interest (watchers / cart adds) on eligible listings.
+// Requires the sell.negotiation OAuth scope. (Incoming buyer best-offers +
+// accept/decline/counter live on the Trading API — see ebay-trading.ts.)
+
+export interface EligibleNegotiationItem {
+  listingId: string;
+  // eBay returns this only on some marketplaces; best-effort.
+  title: string | null;
+}
+
+/// Lists listings eligible for a seller-initiated offer to interested buyers.
+export async function findEligibleNegotiationItems(
+  userId: string,
+  limit = 50,
+): Promise<EligibleNegotiationItem[]> {
+  const body = await fetchAuthed<{
+    eligibleItems?: Array<{ listingId?: string; title?: string }>;
+  }>(
+    userId,
+    `/sell/negotiation/v1/find_eligible_items?limit=${limit}`,
+  );
+  return (body.eligibleItems ?? [])
+    .filter((it) => typeof it.listingId === "string")
+    .map((it) => ({ listingId: it.listingId as string, title: it.title ?? null }));
+}
+
+/// Sends a percentage-or-price offer to interested buyers on the given listings.
+/// `offerType` "PERCENTAGE_DISCOUNT" expects priceOrPercent like "10" (10% off);
+/// "PRICE" expects an absolute price value.
+export async function sendOfferToInterestedBuyers(
+  userId: string,
+  args: {
+    listingIds: string[];
+    message?: string;
+    discountPercentage?: string;
+    durationHours?: number;
+  },
+): Promise<void> {
+  const offers = args.listingIds.map((id) => ({
+    offeredItems: [{ listingId: id, quantity: 1, discountPercentage: args.discountPercentage }],
+  }));
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/negotiation/v1/send_offer_to_interested_buyers`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        offeredItems: offers.flatMap((o) => o.offeredItems),
+        message: args.message,
+        offerDuration: args.durationHours
+          ? { unit: "DAY", value: Math.max(1, Math.round(args.durationHours / 24)) }
+          : { unit: "DAY", value: 2 },
+        allowCounterOffer: true,
+      }),
+    },
+  );
 }

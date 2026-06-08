@@ -46,22 +46,12 @@ struct InventoryRow: View {
 
     @ViewBuilder
     private var thumbnail: some View {
-        if let urlString = item.primaryPhotoURL, let url = URL(string: urlString) {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .empty:
-                    placeholderThumbnail
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    placeholderThumbnail
-                @unknown default:
-                    placeholderThumbnail
-                }
-            }
-        } else {
+        // US-635: cached + downsampled (56pt cell never decodes full-res, and
+        // scroll-back reuses the cached image instead of refetching).
+        CachedThumbnail(
+            url: item.primaryPhotoURL.flatMap { URL(string: $0) },
+            maxDimension: 56
+        ) {
             placeholderThumbnail
         }
     }
@@ -115,23 +105,23 @@ struct InventoryRow: View {
             .joined(separator: " ")
     }
 
+    // US-653: every pipeline stage gets a brand-token color rather than
+    // collapsing most stages to gray. Sourced→comped (pre-list prep) read as
+    // steel-navy work-in-progress; drafted as amber (ready, needs action);
+    // listed as brand navy; sold/shipped/completed emerald; returned red.
     private var statusForeground: Color {
         switch item.status {
-        case "sold", "shipped", "completed":  return .green
-        case "listed":                         return Color.brandNavy
-        case "returned":                       return .red
-        default:                               return .secondary
+        case "sold", "shipped", "completed":              return .brandEmerald
+        case "listed", "active":                          return .brandNavy
+        case "drafted":                                   return .brandAmber
+        case "returned":                                  return .brandRed
+        case "sourced", "cataloged", "measured",
+             "photographed", "comped":                    return .brandSteelNavy
+        default:                                          return .secondary
         }
     }
 
-    private var statusBackground: Color {
-        switch item.status {
-        case "sold", "shipped", "completed":  return .green.opacity(0.12)
-        case "listed":                         return Color.brandNavy.opacity(0.12)
-        case "returned":                       return .red.opacity(0.12)
-        default:                               return .secondary.opacity(0.12)
-        }
-    }
+    private var statusBackground: Color { statusForeground.opacity(0.12) }
 
     private var accessibilityLabel: String {
         var parts: [String] = [item.title]

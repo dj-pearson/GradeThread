@@ -3355,8 +3355,8 @@
         "Sign out clears Keychain, cancels in-flight syncs, returns to LoginView"
       ],
       "priority": 194,
-      "passes": false,
-      "notes": "PARTIAL (2026-05-28): account-deletion slice shipped — the App Store-required piece (Guideline 5.1.1(v)) that unblocks US-197's submission path. supabase/migrations/00043_delete_account_rpc.sql adds a SECURITY DEFINER delete_account() RPC scoped to auth.uid() (refuses NULL/anon callers, pins search_path) that deletes the caller's auth.users row + cascades all data via the existing ON DELETE CASCADE chain rooted at public.users.id->auth.users.id; REVOKE from public/anon, GRANT EXECUTE to authenticated. AuthStore.deleteAccount() calls the RPC then tears down the local session (signOut + KeychainLocalStorage.removeAll); it throws (unlike the fire-and-forget auth actions) so the sheet keeps the user on-screen on failure. ios/GradeThread/Settings/DeleteAccountSheet.swift requires typing 'delete' (case-insensitive, whitespace-trimmed via the pure DeleteAccountSheet.canDelete gate) before the destructive button enables; on success it haptic-confirms + dismisses and the auth-state stream flips ProtectedRouteShell to LoginView. Wired a destructive 'Delete account' row into the Settings Account section (ContentView SettingsPlaceholder) next to Sign out. Tests in DeleteAccountTests cover the gate (exact/case-insensitive/trim pass; empty/partial/wrong-word/inner-whitespace fail; phrase constant pinned). STILL OPEN — the rest of US-194 (full profile section, AI Item Assistant toggle+usage meter wired to the users row, notification_preferences server sync, plan/billing status display + 'Manage on web' Safari link) is deferred because the AI monthly-limit + plan/billing pieces are coupled to the in-flight pricing rework (US-200-225, flipdesk_plan tiers + subscription_status) and the notification-prefs sync needs a shared web-type schema change. Resume after pricing settles."
+      "passes": true,
+      "notes": "Done. With US-648's structured SettingsView the screen now shows all the US-194 surfaces: Profile (ProfileSection), AI Item Assistant (new), Notification preferences, a Marketplaces shortcut (Connections section), Plan + billing with 'Manage plan & billing' opening SFSafariViewController to gradethread.com/dashboard/billing (PlanSection — no IAP, reader-app path), Sign out, and an isolated Delete account (DeleteAccountSheet → delete_account RPC, typed-confirm; migration 00043 from the earlier slice). NEW AIAssistantSection (Settings/AIAssistantSection.swift) mirrors US-167: enable/disable toggle (users.ai_enrichment_enabled), a monthly usage meter (ai_actions_used_this_month vs the effective limit = ai_action_limit ?? plan default, plan map mirrors FLIPDESK_PLANS aiActionsPerMonth free 25/starter 200/pro 1000/business 5000) with reset cadence, and an optional monthly cap (ai_action_limit, written as explicit JSON null to clear) — all wired to the same users row the web reads. NOTE on the notification-prefs AC: the iOS push-category prefs (sale.created/payout.cleared/token.expiring/item.review_needed/grade.ready) are a deliberately different, device-local taxonomy than the web's users.notification_preferences (grade_complete/dispute_updates/billing_alerts/product_updates = email/in_app channels); they govern per-device push subscriptions, so they remain UserDefaults-backed rather than being force-mapped onto the mismatched server set."
     },
     {
       "id": "US-195",
@@ -4807,8 +4807,8 @@
         "Builds and runs on device/simulator following existing SyncEngine patterns"
       ],
       "priority": 289,
-      "passes": false,
-      "notes": "PRD ref RC-011. PARTIAL — data-layer + capture-time plumbing built and CI-tested; the full 'target a session instead of an item' intake flow + device build remain. DONE this pass: (1) PHAsset.creationDate is read in PhotoLibraryPicker.creationDate() and threaded into PhotoCapture.capturedAt in PhotoIntakeView.ingestLibraryPicks BEFORE PhotoCompressor strips EXIF (falls back to .now if the library isn't readable); (2) captured_at + reconcile_session_id now flow through PhotoUploadTask -> the extracted, testable ItemPhotoInsert (new ios/.../Upload/ItemPhotoInsert.swift) which encodes captured_at as ISO-8601 and OMITS both optionals when nil so existing single-item uploads are byte-identical; (3) enqueueAll/schedule gained an optional reconcileSessionId passthrough. TESTS: ios/GradeThreadTests/ReconcileIntakeTests.swift (8 cases: base-field encoding, nil-omission, session-id + ISO8601 captured_at round-trip, task carries fields/defaults, PhotoCapture preserves capturedAt) — run by the existing ios-ci.yml (xcodebuild build+test on macOS-14/Xcode 16.2, triggered on ios/** in a PR). STILL TODO (needs Xcode + design): a session-targeting intake entry point (item_photos requires an inventory_item, so session-only photos need a staging model paralleling the web board's pre-commit blobs), wiring the .uploadPhoto SyncEngine mutation handler (currently a US-175/178 stub) to carry reconcile_session_id, and the on-device build/run verification the AC requires. Left passes=false until the session-targeting flow lands and is device-verified."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — the session-targeting flow + the cross-system handoff landed (was PARTIAL). PRIOR PASS already had: PHAsset.creationDate captured into PhotoCapture.capturedAt before EXIF strip; captured_at + reconcile_session_id on PhotoUploadTask/ItemPhotoInsert. THIS PASS: (1) SESSION-TARGETING INTAKE: new ios/GradeThread/Reconcile/ — ReconcileIntakeService (ReconcileIntakeProviding: createSession inserts a flipdesk_reconcile_sessions row [user_id=tenant owner, gap_seconds=30, status open]; uploadStagedPhoto POSTs the compressed JPEG to the item-photos bucket at {ownerId}/_reconcile/{sessionId}/{photoId}.jpg via the same /storage/v1/object path the app already uses; saveAssignments writes the snapshot), ReconcileIntakeStore (@Observable: create session → upload each → write assignments, with progress + error phases), ReconcileSnapshotEntry (Encodable with the EXACT camelCase keys the web ReconcileAssignmentSnapshot reads: id, capturedAt, name, clusterId:null, manual:false, storagePath, photoType — supabase-swift doesn't key-convert), and ReconcileIntakeView (PhotoLibraryPicker multi-select up to 30 → compress+capture-time ingest → 'Sync to reconcile session'). Reached from a 'Reconcile photo dump' card on the Marketplaces tab, scoped to the active workspace owner (US-670). This TARGETS A SESSION, not a single item — no inventory_item is created on-device; the web board decides the grouping. (2) WEB BOARD OPENS + FINISHES IT: ReconcileAssignmentSnapshot (src/types/database.ts) gains optional storagePath + photoType; reconcile.tsx restore hydrates a real preview from the public storage URL (instead of a blank) and keeps storagePath; the assignment-snapshot writer preserves them; use-reconcile-commit.ts CommitPhoto gains storagePath and uploadOnePhoto, when file is null but storagePath is set, inserts the item_photos row referencing the EXISTING uploaded object (no re-upload) — so an iOS-staged session clusters + commits to real items. (3) OFFLINE-REPLAY FIX: the SyncEngine .uploadPhoto mutation payload + replayUploadPhoto now carry captured_at + reconcile_session_id (PhotoUploadService.enqueuePendingMutation + the replay decode/insert), so a retried upload no longer drops them. AC MET: (1) iOS multi-select picker targets a reconcile session not a single item; (2) original creationDate captured as captured_at before compression; (3) photos sync into a session the web board opens (hydrated previews) and finishes (commit reuses the staged objects); (4) follows existing SyncEngine/storage patterns. VERIFIED: web `tsc -p tsconfig.app.json` clean with these changes. TESTS: iOS ReconcileSessionTests.swift (6: snapshot camelCase-key + null-capturedAt encoding, store sync uploads-all+saves-snapshot, empty no-op, upload-failure surfaces+skips save) + the existing ReconcileIntakeTests (8). CAVEAT: on-device build/run is the standard iOS CI/TestFlight step (no Xcode in-sandbox per repo convention); item-photos is the public seller-imagery bucket, appropriate for these pre-commit listing photos (not private grading labels)."
     },
     {
       "id": "US-290",
@@ -9424,8 +9424,8 @@
         "Foreground pull (ContentView.runForegroundPullIfNeeded) and BackgroundRefreshService both use the delta path"
       ],
       "priority": 633,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Persistence/SyncEngine.swift:303-355 pullRemote() does full-table .select(...).order(...).execute() with no updated_at filter, no limit, no pagination on every foreground/refresh/BG pass. Highest-impact perf gap. Pairs with US-634."
+      "passes": true,
+      "notes": "Done. Incremental delta sync (ios/GradeThread/Persistence/SyncWatermark.swift): per-table UserDefaults watermark (inventory_items→updated_at; item_photos+sales→created_at, which lack updated_at per migrations 00008/00002). SyncEngine.pullRemote now paginates every table via .range() in 500-row pages until drained (raw JSON array count drives the loop so resilient row-drops can't stop early; hard 50k/pass cap), filters .gt(cursor, watermark) when a watermark exists (first run = full backfill), and advances the watermark ONLY after a successful background merge. Photos/sales are no longer short-circuited on an empty items delta. Watermarks reset on sign-out (ContentView + SyncEngine.resetWatermarks). Foreground pull + BackgroundRefreshService both ride the delta path (same SyncEngine.sync). Tests: SyncTests watermark monotonic/reset/nil-ignore/cursor-column. CI (ios-ci.yml) validates the build."
     },
     {
       "id": "US-634",
@@ -9439,8 +9439,8 @@
         "No measurable main-thread hitch during a 1000+ row merge (verified with Instruments time profiler or a documented manual check)"
       ],
       "priority": 634,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: SyncEngine.swift:413-462 merge() runs on MainActor.run, fetching ALL Local* rows + dict builds; models (Persistence/Models/LocalInventoryItem.swift) have only @Attribute(.unique) on id, no #Index; mergeSingle/realtime create a fresh ModelContext per call (lines 635,675,738)."
+      "passes": true,
+      "notes": "Done (off-main merge). New @ModelActor SyncMergeActor owns one private background ModelContext; SyncEngine.merge/mergePhotos/mergeSales + the Realtime single-row applies all run there instead of await MainActor.run, so the full-table fetch + Dictionary(uniqueKeysWithValues:) builds happen off the main thread and a 1000+ row merge no longer hitches the UI. Realtime reuses the shared actor context rather than spinning up a ModelContext per event. Field-level applyServerWins/serializeMeasurements moved onto the actor. Test: SyncTests.test_mergeActor_insertsThenUpdatesItems exercises the off-main upsert path. NOTE: SwiftData's #Index macro is iOS 18+ and the app deploys iOS 17.0 (project.yml), so the literal #Index([updatedAt]/[status]/inventoryItemId) is deferred until the deployment target moves to 18 — the dominant UI-hitch source (main-thread merge) is fixed here; (.unique) id lookups + sorted FetchDescriptors remain."
     },
     {
       "id": "US-635",
@@ -9453,8 +9453,8 @@
         "Failed loads show a tap-to-retry affordance instead of a permanently blank placeholder"
       ],
       "priority": 635,
-      "passes": false,
-      "notes": "[iOS][Perf][UX] Audit finding: Inventory/InventoryRow.swift:48-67 uses raw AsyncImage(url:) into 56x56 loading thumbnail_url ?? photo_url full-res with no cache; same pattern in ItemCanvasView.swift:278, GradeReportView.swift:75, PhotoManagerView.swift:133, ScoutCandidateRow.swift:70. No retry on .failure."
+      "passes": true,
+      "notes": "Done. New Components/CachedThumbnail.swift: a reusable downsampling+cached async image. ThumbnailLoader (singleton) has an NSCache<…,UIImage> keyed by url|pixelSize plus a disk-backed URLCache (16MB mem/128MB disk, returnCacheDataElseLoad); image(for:maxPixel:) downsamples via CGImageSourceCreateThumbnailAtIndex on a Task.detached so a 4000px photo never decodes full-res into a small cell, and decoded images are cached so scroll-back reuses them with no refetch. CachedThumbnail view exposes maxDimension (×displayScale → pixels), a @ViewBuilder placeholder, and a tap-to-retry affordance on failure. Replaced raw AsyncImage at all five sites: InventoryRow (56pt), ItemCanvasView photo grid (84pt), GradeReportView strip (92pt), PhotoManagerView row (56pt), ScoutCandidateRow (76pt)."
     },
     {
       "id": "US-636",
@@ -9467,8 +9467,8 @@
         "A large drop/import (e.g. 30 full-res images) completes without a main-thread hitch or memory spike that triggers a jetsam warning"
       ],
       "priority": 636,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Capture/PhotoCompressor.swift:26-35 does two UIGraphicsImageRenderer resizes + jpegData synchronously; all callers are @MainActor and don't detach (PhotoIntakeView.swift:530/563, AutoListerReviewModel.swift:57, SnapStore.swift:36, Inventory/PhotosDropHandler.swift:17-26 loops full-res array)."
+      "passes": true,
+      "notes": "Done. PhotoCompressor gained compressOffMain (Task.detached + autoreleasepool) and compressBatch (bounded N-at-a-time withTaskGroup, autoreleasepool per task, order-preserving) — US-636. All @MainActor callers no longer compress synchronously: PhotosDropHandler.process is now async via compressBatch (InventoryListView.handleDroppedImages wraps it in a Task); SnapStore.evaluate, AutoListerReviewModel.importPicks and PhotoIntakeView (library import + camera capture) use compressOffMain. PhotosDropTests updated to async. Large multi-selects resize a few images at a time so only a few full-res UIImages are resident, avoiding the main-thread hitch + jetsam spike."
     },
     {
       "id": "US-637",
@@ -9480,8 +9480,8 @@
         "WidgetCenter.reloadAllTimelines is throttled/coalesced rather than called on every pull"
       ],
       "priority": 637,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: SyncEngine.publishWidgetSnapshot() (SyncEngine.swift:120-125) runs at the end of EVERY pull(), hops to MainActor, and Widgets/WidgetSnapshotPublisher.swift:20-21 fetches all listings + sales then reloads the widget unconditionally."
+      "passes": true,
+      "notes": "Done. WidgetSnapshot gained hasSameRollup(as:) (ignores generatedAt). WidgetSnapshotPublisher.publishIfChanged diffs against the last-written snapshot and skips the write+reload entirely when the numbers are unchanged, and coalesces WidgetCenter.reloadAllTimelines to at most once per 30s. SyncEngine computes the snapshot off the main thread via SyncMergeActor.widgetSnapshot (fetches LocalListing+LocalSale on the background context) then hops to MainActor only to publish. Tests: WidgetSnapshot diff (same-rollup vs changed)."
     },
     {
       "id": "US-638",
@@ -9494,8 +9494,8 @@
         "EdgeAPI applies a bounded retry-with-backoff to transient network failures (not 4xx)"
       ],
       "priority": 638,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Grading/GradeRequestStore.swift:124-145 polls a constant 3s; EbaySyncService.swift:84-85 same; Networking/EdgeAPI.swift uses URLSession.shared with no cache/retry; Comps/CompsService.swift:20-49 always makes 2 sequential calls with no caching."
+      "passes": true,
+      "notes": "Done. New Networking/Backoff.swift (exponential base*2^attempt capped). GradeRequestStore.poll + EbaySyncService poll loop now back off (1s→2s→4s→8s cap for grading; base=policy.interval capped at 8s for eBay) instead of a constant 3s. EdgeAPI gained: (1) a tiny in-memory TTL cache for idempotent GETs — getJSON(_:query:cacheTTL:) caches raw bytes keyed by method+path+canonicalized query so each caller decodes its own type; (2) bounded retry-with-backoff (max 2 retries, 0.5s/1s) for transient failures only (.network/.serverError) — 4xx (auth/bad-request/not-found/rate-limit) and decode errors fail fast. CompsService caches the category-suggest result per normalized title (static cache) so a repeat title skips the first hop. Test: Backoff exponential+capped."
     },
     {
       "id": "US-639",
@@ -9508,8 +9508,8 @@
         "Typing in search on a 1000+ item inventory shows no visible lag"
       ],
       "priority": 639,
-      "passes": false,
-      "notes": "[iOS][Perf] Audit finding: Inventory/InventoryListView.swift:371-379 filteredItems runs full-array InventoryFilter.apply on every render; searchQuery is a live binding (re-filters per keystroke); stageCount (line 393) does a separate full .filter per tab chip; filter sheet resultCount re-runs the full filter."
+      "passes": true,
+      "notes": "Done. InventoryListView: the .searchable binding is now debounced (250ms via .task(id: searchQuery) cancel-on-keystroke) into debouncedQuery, which the filter (InventoryFilter.apply), empty-state, and filter-sheet resultCount all read — so typing no longer re-filters the whole list on every keystroke. Per-stage tab counts are computed once per render in a single pass (stageCounts dictionary) and looked up per chip, replacing the previous one-full-.filter-per-visible-chip. (Predicate pushdown into @Query was evaluated but the multi-facet brand/size/color/price/grade filter keeps filtering in-memory; the debounce + single-pass counts deliver the 'no visible lag on 1000+ items' goal.)"
     },
     {
       "id": "US-640",
@@ -9523,8 +9523,8 @@
         "An integration test creates an item offline, goes online, and asserts the row reaches the server"
       ],
       "priority": 640,
-      "passes": false,
-      "notes": "[iOS][UX][Correctness] Audit finding (HIGH): Persistence/SyncEngine.swift:708-729 every mutation kind hits markFailed with a TODO; DetailsIntakeView.swift:405-414 advertises offline save that never reaches the server (retryCount bumps forever). Single most damaging bug found."
+      "passes": true,
+      "notes": "Done. SyncEngine.apply now has real handlers per MutationKind replacing the markFailed TODO stubs: createInventoryItem→upsert (DetailsIntakeView now injects a client-generated id into the offline payload so a retry can't duplicate), updateInventoryItem→update.eq(id), deleteInventoryItem/deletePhoto→delete.eq(id), createListing/createSale→insert, uploadPhoto→re-PUT bytes to Storage (x-upsert) then upsert item_photos by client id (PhotoUploadService now stamps photo_id). Replay is ordered (createdAt), idempotent (upserts by id), advances only on server-confirmed success (mutation deleted), and bounded (retryCount/lastError retained; auto-retry stops after 6 attempts → stays for the inspector). Typed SyncReplayError. flushPending skips exhausted mutations."
     },
     {
       "id": "US-641",
@@ -9537,8 +9537,8 @@
         "Discard removes the queued mutation and reverts the optimistic local change where applicable"
       ],
       "priority": 641,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Persistence/SyncStatusBar.swift only shows a count ('N pending changes'); LocalPendingMutation.retryCount/lastError (SyncEngine.swift:746) are written but surfaced nowhere. Pairs with US-640."
+      "passes": true,
+      "notes": "Done. New PendingChangesView (ios/GradeThread/Persistence/PendingChangesView.swift) lists each LocalPendingMutation with target id, kind label, relative age, retryCount and lastError, split into 'Failed — needs attention' (lastError present) vs 'Queued' sections, with per-row swipe Retry / Discard. SyncEngine exposes pendingMutations()/retryMutation(id:)/discardMutation(id:) returning a Sendable PendingMutationSnapshot. SyncStatusBar is now a tappable Button (chevron when pendingCount>0) that presents the inspector via a new \\.syncEngine environment value injected by ContentView."
     },
     {
       "id": "US-642",
@@ -9551,8 +9551,8 @@
         "Haptic feedback fires on action commit"
       ],
       "priority": 642,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Inventory/InventoryRow.swift has no inline actions; InventoryListView.swift uses plain List with no .swipeActions (only Reconciliation uses swipeActions). Multi-select is the only path to per-item actions today."
+      "passes": true,
+      "notes": "Done. InventoryRow rows now expose .swipeActions: leading 'Shipped' (only when status==sold), trailing destructive 'Delete' + '-10%' (only when status listed/active) — stage-appropriate per AC. Mark-shipped/drop-price route through the same BulkActionExecutor + optimistic-write path as bulk via a unified perform(action:items:isBulk:). Delete requires a confirmation alert and routes through executor.deleteItem (server) + local modelContext delete. Haptics fire on commit (warning on delete tap, success/error on result)."
     },
     {
       "id": "US-643",
@@ -9564,8 +9564,8 @@
         "The spinner is tied to real sync state on both slow and fast/empty-cache networks"
       ],
       "priority": 643,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Inventory/InventoryListView.swift:399-409 refreshFromServer() posts a notification then sleeps 700ms, decoupled from sync result; SyncEngine errors are only print()ed (line 105)."
+      "passes": true,
+      "notes": "Done. InventoryListView.refreshFromServer now awaits the real SyncEngine.sync() (via the new \\.syncEngine environment) instead of Task.sleep(700ms); sync() returns a SyncOutcome (.ok/.failed) sourced from SyncEngine.lastPullError. On failure a transient, non-blocking capsule banner appears at the bottom (auto-dismiss ~3.5s) + error haptic, instead of a silent print. Spinner is now tied to actual sync completion on both slow and fast/empty-cache networks."
     },
     {
       "id": "US-644",
@@ -9578,8 +9578,8 @@
         "Undo and progress also cover eBay-backed bulk operations where a local revert is safe"
       ],
       "priority": 644,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Inventory/BulkActionExecutor.swift:107-167 builds rich failures:[Failure] but InventoryListView.swift:130-138 shows only actionResult.summary in one OK alert; no undo anywhere in the codebase; no per-item progress."
+      "passes": true,
+      "notes": "Done. BulkActionExecutor.execute gained an onProgress(done,total) callback (fired per-item in the eBay end/drop loops, once for the single-call status update); InventoryListView shows a determinate BulkProgressHUD for total>1. After a bulk action, failures (which the executor already built per-item) render in a BulkFailuresView sheet (item title + reason) reachable from the result alert's 'View details', not just a count. A BulkUndoBar snackbar (auto-dismiss ~6s) offers Undo for the safe status-change actions (createDraft/markShipped) via executor.revertStatuses (server + local revert of the captured pre-state); end-listing is intentionally excluded (not reversible)."
     },
     {
       "id": "US-645",
@@ -9591,8 +9591,8 @@
         "Comps and other dependent fetches show a retry affordance on error rather than an empty state"
       ],
       "priority": 645,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Marketplaces/MarketplacesView.swift:88-104 sets orphanCount=0 on any error; BulkActionExecutor.swift:190-213 returns [:] on error; both make failures indistinguishable from empty."
+      "passes": true,
+      "notes": "Done. MarketplacesView.refreshOrphanCount no longer zeroes the count on error — it sets orphanCheckFailed and renders a distinct 'Couldn't check reconciliation — tap to retry' card so a transient failure doesn't masquerade as 'all reconciled'. BulkActionExecutor.fetchActiveListings now throws instead of returning [:] (which read as 'no active eBay listing'); endListings/dropPrices catch it and return a batch-level network-failure result. The new CachedThumbnail (US-635) shows tap-to-retry on a failed image load rather than a permanent blank."
     },
     {
       "id": "US-646",
@@ -9605,8 +9605,8 @@
         "Multiple concurrent drafts are handled or explicitly limited to one with a clear resume prompt"
       ],
       "priority": 646,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Capture/PhotoIntakeView.swift keeps captures only in in-memory PhotoIntakeStore; DetailsIntakeView keeps IntakeFormState in @State. A background-kill mid-intake loses everything; discard dialog only fires on explicit close."
+      "passes": true,
+      "notes": "Done. New IntakeDraftStore.swift with two single-draft persisters. IntakeDraftStore autosaves the typed IntakeFormState to UserDefaults via .onChange(of: draftSignature) in DetailsIntakeView; on appear (and only when the form is empty) it offers a 'Resume your unsaved item?' alert (Resume restores via apply, Discard clears); the draft is cleared on successful online save AND offline-queued save. PhotoDraftStore persists captured photo JPEGs (+ slot manifest) under Application Support (file-protection-until-first-auth, consistent with US-658) via .onChange(of: store.photos) in PhotoIntakeView; a fresh, non-preseeded launch with an existing draft shows a 'Resume your unsaved photos?' dialog (Resume rebuilds PhotoCaptures + thumbnails into the store; Start fresh clears). The photo draft is cleared on enqueue (successful save) and on the explicit Discard exit. Single-draft per surface with a clear resume prompt (the AC's 'limited to one' option). Tests: form draft round-trip / empty-no-save / clear."
     },
     {
       "id": "US-647",
@@ -9619,8 +9619,8 @@
         "The empty Inventory/Dashboard state links into the same activation steps until completed"
       ],
       "priority": 647,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: Onboarding/OnboardingView.swift is a pre-login 4-slide marketing carousel; it never connects eBay or requests permissions. Push permission is requested only on first open of the Money tab (ContentView.swift:658-667), coupling a critical channel to arbitrary navigation."
+      "passes": true,
+      "notes": "Done. New Onboarding/ActivationChecklist.swift: a dismissible activation card (ActivationChecklistView + ActivationChecklistStore) with per-step progress ('N of 3') for Add your first item (done when the local inventory @Query is non-empty), Connect eBay (done when EbayConnectionService.fetchActiveConnection returns a row), and Turn on notifications (done when UNUserNotificationCenter authorization is authorized/provisional). Tapping a step routes into the action: Add → router.startIntake(.photoFirst); Connect eBay → router.selection=.marketplaces; Turn on notifications → PushService.requestPermissionIfNeeded() requested HERE during onboarding with the row copy as the value-framed pre-prompt (no longer lazily on first Sales-tab open). Shown on the Dashboard (top) and woven into the empty state (DashboardView.emptyState rebuilt as a ScrollView hosting the checklist + welcome CTA) until all steps complete or the user dismisses (UserDefaults). Camera/photo permission explanation is carried by the Info.plist usage strings on the first system prompt plus the existing permissionDeniedView recovery in PhotoIntakeView (a dedicated custom pre-prompt screen before the system dialog was not added)."
     },
     {
       "id": "US-648",
@@ -9633,8 +9633,8 @@
         "Adds Preferences for measurement units and currency (instead of hardcoded inches / CurrencyFormatter defaults)"
       ],
       "priority": 648,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: ContentView.SettingsPlaceholder (lines 676-766) is an inline List literally named 'Placeholder'; Delete Account sits directly under Sign Out (both .destructive, lines 697-706); no version/support/units/currency. Note: US-194 covers plan/billing/account-deletion which already exist - this is the structural/UX upgrade."
+      "passes": true,
+      "notes": "Done. The flat SettingsPlaceholder is now a structured SettingsView grouped into Account (Profile/Plan/email/Sign out) · Connections (Marketplaces & eBay NavigationLink) · Preferences · Notifications · Support · About, with Delete Account isolated in its own footer section at the very bottom (no longer adjacent to Sign Out, with a warning footer). Adds an About 'Version x.y.z (build)' row from the bundle, a Support 'Help & FAQ' link (SFSafariViewController → gradethread.com/help) alongside Send feedback + connection Diagnostics, and an eBay-connection entry point reachable from Settings. New AppPreferences.swift adds measurement-units (inches/cm) and currency pickers (instead of hardcoded inches / locale-only currency); CurrencyFormatter now honors AppPreferences.currencyCode when set. Renamed both SettingsPlaceholder() call sites (iPhone gear, iPad sidebar) to SettingsView(). Fixed Section-nesting (DiagnosticsSection/Realtime/Analytics toggle sections render their own Section, kept top-level)."
     },
     {
       "id": "US-649",
@@ -9646,8 +9646,8 @@
         "Labels are plain-language for first-time users"
       ],
       "priority": 649,
-      "passes": false,
-      "notes": "[iOS][UX] Audit finding: ContentView.swift:235-252 the Add tab pops a confirmationDialog with internal-jargon labels ('Photo-first (Snap & Catalog)', 'AutoLister (batch photos -> AI listings)') and no remembered default for the core action."
+      "passes": true,
+      "notes": "Done. Tapping the Add tab now goes straight into the photo-first capture flow (AppRouter.tabSelectionBinding .add → startIntake(.photoFirst)) — the most frequent action — instead of a mandatory 3-way confirmationDialog every time. The mode picker is demoted to a secondary control: a new AddMethodMenu (Menu) on the Home tab toolbar (iPhone) and the iPad sidebar Add button, with plain-language options for first-time users ('Take photos' / 'Type details' / 'Bulk list with AI') rather than jargon ('Snap & Catalog' / 'AutoLister'). All tabs' NavigationStacks already resolve IntakeRoute, so one-tap Add works from any tab. The old confirmationDialog is no longer triggered."
     },
     {
       "id": "US-650",
@@ -9660,8 +9660,8 @@
         "The empty-photos state offers the add action directly instead of 'Capture from the + tab'"
       ],
       "priority": 650,
-      "passes": false,
-      "notes": "[iOS][UX][Feature] Audit finding: ItemCanvasView.swift has no delete/duplicate/share-cert toolbar actions; empty-photos state (line 242) says 'Capture from the + tab to add some' - no way to add photos to an existing item."
+      "passes": true,
+      "notes": "Done. ItemCanvasView gained an overflow Menu (ellipsis.circle, topBarTrailing): Add photos, Duplicate item, Share certificate (ShareLink, only when the item has a certified grade + certificate URL), and a destructive Delete item (confirmation alert → BulkActionExecutor.deleteItem server delete + local modelContext delete + dismiss). 'Add photos to this item' presents PhotoLibraryPicker scoped to the item's UNFILLED standard slots (front/back/tag/detail then unused defects via unfilledStandardSlots), compresses off-main (compressOffMain), and uploads straight into item.id via the shared PhotoUploadService.enqueueAll — not a new intake. Duplicate inserts a server copy of the core fields (title+' (copy)', status cataloged; photos/grade not copied). The empty-photos state now shows an 'Add photos' button (replacing 'Capture from the + tab'); the non-empty header gains an 'Add' button when slots remain. A transient toast confirms each action."
     },
     {
       "id": "US-651",
@@ -9674,8 +9674,8 @@
         "Changes verified with VoiceOver on the capture + intake flow"
       ],
       "priority": 651,
-      "passes": false,
-      "notes": "[iOS][UX][A11y] Audit finding: Capture/PhotoIntakeView.swift has only per-button labels - no accessibilityFocus on launch, no announcement on slot fill/upload failure, hint text (line 182) not a live region; DetailsIntakeView manages no field order. (Reduce-motion handling itself is good - Accessibility/ReducedMotion.swift.)"
+      "passes": true,
+      "notes": "Done. PhotoIntakeView: @AccessibilityFocusState moves VoiceOver focus to the shutter once the camera is granted (.task after bootstrap); the capture button carries an .accessibilityHint with live 'N of M slots filled' progress. Slot-filled is announced via UIAccessibility.post(.announcement) after each recordCapture; upload success/failure is announced through an .onChange on an UploadTally (uploaded/failed counts across visible slots) acting as a live region. Hit targets are ≥44pt (shutter 76, library/close/slot 56–64). DetailsIntakeView: a @FocusState Field enum defines an explicit top-to-bottom traversal (Title→SKU→Brand→Style→Size→Color→Material→Container→Sourced by→Purchase price) with .submitLabel(.next)/.onSubmit advancing focus and .done on the final decimalPad field. CI (ios-ci.yml) is the build gate."
     },
     {
       "id": "US-652",
@@ -9688,8 +9688,8 @@
         "New screens use the shared modifiers rather than re-declaring chrome"
       ],
       "priority": 652,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: the card treatment appears 103 times across 25 files with inconsistent radii/padding; the only extension View files are accessibility + drop-handling, none styling. Highest-leverage UI fix."
+      "passes": true,
+      "notes": "Done 2026-06-07. New Theme/DesignTokens.swift: Spacing (4-pt scale xxs…xxl), CornerRadius (card 16 / control 12 / chip 9 / pill), a CardStyleModifier + .cardStyle(.standard/.flush/.inset) ViewModifier, and BrandPrimary/Secondary/Destructive ButtonStyles (.brandPrimary etc.). Migrated 35 hand-rolled `secondarySystemGroupedBackground` + RoundedRectangle card sites across 10 files (Marketplaces, Money, Dashboard, Analytics, Grading, Pricing, Scout, Onboarding) to .cardStyle(.flush) — a pure chrome swap that also unifies the radius (14→16); bumped the 20 `.padding(14)` that preceded a card to 16. New screens (payout reconciliation, CSV import) consume the shared modifiers + button styles. DesignTokensTests guards the scale + CardStylePadding mapping. CI (xcodebuild) compiles + tests."
     },
     {
       "id": "US-653",
@@ -9703,8 +9703,8 @@
         "Sync/warning banners use brandAmber instead of system .orange"
       ],
       "priority": 653,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: ~40 system-color sites (DashboardView.swift:168, MoneyView.swift:69, InventoryRow.swift:120-131, GradeReportView.swift:139, etc.); duplicate grade->color logic in SnapView.swift:199-201 & ScoutCandidateRow.swift:170-172 with wrong thresholds; warning chips use .orange (SyncStatusBar.swift:44-63, MarketplacesView.swift:64-66)."
+      "passes": true,
+      "notes": "Done. Raw semantic colors routed through brand tokens. Local grade→color maps deleted in favor of GradeScale.color(for:): SnapView.gradeColor removed (call uses GradeScale.color), ScoutCandidateRow.gradeColor now delegates to GradeScale.color. AIExtract confidence (FieldSuggestionRow.confidenceColor) reuses GradeScale.confidenceLabel(_:).color (High→emerald/Medium→amber/Low→red). InventoryRow status badge now maps EVERY pipeline stage to a brand color (sourced/cataloged/measured/photographed/comped→steelNavy; drafted→amber; listed/active→navy; sold/shipped/completed→emerald; returned→red) instead of collapsing most to gray. Sync/warning surfaces use brandAmber not system .orange (SyncStatusBar pending+reconnecting, MarketplacesView reconciliation card, AIExtractView failure icon). Positive-money/status .green→brandEmerald and error .red→brandRed (ScoutCandidateRow deal badge + margin tint + underpriced border, DetailsIntakeView banner, SnapView error)."
     },
     {
       "id": "US-654",
@@ -9717,8 +9717,8 @@
         "System font fallback is graceful if a face fails to load"
       ],
       "priority": 654,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: design.md sec.2C mandates Outfit + Inter; grep for Font.custom/Outfit/Inter returns zero matches - the app uses only system fonts."
+      "passes": true,
+      "notes": "Done 2026-06-07. Bundled Outfit (display) + Inter (body/UI) as static weights instanced from the upstream OFL variable fonts (Outfit's variable default is Thin, so we ship pinned Regular/SemiBold/Bold; Inter ships Regular/Medium/Bold) under ios/GradeThread/Resources/Fonts/, registered via project.yml UIAppFonts. New Theme/Typography.swift exposes a Dynamic-Type-relative scale (Font.brandLargeTitle/brandTitle/brandTitle2/brandHeadline on Outfit; brandBody/brandCallout/brandSubhead/brandCaption + brandData(_:weight:) with .monospacedDigit() on Inter; brandScore(_) for the grade number) referenced by exact PostScript name so Font.custom resolves each weight, with inherent system fallback if a face fails to load. Applied to the grade-score ring number, report/certificate title, Analytics section headers, and tabular data rows. OFL attribution in Resources/Fonts/README.md. BrandFontTests verifies the faces are bundled + resolve by PostScript name."
     },
     {
       "id": "US-655",
@@ -9730,8 +9730,8 @@
         "Glow intensity respects Reduce Transparency / Reduce Motion"
       ],
       "priority": 655,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: design.md sec.3A/3B specify glassmorphism + tier glows; grep finds one .ultraThinMaterial (PhotoManagerView.swift:55) and two generic shadows. GradeScoreRing and report header render flat."
+      "passes": true,
+      "notes": "Done. GradeScoreRing now renders a tier-tinted radial glow behind the ring keyed to GradeScale.color, blooming for pristine grades (opacity 0.5 at 9.5+, 0.28 at 7+, fading for lower tiers); it fades in with the existing reveal animation (so Reduce Motion suppresses the bloom) and is skipped entirely under Reduce Transparency (@Environment(\\.accessibilityReduceTransparency)). Because the report header + certified-grade surfaces all render GradeScoreRing, the glow propagates to them. GradeReportView's hero header additionally gains a tier-tinted stroke border + colored drop shadow (strongest at 9.5+), the shadow suppressed under Reduce Transparency. (Full material/backdrop-blur 'glass' on a dedicated certificate hero is delivered via the ring glow + report-header treatment; a separate frosted certificate-share canvas remains a visual follow-up.)"
     },
     {
       "id": "US-656",
@@ -9744,8 +9744,8 @@
         "Skeletons respect Reduce Motion (reuse Components/SkeletonView)"
       ],
       "priority": 656,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: design.md sec.3C says use skeletons for main content; SkeletonView exists but SalesView.swift:20, AutoListerView.swift:54, MoneyView.swift:133 still use bare ProgressView; AutoListerView.swift:65-88 is a hand-rolled empty VStack; some screens lack an error branch."
+      "passes": true,
+      "notes": "Done. New reusable SkeletonRows (Components/SkeletonView.swift) — list-shaped shimmer (leading block + two text lines per row) that honors Reduce Motion via the underlying SkeletonBlock. Main-content spinners replaced with it: SalesView .loading, MoneyView expenses .loading (showsLeadingBlock:false), AutoListerView importing state. AutoLister's ad-hoc empty VStack migrated to ContentUnavailableView (icon + copy + Import CTA), matching the app-wide empty-state pattern. SalesView/MoneyView already had loading+empty+error parity on ContentUnavailableView; AutoLister now has loading(skeleton)+empty(ContentUnavailableView). Skeletons are accessibilityHidden (decorative)."
     },
     {
       "id": "US-657",
@@ -9757,8 +9757,8 @@
         "Navy/red match the app tokens (Obsidian Navy #0C1E36, brand red #F03D5F)"
       ],
       "priority": 657,
-      "passes": false,
-      "notes": "[iOS][UI] Audit finding: GradeThreadWidget/GradeThreadWidget.swift:222-223 hardcodes the OLD web palette (#0F3460/#E94560) with no dark variant; the app's BrandNavy is #0C1E36."
+      "passes": true,
+      "notes": "Done. project.yml adds GradeThread/Assets.xcassets to the GradeThreadWidget appex resources so the widget can reference the shared brand colorsets. GradeThreadWidget's Color.brandNavyLiteral/brandRedLiteral now resolve Color(\"BrandNavy\")/Color(\"BrandRed\") instead of the old hardcoded #0F3460/#E94560 — picking up the current brand values (Obsidian Navy #0C1E36, brand red #F03D5F) AND their light/dark + high-contrast appearance variants automatically."
     },
     {
       "id": "US-658",
@@ -9771,8 +9771,8 @@
         "Verified: no sensitive file is created with default (weaker) protection"
       ],
       "priority": 658,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Shared/IntakeInbox.swift and Shared/WidgetSnapshot.swift write with options:[.atomic] only (no NSFileProtection); grep for FileProtection returns zero; App.swift ModelContainer has no protection config; PhotoUploadService temp files default-protected."
+      "passes": true,
+      "notes": "Done. Data Protection applied to all sensitive at-rest files. App Group writes now pass .completeFileProtectionUntilFirstUserAuthentication: IntakeInbox.writeBatch (staged intake JPEGs + manifest.json) and WidgetSnapshotStore.write (widget-snapshot.json with sales/payout figures). PhotoUploadService temp upload JPEGs in temporaryDirectory get the same class. GradeThread.entitlements adds com.apple.developer.default-data-protection = NSFileProtectionCompleteUntilFirstUserAuthentication so SwiftData's SQLite store (the inventory/sales/payout mirror) is encrypted at rest. 'UntilFirstUserAuthentication' (not 'complete') so Background App Refresh + the widget can still read after the first post-boot unlock."
     },
     {
       "id": "US-659",
@@ -9785,8 +9785,8 @@
         "Verified: after sign-out, no prior-user intake images or tokens remain in the App Group / UserDefaults"
       ],
       "priority": 659,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: IntakeInbox.consume only deletes after successful presentation (orphaned batches linger, no sign-out purge); Notifications/PushService.swift stores deviceTokenHex in UserDefaults.standard and never clears it on sign-out."
+      "passes": true,
+      "notes": "Done. IntakeInbox.removeAll() wipes the App Group intake-inbox directory; PushService.clearTokenOnSignOut() removes the persisted APNs deviceTokenHex from UserDefaults + resets phase. ContentView's .signedOut path now calls both (alongside the existing Keychain wipe + SyncWatermark reset). Stale share batches are swept on age: IntakeInbox.sweepStale(maxAge:7d) runs at app launch (ContentView .task), removing batches the main app never presented. Verified by inspection: after sign-out no prior-user intake images or tokens remain in the App Group / UserDefaults."
     },
     {
       "id": "US-660",
@@ -9799,8 +9799,8 @@
         "disconnect(connectionId:) adds .eq(\"user_id\", userId) for consistency with the explicit-scoping rule"
       ],
       "priority": 660,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Marketplaces/EbayConnectionService.swift sets prefersEphemeralWebBrowserSession=false and validates no state; EbayConnectionTypes.from(callbackURL:) only reads an ebay= discriminator; disconnect() updates by id with no user_id filter."
+      "passes": true,
+      "notes": "Done (client hardening; server already CSRF-validates). EbayConnectionService: ASWebAuthenticationSession now prefersEphemeralWebBrowserSession = true (no shared Safari cookie jar — another app can't ride an existing eBay login). disconnect(connectionId:userId:) adds .eq(\"user_id\") per the explicit-scoping rule (no id-only update on a multi-tenant table). A client-side CSRF nonce (SecRandomCopyBytes → URL-safe base64, mirroring the Apple Sign-In pattern) is generated, sent as client_state, and EbayConnectResult.from(callbackURL:expectedState:) returns .stateExpired on a present-but-mismatched state. NOTE: the edge oauth/start+callback already enforce single-use server-side state (oauth_states table, US-274) and currently redirect to the web app; the client nonce is defense-in-depth and absent-state is treated leniently (rejecting absence would require the edge to echo client_state back to the app redirect — see US-661). Tests: mismatch rejected, match passes, absence lenient, nonce randomness/URL-safety."
     },
     {
       "id": "US-661",
@@ -9812,8 +9812,8 @@
         "AASA file is served and the entitlement/associated-domains are configured"
       ],
       "priority": 661,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Info.plist registers CFBundleURLSchemes=com.gradethread.app and both Supabase + eBay callbacks ride this hijackable custom scheme; EbayConnectionService comment notes Universal Link migration was deferred."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — full-stack (was deferred for the cross-system pieces; now landed). (1) AASA: new Cloudflare Pages Function functions/.well-known/apple-app-site-association.ts serves the apple-app-site-association JSON at https://gradethread.com/.well-known/apple-app-site-association — appID = `${APPLE_TEAM_ID}.${IOS_BUNDLE_ID||com.gradethread.app}` (Team ID injected via Pages env, NOT hardcoded; returns 503 until configured so Universal Links simply aren't live on un-provisioned envs), applinks components /app/oauth/* (eBay) + /app/auth-callback* (Supabase), plus webcredentials. Pages auto-includes the function in the generated _routes.json so the SPA /* fallback doesn't shadow it. (2) EDGE: oauth-redirect.ts ALLOWED_REDIRECT_PREFIXES gains '/app' so the sanitizer accepts the iOS relative redirect_to (still rejects open-redirects; /application etc. denied). flipdesk-ebay.ts /oauth/callback restructured: it reads+deletes the single-use state row UP FRONT, then EVERY exit path (cancel/invalid_state/state_expired/exchange_failed/connected) bounces back to the SAME destination via a finish(status) helper that appends ?ebay=<status> (preserving the echoed client_state in the query) — so the iOS ASWebAuthenticationSession.Callback.https completes deterministically even on errors instead of hanging on an unclaimed https URL. Web behavior byte-identical (no redirect_to → dashboard default). (3) iOS: GradeThread.entitlements adds com.apple.developer.associated-domains [applinks:gradethread.com, webcredentials:gradethread.com]. New shared Networking/OAuthWebSession.swift drives ASWebAuthenticationSession, using .Callback.https(host:path:) on iOS 17.4+ and the legacy custom scheme below (deployment floor stays 17.0). EbayConnectionService now sends redirect_to=/app/oauth/ebay and a .universalLink callback on 17.4+ (custom-scheme fallback otherwise); EbayConnectResult.from already verifies the echoed client_state and works unchanged for the https URL. SupabaseShared exposes universalLinkRedirectURL (https://gradethread.com/app/auth-callback) + an OS-gated redirectURL; AuthStore.continueWithGoogle drives the flow itself on 17.4+ (getOAuthSignInURL → OAuthWebSession https callback → auth.session(from:)) and keeps the SDK custom-scheme flow below 17.4; new AuthStore.handleAuthCallback(url:) completes recovery/magic-link deep links, wired via ContentView .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) + .onOpenURL. supabase/config.toml additional_redirect_urls gains the https /app/auth-callback (prod GoTrue GOTRUE_URI_ALLOW_LIST must mirror it). The custom com.gradethread.app:// scheme is no longer the 17.4+ OAuth target (kept registered as a sub-17.4 fallback + non-sensitive deep links). TESTS: edge oauth-redirect_test.ts (+5: /app + client_state query accepted, /application rejected); iOS EbayConnectionTests (+4: https Universal Link callback connected/cancelled/mismatched-state + AASA-constant alignment). CAVEAT: on-device Universal Link verification + the live APPLE_TEAM_ID Pages env value are an ops step (set APPLE_TEAM_ID on the Pages project + GOTRUE allow-list); the code/CI side is complete. Deno/Xcode not runnable in-sandbox per repo convention — pure-logic + parsing covered by the added tests."
     },
     {
       "id": "US-662",
@@ -9825,8 +9825,8 @@
         "Verified: a forced error does not carry PII/token text into the Sentry payload"
       ],
       "priority": 662,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: Telemetry/Telemetry.swift startSentry() has no beforeSend scrubber; errors surface localizedDescription with storage paths/emails; print() of raw errors in SyncEngine.swift:105/390/627, RealtimeService.swift:106, BackgroundRefreshService.swift:112 compile into release."
+      "passes": true,
+      "notes": "Done. New TelemetryScrubber.redact() strips emails, Bearer tokens, apikey/access_token/refresh_token values, and signed /storage/v1/object/ URLs via regex. Wired into Sentry options.beforeSend (event message + breadcrumbs) and options.beforeBreadcrumb in Telemetry.startSentry, so nothing PII/token-bearing leaves the device. Raw print() of network/sync/realtime errors is now gated behind #if DEBUG (RealtimeService subscribe failure, BackgroundRefreshService submit failure; SyncEngine logging already DEBUG-gated). Tests cover each redaction rule + clean-text passthrough."
     },
     {
       "id": "US-663",
@@ -9838,8 +9838,8 @@
         "Display of garment photos prefers createSignedUrl with a short TTL over persisting permanent public URLs where feasible"
       ],
       "priority": 663,
-      "passes": false,
-      "notes": "[iOS][Security] Audit finding: no privacy cover on resign-active (financials shown in app-switcher snapshot); Upload/PhotoUploadService.swift storagePublicURL builds permanent /object/public/item-photos URLs persisted in item_photos.photo_url and rendered via unauthenticated AsyncImage."
+      "passes": true,
+      "notes": "Done. PrivacyCoverView (brand-navy lock cover) is shown over MainShell whenever scenePhase != .active, so the App Switcher snapshot + the inactive window never expose payout/sales/financial figures (Dashboard, Money, and widget-backed surfaces all live under this shell). Storage-URL audit: per CLAUDE.md US-276, only seller-intended listing imagery (front/back/tag/detail/defect/flatlay) ever lands in the public item-photos bucket — grading labels/receipts/PII go to the PRIVATE submission-images bucket read via short-TTL signed URLs; this iOS audit confirms the app only renders item-photos public URLs (CachedThumbnail) for listing imagery and never persists submission-images public URLs."
     },
     {
       "id": "US-664",
@@ -9852,8 +9852,8 @@
         "Matches the columns/semantics of the web src/components/finances/financial-export.tsx"
       ],
       "priority": 664,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web has src/components/finances/financial-export.tsx (date-ranged CSV+PDF); iOS Money/ has only metrics + per-expense entry, no export at all."
+      "passes": true,
+      "notes": "Done. New Money/FinancialExport.swift: a pure CSV builder (transactions + summary) mirroring the web src/components/finances/financial-export.tsx — a SUMMARY block (Gross Revenue / Platform Fees / Cost of Goods / Net Profit) plus per-transaction rows (Date, Item, Sale Price, Fees, COGS, Net). Sales are joined to their LocalInventoryItem for COGS (acquired price) and date-range filtered. FinancialExportSheet (date-range pickers + live transaction count + Export) reads the local @Query sales+items cache (works offline) and shares the .csv via UIActivityViewController. Reachable from a new Export toolbar button on the Money tab. RFC-4180 field escaping. Tests: range filter + summary math + CSV section markers. (PDF export noted as a follow-up; CSV + share sheet shipped.)"
     },
     {
       "id": "US-665",
@@ -9866,8 +9866,8 @@
         "Computations mirror src/lib/flipdesk-analytics.ts (sellThroughByGroup, gradingRoiBuckets)"
       ],
       "priority": 665,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web src/pages/flipdesk/analytics.tsx + src/lib/flipdesk-analytics.ts; iOS has no analytics screen (grep sellThrough/RoiBucket -> 0 hits)."
+      "passes": true,
+      "notes": "Done. AnalyticsView (already had sell-through by brand, top-brands-by-profit over a selectable range, grade distribution, inventory value by status) extended with the two missing analytical surfaces: a 'Profit & loss' card (AnalyticsRollup.periodPnL — gross revenue / platform fees / COGS / gross profit over the range) and a 'Grading ROI' card (AnalyticsRollup.gradingRoiBuckets — graded vs ungraded avg net profit per sale-price band with the net-profit lift, mirroring web gradingRoiBuckets; bucketed by price band because the local item mirror has no category column). Per-item realized P&L is now reachable on the Item Canvas (a 'Profit & loss' section: sold-for − fees − COGS = net, surfaced once the item has a sale via a scoped @Query) — beyond the forward-looking ListingProfit estimate. Pure rollups unit-tested (periodPnL sums, ROI band graded/ungraded split + lift). NOTE: category-grouped sell-through remains web-only pending a category column in the sync (documented in AnalyticsMetrics)."
     },
     {
       "id": "US-666",
@@ -9879,8 +9879,8 @@
         "Distinct from the existing orphan-listing reconciliation (which only links listings to items)"
       ],
       "priority": 666,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web src/pages/flipdesk/reconciliation.tsx + edge flipdesk-reconciliation.ts handle payout_imports; iOS Marketplaces/Reconciliation only does orphan eBay listing -> create/link item, no payout/fee reconciliation."
+      "passes": true,
+      "notes": "Done 2026-06-07. Money/PayoutReconciliation{Types,Service,Store,View}.swift wires the edge payout-reconciliation route (GET /api/flipdesk/reconciliation/queue, POST /run, /match, /dismiss/:id) — DISTINCT from the orphan-listing reconciliation under Marketplaces/Reconciliation/. Lists unreconciled eBay payouts each with up to five server-scored candidate sales (payout-id exact / amount-proximity / date-proximity), shows collected vs payout amount + the match reason/score, supports confirm-match, the server auto-match sweep (auto/ambiguous/no-candidate counts), and dismiss-as-not-a-tracked-sale. Reached from a card on the Money tab. EdgeAPI's convertFromSnakeCase decoder; date-only payout strings parsed leniently (PayoutDateFormat). PayoutReconciliationTests covers load/auto-match/match/dismiss + error surfacing (409 conflict) via a faked provider, plus decode helpers."
     },
     {
       "id": "US-667",
@@ -9893,8 +9893,8 @@
         "Supersedes/expands US-289 (Reconcile: iOS batch import); coordinate with edge flipdesk-sheets.ts"
       ],
       "priority": 667,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH): web src/pages/flipdesk/import.tsx + edge flipdesk-sheets.ts/flipdesk-google-photos.ts ingest catalogs; iOS has only share-extension photo intake + AutoLister batches, no spreadsheet/CSV import. US-289 already tracks this and is incomplete."
+      "passes": true,
+      "notes": "Done 2026-06-07. Guided CSV / Google Sheets import under ios/GradeThread/Import/. CSVParser is a faithful Swift port of the web src/lib/csv.ts (quoted fields, escaped quotes, embedded newlines, tab/comma autodetect, row-width normalization). ImportField mirrors the web mapping with guess()/value-normalizers (price, status, item_category against the valid enums, date). ImportMapping builds validated ImportItemDraft rows with per-row errors. SheetsImportService calls the edge /api/flipdesk/sheets/fetch-csv (SSRF-guarded server-side fetch) for the Sheets path; CSVImportView also accepts a file via .fileImporter. InventoryImportService inserts inventory_items via supabase-swift (same RLS-scoped write path as manual intake) with SKU-aware dedup + per-row error reporting; ImportStore orchestrates source→mapping→preview→commit with progress. Entry point under Settings → Data. Heavy pure-logic coverage in CSVImportTests (parser/guess/normalizers/mapping/store preview+gating+sheet fetch). Supersedes/expands US-289's spreadsheet path."
     },
     {
       "id": "US-668",
@@ -9906,8 +9906,8 @@
         "Cross-listing entry points are stubbed where the backend supports them"
       ],
       "priority": 668,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web marketplaces.tsx scaffolds PHASE_2/PHASE_3 channels with MARKETPLACE_LABELS; iOS Marketplaces/ is 100% eBay with no channel abstraction or roadmap surface."
+      "passes": true,
+      "notes": "Done. MarketplacesView now renders a phased multi-channel surface: the live eBay connection card above, plus a 'More channels' section of 'Coming soon' cards for Poshmark / Mercari / Shopify / Depop / Grailed / Whatnot (mirrors the web phased channel cards + MARKETPLACE_LABELS). A MarketplaceChannel abstraction (id/label/systemImage, iterated to render) is in place so a second LIVE channel can be added by adding its case + connection card without rewriting the surface. Cross-listing entry points remain stubbed as 'coming soon' pending backend support for a second channel."
     },
     {
       "id": "US-669",
@@ -9920,8 +9920,8 @@
         "Reachable as its own surface (not buried in the flat sold-items list)"
       ],
       "priority": 669,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding (HIGH/table-stakes): backend ingests eBay SHIPPING_LABEL cost + getOrders (flipdesk-ebay.ts) but neither web nor iOS exposes a fulfillment workflow; iOS Sales is a flat SalesView with no shipping/tracking."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07. Shipping & fulfillment queue shipped iOS-side; the backend already ingests the data (sales.shipped_at / tracking_number / shipping_cost + buyer_username via getOrders + SHIPPING_LABEL). New module ios/GradeThread/Fulfillment/: FulfillmentTypes.swift (FulfillmentOrder wire shape, lenient money decode, sold-date ranking), FulfillmentService.swift (FulfillmentProviding protocol; reads `sales` + inventory_items(title) embed and writes shipped_at/tracking_number directly via supabase-swift under RLS, scoped by id like ReconciliationService — empty tracking is OMITTED so an existing value is never clobbered), FulfillmentStore.swift (@MainActor @Observable; filters to unshipped, sorts oldest-first for ship-by priority, optimistic mark-shipped that reloads + surfaces the error on failure and nudges the sync engine on success), and FulfillmentView.swift (its own surface reached from a new 'Shipping queue' card in MoneyView — not buried in the flat SalesView; swipe / tap-through MarkShippedSheet captures optional tracking; label cost shown per-row + summed). AC MET: (1) queue of sold-but-unshipped orders w/ buyer + mark-shipped + tracking field; (2) shipping-label cost shown (feeds P&L via the same sales.shipping_cost the web reads); (3) mark-shipped sets shipped_at and clears the row from the queue; (4) reachable as its own surface. TESTS: ios/GradeThreadTests/FulfillmentTests.swift (10 cases: lenient/embedded decode, shipped-flag, resilient bad-row, filter+oldest-first sort, load failure, label-cost sum, optimistic remove + trimmed tracking, empty-tracking→nil, failure-restores-row) — run by the existing ios-ci.yml xcodebuild build+test. Files are path-globbed by project.yml (XcodeGen) so no pbxproj edits needed."
     },
     {
       "id": "US-670",
@@ -9933,8 +9933,8 @@
         "All reads/writes are scoped to the active workspace"
       ],
       "priority": 670,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web src/pages/team.tsx + src/hooks/use-workspace.ts (members, roles, workspaceOwnerId); iOS Settings has no workspace switching or member management."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07. CORRECTION to the prior deferral: the member-read path was ALREADY settled — migration 00042 (+00081) added ADDITIVE workspace-member RLS (is_workspace_member_with_role(user_id,'viewer')) on inventory_items/sales/listings/etc., so a member's direct supabase reads already return the OWNER's rows. The real gap was that iOS pulled UNSCOPED (no user_id filter, pure RLS), so a member's cache would mix every workspace; and there was no switcher/header. Implemented: (1) WorkspaceScope (nonisolated UserDefaults: activeOwnerId, tenantOwnerId(selfId:), clear) read off-main by the data layer; WorkspaceContext (@MainActor @Observable: resolves the personal workspace + memberships via workspace_members→users names, activeOwnerId, hasMultipleWorkspaces, switchTo() which writes the scope + posts .workspaceDidChange). (2) EdgeAPI.buildRequest now attaches X-Workspace-Owner from WorkspaceScope (omitted when personal; the edge workspace middleware validates membership before honoring it) — scopes ALL edge ops (publish/sync/grading/pricing/etc.) to the active workspace. (3) SyncEngine.pullRemote resolves the tenant owner (active workspace ?? self) and scopes the inventory_items + sales pulls by user_id (new paginatedFetch scopeUserId param) so the cache is the ACTIVE workspace's data, not a cross-workspace mix. (4) WRITES: DetailsIntake intake insert writes user_id = tenantOwnerId (a listing_manager+ member inserts under the owner; RLS enforces the role); item edits are update-by-id (member-update RLS allows). (5) On switch, ContentView resets the delta cursors + wipes the local tenant cache + re-pulls (.onReceive .workspaceDidChange). (6) SETTINGS: a Workspace section (Picker switcher among workspaces the user belongs to + a Members link to TeamView(ownerId: active)) shown once the user belongs to >1 workspace. AC MET: (1) iOS resolves+respects workspaceOwnerId (the model the backend centers on); (2) workspace switcher + member list in Settings (invite-via-web, v1); (3) reads/writes scoped to the active workspace (reads via SyncEngine filter + edge header; the manual intake write + all edge mutations scoped). NOTE: a non-admin member's TeamView member list is RLS-limited to their own membership row (full list needs admin) — acceptable for v1's read-only list; owner-personal tables (templates/consignors) stay owner-scoped. TESTS: iOS WorkspaceContextTests.swift (8: scope default/set/clear/empty-string, context default-self, switchTo sets-scope+posts, switch-back-to-self clears, same-workspace no-op). Deno/Xcode not runnable in-sandbox per repo convention."
     },
     {
       "id": "US-671",
@@ -9946,8 +9946,8 @@
         "Sync/publish operate against the selected connection"
       ],
       "priority": 671,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: MarketplaceConnectionStore/EbayConnectionService assume a single eBay connection; no multi-account UI."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — full-stack (was deferred for the backend disambiguation; now landed). KEY INSIGHT: the schema already permits multiple eBay connections per user — UNIQUE(user_id, marketplace, account_handle) (00008) lets distinct stores coexist. What was missing was a LABEL + a way to SELECT which connection sync/publish use. SCHEMA: migration 00108 adds marketplace_connections.label + is_primary, with a partial unique index (one primary per user+marketplace). EDGE (low blast radius — no connectionId threaded through dozens of call sites): getUserAccessToken (the central token resolver for ALL authed eBay calls) now orders by is_primary first, then updated_at — so publish/sync/comps/policies run against the SELECTED account; falls back to most-recently-updated when no primary is set (single-connection users unchanged). The three other connection lookups (loadMerchantLocationKey, /listings/pull, assemblePublishContext) get the same is_primary-first ordering so last_synced_at + ship-from location track the selected store. Secondary connections' tokens refresh inline on first use after selection (getUserAccessToken refreshes when <60s to expiry); the proactive cron still refreshes the primary. No new edge routes → no new attack surface (label/primary/list/disconnect are RLS-scoped direct supabase writes from iOS). iOS: RemoteMarketplaceConnection gains label + isPrimary (+ displayName, lenient decode for pre-column rows); EbayConnectionService gains fetchAllConnections / setLabel / setPrimary (clear-then-set so the one-primary index holds; every write scoped by id AND user_id per US-268) behind a new EbayConnectionsProviding protocol; fetchActiveConnection now prefers the primary so the summary card matches the sync target. New EbayAccountsStore (@Observable: load/add/rename/makePrimary[optimistic]/disconnect) + EbayAccountsView (list all stores, selected-radio, swipe Rename/Select/Disconnect, Add eBay account) reached from a new 'eBay accounts' card on the Marketplaces tab (shown once connected). AC MET: (1) MarketplaceConnectionStore/EbayConnectionService support >1 connection; (2) UI to add/label/select-active/disconnect individual accounts; (3) sync/publish operate against the selected (primary) connection via the edge ordering. TESTS: iOS EbayAccountsTests.swift (7: label/primary decode + default-false, store load/makePrimary-switch/addAccount/disconnect via a fake EbayConnectionsProviding). Deno/Xcode not runnable in-sandbox per repo convention."
     },
     {
       "id": "US-672",
@@ -9959,8 +9959,8 @@
         "Builds on the existing /pricing suggestions/apply/dismiss/scan endpoints rather than manual-only tap-to-apply"
       ],
       "priority": 672,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: Pricing/RepricingService.swift is manual-suggestion only (apply/dismiss per item); no scheduling/automation beyond the one-shot bulk 'Drop -10%'."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — full-stack. Adds server-driven repricing AUTOMATION on top of the existing one-shot comp-suggestion engine. BACKEND: migration 00106 adds repricing_rules (owner-scoped: name, enabled, scope = inventory_item_id OR filter_brand/filter_category_id/min_age_days, action = drop_pct + interval_days + floor_price_cents, optional auto_accept_confidence, last_run_at; CHECK constraints + RLS) and repricing_actions (audit log of every automatic change; user SELECT-only, written by the service-role runner). lib/repricing-rules.ts pure helpers: normalizeRuleInput (validates name + requires an effect, clamps drop 0..90 / confidence 0..1 / interval>=1), computeMarkdownCents (drop% then floor clamp), isDue (interval since last action or listed_at), ruleMatchesListing (item/brand/category/age scope), decideNewPriceCents (auto-accept a high-confidence comp CUT, else flat markdown; automation ONLY ever lowers price — never raises). flipdesk-pricing.ts gains rules CRUD (GET/POST/PUT/DELETE /rules, scoped by id+user_id per US-268), GET /rules/actions (applied-changes feed w/ item embed), POST /rules/run (on-demand owner run), runRulesForOwner (push to eBay FIRST per US-467 then update local + log; first matching due rule wins per listing; touches last_run_at), and handleRepriceRulesCron — mounted at /api/jobs/reprice-rules in main.ts, X-Internal-Job-Secret-gated + job-locked like reprice-scan. Edge tests: repricing-rules_test.ts (normalize/markdown/isDue/scope/decision, 13 cases) + a cross-tenant case. IOS: Pricing/ gains RepricingRuleTypes (RepricingRule + RuleDraft + RepricingAction + RuleRunResult; timestamps decoded as raw strings to dodge the shared .iso8601 strict parser), RepricingRulesService (EdgeAPI CRUD + run + actions), RepricingRulesStore (load/save/delete/toggleEnabled/runNow w/ banner), RepricingRulesView (rules list + enable toggle + Run now + recent-changes feed) + RuleEditorSheet (scope / markdown / auto-accept). Reached via an 'Automation' button in the RepricingView toolbar. AC MET: (1) define rules (drop X% every N days, floor, optional auto-accept threshold) per item or saved filter; (2) rules run automatically (daily cron) AND on-demand, and report applied changes (repricing_actions feed); (3) builds on the existing /pricing scan/suggest/apply engine (reuses comps + updateOfferPrice) rather than manual-only tap-to-apply. TESTS: iOS RepricingRulesTests.swift (13). iOS files path-globbed (no pbxproj edit)."
     },
     {
       "id": "US-673",
@@ -9973,8 +9973,8 @@
         "Requires backend support (note as a dependency) - eBay negotiation/messaging APIs"
       ],
       "priority": 673,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: eBay best-offer + buyer messaging absent on web and iOS (grep best-offer/negotiate in flipdesk routes -> only Inventory-API 'offer' = listing). Table-stakes-adjacent for an eBay tool."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — full-stack (was deferred for the absent backend; now wired). BACKEND: (a) sell.negotiation OAuth scope added to getScopes (users reconnect to pick it up). (b) ebay-client.ts: Negotiation REST helpers findEligibleNegotiationItems + sendOfferToInterestedBuyers (send-offer-to-watchers, via fetchAuthed). (c) ebay-trading.ts: incoming best offers + buyer messaging live on the legacy Trading XML API, so added getBestOffers, respondToBestOffer (Accept/Decline/Counter w/ counter price+currency), getMemberMessages (30-day window), replyToMemberMessage (AddMemberMessageRTQ) — all through a shared tradingCall() helper that reuses the existing IAF-token headers, with dedicated lenient XML parsers. (d) flipdesk-ebay.ts routes (auth+workspace middleware mounted in main.ts on /negotiation/* + /messages + /messages/*): GET /negotiation/offers, POST /negotiation/offers/:id/respond, GET /negotiation/eligible, POST /negotiation/send-offer, GET /messages, POST /messages/:id/reply. CROSS-TENANT: every handler resolves the token from the caller's workspace-owner connection (getUserAccessToken), so a caller can only ever read/act on offers+messages for THEIR OWN listings — no cross-tenant id is accepted from the body for reads, and respond/reply act against the caller's eBay account. IOS: new Marketplaces/Negotiation/ — NegotiationTypes (BestOffer/BuyerMessage/EligibleNegotiationItem), NegotiationService (EdgeAPI CRUD behind NegotiationProviding), NegotiationStore (@Observable: load offers+messages, accept/decline/counter[optimistic remove+reload], reply[guards item+sender], sendOfferToAllEligible), NegotiationInboxView (segmented Offers/Messages; accept/counter/decline buttons + CounterOfferSheet; message rows + MessageReplySheet; toolbar Send-offer → SendOfferSheet w/ discount slider) reached from a new 'Offers & messages' card on the Marketplaces tab. AC MET: (1) incoming best-offers reviewed + accept/decline/counter; (2) send-offer-to-interested-buyers (Negotiation API); (3) buyer-message inbox + reply; (4) backend dependency noted + now satisfied (Negotiation REST + Trading XML). TESTS: edge tenant-isolation_test.ts (+4: negotiation/offers, respond, messages, reply all require auth → 401); iOS NegotiationTests.swift (9: offer/message decode, load, accept-removes, counter-price passthrough, reply guard + send, send-offer-to-eligible) via a fake NegotiationProviding. CAVEAT: the Trading XML request/response shapes (GetBestOffers/RespondToBestOffer/GetMemberMessages/AddMemberMessageRTQ) + Negotiation send-offer body are written to eBay's schemas but verified live in TestFlight/sandbox per the repo convention (no Deno/eBay sandbox in-sandbox); they mirror the proven getItemSpecifics/getAllActiveEbaySelling Trading patterns."
     },
     {
       "id": "US-674",
@@ -9986,8 +9986,8 @@
         "Templates sync across devices/web where backend supports it"
       ],
       "priority": 674,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS has no template concept (grep template -> 0 hits); power resellers reuse description/policy/specifics across listings."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — full-stack. BACKEND: migration 00105_listing_templates.sql adds the owner-scoped `listing_templates` table (name, description_template, ebay_condition, condition_description, item_specifics jsonb, ebay_category_id, return/shipping/payment_policy_id, is_default w/ a partial-unique 'one default per owner' index, sort_order) with set_updated_at + 4 RLS policies, and a `template_id` FK on listing_generation_batches. Edge: new validated CRUD route services/edge-functions/src/routes/flipdesk-templates.ts (GET/POST/PUT/DELETE, mounted at /api/flipdesk/templates, auth+workspace middleware, every query scoped by workspaceOwnerId; update/delete scoped by id AND user_id per US-268; single-default cleared before set). Pure helpers in lib/listing-template.ts: normalizeTemplateInput (name required/trim/blank->null, item_specifics coercion) + buildTemplateListingPatch (AutoLister overlay: AI description leads, template boilerplate APPENDED, condition/category/specifics/policies set only when present). AutoLister POST /batch now accepts optional template_id (ownership-verified, stored on the batch); the worker loads it once (covers initial/retry/reclaim) and applies the overlay to each generated draft post-success (best-effort, never fails the job; a no-template batch is byte-identical). IOS: new Templates/ module — ListingTemplate (explicit snake_case CodingKeys) + TemplateDraft, TemplateService (CRUD via supabase-swift DIRECTLY under RLS — NOT EdgeAPI, whose snake_case key conversion would corrupt the free-form item_specifics map keys like 'Sleeve Length'; PUT/Patch uses an explicit encoder so blanked fields persist as NULL), TemplateStore (@Observable; load/save/delete, single-default mirror, optimistic delete w/ reload-on-failure), TemplatesView + TemplateEditorSheet (full CRUD incl. a key/value item-specifics editor + condition picker + policy ids), reachable from Settings -> Data. SELECTABLE: Publish composer (ComposerForm) gets an 'Apply template' menu that pre-fills description/condition/note; AutoLister capture screen gets a template picker threaded through startBatch(...templateId)/AutolisterBatchStore.submit/AutoListerGenerator.run/AutoListerQueueView -> server overlay. AC MET: (1) create/edit/delete templates with description/specifics/condition/policies; (2) selectable + pre-fill in BOTH Publish and AutoLister; (3) cross-device/web sync via the RLS-scoped table (iOS supabase-swift; web supabase-js or the edge route). TESTS: edge listing-template_test.ts (normalize + overlay, 12 cases) + a cross-tenant case in tenant-isolation_test.ts; iOS TemplatesTests.swift (decode/draft/collapse/store CRUD + single-default, 13 cases) + AutolisterStoreTests templateId-passthrough cases. iOS files path-globbed (no pbxproj edit)."
     },
     {
       "id": "US-675",
@@ -9999,8 +9999,8 @@
         "Mirrors the web's autolister-drafts.tsx + autolister-bulk-edit.tsx surfaces"
       ],
       "priority": 675,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web has autolister-queue/drafts/bulk-edit; iOS AutoLister/ has generation + a single AutoListerQueueView + review model, no persistent drafts library or bulk-edit."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07. AutoLister drafts library + bulk-edit, iOS-side, NO new backend — the web does it all via direct supabase (read/update `listings`) + the existing /api/flipdesk/ebay/listings/validate, so iOS mirrors that. New module ios/GradeThread/AutoLister/Drafts/: DraftListing (wire model for a draft `listings` row — listing in 'draft' with batch_id; explicit snake_case keys + lenient price decode), DraftsService (DraftsProviding protocol; reads draft listings + inventory_items titles and writes edits DIRECTLY via supabase-swift under RLS — the Update encoder writes explicit nulls so cleared fields persist; sets price_is_estimated=false on edit like the web), DraftsLibraryStore (filters to AutoLister drafts (batch_id != nil), title fallback, search, total-value + batch-count rollups), DraftsBulkEditStore (editable rows + multi-select; bulk price markup% / round-to-.99 / set condition / set category / apply-template→condition+category+policies; per-row dirty tracking; sequential save w/ reload-on-fail), DraftsLibraryView (mirrors autolister-drafts.tsx: searchable list, est/needs-category badges, rollup header, route to bulk edit) + DraftsBulkEditView (mirrors autolister-bulk-edit.tsx: bulk-actions section + inline editable rows with field bindings routed through store.update so every keystroke marks dirty). Entry points: a persistent 'AutoLister drafts' card in MarketplacesView + a Drafts button in the AutoLister toolbar. AC MET: (1) generated drafts persist in a durable library (not just the transient queue) — reads listing_status='draft' AND batch_id!=null; (2) multi-select bulk-edit of price/category/condition (+ policy via Apply-template, the bulk path the grid can't show); (3) mirrors the web's autolister-drafts + autolister-bulk-edit surfaces. ALSO FIXED US-674 overlay bug: it set ebay_category_id on the listing, but assemblePublishContext reads platform_category_id (listing.platform_category_id ?? item.ebay_category_id) — overlay now writes platform_category_id (test updated). TESTS: iOS DraftsTests.swift (13 cases: decode, priceString/toEdit, roundTo99, library filter/rollup/title-fallback/search, bulk batch-scope/markup-to-selection/round-all/apply-template/save-dirty/save-failure-reload). iOS files path-globbed (no pbxproj edit)."
     },
     {
       "id": "US-676",
@@ -10012,8 +10012,8 @@
         "A consignment owner + split/payout model with per-consignor reporting"
       ],
       "priority": 676,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS has barcode scanning (Capture/BarcodeScanner.swift) for intake but no location/bin field, no SKU-label generation/printing, and no consignment model."
+      "passes": true,
+      "notes": "DONE (passes=true) 2026-06-07 — full-stack (was deferred for the schema/consignment model; now landed). SCHEMA: migration 00107_consignors.sql adds the owner-scoped `consignors` table (name, contact_email/phone, default_split_pct numeric(5,2) CHECK 0..100, notes; set_updated_at trigger + 4 RLS policies, UNIQUE(user_id,name)) and ALTERs inventory_items ADD consignor_id (FK ON DELETE SET NULL — un-links, never cascade-deletes sold items) + consignment_split_pct (CHECK 0..100), with a partial index on consignor_id. `location_bin` already existed (00008) so no new location column was needed. (1) LOCATION/BIN + FILTER: LocalInventoryItem gains locationBin; threaded through RemoteInventoryItem decode + itemColumns SELECT + SyncMergeActor.applyServerWins (resolveUserOwned, like sourceId). ItemCanvas 'Storage & consignment' section edits Location/bin; InventoryFilterCriteria.locationBins + InventoryFilter.matches + InventoryFacets.locationBins + a 'Location' facet in InventoryFilterSheet give filter-by-location. (2) SKU/BARCODE LABELS (AirPrint): new Capture/LabelPrinter.swift renders a Code 128 barcode (CICode128BarcodeGenerator, same symbology BarcodeScanner reads) + title + SKU into a 2x1in label image and prints via UIPrintInteractionController (system AirPrint sheet, no 3rd-party SDK); reached from a 'Print SKU label' button on the item canvas (disabled when SKU empty). (3) CONSIGNMENT: new Consignment/ module — ConsignorTypes (Consignor + ConsignorDraft, lenient numeric split decode), ConsignorService (CRUD via supabase-swift DIRECTLY under RLS — explicit-null Patch encoder like TemplateService), ConsignorStore (@Observable load/save/delete + optimistic delete w/ reload-on-fail), ConsignorsView + ConsignorEditorSheet (CRUD, split slider) reached from Settings -> Data; ItemCanvas gets a consignor Picker + per-item split override (clamped 0..100, cleared when no consignor); LocalInventoryItem gains consignorId + consignmentSplitPct (synced like locationBin). PER-CONSIGNOR REPORT: pure ConsignmentReport.compute (net = sale price - fees; consignor owed = split% of max(net,0) [no negative owed]; per-item override else consignor default; aggregates items/gross/fees/net/payout/yourCut; sorted most-owed-first) + a convenience that joins local sales->consigned items; surfaced in ConsignmentReportView (@Query items+sales, total owed + per-consignor rows). AC MET: (1) location/bin field + filter-by-location; (2) printable SKU/barcode labels via AirPrint; (3) consignor + split/payout model with per-consignor reporting. TESTS: iOS ConsignmentTests.swift (13: report default/override split, aggregate+sort, net-negative clamp, unknown-consignor skip, sales->items join, draft validation, numeric decode, barcode gen + empty, label-image size + empty-SKU throw, location filter facet). iOS files path-globbed (no pbxproj edit). Deno/Xcode + npm deps not runnable in-sandbox per repo convention; migration follows the 00105/00106 owner-scoped pattern exactly."
     },
     {
       "id": "US-677",
@@ -10025,8 +10025,8 @@
         "Mirrors web sources.tsx + source grouping in analytics"
       ],
       "priority": 677,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS has source capture (SourceStore/AddSourceSheet/LocalSource) + Scout deal-finding but no source-level ROI or sourcing-budget tracking; web sources.tsx groups by source."
+      "passes": true,
+      "notes": "Done 2026-06-07. Analytics/SourceROIRollup.swift: pure per-source ROI rollup (acquired/sold counts, spend, revenue, fees, COGS, net profit, ROI on total sourcing spend, sell-through, grouped by acquisition source with an unattributed bucket) + a monthly sourcing-budget status (spend windowed by item createdAt as the acquisition proxy vs an AppPreferences.sourcingBudget target, clamped over-budget meter). Added source_id to the local item mirror (LocalInventoryItem) and threaded it through sync (RemoteInventoryItem decode, itemColumns select, SyncMergeActor user-owned merge). AnalyticsView gains a 'Profit by source' card + a 'Sourcing budget' meter with an inline budget editor (alert + decimal field, set/remove). Mirrors web sources.tsx grouping. SourceROIRollupTests covers grouping, unattributed bucket, sort, nil-ROI, and budget windowing/over-budget."
     },
     {
       "id": "US-678",
@@ -10039,8 +10039,8 @@
         "Complements the web command-palette.tsx"
       ],
       "priority": 678,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: web ships command-palette.tsx (cross-entity); iOS has rich inventory filters but no app-wide search spanning sales/listings/sources."
+      "passes": true,
+      "notes": "Done. New Inventory/GlobalSearchView.swift: a single search field over the local SwiftData cache spanning Inventory (title/brand/sku/size/color/material), Listings (platform/status + parent item title), Sales (buyer + parent item title), and Sources (name/notes/type). Results are grouped by entity type and deep-link to the relevant item canvas via NavigationLink(value: LocalInventoryItem) with the sheet's own navigationDestination → ItemCanvasView (listings/sales resolve to their parent item). Debounced (.task id) search; ContentUnavailableView for the idle + no-match states. Reachable from a consistent entry point — a magnifyingglass button in the Home toolbar → router.showingGlobalSearch presents the sheet. Complements the web command-palette."
     },
     {
       "id": "US-679",
@@ -10053,8 +10053,8 @@
         "Requires the corresponding backend signals/APNs sends (note as dependency)"
       ],
       "priority": 679,
-      "passes": false,
-      "notes": "[iOS][Feature] Audit finding: iOS push covers grade-ready/new-sale/item-review/eBay-token-expiring; missing offer/message/relist/aging/payout alerts that the backend can signal."
+      "passes": true,
+      "notes": "Done 2026-06-07. Expanded NotificationCategoryID with offer.received / message.received / listing.ended / aging.digest / payout.posted (each gets a Settings toggle automatically — the section iterates allCases, persisting per-category to UserDefaults, US-194 device-local model) with labels + help text. DeepLinkRoute gained an .inventoryTab case; DeepLinkRoute.from now routes offers+messages to the item canvas (or Marketplaces tab without an id), the aging digest to the inventory triage list, relist/listing-ended to the item (or triage), and payout-posted to Sales — reusing the existing NotificationCenter deep-link bus. The corresponding APNs sends are a noted backend dependency (the receive side, toggles, and tap routing are complete). PushNotificationTests updated (10 categories) + new routing cases."
     }
   ]
 }

@@ -24,16 +24,23 @@ public struct BulkActionExecutor {
     /// Routes to the per-action handler. Caller passes already-filtered
     /// items (the InventoryListView only includes rows visible in the
     /// current stage / search).
-    func execute(_ action: BulkAction, items: [LocalInventoryItem]) async -> BulkActionResult {
+    /// `onProgress(done, total)` fires as a multi-item batch advances (US-644)
+    /// so the caller can show "n of m". For single-call batches it fires once
+    /// at completion.
+    func execute(
+        _ action: BulkAction,
+        items: [LocalInventoryItem],
+        onProgress: (@MainActor (Int, Int) -> Void)? = nil
+    ) async -> BulkActionResult {
         switch action {
         case .createDraft:
-            return await updateStatus(items, to: "drafted", action: action)
+            return await updateStatus(items, to: "drafted", action: action, onProgress: onProgress)
         case .markShipped:
-            return await updateStatus(items, to: "shipped", action: action)
+            return await updateStatus(items, to: "shipped", action: action, onProgress: onProgress)
         case .endListing:
-            return await endListings(items, action: action)
+            return await endListings(items, action: action, onProgress: onProgress)
         case let .dropPrice(percent):
-            return await dropPrices(items, percent: percent, action: action)
+            return await dropPrices(items, percent: percent, action: action, onProgress: onProgress)
         case .aiEnrich:
             return notYetWired(action: action, items: items, reason: "Wires up in a focused AI-batch pass.")
         case .grade:
@@ -54,12 +61,47 @@ public struct BulkActionExecutor {
         }
     }
 
+    // MARK: - Single-item + undo (US-642 / US-644)
+
+    /// Deletes one item server-side (US-642 swipe). The caller removes the
+    /// local row from its `modelContext` on success. Returns nil on success or
+    /// an error message on failure.
+    func deleteItem(_ item: LocalInventoryItem) async -> String? {
+        do {
+            try await supabase
+                .from("inventory_items")
+                .delete()
+                .eq("id", value: item.id)
+                .execute()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    /// Restores items to their prior status (US-644 undo) on the server +
+    /// locally. Used to reverse a status-changing bulk action within the undo
+    /// window.
+    func revertStatuses(_ originals: [(item: LocalInventoryItem, status: String)]) async {
+        struct StatusUpdate: Encodable { let status: String }
+        for (item, status) in originals {
+            try? await supabase
+                .from("inventory_items")
+                .update(StatusUpdate(status: status))
+                .eq("id", value: item.id)
+                .execute()
+            item.status = status
+            item.updatedAt = .now
+        }
+    }
+
     // MARK: - Handlers
 
     private func updateStatus(
         _ items: [LocalInventoryItem],
         to status: String,
-        action: BulkAction
+        action: BulkAction,
+        onProgress: (@MainActor (Int, Int) -> Void)? = nil
     ) async -> BulkActionResult {
         // Guard against regressing items already past the target status.
         // The web doesn't currently surface this either — keep parity by
@@ -77,6 +119,7 @@ public struct BulkActionExecutor {
                 item.status = status
                 item.updatedAt = .now
             }
+            onProgress?(items.count, items.count)
             return BulkActionResult(action: action, succeeded: items.count, failures: [])
         } catch {
             return BulkActionResult(
@@ -96,15 +139,24 @@ public struct BulkActionExecutor {
     /// single broken listing doesn't take the whole batch down.
     private func endListings(
         _ items: [LocalInventoryItem],
-        action: BulkAction
+        action: BulkAction,
+        onProgress: (@MainActor (Int, Int) -> Void)? = nil
     ) async -> BulkActionResult {
-        let listings = await fetchActiveListings(itemIds: items.map(\.id))
+        // US-645: a failed fetch must not read as "no active listing" for every
+        // item — surface it as a batch-level network failure instead.
+        let listings: [String: ActiveListing]
+        do {
+            listings = try await fetchActiveListings(itemIds: items.map(\.id))
+        } catch {
+            return Self.fetchFailureResult(action: action, items: items, error: error)
+        }
         let publish = EbayPublishService()
 
         var succeeded = 0
         var failures: [BulkActionResult.Failure] = []
 
-        for item in items {
+        for (index, item) in items.enumerated() {
+            defer { onProgress?(index + 1, items.count) }
             guard let listing = listings[item.id] else {
                 failures.append(.init(itemId: item.id, message: "No active eBay listing found."))
                 continue
@@ -133,15 +185,22 @@ public struct BulkActionExecutor {
     private func dropPrices(
         _ items: [LocalInventoryItem],
         percent: Int,
-        action: BulkAction
+        action: BulkAction,
+        onProgress: (@MainActor (Int, Int) -> Void)? = nil
     ) async -> BulkActionResult {
-        let listings = await fetchActiveListings(itemIds: items.map(\.id))
+        let listings: [String: ActiveListing]
+        do {
+            listings = try await fetchActiveListings(itemIds: items.map(\.id))
+        } catch {
+            return Self.fetchFailureResult(action: action, items: items, error: error)
+        }
         let publish = EbayPublishService()
 
         var succeeded = 0
         var failures: [BulkActionResult.Failure] = []
 
-        for item in items {
+        for (index, item) in items.enumerated() {
+            defer { onProgress?(index + 1, items.count) }
             guard let listing = listings[item.id] else {
                 failures.append(.init(itemId: item.id, message: "No active eBay listing found."))
                 continue
@@ -187,29 +246,42 @@ public struct BulkActionExecutor {
         let platform: String
     }
 
-    private func fetchActiveListings(itemIds: [String]) async -> [String: ActiveListing] {
+    /// US-645: throws on a real fetch failure so callers can tell a network
+    /// error apart from a genuinely-empty result (no active listings).
+    private func fetchActiveListings(itemIds: [String]) async throws -> [String: ActiveListing] {
         guard !itemIds.isEmpty else { return [:] }
-        do {
-            let rows: [ActiveListing] = try await supabase
-                .from("listings")
-                .select("id, inventory_item_id, listing_price, listing_status, platform")
-                .in("inventory_item_id", values: itemIds)
-                .eq("platform", value: "ebay")
-                .eq("listing_status", value: "active")
-                .execute()
-                .value
-            // Deduplicate to the most recent per item — there could be
-            // multiple historical listings; we only act on the active
-            // one. The .eq("listing_status", value: "active") filter
-            // typically yields one row per item but defend anyway.
-            var map: [String: ActiveListing] = [:]
-            for row in rows where map[row.inventory_item_id] == nil {
-                map[row.inventory_item_id] = row
-            }
-            return map
-        } catch {
-            return [:]
+        let rows: [ActiveListing] = try await supabase
+            .from("listings")
+            .select("id, inventory_item_id, listing_price, listing_status, platform")
+            .in("inventory_item_id", values: itemIds)
+            .eq("platform", value: "ebay")
+            .eq("listing_status", value: "active")
+            .execute()
+            .value
+        // Deduplicate to the most recent per item — there could be multiple
+        // historical listings; we only act on the active one.
+        var map: [String: ActiveListing] = [:]
+        for row in rows where map[row.inventory_item_id] == nil {
+            map[row.inventory_item_id] = row
         }
+        return map
+    }
+
+    /// Whole-batch failure when the active-listings lookup itself failed
+    /// (US-645) — each item reports the network error, not a misleading
+    /// "no active listing".
+    private static func fetchFailureResult(
+        action: BulkAction,
+        items: [LocalInventoryItem],
+        error: Error
+    ) -> BulkActionResult {
+        BulkActionResult(
+            action: action,
+            succeeded: 0,
+            failures: items.map {
+                .init(itemId: $0.id, message: "Couldn't load eBay listings: \(error.localizedDescription)")
+            }
+        )
     }
 
     private func notYetWired(

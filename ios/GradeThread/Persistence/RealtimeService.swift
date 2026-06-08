@@ -103,7 +103,10 @@ public final class RealtimeService {
         do {
             try await channel.subscribeWithError()
         } catch {
+            // US-662: keep error detail out of release logs.
+            #if DEBUG
             print("[Realtime] subscribe failed: \(error)")
+            #endif
             phase = .reconnecting
         }
     }

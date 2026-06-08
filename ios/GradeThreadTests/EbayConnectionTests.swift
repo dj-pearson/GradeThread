@@ -82,6 +82,37 @@ final class EbayConnectionTests: XCTestCase {
         XCTAssertNil(EbayConnectResult.from(callbackURL: url))
     }
 
+    // US-660: client-state CSRF nonce verification.
+    func test_callbackParse_mismatchedState_rejected() {
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=connected&client_state=forged")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .stateExpired
+        )
+    }
+
+    func test_callbackParse_matchingState_passesThrough() {
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=connected&client_state=real-nonce")!
+        XCTAssertNil(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"))
+    }
+
+    func test_callbackParse_absentState_isLenient() {
+        // Server-side single-use state already validated the real handshake;
+        // an absent client_state is not treated as an attack.
+        let url = URL(string: "com.gradethread.app://oauth/ebay?ebay=cancelled")!
+        XCTAssertEqual(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"), .cancelled)
+    }
+
+    func test_stateNonce_isRandomAndURLSafe() {
+        let a = EbayConnectionService.generateStateNonce()
+        let b = EbayConnectionService.generateStateNonce()
+        XCTAssertNotEqual(a, b)
+        XCTAssertFalse(a.contains("+"))
+        XCTAssertFalse(a.contains("/"))
+        XCTAssertFalse(a.contains("="))
+        XCTAssertFalse(a.isEmpty)
+    }
+
     func test_callbackParse_errorMessage() {
         let url = URL(string: "com.gradethread.app://oauth/ebay?error=invalid_scope")!
         XCTAssertEqual(EbayConnectResult.from(callbackURL: url), .error(message: "invalid_scope"))
@@ -92,6 +123,40 @@ final class EbayConnectionTests: XCTestCase {
         // fetch and decides based on whether one materialized.
         let url = URL(string: "com.gradethread.app://oauth/ebay")!
         XCTAssertNil(EbayConnectResult.from(callbackURL: url))
+    }
+
+    // MARK: - US-661 Universal Link callback parsing
+
+    // On iOS 17.4+ the edge bounces the callback to the https Universal Link
+    // (https://gradethread.com/app/oauth/ebay) with the echoed client_state.
+    // The same parser must handle the https form identically to the custom scheme.
+    func test_universalLinkCallback_connected_withMatchingState() {
+        let url = URL(string: "https://gradethread.com/app/oauth/ebay?client_state=real-nonce&ebay=connected")!
+        XCTAssertNil(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"))
+    }
+
+    func test_universalLinkCallback_cancelled() {
+        let url = URL(string: "https://gradethread.com/app/oauth/ebay?client_state=real-nonce&ebay=cancelled")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .cancelled
+        )
+    }
+
+    func test_universalLinkCallback_mismatchedState_rejected() {
+        let url = URL(string: "https://gradethread.com/app/oauth/ebay?client_state=forged&ebay=connected")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .stateExpired
+        )
+    }
+
+    func test_universalLink_constants_matchAASA() {
+        // Host + path must line up with the AASA component (/app/oauth/*) and
+        // the edge redirect target, or the in-app session never completes.
+        XCTAssertEqual(EbayConnectionService.universalLinkHost, "gradethread.com")
+        XCTAssertEqual(EbayConnectionService.universalLinkPath, "/app/oauth/ebay")
+        XCTAssertEqual(EbayConnectionService.universalLinkRedirectPath, "/app/oauth/ebay")
     }
 
     // MARK: - MarketplaceConnectionStore phase transitions

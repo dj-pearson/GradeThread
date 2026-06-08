@@ -54,7 +54,7 @@ final class AutoListerReviewModel: ObservableObject {
         var captures: [PhotoCapture] = []
         for result in results {
             guard let image = await result.loadImage(),
-                  let output = PhotoCompressor.compress(image) else { continue }
+                  let output = await PhotoCompressor.compressOffMain(image) else { continue }
             captures.append(
                 PhotoCapture(
                     imageData: output.imageData,

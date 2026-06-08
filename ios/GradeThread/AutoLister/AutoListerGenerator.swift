@@ -46,7 +46,8 @@ final class AutoListerGenerator: ObservableObject {
     func run(
         groups: [PreparedGroup],
         uploadService: PhotoUploadService,
-        uploadStore: PhotoUploadStore
+        uploadStore: PhotoUploadStore,
+        templateId: String? = nil
     ) async {
         guard case .idle = prep, !groups.isEmpty else { return }
 
@@ -79,7 +80,7 @@ final class AutoListerGenerator: ObservableObject {
         }
 
         prep = .finished
-        await batch.submit(itemIds: itemIds)
+        await batch.submit(itemIds: itemIds, templateId: templateId)
         // Non-fatal reshoot nudges; surfaced in the queue.
         await batch.runPhotoQa(itemIds: itemIds)
     }

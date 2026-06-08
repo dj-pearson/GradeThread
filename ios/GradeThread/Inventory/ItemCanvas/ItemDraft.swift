@@ -15,6 +15,12 @@ public struct ItemDraft: Equatable {
     public var category: FlipdeskCategory?
     public var targetPriceText: String
     public var acquiredPriceText: String
+    /// US-676: storage location / bin label and consignment link.
+    public var locationBin: String
+    public var consignorId: String?
+    /// Per-item consignor split override as a 0–100 string ("" = use the
+    /// consignor's default).
+    public var consignmentSplitText: String
 
     public init(
         title: String = "",
@@ -27,7 +33,10 @@ public struct ItemDraft: Equatable {
         status: String = "cataloged",
         category: FlipdeskCategory? = nil,
         targetPriceText: String = "",
-        acquiredPriceText: String = ""
+        acquiredPriceText: String = "",
+        locationBin: String = "",
+        consignorId: String? = nil,
+        consignmentSplitText: String = ""
     ) {
         self.title = title
         self.brand = brand
@@ -40,6 +49,9 @@ public struct ItemDraft: Equatable {
         self.category = category
         self.targetPriceText = targetPriceText
         self.acquiredPriceText = acquiredPriceText
+        self.locationBin = locationBin
+        self.consignorId = consignorId
+        self.consignmentSplitText = consignmentSplitText
     }
 
     /// Populate from a LocalInventoryItem. The numeric fields go through
@@ -60,6 +72,12 @@ public struct ItemDraft: Equatable {
         self.category = nil
         self.targetPriceText = item.targetPrice.map { currencyFormatter.formatRaw($0) } ?? ""
         self.acquiredPriceText = item.acquiredPrice.map { currencyFormatter.formatRaw($0) } ?? ""
+        self.locationBin = item.locationBin ?? ""
+        self.consignorId = item.consignorId
+        self.consignmentSplitText = item.consignmentSplitPct.map {
+            // Whole numbers print without a trailing ".0".
+            $0 == $0.rounded() ? String(Int($0)) : String($0)
+        } ?? ""
     }
 }
 

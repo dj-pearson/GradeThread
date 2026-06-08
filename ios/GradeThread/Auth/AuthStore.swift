@@ -98,11 +98,46 @@ public final class AuthStore {
 
     public func continueWithGoogle() async {
         await run {
-            _ = try await SupabaseShared.client.auth.signInWithOAuth(
-                provider: .google,
-                redirectTo: SupabaseShared.redirectURL
-            )
+            // US-661: on iOS 17.4+ drive the flow ourselves so the redirect
+            // lands on an https Universal Link (uninterceptable) rather than the
+            // SDK's default custom-scheme web session. We fetch the provider
+            // URL, run our own ASWebAuthenticationSession with an https callback,
+            // then exchange the returned URL for a session (PKCE). Below 17.4 we
+            // keep the SDK's built-in custom-scheme flow.
+            if #available(iOS 17.4, *) {
+                let url = try SupabaseShared.client.auth.getOAuthSignInURL(
+                    provider: .google,
+                    redirectTo: SupabaseShared.universalLinkRedirectURL
+                )
+                let callback = try await OAuthWebSession.run(
+                    url: url,
+                    callback: .universalLink(host: "gradethread.com", path: "/app/auth-callback")
+                )
+                _ = try await SupabaseShared.client.auth.session(from: callback)
+            } else {
+                _ = try await SupabaseShared.client.auth.signInWithOAuth(
+                    provider: .google,
+                    redirectTo: SupabaseShared.customSchemeRedirectURL
+                )
+            }
         }
+    }
+
+    /// Completes an auth handshake delivered to the app as a deep link / Universal
+    /// Link (US-661) — e.g. a password-reset or magic-link email opened from Mail
+    /// lands on `https://gradethread.com/app/auth-callback` (or the legacy custom
+    /// scheme on older builds). Best-effort: a non-auth URL is ignored.
+    public func handleAuthCallback(url: URL) async {
+        let isAuthCallback: Bool = {
+            if url.scheme == "https" {
+                return url.host == "gradethread.com" && url.path.hasPrefix("/app/auth-callback")
+            }
+            // Custom scheme: com.gradethread.app://auth-callback
+            return url.host == "auth-callback" || url.path.contains("auth-callback")
+                || url.absoluteString.contains("auth-callback")
+        }()
+        guard isAuthCallback else { return }
+        _ = try? await SupabaseShared.client.auth.session(from: url)
     }
 
     public func signOut() async {

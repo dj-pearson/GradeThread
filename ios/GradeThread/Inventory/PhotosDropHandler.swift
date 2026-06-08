@@ -14,9 +14,12 @@ enum PhotosDropHandler {
     /// values. Compression failures drop silently — partial success is
     /// preferable to forcing the user to start over because one of
     /// five drops didn't materialise.
-    static func process(_ images: [UIImage]) -> [PhotoCapture] {
-        images.compactMap { image in
-            guard let output = PhotoCompressor.compress(image) else { return nil }
+    static func process(_ images: [UIImage]) async -> [PhotoCapture] {
+        // US-636: compress off the main actor with bounded concurrency so a big
+        // multi-image drop doesn't freeze the UI or spike memory.
+        let outputs = await PhotoCompressor.compressBatch(images)
+        return outputs.compactMap { output in
+            guard let output else { return nil }
             return PhotoCapture(
                 imageData: output.imageData,
                 thumbnail: output.thumbnail,

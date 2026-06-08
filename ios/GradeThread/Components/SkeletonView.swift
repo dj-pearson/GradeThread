@@ -71,6 +71,35 @@ struct SkeletonCircle: View {
     }
 }
 
+/// US-656 — a reusable list-shaped skeleton (leading block + two text lines per
+/// row) for the main-content loading state of list screens, replacing bare
+/// spinners. Honors Reduce Motion via the underlying `SkeletonBlock`.
+struct SkeletonRows: View {
+    var count: Int = 6
+    var showsLeadingBlock: Bool = true
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ForEach(0..<count, id: \.self) { _ in
+                HStack(spacing: 12) {
+                    if showsLeadingBlock {
+                        SkeletonBlock(cornerRadius: 8)
+                            .frame(width: 44, height: 44)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        SkeletonLine(widthFraction: 0.6, height: 12)
+                        SkeletonLine(widthFraction: 0.35, height: 10)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .accessibilityHidden(true)
+    }
+}
+
 /// A single shimmer text-line of a given width fraction.
 struct SkeletonLine: View {
     var widthFraction: CGFloat = 1

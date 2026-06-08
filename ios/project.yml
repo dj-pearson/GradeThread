@@ -56,6 +56,10 @@ targets:
       - path: Shared            # IntakeInbox + future cross-target helpers (US-189)
     resources:
       - path: GradeThread/Assets.xcassets
+      # US-654: brand typefaces (Outfit display + Inter body/UI). Static
+      # weights instanced from the OFL variable fonts; referenced by their
+      # PostScript names via the Typography scale.
+      - path: GradeThread/Resources/Fonts
     # PrivacyInfo.xcprivacy (US-197) is picked up by the GradeThread source
     # glob above; XcodeGen classifies .xcprivacy into the resources phase.
     configFiles:
@@ -92,6 +96,16 @@ targets:
         NSCameraUsageDescription: "GradeThread uses the camera to capture garment photos for grading and to scan SKU barcodes when cataloging items."
         NSPhotoLibraryUsageDescription: "GradeThread imports photos from your library so you can grade existing garment shots."
         ITSAppUsesNonExemptEncryption: false
+        # US-654: register the bundled brand typefaces so Font.custom can
+        # resolve them by PostScript name (graceful system fallback if a face
+        # ever fails to load).
+        UIAppFonts:
+          - Outfit-Regular.ttf
+          - Outfit-SemiBold.ttf
+          - Outfit-Bold.ttf
+          - Inter-Regular.ttf
+          - Inter-Medium.ttf
+          - Inter-Bold.ttf
         # Runtime config read by AppConfig, surfaced from the active xcconfig
         # via build-setting substitution ($(...) is expanded at build time).
         # These MUST live here: XcodeGen regenerates GradeThread/Info.plist
@@ -203,6 +217,11 @@ targets:
     sources:
       - path: GradeThreadWidget
       - path: Shared            # WidgetSnapshot + store shared with the app
+    resources:
+      # US-657: bundle the brand asset catalog into the widget appex so it can
+      # reference the shared BrandNavy/BrandRed colorsets (with light/dark
+      # variants) instead of hardcoded hex literals.
+      - path: GradeThread/Assets.xcassets
     info:
       path: GradeThreadWidget/Info.plist
       properties:

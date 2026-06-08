@@ -17,13 +17,18 @@ import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.t
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
+import { flipdeskTemplatesRoutes } from "./routes/flipdesk-templates.ts";
 import {
   flipdeskAutolisterRoutes,
   handleAutolisterReclaimCron,
 } from "./routes/flipdesk-autolister.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
-import { flipdeskPricingRoutes, handleRepriceScanCron } from "./routes/flipdesk-pricing.ts";
+import {
+  flipdeskPricingRoutes,
+  handleRepriceRulesCron,
+  handleRepriceScanCron,
+} from "./routes/flipdesk-pricing.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
@@ -167,6 +172,10 @@ app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
+// US-673: best offers + send-offer + buyer messages.
+app.use("/api/flipdesk/ebay/negotiation/*", authMiddleware);
+app.use("/api/flipdesk/ebay/messages", authMiddleware);
+app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
 app.use("/api/flipdesk/grading/submit", authMiddleware);
 app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
@@ -175,6 +184,7 @@ app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/scout/*", authMiddleware);
+app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
@@ -203,6 +213,10 @@ app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/comps", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", workspaceMiddleware);
+// US-673: best offers + send-offer + buyer messages.
+app.use("/api/flipdesk/ebay/negotiation/*", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/messages", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/messages/*", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submit", workspaceMiddleware);
 app.use("/api/flipdesk/grading/validate", workspaceMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
@@ -210,6 +224,7 @@ app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
+app.use("/api/flipdesk/templates/*", workspaceMiddleware);
 app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
 // owner); /poll + /import resolve the owner from the session row.
@@ -338,6 +353,7 @@ app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
+app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
@@ -346,6 +362,9 @@ app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 // middleware above doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync cron).
 app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
+// US-672 repricing-automation cron — applies owner-defined rules. Same
+// X-Internal-Job-Secret gate as reprice-scan.
+app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));
 // US-525 AutoLister reclaim sweeper. OUTSIDE the /api/flipdesk/autolister/*
 // JWT wildcard so a cron (no user token) can reach it; the handler enforces
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.

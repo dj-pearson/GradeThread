@@ -8,6 +8,7 @@ import SwiftUI
 struct MoneyView: View {
     @State private var expenseStore = ExpenseStore()
     @State private var showingAddExpense = false
+    @State private var showingExport = false
 
     @Query(sort: \LocalSale.saleDate, order: .reverse) private var sales: [LocalSale]
     @Query private var items: [LocalInventoryItem]
@@ -31,7 +32,9 @@ struct MoneyView: View {
                 if metrics.monthlyRevenue.contains(where: { $0.revenue > 0 }) {
                     revenueChart
                 }
+                fulfillmentCard
                 repricingCard
+                reconciliationCard
                 expensesCard
                 salesCard
             }
@@ -39,6 +42,20 @@ struct MoneyView: View {
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Money")
+        .toolbar {
+            // US-664: date-ranged financial export.
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingExport = true
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .accessibilityLabel("Export financials")
+                }
+            }
+        }
+        .sheet(isPresented: $showingExport) {
+            FinancialExportSheet()
+        }
         .task { await expenseStore.refresh() }
         .refreshable {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
@@ -75,9 +92,8 @@ struct MoneyView: View {
                     tint: .brandNavy
                 )
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
     }
 
@@ -97,9 +113,8 @@ struct MoneyView: View {
             }
             .frame(height: 150)
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     // MARK: - Expenses
@@ -130,7 +145,8 @@ struct MoneyView: View {
 
             switch expenseStore.phase {
             case .loading:
-                rowMessage { ProgressView() }
+                // US-656: shimmer skeleton rows instead of a bare spinner.
+                SkeletonRows(count: 3, showsLeadingBlock: false)
             case .failed(let message):
                 rowMessage {
                     Text(message).font(.footnote).foregroundStyle(.secondary)
@@ -154,8 +170,37 @@ struct MoneyView: View {
                 }
             }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
+    }
+
+    // MARK: - Shipping & fulfillment (US-669)
+
+    private var fulfillmentCard: some View {
+        NavigationLink {
+            FulfillmentView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "shippingbox.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Shipping queue")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Orders sold but not yet shipped — mark shipped and add tracking")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Repricing
@@ -182,9 +227,38 @@ struct MoneyView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Payout reconciliation (US-666)
+
+    private var reconciliationCard: some View {
+        NavigationLink {
+            PayoutReconciliationView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "checklist.checked")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Payout reconciliation")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Match eBay payouts to your sales and fees")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -226,8 +300,7 @@ struct MoneyView: View {
                 }
             }
         }
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     @ViewBuilder

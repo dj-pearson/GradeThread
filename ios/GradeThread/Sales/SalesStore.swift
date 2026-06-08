@@ -41,7 +41,7 @@ final class SalesStore {
         }
     }
 
-    static func decodeSalesResiliently(_ data: Data) -> [RemoteSale] {
+    nonisolated static func decodeSalesResiliently(_ data: Data) -> [RemoteSale] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<RemoteSale>].self, from: data
         ) else { return [] }

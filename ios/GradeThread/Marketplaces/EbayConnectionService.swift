@@ -17,11 +17,27 @@ import UIKit
 ///      callback handler may emit different redirect shapes depending on
 ///      eBay sandbox vs production.
 ///
-/// On iOS 17.4+ this could move to `ASWebAuthenticationSession.Callback.https`
-/// with a Universal Link target. That's a polish pass — bumping the
-/// deployment target + provisioning the AASA file at gradethread.com.
+/// US-661: on iOS 17.4+ the callback now lands on an https Universal Link
+/// (`https://gradethread.com/app/oauth/ebay`) the app owns via
+/// associated-domains, so `ASWebAuthenticationSession.Callback.https` completes
+/// the in-app session deterministically and no other app can intercept the
+/// callback by claiming a custom scheme. Below 17.4 we fall back to the legacy
+/// `com.gradethread.app://oauth/ebay` scheme (the edge drops that to the web
+/// dashboard, and we poll `marketplace_connections` to confirm). The OS-version
+/// branching lives in ``OAuthWebSession``.
+/// Operations the multi-account management surface (``EbayAccountsStore``)
+/// needs, behind a protocol so the store is unit-testable with a fake (US-671).
 @MainActor
-public final class EbayConnectionService: NSObject {
+protocol EbayConnectionsProviding {
+    func fetchAllConnections(userId: String) async throws -> [RemoteMarketplaceConnection]
+    func connect(userId: String) async throws -> RemoteMarketplaceConnection
+    func disconnect(connectionId: String, userId: String) async throws
+    func setLabel(connectionId: String, userId: String, label: String?) async throws
+    func setPrimary(connectionId: String, userId: String) async throws
+}
+
+@MainActor
+public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
 
     public enum ConnectionError: LocalizedError, Equatable {
         case userCancelled
@@ -43,10 +59,24 @@ public final class EbayConnectionService: NSObject {
         }
     }
 
-    /// Callback path under the registered custom URL scheme. Must match
-    /// what the edge `/oauth/callback` handler eventually redirects to.
+    /// Legacy custom-scheme callback — used only on iOS < 17.4.
     public static let callbackURL = URL(string: "com.gradethread.app://oauth/ebay")!
     public static let callbackURLScheme = "com.gradethread.app"
+
+    /// US-661: https Universal Link the app claims (`applinks:gradethread.com`).
+    /// The edge `/oauth/callback` bounces here with `?ebay=<status>` and the
+    /// echoed `client_state`. Host + path must match an AASA component.
+    public static let universalLinkHost = "gradethread.com"
+    public static let universalLinkPath = "/app/oauth/ebay"
+    /// Relative redirect_to sent to `/oauth/start`. Same-origin path the edge
+    /// sanitizer allowlists (`/app`), resolved to the https Universal Link.
+    public static let universalLinkRedirectPath = "/app/oauth/ebay"
+
+    /// Whether this OS can use the Universal Link callback.
+    static var supportsUniversalLinkCallback: Bool {
+        if #available(iOS 17.4, *) { return true }
+        return false
+    }
 
     private let supabase: SupabaseClient
 
@@ -60,9 +90,18 @@ public final class EbayConnectionService: NSObject {
     /// Runs the full connect handshake and resolves to the new row when
     /// successful. Throws on cancel, expired state, or network failure.
     func connect(userId: String) async throws -> RemoteMarketplaceConnection {
-        let consent = try await fetchConsentURL()
-        let callback = try await runAuthSession(url: consent)
-        if let result = EbayConnectResult.from(callbackURL: callback) {
+        // US-660: client-side CSRF nonce (mirrors the Apple Sign-In pattern).
+        // The server already enforces single-use state via the oauth_states
+        // table (US-274); this is defense-in-depth so a forged callback to our
+        // URL scheme carrying a *different* state is rejected here too.
+        let stateNonce = Self.generateStateNonce()
+        let useUniversalLink = Self.supportsUniversalLinkCallback
+        let redirectTo = useUniversalLink
+            ? Self.universalLinkRedirectPath
+            : Self.callbackURL.absoluteString
+        let consent = try await fetchConsentURL(stateNonce: stateNonce, redirectTo: redirectTo)
+        let callback = try await runAuthSession(url: consent, useUniversalLink: useUniversalLink)
+        if let result = EbayConnectResult.from(callbackURL: callback, expectedState: stateNonce) {
             switch result {
             case .cancelled:    throw ConnectionError.userCancelled
             case .stateExpired: throw ConnectionError.stateExpired
@@ -88,7 +127,7 @@ public final class EbayConnectionService: NSObject {
     /// Disconnects via direct supabase update — sets is_active=false and
     /// scrubs the encrypted token columns. The server-side cron + refresh
     /// worker will skip the row going forward.
-    public func disconnect(connectionId: String) async throws {
+    public func disconnect(connectionId: String, userId: String) async throws {
         struct Disconnect: Encodable {
             let is_active: Bool
             let access_token_encrypted: String?
@@ -102,20 +141,25 @@ public final class EbayConnectionService: NSObject {
                 refresh_token_encrypted: nil
             ))
             .eq("id", value: connectionId)
+            // US-660 / explicit-scoping rule: never update a row by id alone on
+            // a multi-tenant table — pin it to the caller's user_id too.
+            .eq("user_id", value: userId)
             .execute()
     }
 
     /// Fetches the user's current active eBay connection if one exists.
     /// Used by ``MarketplaceConnectionStore`` on appear and after
-    /// connect/disconnect to refresh the UI state.
+    /// connect/disconnect to refresh the UI state. US-671: prefers the
+    /// selected (primary) connection so the summary card + sync target match.
     func fetchActiveConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
         let rows: [RemoteMarketplaceConnection] = try await supabase
             .from("marketplace_connections")
-            .select("id, marketplace, account_handle, is_active, last_synced_at, refresh_error, created_at, updated_at")
+            .select(Self.connectionColumns)
             .eq("user_id", value: userId)
             .eq("marketplace", value: "ebay")
             .eq("is_active", value: true)
-            .order("created_at", ascending: false)
+            .order("is_primary", ascending: false)
+            .order("updated_at", ascending: false)
             .limit(1)
             .execute()
             .value
@@ -128,7 +172,7 @@ public final class EbayConnectionService: NSObject {
     func fetchLatestConnection(userId: String) async throws -> RemoteMarketplaceConnection? {
         let rows: [RemoteMarketplaceConnection] = try await supabase
             .from("marketplace_connections")
-            .select("id, marketplace, account_handle, is_active, last_synced_at, refresh_error, created_at, updated_at")
+            .select(Self.connectionColumns)
             .eq("user_id", value: userId)
             .eq("marketplace", value: "ebay")
             .order("created_at", ascending: false)
@@ -138,12 +182,78 @@ public final class EbayConnectionService: NSObject {
         return rows.first
     }
 
+    static let connectionColumns =
+        "id, marketplace, account_handle, label, is_primary, is_active, last_synced_at, refresh_error, created_at, updated_at"
+
+    // MARK: - Multi-account (US-671)
+
+    /// All eBay connections for the user (active + flagged), primary first.
+    /// Backs the multi-account management surface.
+    func fetchAllConnections(userId: String) async throws -> [RemoteMarketplaceConnection] {
+        try await supabase
+            .from("marketplace_connections")
+            .select(Self.connectionColumns)
+            .eq("user_id", value: userId)
+            .eq("marketplace", value: "ebay")
+            .order("is_primary", ascending: false)
+            .order("created_at", ascending: false)
+            .execute()
+            .value
+    }
+
+    /// Renames a connection. RLS + the explicit user_id scope keep it to the
+    /// caller's row (never update a multi-tenant row by id alone — CLAUDE.md US-268).
+    func setLabel(connectionId: String, userId: String, label: String?) async throws {
+        struct LabelUpdate: Encodable { let label: String? }
+        let trimmed = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await supabase
+            .from("marketplace_connections")
+            .update(LabelUpdate(label: (trimmed?.isEmpty ?? true) ? nil : trimmed))
+            .eq("id", value: connectionId)
+            .eq("user_id", value: userId)
+            .execute()
+    }
+
+    /// Selects the active connection. Clears any existing primary first (so the
+    /// one-primary partial-unique index holds), then sets this one — both scoped
+    /// to the caller's rows.
+    func setPrimary(connectionId: String, userId: String) async throws {
+        struct PrimaryFlag: Encodable { let is_primary: Bool }
+        try await supabase
+            .from("marketplace_connections")
+            .update(PrimaryFlag(is_primary: false))
+            .eq("user_id", value: userId)
+            .eq("marketplace", value: "ebay")
+            .eq("is_primary", value: true)
+            .execute()
+        try await supabase
+            .from("marketplace_connections")
+            .update(PrimaryFlag(is_primary: true))
+            .eq("id", value: connectionId)
+            .eq("user_id", value: userId)
+            .execute()
+    }
+
     // MARK: - Internals
 
-    private func fetchConsentURL() async throws -> URL {
+    /// Cryptographically-random URL-safe nonce for the OAuth `state` round-trip.
+    static func generateStateNonce() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private func fetchConsentURL(stateNonce: String, redirectTo: String) async throws -> URL {
         let response: ConsentResponse = try await EdgeAPI.shared.getJSON(
             "/api/flipdesk/ebay/oauth/start",
-            query: [URLQueryItem(name: "redirect_to", value: Self.callbackURL.absoluteString)]
+            query: [
+                URLQueryItem(name: "redirect_to", value: redirectTo),
+                // Round-tripped back on the callback so we can verify it.
+                URLQueryItem(name: "client_state", value: stateNonce),
+            ]
         )
         guard let url = URL(string: response.consentUrl) else {
             throw ConnectionError.network(message: "Server returned an invalid consent URL.")
@@ -151,34 +261,20 @@ public final class EbayConnectionService: NSObject {
         return url
     }
 
-    private func runAuthSession(url: URL) async throws -> URL {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: Self.callbackURLScheme
-            ) { callbackURL, error in
-                if let error {
-                    let nsError = error as NSError
-                    if nsError.domain == ASWebAuthenticationSessionErrorDomain,
-                       nsError.code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                        cont.resume(throwing: ConnectionError.userCancelled)
-                    } else {
-                        cont.resume(throwing: ConnectionError.network(message: error.localizedDescription))
-                    }
-                    return
-                }
-                guard let callbackURL else {
-                    cont.resume(throwing: ConnectionError.network(message: "No callback URL received."))
-                    return
-                }
-                cont.resume(returning: callbackURL)
+    private func runAuthSession(url: URL, useUniversalLink: Bool) async throws -> URL {
+        let callback: OAuthWebSession.Callback = useUniversalLink
+            ? .universalLink(host: Self.universalLinkHost, path: Self.universalLinkPath)
+            : .customScheme(Self.callbackURLScheme)
+        do {
+            return try await OAuthWebSession.run(url: url, callback: callback, anchorProvider: self)
+        } catch let error as OAuthWebSession.SessionError {
+            switch error {
+            case .cancelled:
+                throw ConnectionError.userCancelled
+            case .noCallback, .failed:
+                throw ConnectionError.network(message: error.localizedDescription
+                    ?? "eBay sign-in failed.")
             }
-            session.presentationContextProvider = self
-            // Don't isolate cookies — sharing the user's eBay browser
-            // login state means they hit "Sign in" once and reconnects
-            // are a single tap.
-            session.prefersEphemeralWebBrowserSession = false
-            session.start()
         }
     }
 }

@@ -123,7 +123,10 @@ public enum IntakeInbox {
         for (idx, photo) in photos.enumerated() {
             let filename = "photo-\(idx).jpg"
             let url = dir.appendingPathComponent(filename)
-            try photo.jpegData.write(to: url, options: [.atomic])
+            // US-658: encrypt staged intake JPEGs at rest while the device is
+            // locked (accessible after first unlock so the main app can drain
+            // them on a background launch).
+            try photo.jpegData.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             entries.append(PhotoEntry(
                 filename: filename,
                 slot: photo.slot,
@@ -135,7 +138,10 @@ public enum IntakeInbox {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted]
         let manifestData = try encoder.encode(manifest)
-        try manifestData.write(to: dir.appendingPathComponent("manifest.json"), options: [.atomic])
+        try manifestData.write(
+            to: dir.appendingPathComponent("manifest.json"),
+            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        )
         return id
     }
 
@@ -146,5 +152,26 @@ public enum IntakeInbox {
     /// the same share doesn't replay on the next launch.
     public static func consume(_ batch: Batch) {
         try? FileManager.default.removeItem(at: batch.directory)
+    }
+
+    /// US-659: wipe every staged batch. Called on sign-out so a different user
+    /// on the same device can't inherit the previous user's staged photos.
+    public static func removeAll() {
+        guard let inbox = inboxDirectoryURL,
+              let contents = try? FileManager.default.contentsOfDirectory(
+                at: inbox, includingPropertiesForKeys: nil
+              ) else { return }
+        for url in contents {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// US-659: drop batches older than `maxAge` even if the main app never
+    /// presented them (e.g. the user shared into the app but never opened it),
+    /// so stale staged photos don't linger indefinitely. Default 7 days.
+    public static func sweepStale(maxAge: TimeInterval = 7 * 24 * 60 * 60, now: Date = .now) {
+        for batch in pendingBatches() where now.timeIntervalSince(batch.manifest.createdAt) > maxAge {
+            consume(batch)
+        }
     }
 }

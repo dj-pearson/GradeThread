@@ -20,6 +20,13 @@ public actor EdgeAPI {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
+    /// US-638: bounded retry budget for transient failures (network / 5xx).
+    private static let maxRetries = 2
+    /// US-638: tiny in-memory TTL cache for idempotent GETs (comps, category
+    /// suggest) keyed by method+path+query. Raw bytes are cached so each caller
+    /// decodes into its own `Response` type.
+    private var responseCache: [String: (data: Data, expires: Date)] = [:]
+
     public init(
         baseURL: URL,
         session: URLSession,
@@ -36,11 +43,14 @@ public actor EdgeAPI {
 
     // MARK: - Public
 
+    /// `cacheTTL > 0` serves an idempotent GET from the in-memory cache when a
+    /// fresh entry exists, and caches the response on success (US-638).
     public func getJSON<Response: Decodable>(
         _ path: String,
-        query: [URLQueryItem] = []
+        query: [URLQueryItem] = [],
+        cacheTTL: TimeInterval = 0
     ) async throws -> Response {
-        try await perform(method: "GET", path: path, query: query, body: Optional<Empty>.none)
+        try await perform(method: "GET", path: path, query: query, body: Optional<Empty>.none, cacheTTL: cacheTTL)
     }
 
     public func postJSON<Response: Decodable, Body: Encodable>(
@@ -69,30 +79,67 @@ public actor EdgeAPI {
         method: String,
         path: String,
         query: [URLQueryItem] = [],
-        body: Body?
+        body: Body?,
+        cacheTTL: TimeInterval = 0
     ) async throws -> Response {
+        let cacheKey = "\(method) \(path)?\(Self.canonicalQuery(query))"
+        // Serve fresh idempotent GETs from cache (US-638).
+        if cacheTTL > 0, method == "GET",
+           let entry = responseCache[cacheKey], entry.expires > .now {
+            if let cached = try? decoder.decode(Response.self, from: entry.data) {
+                return cached
+            }
+        }
+
         let request = try await buildRequest(method: method, path: path, query: query, body: body)
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw EdgeAPIError.network(error.localizedDescription)
+        // Bounded retry-with-backoff for transient failures only (US-638);
+        // 4xx (auth, bad request, not-found, rate-limit) fail fast.
+        var attempt = 0
+        while true {
+            do {
+                let (data, response): (Data, URLResponse)
+                do {
+                    (data, response) = try await session.data(for: request)
+                } catch {
+                    throw EdgeAPIError.network(error.localizedDescription)
+                }
+                guard let http = response as? HTTPURLResponse else {
+                    throw EdgeAPIError.network("Non-HTTP response")
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
+                }
+                if cacheTTL > 0, method == "GET" {
+                    responseCache[cacheKey] = (data, Date.now.addingTimeInterval(cacheTTL))
+                }
+                do {
+                    return try decoder.decode(Response.self, from: data)
+                } catch {
+                    throw EdgeAPIError.decoding(error.localizedDescription)
+                }
+            } catch let error as EdgeAPIError {
+                if Self.isTransient(error), attempt < Self.maxRetries {
+                    try? await Task.sleep(nanoseconds: Backoff.delayNanos(attempt: attempt, base: 0.5, cap: 4))
+                    attempt += 1
+                    continue
+                }
+                throw error
+            }
         }
+    }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw EdgeAPIError.network("Non-HTTP response")
+    /// Only network blips + 5xx are worth retrying — decode/4xx are deterministic.
+    private static func isTransient(_ error: EdgeAPIError) -> Bool {
+        switch error {
+        case .network, .serverError: return true
+        default: return false
         }
-        guard (200..<300).contains(http.statusCode) else {
-            throw EdgeAPIError.from(statusCode: http.statusCode, body: data)
-        }
+    }
 
-        do {
-            return try decoder.decode(Response.self, from: data)
-        } catch {
-            throw EdgeAPIError.decoding(error.localizedDescription)
-        }
+    /// Stable cache key fragment: query items sorted so order doesn't matter.
+    private static func canonicalQuery(_ query: [URLQueryItem]) -> String {
+        query.map { "\($0.name)=\($0.value ?? "")" }.sorted().joined(separator: "&")
     }
 
     private func buildRequest<Body: Encodable>(
@@ -108,6 +155,14 @@ public actor EdgeAPI {
 
         if let token = await tokenProvider() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        // US-670: scope edge operations to the active workspace. Omitted when
+        // personal (the edge workspace middleware defaults the tenant to the
+        // caller); when set, the middleware validates the caller's membership
+        // before honoring it.
+        if let workspaceOwner = WorkspaceScope.activeOwnerId {
+            request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
         }
 
         if let body, !(body is Empty) {

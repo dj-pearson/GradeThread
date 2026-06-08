@@ -62,6 +62,8 @@ public struct InventoryFilterCriteria: Codable, Equatable, Hashable {
     public var brands: Set<String> = []
     public var sizes: Set<String> = []
     public var colors: Set<String> = []
+    /// US-676: storage location / bin multi-select.
+    public var locationBins: Set<String> = []
 
     /// Only items carrying a certified grade.
     public var gradedOnly: Bool = false
@@ -92,6 +94,7 @@ public struct InventoryFilterCriteria: Codable, Equatable, Hashable {
         if !brands.isEmpty { n += 1 }
         if !sizes.isEmpty { n += 1 }
         if !colors.isEmpty { n += 1 }
+        if !locationBins.isEmpty { n += 1 }
         if gradedOnly || minGrade != nil { n += 1 }
         if minPrice != nil || maxPrice != nil { n += 1 }
         if photoState != .any { n += 1 }

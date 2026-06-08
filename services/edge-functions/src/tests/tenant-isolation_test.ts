@@ -17,6 +17,8 @@
 //   TEST_USER_A_SUBMISSION_ID   a flipdesk_grading_submissions.id
 //   TEST_USER_A_LISTING_ID      a listings.id
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
+//   TEST_USER_A_TEMPLATE_ID     a listing_templates.id (US-674)
+//   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
 //   TEST_USER_A_ITEM_ID         an inventory_items.id (AutoLister, US-324)
 //   TEST_USER_A_BATCH_ID        a listing_generation_batches.id (AutoLister)
 // For the AutoLister batch-enqueue test, user B should ideally be on a plan
@@ -108,6 +110,55 @@ Deno.test({
       !ids.includes(aId),
       `B's suggestions leaked A's suggestion ${aId}`,
     );
+  },
+});
+
+Deno.test({
+  // US-674: listing templates CRUD is scoped by user_id. B must not be able to
+  // overwrite or delete A's template; the PUT/DELETE are scoped, so they hit
+  // 0 rows and return 404 (never confirming the row exists).
+  name: "B cannot update or delete A's listing template",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_TEMPLATE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_TEMPLATE_ID")!;
+    const put = await fetch(`${BASE}/api/flipdesk/templates/${id}`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ name: "pwned" }),
+    });
+    await put.body?.cancel();
+    assertDenied(put.status, "PUT listing template");
+
+    const del = await fetch(`${BASE}/api/flipdesk/templates/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertDenied(del.status, "DELETE listing template");
+  },
+});
+
+Deno.test({
+  // US-672: repricing rules CRUD is scoped by user_id. B's PUT/DELETE on A's
+  // rule are scoped, so they hit 0 rows and return 404.
+  name: "B cannot update or delete A's repricing rule",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_RULE_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_RULE_ID")!;
+    const put = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ name: "pwned", drop_pct: 50 }),
+    });
+    await put.body?.cancel();
+    assertDenied(put.status, "PUT repricing rule");
+
+    const del = await fetch(`${BASE}/api/flipdesk/pricing/rules/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await del.body?.cancel();
+    assertDenied(del.status, "DELETE repricing rule");
   },
 });
 
@@ -471,5 +522,65 @@ Deno.test({
     const status = res.status;
     await res.body?.cancel();
     assert(status === 401, `unauthenticated suggest-item-match should 401, got ${status}`);
+  },
+});
+
+// US-673: best offers + buyer messages. These act against the CALLER's own
+// eBay account (the token is resolved from the caller's connection), so there's
+// no cross-tenant id to probe — the boundary that matters is that they require
+// authentication (an unauthenticated caller can't read another seller's offers
+// or messages).
+Deno.test({
+  name: "negotiation offers requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/negotiation/offers`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated negotiation/offers should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "respond-to-best-offer requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/negotiation/offers/abc123/respond`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: "1", action: "Decline" }),
+      },
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated respond should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "buyer messages inbox requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/messages`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated messages should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "message reply requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/messages/m1/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: "1", recipient_id: "buyer", body: "hi" }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated reply should 401, got ${status}`);
   },
 });

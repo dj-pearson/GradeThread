@@ -17,6 +17,9 @@ struct GradeReportView: View {
 
     private var defects: [GradeDefect] { report.defectsFound ?? [] }
 
+    /// US-655: glow/border intensity respects Reduce Transparency.
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -47,11 +50,12 @@ struct GradeReportView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let title, !title.isEmpty {
                     Text(title)
-                        .font(.headline)
+                        // US-654: certificate/report title uses the Outfit display face.
+                        .font(.brandHeadline)
                         .lineLimit(2)
                 }
                 Text(report.gradeTier)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.brandSubhead)
                     .foregroundStyle(GradeScale.color(for: report.overallScore))
                 Text("Certified condition grade")
                     .font(.caption)
@@ -61,8 +65,22 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
+        // US-655: tier-tinted border + glow on the report hero, strongest for a
+        // pristine grade. Suppressed under Reduce Transparency.
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(
+                    GradeScale.color(for: report.overallScore)
+                        .opacity(report.overallScore >= 9.5 ? 0.5 : 0.15),
+                    lineWidth: 1
+                )
+        )
+        .shadow(
+            color: GradeScale.color(for: report.overallScore)
+                .opacity(reduceTransparency ? 0 : (report.overallScore >= 9.5 ? 0.28 : 0.08)),
+            radius: 14, y: 4
+        )
     }
 
     private var photoStrip: some View {
@@ -72,19 +90,11 @@ struct GradeReportView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(photoURLs, id: \.self) { url in
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image.resizable().scaledToFill()
-                            case .empty:
-                                ZStack { Color.secondary.opacity(0.1); ProgressView() }
-                            case .failure:
-                                ZStack {
-                                    Color.secondary.opacity(0.1)
-                                    Image(systemName: "photo").foregroundStyle(.secondary)
-                                }
-                            @unknown default:
+                        // US-635: cached + downsampled to the 92pt strip cell.
+                        CachedThumbnail(url: url, maxDimension: 92) {
+                            ZStack {
                                 Color.secondary.opacity(0.1)
+                                Image(systemName: "photo").foregroundStyle(.secondary)
                             }
                         }
                         .frame(width: 92, height: 92)
@@ -95,8 +105,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var defectsCard: some View {
@@ -129,8 +138,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func severityColor(_ severity: String) -> Color {
@@ -151,8 +159,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func factorRow(_ factor: GradeFactor) -> some View {
@@ -194,8 +201,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private var confidenceCard: some View {
@@ -216,8 +222,7 @@ struct GradeReportView: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func shareCertificate(_ url: URL) -> some View {

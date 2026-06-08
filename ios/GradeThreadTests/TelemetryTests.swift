@@ -71,4 +71,36 @@ final class TelemetryTests: XCTestCase {
         // expired at app launch.
         Telemetry.clearUser()
     }
+
+    // MARK: - TelemetryScrubber (US-662)
+
+    func test_scrubber_redactsEmail() {
+        let out = TelemetryScrubber.redact("login failed for seller@example.com retrying")
+        XCTAssertFalse(out.contains("seller@example.com"))
+        XCTAssertTrue(out.contains("[redacted-email]"))
+    }
+
+    func test_scrubber_redactsBearerToken() {
+        let out = TelemetryScrubber.redact("Authorization: Bearer eyJhbGciOiJIUzI1Ni012345.abc-DEF")
+        XCTAssertFalse(out.contains("eyJhbGci"))
+        XCTAssertTrue(out.contains("Bearer [redacted]"))
+    }
+
+    func test_scrubber_redactsApiKeyAndTokens() {
+        let out = TelemetryScrubber.redact("apikey=supersecret123 access_token: tok_abc-123")
+        XCTAssertFalse(out.contains("supersecret123"))
+        XCTAssertFalse(out.contains("tok_abc-123"))
+        XCTAssertTrue(out.contains("[redacted]"))
+    }
+
+    func test_scrubber_redactsStorageURL() {
+        let out = TelemetryScrubber.redact("fetch https://api.gradethread.com/storage/v1/object/sign/x?token=abc failed")
+        XCTAssertFalse(out.contains("token=abc"))
+        XCTAssertTrue(out.contains("[redacted-storage-url]"))
+    }
+
+    func test_scrubber_leavesCleanTextUntouched() {
+        let input = "sync merged 42 rows in 1.2s"
+        XCTAssertEqual(TelemetryScrubber.redact(input), input)
+    }
 }

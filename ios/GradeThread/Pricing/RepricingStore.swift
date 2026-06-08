@@ -94,7 +94,7 @@ final class RepricingStore {
 
     /// Counts per reason, for the header summary chips. Ordered
     /// underpriced → overpriced → stale → other for stable display.
-    static func summary(_ suggestions: [RepricingSuggestion]) -> [RepricingReasonCount] {
+    nonisolated static func summary(_ suggestions: [RepricingSuggestion]) -> [RepricingReasonCount] {
         let counts = Dictionary(grouping: suggestions, by: \.reason).mapValues(\.count)
         let order: [RepricingReason] = [.underpriced, .overpriced, .stale, .other]
         return order.compactMap { reason in

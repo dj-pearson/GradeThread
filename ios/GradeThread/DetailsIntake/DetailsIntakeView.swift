@@ -15,10 +15,34 @@ struct DetailsIntakeView: View {
 
     @State private var form = IntakeFormState()
     @State private var sourceStore: SourceStore?
+
+    /// US-651: explicit field order so the keyboard 'Next' key walks the form
+    /// top-to-bottom instead of dismissing after each field.
+    private enum Field: Hashable {
+        case title, sku, brand, style, size, color, material, container, sourcedBy, purchasePrice
+    }
+    @FocusState private var focusedField: Field?
     @State private var showingAddSourceSheet = false
     @State private var isSaving = false
     @State private var bannerMessage: BannerMessage?
+    /// US-646: a recoverable draft from a prior (background-killed) session.
+    @State private var pendingDraft: IntakeDraftStore.Draft?
     private let currencyFormatter = CurrencyFormatter()
+
+    /// Drives the resume alert off `pendingDraft`.
+    private var showingDraftResumeBinding: Binding<Bool> {
+        Binding(get: { pendingDraft != nil }, set: { if !$0 { pendingDraft = nil } })
+    }
+
+    /// Concatenation of every form field — `.onChange` on this triggers an
+    /// autosave whenever anything the user can edit changes.
+    private var draftSignature: String {
+        [form.title, form.sku, form.brand, form.style, form.size, form.color,
+         form.material, form.category.rawValue, form.status.rawValue,
+         form.sourceId ?? "", form.container, form.sourcedBy,
+         form.purchasePriceText, form.notes,
+         ISO8601DateFormatter().string(from: form.purchaseDate)].joined(separator: "\u{1F}")
+    }
 
     // Voice + barcode shortcuts (US-179)
     @State private var dictation = SpeechDictation()
@@ -63,6 +87,27 @@ struct DetailsIntakeView: View {
             if let userId = currentUserId() {
                 await sourceStore?.refresh(userId: userId)
             }
+            // US-646: offer to resume an unsaved draft from a prior session.
+            if !form.canSubmit, let draft = IntakeDraftStore.load() {
+                pendingDraft = draft
+            }
+        }
+        // US-646: autosave the form as the user types so a background-kill
+        // doesn't lose work. Cleared on successful save / discard.
+        .onChange(of: draftSignature) { _, _ in
+            IntakeDraftStore.save(form)
+        }
+        .alert("Resume your unsaved item?", isPresented: showingDraftResumeBinding, presenting: pendingDraft) { draft in
+            Button("Resume") {
+                IntakeDraftStore.apply(draft, to: form)
+                pendingDraft = nil
+            }
+            Button("Discard", role: .destructive) {
+                IntakeDraftStore.clear()
+                pendingDraft = nil
+            }
+        } message: { draft in
+            Text("You have an unsaved \(draft.title.isEmpty ? "item" : "\"\(draft.title)\"") from \(draft.savedAt.formatted(.relative(presentation: .named))).")
         }
         .sheet(isPresented: $showingAddSourceSheet) {
             if let store = sourceStore, let userId = currentUserId() {
@@ -114,11 +159,17 @@ struct DetailsIntakeView: View {
         Section("Item") {
             TextField("Title", text: $form.title)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .title)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .sku }
 
             HStack {
                 TextField("SKU", text: $form.sku)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                    .focused($focusedField, equals: .sku)
+                    .submitLabel(.next)
+                    .onSubmit { focusedField = .brand }
                 Button {
                     AppRouter.haptic()
                     showingBarcodeScanner = true
@@ -133,21 +184,36 @@ struct DetailsIntakeView: View {
 
             TextField("Brand", text: $form.brand)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .brand)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .style }
 
             TextField("Style", text: $form.style)
                 .textInputAutocapitalization(.sentences)
+                .focused($focusedField, equals: .style)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .size }
 
             TextField("Size", text: $form.size)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .size)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .color }
 
             TextField("Color", text: $form.color)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .color)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .material }
 
             TextField("Material", text: $form.material)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .material)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .container }
 
             Picker("Category", selection: $form.category) {
                 ForEach(FlipdeskCategory.allCases) { c in
@@ -170,9 +236,15 @@ struct DetailsIntakeView: View {
             TextField("Container", text: $form.container)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
+                .focused($focusedField, equals: .container)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .sourcedBy }
 
             TextField("Sourced by", text: $form.sourcedBy)
                 .textInputAutocapitalization(.words)
+                .focused($focusedField, equals: .sourcedBy)
+                .submitLabel(.next)
+                .onSubmit { focusedField = .purchasePrice }
 
             DatePicker(
                 "Purchase date",
@@ -183,8 +255,13 @@ struct DetailsIntakeView: View {
             HStack {
                 Text(currencyFormatter.symbol)
                     .foregroundStyle(.secondary)
+                // decimalPad has no Return key, so this is the end of the
+                // keyboard-driven traversal; .done dismisses.
                 TextField("Purchase price", text: $form.purchasePriceText)
                     .keyboardType(.decimalPad)
+                    .focused($focusedField, equals: .purchasePrice)
+                    .submitLabel(.done)
+                    .onSubmit { focusedField = nil }
             }
         }
     }
@@ -308,10 +385,11 @@ struct DetailsIntakeView: View {
     }
 
     private func bannerColor(for kind: BannerMessage.Kind) -> Color {
+        // US-653: brand tokens instead of system semantic colors.
         switch kind {
-        case .success: return .green
-        case .offline: return .orange
-        case .failure: return .red
+        case .success: return .brandEmerald
+        case .offline: return .brandAmber
+        case .failure: return .brandRed
         }
     }
 
@@ -329,7 +407,11 @@ struct DetailsIntakeView: View {
         isSaving = true
         defer { isSaving = false }
 
-        let payload = buildInsertPayload(userId: userId)
+        // US-670: write into the active workspace (member with listing_manager+
+        // can insert under the owner's user_id; RLS enforces the role). Falls
+        // back to self in the personal workspace.
+        let ownerId = WorkspaceScope.tenantOwnerId(selfId: userId)
+        let payload = buildInsertPayload(userId: ownerId)
         do {
             try await SupabaseShared.client
                 .from("inventory_items")
@@ -354,6 +436,8 @@ struct DetailsIntakeView: View {
     }
 
     private func handleSavedSuccessfully(outcome: SaveOutcome) {
+        // US-646: the work is committed (or queued) — drop the recovery draft.
+        IntakeDraftStore.clear()
         bannerMessage = BannerMessage(kind: .success, text: "Saved.")
         HapticFeedback.success()
         Telemetry.event(TelemetryEvent.intakeCompleted, props: [
@@ -370,6 +454,8 @@ struct DetailsIntakeView: View {
     }
 
     private func handleSavedOffline(outcome: SaveOutcome) {
+        // US-646: the item is durably queued (US-640) — drop the recovery draft.
+        IntakeDraftStore.clear()
         bannerMessage = BannerMessage(
             kind: .offline,
             text: "Saved offline — will sync when you reconnect."
@@ -403,11 +489,19 @@ struct DetailsIntakeView: View {
     }
 
     private func enqueueOfflineMutation(payload: ItemInsertPayload) {
-        guard let data = try? JSONEncoder().encode(payload) else { return }
+        // Inject a client-generated id so the SyncEngine replay can UPSERT
+        // (US-640) — a retry after a partial success then updates the same row
+        // instead of creating a duplicate. `targetId` mirrors the id so the
+        // pending-changes inspector (US-641) can name the row.
+        guard let base = try? JSONEncoder().encode(payload),
+              var dict = (try? JSONSerialization.jsonObject(with: base)) as? [String: Any] else { return }
+        let id = UUID().uuidString
+        dict["id"] = id
+        guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         let mutation = LocalPendingMutation(
             kind: .createInventoryItem,
             payload: data,
-            targetId: nil
+            targetId: id
         )
         modelContext.insert(mutation)
         try? modelContext.save()

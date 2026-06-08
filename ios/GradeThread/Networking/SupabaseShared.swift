@@ -18,11 +18,24 @@ import Supabase
 /// Auth, database (PostgREST), and storage handles are reached through this
 /// single client per supabase-swift's design.
 public enum SupabaseShared {
-    /// OAuth redirect target matched by ``Info.plist``'s `CFBundleURLTypes`
-    /// entry. The SDK launches `ASWebAuthenticationSession` and waits for
-    /// the browser to bounce back to this URL, which iOS then delivers to
-    /// the app via the registered URL scheme.
-    public static let redirectURL = URL(string: "com.gradethread.app://auth-callback")!
+    /// Legacy custom-scheme OAuth redirect (matched by ``Info.plist``'s
+    /// `CFBundleURLTypes`). Used only on iOS < 17.4. A custom scheme is
+    /// claimable by any installed app, so US-661 moves the sensitive callbacks
+    /// to a Universal Link on 17.4+.
+    public static let customSchemeRedirectURL = URL(string: "com.gradethread.app://auth-callback")!
+
+    /// US-661: https Universal Link the app owns via associated-domains
+    /// (`applinks:gradethread.com`, AASA path `/app/auth-callback`). Bound to
+    /// our Apple Team ID, so no other app can intercept the auth callback. Must
+    /// also be present in GoTrue's `additional_redirect_urls` (supabase/config.toml).
+    public static let universalLinkRedirectURL = URL(string: "https://gradethread.com/app/auth-callback")!
+
+    /// The redirect target for the current OS — Universal Link on 17.4+,
+    /// custom scheme below.
+    public static var redirectURL: URL {
+        if #available(iOS 17.4, *) { return universalLinkRedirectURL }
+        return customSchemeRedirectURL
+    }
 
     public static let client: SupabaseClient = {
         SupabaseClient(

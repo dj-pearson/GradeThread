@@ -93,8 +93,7 @@ struct PublishDialog: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func summaryCard(_ summary: PublishSummary) -> some View {
@@ -122,10 +121,9 @@ struct PublishDialog: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(8)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func blockersCard(_ blockers: [String]) -> some View {
@@ -144,10 +142,9 @@ struct PublishDialog: View {
                 .font(.subheadline.weight(.semibold))
                 .padding(.top, 4)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func successCard(_ response: PushResponse) -> some View {
@@ -192,8 +189,7 @@ struct PublishDialog: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func failureCard(message: String) -> some View {
@@ -229,8 +225,7 @@ struct PublishDialog: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     private func primaryButton(label: String, action: @escaping () -> Void) -> some View {
@@ -347,6 +342,9 @@ private struct ComposerForm: View {
     @State private var aiError: String?
     private let copyService: ListingCopyGenerating = ListingCopyService()
 
+    // US-674: listing templates, selectable to pre-fill the draft.
+    @State private var templateStore = TemplateStore()
+
     private static let titleLimit = 80
 
     init(
@@ -373,6 +371,10 @@ private struct ComposerForm: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 aiCopyButton
+
+                if !templateStore.templates.isEmpty {
+                    templateMenu
+                }
 
                 fieldGroup("Title") {
                     HStack {
@@ -447,10 +449,57 @@ private struct ComposerForm: View {
                 .disabled(trimmedTitle.isEmpty)
                 .padding(.top, 4)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
         }
+        .task { await templateStore.load() }
+    }
+
+    // MARK: - Templates (US-674)
+
+    private var templateMenu: some View {
+        Menu {
+            ForEach(templateStore.templates) { template in
+                Button {
+                    AppRouter.haptic()
+                    apply(template)
+                } label: {
+                    if template.isDefault {
+                        Label(template.name, systemImage: "star.fill")
+                    } else {
+                        Text(template.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.doc")
+                Text("Apply template")
+                    .font(.subheadline.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.brandNavy.opacity(0.12))
+            .foregroundStyle(Color.brandNavy)
+            .clipShape(Capsule())
+        }
+        .accessibilityLabel("Apply a saved listing template")
+    }
+
+    /// Pre-fill the composer from a template: boilerplate is appended to the
+    /// description; condition + note overwrite only when the template sets them.
+    private func apply(_ template: ListingTemplate) {
+        if let boiler = template.descriptionTemplate, !boiler.isEmpty {
+            let base = description.trimmingCharacters(in: .whitespacesAndNewlines)
+            description = base.isEmpty ? boiler : "\(base)\n\n\(boiler)"
+        }
+        if let cond = template.ebayCondition, !cond.isEmpty {
+            condition = EbayCondition.resolve(cond)
+        }
+        if let note = template.conditionDescription, !note.isEmpty {
+            conditionDescription = note
+        }
+        HapticFeedback.success()
     }
 
     @ViewBuilder

@@ -1,39 +1,58 @@
 import Foundation
 import Observation
+import Supabase
 import SwiftData
 
 /// Drives the offline ↔ server reconciliation loop.
 ///
 /// Two phases per pass:
 ///
-/// 1. **Pull** — fetch fresh rows from `items_full` / `listings` / `sales`
-///    via Supabase PostgREST and merge them into the SwiftData store using
-///    ``ConflictPolicy``.
-/// 2. **Flush** — drain `LocalPendingMutation` queue, applying each
-///    mutation against the edge service. Failures bump `retryCount` and
-///    stay queued; transient errors retry on the next pass.
+/// 1. **Pull** — fetch *changed* rows from `inventory_items` / `item_photos` /
+///    `sales` via Supabase PostgREST (incremental, watermark-driven — US-633)
+///    and merge them into the SwiftData store on a background ``SyncMergeActor``
+///    (US-634) using ``ConflictPolicy``.
+/// 2. **Flush** — drain the `LocalPendingMutation` queue, replaying each
+///    mutation against Supabase / Storage (US-640). Confirmed writes are
+///    dequeued; transient failures bump `retryCount` + keep `lastError` so the
+///    pending-changes inspector (US-641) can surface and retry them.
 ///
-/// The engine is an actor so its internal scheduling state never races,
-/// even if the pull and flush triggers fire concurrently (foreground
-/// notification + connectivity-restored at the same instant). UI-visible
-/// status lives on ``SyncStatusStore`` which is `@MainActor`.
+/// The engine is an actor so its internal scheduling state never races, even if
+/// pull and flush triggers fire concurrently. UI-visible status lives on
+/// ``SyncStatusStore`` (`@MainActor`).
 actor SyncEngine {
     private let container: ModelContainer
     private let statusStore: SyncStatusStore
     private let networkMonitor: NetworkMonitor
 
-    /// Userspace tag for log prefixes so production logs are grep-able.
-    private let logPrefix = "[SyncEngine]"
+    /// Background ModelActor that owns the merge context off the main thread.
+    private let mergeActor: SyncMergeActor
+    /// Per-table delta cursors (US-633).
+    private let watermark = SyncWatermark()
 
-    /// Guard rail: a single active pull at a time avoids double-merging
-    /// the same server response when, e.g., a foreground notification
-    /// arrives mid-flush.
+    /// Page size for paginated server reads (US-633) — bounded so we never
+    /// issue a single unbounded fetch of the whole catalog.
+    private static let pageSize = 500
+    /// Hard ceiling on rows pulled in one pass, a safety net against a runaway
+    /// pagination loop.
+    private static let maxRowsPerPass = 50_000
+    /// Stop auto-retrying a mutation after this many failed attempts; it stays
+    /// queued (with `lastError`) for the user to retry/discard via the
+    /// inspector (US-641).
+    private static let maxRetries = 6
+
     private var isPulling = false
     private var isFlushing = false
-
-    /// Background task watching connectivity. Started in `start()`,
-    /// cancelled in `stop()`.
     private var connectivityTask: Task<Void, Never>?
+
+    /// Last pull's error, if any — surfaced to pull-to-refresh (US-643) so the
+    /// spinner can show a transient failure instead of silently succeeding.
+    private var lastPullError: String?
+
+    /// Result of a foreground/refresh ``sync()``.
+    enum SyncOutcome: Sendable {
+        case ok
+        case failed(String)
+    }
 
     init(
         container: ModelContainer,
@@ -43,14 +62,13 @@ actor SyncEngine {
         self.container = container
         self.statusStore = statusStore
         self.networkMonitor = networkMonitor
+        self.mergeActor = SyncMergeActor(modelContainer: container)
     }
 
     // MARK: - Lifecycle
 
     func start() {
         guard connectivityTask == nil else { return }
-        // Capture the @MainActor observables as locals so the Task closure
-        // doesn't have to hop into the actor's isolation just to read them.
         let monitor = networkMonitor
         let status = statusStore
         connectivityTask = Task { [weak self] in
@@ -73,19 +91,26 @@ actor SyncEngine {
     }
 
     /// Foreground entrypoint — also called when the user pulls-to-refresh.
-    func sync() async {
+    /// Returns the pull outcome so pull-to-refresh (US-643) can surface a
+    /// transient failure; the result is discardable for fire-and-forget callers.
+    @discardableResult
+    func sync() async -> SyncOutcome {
         await pull()
         await flushPending()
         await refreshPendingCount()
+        if let lastPullError { return .failed(lastPullError) }
+        return .ok
     }
 
-    // MARK: - Pull
+    /// Reset the delta cursors so the next pull is a full backfill. Called on
+    /// sign-out (US-633) so the next account doesn't inherit this user's
+    /// watermark.
+    func resetWatermarks() {
+        watermark.resetAll()
+    }
 
-    /// Fetches the current user's inventory_items + their primary photos
-    /// from Supabase and merges into the local SwiftData cache via
-    /// ``ConflictPolicy``. Pulled fields are the subset the inventory
-    /// list (US-180) needs to render; listing + sale data joins land in
-    /// US-184.
+    // MARK: - Pull (incremental)
+
     func pull() async {
         guard !isPulling else { return }
         isPulling = true
@@ -93,34 +118,42 @@ actor SyncEngine {
 
         await statusStore.set(.syncing)
 
-        let result = await pullRemote()
-        switch result {
+        switch await pullRemote() {
         case .success(let payload):
-            await merge(payload: payload)
+            // Merge on the background actor (US-634) — never blocks the UI.
+            await mergeActor.mergeItems(payload.items, primaryPhotos: payload.primaryPhotos)
+            await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
+            await mergeActor.mergeSales(payload.sales)
+
+            // Advance watermarks ONLY after a successful merge (US-633) so a
+            // dropped pass re-fetches the missed rows next time.
+            watermark.advance(.inventoryItems, to: payload.items.map(\.updated_at).max())
+            watermark.advance(.itemPhotos, to: payload.photos.map(\.created_at).max())
+            watermark.advance(.sales, to: payload.sales.map(\.created_at).max())
+            lastPullError = nil
         case .failure(let error):
-            // Don't propagate — connection errors are expected on the
-            // road. The status banner will flip to .offline via the
-            // NetworkMonitor stream when path-unsatisfied; for other
-            // failures we just log and try again next pass.
-            print("[SyncEngine] pull failed: \(error.localizedDescription)")
+            // Connection errors are expected on the road; the banner flips to
+            // .offline via NetworkMonitor. Log only in debug + record for the
+            // pull-to-refresh failure surface (US-643).
+            lastPullError = error.localizedDescription
+            logError("pull failed: \(error.localizedDescription)")
         }
 
         await refreshPendingCount()
         let pending = await pendingMutationCount()
         await statusStore.set(pending > 0 ? .pending : .idle)
 
-        // US-190: republish the widget rollup off the freshly-merged
-        // cache so the home-screen widget tracks the latest sync.
+        // US-190 / US-637: republish the widget rollup — diffed + throttled so
+        // an unchanged sync doesn't reload the timeline.
         await publishWidgetSnapshot()
     }
 
-    /// Recomputes + writes the home-screen widget snapshot from the
-    /// current local cache (US-190). Best-effort — a write failure (no
-    /// App Group container) is silently ignored inside the publisher.
+    /// Recomputes the widget snapshot off the main thread (``SyncMergeActor``)
+    /// then publishes only when the numbers changed (US-637).
     private func publishWidgetSnapshot() async {
-        let container = self.container
+        let snapshot = await mergeActor.widgetSnapshot(isSignedIn: true)
         await MainActor.run {
-            WidgetSnapshotPublisher.publish(container: container, isSignedIn: true)
+            WidgetSnapshotPublisher.publishIfChanged(snapshot)
         }
     }
 
@@ -128,32 +161,27 @@ actor SyncEngine {
 
     private struct PullPayload {
         let items: [RemoteInventoryItem]
-        /// Every photo for every item in `items`, sorted by sort_order
-        /// ascending. Merged into `LocalItemPhoto` so the item canvas
-        /// can render the full strip; the inventory list's primary
-        /// thumbnail derives from the first entry per item.
         let photos: [RemoteItemPhoto]
-
-        /// The user's sales, merged into `LocalSale` — the Money tab + the
-        /// dashboard's "sold this week" read these from the local cache.
         let sales: [RemoteSaleRow]
+        /// True when the photo pull was a full backfill (no watermark) — only
+        /// then may the merge prune locals not present in the response.
+        let isFullPhotoSync: Bool
 
-        /// Map of inventoryItemId → first photo (sort_order ascending).
+        /// Map of inventoryItemId → first photo (sort_order ascending). In
+        /// delta mode this only covers items whose photos changed this pass.
         var primaryPhotos: [String: RemoteItemPhoto] {
             var out: [String: RemoteItemPhoto] = [:]
-            for photo in photos where out[photo.inventory_item_id] == nil {
+            for photo in photos.sorted(by: { $0.sort_order < $1.sort_order })
+            where out[photo.inventory_item_id] == nil {
                 out[photo.inventory_item_id] = photo
             }
             return out
         }
     }
 
-    /// Wire-shape `inventory_items` row. Subset of columns the iOS app
-    /// reads today — extend cautiously, every column is an extra byte
-    /// per row over the wire. Non-private so US-198's RealtimeService can
-    /// feed it back through `applyServerWins` when a postgres-change
-    /// notification arrives.
-    struct RemoteInventoryItem: Decodable {
+    /// Wire-shape `inventory_items` row. Non-private so ``SyncMergeActor`` +
+    /// ``RealtimeService`` can feed it through the same merge path.
+    struct RemoteInventoryItem: Decodable, Sendable {
         let id: String
         let user_id: String
         let title: String
@@ -163,6 +191,10 @@ actor SyncEngine {
         let color: String?
         let material: String?
         let status: String
+        let source_id: String?
+        let location_bin: String?
+        let consignor_id: String?
+        let consignment_split_pct: Double?
         let target_price: Double?
         let acquired_price: Double?
         let grade_value: Double?
@@ -175,6 +207,8 @@ actor SyncEngine {
 
         private enum CodingKeys: String, CodingKey {
             case id, user_id, title, brand, sku, size, color, material, status
+            case source_id
+            case location_bin, consignor_id, consignment_split_pct
             case target_price, acquired_price, grade_value, grade_label
             case certificate_url, condition_notes, measurements, created_at, updated_at
         }
@@ -190,6 +224,10 @@ actor SyncEngine {
             color = try c.decodeIfPresent(String.self, forKey: .color)
             material = try c.decodeIfPresent(String.self, forKey: .material)
             status = try c.decode(String.self, forKey: .status)
+            source_id = try c.decodeIfPresent(String.self, forKey: .source_id)
+            location_bin = try c.decodeIfPresent(String.self, forKey: .location_bin)
+            consignor_id = try c.decodeIfPresent(String.self, forKey: .consignor_id)
+            consignment_split_pct = try c.decodeIfPresent(Double.self, forKey: .consignment_split_pct)
             target_price = try c.decodeIfPresent(Double.self, forKey: .target_price)
             acquired_price = try c.decodeIfPresent(Double.self, forKey: .acquired_price)
             grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
@@ -198,23 +236,14 @@ actor SyncEngine {
             condition_notes = try c.decodeIfPresent(String.self, forKey: .condition_notes)
             created_at = try c.decode(String.self, forKey: .created_at)
             updated_at = try c.decode(String.self, forKey: .updated_at)
-            // `measurements` is a free-form jsonb column. Some rows store
-            // values as strings ("20.5") instead of numbers, and a strict
-            // [String: Double] decode throws on those. Because the whole
-            // result array decodes in one shot, a SINGLE such row silently
-            // blanked the ENTIRE inventory list on device. Decode leniently:
-            // keep numbers and numeric strings, drop anything else, never throw.
+            // Lenient measurements decode — one odd row must never blank the
+            // whole inventory list.
             measurements = Self.decodeLenientMeasurements(from: c)
         }
 
-        /// Non-throwing measurements decode. Returns nil when the key is
-        /// absent/null or the value isn't an object; otherwise a map of only
-        /// the numerically-coercible entries.
         private static func decodeLenientMeasurements(
             from c: KeyedDecodingContainer<CodingKeys>
         ) -> [String: Double]? {
-            // `try?` flattens decodeIfPresent's optional, so absent/null/odd
-            // shapes all funnel to nil here — never a throw.
             guard let raw = try? c.decodeIfPresent(
                 [String: MeasurementScalar].self, forKey: .measurements
             ) else { return nil }
@@ -226,10 +255,7 @@ actor SyncEngine {
         }
     }
 
-    /// Tolerant scalar for the free-form `measurements` jsonb. Accepts a JSON
-    /// number or a numeric string ("20.5"); treats anything else — nested
-    /// object, array, bool, non-numeric string — as "no value" rather than
-    /// throwing, so one odd row can't break the whole inventory decode.
+    /// Tolerant scalar for the free-form `measurements` jsonb.
     private enum MeasurementScalar: Decodable {
         case number(Double)
         case string(String)
@@ -251,7 +277,7 @@ actor SyncEngine {
         }
     }
 
-    struct RemoteItemPhoto: Decodable {
+    struct RemoteItemPhoto: Decodable, Sendable {
         let id: String
         let inventory_item_id: String
         let photo_type: String
@@ -263,10 +289,9 @@ actor SyncEngine {
         let created_at: String
     }
 
-    /// Wire-shape `sales` row — the minimal proven column set the Money tab
-    /// needs. Decimal columns can arrive as JSON numbers OR numeric strings,
-    /// so money fields decode leniently (same lesson as item measurements).
-    struct RemoteSaleRow: Decodable {
+    /// Wire-shape `sales` row. Money fields decode leniently (numbers OR
+    /// numeric strings).
+    struct RemoteSaleRow: Decodable, Sendable {
         let id: String
         let inventory_item_id: String
         let sale_price: Double
@@ -302,64 +327,93 @@ actor SyncEngine {
 
     private func pullRemote() async -> Result<PullPayload, Error> {
         do {
-            // Decode the rows one-by-one (not as one `[RemoteInventoryItem]`)
-            // so a single malformed row can't abort the whole decode and blank
-            // the entire inventory list. `.value` is all-or-nothing; here we
-            // grab the raw bytes and skip only the bad rows.
-            let response = try await SupabaseShared.client
-                .from("inventory_items")
-                .select(Self.itemColumns)
-                .order("updated_at", ascending: false)
-                .execute()
-            let items = Self.decodeItemsResiliently(response.data)
+            // US-670: scope the pull to the active workspace owner. Additive
+            // workspace-member RLS (00042) returns the OWNER's rows to a member,
+            // so without this filter a member's cache would mix every workspace
+            // they belong to. Resolve once: the selected workspace, else self.
+            let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
+            let ownerId = WorkspaceScope.activeOwnerId ?? selfId
 
-            // Without items we don't need the photo fetch — short circuit
-            // so a brand-new account doesn't spend a round trip.
-            guard !items.isEmpty else {
-                return .success(PullPayload(items: [], photos: [], sales: []))
-            }
-            // Photos are BEST-EFFORT: a failure here must NOT blank the
-            // (already-decoded) inventory. RLS scopes `item_photos` to the
-            // caller via parent-item ownership, so we drop the per-id
-            // `in.(…)` filter — with hundreds of items that filter built a
-            // multi-KB URL that could exceed server limits and throw, taking
-            // the whole pull down. `try?` keeps a photos hiccup from doing so.
-            let photos: [RemoteItemPhoto]
-            if let photoResponse = try? await SupabaseShared.client
-                .from("item_photos")
-                .select(Self.photoColumns)
-                .order("sort_order", ascending: true)
-                .execute() {
-                photos = Self.decodePhotosResiliently(photoResponse.data)
-            } else {
-                photos = []
-            }
+            // Items — delta on updated_at, paginated (US-633).
+            let items = try await paginatedFetch(
+                table: "inventory_items",
+                columns: Self.itemColumns,
+                cursor: SyncWatermark.Table.inventoryItems.cursorColumn,
+                watermark: watermark.value(for: .inventoryItems),
+                scopeUserId: ownerId,
+                decode: Self.decodeItemsResiliently
+            )
 
-            // Sales — also best-effort + RLS-scoped (no per-id filter). Feeds
-            // LocalSale, which the Money tab + "sold this week" read.
-            let sales: [RemoteSaleRow]
-            if let salesResponse = try? await SupabaseShared.client
-                .from("sales")
-                .select(Self.saleColumns)
-                .order("sale_date", ascending: false)
-                .execute() {
-                sales = Self.decodeSalesResiliently(salesResponse.data)
-            } else {
-                sales = []
-            }
+            // Photos + sales are BEST-EFFORT (a failure must not blank the
+            // already-decoded inventory) and are themselves delta-scoped, so we
+            // no longer short-circuit on an empty items delta — photos/sales can
+            // change without an item change.
+            let photoWatermark = watermark.value(for: .itemPhotos)
+            let isFullPhotoSync = (photoWatermark == nil)
+            let photos = (try? await paginatedFetch(
+                table: "item_photos",
+                columns: Self.photoColumns,
+                cursor: SyncWatermark.Table.itemPhotos.cursorColumn,
+                watermark: photoWatermark,
+                decode: Self.decodePhotosResiliently
+            )) ?? []
 
-            return .success(PullPayload(items: items, photos: photos, sales: sales))
+            let sales = (try? await paginatedFetch(
+                table: "sales",
+                columns: Self.saleColumns,
+                cursor: SyncWatermark.Table.sales.cursorColumn,
+                watermark: watermark.value(for: .sales),
+                scopeUserId: ownerId,
+                decode: Self.decodeSalesResiliently
+            )) ?? []
+
+            return .success(PullPayload(
+                items: items, photos: photos, sales: sales, isFullPhotoSync: isFullPhotoSync
+            ))
         } catch {
             return .failure(error)
         }
     }
 
-    // Single-line, no embedded whitespace/newlines: PostgREST's `select`
-    // parser does not trim column names, so a multi-line string sent column
-    // names like "\n    brand" → 400 → the whole pull failed silently and
-    // blanked the inventory list.
+    /// Paginated, watermark-filtered fetch. Loops `range()` pages until a page
+    /// comes back short of `pageSize` (drained), advancing by raw row count so
+    /// a resilient decode that drops a bad row can't stop pagination early.
+    private func paginatedFetch<T>(
+        table: String,
+        columns: String,
+        cursor: String,
+        watermark: String?,
+        scopeUserId: String? = nil,
+        decode: (Data) -> [T]
+    ) async throws -> [T] {
+        var out: [T] = []
+        var offset = 0
+        while true {
+            var query = SupabaseShared.client.from(table).select(columns)
+            // US-670: workspace scoping for tables with a user_id column.
+            if let scopeUserId { query = query.eq("user_id", value: scopeUserId) }
+            if let watermark { query = query.gt(cursor, value: watermark) }
+            let response = try await query
+                .order(cursor, ascending: true)
+                .range(from: offset, to: offset + Self.pageSize - 1)
+                .execute()
+            out.append(contentsOf: decode(response.data))
+            let rawCount = Self.jsonArrayCount(response.data)
+            if rawCount < Self.pageSize { break }
+            offset += Self.pageSize
+            if offset >= Self.maxRowsPerPass { break }
+        }
+        return out
+    }
+
+    /// Count of elements in a top-level JSON array, used to decide when a page
+    /// is drained independent of how many rows decoded cleanly.
+    private static func jsonArrayCount(_ data: Data) -> Int {
+        ((try? JSONSerialization.jsonObject(with: data)) as? [Any])?.count ?? 0
+    }
+
     private static let itemColumns =
-        "id,user_id,title,brand,sku,size,color,material,status,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        "id,user_id,title,brand,sku,size,color,material,status,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
@@ -367,8 +421,7 @@ actor SyncEngine {
     private static let saleColumns =
         "id,inventory_item_id,sale_price,platform_fees,sale_date,buyer_username,created_at"
 
-    /// Wrapper that decodes to nil instead of throwing, so one malformed
-    /// element can't abort decoding of the whole array.
+    /// Wrapper that decodes to nil instead of throwing.
     private struct Failable<T: Decodable>: Decodable {
         let value: T?
         init(from decoder: Decoder) throws {
@@ -376,10 +429,6 @@ actor SyncEngine {
         }
     }
 
-    /// Decode inventory rows resiliently — drop (and log) any that fail so a
-    /// single bad row never blanks the whole list. PostgREST returns columns
-    /// as snake_case verbatim (no key conversion), which matches
-    /// `RemoteInventoryItem`'s CodingKeys, so a plain `JSONDecoder` is correct.
     static func decodeItemsResiliently(_ data: Data) -> [RemoteInventoryItem] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<RemoteInventoryItem>].self, from: data
@@ -387,15 +436,11 @@ actor SyncEngine {
         let items = rows.compactMap(\.value)
         let dropped = rows.count - items.count
         if dropped > 0 {
-            print("[SyncEngine] skipped \(dropped) undecodable inventory row(s)")
+            logErrorStatic("skipped \(dropped) undecodable inventory row(s)")
         }
         return items
     }
 
-    /// Decode photo rows resiliently — same rationale as items. Previously the
-    /// photos fetch used all-or-nothing `.value`, so a SINGLE row with (e.g.)
-    /// a null `photo_url` threw and aborted the ENTIRE pull — blanking
-    /// inventory as well as photos.
     static func decodePhotosResiliently(_ data: Data) -> [RemoteItemPhoto] {
         guard let rows = try? JSONDecoder().decode(
             [Failable<RemoteItemPhoto>].self, from: data
@@ -410,289 +455,49 @@ actor SyncEngine {
         return rows.compactMap(\.value)
     }
 
-    private func merge(payload: PullPayload) async {
-        let payload = payload  // capture for the @MainActor block below
-        await MainActor.run {
-            let context = ModelContext(self.container)
-            let descriptor = FetchDescriptor<LocalInventoryItem>()
-            let existing = (try? context.fetch(descriptor)) ?? []
-            var existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-
-            let isoFull = ISO8601DateFormatter()
-            isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let isoPlain = ISO8601DateFormatter()
-            func parseDate(_ s: String) -> Date {
-                isoFull.date(from: s) ?? isoPlain.date(from: s) ?? .now
-            }
-
-            let primaryPhotos = payload.primaryPhotos
-            for remote in payload.items {
-                let createdAt = parseDate(remote.created_at)
-                let updatedAt = parseDate(remote.updated_at)
-                let primary = primaryPhotos[remote.id]
-                let primaryURL = primary?.thumbnail_url ?? primary?.photo_url
-
-                if let local = existingById[remote.id] {
-                    self.applyServerWins(to: local, remote: remote)
-                    local.primaryPhotoURL = primaryURL
-                    // updatedAt is server-authoritative; createdAt never
-                    // changes server-side so we don't reassign.
-                    local.updatedAt = updatedAt
-                } else {
-                    let local = LocalInventoryItem(
-                        id: remote.id,
-                        userId: remote.user_id,
-                        title: remote.title,
-                        status: remote.status,
-                        createdAt: createdAt,
-                        updatedAt: updatedAt,
-                        hasLocalChanges: false
-                    )
-                    self.applyServerWins(to: local, remote: remote)
-                    local.primaryPhotoURL = primaryURL
-                    context.insert(local)
-                    existingById[remote.id] = local
-                }
-            }
-
-            self.mergePhotos(payload.photos, context: context, parseDate: parseDate)
-            self.mergeSales(payload.sales, context: context, parseDate: parseDate)
-            try? context.save()
-        }
+    /// Shared ISO-8601 date parse used by the merge actor + realtime path.
+    static func parseDate(_ s: String) -> Date {
+        if let d = isoFull.date(from: s) { return d }
+        if let d = isoPlain.date(from: s) { return d }
+        return .now
     }
 
-    /// Upserts the user's sales into `LocalSale`. No pruning — a sale that
-    /// disappears server-side is rare and harmless to keep locally.
-    private nonisolated func mergeSales(
-        _ remoteSales: [RemoteSaleRow],
-        context: ModelContext,
-        parseDate: (String) -> Date
-    ) {
-        let existing = (try? context.fetch(FetchDescriptor<LocalSale>())) ?? []
-        var existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+    private static let isoFull: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
 
-        for remote in remoteSales {
-            if let local = existingById[remote.id] {
-                local.salePrice = remote.sale_price
-                local.platformFees = remote.platform_fees
-                local.saleDate = parseDate(remote.sale_date)
-                local.buyerUsername = remote.buyer_username
-            } else {
-                let local = LocalSale(
-                    id: remote.id,
-                    inventoryItemId: remote.inventory_item_id,
-                    salePrice: remote.sale_price,
-                    saleDate: parseDate(remote.sale_date),
-                    platformFees: remote.platform_fees,
-                    createdAt: remote.created_at.isEmpty ? .now : parseDate(remote.created_at)
-                )
-                local.buyerUsername = remote.buyer_username
-                context.insert(local)
-                existingById[remote.id] = local
-            }
-        }
-    }
+    // MARK: - Realtime (US-198) — reuses the shared background context
 
-    /// Upserts every fetched item_photo into the local cache and prunes
-    /// any local rows whose server-side photo disappeared. The list view
-    /// uses primaryPhotoURL on LocalInventoryItem (cached above) while
-    /// the canvas displays the full strip from this collection.
-    private nonisolated func mergePhotos(
-        _ remotePhotos: [RemoteItemPhoto],
-        context: ModelContext,
-        parseDate: (String) -> Date
-    ) {
-        let descriptor = FetchDescriptor<LocalItemPhoto>()
-        let existing = (try? context.fetch(descriptor)) ?? []
-        var existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
-        let remoteIds = Set(remotePhotos.map(\.id))
-
-        for remote in remotePhotos {
-            if let local = existingById[remote.id] {
-                local.photoType = remote.photo_type
-                local.photoURL = remote.photo_url
-                local.thumbnailURL = remote.thumbnail_url
-                local.storagePath = remote.storage_path
-                local.sortOrder = remote.sort_order
-                local.bytes = remote.bytes
-            } else {
-                let local = LocalItemPhoto(
-                    id: remote.id,
-                    inventoryItemId: remote.inventory_item_id,
-                    photoType: remote.photo_type,
-                    photoURL: remote.photo_url,
-                    sortOrder: remote.sort_order,
-                    createdAt: parseDate(remote.created_at)
-                )
-                local.thumbnailURL = remote.thumbnail_url
-                local.storagePath = remote.storage_path
-                local.bytes = remote.bytes
-                context.insert(local)
-                existingById[remote.id] = local
-            }
-        }
-
-        // Drop locals whose server row has disappeared — keeps the strip
-        // accurate after the user deletes a photo on the web.
-        for stale in existing where !remoteIds.contains(stale.id) {
-            context.delete(stale)
-        }
-    }
-
-    /// Field-level merge that defers to ``ConflictPolicy`` for each
-    /// column. User-owned fields (title/brand/notes/measurements/
-    /// target_price) keep the local edit when hasLocalChanges is set;
-    /// everything else takes the server value.
-    private nonisolated func applyServerWins(
-        to local: LocalInventoryItem,
-        remote: RemoteInventoryItem
-    ) {
-        local.title = ConflictPolicy.resolveUserOwned(
-            local: local.title,
-            server: remote.title,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.brand = ConflictPolicy.resolveUserOwned(
-            local: local.brand,
-            server: remote.brand,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.sku = ConflictPolicy.resolveUserOwned(
-            local: local.sku,
-            server: remote.sku,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.size = ConflictPolicy.resolveUserOwned(
-            local: local.size,
-            server: remote.size,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.color = ConflictPolicy.resolveUserOwned(
-            local: local.color,
-            server: remote.color,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.material = ConflictPolicy.resolveUserOwned(
-            local: local.material,
-            server: remote.material,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.conditionNotes = ConflictPolicy.resolveUserOwned(
-            local: local.conditionNotes,
-            server: remote.condition_notes,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        local.targetPrice = ConflictPolicy.resolveUserOwned(
-            local: local.targetPrice,
-            server: remote.target_price,
-            hasLocalChanges: local.hasLocalChanges
-        )
-        // measurements stored as JSON string on the local side; we
-        // serialize the server payload before assigning so the column
-        // round-trips cleanly.
-        local.measurementsJSON = serializeMeasurements(remote.measurements, fallback: local.measurementsJSON)
-        // Server-owned fields: always take the server value.
-        local.acquiredPrice = remote.acquired_price
-        local.gradeValue = remote.grade_value
-        local.gradeLabel = remote.grade_label
-        local.certificateURL = remote.certificate_url
-        local.status = ConflictPolicy.resolveServerOwned(local: local.status, server: remote.status)
-    }
-
-    private nonisolated func serializeMeasurements(
-        _ remote: [String: Double]?,
-        fallback: String?
-    ) -> String? {
-        guard let remote, !remote.isEmpty else { return fallback }
-        return (try? JSONSerialization.data(withJSONObject: remote))
-            .flatMap { String(data: $0, encoding: .utf8) }
-            ?? fallback
-    }
-
-    // MARK: - Realtime (US-198)
-
-    /// Applies one Postgres-change row from the Realtime channel. The
-    /// JSON shape Supabase ships in the record matches the polled fetch
-    /// shape (`RemoteInventoryItem`), so we re-decode through a single
-    /// path and reuse `applyServerWins` + the ConflictPolicy.
     public func applyRealtimeInventoryUpsert(record: Data) async {
         do {
-            let decoder = JSONDecoder()
-            let remote = try decoder.decode(RemoteInventoryItem.self, from: record)
-            await mergeSingle(remote: remote)
+            let remote = try JSONDecoder().decode(RemoteInventoryItem.self, from: record)
+            await mergeActor.mergeSingleInventory(remote)
         } catch {
-            // Realtime payloads occasionally carry shapes we don't know
-            // (new columns introduced server-side). Logging keeps the
-            // signal but doesn't block subsequent rows.
-            print("[Realtime] inventory upsert decode failed: \(error)")
+            logError("realtime inventory upsert decode failed: \(error)")
         }
     }
 
-    /// Applies a single inventory row, creating or updating as needed.
-    /// Pulls existing photo URL from the cache so the cached
-    /// primaryPhotoURL doesn't get clobbered by the upsert.
-    private func mergeSingle(remote: RemoteInventoryItem) async {
-        await MainActor.run {
-            let context = ModelContext(self.container)
-            let id = remote.id
-            let descriptor = FetchDescriptor<LocalInventoryItem>(
-                predicate: #Predicate { $0.id == id }
-            )
-            let existing = (try? context.fetch(descriptor).first)
-
-            let isoFull = ISO8601DateFormatter()
-            isoFull.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            func parseDate(_ s: String) -> Date {
-                isoFull.date(from: s) ?? ISO8601DateFormatter().date(from: s) ?? .now
-            }
-            let createdAt = parseDate(remote.created_at)
-            let updatedAt = parseDate(remote.updated_at)
-
-            if let local = existing {
-                self.applyServerWins(to: local, remote: remote)
-                local.updatedAt = updatedAt
-            } else {
-                let local = LocalInventoryItem(
-                    id: remote.id,
-                    userId: remote.user_id,
-                    title: remote.title,
-                    status: remote.status,
-                    createdAt: createdAt,
-                    updatedAt: updatedAt,
-                    hasLocalChanges: false
-                )
-                self.applyServerWins(to: local, remote: remote)
-                context.insert(local)
-            }
-            try? context.save()
-        }
-    }
-
-    /// Delete handler for Realtime DELETE events on inventory_items.
-    /// We pass the row id rather than the full record because Supabase's
-    /// delete payload only carries the primary-key columns.
     public func applyRealtimeInventoryDelete(id: String) async {
-        await MainActor.run {
-            let context = ModelContext(self.container)
-            let descriptor = FetchDescriptor<LocalInventoryItem>(
-                predicate: #Predicate { $0.id == id }
-            )
-            if let row = try? context.fetch(descriptor).first {
-                context.delete(row)
-                try? context.save()
-            }
-        }
+        await mergeActor.deleteInventory(id: id)
     }
 
-    // MARK: - Flush
+    // MARK: - Flush (US-640)
 
     func flushPending() async {
         guard !isFlushing else { return }
         isFlushing = true
         defer { isFlushing = false }
 
-        let mutations = await loadPendingMutations()
-        guard !mutations.isEmpty else { return }
+        // Skip mutations that have exhausted their auto-retry budget; they stay
+        // queued for the inspector (US-641).
+        let mutations = await snapshotMutations().filter { $0.retryCount < Self.maxRetries }
+        guard !mutations.isEmpty else {
+            await refreshPendingCount()
+            return
+        }
 
         await statusStore.set(.syncing)
         for mutation in mutations {
@@ -701,55 +506,236 @@ actor SyncEngine {
         await refreshPendingCount()
     }
 
-    /// Concrete mutation handlers will fan out from here per ``MutationKind``.
-    /// For now, every mutation just no-ops and stays queued so the offline
-    /// queue plumbing is observable end-to-end without depending on the
-    /// (yet-to-wire) intake / photo-upload flows.
-    private func apply(_ mutation: LocalPendingMutation) async {
-        guard let kind = mutation.kindEnum else {
-            await markFailed(mutation, error: "unknown mutation kind \(mutation.kind)")
+    /// Replays one queued mutation against the server. On success the mutation
+    /// is dequeued; on a retryable failure `retryCount`/`lastError` advance and
+    /// it stays queued.
+    private func apply(_ mutation: PendingMutationSnapshot) async {
+        guard let kind = MutationKind(rawValue: mutation.kind) else {
+            await markFailed(id: mutation.id, error: "unknown mutation kind \(mutation.kind)")
             return
         }
-        switch kind {
-        case .createInventoryItem,
-             .updateInventoryItem,
-             .deleteInventoryItem,
-             .uploadPhoto,
-             .deletePhoto,
-             .createListing,
-             .createSale:
-            // TODO(US-175 / US-178): wire the EdgeAPI / supabase calls per
-            // kind. Until then we bump retryCount + lastError so the queue
-            // doesn't silently lie about progress.
-            await markFailed(
-                mutation,
-                error: "Mutation handler for \(kind.rawValue) lands in US-175 / US-178."
-            )
+        do {
+            switch kind {
+            case .createInventoryItem:
+                // Upsert (the offline payload carries a client-generated id) so
+                // a retry after a partial success can't create a duplicate.
+                try await replayUpsert(table: "inventory_items", payload: mutation.payload)
+            case .createListing:
+                try await replayInsert(table: "listings", payload: mutation.payload)
+            case .createSale:
+                try await replayInsert(table: "sales", payload: mutation.payload)
+            case .updateInventoryItem:
+                try await replayUpdate(table: "inventory_items", payload: mutation.payload, id: mutation.targetId)
+            case .deleteInventoryItem:
+                try await replayDelete(table: "inventory_items", id: mutation.targetId)
+            case .deletePhoto:
+                try await replayDelete(table: "item_photos", id: mutation.targetId)
+            case .uploadPhoto:
+                try await replayUploadPhoto(payload: mutation.payload)
+            }
+            await deleteMutation(id: mutation.id)  // server-confirmed → dequeue
+        } catch {
+            await markFailed(id: mutation.id, error: error.localizedDescription)
         }
+    }
+
+    // MARK: - Mutation replay handlers
+
+    private func replayInsert(table: String, payload: Data) async throws {
+        let row = try JSONDecoder().decode([String: AnyJSON].self, from: payload)
+        try await SupabaseShared.client.from(table).insert(row).execute()
+    }
+
+    private func replayUpsert(table: String, payload: Data) async throws {
+        let row = try JSONDecoder().decode([String: AnyJSON].self, from: payload)
+        try await SupabaseShared.client.from(table).upsert(row).execute()
+    }
+
+    private func replayUpdate(table: String, payload: Data, id: String?) async throws {
+        guard let id else { throw SyncReplayError.missingTarget }
+        let row = try JSONDecoder().decode([String: AnyJSON].self, from: payload)
+        try await SupabaseShared.client.from(table).update(row).eq("id", value: id).execute()
+    }
+
+    private func replayDelete(table: String, id: String?) async throws {
+        guard let id else { throw SyncReplayError.missingTarget }
+        try await SupabaseShared.client.from(table).delete().eq("id", value: id).execute()
+    }
+
+    /// Replays a queued photo upload: re-uploads the staged JPEG to Storage
+    /// (idempotent via x-upsert) then upserts the `item_photos` row by its
+    /// client-generated id, so a retry never double-inserts.
+    private func replayUploadPhoto(payload: Data) async throws {
+        struct UploadPayload: Decodable {
+            let inventory_item_id: String
+            let user_id: String
+            let slot: String
+            let storage_path: String
+            let local_file_url: String
+            let photo_id: String?
+            // US-289: capture-time + reconcile session carried through the
+            // offline queue so a retried upload doesn't lose them.
+            let captured_at: String?
+            let reconcile_session_id: String?
+        }
+        let p = try JSONDecoder().decode(UploadPayload.self, from: payload)
+        let fileURL = URL(fileURLWithPath: p.local_file_url)
+        guard let data = try? Data(contentsOf: fileURL) else {
+            // The staged bytes are gone — nothing to replay. Terminal.
+            throw SyncReplayError.missingLocalFile
+        }
+        guard let token = await SupabaseShared.currentAccessToken() else {
+            throw SyncReplayError.notSignedIn
+        }
+
+        var request = URLRequest(url: Self.storageObjectURL(path: p.storage_path))
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(AppConfig.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        request.setValue("true", forHTTPHeaderField: "x-upsert")
+        let (_, response) = try await URLSession.shared.upload(for: request, from: data)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw SyncReplayError.storageUpload(status: http.statusCode)
+        }
+
+        let photoType = PhotoSlotType(rawValue: p.slot)?.serverPhotoType ?? p.slot
+        let bytes = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? nil
+        var row: [String: AnyJSON] = [
+            "inventory_item_id": .string(p.inventory_item_id),
+            "photo_type": .string(photoType),
+            "storage_path": .string(p.storage_path),
+            "photo_url": .string(Self.storagePublicURL(path: p.storage_path)),
+            "sort_order": .integer(0),
+            "bytes": .integer(bytes ?? 0),
+        ]
+        if let photoId = p.photo_id { row["id"] = .string(photoId) }
+        // US-289: preserve capture-time + reconcile session through replay.
+        if let capturedAt = p.captured_at { row["captured_at"] = .string(capturedAt) }
+        if let sessionId = p.reconcile_session_id {
+            row["reconcile_session_id"] = .string(sessionId)
+        }
+        try await SupabaseShared.client.from("item_photos").upsert(row).execute()
+
+        // Clean up the staged bytes now that they're durably uploaded.
+        try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    private static let storageBucket = "item-photos"
+
+    private static func storageObjectURL(path: String) -> URL {
+        var c = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
+        c.path = "/storage/v1/object/\(storageBucket)/\(path)"
+        return c.url!
+    }
+
+    private static func storagePublicURL(path: String) -> String {
+        var c = URLComponents(url: AppConfig.supabaseURL, resolvingAgainstBaseURL: false)!
+        c.path = "/storage/v1/object/public/\(storageBucket)/\(path)"
+        return c.url?.absoluteString ?? ""
+    }
+
+    enum SyncReplayError: LocalizedError {
+        case missingTarget
+        case missingLocalFile
+        case notSignedIn
+        case storageUpload(status: Int)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingTarget: return "Missing target row id for this change."
+            case .missingLocalFile: return "The staged photo is no longer available."
+            case .notSignedIn: return "Sign-in expired before this change could sync."
+            case .storageUpload(let status): return "Photo upload failed (HTTP \(status))."
+            }
+        }
+    }
+
+    // MARK: - Pending-changes inspector support (US-641)
+
+    /// Sendable snapshot of a queued mutation for the inspector + flush loop.
+    struct PendingMutationSnapshot: Identifiable, Sendable, Equatable {
+        let id: String
+        let kind: String
+        let payload: Data
+        let targetId: String?
+        let retryCount: Int
+        let lastError: String?
+        let lastAttemptAt: Date?
+        let createdAt: Date
+
+        /// A mutation is "failed" once it has a recorded error; otherwise it's
+        /// queued/in-flight.
+        var isFailed: Bool { lastError != nil }
+    }
+
+    /// Snapshot the full queue for the inspector.
+    func pendingMutations() async -> [PendingMutationSnapshot] {
+        await snapshotMutations()
+    }
+
+    /// Re-attempt a single mutation immediately: clears its error/retry budget
+    /// then applies it.
+    func retryMutation(id: String) async {
+        await MainActor.run {
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
+            if let row = try? context.fetch(descriptor).first {
+                row.lastError = nil
+                row.retryCount = 0
+                try? context.save()
+            }
+        }
+        let snapshot = await snapshotMutations().first { $0.id == id }
+        if let snapshot { await apply(snapshot) }
+        await refreshPendingCount()
+    }
+
+    /// Drop a stuck mutation from the queue (US-641 discard).
+    func discardMutation(id: String) async {
+        await deleteMutation(id: id)
+        await refreshPendingCount()
     }
 
     // MARK: - SwiftData helpers
 
-    /// Snapshot the queue inside a `@MainActor` ModelContext. We don't pass
-    /// PersistentModel instances across the actor boundary — only the
-    /// scalar payloads they hold.
-    private func loadPendingMutations() async -> [LocalPendingMutation] {
+    private func snapshotMutations() async -> [PendingMutationSnapshot] {
         await MainActor.run {
             let context = ModelContext(container)
             let descriptor = FetchDescriptor<LocalPendingMutation>(
                 sortBy: [SortDescriptor(\.createdAt)]
             )
-            return (try? context.fetch(descriptor)) ?? []
+            let rows = (try? context.fetch(descriptor)) ?? []
+            return rows.map {
+                PendingMutationSnapshot(
+                    id: $0.id,
+                    kind: $0.kind,
+                    payload: $0.payload,
+                    targetId: $0.targetId,
+                    retryCount: $0.retryCount,
+                    lastError: $0.lastError,
+                    lastAttemptAt: $0.lastAttemptAt,
+                    createdAt: $0.createdAt
+                )
+            }
         }
     }
 
-    private func markFailed(_ mutation: LocalPendingMutation, error: String) async {
+    private func deleteMutation(id: String) async {
         await MainActor.run {
             let context = ModelContext(container)
-            let id = mutation.id
-            let descriptor = FetchDescriptor<LocalPendingMutation>(
-                predicate: #Predicate { $0.id == id }
-            )
+            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
+            if let row = try? context.fetch(descriptor).first {
+                context.delete(row)
+                try? context.save()
+            }
+        }
+    }
+
+    private func markFailed(id: String, error: String) async {
+        await MainActor.run {
+            let context = ModelContext(container)
+            let descriptor = FetchDescriptor<LocalPendingMutation>(predicate: #Predicate { $0.id == id })
             guard let row = try? context.fetch(descriptor).first else { return }
             row.retryCount += 1
             row.lastError = error
@@ -770,13 +756,23 @@ actor SyncEngine {
         let count = await pendingMutationCount()
         await statusStore.setPendingCount(count)
     }
+
+    // MARK: - Logging
+
+    private func logError(_ message: String) {
+        Self.logErrorStatic(message)
+    }
+
+    fileprivate static func logErrorStatic(_ message: String) {
+        #if DEBUG
+        print("[SyncEngine] \(message)")
+        #endif
+    }
 }
 
 // MARK: - Status store
 
-/// Main-actor observable that backs ``SyncStatusBar``. Kept separate from
-/// the actor-isolated engine so SwiftUI bindings don't have to hop actors
-/// to read state.
+/// Main-actor observable that backs ``SyncStatusBar``.
 @MainActor
 @Observable
 final class SyncStatusStore {
@@ -785,10 +781,6 @@ final class SyncStatusStore {
         case syncing
         case pending
         case offline
-        /// US-198: Supabase Realtime channel is reconnecting after a
-        /// network hiccup. Surfaces a chip so the user knows live
-        /// updates are temporarily paused; switches back to .idle on
-        /// re-subscribe.
         case reconnecting
     }
 
@@ -801,9 +793,6 @@ final class SyncStatusStore {
 
     func setPendingCount(_ count: Int) {
         pendingCount = count
-        // Reconcile derived state: even if a pull just succeeded, surface
-        // the pending banner instead of "idle" so the user knows writes
-        // haven't shipped.
         if phase == .idle, count > 0 {
             phase = .pending
         } else if phase == .pending, count == 0 {

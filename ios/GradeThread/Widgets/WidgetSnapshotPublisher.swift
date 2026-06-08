@@ -29,6 +29,29 @@ enum WidgetSnapshotPublisher {
         WidgetCenter.shared.reloadAllTimelines()
     }
 
+    /// Last time we asked WidgetKit to reload. Coalesces bursts of distinct
+    /// snapshots so a flurry of syncs doesn't hammer the timeline.
+    private static var lastReloadAt: Date = .distantPast
+
+    /// US-637: publish only when the rolled-up numbers actually changed, and
+    /// coalesce the WidgetKit reload. The caller computes `snapshot` off the
+    /// main thread (``SyncMergeActor.widgetSnapshot``); this just diffs against
+    /// the last-written snapshot and reloads at most once per `minReloadInterval`.
+    @MainActor
+    static func publishIfChanged(
+        _ snapshot: WidgetSnapshot,
+        now: Date = .now,
+        minReloadInterval: TimeInterval = 30
+    ) {
+        if let previous = WidgetSnapshotStore.read(), previous.hasSameRollup(as: snapshot) {
+            return  // numbers unchanged → no write, no reload
+        }
+        WidgetSnapshotStore.write(snapshot)
+        guard now.timeIntervalSince(lastReloadAt) >= minReloadInterval else { return }
+        lastReloadAt = now
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
     /// Writes the signed-out placeholder + reloads. Called on sign-out so
     /// the widget stops showing the previous user's numbers immediately.
     @MainActor

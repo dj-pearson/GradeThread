@@ -109,7 +109,9 @@ public final class BackgroundRefreshService {
             // disabled, or BGTaskSchedulerPermittedIdentifiers in
             // Info.plist doesn't match. The latter is a build error so
             // we surface the message to console for debug builds.
+            #if DEBUG
             print("[BGRefresh] submit failed: \(error.localizedDescription)")
+            #endif
         }
     }
 

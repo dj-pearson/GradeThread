@@ -46,7 +46,7 @@ struct SnapView: View {
                     if let message = store.errorMessage {
                         Text(message)
                             .font(.footnote)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Color.brandRed)
                     }
 
                     if let result = store.result {
@@ -143,7 +143,7 @@ struct SnapView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(format: "%.1f", result.grade.overallScore))
                         .font(.system(size: 40, weight: .bold))
-                        .foregroundStyle(gradeColor(result.grade.overallScore))
+                        .foregroundStyle(GradeScale.color(for: result.grade.overallScore))
                     Text("\(result.grade.gradeTier.capitalized) · \(Int((result.grade.confidence * 100).rounded()))% confidence")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -195,11 +195,8 @@ struct SnapView: View {
 
     // MARK: - Helpers
 
-    private func gradeColor(_ grade: Double) -> Color {
-        if grade >= 8 { return .green }
-        if grade >= 6 { return .orange }
-        return .red
-    }
+    // US-653: grade→color now flows through the canonical GradeScale.color(for:)
+    // brand mapping rather than a local green/orange/red map.
 
     private func dollars(_ cents: Int?) -> String {
         guard let cents else { return "—" }

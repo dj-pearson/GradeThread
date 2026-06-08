@@ -29,6 +29,11 @@ public struct CurrencyFormatter {
         currency.numberStyle = .currency
         currency.maximumFractionDigits = 2
         currency.minimumFractionDigits = 2
+        // US-648: honor the user's currency override when set; otherwise fall
+        // back to the locale's currency (the previous behavior).
+        if let code = AppPreferences.currencyCode {
+            currency.currencyCode = code
+        }
         self.currencyFormatter = currency
     }
 

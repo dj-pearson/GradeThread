@@ -15,10 +15,16 @@ final class PushNotificationTests: XCTestCase {
         XCTAssertEqual(NotificationCategoryID.tokenExpiring.rawValue, "token.expiring")
         XCTAssertEqual(NotificationCategoryID.itemReviewNeeded.rawValue, "item.review_needed")
         XCTAssertEqual(NotificationCategoryID.gradeReady.rawValue, "grade.ready")
+        // US-679 expanded categories.
+        XCTAssertEqual(NotificationCategoryID.offerReceived.rawValue, "offer.received")
+        XCTAssertEqual(NotificationCategoryID.messageReceived.rawValue, "message.received")
+        XCTAssertEqual(NotificationCategoryID.listingEnded.rawValue, "listing.ended")
+        XCTAssertEqual(NotificationCategoryID.agingDigest.rawValue, "aging.digest")
+        XCTAssertEqual(NotificationCategoryID.payoutPosted.rawValue, "payout.posted")
     }
 
     func test_category_allCases_listsAll() {
-        XCTAssertEqual(NotificationCategoryID.allCases.count, 5)
+        XCTAssertEqual(NotificationCategoryID.allCases.count, 10)
     }
 
     func test_category_labelsAreUserReadable() {
@@ -81,6 +87,36 @@ final class PushNotificationTests: XCTestCase {
     func test_deepLink_unknownCategory_returnsNil() {
         XCTAssertNil(DeepLinkRoute.from(category: "marketing.promo", userInfo: [:]))
         XCTAssertNil(DeepLinkRoute.from(category: "", userInfo: [:]))
+    }
+
+    // MARK: - US-679 expanded routing
+
+    func test_deepLink_payoutPosted_routesToSales() {
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "payout.posted", userInfo: [:]),
+            .salesTab(inventoryItemId: nil))
+    }
+
+    func test_deepLink_offerAndMessage_routeToMarketplacesWithoutItem() {
+        XCTAssertEqual(DeepLinkRoute.from(category: "offer.received", userInfo: [:]), .marketplacesTab)
+        XCTAssertEqual(DeepLinkRoute.from(category: "message.received", userInfo: [:]), .marketplacesTab)
+    }
+
+    func test_deepLink_offer_withItemId_routesToItem() {
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "offer.received", userInfo: ["inventory_item_id": "i9"]),
+            .inventoryItem(id: "i9"))
+    }
+
+    func test_deepLink_agingDigest_routesToInventoryTab() {
+        XCTAssertEqual(DeepLinkRoute.from(category: "aging.digest", userInfo: [:]), .inventoryTab)
+    }
+
+    func test_deepLink_listingEnded_itemElseInventoryTab() {
+        XCTAssertEqual(
+            DeepLinkRoute.from(category: "listing.ended", userInfo: ["inventory_item_id": "i1"]),
+            .inventoryItem(id: "i1"))
+        XCTAssertEqual(DeepLinkRoute.from(category: "listing.ended", userInfo: [:]), .inventoryTab)
     }
 
     // MARK: - PushService.environmentName

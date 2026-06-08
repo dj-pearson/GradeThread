@@ -6,19 +6,40 @@ import SwiftUI
 /// attention.
 struct SyncStatusBar: View {
     @Environment(SyncStatusStore.self) private var status
+    @Environment(\.syncEngine) private var syncEngine
+    @State private var showingInspector = false
 
     var body: some View {
         if let descriptor = descriptor {
-            HStack(spacing: 8) {
-                descriptor.icon
-                Text(descriptor.label).font(.footnote.weight(.medium))
-                Spacer()
+            Button {
+                // Only the pending/offline states have changes worth
+                // inspecting; tapping while merely "syncing" is a no-op.
+                guard status.pendingCount > 0, syncEngine != nil else { return }
+                showingInspector = true
+            } label: {
+                HStack(spacing: 8) {
+                    descriptor.icon
+                    Text(descriptor.label).font(.footnote.weight(.medium))
+                    Spacer()
+                    if status.pendingCount > 0 {
+                        Image(systemName: "chevron.right").font(.caption2)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(descriptor.background)
+                .foregroundStyle(descriptor.foreground)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 6)
-            .background(descriptor.background)
-            .foregroundStyle(descriptor.foreground)
+            .buttonStyle(.plain)
+            .disabled(status.pendingCount == 0 || syncEngine == nil)
             .transition(.move(edge: .top).combined(with: .opacity))
+            .sheet(isPresented: $showingInspector) {
+                if let syncEngine {
+                    PendingChangesView(engine: syncEngine)
+                }
+            }
         }
     }
 
@@ -41,8 +62,8 @@ struct SyncStatusBar: View {
             return Descriptor(
                 label: "\(status.pendingCount) pending change\(status.pendingCount == 1 ? "" : "s")",
                 icon: AnyView(Image(systemName: "tray.and.arrow.up")),
-                background: Color.orange.opacity(0.15),
-                foreground: .orange
+                background: Color.brandAmber.opacity(0.15),
+                foreground: Color.brandAmber
             )
         case .offline:
             return Descriptor(
@@ -57,10 +78,10 @@ struct SyncStatusBar: View {
                 icon: AnyView(
                     ProgressView()
                         .controlSize(.small)
-                        .tint(.orange)
+                        .tint(Color.brandAmber)
                 ),
-                background: Color.orange.opacity(0.15),
-                foreground: .orange
+                background: Color.brandAmber.opacity(0.15),
+                foreground: Color.brandAmber
             )
         }
     }

@@ -44,6 +44,35 @@ struct StatusValue: Identifiable, Equatable {
     var id: String { status }
 }
 
+/// Realized P&L over a period (US-665): revenue, fees, COGS, gross profit.
+struct PeriodPnL: Equatable {
+    let grossRevenue: Double
+    let fees: Double
+    let cogs: Double
+    var grossProfit: Double { grossRevenue - fees - cogs }
+    var unitsSold: Int
+}
+
+/// Grading-ROI comparison within a sale-price band: graded vs ungraded sold
+/// items and the average net-profit lift from grading (US-665). Mirrors the
+/// web `gradingRoiBuckets` shape, bucketed by price band (the local item mirror
+/// has no `category` column, so category bucketing is web-only).
+struct RoiBucket: Identifiable, Equatable {
+    let band: String
+    let gradedCount: Int
+    let ungradedCount: Int
+    let gradedAvgNet: Double?
+    let ungradedAvgNet: Double?
+    var id: String { band }
+    /// Graded avg net minus ungraded avg net, when both sides exist.
+    var netProfitLift: Double? {
+        guard let g = gradedAvgNet, let u = ungradedAvgNet else { return nil }
+        return g - u
+    }
+    /// Both sides have enough samples to be meaningful.
+    var meaningful: Bool { gradedCount >= 3 && ungradedCount >= 3 }
+}
+
 // MARK: - Time range
 
 /// Trailing window for sales-based analytics.
@@ -177,6 +206,83 @@ enum AnalyticsRollup {
             .sorted { $0.listed > $1.listed }
             .prefix(limit)
             .map { $0 }
+    }
+
+    // MARK: Period P&L (US-665)
+
+    /// Realized gross revenue / fees / COGS / gross profit over the window.
+    static func periodPnL(
+        items: [LocalInventoryItem],
+        sales: [LocalSale],
+        since: Date?
+    ) -> PeriodPnL {
+        var costById: [String: Double] = [:]
+        for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
+        let scoped = since.map { start in sales.filter { $0.saleDate >= start } } ?? sales
+        var gross = 0.0, fees = 0.0, cogs = 0.0
+        for sale in scoped {
+            gross += sale.salePrice
+            fees += sale.platformFees
+            cogs += costById[sale.inventoryItemId] ?? 0
+        }
+        return PeriodPnL(grossRevenue: gross, fees: fees, cogs: cogs, unitsSold: scoped.count)
+    }
+
+    // MARK: Grading ROI (US-665)
+
+    static let priceBands: [(label: String, range: Range<Double>)] = [
+        ("Under $50", 0..<50),
+        ("$50–150", 50..<150),
+        ("$150+", 150..<Double.greatestFiniteMagnitude),
+    ]
+
+    private static func priceBand(_ price: Double) -> String {
+        priceBands.first { $0.range.contains(price) }?.label ?? "$150+"
+    }
+
+    /// Graded-vs-ungraded net profit by sale-price band over the window.
+    static func gradingRoiBuckets(
+        items: [LocalInventoryItem],
+        sales: [LocalSale],
+        since: Date?
+    ) -> [RoiBucket] {
+        var costById: [String: Double] = [:]
+        var gradedById: [String: Bool] = [:]
+        for item in items {
+            costById[item.id] = item.acquiredPrice ?? 0
+            gradedById[item.id] = (item.gradeValue != nil)
+        }
+        let scoped = since.map { start in sales.filter { $0.saleDate >= start } } ?? sales
+
+        struct Side { var nets: [Double] = [] }
+        var graded: [String: Side] = [:]
+        var ungraded: [String: Side] = [:]
+        for sale in scoped {
+            let band = priceBand(sale.salePrice)
+            let net = sale.salePrice - sale.platformFees - (costById[sale.inventoryItemId] ?? 0)
+            if gradedById[sale.inventoryItemId] == true {
+                graded[band, default: Side()].nets.append(net)
+            } else {
+                ungraded[band, default: Side()].nets.append(net)
+            }
+        }
+
+        func avg(_ nets: [Double]) -> Double? {
+            nets.isEmpty ? nil : nets.reduce(0, +) / Double(nets.count)
+        }
+
+        return priceBands.map(\.label).compactMap { band in
+            let g = graded[band]?.nets ?? []
+            let u = ungraded[band]?.nets ?? []
+            guard !g.isEmpty || !u.isEmpty else { return nil }
+            return RoiBucket(
+                band: band,
+                gradedCount: g.count,
+                ungradedCount: u.count,
+                gradedAvgNet: avg(g),
+                ungradedAvgNet: avg(u)
+            )
+        }
     }
 
     // MARK: Inventory value

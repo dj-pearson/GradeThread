@@ -93,6 +93,9 @@ interface DumpPhoto extends ClusterablePhoto {
   previewUrl: string;
   file: File | null;
   photoType: FlipdeskPhotoType;
+  // US-289: set when the blob is already in storage (iOS-staged). Commit
+  // references it instead of re-uploading a (missing) in-memory File.
+  storagePath?: string | null;
 }
 
 interface LinkTarget {
@@ -210,13 +213,20 @@ export function FlipdeskReconcilePage() {
       const restoredPhotos: DumpPhoto[] = [];
       const map: AssignmentMap = {};
       for (const a of row.assignments) {
+        // US-289: iOS-staged photos already live in storage — hydrate a preview
+        // from the public URL so the board shows real thumbnails (not blanks)
+        // and keep storagePath so commit reuses the object.
+        const previewUrl = a.storagePath
+          ? supabase.storage.from("item-photos").getPublicUrl(a.storagePath).data.publicUrl
+          : "";
         restoredPhotos.push({
           id: a.id,
           name: a.name,
           capturedAt: a.capturedAt ? new Date(a.capturedAt) : null,
-          previewUrl: "",
+          previewUrl,
           file: null,
-          photoType: "detail",
+          photoType: a.photoType ?? "detail",
+          storagePath: a.storagePath ?? null,
         });
         map[a.id] = { clusterId: a.clusterId, manual: a.manual };
       }
@@ -250,6 +260,9 @@ export function FlipdeskReconcilePage() {
       name: p.name,
       clusterId: assignments[p.id]?.clusterId ?? null,
       manual: assignments[p.id]?.manual ?? false,
+      // US-289: preserve the storage pointer for iOS-staged photos.
+      storagePath: p.storagePath ?? null,
+      photoType: p.photoType,
     }));
     const t = setTimeout(() => {
       void supabase
@@ -387,6 +400,7 @@ export function FlipdeskReconcilePage() {
           file: p.file,
           capturedAt: p.capturedAt,
           photoType: p.photoType,
+          storagePath: p.storagePath ?? null,
         })),
       }));
       const res = await commitClusters(payload, workspaceOwnerId, sessionId);

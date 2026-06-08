@@ -15,6 +15,10 @@ struct MarketplacesView: View {
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
     @State private var orphanCount: Int = 0
+    /// US-645: track whether the last orphan-count query *failed* so a network
+    /// error doesn't masquerade as "all reconciled" (count silently 0) and make
+    /// the reconciliation card vanish.
+    @State private var orphanCheckFailed = false
 
     var body: some View {
         ScrollView {
@@ -22,10 +26,26 @@ struct MarketplacesView: View {
                 headerCard
                 if let userId = currentUserId() {
                     connectionCard(userId: userId)
-                    if orphanCount > 0 {
+                    // US-671: manage multiple connected eBay stores.
+                    if case .connected = store.phase {
+                        ebayAccountsCard(userId: userId)
+                        // US-673: best offers + buyer messages.
+                        negotiationCard
+                    }
+                    if orphanCheckFailed {
+                        reconciliationErrorCard(userId: userId)
+                    } else if orphanCount > 0 {
                         reconciliationCard
                     }
+                    // US-289: photo-dump → reconcile-session intake.
+                    reconcileIntakeCard(userId: userId)
                 }
+                // US-675: durable home for AutoLister-generated drafts + bulk edit.
+                draftsCard
+                // US-668: phased multi-channel surface — eBay is live above;
+                // the rest are surfaced as "coming soon" so the app reflects the
+                // real multi-marketplace roadmap.
+                comingSoonChannelsSection
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16)
@@ -54,6 +74,174 @@ struct MarketplacesView: View {
         }
     }
 
+    // US-668: phased channel abstraction. Adding a second *live* channel means
+    // adding a `.live` case here + its connection card — the rest of the surface
+    // (and cross-listing entry points) iterate over this list.
+    private struct MarketplaceChannel: Identifiable {
+        let id: String
+        let label: String
+        let systemImage: String
+    }
+
+    private static let phasedChannels: [MarketplaceChannel] = [
+        .init(id: "poshmark", label: "Poshmark", systemImage: "bag"),
+        .init(id: "mercari", label: "Mercari", systemImage: "shippingbox"),
+        .init(id: "shopify", label: "Shopify", systemImage: "cart"),
+        .init(id: "depop", label: "Depop", systemImage: "tshirt"),
+        .init(id: "grailed", label: "Grailed", systemImage: "tag"),
+        .init(id: "whatnot", label: "Whatnot", systemImage: "video"),
+    ]
+
+    private var comingSoonChannelsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("More channels")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ForEach(Self.phasedChannels) { channel in
+                HStack(spacing: 12) {
+                    Image(systemName: channel.systemImage)
+                        .font(.system(size: 18))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, height: 36)
+                        .background(Color.secondary.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    Text(channel.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                    Text("Coming soon")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.brandNavy)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.brandNavy.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+                .padding(12)
+                .cardStyle(.flush)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(channel.label), coming soon")
+            }
+        }
+    }
+
+    // US-671: multiple eBay account management entry point.
+    private func ebayAccountsCard(userId: String) -> some View {
+        NavigationLink {
+            EbayAccountsView(userId: userId)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "person.2.crop.square.stack")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("eBay accounts")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Connect, label, and switch between multiple eBay stores")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-289: photo-dump → reconcile-session intake. Scoped to the active
+    // workspace owner (US-670).
+    private func reconcileIntakeCard(userId: String) -> some View {
+        NavigationLink {
+            ReconcileIntakeView(ownerId: WorkspaceScope.tenantOwnerId(selfId: userId))
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reconcile photo dump")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Send a batch of photos to a reconcile session to group into items on the web board")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-673: best offers + buyer messages entry point.
+    private var negotiationCard: some View {
+        NavigationLink {
+            NegotiationInboxView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Offers & messages")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Review best offers and reply to buyers without leaving the app")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-675: AutoLister drafts library entry point.
+    private var draftsCard: some View {
+        NavigationLink {
+            DraftsLibraryView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AutoLister drafts")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Review + bulk-edit generated listings before publishing")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var reconciliationCard: some View {
         NavigationLink {
             ReconciliationView()
@@ -61,9 +249,9 @@ struct MarketplacesView: View {
             HStack(spacing: 12) {
                 Image(systemName: "arrow.left.arrow.right")
                     .font(.system(size: 20))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(Color.brandAmber)
                     .frame(width: 40, height: 40)
-                    .background(Color.orange.opacity(0.12))
+                    .background(Color.brandAmber.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Reconciliation")
@@ -78,9 +266,40 @@ struct MarketplacesView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// US-645: a failed check shows a distinct "couldn't check — tap to retry"
+    /// card instead of silently hiding reconciliation as if everything matched.
+    private func reconciliationErrorCard(userId: String) -> some View {
+        Button {
+            Task { await refreshOrphanCount(userId: userId) }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.arrow.triangle.2.circlepath")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.brandAmber)
+                    .frame(width: 40, height: 40)
+                    .background(Color.brandAmber.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Couldn't check reconciliation")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Tap to retry")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "arrow.clockwise")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
         }
         .buttonStyle(.plain)
     }
@@ -98,8 +317,11 @@ struct MarketplacesView: View {
                 .execute()
                 .value
             orphanCount = rows.count
+            orphanCheckFailed = false
         } catch {
-            orphanCount = 0
+            // Don't zero the count — keep the last known value and flag the
+            // failure so the UI can offer a retry rather than implying zero.
+            orphanCheckFailed = true
         }
     }
 
@@ -122,9 +344,8 @@ struct MarketplacesView: View {
             }
             Spacer()
         }
-        .padding(14)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(16)
+        .cardStyle(.flush)
     }
 
     // MARK: - eBay card
@@ -159,8 +380,7 @@ struct MarketplacesView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(uiColor: .secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .cardStyle(.flush)
     }
 
     // MARK: - Card bodies

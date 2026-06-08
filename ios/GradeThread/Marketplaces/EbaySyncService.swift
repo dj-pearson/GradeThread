@@ -80,9 +80,15 @@ public final class EbaySyncService {
         }
 
         // 2. Poll until last_synced_at advances or we hit the deadline.
+        // US-638: exponential backoff (base = policy.interval, capped) instead
+        // of a fixed interval so a slow sync stops polling every few seconds.
         let deadline = Date.now.addingTimeInterval(policy.timeout)
+        var pollAttempt = 0
         while Date.now < deadline {
-            try? await Task.sleep(nanoseconds: UInt64(policy.interval * 1_000_000_000))
+            try? await Task.sleep(
+                nanoseconds: Backoff.delayNanos(attempt: pollAttempt, base: policy.interval, cap: max(policy.interval, 8))
+            )
+            pollAttempt += 1
 
             do {
                 let snapshot = try await fetchConnectionSnapshot(userId: userId)

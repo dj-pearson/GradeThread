@@ -66,12 +66,12 @@ final class AutolisterBatchStore: ObservableObject {
     /// Submit already-created, already-uploaded items for generation, then start
     /// polling. Returns once the batch is created (polling continues in the
     /// background); call sites observe `phase`/`jobs` for progress.
-    func submit(itemIds: [String], useComps: Bool = true) async {
+    func submit(itemIds: [String], useComps: Bool = true, templateId: String? = nil) async {
         guard !itemIds.isEmpty else { return }
         phase = .submitting
         errorMessage = nil
         do {
-            let res = try await service.startBatch(itemIds: itemIds, useComps: useComps)
+            let res = try await service.startBatch(itemIds: itemIds, useComps: useComps, templateId: templateId)
             batchId = res.batchId
             phase = .running
             startPolling()

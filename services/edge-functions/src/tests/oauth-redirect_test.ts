@@ -32,6 +32,27 @@ Deno.test("accepts the bare allowlisted prefix", () => {
   assertEquals(sanitizeRelativePath("/dashboard"), "/dashboard");
 });
 
+// US-661: the iOS app bounces the eBay OAuth callback through an https
+// Universal Link under /app/* so ASWebAuthenticationSession.Callback.https can
+// complete the in-app session. The client_state nonce rides along in the query.
+Deno.test("accepts the iOS Universal Link callback path", () => {
+  assertEquals(sanitizeRelativePath("/app/oauth/ebay"), "/app/oauth/ebay");
+});
+
+Deno.test("accepts the iOS callback path with a client_state query", () => {
+  const dest = "/app/oauth/ebay?client_state=abc123";
+  assertEquals(sanitizeRelativePath(dest), dest);
+});
+
+Deno.test("accepts the iOS Supabase auth-callback path", () => {
+  assertEquals(sanitizeRelativePath("/app/auth-callback"), "/app/auth-callback");
+});
+
+Deno.test("rejects a path that only prefix-matches /app", () => {
+  // Same guard as /dashboardx — a different segment must not slip through.
+  assertEquals(sanitizeRelativePath("/application"), null);
+});
+
 // -- Rejected: open-redirect / off-site vectors ------------------------------
 
 Deno.test("rejects null/empty/undefined", () => {

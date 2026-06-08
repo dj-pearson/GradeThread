@@ -51,6 +51,39 @@ final class MoneyRollupTests: XCTestCase {
         XCTAssertEqual(octBucket.revenue, 40, accuracy: 0.001)
     }
 
+    // MARK: - FinancialExport (US-664)
+
+    func test_financialExport_summaryAndRangeFilter() {
+        let item = makeItem(id: "a", cost: 10)
+        let inRange = makeSale(itemId: "a", price: 100, fees: 15, date: Date(timeIntervalSince1970: 1_700_000_000))
+        let outOfRange = makeSale(itemId: "a", price: 999, fees: 0, date: Date(timeIntervalSince1970: 1_500_000_000))
+        let start = Date(timeIntervalSince1970: 1_699_000_000)
+        let end = Date(timeIntervalSince1970: 1_701_000_000)
+
+        let txns = FinancialExport.transactions(sales: [inRange, outOfRange], items: [item], start: start, end: end)
+        XCTAssertEqual(txns.count, 1, "out-of-range sale excluded")
+        XCTAssertEqual(txns.first?.net, 100 - 15 - 10)
+
+        let summary = FinancialExport.summary(txns)
+        XCTAssertEqual(summary.grossRevenue, 100)
+        XCTAssertEqual(summary.platformFees, 15)
+        XCTAssertEqual(summary.cogs, 10)
+        XCTAssertEqual(summary.netProfit, 75)
+    }
+
+    func test_financialExport_csvHasSummaryAndTransactionSections() {
+        let item = makeItem(id: "a", cost: 5)
+        let sale = makeSale(itemId: "a", price: 50, fees: 5, date: Date(timeIntervalSince1970: 1_700_000_000))
+        let csv = FinancialExport.csv(
+            sales: [sale], items: [item],
+            start: Date(timeIntervalSince1970: 1_699_000_000),
+            end: Date(timeIntervalSince1970: 1_701_000_000)
+        )
+        XCTAssertTrue(csv.contains("SUMMARY"))
+        XCTAssertTrue(csv.contains("Net Profit,40.00"))
+        XCTAssertTrue(csv.contains("TRANSACTION DETAILS"))
+    }
+
     // MARK: - Helpers
 
     private func makeItem(id: String, cost: Double) -> LocalInventoryItem {
