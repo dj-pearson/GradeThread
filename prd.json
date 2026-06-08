@@ -10427,6 +10427,267 @@
       "priority": 707,
       "passes": true,
       "notes": "[P3][iOS/A11y+UI] Audit 2026-06-08. Merges A11y gap #8 + UI gap #7: 30 .font(.system(size:)) hits; GradeScoreRing sizes off fixed diameter; 50 fixed frames vs 3 minimumScaleFactor. CI validates build."
+    },
+    {
+      "id": "US-708",
+      "title": "Marketplace adapter contract + provider registry (de-eBay the publish/sync layer)",
+      "description": "As a developer, I need a MarketplaceAdapter interface and a registry keyed by listings.platform so a second connector can be added without touching the eBay code — the abstraction US-149/US-564/US-599 all assumed but was never built.",
+      "acceptanceCriteria": [
+        "New src/lib/marketplace-adapters/ (edge) defines a MarketplaceAdapter contract: connect/refreshToken, publish, updateListing, delist, syncListings, syncOrders, mapDraftToListing(draft, photos, aspects)",
+        "Existing eBay code (flipdesk-ebay.ts / ebay-client.ts) is refactored to implement the contract as the 'ebay' adapter with NO behavior change (tenant-isolation suite + ebay tests still green)",
+        "publishItemForOwner and the orders/listings sync resolve the adapter from listings.platform via a registry; unknown/unimplemented platforms return a typed NotImplemented (not a silent eBay fallthrough — closes the US-599 'silently treats non-eBay as eBay' gap)",
+        "marketplace_connections (generic table from 00008) is the single token store for every adapter; per-provider scopes live in the scopes[] column",
+        "Typecheck + lint + deno check pass"
+      ],
+      "priority": 708,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Architecture] Keystone for cross-listing. Source: Cross_Listing.md. marketplace_connections + LISTING_PLATFORMS/MARKETPLACE_LABELS are already generic; only the connector layer is eBay-only. Prereq for US-709..US-717. Supersedes the stubbed-adapter AC in [[US-149]]."
+    },
+    {
+      "id": "US-709",
+      "title": "Shopify connector: Partner public app + OAuth 2.0 install",
+      "description": "As a reseller, I want to connect my Shopify store to GradeThread so I can publish graded items there — Shopify is the only marketplace in our list with a free, fully public write API (build first).",
+      "acceptanceCriteria": [
+        "Shopify Partner app created; OAuth 2.0 authorization-code flow implemented edge-side using @shopify/shopify-api (handles OAuth, HMAC, session) with state CSRF protection per US-274",
+        "Scopes requested: write_products, read_products, write_inventory, read_inventory, read_orders, write_assigned_fulfillment_orders",
+        "Offline access token (shpat_) + shop domain stored encrypted in marketplace_connections (marketplace='shopify', account_handle=shop domain); reuses the AES-GCM helper from the eBay connector",
+        "Marketplaces UI gains a real Shopify 'Connect' card (live, not 'coming soon'); disconnect revokes the token + deactivates the row",
+        "Tenant-scoped throughout (US-268); deno check + typecheck pass"
+      ],
+      "priority": 709,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Shopify] Source: Cross_Listing.md §1. GraphQL Admin API 2026-01, token never expires unless revoked. API is free (15% rev-share only above $1M lifetime app revenue). Depends on [[US-708]]."
+    },
+    {
+      "id": "US-710",
+      "title": "Shopify publish / update / delist via GraphQL Admin API",
+      "description": "As a reseller, I want one FlipDesk draft to publish to Shopify (and update/delist) so my graded inventory syncs there end-to-end, not just as a label.",
+      "acceptanceCriteria": [
+        "eBay-style adapter implements publish via productSet/productCreate + productVariantsBulkCreate, inventorySetQuantities (scoped to a Location), and productPublish to the Online Store channel",
+        "mapDraftToListing maps the shared AI draft + item_photos + aspects + grade into a Shopify product (title, body_html incl. grade/condition, images, price from target_price)",
+        "updateListing + delist (productDelete or unpublish) supported; delist is callable by the cross-list auto-end path",
+        "Cost-based rate limiting honored: read extensions.cost.throttleStatus, exponential backoff on THROTTLED, and bulkOperationRunMutation for any op touching >250 records",
+        "A listings row is written per published product (platform='shopify', platform_listing_id=product/variant id, listing_url) so it shows in the grid + reconciliation"
+      ],
+      "priority": 710,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Shopify] Source: Cross_Listing.md §1 + Recommendations Phase 1. Hard ceiling 1000 points/query regardless of plan — design for bulk from day one. Depends on [[US-709]],[[US-708]]."
+    },
+    {
+      "id": "US-711",
+      "title": "Shopify order + inventory webhooks → sale capture & cross-platform auto-delist",
+      "description": "As a reseller, I want a Shopify sale to flow back into FlipDesk (record the sale, flip status, and auto-delist the item elsewhere) so multi-listing the same item never double-sells.",
+      "acceptanceCriteria": [
+        "webhookSubscriptionCreate for orders/create, orders/updated, inventory_levels/update, products/update; HMAC signature verified edge-side before processing",
+        "orders/create → sales row (platform='shopify') + inventory_items.status='sold', mirroring the eBay orders-sync semantics (idempotent on shop order id)",
+        "On sale, the existing cross-list auto-end path delists the item's other-platform listings (drives US-564 auto-delist for the Shopify case)",
+        "Webhook user-linkage is reliable (resolve the workspace owner from the verified shop domain, not request body — see US-472 pattern)",
+        "Returns/refunds update sale status; tenant-scoped writes (US-268)"
+      ],
+      "priority": 711,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Shopify] Source: Cross_Listing.md §1. Shopify carries no marketplace fee/payout the way eBay Finances does — record gross + our costs; net is COGS-based. Depends on [[US-710]]."
+    },
+    {
+      "id": "US-712",
+      "title": "Business action: apply to the Depop Selling API partner program",
+      "description": "As the founder, I need to apply to Depop's private partner API now because approval is the gating step (1-4 weeks) that converts Depop from a 'no' marketplace into a 'yes' — highest-leverage non-code move.",
+      "acceptanceCriteria": [
+        "Email business@depop.com describing GradeThread (AI grading SaaS, existing eBay integration, active-seller count, projected Depop listing volume)",
+        "Explicitly request the OAuth 2.0 + PKCE MULTI-SELLER flow (not a single-shop pak_ API key) and a sandbox API key",
+        "Outcome (approved / waitlisted / declined + terms) recorded in the PRD/notes so US-713/US-714 can be unblocked or deferred",
+        "If approved: obtain sandbox key + confirm access to the OpenAPI spec at partnerapi.depop.com/api-docs/openapi.yaml"
+      ],
+      "priority": 712,
+      "passes": false,
+      "notes": "[P1][Ops/BizDev][NO-CODE] Source: Cross_Listing.md §2 + Phase 1 action 'for Dan'. Depop API is real/RESTful (private). Crosslisting tools are a primary partner segment per Depop. Blocks [[US-713]],[[US-714]]. Pricing is per-Order-Form (assume low 4-figures/yr or rev-share)."
+    },
+    {
+      "id": "US-713",
+      "title": "Depop connector: OAuth 2.0 + PKCE connection + token refresh (flagged until approved)",
+      "description": "As a reseller, I want to connect my Depop shop once partner access is granted, so graded items can sync to Depop via its official Selling API.",
+      "acceptanceCriteria": [
+        "Edge OAuth 2.0 authorization-code + PKCE flow against partnerapi.depop.com; scopes products_read, products_write, orders_read, orders_write, offers_read, offers_write, shop_read",
+        "Tokens stored encrypted in marketplace_connections (marketplace='depop'); refresh handled by the shared token-refresh worker alongside eBay (US-120 pattern)",
+        "Entire connector gated behind a DEPOP_ENABLED feature flag + connection only shown when partner access is live (no fake connect flow — ties to US-458/US-718)",
+        "Built/tested against the Depop sandbox (simulated purchases) before any production seller",
+        "Tenant-scoped; deno check + typecheck pass"
+      ],
+      "priority": 713,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Depop] Source: Cross_Listing.md §2. Depends on approval from [[US-712]] and the adapter contract [[US-708]]."
+    },
+    {
+      "id": "US-714",
+      "title": "Depop publish / update / order-sync / mark-as-shipped",
+      "description": "As a reseller, I want Depop publish + order lifecycle through GradeThread so Depop is a true second API marketplace, fulfilling the multi-marketplace promise.",
+      "acceptanceCriteria": [
+        "publish/update via PUT /api/v1/products/{sku} (upsert) mapping the shared draft + photos + aspects + grade; delist via the products_write surface",
+        "Order sync via orders_read → sales rows; POST .../parcels/{parcel_id}/mark-as-shipped wired to the ship action; seller-address + shipping-provider endpoints used where required",
+        "Depop webhooks (order events) verified + processed; sale flips status and triggers cross-platform auto-delist (US-564)",
+        "Reconciliation + crosslisting paths handle Depop as a first-class platform (resolves part of US-599)"
+      ],
+      "priority": 714,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Depop] Source: Cross_Listing.md §2. Same products endpoint creates+updates (upsert by sku). Depends on [[US-713]]."
+    },
+    {
+      "id": "US-715",
+      "title": "Decision spike: Poshmark via Rithum/Brand Closet (go/no-go gate, no scraping)",
+      "description": "As the founder, I need a documented decision on Poshmark because it has NO public API — the only sanctioned path is the enterprise Rithum/CommerceHub DSCO Brand Closet program, and I must not build server-side scraping.",
+      "acceptanceCriteria": [
+        "Written go/no-go using the research threshold: pursue Rithum ONLY if >=1 customer does >$50k/yr Poshmark GMV, commits >=12 months, and can be charged enough to cover the seat (~$1.5k-3k/mo per customer or rev-share)",
+        "Documents Rithum onboarding reality: 2-3 week DSCO onboarding, listing creation stays largely manual (DSCO updates qty/price only), enterprise pricing",
+        "Explicitly rules OUT server-side browser automation / stored-cookie scraping of Poshmark (ToS bans non-sanctioned automation; CFAA/DMCA/breach exposure)",
+        "If no-go: Poshmark coverage routes to the user-side extension path (US-716) instead"
+      ],
+      "priority": 715,
+      "passes": false,
+      "notes": "[P3][BizDev/Decision][NO-CODE] Source: Cross_Listing.md §3 + Phase 2. Rithum is the only aggregator with a real dev API that reaches Poshmark, but only Poshmark. Feeds [[US-716]],[[US-718]]."
+    },
+    {
+      "id": "US-716",
+      "title": "'GradeThread Lister' browser-extension companion for no-API marketplaces (Poshmark/Mercari/Grailed)",
+      "description": "As a reseller, I want a browser extension that lists to Poshmark, Mercari, and Grailed from my FlipDesk drafts using MY OWN logged-in session, because none of these three has a developer write API and server-side automation is a ban/legal risk.",
+      "acceptanceCriteria": [
+        "Chrome (MV3) extension receives a listing payload from the SaaS via chrome.runtime.onMessageExternal and fills/submits the marketplace's native listing form in the user's own authenticated tab",
+        "GradeThread servers NEVER receive or store marketplace passwords or session cookies; the automation runs entirely client-side (documented + enforced)",
+        "Clickwrap ToS: extension runs in the user's browser/session and the USER is responsible for each marketplace's ToS compliance (per US-377 clickwrap pattern)",
+        "Phased rollout: Poshmark first, then Mercari, then Grailed; each writes back a listings row (platform=…, listing_url) so the item shows as cross-listed",
+        "Selectors/flows are versioned and fail loudly (assume monthly breakage, esp. Mercari); a broken target degrades to a clear 'list manually' message"
+      ],
+      "priority": 716,
+      "passes": false,
+      "notes": "[P3][FlipDesk/Extension] Source: Cross_Listing.md §§3-5 + Phase 3. This is the model Vendoo/List Perfectly use and is the ONLY realistic path for Mercari/Grailed and the non-Rithum path for Poshmark. Medium ToS risk (graduated). Pairs with [[US-715]]."
+    },
+    {
+      "id": "US-717",
+      "title": "Wire one-draft cross-listing fan-out + auto-delist across the real connector set",
+      "description": "As a reseller, I want to push one AI draft to several marketplaces at once and have the rest auto-delist when it sells — now grounded on the connectors that actually exist (eBay/Shopify/Depop via API; Poshmark/Mercari/Grailed via the extension).",
+      "acceptanceCriteria": [
+        "Composer 'Push to' multi-select offers each platform with its REAL mechanism badge (API vs browser-extension); POST /api/flipdesk/listings/cross-push fans out via the US-708 registry",
+        "One listings row per platform sharing a draft_id (the schema change named in US-149) so each listing tracks price/status independently",
+        "On any platform sale, auto-end the others — API delist for eBay/Shopify/Depop, extension delist for Poshmark/Mercari/Grailed — gated by flipdesk_settings.auto_end_cross_listings",
+        "Per-platform price + field mapping from the shared draft (defaults to target_price)",
+        "Listings/grid shows a Platforms column with per-platform status"
+      ],
+      "priority": 717,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Crosslist] Source: Cross_Listing.md Recommendations. Anchors/supersedes the now-buildable parts of [[US-149]] and [[US-564]]. Depends on [[US-708]] + at least one new live connector ([[US-710]] or [[US-714]])."
+    },
+    {
+      "id": "US-718",
+      "title": "Make Marketplaces UI + plan copy match real capability tiers (resolve US-458)",
+      "description": "As a customer, I want the Marketplaces UI and plan copy to tell the truth about each channel's capability so I never pay for or expect integrations that are not built.",
+      "acceptanceCriteria": [
+        "Each channel is presented in its real tier: 'Connected via API' (eBay, Shopify, and Depop once approved), 'Connect via browser extension' (Poshmark/Mercari/Grailed via US-716), or 'Coming soon' — no connect flow for an unimplemented API path",
+        "Plan copy + marketplacesCap reflect what actually works at launch (no advertising Poshmark/Mercari/Depop/Etsy as live API integrations)",
+        "MARKETPLACE_LABELS entries carry a capability/mechanism flag the UI reads (single source of truth, web + iOS US-668)",
+        "No code path treats a non-eBay platform as eBay (verified against US-599/US-708 registry)"
+      ],
+      "priority": 718,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Honesty] Source: Cross_Listing.md TL;DR + decision matrix. Directly resolves [[US-458]] and the labeling half of [[US-599]]; keeps the phased web/iOS surfaces honest."
+    },
+    {
+      "id": "US-719",
+      "title": "Per-marketplace field-requirements + constraints registry (single source of truth)",
+      "description": "As a developer, I need one declarative spec of every marketplace's listing fields and limits so AI generation, the copy-paste kit, photo export, and validation all agree on what each platform actually requires.",
+      "acceptanceCriteria": [
+        "New shared module (e.g. src/lib/marketplace-specs.ts + an edge mirror) keyed by listing_platform declares, per platform: required[] + optional[] fields, title/description char limits, allowed condition values, max photo count, tag/hashtag rules, and whether it uses its own category taxonomy + brand/designer allow-list",
+        "Seeded with real constraints: eBay (title 80, item specifics), Poshmark (title 80, NWT/condition, up to 16 photos, multi-size, color x2), Mercari (title 80, description 1000, 12 photos, condition New/Like new/Good/Fair/Poor, up to 3 hashtags), Depop (description + hashtags, ~8 photos, condition + style/source), Grailed (designer from Grailed's list, department/category/subcategory, condition New/Gently used/Used/Very worn), Shopify (no hard caps)",
+        "Numbers/enums are documented with a source + a 'verify against current platform UI' note (they shift) and are easy to update in one place",
+        "Read by US-721 (generation), US-723 (kit), US-724 (photos), US-725 (validation) — no platform constraint is hard-coded anywhere else",
+        "Typecheck + lint pass"
+      ],
+      "priority": 719,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Registry SHIPPED: src/lib/marketplace-specs.ts (+ byte-identical edge mirror, guarded by src/lib/__tests__/marketplace-specs.test.ts) declares MARKETPLACE_SPECS for ebay/poshmark/mercari/depop/grailed/shopify — fields, title/desc char limits, condition enums, photo caps, tag rules, taxonomy + brand-allow-list flags, each with a VERIFY sourceNote. getMarketplaceSpec/manualKitPlatforms/charStatus helpers + 73 passing tests. REMAINING: consumption by US-721/723/724/725 (this is the single source they read). Source: Cross_Listing.md."
+    },
+    {
+      "id": "US-720",
+      "title": "Map GradeThread grade → each platform's condition value",
+      "description": "As a reseller, I want my 1.0-10.0 grade + tier translated into each marketplace's own condition wording so cross-listed items show a correct, platform-native condition without me re-deciding it.",
+      "acceptanceCriteria": [
+        "A per-platform condition mapper driven by grade_value (1.0-10.0) + grade tier (NWT/NWOT/Excellent/…), generalizing the eBay-only mapEbayCondition (flipdesk-ebay.ts ~L3134)",
+        "Covers Mercari (New/Like new/Good/Fair/Poor), Grailed (New/Gently used/Used/Very worn), Poshmark (NWT vs used + condition note), Depop (Brand new/Like new/Used — excellent/good/fair), Shopify (new/used), eBay (existing enum)",
+        "Reuses the grade tiers in src/lib/constants.ts; one mapping table, unit-tested at tier boundaries",
+        "The grading auto-disclosure (existing in ai-listing.ts) is carried into each platform's condition note, not just eBay's"
+      ],
+      "priority": 720,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Mapper SHIPPED in src/lib/marketplace-specs.ts: gradeToConditionBucket(grade,label) + mapCondition(platform,grade,label) covering ebay/poshmark/mercari/depop/grailed (shopify→null, no condition field). eBay path is a provable no-op vs the legacy mapEbayCondition (property test over the grade×label matrix). REMAINING: adopt mapCondition() inside flipdesk-ebay.ts (replace the inline mapper) and carry the grading auto-disclosure into each platform's condition note (lands with US-721). Depends on [[US-719]]."
+    },
+    {
+      "id": "US-721",
+      "title": "AI generation of per-platform listing fields (title/description/tags tailored to each marketplace)",
+      "description": "As a reseller, I want the AI to produce ready-to-use, platform-tailored fields for every target marketplace from the same photos + grade, so I never hand-rewrite a listing per platform — including the no-API ones I'll copy-paste.",
+      "acceptanceCriteria": [
+        "generateListing (ai-listing.ts) is extended to emit, per selected platform: a title trimmed to that platform's char limit (keyword-priority, reuse US-546), a description in the platform's tone with platform-appropriate hashtags/tags, color, normalized brand, plus the mapped condition (US-720) and mapped category path (US-722)",
+        "Cost-bounded: one base pass + cheap per-platform variants (not N full vision calls); reuses existing photos + grade auto-disclosure + ebay_aspects context",
+        "Generated per-platform fields persist (jsonb keyed by platform on listings, or a listing_platform_drafts child table) and are editable; edits persist and survive regeneration of other platforms",
+        "Per-platform + per-field confidence captured; needs_review carries over (existing ai_field_confidence pattern)",
+        "All output validates against the US-719 registry before it's offered as 'ready'"
+      ],
+      "priority": 721,
+      "passes": false,
+      "notes": "[P1][FlipDesk/AI] PARTIAL 2026-06-08. SHIPPED: services/edge-functions/src/lib/platform-variants.ts (pure assemblePlatformVariant + trimToLimit, 6 tests, env-free) + ai-listing.ts generatePlatformVariantText (ONE text-only Claude call adapts title/description/tags for all requested platforms — no extra vision cost) + generatePlatformVariants orchestrator (loads the eBay draft as base, maps condition via US-720, validates via US-725, persists to listings.platform_fields). Migration 00113 adds listings.platform_fields jsonb. Endpoint POST /api/flipdesk/autolister/platform-fields {item_id,platforms[]} (tenant-scoped, plan-gated, meters AI). REMAINING: category is passed through as a natural-language query, not yet resolved to each platform's taxonomy (US-722); grading auto-disclosure into per-platform condition note (US-720 tail). Consumed by US-723. Depends on [[US-719]],[[US-720]],[[US-722]]."
+    },
+    {
+      "id": "US-722",
+      "title": "Per-platform category taxonomy mapping (AI-assisted, cached)",
+      "description": "As a reseller, I want my item's category mapped into each marketplace's own category tree so the platform-native listing lands in the right place — eBay resolves via API, the no-API platforms need a curated map.",
+      "acceptanceCriteria": [
+        "Maps GradeThread item_category/garment_category → each platform's taxonomy: Poshmark (department/category/subcategory), Mercari (category path), Grailed (department/category/subcategory), Depop (category/subcategory); eBay keeps its existing Taxonomy-API resolution",
+        "For no-API platforms the taxonomy is a seeded, admin-extensible mapping table (no live API to query); AI suggests the best match and the user confirms once, then it's reused",
+        "Mappings cached keyed by (platform, gradethread category/garment) like ebay_category_aspects (00030) so repeat items cost ~0 AI",
+        "Unmapped categories surface as a clear 'pick a category' prompt rather than guessing silently"
+      ],
+      "priority": 722,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Crosslist] Source: Cross_Listing.md. The no-API platforms have their own category trees that must be filled manually on paste, so a stored map is what makes the copy-paste kit complete. Depends on [[US-719]]."
+    },
+    {
+      "id": "US-723",
+      "title": "Copy-paste 'Listing Kit' for no-API marketplaces (per-field copy + char counters)",
+      "description": "As a reseller, I want a per-platform panel that shows every field I need to paste into Poshmark/Mercari/Grailed with one-tap copy buttons and live character counts, so manual cross-listing is fast and correct instead of guesswork.",
+      "acceptanceCriteria": [
+        "Composer (src/pages/flipdesk/composer.tsx) + the bulk view gain a per-platform tab for each no-API platform (Poshmark/Mercari/Grailed, and Depop until API access lands) rendering each required field (US-719) as a labeled block with a Copy button + live char-count vs the platform limit (turns red over limit), plus a 'Copy all'",
+        "Field values come from the per-platform generated draft (US-721) with mapped condition (US-720) + category (US-722); fields are editable inline and edits persist",
+        "A 'List on <platform>' action opens the platform's new-listing page in a new tab and shows the paste order; if the GradeThread Lister extension (US-716) is installed, a 'Send to extension' button replaces manual copy-paste",
+        "A photos block links to the per-platform photo export (US-724); the panel shows the US-725 pre-flight checklist so the user can't copy an over-limit/missing-required field unaware"
+      ],
+      "priority": 723,
+      "passes": false,
+      "notes": "[P1][FlipDesk/UX] Source: Cross_Listing.md — the explicit ask: make copy-paste easy for platforms without API push. Plugs into the existing composer + autolister-bulk-edit/drafts UI. Depends on [[US-721]]; pairs with [[US-716]]."
+    },
+    {
+      "id": "US-724",
+      "title": "Per-platform photo export for manual listing (ordered, capped, EXIF-stripped)",
+      "description": "As a reseller listing manually, I want to download an item's photos already ordered and capped to the platform's limit so I can drag-and-drop them into Poshmark/Mercari/Grailed without re-sorting or hitting the photo cap.",
+      "acceptanceCriteria": [
+        "A 'Download photos for <platform>' action zips item_photos ordered by sort_order (cover first), capped to the platform's max from US-719 (e.g. Poshmark 16, Mercari 12, Grailed 25, Depop 8)",
+        "Photos are served via signed URLs honoring the bucket rules (US-276) and EXIF/GPS-stripped on the way out (reuse stripImageMetadata)",
+        "File names encode order (01_front, 02_back, …) so the upload order is obvious",
+        "Available from the Listing Kit panel (US-723) and the item detail"
+      ],
+      "priority": 724,
+      "passes": false,
+      "notes": "[P2][FlipDesk/Crosslist] Source: Cross_Listing.md. Manual listers need the images too, in the right count/order. Depends on [[US-719]],[[US-723]]."
+    },
+    {
+      "id": "US-725",
+      "title": "Cross-list pre-flight validation against the requirements registry",
+      "description": "As a reseller, I want each platform's draft checked against that platform's real requirements before I copy-paste or publish, so my listing isn't rejected for a too-long title, missing field, or unmapped category.",
+      "acceptanceCriteria": [
+        "Validates a generated/edited per-platform draft against US-719: required fields present, title/description within limits, condition is an allowed value (US-720), category mapped (US-722), photo count within max, and brand is on the platform's allow-list where applicable (e.g. Grailed designer list)",
+        "Produces actionable per-field messages (e.g. 'Mercari title 84/80 — trim 4', 'Grailed requires a designer from its list', 'No Poshmark category mapped')",
+        "Required-field/limit failures block copy/publish for that platform; soft issues are non-blocking warnings — reuses the AutoLister server validation-blockers pattern (autolister-bulk-edit)",
+        "Runs for BOTH API-push platforms (pre-publish) and copy-paste platforms (before the kit shows 'ready')"
+      ],
+      "priority": 725,
+      "passes": false,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Validator SHIPPED in src/lib/marketplace-specs.ts (+ edge mirror): validateListingForPlatform(platform,draft,ctx) checks required fields, title/desc char limits (with trim hint), allowed condition value, taxonomy category present, tag cap, Grailed designer allow-list, and photo cap — errors block, empty discovery fields warn. 8 dedicated tests (81 total in the suite). REMAINING: call it from the Listing Kit before 'ready' (US-723) and pre-publish in the adapters (US-710/US-714). Depends on [[US-719]],[[US-720]],[[US-722]]; feeds [[US-723]]."
     }
   ]
 }

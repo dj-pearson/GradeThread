@@ -129,7 +129,10 @@
       "PowerShell(Set-Location 'C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread'; npx eslint src/pages/admin/coupons.tsx src/pages/admin/growth/referrals.tsx src/pages/referrals.tsx src/components/dashboard/sidebar.tsx src/layouts/admin-layout.tsx 2>&1 | Select-Object -First 30; \"exit: $LASTEXITCODE\")",
       "WebFetch(domain:developer.ebay.com)",
       "Bash(sort -t- -k2 -n)",
-      "Bash(grep -E \"\\\\.\\(ts|sql|js\\)$\")"
+      "Bash(grep -E \"\\\\.\\(ts|sql|js\\)$\")",
+      "Bash(file prd.json)",
+      "Bash(rm scripts/tmp_add_crosslist_stories.cjs)",
+      "Bash(grep -rn \"from \\\\\"\\\\.\\\\./\\\\.\\\\./\\\\.\\\\./src\\\\|from '.*/src/lib\" services/edge-functions/src)"
     ]
   },
   "hooks": {

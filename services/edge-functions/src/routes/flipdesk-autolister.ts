@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { generateListing } from "../lib/ai-listing.ts";
+import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
+import {
+  getMarketplaceSpec,
+  type MarketplacePlatform,
+} from "../lib/marketplace-specs.ts";
 import { classifyPhotoRoles } from "../lib/ai-photo-roles.ts";
 import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
@@ -807,3 +811,65 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
     await lock.release();
   }
 }
+
+// US-721: POST /platform-fields — generate per-marketplace listing fields for an
+// item that already has an eBay draft. Body: { item_id, platforms: [...] }.
+// Returns the tailored variants (title/description/condition/category/tags +
+// per-platform validation) and persists them to listings.platform_fields, so
+// the copy-paste Listing Kit (US-723) and the API adapters (US-710/714) can use
+// them. One text-only Claude call adapts all requested platforms at once.
+//
+// Tenant safety (CLAUDE.md US-268): the item is verified owned before any AI
+// call or write; generatePlatformVariants additionally re-scopes its loads to
+// ownerId.
+flipdeskAutolisterRoutes.post("/platform-fields", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown; platforms?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+
+  const requested = Array.isArray(body.platforms) ? body.platforms : [];
+  // Keep only specced, non-eBay platforms (eBay uses its own draft columns).
+  const platforms = [
+    ...new Set(
+      requested
+        .filter((p): p is string => typeof p === "string")
+        .filter((p) => p !== "ebay" && getMarketplaceSpec(p)),
+    ),
+  ] as MarketplacePlatform[];
+  if (platforms.length === 0) {
+    return c.json({ error: "platforms must include at least one supported non-eBay marketplace" }, 400);
+  }
+
+  // Paid-tier gate (AI feature), same as generation.
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  // Ownership pre-check for a clean 404.
+  const { data: owned } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!owned) return c.json({ error: "Item not found for this workspace" }, 404);
+
+  try {
+    const result = await generatePlatformVariants(itemId, ownerId, platforms);
+    await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+    return c.json({ listing_id: result.listingId, variants: result.variants });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Platform-field generation failed.";
+    // "no eBay draft" is a precondition the caller can fix → 409.
+    const status = /no eBay draft/i.test(msg) ? 409 : 502;
+    console.error("[AutoLister] platform-fields failed", err);
+    return c.json({ error: msg }, status);
+  }
+});

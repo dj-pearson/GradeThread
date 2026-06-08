@@ -37,6 +37,10 @@ import {
   type DisclosureInput,
   type PerImageAnalysisLike,
 } from "./disclosure.ts";
+import {
+  getMarketplaceSpec,
+  type MarketplacePlatform,
+} from "./marketplace-specs.ts";
 
 // Bump when the prompt or tool schema changes in a way that should be tracked
 // for accuracy/eval attribution. Mirrors PER_IMAGE_PROMPT_VERSION etc.
@@ -926,5 +930,296 @@ export async function generateListing(
     costUsd,
     tokensIn: totalTokensIn,
     tokensOut: totalTokensOut,
+  };
+}
+
+// ── US-721: per-marketplace listing-field generation ──────────────────────
+//
+// Turns ONE already-generated draft (the eBay-shaped base) into platform-
+// tailored fields for every other marketplace, so the copy-paste Listing Kit
+// (US-723) and the API adapters (US-710/714) have ready-to-use content.
+//
+// Cost discipline: the expensive vision pass already ran in generateListing.
+// This re-uses that base and makes a SINGLE text-only Claude call to adapt
+// tone/length/tags across all requested platforms at once — no images, small
+// tokens. Condition + category are mapped deterministically (US-720/722), not
+// re-asked from the model.
+
+export const PLATFORM_VARIANT_PROMPT_VERSION = "platform_variant_v1";
+
+// Pure variant assembly (types + trimToLimit + assemblePlatformVariant) lives
+// in platform-variants.ts so it has no I/O dependency and is unit-testable.
+// Re-exported here for callers that import from ai-listing.
+export {
+  assemblePlatformVariant,
+  type PlatformText,
+  type PlatformVariant,
+  type PlatformVariantBase,
+  trimToLimit,
+} from "./platform-variants.ts";
+import {
+  assemblePlatformVariant,
+  type PlatformText,
+  type PlatformVariant,
+  type PlatformVariantBase,
+} from "./platform-variants.ts";
+
+// Tool the text pass must call: a map of platform -> {title, description, tags}.
+const PLATFORM_VARIANT_TOOL: Anthropic.Tool = {
+  name: "write_platform_listings",
+  description:
+    "Return tone/length/tag-adapted copy for each requested marketplace. Keep all FACTS identical to the source; only adapt voice, length, and tags/hashtags to each platform.",
+  input_schema: {
+    type: "object",
+    properties: {
+      platforms: {
+        type: "object",
+        description: "Keyed by platform id (e.g. poshmark, mercari, grailed, depop, shopify).",
+        additionalProperties: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "Platform title (omit/empty if the platform has no title)." },
+            description: { type: "string" },
+            tags: { type: "array", items: { type: "string" } },
+          },
+          required: ["description"],
+        },
+      },
+    },
+    required: ["platforms"],
+  },
+};
+
+function platformGuidance(platform: MarketplacePlatform): string {
+  const spec = getMarketplaceSpec(platform);
+  if (!spec) return platform;
+  const parts: string[] = [`${spec.label} (${platform})`];
+  if (spec.titleMaxLength == null) parts.push("no title field — description is the listing");
+  else parts.push(`title <= ${spec.titleMaxLength} chars`);
+  if (spec.descriptionMaxLength != null) parts.push(`description <= ${spec.descriptionMaxLength} chars`);
+  if (spec.tags) parts.push(`up to ${spec.tags.max} ${spec.tags.help ?? "tags"}`);
+  const tone: Partial<Record<MarketplacePlatform, string>> = {
+    poshmark: "friendly, social, relevant hashtags",
+    mercari: "concise, keyword-first, a few hashtags",
+    depop: "casual Gen-Z tone, hashtags, no title",
+    grailed: "minimal designer/streetwear voice",
+    shopify: "clean retail product copy",
+    ebay: "keyword-rich, search-optimized",
+  };
+  if (tone[platform]) parts.push(`tone: ${tone[platform]}`);
+  return "- " + parts.join("; ");
+}
+
+/**
+ * Single text-only Claude call: adapt the base listing's voice/length/tags for
+ * each requested platform. Returns a map platform -> PlatformText. Robust to a
+ * model that omits a platform (the assembler falls back to the base text).
+ */
+export async function generatePlatformVariantText(
+  base: PlatformVariantBase,
+  platforms: MarketplacePlatform[],
+): Promise<{ byPlatform: Record<string, PlatformText>; model: string; tokensIn: number; tokensOut: number }> {
+  const client = getAnthropicClient();
+  const model = getDefaultModel();
+  const temperature = getAiTemperature();
+
+  const facts = {
+    brand: base.brand,
+    size: base.size,
+    color: base.color,
+    material: base.material,
+    condition_tier: base.gradeLabel,
+    category: base.categoryQuery,
+    key_specifics: base.itemSpecifics,
+    source_title: base.title,
+    source_description: base.description,
+  };
+
+  const system =
+    "You adapt ONE resale clothing listing to several marketplaces. For each " +
+    "requested platform, rewrite the title (within its char limit; omit when the " +
+    "platform has no title field), the description (in that platform's voice and " +
+    "length), and tags/hashtags (within the platform's max). NEVER invent or change " +
+    "facts — brand, size, color, material, measurements and condition must match the " +
+    "source exactly. Call write_platform_listings.";
+
+  const user = [
+    "SOURCE LISTING FACTS:",
+    JSON.stringify(facts, null, 2),
+    "",
+    "TARGET PLATFORMS:",
+    platforms.map(platformGuidance).join("\n"),
+  ].join("\n");
+
+  const response = await withRetry(
+    () =>
+      client.messages.create({
+        model,
+        max_tokens: 2048,
+        ...(temperature !== undefined ? { temperature } : {}),
+        system: [{ type: "text", text: system }],
+        tools: [PLATFORM_VARIANT_TOOL],
+        tool_choice: { type: "tool", name: "write_platform_listings" },
+        messages: [{ role: "user", content: [{ type: "text", text: user }] }],
+      }),
+    {
+      onRetry: ({ attempt, delayMs }) =>
+        console.warn(`[AI Listing] platform-variant retry #${attempt} after ${delayMs}ms`),
+    },
+  );
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  const byPlatform: Record<string, PlatformText> = {};
+  if (toolUse && toolUse.type === "tool_use") {
+    const raw = (toolUse.input as { platforms?: Record<string, unknown> }).platforms ?? {};
+    for (const [plat, val] of Object.entries(raw)) {
+      const o = (val ?? {}) as Record<string, unknown>;
+      byPlatform[plat] = {
+        title: typeof o.title === "string" ? o.title.trim() : "",
+        description: typeof o.description === "string" ? o.description.trim() : "",
+        tags: Array.isArray(o.tags) ? o.tags.map((t) => String(t).trim()).filter(Boolean) : [],
+      };
+    }
+  }
+
+  return {
+    byPlatform,
+    model,
+    tokensIn:
+      response.usage.input_tokens +
+      (response.usage.cache_read_input_tokens ?? 0) +
+      (response.usage.cache_creation_input_tokens ?? 0),
+    tokensOut: response.usage.output_tokens,
+  };
+}
+
+export interface GeneratePlatformVariantsResult {
+  listingId: string;
+  variants: PlatformVariant[];
+  model: string;
+  costUsd: number;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+/**
+ * Orchestrates per-platform field generation for an item that already has an
+ * eBay draft: loads the base from the draft + item, runs the text pass, builds
+ * + validates each variant, and persists them to listings.platform_fields.
+ * Tenant-safe: the item is loaded scoped to ownerId and the draft is matched by
+ * the owned inventory_item_id.
+ */
+export async function generatePlatformVariants(
+  itemId: string,
+  ownerId: string,
+  platforms: MarketplacePlatform[],
+): Promise<GeneratePlatformVariantsResult> {
+  if (platforms.length === 0) throw new Error("No platforms requested");
+
+  // 1. Item facts (tenant-scoped).
+  const { data: itemData, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects")
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .single();
+  if (itemErr || !itemData) throw new Error(`Item ${itemId} not found for this workspace`);
+  const item = itemData as {
+    brand: string | null;
+    size: string | null;
+    color: string | null;
+    material: string | null;
+    grade_value: number | null;
+    grade_label: string | null;
+    ebay_aspects: Record<string, string[]> | null;
+  };
+
+  // 2. The eBay draft is the base. It must exist (generateListing ran first).
+  const { data: draft } = await supabaseAdmin
+    .from("listings")
+    .select("id, listing_title, listing_description, listing_price, platform_category_id, platform_fields, ai_confidence")
+    .eq("inventory_item_id", itemId)
+    .eq("platform", "ebay")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!draft) throw new Error(`Item ${itemId} has no eBay draft to adapt — generate the base listing first`);
+  const d = draft as {
+    id: string;
+    listing_title: string | null;
+    listing_description: string | null;
+    listing_price: number | null;
+    platform_category_id: string | null;
+    platform_fields: Record<string, unknown> | null;
+    ai_confidence: number | null;
+  };
+
+  const base: PlatformVariantBase = {
+    title: d.listing_title ?? "",
+    description: d.listing_description ?? "",
+    brand: item.brand,
+    size: item.size,
+    color: item.color,
+    material: item.material,
+    itemSpecifics: item.ebay_aspects ?? {},
+    gradeValue: item.grade_value,
+    gradeLabel: item.grade_label,
+    priceCents: Math.round((d.listing_price ?? 0) * 100),
+    categoryQuery: d.platform_category_id ?? "",
+    confidence: d.ai_confidence ?? 0.7,
+  };
+
+  // 3. One text-only AI pass for all requested platforms.
+  const text = await generatePlatformVariantText(base, platforms);
+
+  // 4. Photo count (for the photo-cap validation rule).
+  const { count: photoCount } = await supabaseAdmin
+    .from("item_photos")
+    .select("id", { count: "exact", head: true })
+    .eq("inventory_item_id", itemId);
+
+  // 5. Assemble + validate each variant.
+  const variants = platforms.map((p) =>
+    assemblePlatformVariant(p, base, text.byPlatform[p] ?? { title: "", description: "", tags: [] }, {
+      photoCount: photoCount ?? undefined,
+      // Brand-allow-list (Grailed) can't be verified here yet — treated as
+      // unknown (the kit/US-722 confirms the designer). Don't hard-fail.
+      brandAllowed: true,
+    }),
+  );
+
+  // 6. Persist, merging into any existing platform_fields.
+  const now = new Date().toISOString();
+  const merged: Record<string, unknown> = { ...(d.platform_fields ?? {}) };
+  for (const v of variants) {
+    merged[v.platform] = {
+      title: v.title,
+      description: v.description,
+      condition: v.condition,
+      category: v.category,
+      brand: v.brand,
+      color: v.color,
+      size: v.size,
+      price: v.price,
+      tags: v.tags,
+      confidence: v.confidence,
+      validation: v.validation,
+      generated_at: now,
+    };
+  }
+  const { error: upErr } = await supabaseAdmin
+    .from("listings")
+    .update({ platform_fields: merged, platform_fields_generated_at: now })
+    .eq("id", d.id);
+  if (upErr) throw new Error(`Failed to persist platform fields: ${upErr.message}`);
+
+  const costUsd = estimateCost(text.model, text.tokensIn, text.tokensOut);
+  return {
+    listingId: d.id,
+    variants,
+    model: text.model,
+    costUsd,
+    tokensIn: text.tokensIn,
+    tokensOut: text.tokensOut,
   };
 }
