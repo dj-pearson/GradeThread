@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ItemCardList } from "@/components/flipdesk/item-card-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1296,7 +1297,11 @@ export function FlipdeskListingsPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              {/* Mobile: card list (the wide table is unusable on a phone). */}
+              <div className="md:hidden">
+                <ItemCardList items={pageRows} onOpen={setDetailItem} />
+              </div>
+              <div className="hidden overflow-x-auto md:block">
                 <Table className="text-xs">
                   <TableHeader>
                     <TableRow>

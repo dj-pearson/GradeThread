@@ -368,7 +368,38 @@ export function InventoryPage() {
             />
           ) : (
             <>
-              <div className="overflow-x-auto">
+              {/* Mobile: card list instead of the horizontal-scroll table. */}
+              <ul className="divide-y md:hidden">
+                {items.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/dashboard/inventory/${item.id}`)
+                      }
+                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium">
+                          {item.title}
+                        </div>
+                        {item.brand && (
+                          <div className="truncate text-xs text-muted-foreground">
+                            {item.brand}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <StatusBadge status={item.status} />
+                        <span className="font-mono text-sm tabular-nums">
+                          {formatCurrency(item.acquired_price)}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>

@@ -10743,8 +10743,8 @@
         "No fixed pixel widths force horizontal overflow on small screens; verified at 375px width"
       ],
       "priority": 729,
-      "passes": false,
-      "notes": "[P2][UX/Mobile] From the UI/UX audit: listings.tsx wraps the table in overflow-x-auto and grid.tsx uses fixed w-* column widths — poor mobile UX. Depends on [[US-728]]."
+      "passes": true,
+      "notes": "[P2][UX/Mobile] SHIPPED 2026-06-08. New src/components/flipdesk/item-card-list.tsx <ItemCardList items onOpen> renders ItemFullRow rows as cards (title + brand/style/size + SKU + <StatusBadge> + best price + <NextActionBadge> + grade) and taps through via onOpen. flipdesk/listings.tsx: the table div is now `hidden overflow-x-auto md:block` with a sibling `md:hidden` <ItemCardList items={pageRows} onOpen={setDetailItem}> — same pagination, same detail dialog. inventory.tsx (InventoryItemRow, no workflow facts for a next-action) gets a simpler inline `md:hidden` card list (title + brand + StatusBadge + acquired price, taps to /dashboard/inventory/:id) with the table `hidden md:block`. Purely responsive (Tailwind breakpoints, no separate route); cards use flex + min-w-0 + truncate so nothing forces horizontal overflow at 375px. Reuses the US-728 <StatusBadge> and US-736 <NextActionBadge>. NOTE: neither items_full nor InventoryItemRow exposes a cover-photo URL (the desktop tables show no thumbnail either), so the 'thumbnail' is intentionally omitted rather than faked. tsc -b + eslint + vitest (280) green. Depends on [[US-728]]."
     },
     {
       "id": "US-730",
