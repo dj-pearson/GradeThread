@@ -19,13 +19,15 @@ public struct InventoryFacets: Equatable {
     public let brands: [Value]
     public let sizes: [Value]
     public let colors: [Value]
+    /// US-676: storage location / bin facet.
+    public let locationBins: [Value]
 
     /// Effective-price span across items that have any price, or nil when
     /// none do. Used to seed the price-band slider bounds.
     public let priceBounds: ClosedRange<Double>?
 
     public static let empty = InventoryFacets(
-        brands: [], sizes: [], colors: [], priceBounds: nil
+        brands: [], sizes: [], colors: [], locationBins: [], priceBounds: nil
     )
 
     /// Builds the facet index from a snapshot of items. Values are trimmed;
@@ -41,6 +43,7 @@ public struct InventoryFacets: Equatable {
         var brandCounts: [String: Int] = [:]
         var sizeCounts: [String: Int] = [:]
         var colorCounts: [String: Int] = [:]
+        var locationCounts: [String: Int] = [:]
         var minPrice: Double?
         var maxPrice: Double?
 
@@ -48,6 +51,7 @@ public struct InventoryFacets: Equatable {
             if let b = item.brand?.facetTrimmed { brandCounts[b, default: 0] += 1 }
             if let s = item.size?.facetTrimmed { sizeCounts[s, default: 0] += 1 }
             if let c = item.color?.facetTrimmed { colorCounts[c, default: 0] += 1 }
+            if let l = item.locationBin?.facetTrimmed { locationCounts[l, default: 0] += 1 }
             if let p = InventoryFilter.effectivePrice(item) {
                 minPrice = min(minPrice ?? p, p)
                 maxPrice = max(maxPrice ?? p, p)
@@ -67,6 +71,7 @@ public struct InventoryFacets: Equatable {
             brands: byFrequency(brandCounts),
             sizes: bySizeOrder(sizeCounts),
             colors: byFrequency(colorCounts),
+            locationBins: byFrequency(locationCounts),
             priceBounds: bounds
         )
     }

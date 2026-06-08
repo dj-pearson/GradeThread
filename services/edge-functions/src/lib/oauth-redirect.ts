@@ -2,10 +2,14 @@
 // US-361). Kept side-effect-free (no supabase/eBay imports) so it can be
 // unit-tested in isolation and reused by any OAuth bounce-back.
 
-// In-app destinations the OAuth callback may bounce back to. The flow only ever
-// lands the user inside the dashboard (FlipDesk marketplaces), so the allowlist
-// is intentionally narrow — anything outside it is dropped to the safe default.
-export const ALLOWED_REDIRECT_PREFIXES = ["/dashboard"];
+// In-app destinations the OAuth callback may bounce back to. The web flow lands
+// the user inside the dashboard (FlipDesk marketplaces); the iOS app (US-661)
+// bounces back through an https Universal Link under `/app/*` that the app
+// claims via its associated-domains entitlement (AASA at
+// /.well-known/apple-app-site-association). Both are same-origin relative paths
+// on gradethread.com — anything outside this allowlist is dropped to the safe
+// default so a crafted ?redirect_to= can't drive an open redirect.
+export const ALLOWED_REDIRECT_PREFIXES = ["/dashboard", "/app"];
 
 // Only same-origin relative redirects under a known prefix are allowed back out
 // of the OAuth callback — prevents an open redirect via a crafted ?redirect_to=.

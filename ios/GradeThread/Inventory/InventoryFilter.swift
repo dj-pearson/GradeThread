@@ -68,6 +68,9 @@ public enum InventoryFilter {
         if !criteria.colors.isEmpty {
             guard let c = item.color?.facetTrimmed, criteria.colors.contains(c) else { return false }
         }
+        if !criteria.locationBins.isEmpty {
+            guard let l = item.locationBin?.facetTrimmed, criteria.locationBins.contains(l) else { return false }
+        }
 
         if criteria.gradedOnly || criteria.minGrade != nil {
             guard let grade = item.gradeValue else { return false }

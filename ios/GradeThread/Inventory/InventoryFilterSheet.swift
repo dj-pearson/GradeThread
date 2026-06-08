@@ -170,6 +170,9 @@ struct InventoryFilterSheet: View {
             facetLink("Brand", systemImage: "tag", values: facets.brands, selection: $draft.brands)
             facetLink("Size", systemImage: "ruler", values: facets.sizes, selection: $draft.sizes)
             facetLink("Color", systemImage: "paintpalette", values: facets.colors, selection: $draft.colors)
+            if !facets.locationBins.isEmpty {
+                facetLink("Location", systemImage: "shippingbox", values: facets.locationBins, selection: $draft.locationBins)
+            }
         }
     }
 

@@ -28,6 +28,9 @@ struct ItemCanvasView: View {
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
     @State private var compsStore = CompsStore()
+    /// US-676: consignors for the consignment picker.
+    @State private var consignorStore = ConsignorStore()
+    @State private var labelError: String?
 
     // US-650 item-level actions
     @State private var showingDeleteConfirmation = false
@@ -85,6 +88,18 @@ struct ItemCanvasView: View {
             if state == nil {
                 state = ItemCanvasState(item: item, currencyFormatter: currencyFormatter)
             }
+        }
+        .task { await consignorStore.load() }
+        .alert(
+            "Couldn't print label",
+            isPresented: Binding(
+                get: { labelError != nil },
+                set: { if !$0 { labelError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(labelError ?? "")
         }
         .interactiveDismissDisabled(state?.isDirty == true)
         .confirmationDialog(
@@ -175,6 +190,7 @@ struct ItemCanvasView: View {
 
         Form {
             identitySection(state: state)
+            storageSection(state: state)
             pricingSection(state: state)
             if let pnl = realizedPnL {
                 pnlSection(pnl)
@@ -310,6 +326,51 @@ struct ItemCanvasView: View {
                     Text(cat.label).tag(Optional(cat))
                 }
             }
+        }
+    }
+
+    /// US-676: storage location/bin, consignment link, and SKU label printing.
+    private func storageSection(state: ItemCanvasState) -> some View {
+        @Bindable var state = state
+        return Section("Storage & consignment") {
+            TextField("Location / bin", text: $state.draft.locationBin)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+
+            Picker("Consignor", selection: $state.draft.consignorId) {
+                Text("None").tag(String?.none)
+                ForEach(consignorStore.consignors) { consignor in
+                    Text(consignor.name).tag(Optional(consignor.id))
+                }
+            }
+            if state.draft.consignorId != nil {
+                HStack {
+                    TextField("Split %", text: $state.draft.consignmentSplitText)
+                        .keyboardType(.numberPad)
+                    Text("% to consignor")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Button {
+                printSKULabel()
+            } label: {
+                Label("Print SKU label", systemImage: "printer")
+            }
+            .disabled(state.draft.sku.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+
+    private func printSKULabel() {
+        guard let state else { return }
+        do {
+            try LabelPrinter.printLabel(
+                sku: state.draft.sku,
+                title: state.draft.title.nonEmpty ?? item.title
+            )
+        } catch {
+            labelError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            HapticFeedback.error()
         }
     }
 
@@ -716,6 +777,9 @@ struct ItemCanvasView: View {
         let target_price: Double?
         let acquired_price: Double?
         let item_category: String?
+        let location_bin: String?
+        let consignor_id: String?
+        let consignment_split_pct: Double?
     }
 
     private func buildUpdatePayload(state: ItemCanvasState) -> ItemCanvasUpdate {
@@ -731,8 +795,20 @@ struct ItemCanvasView: View {
             status: state.draft.status,
             target_price: target,
             acquired_price: cost,
-            item_category: state.draft.category?.rawValue
+            item_category: state.draft.category?.rawValue,
+            location_bin: state.draft.locationBin.nonEmpty,
+            consignor_id: state.draft.consignorId,
+            consignment_split_pct: Self.parseSplit(state)
         )
+    }
+
+    /// Parses the per-item split override. Only meaningful when a consignor is
+    /// set; cleared (nil) otherwise so an unlinked item carries no stray split.
+    private static func parseSplit(_ state: ItemCanvasState) -> Double? {
+        guard state.draft.consignorId != nil else { return nil }
+        let trimmed = state.draft.consignmentSplitText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Double(trimmed) else { return nil }
+        return min(max(value, 0), 100)
     }
 
     private func applyToLocalItem(state: ItemCanvasState) {
@@ -747,6 +823,9 @@ struct ItemCanvasView: View {
         item.status = state.draft.status
         item.targetPrice = target
         item.acquiredPrice = cost
+        item.locationBin = state.draft.locationBin.nonEmpty
+        item.consignorId = state.draft.consignorId
+        item.consignmentSplitPct = Self.parseSplit(state)
         item.hasLocalChanges = false  // server now has our write
         item.updatedAt = .now
     }

@@ -407,7 +407,11 @@ struct DetailsIntakeView: View {
         isSaving = true
         defer { isSaving = false }
 
-        let payload = buildInsertPayload(userId: userId)
+        // US-670: write into the active workspace (member with listing_manager+
+        // can insert under the owner's user_id; RLS enforces the role). Falls
+        // back to self in the personal workspace.
+        let ownerId = WorkspaceScope.tenantOwnerId(selfId: userId)
+        let payload = buildInsertPayload(userId: ownerId)
         do {
             try await SupabaseShared.client
                 .from("inventory_items")

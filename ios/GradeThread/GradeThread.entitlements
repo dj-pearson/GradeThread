@@ -6,6 +6,18 @@
     <array>
         <string>Default</string>
     </array>
+    <!-- US-661: Universal Links. Claims https links on gradethread.com so
+         ASWebAuthenticationSession.Callback.https can complete the eBay +
+         Supabase OAuth handshakes against an https URL the app owns, instead of
+         a claimable custom scheme (com.gradethread.app://) that any installed
+         app could register and intercept. Backed by the AASA served at
+         https://gradethread.com/.well-known/apple-app-site-association. The
+         webcredentials line shares the same domain for password autofill. -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:gradethread.com</string>
+        <string>webcredentials:gradethread.com</string>
+    </array>
     <!-- US-187: APNs. Committed as "development" so local Xcode-signed
          builds talk to the APNs sandbox. The release workflow
          (ios-release.yml, "Flip aps-environment to production" step)

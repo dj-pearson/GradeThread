@@ -125,6 +125,40 @@ final class EbayConnectionTests: XCTestCase {
         XCTAssertNil(EbayConnectResult.from(callbackURL: url))
     }
 
+    // MARK: - US-661 Universal Link callback parsing
+
+    // On iOS 17.4+ the edge bounces the callback to the https Universal Link
+    // (https://gradethread.com/app/oauth/ebay) with the echoed client_state.
+    // The same parser must handle the https form identically to the custom scheme.
+    func test_universalLinkCallback_connected_withMatchingState() {
+        let url = URL(string: "https://gradethread.com/app/oauth/ebay?client_state=real-nonce&ebay=connected")!
+        XCTAssertNil(EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"))
+    }
+
+    func test_universalLinkCallback_cancelled() {
+        let url = URL(string: "https://gradethread.com/app/oauth/ebay?client_state=real-nonce&ebay=cancelled")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .cancelled
+        )
+    }
+
+    func test_universalLinkCallback_mismatchedState_rejected() {
+        let url = URL(string: "https://gradethread.com/app/oauth/ebay?client_state=forged&ebay=connected")!
+        XCTAssertEqual(
+            EbayConnectResult.from(callbackURL: url, expectedState: "real-nonce"),
+            .stateExpired
+        )
+    }
+
+    func test_universalLink_constants_matchAASA() {
+        // Host + path must line up with the AASA component (/app/oauth/*) and
+        // the edge redirect target, or the in-app session never completes.
+        XCTAssertEqual(EbayConnectionService.universalLinkHost, "gradethread.com")
+        XCTAssertEqual(EbayConnectionService.universalLinkPath, "/app/oauth/ebay")
+        XCTAssertEqual(EbayConnectionService.universalLinkRedirectPath, "/app/oauth/ebay")
+    }
+
     // MARK: - MarketplaceConnectionStore phase transitions
 
     func test_store_initial_phase_isLoading() {

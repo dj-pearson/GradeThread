@@ -26,11 +26,19 @@ struct MarketplacesView: View {
                 headerCard
                 if let userId = currentUserId() {
                     connectionCard(userId: userId)
+                    // US-671: manage multiple connected eBay stores.
+                    if case .connected = store.phase {
+                        ebayAccountsCard(userId: userId)
+                        // US-673: best offers + buyer messages.
+                        negotiationCard
+                    }
                     if orphanCheckFailed {
                         reconciliationErrorCard(userId: userId)
                     } else if orphanCount > 0 {
                         reconciliationCard
                     }
+                    // US-289: photo-dump → reconcile-session intake.
+                    reconcileIntakeCard(userId: userId)
                 }
                 // US-675: durable home for AutoLister-generated drafts + bulk edit.
                 draftsCard
@@ -115,6 +123,94 @@ struct MarketplacesView: View {
                 .accessibilityLabel("\(channel.label), coming soon")
             }
         }
+    }
+
+    // US-671: multiple eBay account management entry point.
+    private func ebayAccountsCard(userId: String) -> some View {
+        NavigationLink {
+            EbayAccountsView(userId: userId)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "person.2.crop.square.stack")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("eBay accounts")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Connect, label, and switch between multiple eBay stores")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-289: photo-dump → reconcile-session intake. Scoped to the active
+    // workspace owner (US-670).
+    private func reconcileIntakeCard(userId: String) -> some View {
+        NavigationLink {
+            ReconcileIntakeView(ownerId: WorkspaceScope.tenantOwnerId(selfId: userId))
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "rectangle.stack.badge.plus")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Reconcile photo dump")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Send a batch of photos to a reconcile session to group into items on the web board")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // US-673: best offers + buyer messages entry point.
+    private var negotiationCard: some View {
+        NavigationLink {
+            NegotiationInboxView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "bubble.left.and.exclamationmark.bubble.right")
+                    .font(.title3)
+                    .foregroundStyle(Color.brandNavy)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Offers & messages")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Review best offers and reply to buyers without leaving the app")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .cardStyle(.flush)
+        }
+        .buttonStyle(.plain)
     }
 
     // US-675: AutoLister drafts library entry point.

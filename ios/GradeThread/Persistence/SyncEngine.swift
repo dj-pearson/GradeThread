@@ -192,6 +192,9 @@ actor SyncEngine {
         let material: String?
         let status: String
         let source_id: String?
+        let location_bin: String?
+        let consignor_id: String?
+        let consignment_split_pct: Double?
         let target_price: Double?
         let acquired_price: Double?
         let grade_value: Double?
@@ -205,6 +208,7 @@ actor SyncEngine {
         private enum CodingKeys: String, CodingKey {
             case id, user_id, title, brand, sku, size, color, material, status
             case source_id
+            case location_bin, consignor_id, consignment_split_pct
             case target_price, acquired_price, grade_value, grade_label
             case certificate_url, condition_notes, measurements, created_at, updated_at
         }
@@ -221,6 +225,9 @@ actor SyncEngine {
             material = try c.decodeIfPresent(String.self, forKey: .material)
             status = try c.decode(String.self, forKey: .status)
             source_id = try c.decodeIfPresent(String.self, forKey: .source_id)
+            location_bin = try c.decodeIfPresent(String.self, forKey: .location_bin)
+            consignor_id = try c.decodeIfPresent(String.self, forKey: .consignor_id)
+            consignment_split_pct = try c.decodeIfPresent(Double.self, forKey: .consignment_split_pct)
             target_price = try c.decodeIfPresent(Double.self, forKey: .target_price)
             acquired_price = try c.decodeIfPresent(Double.self, forKey: .acquired_price)
             grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
@@ -320,12 +327,20 @@ actor SyncEngine {
 
     private func pullRemote() async -> Result<PullPayload, Error> {
         do {
+            // US-670: scope the pull to the active workspace owner. Additive
+            // workspace-member RLS (00042) returns the OWNER's rows to a member,
+            // so without this filter a member's cache would mix every workspace
+            // they belong to. Resolve once: the selected workspace, else self.
+            let selfId = try? await SupabaseShared.client.auth.session.user.id.uuidString
+            let ownerId = WorkspaceScope.activeOwnerId ?? selfId
+
             // Items — delta on updated_at, paginated (US-633).
             let items = try await paginatedFetch(
                 table: "inventory_items",
                 columns: Self.itemColumns,
                 cursor: SyncWatermark.Table.inventoryItems.cursorColumn,
                 watermark: watermark.value(for: .inventoryItems),
+                scopeUserId: ownerId,
                 decode: Self.decodeItemsResiliently
             )
 
@@ -348,6 +363,7 @@ actor SyncEngine {
                 columns: Self.saleColumns,
                 cursor: SyncWatermark.Table.sales.cursorColumn,
                 watermark: watermark.value(for: .sales),
+                scopeUserId: ownerId,
                 decode: Self.decodeSalesResiliently
             )) ?? []
 
@@ -367,12 +383,15 @@ actor SyncEngine {
         columns: String,
         cursor: String,
         watermark: String?,
+        scopeUserId: String? = nil,
         decode: (Data) -> [T]
     ) async throws -> [T] {
         var out: [T] = []
         var offset = 0
         while true {
             var query = SupabaseShared.client.from(table).select(columns)
+            // US-670: workspace scoping for tables with a user_id column.
+            if let scopeUserId { query = query.eq("user_id", value: scopeUserId) }
             if let watermark { query = query.gt(cursor, value: watermark) }
             let response = try await query
                 .order(cursor, ascending: true)
@@ -394,7 +413,7 @@ actor SyncEngine {
     }
 
     private static let itemColumns =
-        "id,user_id,title,brand,sku,size,color,material,status,source_id,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
+        "id,user_id,title,brand,sku,size,color,material,status,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
@@ -554,6 +573,10 @@ actor SyncEngine {
             let storage_path: String
             let local_file_url: String
             let photo_id: String?
+            // US-289: capture-time + reconcile session carried through the
+            // offline queue so a retried upload doesn't lose them.
+            let captured_at: String?
+            let reconcile_session_id: String?
         }
         let p = try JSONDecoder().decode(UploadPayload.self, from: payload)
         let fileURL = URL(fileURLWithPath: p.local_file_url)
@@ -587,6 +610,11 @@ actor SyncEngine {
             "bytes": .integer(bytes ?? 0),
         ]
         if let photoId = p.photo_id { row["id"] = .string(photoId) }
+        // US-289: preserve capture-time + reconcile session through replay.
+        if let capturedAt = p.captured_at { row["captured_at"] = .string(capturedAt) }
+        if let sessionId = p.reconcile_session_id {
+            row["reconcile_session_id"] = .string(sessionId)
+        }
         try await SupabaseShared.client.from("item_photos").upsert(row).execute()
 
         // Clean up the staged bytes now that they're durably uploaded.

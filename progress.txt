@@ -4957,3 +4957,60 @@ prd.json `notes`):
           inventory_items columns + a consignment model server-side (only the
           AirPrint SKU label is purely iOS), so it can't pass until the schema
           lands.
+
+## Session Notes (2026-06-07 cont.) -- Cleared deferred PRD band US-289/661/670/671/673/676
+
+Took the six remaining deferred stories to passes=true. These were previously
+parked as "needs backend / cross-system / device build"; this pass landed the
+full-stack work. Per repo convention Deno/Xcode aren't runnable in-sandbox, so
+edge + iOS are covered by tests mirroring the proven harness; the WEB changes
+were typechecked (`tsc -p tsconfig.app.json` clean).
+
+- US-661  OAuth → Universal Links. AASA Cloudflare Pages Function
+          (functions/.well-known/apple-app-site-association.ts, Team ID via
+          APPLE_TEAM_ID env). Edge oauth/callback reworked so every exit path
+          bounces to the claimed destination with ?ebay=<status> + echoed
+          client_state; /app added to the redirect allowlist. iOS:
+          associated-domains entitlement, shared OAuthWebSession (.Callback.https
+          on 17.4+, custom-scheme fallback), eBay + Google + recovery deep links
+          via Universal Links; config.toml allowlist. Ops step: set APPLE_TEAM_ID
+          + mirror the GOTRUE allow-list. Tests: edge oauth-redirect (+5), iOS
+          EbayConnection (+4).
+
+- US-676  Inventory locations/bins + SKU label printing + consignment.
+          Migration 00107 (consignors table + inventory_items.consignor_id /
+          consignment_split_pct; location_bin already existed). iOS: location
+          field + filter facet, Capture/LabelPrinter (Code128 + AirPrint via
+          UIPrintInteractionController), Consignment/ module (consignor CRUD +
+          per-consignor payout report). Tests: ConsignmentTests (13).
+
+- US-671  Multiple eBay account connections. Migration 00108
+          (marketplace_connections.label + is_primary, one-primary index). Edge
+          getUserAccessToken + connection lookups prefer the selected (primary)
+          connection — low blast radius, no connectionId threaded everywhere.
+          iOS: EbayAccountsStore/View (add/label/select/disconnect) +
+          EbayConnectionsProviding. Tests: EbayAccountsTests (7).
+
+- US-670  iOS workspace / team context. CORRECTION: member-read RLS already
+          existed (00042/00081), so the read path was settled. WorkspaceScope
+          (UserDefaults) + WorkspaceContext (@Observable); EdgeAPI
+          X-Workspace-Owner header; SyncEngine pulls scoped to the active
+          workspace owner; intake writes under the owner; Settings switcher +
+          members link; cache reset + re-pull on switch. Tests:
+          WorkspaceContextTests (8).
+
+- US-673  eBay best-offers + send-offer + buyer messages. Edge: sell.negotiation
+          scope; Negotiation REST (find-eligible + send-offer) +
+          Trading XML (GetBestOffers/RespondToBestOffer/GetMemberMessages/
+          AddMemberMessageRTQ); routes under /negotiation/* + /messages/*. iOS:
+          Negotiation/ module + NegotiationInboxView (accept/decline/counter,
+          reply, send-offer). Tests: tenant-isolation auth (+4),
+          NegotiationTests (9).
+
+- US-289  Reconcile iOS batch import. iOS Reconcile/ module stages a photo dump
+          into a flipdesk_reconcile_sessions row (uploads to item-photos +
+          writes the camelCase assignments snapshot the web reads); the web
+          board (reconcile.tsx + use-reconcile-commit.ts) hydrates previews from
+          storagePath and commits by referencing the staged objects (no
+          re-upload). SyncEngine .uploadPhoto replay now carries captured_at +
+          reconcile_session_id. Tests: ReconcileSessionTests (6) + existing (8).

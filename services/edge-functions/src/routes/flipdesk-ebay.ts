@@ -31,6 +31,8 @@ import {
   updateOfferPrice,
   upsertConnection,
   withdrawOffer,
+  findEligibleNegotiationItems,
+  sendOfferToInterestedBuyers,
   type PolicySet,
   type RemoteOffer,
   type RemoteOrder,
@@ -40,6 +42,11 @@ import {
 import {
   getAllActiveEbaySelling,
   getItemSpecifics,
+  getBestOffers,
+  respondToBestOffer,
+  getMemberMessages,
+  replyToMemberMessage,
+  type BestOfferAction,
   type LegacyEbayListing,
 } from "../lib/ebay-trading.ts";
 import {
@@ -168,6 +175,47 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
   const ebayError = c.req.query("error");
   const ebayErrorDesc = c.req.query("error_description");
 
+  // Resolve the bounce-back destination up front. The web flow has no
+  // redirect_to and falls back to the dashboard; the iOS app (US-661) passes
+  // an https Universal Link under `/app/oauth/ebay` (with its client_state
+  // nonce already in the query) so ASWebAuthenticationSession.Callback.https
+  // completes the in-app session deterministically. We read + delete the
+  // single-use state row here (when present) so a replay can't reuse it, and
+  // so EVERY exit path — including errors — bounces back to the SAME claimed
+  // destination (otherwise the iOS web-auth session would hang on an
+  // unclaimed https URL on cancel/exchange failures).
+  let redirectTo: string | null = null;
+  let stateUserId: string | null = null;
+  let stateFound = false;
+  let stateExpired = false;
+  if (state) {
+    const { data: stateRow } = await supabaseAdmin
+      .from("oauth_states")
+      .delete()
+      .eq("state", state)
+      .eq("marketplace", "ebay")
+      .select("user_id, redirect_to, expires_at")
+      .maybeSingle();
+    if (stateRow) {
+      stateFound = true;
+      // Defense-in-depth: redirect_to was sanitized at /oauth/start, but
+      // re-check here so a legacy/oddly-stored row can't drive an open
+      // redirect. (US-274)
+      redirectTo = sanitizeRelativePath(stateRow.redirect_to);
+      stateUserId = stateRow.user_id;
+      stateExpired = new Date(stateRow.expires_at).getTime() < Date.now();
+    }
+  }
+
+  // Append the `?ebay=<status>` discriminator to whichever destination we
+  // bounce to, preserving any query the caller already passed (e.g. the iOS
+  // client_state nonce) — `&` when a query already exists, `?` otherwise.
+  const finish = (status: string) => {
+    const base = redirectTo ?? "/dashboard/flipdesk/marketplaces";
+    const sep = base.includes("?") ? "&" : "?";
+    return c.redirect(appUrl(`${base}${sep}ebay=${encodeURIComponent(status)}`));
+  };
+
   // eBay sends `error=access_denied` when the user cancels at the consent
   // screen. Other error codes (e.g. unauthorized_client) signal config bugs
   // — log the description so the operator can see it without having to dig
@@ -176,35 +224,16 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     console.error(
       `[flipdesk-ebay] consent error: ${ebayError} — ${ebayErrorDesc ?? "(no description)"}`
     );
-    const reason = ebayError === "access_denied" ? "cancelled" : ebayError;
-    return c.redirect(
-      appUrl(
-        `/dashboard/flipdesk/marketplaces?ebay=${encodeURIComponent(reason)}`
-      )
-    );
+    return finish(ebayError === "access_denied" ? "cancelled" : ebayError);
   }
   if (!code || !state) {
-    return c.redirect(appUrl("/dashboard/flipdesk/marketplaces?ebay=cancelled"));
+    return finish("cancelled");
   }
-
-  // Single-use state — read + delete in one round-trip so a replay can't reuse it.
-  const { data: stateRow, error: stateErr } = await supabaseAdmin
-    .from("oauth_states")
-    .delete()
-    .eq("state", state)
-    .eq("marketplace", "ebay")
-    .select("user_id, redirect_to, expires_at")
-    .maybeSingle();
-
-  if (stateErr || !stateRow) {
-    return c.redirect(
-      appUrl("/dashboard/flipdesk/marketplaces?ebay=invalid_state")
-    );
+  if (!stateFound || !stateUserId) {
+    return finish("invalid_state");
   }
-  if (new Date(stateRow.expires_at).getTime() < Date.now()) {
-    return c.redirect(
-      appUrl("/dashboard/flipdesk/marketplaces?ebay=state_expired")
-    );
+  if (stateExpired) {
+    return finish("state_expired");
   }
 
   try {
@@ -215,7 +244,7 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     // refresh path will backfill on the next token rotation.
     const identity = await getUserIdentityFromToken(tokens.access_token);
     await upsertConnection({
-      userId: stateRow.user_id,
+      userId: stateUserId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
       accessExpiresInSeconds: tokens.expires_in,
@@ -223,17 +252,10 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
     });
   } catch (err) {
     console.error("[flipdesk-ebay] OAuth exchange failed:", err);
-    return c.redirect(
-      appUrl("/dashboard/flipdesk/marketplaces?ebay=exchange_failed")
-    );
+    return finish("exchange_failed");
   }
 
-  // Defense-in-depth: redirect_to was sanitized at /oauth/start, but re-check
-  // here so a legacy/oddly-stored row can't drive an open redirect. (US-274)
-  const dest =
-    sanitizeRelativePath(stateRow.redirect_to) ??
-    "/dashboard/flipdesk/marketplaces?ebay=connected";
-  return c.redirect(appUrl(dest));
+  return finish("connected");
 });
 
 // ── OAuth: refresh ─────────────────────────────────────────────────
@@ -317,6 +339,9 @@ async function loadMerchantLocationKey(userId: string): Promise<string | null> {
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: read the selected (primary) connection's ship-from location.
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   return (data as { merchant_location_key: string | null } | null)
@@ -1402,6 +1427,9 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: sync the selected (primary) connection.
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!conn) {
@@ -2271,6 +2299,177 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
   }
 });
 
+// ── US-673: Best offers + send-offer + buyer messages ───────────────
+//
+// All of these operate against the caller's OWN eBay account: the token is
+// resolved from the workspace owner's connection (getUserAccessToken), so a
+// caller can only ever read/respond to offers + messages on their own listings.
+// No cross-tenant id is accepted from the body for reads, and respond/reply act
+// against the caller's eBay account — there is no way to target another tenant.
+
+// GET /negotiation/offers — incoming best offers across the seller's listings.
+flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const offers = await getBestOffers(userId);
+    return c.json({ offers });
+  } catch (err) {
+    console.error("[flipdesk-ebay] getBestOffers failed:", err);
+    return c.json({ error: "Couldn't load best offers from eBay." }, 502);
+  }
+});
+
+// POST /negotiation/offers/:bestOfferId/respond — accept / decline / counter.
+// Body: { item_id, action, counter_price?, counter_quantity?, message? }
+flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const bestOfferId = c.req.param("bestOfferId");
+  let body: {
+    item_id?: unknown;
+    action?: unknown;
+    counter_price?: unknown;
+    counter_quantity?: unknown;
+    message?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  const action = body.action as BestOfferAction;
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+  if (action !== "Accept" && action !== "Decline" && action !== "Counter") {
+    return c.json({ error: "action must be Accept, Decline, or Counter" }, 400);
+  }
+  let counterPrice: number | undefined;
+  if (action === "Counter") {
+    counterPrice = Number(body.counter_price);
+    if (!Number.isFinite(counterPrice) || (counterPrice ?? 0) <= 0) {
+      return c.json({ error: "counter_price must be a positive number" }, 400);
+    }
+  }
+  try {
+    await respondToBestOffer(userId, {
+      itemId,
+      bestOfferId,
+      action,
+      counterPrice,
+      counterQuantity: Number.isFinite(Number(body.counter_quantity))
+        ? Number(body.counter_quantity)
+        : undefined,
+      sellerMessage: typeof body.message === "string" ? body.message : undefined,
+    });
+    return c.json({ ok: true, best_offer_id: bestOfferId, action });
+  } catch (err) {
+    console.error("[flipdesk-ebay] respondToBestOffer failed:", err);
+    return c.json({ error: "eBay rejected the best-offer response.", detail: String(err) }, 502);
+  }
+});
+
+// GET /negotiation/eligible — listings eligible for a send-offer-to-buyers.
+flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const items = await findEligibleNegotiationItems(userId);
+    return c.json({ items });
+  } catch (err) {
+    console.error("[flipdesk-ebay] findEligibleNegotiationItems failed:", err);
+    return c.json({ error: "Couldn't load eligible listings from eBay." }, 502);
+  }
+});
+
+// POST /negotiation/send-offer — send a discount offer to interested buyers.
+// Body: { listing_ids: string[], discount_percentage?: string, message? }
+flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { listing_ids?: unknown; discount_percentage?: unknown; message?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const listingIds = Array.isArray(body.listing_ids)
+    ? body.listing_ids.filter((x): x is string => typeof x === "string")
+    : [];
+  if (listingIds.length === 0) {
+    return c.json({ error: "listing_ids must be a non-empty array" }, 400);
+  }
+  try {
+    await sendOfferToInterestedBuyers(userId, {
+      listingIds,
+      discountPercentage:
+        typeof body.discount_percentage === "string" ? body.discount_percentage : undefined,
+      message: typeof body.message === "string" ? body.message : undefined,
+    });
+    return c.json({ ok: true, count: listingIds.length });
+  } catch (err) {
+    console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
+    return c.json({ error: "eBay rejected the offer.", detail: String(err) }, 502);
+  }
+});
+
+// GET /messages — buyer member-message inbox (last 30 days).
+flipdeskEbayRoutes.get("/messages", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const messages = await getMemberMessages(userId);
+    return c.json({ messages });
+  } catch (err) {
+    console.error("[flipdesk-ebay] getMemberMessages failed:", err);
+    return c.json({ error: "Couldn't load messages from eBay." }, 502);
+  }
+});
+
+// POST /messages/:messageId/reply — reply to a buyer message.
+// Body: { item_id, recipient_id, body }
+flipdeskEbayRoutes.post("/messages/:messageId/reply", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const messageId = c.req.param("messageId");
+  let body: { item_id?: unknown; recipient_id?: unknown; body?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  const recipientId = typeof body.recipient_id === "string" ? body.recipient_id : "";
+  const text = typeof body.body === "string" ? body.body.trim() : "";
+  if (!itemId || !recipientId || !text) {
+    return c.json({ error: "item_id, recipient_id, and body are required" }, 400);
+  }
+  try {
+    await replyToMemberMessage(userId, {
+      itemId,
+      parentMessageId: messageId,
+      recipientId,
+      body: text,
+    });
+    return c.json({ ok: true, message_id: messageId });
+  } catch (err) {
+    console.error("[flipdesk-ebay] replyToMemberMessage failed:", err);
+    return c.json({ error: "eBay rejected the reply.", detail: String(err) }, 502);
+  }
+});
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 // Random URL-safe state token for CSRF + replay protection.
@@ -2526,6 +2725,9 @@ async function assemblePublishContext(
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
+    // US-671: publish through the selected (primary) connection.
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (!conn) {

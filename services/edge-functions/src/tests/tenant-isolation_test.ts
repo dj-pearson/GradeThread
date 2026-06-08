@@ -524,3 +524,63 @@ Deno.test({
     assert(status === 401, `unauthenticated suggest-item-match should 401, got ${status}`);
   },
 });
+
+// US-673: best offers + buyer messages. These act against the CALLER's own
+// eBay account (the token is resolved from the caller's connection), so there's
+// no cross-tenant id to probe — the boundary that matters is that they require
+// authentication (an unauthenticated caller can't read another seller's offers
+// or messages).
+Deno.test({
+  name: "negotiation offers requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/negotiation/offers`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated negotiation/offers should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "respond-to-best-offer requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/negotiation/offers/abc123/respond`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: "1", action: "Decline" }),
+      },
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated respond should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "buyer messages inbox requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/messages`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated messages should 401, got ${status}`);
+  },
+});
+
+Deno.test({
+  name: "message reply requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/messages/m1/reply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ item_id: "1", recipient_id: "buyer", body: "hi" }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(status === 401, `unauthenticated reply should 401, got ${status}`);
+  },
+});

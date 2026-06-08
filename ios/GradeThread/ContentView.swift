@@ -43,6 +43,18 @@ struct ContentView: View {
                 IntakeInbox.sweepStale()
                 Telemetry.event(TelemetryEvent.appOpen)
             }
+            // US-661: complete auth handshakes delivered as a Universal Link
+            // (password-reset / magic-link email opened from Mail lands on
+            // https://gradethread.com/app/auth-callback) or the legacy custom
+            // scheme. The in-app ASWebAuthenticationSession captures its own
+            // callback, so these only fire for links opened OUTSIDE the app.
+            .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                guard let url = activity.webpageURL else { return }
+                Task { await authStore.handleAuthCallback(url: url) }
+            }
+            .onOpenURL { url in
+                Task { await authStore.handleAuthCallback(url: url) }
+            }
             .onChange(of: authStore.phase) { _, newPhase in
                 // Boot the sync engine the moment the user signs in;
                 // pause it when they sign out so the offline queue doesn't
@@ -75,6 +87,14 @@ struct ContentView: View {
                 case .loading:
                     break
                 }
+            }
+            // US-670: when the active workspace changes, re-scope the cache —
+            // reset the delta cursors, wipe the previous tenant's local rows,
+            // and re-pull the new workspace's data (scoped in pullRemote).
+            .onReceive(NotificationCenter.default.publisher(for: .workspaceDidChange)) { _ in
+                SyncWatermark().resetAll()
+                clearLocalTenantCache()
+                Task { await syncEngine?.sync() }
             }
             .onChange(of: scenePhase) { _, newValue in
                 if newValue == .active {
@@ -166,6 +186,23 @@ struct ContentView: View {
             if syncStatus.phase == .reconnecting {
                 syncStatus.set(.idle)
             }
+        }
+    }
+
+    /// US-670: wipe the local mirror so a workspace switch doesn't show the
+    /// previous tenant's rows until the re-scoped pull lands. Deletes every
+    /// synced tenant model; the next sync repopulates from the active workspace.
+    private func clearLocalTenantCache() {
+        let ctx = modelContext
+        do {
+            try ctx.delete(model: LocalInventoryItem.self)
+            try ctx.delete(model: LocalItemPhoto.self)
+            try ctx.delete(model: LocalListing.self)
+            try ctx.delete(model: LocalSale.self)
+            try ctx.delete(model: LocalSource.self)
+            try ctx.save()
+        } catch {
+            // Best-effort — the scoped pull still corrects the view on success.
         }
     }
 
@@ -769,6 +806,8 @@ struct SettingsView: View {
     // US-648 preferences
     @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
     @State private var currencyCode: String = AppPreferences.currencyCode ?? "device"
+    // US-670: active workspace context (switcher).
+    @State private var workspaceContext: WorkspaceContext?
 
     private static let helpURL = URL(string: "https://gradethread.com/help")!
 
@@ -776,6 +815,7 @@ struct SettingsView: View {
         List {
             // ── Account ──────────────────────────────────────────────
             ProfileSection()
+            workspaceSection
             PlanSection()
             // US-194: AI Item Assistant (toggle + monthly usage meter + cap),
             // wired to the users row — mirrors US-167 on the web.
@@ -818,10 +858,16 @@ struct SettingsView: View {
                 } label: {
                     Label("Listing templates", systemImage: "doc.on.doc")
                 }
+                // US-676: consignors + per-consignor payout report.
+                NavigationLink {
+                    ConsignorsView()
+                } label: {
+                    Label("Consignors", systemImage: "person.2.badge.gearshape")
+                }
             } header: {
                 Text("Data")
             } footer: {
-                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, or save listing templates to reuse description, condition, and policies.")
+                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, save listing templates to reuse description, condition, and policies, or manage consignors and their payout splits.")
                     .font(.footnote)
             }
 
@@ -880,6 +926,41 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingImport) {
             CSVImportView()
+        }
+        .task {
+            if workspaceContext == nil, case let .signedIn(user) = authStore.phase {
+                let ctx = WorkspaceContext(selfUserId: user.id.uuidString)
+                workspaceContext = ctx
+                await ctx.load()
+            }
+        }
+    }
+
+    // US-670: workspace switcher + member list. Only shown once the user belongs
+    // to a workspace beyond their own (otherwise there's nothing to switch to).
+    @ViewBuilder
+    private var workspaceSection: some View {
+        if let ctx = workspaceContext, ctx.hasMultipleWorkspaces {
+            Section {
+                Picker("Active workspace", selection: Binding(
+                    get: { ctx.activeOwnerId },
+                    set: { ctx.switchTo(ownerId: $0) }
+                )) {
+                    ForEach(ctx.workspaces) { ws in
+                        Text(ws.name).tag(ws.ownerId)
+                    }
+                }
+                NavigationLink {
+                    TeamView(ownerId: ctx.activeOwnerId)
+                } label: {
+                    Label("Members", systemImage: "person.2")
+                }
+            } header: {
+                Text("Workspace")
+            } footer: {
+                Text("Switch which workspace you're working in. Inventory, sales, and listings are scoped to the active workspace.")
+                    .font(.footnote)
+            }
         }
     }
 
