@@ -10955,6 +10955,185 @@
       "priority": 744,
       "passes": false,
       "notes": "[P3][Cohesion/Mobile] DEFERRED 2026-06-08 — needs real device/PWA QA, and the audit was partly stale. AC2 ALREADY EXISTS: snap.tsx already has a 'List it with FlipDesk' CTA (-> /dashboard/flipdesk) alongside 'Get a certified grade' (-> /dashboard/submissions/new), so it's not isolated from the pipeline. The rest is genuinely PWA/service-worker/offline work that can't be verified headless: (AC1) pwa-install-banner.tsx is mounted only in flipdesk/intake.tsx and calls ensureServiceWorker() — the SW is DELIBERATELY scoped to FlipDesk intake (vite.config 'service worker not auto-injected app-wide'; only the banner + use-offline-intake register it), so surfacing the install affordance app-wide changes SW registration scope and offline behavior and must be QA'd on a real device + as an installed PWA; (AC3) caching submission-status/certificate routes for offline is a Workbox/SW change whose correctness (cache invalidation, stale auth) only shows on a device. RECOMMENDATION: do this as a focused mobile/PWA session with an actual phone + installed-PWA testing — generalize the banner copy + mount point with intentional SW-scope changes, add Workbox runtimeCaching for the read-only submission/cert routes, and (optionally) a snap-photo -> FlipDesk-intake handoff that prefills the captured image (reusing US-276 validateImageUpload/stripImageMetadata). NOT shipping blind. Depends on [[US-736]]."
+    },
+    {
+      "id": "US-745",
+      "title": "iOS cross-marketplace Listing Kit (copy/share for Poshmark, Mercari, Grailed, Depop)",
+      "description": "As a reseller on my phone, I want the per-platform listing fields for the no-API marketplaces so I can copy or share them straight into Poshmark/Mercari/Grailed/Depop, instead of being limited to eBay like the app is today.",
+      "acceptanceCriteria": [
+        "A per-platform 'Listing Kit' surface in the iOS Marketplaces/AutoLister flow that CONSUMES the existing server cross-list data (the web POST /api/flipdesk/autolister/platform-fields endpoint + listings.platform_fields jsonb from US-721) rather than re-porting the marketplace-specs registry into Swift",
+        "For each no-API platform (Poshmark/Mercari/Grailed/Depop) render every required field (title/description/tags/condition/category/price) with a native Copy button + a 'Copy all' / share-sheet action and a live char-count vs that platform's limit",
+        "Each platform shows the mapped condition (US-720) + category (US-722) and the US-725 pre-flight validation result (block vs warn) so the user can't copy an over-limit/missing-required field unaware",
+        "Replaces the 'Coming soon' placeholder cards in MarketplacesView.swift (lines ~86-126) for these platforms; eBay publish path is unchanged"
+      ],
+      "priority": 745,
+      "passes": false,
+      "notes": "[P1][iOS/Parity] BIGGEST parity gap from the iOS feature audit: iOS is eBay-only — AutoLister/Marketplaces have no cross-listing, and MarketplacesView shows Poshmark/Mercari/Grailed/Depop as 'Coming soon'. Web shipped the full cross-list stack (US-719..US-725: marketplace-specs registry, per-platform field/condition/category mapping, photo export, pre-flight validation, copy-paste Listing Kit). KEY INSIGHT: don't re-port the registry to Swift — the server already generates + persists per-platform fields (listings.platform_fields) via the US-721 endpoint, so iOS should consume that and render a native copy/share kit. Files: Marketplaces/MarketplacesView.swift, AutoLister/*, Marketplaces/Publish/PublishDialog.swift. Mirrors web [[US-723]]/[[US-721]]/[[US-725]]."
+    },
+    {
+      "id": "US-746",
+      "title": "iOS grade→publish bridge: 'Grade ready' next-action + list-this-item CTA",
+      "description": "As a reseller, I want a graded item to nudge me to list it — a 'Grade ready' cue on the item and a one-tap path from the grade report to publishing — instead of grade and publish being two disconnected flows.",
+      "acceptanceCriteria": [
+        "Inventory rows (InventoryRow.swift) show a grade-aware next-action cue: 'Grade ready' when an item has a grade but isn't yet listed, mirroring the web nextAction (US-736)",
+        "The grade report / grade-completion surface (GradeReportView.swift, CertifiedGradeSection.swift) gains a direct 'List this item' CTA into the publish flow (PublishDialog) and an 'Open certificate' action using the certificate_url written back by grading",
+        "The grade-ready push deep link (NotificationDelegate → inventoryItem(id)) auto-scrolls/anchors to the CertifiedGradeSection on open instead of dropping the user at the top of the canvas",
+        "No regression to the existing grade request/poll/report flow"
+      ],
+      "priority": 746,
+      "passes": false,
+      "notes": "[P1][iOS/Parity] From the feature + cohesion audits: iOS shows grade state on items and writes grade_value/certificate_url back, but grade and publish are DECOUPLED — no 'Grade ready' next-action cue and no direct 'list this graded item' CTA from the report; the grade-ready deep link lands at the top of the canvas, not the grade section. Mirrors web [[US-736]]. Files: Inventory/InventoryRow.swift, Grading/CertifiedGradeSection.swift, Grading/GradeReportView.swift, Notifications/NotificationDelegate.swift."
+    },
+    {
+      "id": "US-747",
+      "title": "iOS use-case-aware onboarding + activation routing",
+      "description": "As a new iOS user, I want onboarding that adapts to whether I'm a casual seller or a power reseller and drops me on the right first action, instead of a generic carousel.",
+      "acceptanceCriteria": [
+        "OnboardingView gains a use-case step (mirroring web USE_CASES) and, on finish, routes to the fitting first action (e.g. reseller → capture/AutoLister; grader → snap/grade) rather than just dismissing",
+        "The existing ActivationChecklist.swift is wired into the post-onboarding flow as the guided next-steps surface",
+        "Captured use case persists (and can inform later surfacing); replaying onboarding from Settings still works",
+        "Generic-carousel copy is replaced/tailored per use case"
+      ],
+      "priority": 747,
+      "passes": false,
+      "notes": "[P2][iOS/Parity] From the feature audit: iOS onboarding is a generic 4-slide carousel (OnboardingView.swift) with no use-case detection/routing; ActivationChecklist.swift exists but isn't wired into the first-run flow. Mirrors web [[US-742]]. Files: Onboarding/OnboardingView.swift, Onboarding/OnboardingState.swift, Onboarding/ActivationChecklist.swift."
+    },
+    {
+      "id": "US-748",
+      "title": "iOS Item↔Listing↔Sale navigation thread",
+      "description": "As a user, I want to move between an item, its listings, and its sale by tapping — so the app feels like one product, not separate screens I can't cross between.",
+      "acceptanceCriteria": [
+        "A sale row (SalesView/MoneyView) links to its inventory item (open ItemCanvas) — today tapping a sale goes nowhere",
+        "The item canvas shows the item's active listing(s) with a link out to the marketplace, and its recent sale if sold",
+        "The Dashboard 'Certified grades' card and any grades list drill into the specific graded item",
+        "Navigation links reuse the existing value-based NavigationStack routing; no duplicate data fetches (read from the shared SwiftData store)"
+      ],
+      "priority": 748,
+      "passes": false,
+      "notes": "[P1][iOS/Cohesion] The #1 cohesion finding ('feels like many apps stitched together'): there's no Item↔Listing↔Sale thread — a sale row doesn't open its item, the item canvas doesn't show its active listings, and the Dashboard grades card is view-only. Files: Sales/SalesView.swift, Money/MoneyView.swift, Inventory/ItemCanvas/ItemCanvasView.swift, Dashboard/DashboardView.swift, ContentView.swift. Pairs with [[US-746]]."
+    },
+    {
+      "id": "US-749",
+      "title": "iOS: surface the buried power modules (Scout, Snap, AutoLister, Grades, Reconcile)",
+      "description": "As a user, I want to reach Scout, Snap, AutoLister, my graded items, and Reconcile without hunting — they're powerful but today only reachable from a Dashboard button or Settings.",
+      "acceptanceCriteria": [
+        "A coherent, discoverable entry surface for the secondary modules (e.g. a 'Tools' hub or grouped section reachable from a stable tab) covering Scout, Snap, AutoLister, Grades, Reconcile, Referrals, Verified",
+        "High-value batch actions are reachable from where the work is (e.g. 'Send to grading' / 'List with AutoLister' as bulk actions on selected inventory items)",
+        "Reconcile surfaces when there are orphan listings regardless of which tab you're on (a badge/affordance), not only inside Marketplaces",
+        "No change to the core 5-tab spine (Home/Inventory/Add/Money/Marketplaces) unless it clearly improves discovery"
+      ],
+      "priority": 749,
+      "passes": false,
+      "notes": "[P1][iOS/Cohesion] From the cohesion audit: Scout/Snap/AutoLister are reachable only from Dashboard buttons; Grades only from a Dashboard nav link; Team/Referrals/Verified only buried in Settings; Reconcile only inside Marketplaces when orphan_count>0. Files: ContentView.swift (tab/nav shell), Dashboard/DashboardView.swift, Inventory/BulkActionExecutor.swift."
+    },
+    {
+      "id": "US-750",
+      "title": "iOS: single source of truth for Sales + Expenses (retire the Remote* shadow stores)",
+      "description": "As a user, I want the money numbers to agree everywhere — today Sales and Expenses are fetched separately from the local cache, so figures can drift and expenses aren't tied to the items they offset.",
+      "acceptanceCriteria": [
+        "Sales and Expenses are read from the shared SwiftData store (cache them like LocalSale/LocalListing) instead of SalesStore/ExpenseStore making independent server fetches of RemoteSale/RemoteExpense",
+        "SalesView and MoneyView read the SAME LocalSale source (no Local-vs-Remote split), so P&L/net-profit can't drift between screens",
+        "Expenses cache carries an optional inventoryItemId/listingId link so per-item P&L and expense-by-source views become possible",
+        "Sync engine populates these; offline reads work; no double-fetch"
+      ],
+      "priority": 750,
+      "passes": false,
+      "notes": "[P2][iOS/Cohesion] From the cohesion audit: SalesStore fetches RemoteSale and ExpenseStore fetches RemoteExpense server-side, separate from the SwiftData LocalSale cache → two sources of truth + drift risk; expenses have no local cache and no link to the sales/items they offset. Files: Sales/SalesStore.swift, Money/ExpenseStore.swift, Persistence/Models/*, Persistence/SyncEngine.swift, Sales/SalesView.swift, Money/MoneyView.swift."
+    },
+    {
+      "id": "US-751",
+      "title": "iOS: reconciliation link/create refreshes the local cache",
+      "description": "As a user reconciling orphan listings, I want a linked/created item to immediately show its listing — today after linking, the item still shows zero listings until who-knows-when.",
+      "acceptanceCriteria": [
+        "After 'Link item' / 'Create item' in ReconciliationView, the local SwiftData cache is updated (optimistically + via a targeted sync) so the item's canvas shows the now-linked listing",
+        "The reconciliation list removes the resolved orphan without a full manual re-sync",
+        "Failure to link is surfaced (the iOS app currently doesn't confirm the link worked)"
+      ],
+      "priority": 751,
+      "passes": false,
+      "notes": "[P2][iOS/Cohesion] From the cohesion audit: ReconciliationView 'Create item'/'Link item' write server-side but don't refresh the local cache, so the item still shows 0 listings (a dead-end), and the app doesn't validate the link succeeded. Files: Marketplaces/Reconciliation/ReconciliationView.swift, Persistence/SyncEngine.swift."
+    },
+    {
+      "id": "US-752",
+      "title": "iOS: precise notification + widget deep links",
+      "description": "As a user, I want a notification or widget tap to land me on the exact thing it's about — the specific sale, offer, or listing — not just the tab's home screen.",
+      "acceptanceCriteria": [
+        "sale.created / payout.* notifications open the specific sale's item (or a sale detail) instead of the Money tab home; grade.ready anchors to the item's grade section (pairs with US-746)",
+        "offer.received / message.received drill into the specific listing/offer where the id is available, not just the Marketplaces hub",
+        "The home-screen widget deep-links on tap (active listings → Marketplaces, sold-today → Money/Sales) instead of just unlocking the app",
+        "DeepLinkRoute is extended as needed; routes are exercised by a lightweight test/QA note"
+      ],
+      "priority": 752,
+      "passes": false,
+      "notes": "[P2][iOS/Cohesion] From the cohesion audit: notification routing lands on tab hubs not the specific record (sale.created → Money home; offer/message → Marketplaces hub), and the widget has no deep link on tap. Files: Notifications/NotificationDelegate.swift (DeepLinkRoute), Widgets/WidgetSnapshotPublisher.swift, ContentView.swift. Pairs with [[US-746]]."
+    },
+    {
+      "id": "US-753",
+      "title": "iOS shared component library (StatusBadge / InfoCard / DataRow)",
+      "description": "As a developer, I want a small set of shared view components so screens stop hand-rolling badges and cards, and a status looks identical everywhere — matching the web StatusBadge system.",
+      "acceptanceCriteria": [
+        "Extract reusable StatusBadge, InfoCard, and DataRow components into ios/GradeThread/Components, built on the existing DesignTokens/Typography",
+        "StatusBadge uses one status→tone map aligned with the web status tones (US-728) so item status looks consistent across Inventory/Sales/Money/Marketplaces",
+        "Replace the highest-traffic hand-rolled badge/card instances (the audit counted ~40+ ad-hoc card instances and per-screen badge styling) with the shared components",
+        "No visual regression; design tokens unchanged"
+      ],
+      "priority": 753,
+      "passes": false,
+      "notes": "[P2][iOS/UI] From the UI audit: the design system (DesignTokens/Typography/cardStyle/button styles) is strong (A−), but /Components only has SkeletonView + CachedThumbnail — most views hand-roll badges/cards (~40+ ad-hoc instances). A shared StatusBadge aligned with the web tones (US-728) plus InfoCard/DataRow cuts duplication. Files: ios/GradeThread/Components/*, Inventory/InventoryRow.swift, Sales/SalesView.swift, Money/MoneyView.swift."
+    },
+    {
+      "id": "US-754",
+      "title": "iOS inline form validation feedback (details intake)",
+      "description": "As a user filling the item details form, I want to see what's wrong as I type — not just a greyed-out Save button — so I'm not guessing why I can't continue.",
+      "acceptanceCriteria": [
+        "DetailsIntakeView shows inline, per-field validation (e.g. 'Title required', length caps) as the user types, with the invalid field visibly marked",
+        "Validation messages are announced to VoiceOver (reuse A11yAnnounce), not just visual",
+        "The Save button's enabled/disabled state stays in sync with the inline errors",
+        "Mirrors the web FieldError/error-summary pattern (US-731) in a native idiom"
+      ],
+      "priority": 754,
+      "passes": false,
+      "notes": "[P2][iOS/UX] From the UI audit (its top form gap): DetailsIntakeView only disables Save when required fields are empty — no inline 'why', no field highlight, no VoiceOver announcement of the error. Mirrors web [[US-731]]. Files: DetailsIntake/DetailsIntakeView.swift, Accessibility/A11yAnnounce.swift."
+    },
+    {
+      "id": "US-755",
+      "title": "iOS offline-mode indicator + guarded network actions",
+      "description": "As a user on spotty signal, I want the app to tell me when I'm offline and that my changes are saved locally — and to clearly gate actions that need the network — instead of silently failing.",
+      "acceptanceCriteria": [
+        "When NetworkMonitor reports offline, a non-intrusive indicator (pill/badge in the sync status area) shows 'Offline — changes saved locally'",
+        "Network-only CTAs (publish, sync, fetch comps) are disabled or clearly marked while offline, with a short explanation rather than a failed attempt",
+        "State clears automatically on reconnect; offline-queued mutations still flush via the existing SyncEngine"
+      ],
+      "priority": 755,
+      "passes": false,
+      "notes": "[P2][iOS/UX] From the UI audit: NetworkMonitor exists but offline status isn't surfaced on the main tabs and network-only CTAs aren't gated — users hit failures instead of seeing 'offline, saved locally'. Files: Networking/NetworkMonitor.swift, Persistence/SyncEngine.swift (+ a SyncStatus surface), ContentView.swift."
+    },
+    {
+      "id": "US-756",
+      "title": "iOS bulk action: retry only the failed items",
+      "description": "As a user running a bulk action (grade/publish/etc.), when some items fail I want to retry just those, not re-select and re-run the whole batch.",
+      "acceptanceCriteria": [
+        "After a partial bulk failure, the result surface offers a 'Retry N failed' action that re-runs only the failed item set",
+        "Per-item failure reasons remain visible (the existing per-item failure messaging is kept)",
+        "Retrying doesn't re-run already-succeeded items"
+      ],
+      "priority": 756,
+      "passes": false,
+      "notes": "[P3][iOS/UX] From the UI audit: bulk actions show per-item failures (good) but the only recovery is to re-select all and re-run the whole batch. Files: Inventory/BulkActionExecutor.swift, Inventory/InventoryListView.swift."
+    },
+    {
+      "id": "US-757",
+      "title": "iOS accessibility + micro-polish pass",
+      "description": "As a VoiceOver or low-vision user, I want loading and image states announced and labeled, and small haptic/visual polish so the app feels finished.",
+      "acceptanceCriteria": [
+        "Loading containers expose accessibilityLabel('Loading…') (today skeletons are accessibilityHidden with no 'loading' cue), and CachedThumbnail's retry control has a meaningful label instead of bare 'Button'",
+        "Form fields in the intake/expense forms carry explicit accessibilityLabels for TextField/Picker",
+        "Light haptics on form-field focus / voice-dictation start-stop (extend HapticFeedback); pull-to-refresh gets the brand-navy tint where it's currently the default spinner (Dashboard/Marketplaces/Money)",
+        "No regressions to Reduce Motion / Dynamic Type support"
+      ],
+      "priority": 757,
+      "passes": false,
+      "notes": "[P2][iOS/A11y] From the UI audit: a11y is already very good, but loading containers aren't announced, image retry buttons lack labels, intake form fields lack explicit labels, and there are small polish gaps (no form-focus haptics; pull-to-refresh uses the default spinner on several tabs). Files: Components/SkeletonView.swift, Components/CachedThumbnail.swift, DetailsIntake/DetailsIntakeView.swift, Haptics/HapticFeedback.swift, Dashboard/DashboardView.swift, Marketplaces/MarketplacesView.swift, Money/MoneyView.swift."
     }
   ]
 }
