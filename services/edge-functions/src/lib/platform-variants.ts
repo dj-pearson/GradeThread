@@ -105,6 +105,9 @@ export function assemblePlatformVariant(
   base: PlatformVariantBase,
   text: PlatformText,
   ctx: { photoCount?: number; brandAllowed?: boolean } = {},
+  // US-722: the platform-mapped category (seeded). Falls back to the base's
+  // natural-language category query when not mapped.
+  categoryOverride?: string | null,
 ): PlatformVariant {
   const spec = getMarketplaceSpec(platform);
   if (!spec) throw new Error(`No marketplace spec for ${platform}`);
@@ -129,7 +132,7 @@ export function assemblePlatformVariant(
     title,
     description,
     condition: mapCondition(platform, base.gradeValue, base.gradeLabel),
-    category: base.categoryQuery,
+    category: categoryOverride?.trim() || base.categoryQuery,
     brand: base.brand,
     color: base.color,
     size: base.size,

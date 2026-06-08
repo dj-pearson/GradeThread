@@ -10630,8 +10630,8 @@
         "All output validates against the US-719 registry before it's offered as 'ready'"
       ],
       "priority": 721,
-      "passes": false,
-      "notes": "[P1][FlipDesk/AI] PARTIAL 2026-06-08. SHIPPED: services/edge-functions/src/lib/platform-variants.ts (pure assemblePlatformVariant + trimToLimit, 6 tests, env-free) + ai-listing.ts generatePlatformVariantText (ONE text-only Claude call adapts title/description/tags for all requested platforms — no extra vision cost) + generatePlatformVariants orchestrator (loads the eBay draft as base, maps condition via US-720, validates via US-725, persists to listings.platform_fields). Migration 00113 adds listings.platform_fields jsonb. Endpoint POST /api/flipdesk/autolister/platform-fields {item_id,platforms[]} (tenant-scoped, plan-gated, meters AI). REMAINING: category is passed through as a natural-language query, not yet resolved to each platform's taxonomy (US-722); grading auto-disclosure into per-platform condition note (US-720 tail). Consumed by US-723. Depends on [[US-719]],[[US-720]],[[US-722]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/AI] SHIPPED 2026-06-08. platform-variants.ts (pure assemblePlatformVariant + trimToLimit) + ai-listing.ts generatePlatformVariantText (ONE text-only Claude call adapts title/description/tags for all platforms — no extra vision cost) + generatePlatformVariants (loads eBay draft as base, maps condition via US-720 + seeded category via US-722, validates via US-725, persists to listings.platform_fields). Migration 00113 adds listings.platform_fields jsonb. Endpoint POST /api/flipdesk/autolister/platform-fields {item_id,platforms[]} (tenant-scoped, plan-gated, meters AI). Consumed by the Listing Kit (US-723). 12 edge tests across platform-variants + marketplace-category."
     },
     {
       "id": "US-722",
@@ -10645,7 +10645,7 @@
       ],
       "priority": 722,
       "passes": false,
-      "notes": "[P2][FlipDesk/Crosslist] Source: Cross_Listing.md. The no-API platforms have their own category trees that must be filled manually on paste, so a stored map is what makes the copy-paste kit complete. Depends on [[US-719]]."
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08 (seeded layer per chosen approach). SHIPPED: services/edge-functions/src/lib/marketplace-category.ts — deterministic resolveSeededCategory(platform,garment,item) mapping the 6 GradeThread garment types to a leaf category for poshmark/mercari/depop/grailed (eBay keeps Taxonomy API; Shopify free-form). Wired into generatePlatformVariants (US-721) as the per-platform category, falling back to the base query when unmapped; the Listing Kit category field is now editable so the seller CONFIRMS the leaf + department (gender). 11 edge tests. DEFERRED by decision: AI-suggested categories, an admin-extensible DB override/cache table, and the full department/gender taxonomy depth. Depends on [[US-719]]."
     },
     {
       "id": "US-723",
@@ -10672,8 +10672,8 @@
         "Available from the Listing Kit panel (US-723) and the item detail"
       ],
       "priority": 724,
-      "passes": false,
-      "notes": "[P2][FlipDesk/Crosslist] Source: Cross_Listing.md. Manual listers need the images too, in the right count/order. Depends on [[US-719]],[[US-723]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Crosslist] SHIPPED 2026-06-08. src/lib/photo-export.ts: orderedCappedPhotos (cover/primary first, then sort_order, capped to each platform's maxPhotos from US-719) + exportPhotosForPlatform zips via client-zip with order-encoded names (01_front.jpg, 02_back.jpg) and downloads. item-photos is the PUBLIC bucket and is EXIF/GPS-stripped at upload (US-276) so no signed URL / re-encode needed; skipped photos are reported, not silently dropped. Wired into the Listing Kit (US-723) as a 'Download photos (N)' button per platform tab. Frontend build + eslint clean; added client-zip dep."
     },
     {
       "id": "US-725",

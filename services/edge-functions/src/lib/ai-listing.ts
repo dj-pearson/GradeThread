@@ -41,6 +41,7 @@ import {
   getMarketplaceSpec,
   type MarketplacePlatform,
 } from "./marketplace-specs.ts";
+import { resolveSeededCategory } from "./marketplace-category.ts";
 
 // Bump when the prompt or tool schema changes in a way that should be tracked
 // for accuracy/eval attribution. Mirrors PER_IMAGE_PROMPT_VERSION etc.
@@ -1119,7 +1120,9 @@ export async function generatePlatformVariants(
   // 1. Item facts (tenant-scoped).
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects")
+    .select(
+      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category",
+    )
     .eq("id", itemId)
     .eq("user_id", ownerId)
     .single();
@@ -1132,6 +1135,8 @@ export async function generatePlatformVariants(
     grade_value: number | null;
     grade_label: string | null;
     ebay_aspects: Record<string, string[]> | null;
+    garment_category: string | null;
+    item_category: string | null;
   };
 
   // 2. The eBay draft is the base. It must exist (generateListing ran first).
@@ -1178,15 +1183,24 @@ export async function generatePlatformVariants(
     .select("id", { count: "exact", head: true })
     .eq("inventory_item_id", itemId);
 
-  // 5. Assemble + validate each variant.
-  const variants = platforms.map((p) =>
-    assemblePlatformVariant(p, base, text.byPlatform[p] ?? { title: "", description: "", tags: [] }, {
-      photoCount: photoCount ?? undefined,
-      // Brand-allow-list (Grailed) can't be verified here yet — treated as
-      // unknown (the kit/US-722 confirms the designer). Don't hard-fail.
-      brandAllowed: true,
-    }),
-  );
+  // 5. Assemble + validate each variant. Category is the US-722 seeded leaf for
+  // the platform (the seller confirms the department in the kit), falling back
+  // to the base category query when the garment type isn't mapped.
+  const variants = platforms.map((p) => {
+    const seeded = resolveSeededCategory(p, item.garment_category, item.item_category);
+    return assemblePlatformVariant(
+      p,
+      base,
+      text.byPlatform[p] ?? { title: "", description: "", tags: [] },
+      {
+        photoCount: photoCount ?? undefined,
+        // Brand-allow-list (Grailed) can't be verified here yet — treated as
+        // unknown (the kit confirms the designer). Don't hard-fail.
+        brandAllowed: true,
+      },
+      seeded?.path ?? null,
+    );
+  });
 
   // 6. Persist, merging into any existing platform_fields.
   const now = new Date().toISOString();

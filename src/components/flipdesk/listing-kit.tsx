@@ -5,8 +5,9 @@ import {
   AlertTriangle,
   Check,
   Copy,
+  Download,
   ExternalLink,
-  Images,
+  Loader2,
   Puzzle,
   Wand2,
 } from "lucide-react";
@@ -36,6 +37,10 @@ import {
   type PlatformKitVariant,
   useGeneratePlatformFields,
 } from "@/hooks/use-autolister";
+import {
+  type ExportablePhoto,
+  exportPhotosForPlatform,
+} from "@/lib/photo-export";
 
 // Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed) plus
 // Depop until its partner API is live (US-712/713/714). Shopify + eBay push via
@@ -169,16 +174,44 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
 function PlatformPanel({
   platform,
   variant,
-  photoCount,
+  photos,
+  primaryId,
+  baseName,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
-  photoCount: number;
+  photos: ExportablePhoto[];
+  primaryId: string | null;
+  baseName: string;
 }) {
   const spec = getMarketplaceSpec(platform);
   // Local edits to the free-text fields, keyed by field key.
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [downloading, setDownloading] = useState(false);
   if (!spec) return null;
+
+  const photoCount = photos.length;
+  const inZip = Math.min(photoCount, spec.maxPhotos);
+
+  const downloadPhotos = async () => {
+    setDownloading(true);
+    try {
+      const { count, skipped } = await exportPhotosForPlatform({
+        photos,
+        primaryId,
+        platform,
+        baseName,
+      });
+      toast.success(
+        `${count} photo${count === 1 ? "" : "s"} zipped for ${spec.label}` +
+          (skipped > 0 ? ` (${skipped} skipped)` : ""),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't export photos.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   if (!variant) {
     return (
@@ -188,8 +221,9 @@ function PlatformPanel({
     );
   }
 
-  // title/description are editable; everything else is copy-only display.
-  const editableKeys = new Set(["title", "description"]);
+  // title/description + the platform category are editable (the seller confirms
+  // the seeded category / department — US-722); the rest is copy-only display.
+  const editableKeys = new Set(["title", "description", "category", "department"]);
   const valueOf = (f: FieldSpec) =>
     edits[f.key] ?? fieldValue(f.key, variant);
 
@@ -240,16 +274,31 @@ function PlatformPanel({
           type="button"
           variant="outline"
           size="sm"
+          disabled={photoCount === 0 || downloading}
+          onClick={downloadPhotos}
+          title={
+            photoCount === 0
+              ? "No photos on this item yet"
+              : `Download the first ${inZip} photo${inZip === 1 ? "" : "s"} (cover first), ready to upload`
+          }
+        >
+          {downloading ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Download className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Download photos ({inZip})
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
           disabled
           title="Requires the GradeThread Lister browser extension (US-716) — coming soon"
         >
           <Puzzle className="mr-1.5 h-3.5 w-3.5" />
           Send to extension
         </Button>
-        <span className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground">
-          <Images className="h-3.5 w-3.5" />
-          {photoCount} photo{photoCount === 1 ? "" : "s"} (max {spec.maxPhotos})
-        </span>
       </div>
 
       <div className="space-y-3">
@@ -267,36 +316,43 @@ function PlatformPanel({
   );
 }
 
-export function ListingKit({ itemId }: { itemId: string }) {
+export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: string }) {
   const qc = useQueryClient();
   const gen = useGeneratePlatformFields();
 
-  // The eBay draft row carries platform_fields + lets us seed the kit.
+  // The eBay draft row carries platform_fields + the cover photo id.
   const { data } = useQuery({
     queryKey: ["platform-fields", itemId],
     queryFn: async () => {
       const { data: row } = await supabase
         .from("listings")
-        .select("id, platform_fields")
+        .select("id, platform_fields, primary_photo_id")
         .eq("inventory_item_id", itemId)
         .eq("platform", "ebay")
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
-      return (row ?? null) as { id: string; platform_fields: Record<string, unknown> | null } | null;
+      return (row ?? null) as {
+        id: string;
+        platform_fields: Record<string, unknown> | null;
+        primary_photo_id: string | null;
+      } | null;
     },
   });
 
-  const { data: photoCount = 0 } = useQuery({
-    queryKey: ["item-photo-count", itemId],
+  // Listing photos (RLS scopes to the owner) for the per-platform export.
+  const { data: photos = [] } = useQuery({
+    queryKey: ["item-photos-export", itemId],
     queryFn: async () => {
-      const { count } = await supabase
+      const { data: rows } = await supabase
         .from("item_photos")
-        .select("id", { count: "exact", head: true })
-        .eq("inventory_item_id", itemId);
-      return count ?? 0;
+        .select("id, photo_url, photo_type, sort_order")
+        .eq("inventory_item_id", itemId)
+        .order("sort_order", { ascending: true });
+      return (rows ?? []) as ExportablePhoto[];
     },
   });
+  const primaryId = data?.primary_photo_id ?? null;
 
   // Seed from persisted platform_fields; overlay anything just generated.
   const variants = useMemo(() => {
@@ -373,7 +429,13 @@ export function ListingKit({ itemId }: { itemId: string }) {
                   </Badge>
                 </div>
               ) : null}
-              <PlatformPanel platform={p} variant={variants[p]} photoCount={photoCount} />
+              <PlatformPanel
+                platform={p}
+                variant={variants[p]}
+                photos={photos}
+                primaryId={primaryId}
+                baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
+              />
             </TabsContent>
           ))}
         </Tabs>

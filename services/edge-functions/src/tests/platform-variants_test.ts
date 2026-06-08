@@ -74,3 +74,14 @@ Deno.test("shopify: no condition field → null condition, no tags", () => {
   assertEquals(v.condition, null);
   assertEquals(v.tags.length, 0); // Shopify has no tags spec entry
 });
+
+Deno.test("category override (US-722) wins over the base query", () => {
+  const withOverride = assemblePlatformVariant("grailed", BASE, TEXT(), { brandAllowed: true }, "Outerwear");
+  assertEquals(withOverride.category, "Outerwear");
+  // Falls back to the base category query when no override is given.
+  const noOverride = assemblePlatformVariant("mercari", BASE, TEXT(), {});
+  assertEquals(noOverride.category, BASE.categoryQuery);
+  // Blank/whitespace override also falls back.
+  const blank = assemblePlatformVariant("mercari", BASE, TEXT(), {}, "   ");
+  assertEquals(blank.category, BASE.categoryQuery);
+});

@@ -998,7 +998,10 @@ export function FlipdeskComposerPage() {
         </Button>
       </div>
 
-      <ListingKit itemId={item.id} />
+      <ListingKit
+        itemId={item.id}
+        baseName={item.item_number ?? item.item_title ?? item.id}
+      />
 
       <PublishToEbayDialog
         open={publishOpen}
