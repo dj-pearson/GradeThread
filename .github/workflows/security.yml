@@ -75,7 +75,9 @@ jobs:
       - name: Build edge image
         run: docker build -t gradethread-edge:scan services/edge-functions
       - name: Trivy vulnerability scan
-        uses: aquasecurity/trivy-action@0.28.0
+        # NOTE: tags are v-prefixed (aquasecurity deleted the old unprefixed
+        # tags, which is why @0.28.0 stopped resolving). Use the v* form.
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: gradethread-edge:scan
           severity: HIGH,CRITICAL
