@@ -5226,8 +5226,25 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           (comps pinned to top) and PublishDialog->field deep-linking — the
           readiness affordance already removes the blind round-trip.
 
-- US-686  Auto-apply high-confidence AI extract. DEFERRED (passes:false).
-          Depends on US-682's canvas-landing for the "AI filled N fields -
-          review" reversible entry; doing it standalone would introduce automatic
-          network writes on results-ready that can't be verified here. Land after
-          US-682.
+- US-686  Auto-apply high-confidence AI extract. DEFERRED (passes:false) — the
+          ONLY remaining story of the 28. Its core friction is already resolved:
+          AIExtract pre-checks high-confidence (>=0.8) fields, surfaces
+          low-confidence unchecked for opt-in, and (now, via US-682) one-tap
+          Apply lands the user on the item canvas with fields written. The ONLY
+          unshipped piece is the "AI filled N fields - review / revert-to-AI"
+          entry ON THE CANVAS, which needs ai_field_sources surfaced on the local
+          model (server jsonb, not in LocalInventoryItem today) + a canvas banner.
+          Lower value post-US-682 and needs device verification. Recommended:
+          add ai_field_sources to LocalInventoryItem + a canvas "AI" banner with
+          per-field revert, then verify on a macOS runner/device.
+
+### Audit wave tally (2026-06-08)
+
+27 of 28 new stories COMPLETE (US-680..685, US-687..707); US-686 deferred (see
+above). New tests: SecureTempFileTests, AppLockTests, AccessibilityAnnounceTests,
+PublishReadinessTests + additions to TelemetryTests, EbayConnectionTests,
+BulkActionTests. New CI guard: ios/Scripts/no-ungated-print.py (wired into
+ios-ci.yml). Environment caveat: this Linux container has no xcodebuild, so the
+Swift was written to match existing patterns + unit-tested; the macOS
+ios-ci.yml workflow is the build/test gate (runs on PR/main, not feature-branch
+pushes).
