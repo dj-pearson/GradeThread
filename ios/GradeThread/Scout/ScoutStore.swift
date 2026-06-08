@@ -94,7 +94,7 @@ final class ScoutStore: ObservableObject {
 
     /// PURE: apply the "actionable only" filter then sort by the chosen key,
     /// descending. Missing values (nil margin / nil grade) sink to the bottom.
-    static func display(
+    nonisolated static func display(
         _ candidates: [ScoutCandidate],
         sortKey: SortKey,
         actionableOnly: Bool

@@ -109,7 +109,7 @@ struct RepricingReasonCount: Identifiable, Equatable {
     var id: String { reason.rawValue }
 }
 
-private extension String {
+extension String {
     var nilIfBlank: String? {
         let t = trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : t

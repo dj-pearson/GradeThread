@@ -192,7 +192,7 @@ final class DraftsBulkEditStore {
     }
 
     /// Mirrors the web's roundTo99: sub-$1 rounds to cents; otherwise floor + .99.
-    static func roundTo99(_ p: Double) -> Double {
+    nonisolated static func roundTo99(_ p: Double) -> Double {
         if p < 1 { return (p * 100).rounded() / 100 }
         return p.rounded(.down) + 0.99
     }

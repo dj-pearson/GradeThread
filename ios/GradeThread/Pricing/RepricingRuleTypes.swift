@@ -147,6 +147,34 @@ struct RuleRunResult: Decodable {
     var scannedCount: Int { listingsScanned ?? 0 }
 }
 
+// Custom decoding lives in an extension so the synthesized memberwise
+// initializer (used by tests) is preserved.
+extension RuleRunResult {
+    enum CodingKeys: String, CodingKey {
+        case ok, applied, listingsScanned, rulesEvaluated, skipped, reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let ok = (try? c.decode(Bool.self, forKey: .ok)) ?? false
+        let applied = try c.decodeIfPresent(Int.self, forKey: .applied)
+        let listingsScanned = try c.decodeIfPresent(Int.self, forKey: .listingsScanned)
+        let rulesEvaluated = try c.decodeIfPresent(Int.self, forKey: .rulesEvaluated)
+        // `skipped` is a count on a normal run but a Bool flag when the feature
+        // is disabled ({"skipped":true}); accept either, keeping only the count.
+        let skipped = try? c.decode(Int.self, forKey: .skipped)
+        let reason = try c.decodeIfPresent(String.self, forKey: .reason)
+        self.init(
+            ok: ok,
+            applied: applied,
+            listingsScanned: listingsScanned,
+            rulesEvaluated: rulesEvaluated,
+            skipped: skipped,
+            reason: reason
+        )
+    }
+}
+
 /// Lenient ISO-8601 parser shared by the rule types (handles fractional seconds).
 enum RepricingDate {
     static func parse(_ raw: String) -> Date? {

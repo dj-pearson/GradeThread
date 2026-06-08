@@ -104,7 +104,7 @@ final class ExpenseStore {
         }
     }
 
-    static func decodeResiliently(_ data: Data) -> [RemoteExpense] {
+    nonisolated static func decodeResiliently(_ data: Data) -> [RemoteExpense] {
         guard let rows = try? JSONDecoder().decode([Failable<RemoteExpense>].self, from: data)
         else { return [] }
         return rows.compactMap(\.value)

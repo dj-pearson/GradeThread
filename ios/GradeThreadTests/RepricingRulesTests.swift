@@ -176,12 +176,14 @@ final class RepricingRulesTests: XCTestCase {
 
         var draft = RuleDraft()
         draft.name = "New rule"
-        XCTAssertTrue(await store.save(draft, editingId: nil))
+        let didCreate = await store.save(draft, editingId: nil)
+        XCTAssertTrue(didCreate)
         XCTAssertEqual(store.rules.count, 2)
 
         var edit = RuleDraft(from: store.rules[0])
         edit.name = "Renamed"
-        XCTAssertTrue(await store.save(edit, editingId: "a"))
+        let didEdit = await store.save(edit, editingId: "a")
+        XCTAssertTrue(didEdit)
         XCTAssertEqual(store.rules.first { $0.id == "a" }?.name, "Renamed")
     }
 
