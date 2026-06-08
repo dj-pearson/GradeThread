@@ -735,6 +735,7 @@ export function FlipdeskListingsPage() {
             price: next,
           });
           // Server already wrote-through to listings.listing_price.
+          toast.success("Price updated on eBay.");
           return;
         } catch (err) {
           const e = err as Error & { status?: number };
@@ -747,6 +748,7 @@ export function FlipdeskListingsPage() {
         .update({ listing_price: next } as never)
         .eq("id", it.listing_id);
       if (error) throw error;
+      toast.success("Price updated.");
     } catch (err) {
       qc.setQueryData(["items_full", user?.id], prev);
       toast.error(

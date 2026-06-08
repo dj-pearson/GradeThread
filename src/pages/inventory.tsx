@@ -440,7 +440,7 @@ export function InventoryPage() {
                     {items.map((item) => (
                       <TableRow
                         key={item.id}
-                        className="cursor-pointer"
+                        className="cursor-pointer hover:bg-muted/50"
                         onClick={() =>
                           navigate(`/dashboard/inventory/${item.id}`)
                         }

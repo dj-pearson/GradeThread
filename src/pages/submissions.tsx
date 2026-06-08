@@ -561,7 +561,7 @@ export function SubmissionsPage() {
                     {submissions.map((sub) => (
                       <TableRow
                         key={sub.id}
-                        className="cursor-pointer"
+                        className="cursor-pointer hover:bg-muted/50"
                         onClick={() =>
                           navigate(`/dashboard/submissions/${sub.id}`)
                         }
@@ -675,7 +675,9 @@ export function SubmissionsPage() {
                   {myDisputes.map((d) => (
                     <TableRow
                       key={d.id}
-                      className={d.submission_id ? "cursor-pointer" : ""}
+                      className={
+                        d.submission_id ? "cursor-pointer hover:bg-muted/50" : ""
+                      }
                       onClick={() => {
                         if (d.submission_id) {
                           navigate(`/dashboard/submissions/${d.submission_id}`);

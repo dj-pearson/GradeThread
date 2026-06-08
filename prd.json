@@ -10785,8 +10785,8 @@
         "No double-fetch flicker: optimistic update invalidates the right query key after settle; verified no UI flicker on success"
       ],
       "priority": 732,
-      "passes": false,
-      "notes": "[P2][UX/Polish] From the UI/UX audit: no optimistic updates, inline-cell edits give no save feedback, row-hover only on listings.tsx. Builds on the query hooks in src/hooks."
+      "passes": true,
+      "notes": "[P2][UX/Polish] SHIPPED 2026-06-08. Correction to the audit: the optimistic-update infra already EXISTED — pipeline.tsx drag (qc.setQueryData + rollback) and listings.tsx updateListingPrice (the inline-cell price edit) both optimistically patch items_full and roll back on error. The real gaps were (1) no success feedback and (2) inconsistent row hover. Fixed: updateListingPrice now emits toast.success ('Price updated.' / 'Price updated on eBay.') on both happy paths while keeping the rollback+error toast — so the inline cell edit confirms it stuck. Row hover made consistent: added hover:bg-muted/50 to the inventory.tsx table rows and both submissions.tsx tables (submissions + disputes), matching listings.tsx (the new US-729 mobile cards already hover). tsc -b clean for these files (the only tsc error in the tree is the concurrent agent's unrelated routes/index.tsx grading-glossary lazy-import) + eslint + vitest (283) green. NOTE: mark-listed / mark-shipped run through dialogs that invalidate items_full (not optimistic) — acceptable since they're explicit confirm flows, not high-frequency inline edits; bulk price drop uses a busy-state batch. Builds on the existing query hooks."
     },
     {
       "id": "US-733",
