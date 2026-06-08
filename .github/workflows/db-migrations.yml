@@ -17,6 +17,8 @@ on:
     branches: [main]
     paths:
       - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - ".github/workflows/db-migrations.yml"
 
 concurrency:
   group: db-migrations-${{ github.ref }}

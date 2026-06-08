@@ -1,5 +1,4 @@
-[project]
-id = "gradethread"
+project_id = "gradethread"
 
 [api]
 port = 54321
