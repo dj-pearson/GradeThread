@@ -10841,8 +10841,8 @@
         "When a grade completes for a FlipDesk item, the item's grade_value/tier populate and the next-action advances without manual re-entry"
       ],
       "priority": 736,
-      "passes": false,
-      "notes": "[P1][Cohesion] From the cross-functional audit (its #1 'critical' finding): grading is bolted onto the pipeline — optional, no status bump, only reachable via the item modal, and the certificate is a dead-end. Pairs with [[US-737]] (grade-ready notification)."
+      "passes": true,
+      "notes": "[P1][Cohesion] SHIPPED 2026-06-08. workflow.ts nextAction() is grade-aware: photographed+unpriced+ungraded → 'Grade it' (matches the pipeline's existing 'Send to GradeThread' framing), status 'grading' → 'Grading…' (muted), status 'graded' → 'Grade ready' (ready); grading stays optional (earnedStatus/resolveStatus never gate on it). next-action-badge.tsx + item-canvas.tsx next-action panel render the new kinds (CTA scrolls to the canvas-grading card / 'Submit for grading'). Added the missing 'grading' kanban column to FLIPDESK_PIPELINE — items just submitted no longer vanish from the board — and pipeline-rules blocks manual drags INTO grading (that status is owned by the submit flow). Bridge fix: grading-pipeline.ts step 7b now populates inventory_items.certificate_url (was never written → the grade card's 'Open certificate' button + listing-template cert link both silently dropped). submission-detail.tsx linked-item card gains a primary 'Use this grade in a listing' CTA → /dashboard/flipdesk/items/:id. AC4 (grade completes → grade_value/tier populate + next-action advances) already worked at the DB level (pipeline advances grading→graded) and is now reflected by the workflow change. New src/lib/__tests__/workflow.test.ts (7 cases); tsc -b + deno check + eslint + full vitest (270) green. Feeds [[US-737]] (grade-ready notification)."
     },
     {
       "id": "US-737",

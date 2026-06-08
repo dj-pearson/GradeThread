@@ -19,6 +19,8 @@ import {
   PackageCheck,
   Clock,
   CircleCheck,
+  Award,
+  Hourglass,
 } from "lucide-react";
 import {
   Dialog,
@@ -489,6 +491,9 @@ export function ItemCanvas({
   const NEXT_ACTION_ICON: Record<NextActionKind, typeof Ruler> = {
     measure: Ruler,
     photograph: Camera,
+    grade: Award,
+    grading: Hourglass,
+    review_grade: Sparkles,
     comp: Tag,
     draft: FileText,
     list: Rocket,
@@ -503,6 +508,8 @@ export function ItemCanvas({
   const NEXT_ACTION_CTA: Partial<Record<NextActionKind, string>> = {
     measure: "Add measurements",
     photograph: "Add photos",
+    grade: "Submit for grading",
+    review_grade: "View grade",
     comp: "Set price",
     draft: "Open composer",
     list: "Mark listed",
@@ -520,6 +527,10 @@ export function ItemCanvas({
         break;
       case "photograph":
         scrollToCanvasSection("canvas-photos");
+        break;
+      case "grade":
+      case "review_grade":
+        scrollToCanvasSection("canvas-grading");
         break;
       case "comp":
         scrollToCanvasSection("canvas-comps");

@@ -32,6 +32,13 @@ export function validateStatusChange(
     return null;
   }
 
+  // "Grading" is owned by the grade-submission flow, not the board — an item
+  // lands here only when it's actually been sent to GradeThread (which also
+  // creates the submission + charge). Dragging into it would fake the state.
+  if (next === "grading") {
+    return "Submit the item for grading from its detail panel — this stage is set automatically.";
+  }
+
   // Hard prereqs per stage. These match the canonical "definition of done"
   // for each step in the FlipDesk PRD (section 3.2).
   if (next === "measured") {

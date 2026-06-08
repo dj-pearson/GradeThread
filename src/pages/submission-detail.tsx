@@ -12,6 +12,8 @@ import {
   Upload,
   Package,
   Camera,
+  Tag,
+  ArrowRight,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
@@ -761,11 +763,23 @@ export function SubmissionDetailPage() {
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/dashboard/inventory/${linkedItem.id}`}>
-                View Inventory Item
-              </Link>
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Bridge into FlipDesk: carry the grade straight into the
+                  item's listing workflow rather than leaving it stranded
+                  on the certificate. */}
+              <Button size="sm" asChild>
+                <Link to={`/dashboard/flipdesk/items/${linkedItem.id}`}>
+                  <Tag className="mr-1.5 h-3.5 w-3.5" />
+                  Use this grade in a listing
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/dashboard/inventory/${linkedItem.id}`}>
+                  View item
+                </Link>
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

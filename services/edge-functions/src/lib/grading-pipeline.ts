@@ -478,6 +478,11 @@ export async function processSubmission(submissionId: string) {
           grade_report_id: gradeReport.id,
           grade_value: compositeResult.overall_score,
           grade_label: compositeResult.grade_tier,
+          // Public certificate URL — consumed by the FlipDesk grade card
+          // ("Open certificate") and embedded in listing descriptions
+          // (listing-templates.ts). Was never populated before, so both
+          // silently dropped the link.
+          certificate_url: certificateUrl(certificateId),
         };
         // Advance the lifecycle only if it's still mid-grading.
         if (linkedItem.status === "grading") {

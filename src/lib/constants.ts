@@ -501,6 +501,7 @@ export const FLIPDESK_PIPELINE: Array<{
   { status: "cataloged",    label: "Cataloged",    nextAction: "Measure" },
   { status: "measured",     label: "Measured",     nextAction: "Photograph" },
   { status: "photographed", label: "Photographed", nextAction: "Send to GradeThread" },
+  { status: "grading",      label: "Grading",      nextAction: "Awaiting grade" },
   { status: "graded",       label: "Graded",       nextAction: "Run comps" },
   { status: "comped",       label: "Comped",       nextAction: "Draft listing" },
   { status: "drafted",      label: "Drafted",      nextAction: "Push to eBay" },

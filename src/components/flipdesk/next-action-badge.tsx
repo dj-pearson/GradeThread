@@ -9,6 +9,9 @@ import {
   CircleCheck,
   RotateCcw,
   Clock,
+  Award,
+  Hourglass,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { nextAction, type NextActionKind } from "@/lib/workflow";
@@ -17,6 +20,9 @@ import type { ItemFullRow } from "@/types/database";
 const ICONS: Record<NextActionKind, typeof Ruler> = {
   measure: Ruler,
   photograph: Camera,
+  grade: Award,
+  grading: Hourglass,
+  review_grade: Sparkles,
   comp: Tag,
   draft: FileText,
   list: Rocket,

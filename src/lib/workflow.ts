@@ -86,6 +86,9 @@ export function resolveStatus(
 export type NextActionKind =
   | "measure"
   | "photograph"
+  | "grade"
+  | "grading"
+  | "review_grade"
   | "comp"
   | "draft"
   | "list"
@@ -126,6 +129,17 @@ export function nextAction(item: ItemFullRow): NextAction {
     return { kind: "sell", label: "Awaiting sale", tone: "muted" };
   }
 
+  // Grading bridge. An item submitted to GradeThread waits in "grading"
+  // until the AI lands; a freshly-graded item gets a "grade ready" nudge
+  // before it continues down the prep flow. (Grading itself stays optional —
+  // earnedStatus/resolveStatus never gate on it.)
+  if (s === "grading") {
+    return { kind: "grading", label: "Grading…", tone: "muted" };
+  }
+  if (s === "graded") {
+    return { kind: "review_grade", label: "Grade ready", tone: "ready" };
+  }
+
   // Prep phase — drive by completed work, in order.
   const facts = factsOf(item);
   if (!facts.hasMeasurements) {
@@ -135,6 +149,12 @@ export function nextAction(item: ItemFullRow): NextAction {
     return { kind: "photograph", label: "Add photos", tone: "todo" };
   }
   if (!facts.hasTargetPrice) {
+    // Photos are in but there's no price yet. Grading is the natural next
+    // step here (the pipeline frames it as "Send to GradeThread"), so nudge
+    // it once — unless the item is already graded, then go straight to comp.
+    if (item.grade_value == null) {
+      return { kind: "grade", label: "Grade it", tone: "todo" };
+    }
     return { kind: "comp", label: "Comp & price", tone: "todo" };
   }
   if (!facts.hasDraftListing) {
