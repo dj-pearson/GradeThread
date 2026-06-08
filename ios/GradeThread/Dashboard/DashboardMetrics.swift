@@ -5,9 +5,9 @@ import Foundation
 /// the same split as ``WidgetSnapshotPublisher``. ``DashboardView`` feeds
 /// it the `@Query` arrays and renders the result.
 struct DashboardMetrics: Equatable {
-    /// Cost of goods physically on hand (sum of `acquiredPrice` for unsold
-    /// items). Mirrors the web overview's "inventory value" = Σ purchase
-    /// price for active statuses.
+    /// MARKET value of goods physically on hand: Σ listing price (→ target
+    /// price → cost basis) for on-hand items. Matches eBay's reported value
+    /// and the web overview's market-value "inventory value".
     let inventoryValue: Double
     /// Count of unsold items on hand (the inventoryValue denominator).
     let onHandCount: Int
@@ -87,7 +87,12 @@ enum DashboardRollup {
         calendar: Calendar = .current
     ) -> DashboardMetrics {
         let onHand = items.filter { isOnHand($0.status) }
-        let inventoryValue = onHand.reduce(0.0) { $0 + ($1.acquiredPrice ?? 0) }
+        // MARKET value (matches eBay): the item's listed price, falling back to
+        // its target price, then cost basis. NOT cost basis alone (which is
+        // null for imported items and unrelated to eBay's reported value).
+        let inventoryValue = onHand.reduce(0.0) {
+            $0 + ($1.listingPrice ?? $1.targetPrice ?? $1.acquiredPrice ?? 0)
+        }
         let listedCount = items.filter { $0.status == "listed" }.count
         let agingCount = items.filter {
             isAging($0, now: now, calendar: calendar)
@@ -100,10 +105,15 @@ enum DashboardRollup {
         let windowStart = calendar.date(
             byAdding: .day, value: -weekWindowDays, to: now
         ) ?? now
-        let weekSales = sales.filter { $0.saleDate >= windowStart }
-        let revenue = weekSales.reduce(0.0) { $0 + $1.salePrice }
-        let fees = weekSales.reduce(0.0) { $0 + $1.platformFees }
-        let cost = weekSales.reduce(0.0) { $0 + (costById[$1.inventoryItemId] ?? 0) }
+        // Only COMPLETED sales count — a cancelled/refunded order was never a
+        // real sale. Profit via the shared SalePnL helper (mirrors web pnl.ts).
+        let weekSales = sales.filter {
+            $0.saleDate >= windowStart && SalePnL.isCompleted($0)
+        }
+        let revenue = weekSales.reduce(0.0) { $0 + SalePnL.revenue($1) }
+        let netProfit = weekSales.reduce(0.0) {
+            $0 + SalePnL.net($1, costBasis: costById[$1.inventoryItemId] ?? 0)
+        }
 
         return DashboardMetrics(
             inventoryValue: inventoryValue,
@@ -111,7 +121,7 @@ enum DashboardRollup {
             listedCount: listedCount,
             soldThisWeekCount: weekSales.count,
             revenueThisWeek: revenue,
-            netProfitThisWeek: revenue - fees - cost,
+            netProfitThisWeek: netProfit,
             agingCount: agingCount
         )
     }

@@ -213,7 +213,9 @@ final class SyncTests: XCTestCase {
 
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Linen blazer", updated: "2026-06-01T00:00:00Z")],
-            primaryPhotos: [:]
+            primaryPhotos: [:],
+            listingPrices: [:],
+            prune: false
         )
         var rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
         XCTAssertEqual(rows.count, 1)
@@ -222,11 +224,63 @@ final class SyncTests: XCTestCase {
         // Re-merge the same id with a new title → upsert, not duplicate.
         await actor.mergeItems(
             [Self.remoteItem(id: "a", title: "Linen blazer (updated)", updated: "2026-06-02T00:00:00Z")],
-            primaryPhotos: [:]
+            primaryPhotos: [:],
+            listingPrices: [:],
+            prune: false
         )
         rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
         XCTAssertEqual(rows.count, 1)
         XCTAssertEqual(rows.first?.title, "Linen blazer (updated)")
+    }
+
+    func test_mergeActor_prunesStaleItemsOnFullBackfill() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        // Seed two items.
+        await actor.mergeItems(
+            [
+                Self.remoteItem(id: "a", title: "Keep", updated: "2026-06-01T00:00:00Z"),
+                Self.remoteItem(id: "b", title: "Stale", updated: "2026-06-01T00:00:00Z"),
+            ],
+            primaryPhotos: [:], listingPrices: [:], prune: false
+        )
+        XCTAssertEqual(
+            try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>()).count, 2
+        )
+
+        // Full backfill (prune) that only returns "a" → "b" is removed.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Keep", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:], listingPrices: ["a": 42], prune: true
+        )
+        let rows = try ModelContext(container).fetch(FetchDescriptor<LocalInventoryItem>())
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows.first?.id, "a")
+        XCTAssertEqual(rows.first?.listingPrice, 42)
+    }
+
+    func test_mergeActor_pruneKeepsUnpushedLocalRows() async throws {
+        let container = try inMemoryContainer()
+        let actor = SyncMergeActor(modelContainer: container)
+
+        // An offline-created row not yet on the server.
+        let ctx = ModelContext(container)
+        let localOnly = LocalInventoryItem(
+            id: "local-1", userId: "u1", title: "Offline intake",
+            status: "cataloged", hasLocalChanges: true
+        )
+        ctx.insert(localOnly)
+        try ctx.save()
+
+        // Full backfill that doesn't include it must NOT delete it.
+        await actor.mergeItems(
+            [Self.remoteItem(id: "a", title: "Server", updated: "2026-06-02T00:00:00Z")],
+            primaryPhotos: [:], listingPrices: [:], prune: true
+        )
+        let ids = try ModelContext(container)
+            .fetch(FetchDescriptor<LocalInventoryItem>()).map(\.id).sorted()
+        XCTAssertEqual(ids, ["a", "local-1"])
     }
 
     private static func remoteItem(

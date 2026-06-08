@@ -624,6 +624,9 @@ export interface SaleRow {
   payout_reference: string | null;
   tax: number;
   payout_amount: number | null;
+  // Sale lifecycle (00111). Only 'completed' counts toward revenue/profit/sold.
+  status: "completed" | "cancelled" | "refunded" | "pending";
+  cancelled_at: string | null;
   created_at: string;
 }
 
@@ -877,6 +880,10 @@ export interface ItemFullRow {
   // and prefixed measurement keys (measurements.<field>).
   ai_field_sources: Record<string, AiFieldSource> | null;
   ai_enriched_at: string | null;
+  // Trailing columns added in migration 00111 — sale lifecycle. Null when the
+  // item has no sale. Only 'completed' counts toward sold/revenue/profit.
+  sale_status: "completed" | "cancelled" | "refunded" | "pending" | null;
+  sale_cancelled_at: string | null;
 }
 
 // ── Admin task / project management (00047) ──────────────────────────────

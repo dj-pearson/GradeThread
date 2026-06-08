@@ -112,15 +112,20 @@ export function FlipdeskOverviewPage() {
       const listedAt = it.list_date ? new Date(it.list_date).getTime() : null;
       if (listedAt && listedAt >= weekAgo) listedThisWeek++;
 
+      // Only COMPLETED sales count — a cancelled/refunded order was never a
+      // real sale (00111 adds items_full.sale_status).
       const soldAt = it.sale_date ? new Date(it.sale_date).getTime() : null;
-      if (soldAt && soldAt >= weekAgo) {
+      const isCompletedSale = it.sale_status === "completed";
+      if (soldAt && soldAt >= weekAgo && isCompletedSale) {
         soldThisWeek++;
         soldRevenueThisWeek += it.sale_price ?? 0;
         netProfitThisWeek += it.net_profit ?? 0;
       }
 
+      // Inventory value = MARKET value (matches eBay): active listing price,
+      // falling back to target_price when not yet listed — NOT cost basis.
       if (ACTIVE_STATUSES.has(it.status)) {
-        inventoryValue += it.purchase_price ?? 0;
+        inventoryValue += it.list_price ?? it.target_price ?? 0;
       }
 
       const updatedDays = daysSince(it.updated_at);
@@ -132,7 +137,7 @@ export function FlipdeskOverviewPage() {
         agingItems.push({ item: it, days: updatedDays });
       }
 
-      if (it.brand && it.net_profit != null && soldAt) {
+      if (it.brand && it.net_profit != null && soldAt && isCompletedSale) {
         const key = it.brand;
         const existing = brandProfit.get(key) ?? { profit: 0, sold: 0 };
         brandProfit.set(key, {

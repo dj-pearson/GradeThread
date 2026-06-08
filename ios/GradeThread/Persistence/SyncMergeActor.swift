@@ -21,13 +21,25 @@ actor SyncMergeActor {
     /// Upserts a delta (or full backfill) of inventory rows + caches each
     /// item's primary photo URL. Runs entirely on the actor's background
     /// executor.
+    /// - Parameters:
+    ///   - listingPrices: inventoryItemId → latest listing price, applied to
+    ///     each item's cached `listingPrice` so "inventory value" reflects the
+    ///     market (listed) price, not cost basis.
+    ///   - prune: true ONLY on a full item backfill (no watermark). When true,
+    ///     local items the server no longer returns are deleted — this is what
+    ///     clears the stale "listed" rows that made the listed count
+    ///     (e.g. 922) exceed the real inventory size. In delta mode `items` is
+    ///     just the changed rows, so pruning would wrongly wipe the catalog.
     func mergeItems(
         _ items: [SyncEngine.RemoteInventoryItem],
-        primaryPhotos: [String: SyncEngine.RemoteItemPhoto]
+        primaryPhotos: [String: SyncEngine.RemoteItemPhoto],
+        listingPrices: [String: Double],
+        prune: Bool
     ) {
-        guard !items.isEmpty else { return }
+        guard !items.isEmpty || prune else { return }
         let existing = (try? modelContext.fetch(FetchDescriptor<LocalInventoryItem>())) ?? []
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let remoteIds = Set(items.map(\.id))
 
         for remote in items {
             let createdAt = SyncEngine.parseDate(remote.created_at)
@@ -41,6 +53,7 @@ actor SyncMergeActor {
                 // carried this item's photos; a thin item-only delta leaves
                 // the existing thumbnail intact instead of blanking it.
                 if primary != nil { local.primaryPhotoURL = primaryURL }
+                if let price = listingPrices[remote.id] { local.listingPrice = price }
                 local.updatedAt = updatedAt
             } else {
                 let local = LocalInventoryItem(
@@ -54,8 +67,19 @@ actor SyncMergeActor {
                 )
                 Self.applyServerWins(to: local, remote: remote)
                 local.primaryPhotoURL = primaryURL
+                if let price = listingPrices[remote.id] { local.listingPrice = price }
                 modelContext.insert(local)
                 existingById[remote.id] = local
+            }
+        }
+
+        if prune {
+            // Don't delete rows still awaiting their first push to the server
+            // (offline-created intake) — they legitimately aren't in the
+            // server response yet.
+            for stale in existing
+            where !remoteIds.contains(stale.id) && !stale.hasLocalChanges {
+                modelContext.delete(stale)
             }
         }
         try? modelContext.save()
@@ -110,13 +134,11 @@ actor SyncMergeActor {
         var existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         for remote in remoteSales {
-            if let local = existingById[remote.id] {
-                local.salePrice = remote.sale_price
-                local.platformFees = remote.platform_fees
-                local.saleDate = SyncEngine.parseDate(remote.sale_date)
-                local.buyerUsername = remote.buyer_username
+            let local: LocalSale
+            if let existing = existingById[remote.id] {
+                local = existing
             } else {
-                let local = LocalSale(
+                local = LocalSale(
                     id: remote.id,
                     inventoryItemId: remote.inventory_item_id,
                     salePrice: remote.sale_price,
@@ -124,10 +146,22 @@ actor SyncMergeActor {
                     platformFees: remote.platform_fees,
                     createdAt: remote.created_at.isEmpty ? .now : SyncEngine.parseDate(remote.created_at)
                 )
-                local.buyerUsername = remote.buyer_username
                 modelContext.insert(local)
                 existingById[remote.id] = local
             }
+            // Server-authoritative money + lifecycle fields (refresh every sync).
+            local.salePrice = remote.sale_price
+            local.platformFees = remote.platform_fees
+            local.paymentProcessingFees = remote.payment_processing_fees
+            local.shippingCollected = remote.shipping_collected
+            local.shippingCost = remote.shipping_cost
+            local.gradingCost = remote.grading_cost
+            local.otherCosts = remote.other_costs
+            local.tax = remote.tax
+            local.netProfit = remote.net_profit
+            local.status = remote.status
+            local.saleDate = SyncEngine.parseDate(remote.sale_date)
+            local.buyerUsername = remote.buyer_username
         }
         try? modelContext.save()
     }

@@ -34,9 +34,25 @@ struct SyncWatermark {
 
     private let defaults: UserDefaults
     private static let keyPrefix = "com.gradethread.app.syncWatermark."
+    private static let versionKey = "com.gradethread.app.syncWatermark.schemaVersion"
+
+    /// Bump this whenever a sync change requires a one-time full backfill for
+    /// EXISTING installs (not just fresh ones). On a version mismatch we reset
+    /// every cursor so the next pull is a full backfill.
+    ///   v2 (00111): prune stale items (fixes inflated "listed" counts),
+    ///   backfill listing prices for market value, and pull the new sale
+    ///   status / cost columns.
+    private static let currentSchemaVersion = 2
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // One-time forced full backfill when the sync schema version changes.
+        if defaults.integer(forKey: Self.versionKey) != Self.currentSchemaVersion {
+            for table in Table.allCases {
+                defaults.removeObject(forKey: Self.keyPrefix + table.rawValue)
+            }
+            defaults.set(Self.currentSchemaVersion, forKey: Self.versionKey)
+        }
     }
 
     private func key(for table: Table) -> String { Self.keyPrefix + table.rawValue }

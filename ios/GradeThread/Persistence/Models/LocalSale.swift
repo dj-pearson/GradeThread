@@ -12,8 +12,19 @@ final class LocalSale {
 
     var salePrice: Double
     var platformFees: Double
+    var paymentProcessingFees: Double?
     var shippingCollected: Double?
+    var shippingCost: Double?
+    var gradingCost: Double?
+    var otherCosts: Double?
     var tax: Double?
+    var netProfit: Double?
+
+    /// Sale lifecycle (00111). Only "completed" counts toward revenue/profit/
+    /// sold totals; "cancelled"/"refunded" are excluded. Defaults to
+    /// "completed" so legacy rows behave as before until the next sync stamps
+    /// the real status.
+    var status: String = "completed"
 
     var buyerUsername: String?
     var platformOrderId: String?

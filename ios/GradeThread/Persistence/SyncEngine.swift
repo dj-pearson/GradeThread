@@ -121,7 +121,12 @@ actor SyncEngine {
         switch await pullRemote() {
         case .success(let payload):
             // Merge on the background actor (US-634) — never blocks the UI.
-            await mergeActor.mergeItems(payload.items, primaryPhotos: payload.primaryPhotos)
+            await mergeActor.mergeItems(
+                payload.items,
+                primaryPhotos: payload.primaryPhotos,
+                listingPrices: payload.listingPrices,
+                prune: payload.isFullItemSync
+            )
             await mergeActor.mergePhotos(payload.photos, prune: payload.isFullPhotoSync)
             await mergeActor.mergeSales(payload.sales)
 
@@ -166,6 +171,14 @@ actor SyncEngine {
         /// True when the photo pull was a full backfill (no watermark) — only
         /// then may the merge prune locals not present in the response.
         let isFullPhotoSync: Bool
+        /// True when the ITEM pull was a full backfill (no watermark) — only
+        /// then may the merge prune local items the server no longer returns
+        /// (fixes stale "listed" rows that inflated the listed count). (00111)
+        let isFullItemSync: Bool
+        /// inventoryItemId → latest listing price, refreshed every pull so the
+        /// market-value "inventory value" stays current. Empty if the listings
+        /// fetch failed (best-effort — never blocks the item merge).
+        let listingPrices: [String: Double]
 
         /// Map of inventoryItemId → first photo (sort_order ascending). In
         /// delta mode this only covers items whose photos changed this pass.
@@ -296,12 +309,22 @@ actor SyncEngine {
         let inventory_item_id: String
         let sale_price: Double
         let platform_fees: Double
+        let payment_processing_fees: Double
+        let shipping_collected: Double
+        let shipping_cost: Double
+        let grading_cost: Double
+        let other_costs: Double
+        let tax: Double
+        let net_profit: Double?
+        let status: String
         let sale_date: String
         let buyer_username: String?
         let created_at: String
 
         private enum CodingKeys: String, CodingKey {
             case id, inventory_item_id, sale_price, platform_fees
+            case payment_processing_fees, shipping_collected, shipping_cost
+            case grading_cost, other_costs, tax, net_profit, status
             case sale_date, buyer_username, created_at
         }
 
@@ -311,6 +334,15 @@ actor SyncEngine {
             inventory_item_id = try c.decode(String.self, forKey: .inventory_item_id)
             sale_price = Self.lenientDouble(c, .sale_price) ?? 0
             platform_fees = Self.lenientDouble(c, .platform_fees) ?? 0
+            payment_processing_fees = Self.lenientDouble(c, .payment_processing_fees) ?? 0
+            shipping_collected = Self.lenientDouble(c, .shipping_collected) ?? 0
+            shipping_cost = Self.lenientDouble(c, .shipping_cost) ?? 0
+            grading_cost = Self.lenientDouble(c, .grading_cost) ?? 0
+            other_costs = Self.lenientDouble(c, .other_costs) ?? 0
+            tax = Self.lenientDouble(c, .tax) ?? 0
+            net_profit = Self.lenientDouble(c, .net_profit)
+            // Default 'completed' for legacy rows lacking the 00111 column.
+            status = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "completed"
             sale_date = try c.decode(String.self, forKey: .sale_date)
             buyer_username = try c.decodeIfPresent(String.self, forKey: .buyer_username)
             created_at = (try? c.decode(String.self, forKey: .created_at)) ?? ""
@@ -335,11 +367,13 @@ actor SyncEngine {
             let ownerId = WorkspaceScope.activeOwnerId ?? selfId
 
             // Items — delta on updated_at, paginated (US-633).
+            let itemWatermark = watermark.value(for: .inventoryItems)
+            let isFullItemSync = (itemWatermark == nil)
             let items = try await paginatedFetch(
                 table: "inventory_items",
                 columns: Self.itemColumns,
                 cursor: SyncWatermark.Table.inventoryItems.cursorColumn,
-                watermark: watermark.value(for: .inventoryItems),
+                watermark: itemWatermark,
                 scopeUserId: ownerId,
                 decode: Self.decodeItemsResiliently
             )
@@ -367,8 +401,35 @@ actor SyncEngine {
                 decode: Self.decodeSalesResiliently
             )) ?? []
 
+            // Listing prices — best-effort, NOT watermarked. We pull every
+            // listing each pass (bounded by maxRowsPerPass) and keep the latest
+            // price per item, so "inventory value" tracks the current listed
+            // price. Cheap: one indexed query, a few hundred rows for a typical
+            // seller.
+            // NOTE: no scopeUserId — `listings` has no user_id column; RLS
+            // scopes it through the parent inventory_items row.
+            let listingRows = (try? await paginatedFetch(
+                table: "listings",
+                columns: Self.listingPriceColumns,
+                cursor: "created_at",
+                watermark: nil,
+                decode: Self.decodeListingPricesResiliently
+            )) ?? []
+            var listingPrices: [String: Double] = [:]
+            var listingPriceAt: [String: Date] = [:]
+            for row in listingRows {
+                guard let price = row.listing_price else { continue }
+                let ts = SyncEngine.parseDate(row.listed_at ?? row.created_at ?? "")
+                if let prev = listingPriceAt[row.inventory_item_id], prev >= ts { continue }
+                listingPriceAt[row.inventory_item_id] = ts
+                listingPrices[row.inventory_item_id] = price
+            }
+
             return .success(PullPayload(
-                items: items, photos: photos, sales: sales, isFullPhotoSync: isFullPhotoSync
+                items: items, photos: photos, sales: sales,
+                isFullPhotoSync: isFullPhotoSync,
+                isFullItemSync: isFullItemSync,
+                listingPrices: listingPrices
             ))
         } catch {
             return .failure(error)
@@ -419,7 +480,27 @@ actor SyncEngine {
         "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at"
 
     private static let saleColumns =
-        "id,inventory_item_id,sale_price,platform_fees,sale_date,buyer_username,created_at"
+        "id,inventory_item_id,sale_price,platform_fees,payment_processing_fees,shipping_collected,shipping_cost,grading_cost,other_costs,tax,net_profit,status,sale_date,buyer_username,created_at"
+
+    /// Minimal listings projection used to refresh each item's cached market
+    /// (listing) price so the Home/Money "inventory value" reflects what the
+    /// item is listed for — matching eBay — rather than its cost basis.
+    private static let listingPriceColumns =
+        "id,inventory_item_id,listing_price,listed_at,created_at"
+
+    struct RemoteListingPrice: Decodable, Sendable {
+        let inventory_item_id: String
+        let listing_price: Double?
+        let listed_at: String?
+        let created_at: String?
+    }
+
+    static func decodeListingPricesResiliently(_ data: Data) -> [RemoteListingPrice] {
+        guard let rows = try? JSONDecoder().decode(
+            [Failable<RemoteListingPrice>].self, from: data
+        ) else { return [] }
+        return rows.compactMap(\.value)
+    }
 
     /// Wrapper that decodes to nil instead of throwing.
     private struct Failable<T: Decodable>: Decodable {

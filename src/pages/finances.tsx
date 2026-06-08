@@ -15,6 +15,7 @@ import {
   Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { computePnl } from "@/lib/pnl";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialCharts } from "@/components/finances/financial-charts";
 import { CashFlow } from "@/components/finances/cash-flow";
@@ -115,31 +116,41 @@ export function FinancesPage() {
       itemById.set(item.id, item);
     }
 
-    // Filter sales by period
-    const filteredSales = periodStart
-      ? sales.filter((s) => s.sale_date >= periodStart)
-      : sales;
+    // Filter sales by period, and EXCLUDE cancelled/refunded ones — they are
+    // not real revenue (a cancelled order was never fulfilled). Only
+    // 'completed' sales count. (00111 adds sales.status.)
+    const filteredSales = sales.filter(
+      (s) =>
+        s.status === "completed" &&
+        (periodStart ? s.sale_date >= periodStart : true),
+    );
 
-    // Revenue: sum of sale prices
-    const totalRevenue = filteredSales.reduce((sum, s) => sum + s.sale_price, 0);
-
-    // Costs breakdown
+    // P&L via the single canonical helper (lib/pnl.ts) so web + iOS agree.
+    // computePnl already nets revenue (sale_price + shipping_collected) minus
+    // fees (platform + payment-processing) minus costs (shipping/grading/other/
+    // tax) minus cost basis (item acquisition).
+    let totalRevenue = 0;
+    let totalFees = 0;
+    let totalSaleCosts = 0;
     let totalAcquisitionCost = 0;
-    let totalShippingCost = 0;
-    let totalPlatformFees = 0;
+    let totalShipmentExtra = 0;
     let totalDaysToSell = 0;
     let daysToSellCount = 0;
 
     for (const sale of filteredSales) {
       const item = itemById.get(sale.inventory_item_id);
-      if (item?.acquired_price) {
-        totalAcquisitionCost += item.acquired_price;
-      }
-      totalPlatformFees += sale.platform_fees;
+      const pnl = computePnl(sale, item?.acquired_price ?? 0);
+      totalRevenue += pnl.revenue;
+      totalFees += pnl.fees;
+      totalSaleCosts += pnl.costs;
+      totalAcquisitionCost += pnl.costBasis;
 
+      // Legacy GradeThread shipments table: only fold in its label/shipping
+      // cost when the sale row itself has none, so eBay-synced rows (which
+      // carry shipping_cost) aren't double-charged.
       const shipment = shipmentBySaleId.get(sale.id);
-      if (shipment) {
-        totalShippingCost += shipment.shipping_cost + shipment.label_cost;
+      if (shipment && (sale.shipping_cost ?? 0) === 0) {
+        totalShipmentExtra += shipment.shipping_cost + shipment.label_cost;
       }
 
       // Days to sell: from acquired_date to sale_date
@@ -156,18 +167,41 @@ export function FinancesPage() {
       }
     }
 
-    const totalCosts = totalAcquisitionCost + totalShippingCost + totalPlatformFees;
+    const totalCosts =
+      totalFees + totalSaleCosts + totalAcquisitionCost + totalShipmentExtra;
     const netProfit = totalRevenue - totalCosts;
     const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
     const itemsSold = filteredSales.length;
     const avgProfitPerItem = itemsSold > 0 ? netProfit / itemsSold : 0;
     const avgDaysToSell = daysToSellCount > 0 ? Math.round(totalDaysToSell / daysToSellCount) : 0;
 
-    // Inventory value: sum of acquired_price for unsold items
-    const unsoldStatuses = new Set(["acquired", "grading", "graded", "listed"]);
+    // Inventory value = MARKET value (matches eBay): the active listing price
+    // per on-hand item, falling back to target_price when not yet listed.
+    // (Previously summed acquired_price/cost basis, which is null for imported
+    // items and bears no relation to eBay's reported value.)
+    const activeStatuses = new Set([
+      "sourced", "acquired", "cataloged", "measured", "photographed",
+      "grading", "graded", "comped", "drafted", "listed",
+    ]);
+    // Latest listing per item (mirror items_full: newest listed_at/created_at).
+    const latestListingAt = new Map<string, number>();
+    const listingPriceByItem = new Map<string, number>();
+    for (const l of data.listings) {
+      if (l.listing_price == null) continue;
+      const ts = new Date(l.listed_at ?? l.created_at).getTime();
+      const prevTs = latestListingAt.get(l.inventory_item_id);
+      if (prevTs === undefined || ts >= prevTs) {
+        latestListingAt.set(l.inventory_item_id, ts);
+        listingPriceByItem.set(l.inventory_item_id, l.listing_price);
+      }
+    }
     const inventoryValue = items
-      .filter((item) => unsoldStatuses.has(item.status))
-      .reduce((sum, item) => sum + (item.acquired_price ?? 0), 0);
+      .filter((item) => activeStatuses.has(item.status))
+      .reduce(
+        (sum, item) =>
+          sum + (listingPriceByItem.get(item.id) ?? item.target_price ?? 0),
+        0,
+      );
 
     return {
       totalRevenue,

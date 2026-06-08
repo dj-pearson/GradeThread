@@ -1709,6 +1709,10 @@ export interface RemoteOrder {
   lastModifiedDate: string | null;
   orderFulfillmentStatus: string | null;
   orderPaymentStatus: string | null;
+  // eBay cancelStatus.cancelState: 'NONE_REQUESTED' | 'CANCEL_REQUESTED' |
+  // 'CANCEL_PENDING' | 'CANCELED'. Used to mark a sale cancelled so dashboards
+  // stop counting a cancelled/never-shipped order as a real sale.
+  cancelState: string | null;
   buyerUsername: string | null;
   totalAmount: { value: string; currency: string } | null;
   shippingTotal: { value: string; currency: string } | null;
@@ -1744,6 +1748,7 @@ export async function listRecentOrders(
         lastModifiedDate?: string;
         orderFulfillmentStatus?: string;
         orderPaymentStatus?: string;
+        cancelStatus?: { cancelState?: string };
         buyer?: { username?: string };
         pricingSummary?: {
           total?: { value?: string; currency?: string };
@@ -1809,6 +1814,7 @@ export async function listRecentOrders(
         lastModifiedDate: o.lastModifiedDate ?? null,
         orderFulfillmentStatus: o.orderFulfillmentStatus ?? null,
         orderPaymentStatus: o.orderPaymentStatus ?? null,
+        cancelState: o.cancelStatus?.cancelState ?? null,
         buyerUsername: o.buyer?.username ?? null,
         totalAmount: o.pricingSummary?.total?.value
           ? {

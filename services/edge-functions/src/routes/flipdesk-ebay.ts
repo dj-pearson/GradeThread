@@ -1131,6 +1131,20 @@ async function doListingsPull(
         continue;
       }
 
+      // Lifecycle for this order's sale rows. A cancelled order (or a fully
+      // refunded one) must NOT count toward revenue/profit/sold totals, so we
+      // persist it with a non-'completed' status that every metric excludes.
+      const saleStatus: "completed" | "cancelled" | "refunded" =
+        order.cancelState === "CANCELED"
+          ? "cancelled"
+          : order.orderPaymentStatus === "FULLY_REFUNDED"
+            ? "refunded"
+            : "completed";
+      const cancelledAt =
+        saleStatus === "completed"
+          ? null
+          : order.lastModifiedDate ?? order.creationDate ?? null;
+
       for (const li of order.lineItems) {
         try {
           const sku = li.sku;
@@ -1186,6 +1200,8 @@ async function doListingsPull(
             buyer_id: order.buyerUsername,
             shipping_collected: shippingCollected,
             tax,
+            status: saleStatus,
+            cancelled_at: cancelledAt,
           };
 
           if (existing) {
@@ -1198,17 +1214,31 @@ async function doListingsPull(
             await supabaseAdmin.from("sales").insert(salePayload);
             salesNew += 1;
             // US-626: a brand-new sale → celebrate it on iOS (best-effort).
-            void pushSaleCreated(userId);
+            // Only for genuine completed sales, never a cancelled/refunded one.
+            if (saleStatus === "completed") void pushSaleCreated(userId);
           }
 
-          // Flip the item to sold. resolveStatus-equivalent: 'sold' is a
-          // terminal non-prep status so it dominates anything we'd have
-          // bumped to via the offer loop above ('listed').
-          await supabaseAdmin
-            .from("inventory_items")
-            .update({ status: "sold" })
-            .eq("id", itemId)
-            .not("status", "in", "(shipped,completed,returned)");
+          if (saleStatus === "completed") {
+            // Flip the item to sold. resolveStatus-equivalent: 'sold' is a
+            // terminal non-prep status so it dominates anything we'd have
+            // bumped to via the offer loop above ('listed').
+            await supabaseAdmin
+              .from("inventory_items")
+              .update({ status: "sold" })
+              .eq("id", itemId)
+              .not("status", "in", "(shipped,completed,returned)");
+          } else {
+            // Order cancelled/refunded: the item is presumably still the
+            // seller's. If a prior sync already flipped it to 'sold', put it
+            // back to 'listed' so it re-enters active inventory and stops
+            // counting as a completed sale. Don't touch shipped/completed/
+            // returned (those represent real fulfillment we shouldn't undo).
+            await supabaseAdmin
+              .from("inventory_items")
+              .update({ status: "listed" })
+              .eq("id", itemId)
+              .eq("status", "sold");
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           errors.push(`order ${order.orderId}: ${msg.slice(0, 160)}`);

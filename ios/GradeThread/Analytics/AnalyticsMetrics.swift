@@ -118,6 +118,18 @@ enum AnalyticsRollup {
         return "Unknown"
     }
 
+    /// Sales in the window that actually count — completed only (cancelled /
+    /// refunded excluded, 00111).
+    private static func scopedCompletedSales(
+        _ sales: [LocalSale], since: Date?
+    ) -> [LocalSale] {
+        sales.filter { sale in
+            guard SalePnL.isCompleted(sale) else { return false }
+            if let since { return sale.saleDate >= since }
+            return true
+        }
+    }
+
     // MARK: Grading
 
     /// Count of items that carry a grade.
@@ -168,12 +180,12 @@ enum AnalyticsRollup {
             brandById[item.id] = brandKey(item)
         }
 
-        let scoped = since.map { start in sales.filter { $0.saleDate >= start } } ?? sales
+        let scoped = scopedCompletedSales(sales, since: since)
         var profit: [String: Double] = [:]
         var units: [String: Int] = [:]
         for sale in scoped {
             let brand = brandById[sale.inventoryItemId] ?? "Unknown"
-            let net = sale.salePrice - sale.platformFees - (costById[sale.inventoryItemId] ?? 0)
+            let net = SalePnL.net(sale, costBasis: costById[sale.inventoryItemId] ?? 0)
             profit[brand, default: 0] += net
             units[brand, default: 0] += 1
         }
@@ -218,12 +230,14 @@ enum AnalyticsRollup {
     ) -> PeriodPnL {
         var costById: [String: Double] = [:]
         for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
-        let scoped = since.map { start in sales.filter { $0.saleDate >= start } } ?? sales
+        let scoped = scopedCompletedSales(sales, since: since)
         var gross = 0.0, fees = 0.0, cogs = 0.0
         for sale in scoped {
-            gross += sale.salePrice
-            fees += sale.platformFees
-            cogs += costById[sale.inventoryItemId] ?? 0
+            gross += SalePnL.revenue(sale)
+            fees += SalePnL.fees(sale)
+            // COGS = item cost basis + per-sale selling costs (shipping/grading/
+            // other), so grossProfit = gross − fees − cogs equals SalePnL.net.
+            cogs += (costById[sale.inventoryItemId] ?? 0) + SalePnL.sellerCosts(sale)
         }
         return PeriodPnL(grossRevenue: gross, fees: fees, cogs: cogs, unitsSold: scoped.count)
     }
@@ -252,14 +266,14 @@ enum AnalyticsRollup {
             costById[item.id] = item.acquiredPrice ?? 0
             gradedById[item.id] = (item.gradeValue != nil)
         }
-        let scoped = since.map { start in sales.filter { $0.saleDate >= start } } ?? sales
+        let scoped = scopedCompletedSales(sales, since: since)
 
         struct Side { var nets: [Double] = [] }
         var graded: [String: Side] = [:]
         var ungraded: [String: Side] = [:]
         for sale in scoped {
             let band = priceBand(sale.salePrice)
-            let net = sale.salePrice - sale.platformFees - (costById[sale.inventoryItemId] ?? 0)
+            let net = SalePnL.net(sale, costBasis: costById[sale.inventoryItemId] ?? 0)
             if gradedById[sale.inventoryItemId] == true {
                 graded[band, default: Side()].nets.append(net)
             } else {
@@ -293,7 +307,10 @@ enum AnalyticsRollup {
         var value: [String: Double] = [:]
         var count: [String: Int] = [:]
         for item in items where DashboardRollup.isOnHand(item.status) {
-            value[item.status, default: 0] += (item.acquiredPrice ?? 0)
+            // Market value (listed price → target → cost basis), matching the
+            // Home tab's inventory value.
+            value[item.status, default: 0] +=
+                (item.listingPrice ?? item.targetPrice ?? item.acquiredPrice ?? 0)
             count[item.status, default: 0] += 1
         }
         return value
