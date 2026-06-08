@@ -10688,6 +10688,273 @@
       "priority": 725,
       "passes": false,
       "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Validator SHIPPED in src/lib/marketplace-specs.ts (+ edge mirror): validateListingForPlatform(platform,draft,ctx) checks required fields, title/desc char limits (with trim hint), allowed condition value, taxonomy category present, tag cap, Grailed designer allow-list, and photo cap — errors block, empty discovery fields warn. 8 dedicated tests (81 total in the suite). REMAINING: call it from the Listing Kit before 'ready' (US-723) and pre-publish in the adapters (US-710/US-714). Depends on [[US-719]],[[US-720]],[[US-722]]; feeds [[US-723]]."
+    },
+    {
+      "id": "US-726",
+      "title": "Shared <EmptyState> component adopted across all list/table pages",
+      "description": "As a user landing on a page with no data yet, I want a clear, friendly empty state that tells me what the page is for and gives me a one-tap action to get started, instead of a blank table or a bare line of text.",
+      "acceptanceCriteria": [
+        "New reusable component src/components/ui/empty-state.tsx renders icon (lucide) + heading + description + optional primary CTA + optional secondary link, using brand tokens (no ad-hoc colors)",
+        "Adopted on at least: submissions.tsx, inventory.tsx (keep its current good pattern, refactor onto the shared component), finances.tsx, flipdesk/listings.tsx (currently icon-less text), flipdesk/expenses.tsx (currently bare text), admin/growth/campaigns.tsx + segments.tsx (currently text-only), autolister-queue.tsx empty dialog",
+        "Each empty state's CTA routes to the relevant create flow (e.g. New Submission, Add Item, Add Source) or clears active filters when the emptiness is filter-induced (distinguish 'no data' from 'no matches')",
+        "Frontend build + eslint clean; a render test covers the no-data vs no-matches branches"
+      ],
+      "priority": 726,
+      "passes": false,
+      "notes": "[P1][UX/Polish] From the UI/UX audit. inventory.tsx already has the icon+heading+CTA pattern to use as the reference; flipdesk/listings.tsx empty states lack icons, expenses.tsx + admin/growth/* are text-only. Pairs with [[US-727]] (skeletons) and [[US-728]] (status colors)."
+    },
+    {
+      "id": "US-727",
+      "title": "Consistent skeleton loaders replace bare 'Loading…' text everywhere",
+      "description": "As a user waiting for a page to load, I want the page's shape to appear as a skeleton so the load feels fast and intentional, instead of a blank card or a 'Loading items…' string that then snaps to content.",
+      "acceptanceCriteria": [
+        "Reusable skeletons added to src/components/ui/skeleton.tsx (or a skeletons/ module): TableLoadingSkeleton (header + N shimmer rows) and MetricCardSkeleton (stat-card placeholder), built on the existing Skeleton primitive",
+        "Replace bare text/spinner loading on at least: flipdesk/listings.tsx ('Loading items…' ~L1276), submissions.tsx, finances.tsx, inventory.tsx, flipdesk/autolister-queue.tsx",
+        "Skeleton layout approximates the real layout (same column count / card grid) to avoid layout shift when data arrives",
+        "The existing .animate-shimmer keyframes in src/index.css are actually used (currently defined but unused), or removed if superseded; no dead CSS left behind",
+        "Frontend build + eslint clean"
+      ],
+      "priority": 727,
+      "passes": false,
+      "notes": "[P1][UX/Polish] From the UI/UX audit: most pages show plain 'Loading…' text; src/components/ui/skeleton.tsx exists but is underused and index.css .animate-shimmer is defined-but-unused. Pairs with [[US-726]]."
+    },
+    {
+      "id": "US-728",
+      "title": "Centralized status-color system + <StatusBadge> (one source of truth, WCAG AA)",
+      "description": "As a user, I want an item or submission to look the same wherever I see it, so a 'sold' or 'listed' badge is the same color in the inventory list, the FlipDesk grid, and the next-action badge — not three different color schemes.",
+      "acceptanceCriteria": [
+        "A single status->color/label map lives in src/lib/constants.ts (covering item_status, listing/sale statuses, submission statuses) and a <StatusBadge> component consumes it",
+        "Replace the ad-hoc per-page badge colors: inventory.tsx (hardcoded badge classes ~L55-76), flipdesk/listings.tsx (its STATUS_BADGE_VARIANT map), next-action-badge.tsx (its own color system) all read the shared map",
+        "All status colors pass WCAG AA contrast in BOTH light and dark mode (no bare text-green-600 / text-amber-600 without dark variants); verified against the brand palette",
+        "No remaining inline status-color literals in the touched pages; a test asserts every status enum value has a mapping"
+      ],
+      "priority": 728,
+      "passes": false,
+      "notes": "[P2][UX/Polish] From the UI/UX audit: three separate status-color systems (inventory.tsx, listings.tsx, next-action-badge.tsx) and ad-hoc text-green/amber-600 without dark-mode variants. Feeds [[US-729]] mobile cards which reuse the badge."
+    },
+    {
+      "id": "US-729",
+      "title": "Mobile card-view fallback for the big data tables",
+      "description": "As a user on a phone, I want inventory and listings to render as readable cards instead of a wide table I have to scroll sideways, so I can triage items one-handed.",
+      "acceptanceCriteria": [
+        "Below the md breakpoint, flipdesk/listings.tsx and inventory.tsx render a card list (thumbnail + title + SKU + StatusBadge + price + the single most relevant next action) instead of the horizontal-scroll table",
+        "At md+ the existing table is unchanged; the toggle is purely responsive (Tailwind breakpoints), no separate route",
+        "Card view reuses the shared <StatusBadge> (US-728) and supports the same row tap-through to item detail",
+        "No fixed pixel widths force horizontal overflow on small screens; verified at 375px width"
+      ],
+      "priority": 729,
+      "passes": false,
+      "notes": "[P2][UX/Mobile] From the UI/UX audit: listings.tsx wraps the table in overflow-x-auto and grid.tsx uses fixed w-* column widths — poor mobile UX. Depends on [[US-728]]."
+    },
+    {
+      "id": "US-730",
+      "title": "Accessibility pass: icon-button labels, dialog focus, alt-text intent, badge contrast",
+      "description": "As a keyboard or screen-reader user, I want every control to be announced and reachable, so I can operate the dashboard without a mouse.",
+      "acceptanceCriteria": [
+        "Every icon-only button (edit pencils, row actions, remove-filter, etc.) across the dashboard pages has an aria-label or visible text; audited via grep for icon buttons without labels",
+        "Dialogs return focus to the invoking trigger on close and trap focus while open (leverage the radix/shadcn dialog primitives already in use); verified on record-sale, mark-listed, publish-to-ebay dialogs",
+        "Image alt text is intentional: informative images get descriptive alt, purely decorative thumbnails get alt='' deliberately (document the rule)",
+        "Extend the existing axe test (src/pages/legal/__tests__/accessibility-axe.test.tsx) to cover at least the dashboard, a list page, and one dialog; status-badge color contrast is manually verified to AA"
+      ],
+      "priority": 730,
+      "passes": false,
+      "notes": "[P2][UX/A11y] From the UI/UX audit: icon buttons frequently lack aria-label, dialogs use autoFocus but no return-focus/trap, alt='' used ambiguously. An axe test already exists for legal pages — extend it. Pairs with [[US-728]] (contrast)."
+    },
+    {
+      "id": "US-731",
+      "title": "Consistent form UX: submitting state, inline field errors, error summary",
+      "description": "As a user filling out a form, I want immediate, in-place feedback on what's wrong and a clear 'saving…' state, so I'm not guessing whether my click registered or hunting a toast for the error.",
+      "acceptanceCriteria": [
+        "A documented standard for submit buttons: disabled + inline Loader2 spinner while pending (the billing-actions-card.tsx pattern), applied consistently across dialogs/forms",
+        "Invalid fields show inline error text AND a visually distinct field state (label/border), not only the subtle aria-invalid ring; the existing garment-info-form.tsx pattern is generalized into a small helper",
+        "Multi-field forms show an error summary at submit listing the fields that need attention (with anchor/focus to the first)",
+        "At least the submission garment-info form, record-sale, and one settings form adopt the standard; build + eslint clean"
+      ],
+      "priority": 731,
+      "passes": false,
+      "notes": "[P2][UX/Forms] From the UI/UX audit: forms validate on submit and surface errors mostly via toast; submitting/disabled+spinner state is inconsistent. garment-info-form.tsx and billing-actions-card.tsx are the good references to generalize."
+    },
+    {
+      "id": "US-732",
+      "title": "Optimistic updates + inline-edit success feedback on common mutations",
+      "description": "As a power user editing many items, I want the UI to update instantly when I change a cell, mark something shipped, or drop a price, with a quiet confirmation, so the app feels fast and I trust the change stuck.",
+      "acceptanceCriteria": [
+        "TanStack Query optimistic updates (onMutate/rollback) on the high-frequency mutations: inline cell edits (flipdesk/inline-cell.tsx), mark-listed / mark-shipped, and price drop / bulk price change",
+        "inline-cell.tsx shows a success affordance (subtle check / toast) and rolls back with an error toast on failure",
+        "All data tables get a consistent row hover state (currently only listings.tsx hover:bg-muted/30); applied via the shared table styling",
+        "No double-fetch flicker: optimistic update invalidates the right query key after settle; verified no UI flicker on success"
+      ],
+      "priority": 732,
+      "passes": false,
+      "notes": "[P2][UX/Polish] From the UI/UX audit: no optimistic updates, inline-cell edits give no save feedback, row-hover only on listings.tsx. Builds on the query hooks in src/hooks."
+    },
+    {
+      "id": "US-733",
+      "title": "Virtualize the large data tables (listings, submissions, autolister queue)",
+      "description": "As a user with hundreds of items, I want long lists to scroll smoothly and open instantly, so the most-used pages don't jank while rendering thousands of DOM nodes at once.",
+      "acceptanceCriteria": [
+        "Add @tanstack/react-virtual (no virtualization lib currently in package.json) and virtualize the row rendering in flipdesk/listings.tsx (~L1456-1778), submissions.tsx (~L204-270), and flipdesk/autolister-queue.tsx",
+        "Only visible rows (+ overscan buffer) are in the DOM; sorting/filtering/selection and the existing sticky header still work",
+        "Keyboard navigation and the select-all-on-page checkbox behavior are preserved with virtualization",
+        "Measured: rendered DOM node count for a 100-row page drops by >80%; no regression in build size beyond the small virtual lib"
+      ],
+      "priority": 733,
+      "passes": false,
+      "notes": "[P1][Perf] From the performance audit (its #1 finding): no virtualization lib exists and big tables render every row. Routes are ALREADY lazy-loaded (verified) so no route-splitting story is needed. Pairs with [[US-729]] (the mobile card list can virtualize too)."
+    },
+    {
+      "id": "US-734",
+      "title": "Lazy-load Recharts so charts don't ship in non-analytics bundles",
+      "description": "As a user opening the dashboard, I don't want to download the charting library until I actually visit a page with charts, so initial loads of admin/analytics-adjacent pages are lighter.",
+      "acceptanceCriteria": [
+        "Recharts-backed components are loaded via React.lazy + Suspense (with a chart-skeleton fallback) OR isolated into an explicit manualChunk in vite.config.ts so Recharts caches independently",
+        "Applies to the chart consumers: flipdesk/analytics.tsx, admin/dashboard.tsx, admin/ai-models.tsx, admin/growth/dashboard.tsx, admin/system.tsx, dashboard/grade-charts.tsx, and the finances/* chart components",
+        "Build output confirms Recharts is in its own chunk and not in the entry/dashboard chunk; analytics pages still render correctly",
+        "Suspense fallback reuses the MetricCardSkeleton/chart skeleton from US-727"
+      ],
+      "priority": 734,
+      "passes": false,
+      "notes": "[P2][Perf] From the performance audit: Recharts (~300KB uncompressed) is imported eagerly across analytics/admin/finance pages. Depends on [[US-727]] for the skeleton fallback."
+    },
+    {
+      "id": "US-735",
+      "title": "Responsive/lazy images on dashboard photo grids + tune listings refetch",
+      "description": "As a user browsing item photos on the dashboard or on mobile, I want thumbnails to lazy-load at an appropriate size, so I'm not downloading full-resolution images for a grid of tiny cards.",
+      "acceptanceCriteria": [
+        "Raw <img> tags in dashboard photo surfaces (flipdesk/grid.tsx cards, listings.tsx photo cells, item canvas/manager) are wrapped in the existing src/components/responsive-image.tsx (which already lazy-loads + sets dimensions to avoid CLS), or at minimum given loading='lazy' + width/height",
+        "Component gracefully degrades while Cloudflare Image Resizing is disabled (it already does) — no broken images, just original served",
+        "The flipdesk/listings.tsx items_full query staleTime is raised (5m -> ~10-15m) and/or refetch-on-mount tuned so tab-switching doesn't refetch the whole item set unnecessarily",
+        "No layout shift introduced; build + eslint clean"
+      ],
+      "priority": 735,
+      "passes": false,
+      "notes": "[P2][Perf] From the performance audit: responsive-image.tsx is well-built but only used on marketing pages; dashboard photo grids use raw <img>. CF Image Resizing is intentionally disabled (see project memory) — keep the graceful fallback."
+    },
+    {
+      "id": "US-736",
+      "title": "Grading ↔ FlipDesk bridge: grade-ready state, auto next-action, deep links",
+      "description": "As a reseller, I want grading to be a visible, connected step in my listing pipeline — grade an item, get notified it's ready, and have the app point me to the next action and let me reuse the grade in my listing — instead of grading feeling like a separate tool.",
+      "acceptanceCriteria": [
+        "src/lib/workflow.ts gains a grade-aware state so an item that's been submitted shows a 'grading' / 'grade ready' next-action; next-action-badge.tsx reflects it instead of always jumping to 'Comp & price'",
+        "The grade-this-item affordance (grade-this-item-card.tsx) is reachable from the grid/kanban/list views, not only the item-detail modal",
+        "Deep links both directions: a submission's detail/certificate page offers 'Use this grade in a listing' (into the FlipDesk item), and a FlipDesk item links to its grade report/certificate",
+        "When a grade completes for a FlipDesk item, the item's grade_value/tier populate and the next-action advances without manual re-entry"
+      ],
+      "priority": 736,
+      "passes": false,
+      "notes": "[P1][Cohesion] From the cross-functional audit (its #1 'critical' finding): grading is bolted onto the pipeline — optional, no status bump, only reachable via the item modal, and the certificate is a dead-end. Pairs with [[US-737]] (grade-ready notification)."
+    },
+    {
+      "id": "US-737",
+      "title": "Expand notification center to all lifecycle events with cross-module deep links",
+      "description": "As a user, I want to be told when something important happens — my grade is ready, an item sold, a payout imported — with a link straight to it, so I don't have to keep refreshing the right page to find out.",
+      "acceptanceCriteria": [
+        "notification-center.tsx (currently grade_complete / dispute_update / billing / system) gains: grading_submitted, grading_ready, item_status_change, listing_live, sale_recorded, payout_imported",
+        "Each notification carries a deep link to the relevant record (grade ready -> item/submission; sale_recorded -> the sale; payout_imported -> reconciliation)",
+        "Server side emits these notifications at the right lifecycle points (respecting the existing per-event notification preferences in settings.tsx)",
+        "The announcement banner and the notification center are reconciled so users aren't confused by two broadcast systems (announcements stay for marketing/broadcast; notifications for personal events)"
+      ],
+      "priority": 737,
+      "passes": false,
+      "notes": "[P1][Cohesion] From the cross-functional audit: notifications only cover 4 types, so users only learn about events by visiting the right page. Honors notification prefs already in settings.tsx. Depends on [[US-736]] for grade-ready."
+    },
+    {
+      "id": "US-738",
+      "title": "Make the command palette truly app-wide (core grading + account actions)",
+      "description": "As a power user, I want ⌘K to jump to anything in the product — submissions, billing, settings, team — not just FlipDesk actions, so the 'press ⌘K to jump anywhere' promise in the sidebar is actually true.",
+      "acceptanceCriteria": [
+        "command-palette.tsx action set is extended beyond FlipDesk: New Submission, view/search submissions, billing, team, API keys, settings, plus quick search across items AND submissions",
+        "The palette is registered globally for all dashboard routes (it already mounts in DashboardLayout) — actions are not gated to FlipDesk pages",
+        "The ⌘K / Ctrl+K hint is shown consistently (sidebar promises it app-wide); core nav items are represented in the palette",
+        "Fuzzy search ranks across both modules; selecting an action navigates correctly from any page"
+      ],
+      "priority": 738,
+      "passes": false,
+      "notes": "[P2][Cohesion] From the cross-functional audit: the sidebar says 'press ⌘K to jump anywhere' but the palette is ~40% FlipDesk-only. It already mounts in DashboardLayout. Pairs with [[US-739]]."
+    },
+    {
+      "id": "US-739",
+      "title": "Broaden keyboard shortcuts + add a discoverable shortcuts help dialog",
+      "description": "As a power user, I want consistent keyboard shortcuts across the app and a way to discover them, so I can work fast without memorizing per-module quirks.",
+      "acceptanceCriteria": [
+        "use-keyboard-shortcuts.ts is wired beyond the command palette + submissions: '/' focuses the search box on list pages, and inventory/listings get shortcuts for select-all, bulk-edit, and status change",
+        "A help dialog (opened by '?') lists all active shortcuts for the current context; reachable from the command palette and a header affordance",
+        "Shortcuts don't fire while typing in inputs/textareas (guarded); they're consistent between the grading and FlipDesk surfaces",
+        "Build + eslint clean; a test covers the input-guard and at least one navigation shortcut"
+      ],
+      "priority": 739,
+      "passes": false,
+      "notes": "[P3][Cohesion] From the cross-functional audit: use-keyboard-shortcuts.ts exists but is used in only ~2 places and shortcuts differ per module. Pairs with [[US-738]]."
+    },
+    {
+      "id": "US-740",
+      "title": "Consolidate the dual inventory surfaces into one canonical inventory",
+      "description": "As a user, I want a single Inventory that I view different ways (table / grid / kanban), not two different 'Inventory' pages with different data models and styling that make the product feel like two bolted-together apps.",
+      "acceptanceCriteria": [
+        "/dashboard/inventory redirects to the FlipDesk multi-view inventory (the richer listings.tsx surface) with a table mode, so there is one canonical inventory entry point",
+        "Grade metadata (grade value + tier via the shared StatusBadge) is shown in the item lists so graded and ungraded items are distinguishable in one place",
+        "A single item-status styling/enum is used across the consolidated surface (no separate core-vs-FlipDesk color schemes) — reuses US-728",
+        "No data loss: items created via the old core inventory path still appear; the legacy /flipdesk/items redirect is preserved; links from elsewhere (dashboard cards, notifications) point at the canonical route"
+      ],
+      "priority": 740,
+      "passes": false,
+      "notes": "[P2][IA/Structural] From the cross-functional audit: /dashboard/inventory, /dashboard/flipdesk/inventory, /items, /grid, /pipeline overlap with two data models (InventoryItemRow vs ItemFullRow). OPINIONATED / larger blast radius — re-read sidebar.tsx + routes/index.tsx before changing routes. Depends on [[US-728]]; coordinate with [[US-743]]."
+    },
+    {
+      "id": "US-741",
+      "title": "Unified Account hub (Profile / Billing / Team / API / Notifications / Preferences tabs)",
+      "description": "As a user, I want one Account home with tabs for everything about my account, instead of hunting across separate Settings, Billing, Team, API Keys, and Referrals pages to understand my plan and permissions.",
+      "acceptanceCriteria": [
+        "New /dashboard/account hub with tabs: Profile, Billing, Team, API Keys, Notifications, Preferences (and Referrals) — composed from the existing page bodies rather than rewritten",
+        "Usage meters (currently in billing.tsx) and usage-alert thresholds (currently in settings.tsx) live together so the plan/usage mental model is in one place",
+        "The legacy routes (/settings, /billing, /team, /api-keys, /referrals) redirect to the corresponding hub tab; deep links keep working",
+        "The single vs FlipDesk plan/tier is presented clearly so users understand which features they have; build + eslint clean"
+      ],
+      "priority": 741,
+      "passes": false,
+      "notes": "[P2][IA/Structural] From the cross-functional audit: account concerns are scattered across 5 top-level pages and usage meters/thresholds are split between billing.tsx and settings.tsx. OPINIONATED — compose existing page bodies, don't rewrite. Coordinate with [[US-743]]."
+    },
+    {
+      "id": "US-742",
+      "title": "Merge the two onboarding flows into one use-case-aware first-run experience",
+      "description": "As a new user, I want one coherent onboarding that adapts to whether I'm a grader or a reseller, so I'm guided to my first real action instead of getting a generic tour and then a second onboarding dialog fighting for attention.",
+      "acceptanceCriteria": [
+        "onboarding-flow.tsx and flipdesk-onboarding.tsx are unified into a single flow: welcome -> pick use case -> tailored tour -> a concrete first next-action",
+        "If the user picks 'reseller', the flow shows the grading<->FlipDesk connection (US-736) and routes to intake; if 'grader', it routes to New Submission — irrelevant steps are skipped",
+        "Only one onboarding surface can show at a time (no overlapping dialogs); completion sets the existing onboarded_at / flipdesk_onboarded flags appropriately",
+        "The 'replay tour' affordance still works and replays the unified flow; build + eslint clean"
+      ],
+      "priority": 742,
+      "passes": false,
+      "notes": "[P2][IA/Structural] From the cross-functional audit: two disconnected onboarding flows can both fire and neither bridges grading<->FlipDesk. Depends on [[US-736]] for the bridge content."
+    },
+    {
+      "id": "US-743",
+      "title": "Sidebar IA cleanup: group Grading vs FlipDesk vs Account, fix label imbalance",
+      "description": "As a user, I want the sidebar grouped so I can tell the core grading product from the FlipDesk reseller module from my account settings at a glance, instead of a flat list where 17 FlipDesk items dwarf 6 core items.",
+      "acceptanceCriteria": [
+        "sidebar.tsx groups nav into clear sections (e.g. Grading, FlipDesk, Account) with consistent labels; the duplicate 'Inventory' labels are disambiguated or consolidated per US-740",
+        "Section headers / collapsibility reduce the visual imbalance; the active-state highlighting still works per route",
+        "Labels match the consolidated routes from US-740/US-741 (no links to deprecated routes)",
+        "Verified on desktop and the mobile sheet variant; build + eslint clean"
+      ],
+      "priority": 743,
+      "passes": false,
+      "notes": "[P3][IA/Structural] From the cross-functional audit: flat sidebar with dual 'Inventory' labels and a 17-vs-6 imbalance signals two apps. Coordinate with [[US-740]] and [[US-741]] so labels track the consolidated routes."
+    },
+    {
+      "id": "US-744",
+      "title": "End-to-end mobile/PWA story: snap → grade → list, offline beyond intake",
+      "description": "As a mobile user, I want to capture a garment, grade it, and start a listing from my phone — with the PWA install offered wherever I am and offline support beyond just the intake form — so the mobile experience is a real workflow, not a FlipDesk-only afterthought.",
+      "acceptanceCriteria": [
+        "The PWA install affordance (pwa-install-banner.tsx) is offered outside FlipDesk too (e.g. on snap.tsx / dashboard on mobile) with copy that fits the context",
+        "snap.tsx connects into the pipeline: a captured item can flow snap -> grade -> create FlipDesk item, instead of being an isolated 'what's it worth' page",
+        "Offline support (currently use-offline-intake.ts for intake only) extends to viewing submission status and certificates while offline; the service worker caches those routes",
+        "The mobile capture path reuses the upload validation/EXIF-strip rules (US-276); build + eslint clean"
+      ],
+      "priority": 744,
+      "passes": false,
+      "notes": "[P3][Cohesion/Mobile] From the cross-functional audit: PWA banner + offline are FlipDesk-only and snap.tsx is isolated from the pipeline. Depends on [[US-736]] for the snap->grade->list bridge."
     }
   ]
 }

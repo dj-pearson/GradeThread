@@ -2719,7 +2719,16 @@ interface AspectSpecRaw {
 // it against the category's real list before we fill it. Returns null when no
 // signal is present (→ falls through to the composer).
 function inferDepartment(item: PublishItem): string | null {
-  const text = [item.title, item.style, item.description]
+  // Pull from every free-text field that might carry a gender/age signal —
+  // condition_notes and size ("Women's M", "Boys 10/12") often name it even when
+  // the title doesn't.
+  const text = [
+    item.title,
+    item.style,
+    item.description,
+    item.condition_notes,
+    item.size,
+  ]
     .filter((s): s is string => typeof s === "string" && s.length > 0)
     .join(" ")
     .toLowerCase();
@@ -2727,13 +2736,17 @@ function inferDepartment(item: PublishItem): string | null {
   const has = (re: RegExp) => re.test(text);
   // Order matters: most specific first. \b avoids "men" matching inside "women".
   if (has(/\bmaternity\b/)) return "Maternity";
-  if (has(/\b(baby|infant|newborn|toddler)\b/)) return "Baby";
+  if (has(/\b(baby|infant|newborn|toddler|onesie)\b/)) return "Baby";
   if (has(/\bboys?\b/)) return "Boys";
   if (has(/\bgirls?\b/)) return "Girls";
-  if (has(/\b(kids?|youth|junior|children'?s?)\b/)) return "Unisex Kids";
+  if (has(/\b(kids?|youth|juniors?|children'?s?|child)\b/)) return "Unisex Kids";
   if (has(/\bunisex\b/)) return "Unisex Adult";
-  if (has(/\b(women'?s?|womens|ladies|female)\b/)) return "Women";
-  if (has(/\b(men'?s?|mens|male)\b/)) return "Men";
+  if (
+    has(/\b(women'?s?|womens|woman'?s?|womenswear|ladies'?|lady'?s?|female|misses)\b/)
+  ) {
+    return "Women";
+  }
+  if (has(/\b(men'?s?|mens|man'?s?|menswear|male)\b/)) return "Men";
   return null;
 }
 

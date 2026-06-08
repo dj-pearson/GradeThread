@@ -305,6 +305,21 @@ export const EBAY_CONDITION_OPTIONS: { value: string; label: string }[] = [
   { value: "FOR_PARTS_OR_NOT_WORKING", label: "For parts / not working" },
 ];
 
+// eBay "Department" item-specific values for clothing — the most common required
+// aspect that blocks publish. Values mirror what inferDepartment() produces
+// server-side; eBay's plural-tolerant matching reconciles e.g. "Unisex Adult"
+// against its "Unisex Adults" allowed value.
+export const EBAY_DEPARTMENT_OPTIONS: { value: string; label: string }[] = [
+  { value: "Men", label: "Men" },
+  { value: "Women", label: "Women" },
+  { value: "Unisex Adult", label: "Unisex Adult" },
+  { value: "Boys", label: "Boys" },
+  { value: "Girls", label: "Girls" },
+  { value: "Unisex Kids", label: "Unisex Kids" },
+  { value: "Baby", label: "Baby" },
+  { value: "Maternity", label: "Maternity" },
+];
+
 export interface GradeTierConfig {
   label: string;
   priceCents: number;

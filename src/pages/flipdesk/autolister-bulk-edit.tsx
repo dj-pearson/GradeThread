@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
+import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 
 // AutoLister bulk spreadsheet editor (US-320). Edit a whole generated batch in
@@ -27,6 +27,7 @@ interface DraftRow {
   best_offer_enabled: boolean | null;
   scheduled_publish_at: string | null;
   platform_category_id: string | null;
+  item_specifics_override: Record<string, string[]> | null;
 }
 
 interface EditRow {
@@ -39,6 +40,11 @@ interface EditRow {
   bestOffer: boolean;
   scheduledAt: string;
   categoryId: string;
+  // eBay "Department" specific (Men/Women/…) — the most common required aspect
+  // that blocks publish. Edited here, then merged into item_specifics_override
+  // on save. `specifics` holds the rest of the override so the merge is lossless.
+  department: string;
+  specifics: Record<string, string[]>;
   // Server-side validation blockers (US-320) — populated by "Validate" actions.
   validationBlockers: string[] | null;
   dirty: boolean;
@@ -61,7 +67,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id",
+          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -99,24 +105,33 @@ export function FlipdeskAutolisterBulkEditPage() {
   const [bulkQty, setBulkQty] = useState("");
   const [bulkSchedule, setBulkSchedule] = useState("");
   const [bulkCategoryId, setBulkCategoryId] = useState("");
+  const [bulkDepartment, setBulkDepartment] = useState("");
 
   // Seed editable rows once the drafts load.
   useEffect(() => {
     if (!data) return;
     setRows(
-      data.map((r) => ({
-        id: r.id,
-        itemId: r.inventory_item_id,
-        title: r.listing_title ?? "",
-        price: r.listing_price != null ? String(r.listing_price) : "",
-        condition: r.ebay_condition ?? "",
-        quantity: r.quantity != null ? String(r.quantity) : "1",
-        bestOffer: r.best_offer_enabled ?? false,
-        scheduledAt: isoToLocalInput(r.scheduled_publish_at),
-        categoryId: r.platform_category_id ?? "",
-        validationBlockers: null,
-        dirty: false,
-      })),
+      data.map((r) => {
+        // Split Department out of the override so the dropdown owns it; `specifics`
+        // keeps the remaining aspects untouched for a lossless merge on save.
+        const override = r.item_specifics_override ?? {};
+        const { Department, ...rest } = override;
+        return {
+          id: r.id,
+          itemId: r.inventory_item_id,
+          title: r.listing_title ?? "",
+          price: r.listing_price != null ? String(r.listing_price) : "",
+          condition: r.ebay_condition ?? "",
+          quantity: r.quantity != null ? String(r.quantity) : "1",
+          bestOffer: r.best_offer_enabled ?? false,
+          scheduledAt: isoToLocalInput(r.scheduled_publish_at),
+          categoryId: r.platform_category_id ?? "",
+          department: Department?.[0] ?? "",
+          specifics: rest,
+          validationBlockers: null,
+          dirty: false,
+        };
+      }),
     );
   }, [data]);
 
@@ -167,6 +182,11 @@ export function FlipdeskAutolisterBulkEditPage() {
           dirty.slice(i, i + CONCURRENCY).map(async (r) => {
             const price = Number.parseFloat(r.price);
             const qty = Number.parseInt(r.quantity, 10);
+            // Re-merge Department into the rest of the specifics. A blank
+            // selection drops the key; null the whole column when nothing's left.
+            const mergedSpecifics: Record<string, string[]> = { ...r.specifics };
+            if (r.department) mergedSpecifics.Department = [r.department];
+            else delete mergedSpecifics.Department;
             const { error: upErr } = await supabase
               .from("listings")
               .update({
@@ -177,6 +197,8 @@ export function FlipdeskAutolisterBulkEditPage() {
                 best_offer_enabled: r.bestOffer,
                 scheduled_publish_at: localInputToIso(r.scheduledAt),
                 platform_category_id: r.categoryId.trim() || null,
+                item_specifics_override:
+                  Object.keys(mergedSpecifics).length > 0 ? mergedSpecifics : null,
                 price_is_estimated: false,
               } as never)
               .eq("id", r.id);
@@ -473,6 +495,33 @@ export function FlipdeskAutolisterBulkEditPage() {
           </Button>
         </div>
         <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Department
+            </label>
+            <select
+              value={bulkDepartment}
+              onChange={(e) => setBulkDepartment(e.target.value)}
+              className="h-8 w-36 rounded-md border border-input bg-transparent px-2 text-sm"
+            >
+              <option value="">Select…</option>
+              {EBAY_DEPARTMENT_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!bulkDepartment}
+            onClick={() => applyToTargets(() => ({ department: bulkDepartment }))}
+          >
+            Apply
+          </Button>
+        </div>
+        <div className="flex items-end gap-1.5">
           <Button
             size="sm"
             variant="secondary"
@@ -515,6 +564,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="w-28 p-2">Price</th>
               <th className="w-44 p-2">Condition</th>
               <th className="w-28 p-2">Category</th>
+              <th className="w-36 p-2">Department</th>
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
               <th className="w-52 p-2">Schedule</th>
@@ -596,6 +646,20 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
+                    <select
+                      value={r.department}
+                      onChange={(e) => patchRow(r.id, { department: e.target.value })}
+                      className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
+                    >
+                      <option value="">—</option>
+                      {EBAY_DEPARTMENT_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-2">
                     <Input
                       type="number"
                       min="1"
@@ -632,7 +696,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={10} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>

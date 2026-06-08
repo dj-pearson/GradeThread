@@ -126,7 +126,11 @@ Hard rules:
 - item_specifics: fill aspects you can determine from the photos/attributes
   (Brand, Size, Color, Material, Style, Department, etc.). When an allowed-aspect
   list is provided, use ONLY those aspect names and prefer their allowed values.
-  Omit any aspect you cannot determine — never guess.
+  Omit any aspect you cannot determine — never guess. EXCEPTION: for clothing,
+  "Department" (Men / Women / Unisex Adult / Boys / Girls / Unisex Kids / Baby /
+  Maternity) is almost always required by eBay and is usually evident from the
+  garment's cut, styling, and labeling — set it whenever the photos support a
+  confident read rather than omitting it.
 - description: a clean opening line, then attribute bullets, then the condition
   statement, then measurements if provided. Buyer-friendly, follows eBay best
   practices.
