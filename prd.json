@@ -10954,7 +10954,7 @@
       ],
       "priority": 744,
       "passes": false,
-      "notes": "[P3][Cohesion/Mobile] From the cross-functional audit: PWA banner + offline are FlipDesk-only and snap.tsx is isolated from the pipeline. Depends on [[US-736]] for the snap->grade->list bridge."
+      "notes": "[P3][Cohesion/Mobile] DEFERRED 2026-06-08 — needs real device/PWA QA, and the audit was partly stale. AC2 ALREADY EXISTS: snap.tsx already has a 'List it with FlipDesk' CTA (-> /dashboard/flipdesk) alongside 'Get a certified grade' (-> /dashboard/submissions/new), so it's not isolated from the pipeline. The rest is genuinely PWA/service-worker/offline work that can't be verified headless: (AC1) pwa-install-banner.tsx is mounted only in flipdesk/intake.tsx and calls ensureServiceWorker() — the SW is DELIBERATELY scoped to FlipDesk intake (vite.config 'service worker not auto-injected app-wide'; only the banner + use-offline-intake register it), so surfacing the install affordance app-wide changes SW registration scope and offline behavior and must be QA'd on a real device + as an installed PWA; (AC3) caching submission-status/certificate routes for offline is a Workbox/SW change whose correctness (cache invalidation, stale auth) only shows on a device. RECOMMENDATION: do this as a focused mobile/PWA session with an actual phone + installed-PWA testing — generalize the banner copy + mount point with intentional SW-scope changes, add Workbox runtimeCaching for the read-only submission/cert routes, and (optionally) a snap-photo -> FlipDesk-intake handoff that prefills the captured image (reusing US-276 validateImageUpload/stripImageMetadata). NOT shipping blind. Depends on [[US-736]]."
     }
   ]
 }
