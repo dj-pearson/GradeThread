@@ -88,12 +88,14 @@ public final class AppLock {
 
     // MARK: - Real device implementation
 
-    public static func deviceCanEvaluate() -> Bool {
+    // `nonisolated` so they can be used as the default (non-isolated) closure
+    // arguments of `init` without losing the global actor.
+    nonisolated public static func deviceCanEvaluate() -> Bool {
         var error: NSError?
         return LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error)
     }
 
-    public static func deviceEvaluate(_ reason: String) async throws -> Bool {
+    nonisolated public static func deviceEvaluate(_ reason: String) async throws -> Bool {
         try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
     }
 }
