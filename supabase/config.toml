@@ -62,6 +62,12 @@ otp_expiry = 3600
 
 [auth.external.google]
 enabled = true
-client_id = ""
-secret = ""
+# The current Supabase CLI rejects an enabled provider with an empty client_id/
+# secret, so these are env() interpolations rather than committed placeholders
+# (never commit OAuth secrets). Local dev / CI must export the two vars; the
+# DB-migrations workflow sets dummy values since it only validates migrations,
+# not the OAuth handshake. Production uses the self-hosted GoTrue, configured
+# separately via GOTRUE_EXTERNAL_GOOGLE_* env — not this file.
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 redirect_uri = ""

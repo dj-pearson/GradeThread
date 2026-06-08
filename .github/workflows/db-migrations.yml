@@ -31,6 +31,13 @@ jobs:
   clean-apply:
     name: Migrations apply cleanly (supabase db reset)
     runs-on: ubuntu-latest
+    # config.toml interpolates the Google OAuth creds via env() and the current
+    # CLI rejects an enabled provider with empty values. This job only validates
+    # that migrations apply — the OAuth handshake is never exercised — so feed
+    # harmless dummy values to satisfy the config parser.
+    env:
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ci-dummy-client-id.apps.googleusercontent.com
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET: ci-dummy-secret
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
