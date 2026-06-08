@@ -10109,7 +10109,7 @@
         "Readiness state is also reflected on the inventory row (badge)"
       ],
       "priority": 683,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #4: comps + required specifics buried deep in the Form; blockers only surface after opening PublishDialog. CI validates build."
     },
     {

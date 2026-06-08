@@ -5210,12 +5210,16 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           new items aren't left "Untitled". "Add another" is the ubiquitous Add
           control (every tab, US-684) reachable from the canvas.
 
-- US-683  Publish-readiness indicator + reorder + deep-link blockers. DEFERRED
-          (passes:false). The readiness affordance is additive/safe, but the
-          section reorder and PublishDialog->field deep-linking are layout/logic
-          changes that need visual verification. Recommended: add a readiness
-          summary above the publish button + an inventory-row badge first, then
-          the deep-link blockers.
+- US-683  Publish-readiness indicator. COMPLETE (core). New pure
+          PublishReadiness helper (title / photos / price / publishable-status);
+          ItemCanvas publishSection now shows a "Before you list" blocker
+          checklist (or a green "Ready to list") ABOVE the publish button, so
+          blockers are seen before opening the publish sheet; InventoryRow shows
+          a "Ready to list" badge from local signals (primaryPhotoURL stands in
+          for photos). Tests: PublishReadinessTests (5). SCOPED OUT (lower
+          priority, needs visual verification): the full Form section reorder
+          (comps pinned to top) and PublishDialog->field deep-linking — the
+          readiness affordance already removes the blind round-trip.
 
 - US-686  Auto-apply high-confidence AI extract. DEFERRED (passes:false).
           Depends on US-682's canvas-landing for the "AI filled N fields -

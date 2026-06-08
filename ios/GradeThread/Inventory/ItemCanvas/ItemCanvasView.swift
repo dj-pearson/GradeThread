@@ -295,8 +295,46 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// US-683: what's missing before this item can be listed, from local signals.
+    private var publishBlockers: [String] {
+        PublishReadiness.blockers(
+            title: item.title,
+            hasPhotos: !allPhotos.isEmpty,
+            targetPrice: item.targetPrice,
+            status: item.status
+        )
+    }
+
     private var publishSection: some View {
         Section {
+            // US-683: surface readiness up front so the user fixes blockers
+            // before opening the publish sheet (where they used to only appear
+            // after a round-trip).
+            if !publishBlockers.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Before you list", systemImage: "checklist")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.brandAmber)
+                    ForEach(publishBlockers, id: \.self) { blocker in
+                        Label(blocker, systemImage: "circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .labelStyle(.titleAndIcon)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+                .listRowInsets(.init(top: 4, leading: 0, bottom: 8, trailing: 0))
+                .listRowBackground(Color.clear)
+                .accessibilityElement(children: .combine)
+            } else {
+                Label("Ready to list", systemImage: "checkmark.seal.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.brandEmerald)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
+            }
             Button {
                 AppRouter.haptic()
                 showingPublishDialog = true
