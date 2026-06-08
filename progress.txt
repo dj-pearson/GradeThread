@@ -5158,3 +5158,64 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           DetailsIntake/Money) already use custom-styled buttons, not system
           .borderedProminent, for their primary CTAs. Inline/secondary/error-
           retry buttons intentionally keep system styles. COMPLETE.
+
+### UX / listing-&-management batch (US-680..687)
+
+- US-684  Add-method reachable from every tab. The AddMethodMenu (photo /
+          details / AutoLister) now rides the toolbar of the Inventory, Money,
+          and Marketplaces tabs too (was Home-only), so bulk AutoLister / details
+          intake are reachable without first switching to Home. The Add tab stays
+          a one-tap photo shortcut (US-649). (TabView can't long-press a tab item,
+          so the menu-on-every-tab option from the AC is used.) COMPLETE.
+
+- US-685  Per-row quick actions. InventoryListView: a leading swipe "Publish"
+          on publish-eligible rows opens the existing PublishDialog for that item
+          (no canvas push); a row context menu offers "Publish to eBay" + "Edit
+          price"; new QuickPriceSheet writes target_price via the RLS-scoped
+          user-session client + optimistic local update (mirrors
+          ItemCanvasView.save). COMPLETE.
+
+- US-687  Add photos to an existing item via camera, beyond standard slots.
+          ItemCanvasView: a shared camera/library add menu (empty state, header,
+          overflow), camera capture via CameraPicker -> ingestCapturedImage;
+          library picker uncapped (selectionLimit 0) with extras assigned to the
+          next unfilled standard slot then additional .detail photos; stale
+          "from the + tab" footer copy corrected. COMPLETE.
+
+- US-680  Bulk "Publish to eBay" from inventory. DEFERRED (passes:false). A real
+          batch publish must drive the eBay validate+push per item (the logic
+          currently lives inside PublishDialog's view-bound runValidate/runPush
+          via EbayPublishService) and aggregate per-item blockers. That requires
+          extracting a headless batch-publish service and is high regression risk
+          to land WITHOUT a compiler (this is a Linux container; no xcodebuild).
+          Recommended: factor EbayPublishService validate/push into a batch
+          endpoint + a BulkAction.publish wired through BulkActionExecutor with
+          the existing BulkActionResult.failures aggregation, then verify on a
+          macOS runner/device.
+
+- US-681  Publish AutoLister drafts from the AutoLister surface. DEFERRED
+          (passes:false). Same dependency as US-680 (a reusable batch publish
+          path) plus making DraftsLibraryView rows interactive. Best landed
+          together with US-680's headless publish service, with device verify.
+
+- US-682  Land on the created item after intake (+ seed title). DEFERRED
+          (passes:false). The post-intake handoff crosses a fullScreenCover
+          (AIExtract) + the active tab's NavigationStack and needs the router +
+          the new item's local row to push ItemCanvasView. Rewiring the app's
+          single most-used flow is too risky to do unverified. Recommended:
+          thread AppRouter into PhotoIntakeView, on AIExtract completion append
+          the freshly-created LocalInventoryItem to the active path, and seed the
+          item title from an accepted brand/style suggestion; verify on device.
+
+- US-683  Publish-readiness indicator + reorder + deep-link blockers. DEFERRED
+          (passes:false). The readiness affordance is additive/safe, but the
+          section reorder and PublishDialog->field deep-linking are layout/logic
+          changes that need visual verification. Recommended: add a readiness
+          summary above the publish button + an inventory-row badge first, then
+          the deep-link blockers.
+
+- US-686  Auto-apply high-confidence AI extract. DEFERRED (passes:false).
+          Depends on US-682's canvas-landing for the "AI filled N fields -
+          review" reversible entry; doing it standalone would introduce automatic
+          network writes on results-ready that can't be verified here. Land after
+          US-682.

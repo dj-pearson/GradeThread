@@ -470,6 +470,12 @@ private struct TabBarShell: View {
                     .navigationDestination(for: LocalInventoryItem.self) { item in
                         ItemCanvasView(item: item)
                     }
+                    // US-684: AutoLister/Details reachable from this tab too.
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            AddMethodMenu(router: router)
+                        }
+                    }
             }
             .tabItem { Label("Inventory", systemImage: "shippingbox") }
             .tag(AppSection.inventory)
@@ -486,6 +492,12 @@ private struct TabBarShell: View {
             NavigationStack(path: $router.salesPath) {
                 MoneyPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
+                    // US-684: add-method menu reachable from the Money tab.
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            AddMethodMenu(router: router)
+                        }
+                    }
             }
             .tabItem { Label("Money", systemImage: "dollarsign.circle") }
             .tag(AppSection.sales)
@@ -493,6 +505,12 @@ private struct TabBarShell: View {
             NavigationStack(path: $router.marketplacesPath) {
                 MarketplacesPlaceholder()
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
+                    // US-684: add-method menu reachable from the Marketplaces tab.
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            AddMethodMenu(router: router)
+                        }
+                    }
             }
             .tabItem { Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right") }
             .tag(AppSection.marketplaces)

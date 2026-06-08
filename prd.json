@@ -10122,7 +10122,7 @@
         "iPhone and iPad expose the same set of add methods from an equivalent gesture"
       ],
       "priority": 684,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #5: Add tab hard-wired to photoFirst; AddMethodMenu only on Home toolbar; unreachable from other tabs. CI validates build."
     },
     {
@@ -10135,7 +10135,7 @@
         "Quick actions respect publish-readiness (disabled/blocked with reason when not eligible)"
       ],
       "priority": 685,
-      "passes": false,
+      "passes": true,
       "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #6: swipe actions limited to Delete/-10%/Shipped; price edit only inside canvas. CI validates build."
     },
     {
@@ -10162,7 +10162,7 @@
         "The stale \"Add new photos from the + tab\" footer copy is corrected to reflect in-canvas adding"
       ],
       "priority": 687,
-      "passes": false,
+      "passes": true,
       "notes": "[P3][iOS/UX] Audit 2026-06-08. UX gap #8: ItemCanvas Add photos = library only, gated on unfilledStandardSlots; stale footer copy. CI validates build."
     },
     {
