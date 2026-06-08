@@ -18,6 +18,10 @@ import {
   FileText,
   DollarSign,
   Settings,
+  CreditCard,
+  Users,
+  KeyRound,
+  Gift,
 } from "lucide-react";
 import {
   Dialog,
@@ -41,10 +45,20 @@ interface SearchHit {
   rank: number;
 }
 
+// Just the columns the palette renders — kept narrow so the search query
+// stays cheap.
+interface SubmissionLite {
+  id: string;
+  title: string | null;
+  brand: string | null;
+  status: string;
+}
+
 type Entry =
   | { kind: "action"; id: string; label: string; icon: React.ReactNode; run: () => void }
   | { kind: "item"; id: string; item: ItemFullRow }
   | { kind: "source"; id: string; source: SourceRow }
+  | { kind: "submission"; id: string; sub: SubmissionLite }
   | { kind: "deep"; id: string; hit: SearchHit };
 
 interface Section {
@@ -80,6 +94,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const [deepHits, setDeepHits] = useState<SearchHit[]>([]);
+  const [submissionHits, setSubmissionHits] = useState<SubmissionLite[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -100,8 +115,34 @@ export function CommandPalette() {
       setQuery("");
       setActiveIdx(0);
       setDeepHits([]);
+      setSubmissionHits([]);
     }
   }, [open]);
+
+  // Debounced submission search (grading side of the product). The browser
+  // client is RLS-scoped, so this only ever returns the user's own rows.
+  // The FlipDesk item search above covers inventory; this covers submissions.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setSubmissionHits([]);
+      return;
+    }
+    const handle = setTimeout(async () => {
+      try {
+        const { data } = await supabase
+          .from("submissions")
+          .select("id, title, brand, status")
+          .ilike("title", `%${q}%`)
+          .order("created_at", { ascending: false })
+          .limit(6);
+        setSubmissionHits((data ?? []) as SubmissionLite[]);
+      } catch {
+        setSubmissionHits([]);
+      }
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [query]);
 
   // Debounced full-text search via the flipdesk_search RPC (US-144).
   // Searches deep text (descriptions, notes) the client-side filter misses.
@@ -197,6 +238,34 @@ export function CommandPalette() {
       },
       {
         kind: "action",
+        id: "billing",
+        label: "Go to Billing",
+        icon: <CreditCard className="h-4 w-4" />,
+        run: () => go("/dashboard/billing"),
+      },
+      {
+        kind: "action",
+        id: "team",
+        label: "Go to Team",
+        icon: <Users className="h-4 w-4" />,
+        run: () => go("/dashboard/team"),
+      },
+      {
+        kind: "action",
+        id: "api-keys",
+        label: "Go to API keys",
+        icon: <KeyRound className="h-4 w-4" />,
+        run: () => go("/dashboard/api-keys"),
+      },
+      {
+        kind: "action",
+        id: "referrals",
+        label: "Go to Referrals",
+        icon: <Gift className="h-4 w-4" />,
+        run: () => go("/dashboard/referrals"),
+      },
+      {
+        kind: "action",
         id: "intake",
         label: "Intake new item",
         icon: <Plus className="h-4 w-4" />,
@@ -273,6 +342,12 @@ export function CommandPalette() {
       .slice(0, PER_SECTION)
       .map((s) => ({ kind: "source", id: s.id, source: s }) as Entry);
 
+    const matchSubmissions: Entry[] = q
+      ? submissionHits
+          .slice(0, PER_SECTION)
+          .map((s) => ({ kind: "submission", id: s.id, sub: s }) as Entry)
+      : [];
+
     const recentEntries: Entry[] = !q
       ? recentIds
           .map((id) => items.find((it) => it.id === id))
@@ -307,12 +382,14 @@ export function CommandPalette() {
       out.push({ title: "Actions", entries: matchAction });
     if (matchItems.length > 0)
       out.push({ title: "Items", entries: matchItems });
+    if (matchSubmissions.length > 0)
+      out.push({ title: "Submissions", entries: matchSubmissions });
     if (matchSources.length > 0)
       out.push({ title: "Sources", entries: matchSources });
     if (deepEntries.length > 0)
       out.push({ title: "Full-text matches", entries: deepEntries });
     return out;
-  }, [query, actions, items, sources, recentIds, deepHits]);
+  }, [query, actions, items, sources, recentIds, deepHits, submissionHits]);
 
   // Flat list for keyboard navigation.
   const flat = useMemo(
@@ -330,6 +407,9 @@ export function CommandPalette() {
     } else if (entry.kind === "item") {
       setOpen(false);
       navigate(`/dashboard/flipdesk/items?focus=${entry.item.id}`);
+    } else if (entry.kind === "submission") {
+      setOpen(false);
+      navigate(`/dashboard/submissions/${entry.sub.id}`);
     } else if (entry.kind === "deep") {
       setOpen(false);
       const itemId = entry.hit.inventory_item_id ?? entry.hit.result_id;
@@ -376,14 +456,14 @@ export function CommandPalette() {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search items, sources, actions…"
+            placeholder="Search items, submissions, sources, actions…"
             className="h-12 flex-1 bg-transparent text-sm outline-none"
             // US-441: expose the combobox pattern. The input owns the listbox
             // below; aria-activedescendant points at the arrow-key-active row so
             // a screen reader announces it without moving DOM focus off the
             // input.
             role="combobox"
-            aria-label="Search items, sources, actions"
+            aria-label="Search items, submissions, sources, actions"
             aria-autocomplete="list"
             aria-expanded={flat.length > 0}
             aria-controls="command-palette-listbox"
@@ -467,6 +547,17 @@ export function CommandPalette() {
                               ${entry.item.target_price.toFixed(0)}
                             </span>
                           )}
+                        </>
+                      )}
+                      {entry.kind === "submission" && (
+                        <>
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          <span className="flex-1 truncate">
+                            {entry.sub.title || "Untitled submission"}
+                          </span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {entry.sub.status}
+                          </Badge>
                         </>
                       )}
                       {entry.kind === "source" && (

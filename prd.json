@@ -10869,8 +10869,8 @@
         "Fuzzy search ranks across both modules; selecting an action navigates correctly from any page"
       ],
       "priority": 738,
-      "passes": false,
-      "notes": "[P2][Cohesion] From the cross-functional audit: the sidebar says 'press ⌘K to jump anywhere' but the palette is ~40% FlipDesk-only. It already mounts in DashboardLayout. Pairs with [[US-739]]."
+      "passes": true,
+      "notes": "[P2][Cohesion] SHIPPED 2026-06-08. command-palette.tsx already mounted globally in dashboard-layout.tsx (so it's app-wide on every dashboard route) and already had core nav actions (New submission, Dashboard, Submissions, Inventory, Finances, Settings) — the audit's '40% FlipDesk-only' was stale. Added the missing account actions: Billing, Team, API keys, Referrals. Added submission search: a debounced, RLS-scoped supabase query (title ilike, limit 6) renders a new 'Submissions' section with status badge that deep-links to /dashboard/submissions/:id — so ⌘K now searches BOTH inventory items (existing items_full cache + flipdesk_search FTS) and grading submissions. Placeholder/aria updated to 'items, submissions, sources, actions'. tsc -b + eslint + vitest (270) green. (Note: an item entry navigates to /dashboard/flipdesk/items?focus= which redirects to /inventory and drops the focus param — pre-existing, left for the US-740 consolidation.) Pairs with [[US-739]]."
     },
     {
       "id": "US-739",
