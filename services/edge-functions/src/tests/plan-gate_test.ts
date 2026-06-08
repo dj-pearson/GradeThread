@@ -416,3 +416,49 @@ Deno.test("US-382: Free user hits CAP_REACHED connecting a 2nd marketplace", asy
   );
   assertEquals(ok, null);
 });
+
+// ── Super-admin bypass (platform owner) ──────────────────────────
+Deno.test("super_admin bypasses a cap that would otherwise block", async () => {
+  // Free marketplaces cap = 1, already at 1 → a normal user is blocked, but the
+  // super_admin proceeds regardless.
+  const { ctx } = fakeCtx();
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "marketplaces", delta: 1 } },
+    deps(user({ flipdesk_plan: "free", role: "super_admin" }), 1),
+  );
+  assertEquals(resp, null);
+});
+
+Deno.test("super_admin bypasses a locked feature gate", async () => {
+  const { ctx } = fakeCtx();
+  const resp = await requireFlipdesk(
+    ctx,
+    { feature: "apiAccess" },
+    deps(user({ flipdesk_plan: "free", role: "super_admin" }), 0),
+  );
+  assertEquals(resp, null);
+});
+
+Deno.test("super_admin bypasses the includedGrades pre-gate (unlimited grading)", async () => {
+  // Free included-grade cap = 3; a normal user at 3 is blocked here, the owner is not.
+  const { ctx } = fakeCtx();
+  const resp = await requireFlipdesk(
+    ctx,
+    { capacity: { kind: "includedGrades", delta: 1 } },
+    deps(user({ flipdesk_plan: "free", role: "super_admin" }), 3),
+  );
+  assertEquals(resp, null);
+});
+
+Deno.test("regular admin role is still gated (bypass is super_admin only)", async () => {
+  const { ctx } = fakeCtx();
+  const resp = await requireFlipdesk(
+    ctx,
+    { feature: "apiAccess" },
+    deps(user({ flipdesk_plan: "free", role: "admin" }), 0),
+  );
+  assert(resp !== null);
+  assertEquals(resp!.status, 402);
+  assertEquals((await bodyOf(resp!)).error, "FEATURE_LOCKED");
+});

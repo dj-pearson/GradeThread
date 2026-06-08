@@ -122,12 +122,25 @@ async function loadUser(userId: string) {
     .single();
 }
 
+// True when a Stripe error is "this object doesn't exist under the current
+// API keys" — i.e. a stored id that 404s. The canonical signal is the live →
+// test (or test → live) key switch: every test-mode `cus_…` reads back as
+// resource_missing under live keys. A genuinely deleted customer is the same.
+function isStripeResourceMissing(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: string }).code === "resource_missing"
+  );
+}
+
 // US-391: lazily ensure EXACTLY ONE Stripe customer per user, persisted before
 // the first Checkout and reused on every later session. Two concurrent first
 // checkouts previously each omitted `customer`, so Stripe minted two customers
 // and the post-hoc back-fill (.is(null)) kept only one — orphaning the other
 // and risking a lost customer↔user link. Now:
-//   • If we already have a customer id, reuse it.
+//   • If we already have a customer id, reuse it ONLY if it still resolves
+//     under the current Stripe keys; otherwise heal the stale id (below).
 //   • Otherwise create one with a STABLE idempotency key (`customer-create:<uid>`)
 //     so even a true race resolves to a SINGLE Stripe customer, then persist it
 //     conditionally; if another request won the race, adopt the persisted id.
@@ -140,7 +153,36 @@ async function ensureStripeCustomer(
     stripe_customer_id: string | null;
   },
 ): Promise<string> {
-  if (user.stripe_customer_id) return user.stripe_customer_id;
+  // Self-heal stale customer ids. After the Stripe test→live cutover, every
+  // sandbox `cus_…` we persisted 404s under the live keys, which would make
+  // checkout / subscribe / billing-portal throw "No such customer". Validate
+  // the stored id; on resource_missing (or a deleted customer) mint a fresh
+  // live customer and overwrite the stale id. Transient/other Stripe errors
+  // bubble up unchanged (never silently re-create on a network blip).
+  if (user.stripe_customer_id) {
+    try {
+      const existing = await stripe.customers.retrieve(user.stripe_customer_id);
+      if (!(existing as Stripe.DeletedCustomer).deleted) {
+        return user.stripe_customer_id;
+      }
+    } catch (err) {
+      if (!isStripeResourceMissing(err)) throw err;
+    }
+    const replacement = await stripe.customers.create({
+      email: user.email ?? undefined,
+      name: user.full_name ?? undefined,
+      metadata: { user_id: user.id },
+    });
+    await supabaseAdmin
+      .from("users")
+      .update({ stripe_customer_id: replacement.id })
+      .eq("id", user.id);
+    console.warn(
+      `[stripe] user ${user.id}: stored customer ${user.stripe_customer_id} ` +
+        `not found under current keys; re-linked to ${replacement.id}`,
+    );
+    return replacement.id;
+  }
 
   const customer = await stripe.customers.create(
     {
@@ -463,17 +505,14 @@ paymentRoutes.post("/gradethread/credit-pack", async (c) => {
       allow_promotion_codes: true,
     };
 
-    if (user.stripe_customer_id) {
-      sessionParams.customer = user.stripe_customer_id;
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    } else {
-      // US-391: bind to the single Stripe customer (created lazily) instead of
-      // letting Checkout mint a fresh one. No session idempotency key: credit
-      // packs are intentionally repeatable, so a stable key would wrongly
-      // dedupe a legitimate second purchase within Stripe's 24h window.
-      sessionParams.customer = await ensureStripeCustomer(stripe, user);
-      sessionParams.customer_update = { name: "auto", address: "auto" };
-    }
+    // US-391: bind to the single Stripe customer (created/validated lazily)
+    // instead of letting Checkout mint a fresh one. ensureStripeCustomer also
+    // self-heals a stale test-mode id after the live cutover. No session
+    // idempotency key: credit packs are intentionally repeatable, so a stable
+    // key would wrongly dedupe a legitimate second purchase within Stripe's 24h
+    // window.
+    sessionParams.customer = await ensureStripeCustomer(stripe, user);
+    sessionParams.customer_update = { name: "auto", address: "auto" };
 
     const session = await stripe.checkout.sessions.create(sessionParams);
     return c.json({ sessionId: session.id, url: session.url });
@@ -1336,6 +1375,12 @@ paymentRoutes.post("/portal", async (c) => {
     });
     return c.json({ url: portalSession.url });
   } catch (err) {
+    // A stale test-mode customer id (pre live-cutover) 404s here. Treat it the
+    // same as "no customer": the portal needs a real Stripe customer, which
+    // only exists once they start a live subscription/purchase.
+    if (isStripeResourceMissing(err)) {
+      return c.json({ error: "No active subscription found" }, 400);
+    }
     console.error("Stripe portal session creation failed:", err);
     return c.json({ error: "Failed to create billing portal session" }, 500);
   }

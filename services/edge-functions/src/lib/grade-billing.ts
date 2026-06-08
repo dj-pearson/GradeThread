@@ -57,13 +57,41 @@ export async function runPaymentPrecedence(
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select(
-      "flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at, past_due_since",
+      "role, flipdesk_plan, grades_used_this_month, grade_reset_at, grade_credit_balance, subscription_status, trial_ends_at, past_due_since",
     )
     .eq("id", userId)
     .single();
 
   if (userError || !user) {
     throw new Error(`USER_NOT_FOUND: ${userId}`);
+  }
+
+  // Super-admin (platform owner) grades for free, with NO cap. This is the
+  // single charging chokepoint, so handling it here covers the web flow, the
+  // FlipDesk bulk bridge, and the public API at once. Scoped strictly to
+  // role = 'super_admin' — regular 'admin'/'reviewer' users pay normally.
+  // No counter increment, no credit debit; a zero-delta ledger row keeps the
+  // grade auditable. Mirror this in plan-gate's requireFlipdesk bypass so a
+  // pre-gate doesn't block before charging runs.
+  if (user.role === "super_admin") {
+    const now = new Date().toISOString();
+    await supabaseAdmin
+      .from("submissions")
+      .update({ payment_status: "included", paid_at: now })
+      .eq("id", submissionId);
+    await supabaseAdmin.from("grade_credit_transactions").insert({
+      user_id: userId,
+      delta: 0,
+      reason: "included_grant",
+      balance_after: null,
+      submission_id: submissionId,
+      notes: "super_admin unlimited grade (uncapped, no charge)",
+    });
+    return {
+      paid: true,
+      method: "included",
+      newIncludedUsed: user.grades_used_this_month,
+    };
   }
 
   // Paused subscriptions, expired trials (US-383), AND past_due subs beyond the

@@ -29,8 +29,11 @@ export function Header() {
         .toUpperCase()
     : user?.email?.[0]?.toUpperCase() ?? "?";
 
-  const planLabel = profile?.plan
-    ? profile.plan.charAt(0).toUpperCase() + profile.plan.slice(1)
+  // Use flipdesk_plan (the current subscription tier, same field the Billing
+  // page reads) — NOT the deprecated `plan` column, which is stale and made the
+  // header show "Free" while Billing correctly showed Business.
+  const planLabel = profile?.flipdesk_plan
+    ? profile.flipdesk_plan.charAt(0).toUpperCase() + profile.flipdesk_plan.slice(1)
     : "Free";
 
   const { theme, toggleTheme } = useThemeStore();

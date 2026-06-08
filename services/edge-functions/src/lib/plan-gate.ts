@@ -151,6 +151,9 @@ type EnvWithUser = { Variables: { userId: string } };
 
 /** The user slice plan-gate needs to make a decision. */
 export interface PlanGateUser {
+  // Optional so tests can build slices without it. When 'super_admin', the
+  // platform owner bypasses every cap/feature gate (see requireFlipdesk).
+  role?: string;
   flipdesk_plan: FlipdeskPlan;
   subscription_status: string;
   // US-383: an expired Pro trial drops to Free caps before the downgrade job runs.
@@ -182,7 +185,7 @@ const defaultDeps: PlanGateDeps = {
     const { data, error } = await supabaseAdmin
       .from("users")
       .select(
-        "flipdesk_plan, subscription_status, trial_ends_at, past_due_since, ai_actions_used_this_month, ai_action_limit, grades_used_this_month, grade_reset_at",
+        "role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since, ai_actions_used_this_month, ai_action_limit, grades_used_this_month, grade_reset_at",
       )
       .eq("id", userId)
       .single();
@@ -218,6 +221,13 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
   if (!user) {
     return c.json({ error: "USER_NOT_FOUND" }, 404);
   }
+
+  // Super-admin (platform owner) bypasses every cap and feature gate. Scoped
+  // strictly to role = 'super_admin' so regular 'admin'/'reviewer' users are
+  // still gated by their plan. Pairs with the grading short-circuit in
+  // grade-billing.ts so the owner has truly unlimited grading even on the
+  // entry points that pre-gate `includedGrades` here before charging.
+  if (user.role === "super_admin") return null;
 
   // Paused subscribers, expired trials (US-383), AND past_due subs beyond the
   // dunning grace window (US-395) fall back to Free caps but don't reset
