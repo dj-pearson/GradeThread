@@ -10055,6 +10055,378 @@
       "priority": 679,
       "passes": true,
       "notes": "Done 2026-06-07. Expanded NotificationCategoryID with offer.received / message.received / listing.ended / aging.digest / payout.posted (each gets a Settings toggle automatically — the section iterates allCases, persisting per-category to UserDefaults, US-194 device-local model) with labels + help text. DeepLinkRoute gained an .inventoryTab case; DeepLinkRoute.from now routes offers+messages to the item canvas (or Marketplaces tab without an id), the aging digest to the inventory triage list, relist/listing-ended to the item (or triage), and payout-posted to Sales — reusing the existing NotificationCenter deep-link bus. The corresponding APNs sends are a noted backend dependency (the receive side, toggles, and tap routing are complete). PushNotificationTests updated (10 categories) + new routing cases."
+    },
+    {
+      "id": "US-680",
+      "title": "iOS: Bulk \"Publish to eBay\" from the inventory list",
+      "description": "As a reseller with a stack of ready items, I want to publish many items to eBay at once, so I am not opening one canvas and one publish sheet per item.",
+      "acceptanceCriteria": [
+        "A \"Publish to eBay\" bulk action appears in the inventory bottom action bar for the To-List and Drafts stages",
+        "Selecting N publish-eligible items and confirming runs validate+push per item through the existing PublishDialog plumbing, with the BulkActionResult per-item failure aggregation and a progress HUD",
+        "Items missing required category/specifics/price surface as per-item blockers (skipped with a reason) rather than failing the whole batch",
+        "Unit test covers a mixed batch: some publish, some blocked, results aggregated correctly"
+      ],
+      "priority": 680,
+      "passes": false,
+      "notes": "[P1][iOS/UX] Audit 2026-06-08. UX gap #1: BulkAction.actions(for:) offers no publish action; createDraft only flips status. Biggest drag on items-listed-per-week. Linux container has no xcodebuild; iOS CI (ios-ci.yml) validates the build."
+    },
+    {
+      "id": "US-681",
+      "title": "iOS: Publish AutoLister drafts directly from the AutoLister surface",
+      "description": "As a reseller using AutoLister (bulk photos -> AI listings), I want to publish the generated drafts without leaving AutoLister, so the bulk tool actually reaches live listings.",
+      "acceptanceCriteria": [
+        "DraftsBulkEditView / DraftsLibraryView expose \"Publish selected\" that pushes drafts to eBay in batch",
+        "A draft row tap opens a review/publish path instead of being a dead, non-interactive row",
+        "The \"needs category\" badge gates publish per-row with an inline fix rather than a silent failure",
+        "Unit test covers bulk publish of drafts including a needs-category blocker"
+      ],
+      "priority": 681,
+      "passes": false,
+      "notes": "[P1][iOS/UX] Audit 2026-06-08. UX gap #2: AutoLister flow stops at draft generation; DraftsLibraryView rows non-interactive, no publish anywhere in AutoLister. CI validates build."
+    },
+    {
+      "id": "US-682",
+      "title": "iOS: Land on the created item after intake (and seed its title from AI)",
+      "description": "As a reseller, after capturing photos I want to land on the new item's canvas with AI fields applied, so I keep momentum into pricing and listing instead of being dumped back to the camera tab.",
+      "acceptanceCriteria": [
+        "Completing AI extract pushes ItemCanvasView for the newly-created item onto the active navigation stack",
+        "An \"Add another\" affordance returns to the camera for the next item",
+        "The created item's title is seeded from an accepted brand/style suggestion when available, not left as \"Untitled item\"",
+        "Unit/UI-model test verifies the post-intake navigation target and seeded title"
+      ],
+      "priority": 682,
+      "passes": false,
+      "notes": "[P1][iOS/UX] Audit 2026-06-08. UX gap #3: PhotoIntakeView onComplete does store.reset()+dismiss(), never opening the created item; item created as 'Untitled item'. CI validates build."
+    },
+    {
+      "id": "US-683",
+      "title": "iOS: Publish-readiness indicator + surface pricing/comps before the publish sheet",
+      "description": "As a reseller, I want to see what is blocking a listing and reach pricing/comps quickly, so I stop round-tripping through the publish dialog to discover missing fields.",
+      "acceptanceCriteria": [
+        "A persistent \"Publish readiness\" affordance on the Item Canvas shows missing-to-list items (price, category, required specifics) before the publish sheet is opened",
+        "Comps/pricing are reachable without scrolling past identity/storage (pinned quick action or reordered section)",
+        "Tapping a blocker in PublishDialog deep-links to the field that fixes it",
+        "Readiness state is also reflected on the inventory row (badge)"
+      ],
+      "priority": 683,
+      "passes": false,
+      "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #4: comps + required specifics buried deep in the Form; blockers only surface after opening PublishDialog. CI validates build."
+    },
+    {
+      "id": "US-684",
+      "title": "iOS: Make AutoLister and Details-first reachable from Add on every tab",
+      "description": "As a reseller, I want to start any add method (photo, bulk AutoLister, details-first) from the Add control no matter which tab I am on, so the highest-throughput modes are not buried.",
+      "acceptanceCriteria": [
+        "Long-pressing the Add tab (or an always-present menu) opens the add-method menu from any tab",
+        "AutoLister and Details-first are reachable without first switching to the Home tab",
+        "iPhone and iPad expose the same set of add methods from an equivalent gesture"
+      ],
+      "priority": 684,
+      "passes": false,
+      "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #5: Add tab hard-wired to photoFirst; AddMethodMenu only on Home toolbar; unreachable from other tabs. CI validates build."
+    },
+    {
+      "id": "US-685",
+      "title": "iOS: Inventory row quick-actions for publish and price edit",
+      "description": "As a reseller triaging a stack, I want to list or reprice an item straight from the inventory row, so I am not pushing into the full canvas for every decision.",
+      "acceptanceCriteria": [
+        "A leading swipe action \"Publish\" appears on publish-eligible rows and opens the publish sheet (or batch-publishes) without a full canvas push",
+        "A quick price-edit affordance is reachable from the row (swipe or context menu) without entering the canvas",
+        "Quick actions respect publish-readiness (disabled/blocked with reason when not eligible)"
+      ],
+      "priority": 685,
+      "passes": false,
+      "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #6: swipe actions limited to Delete/-10%/Shipped; price edit only inside canvas. CI validates build."
+    },
+    {
+      "id": "US-686",
+      "title": "iOS: Auto-apply high-confidence AI extract with a reversible review entry",
+      "description": "As a reseller doing high-volume intake, I want confident AI fields applied automatically, so I am not forced through a confirm-heavy review screen for every item.",
+      "acceptanceCriteria": [
+        "High-confidence fields (>=0.8) are auto-applied to the item with a clear, reversible \"AI filled N fields - review\" entry point on the canvas",
+        "Intake can complete straight to the item with AI fields populated (works with US-682)",
+        "Low-confidence suggestions are surfaced inline for opt-in instead of blocking",
+        "A \"revert to AI / undo AI fill\" path exists"
+      ],
+      "priority": 686,
+      "passes": false,
+      "notes": "[P2][iOS/UX] Audit 2026-06-08. UX gap #7: AIExtract pre-checks high-confidence rows but still requires Apply; blocking fullScreenCover. CI validates build."
+    },
+    {
+      "id": "US-687",
+      "title": "iOS: Add photos via camera into an existing item, beyond the standard slots",
+      "description": "As a reseller, I want to add or reshoot photos on an item I already created, so I can improve a listing without recreating the item.",
+      "acceptanceCriteria": [
+        "\"Add photos\" offers camera capture in addition to the library picker, writing into the current item",
+        "Users can add extra/detail photos beyond the fixed standard-slot set",
+        "The stale \"Add new photos from the + tab\" footer copy is corrected to reflect in-canvas adding"
+      ],
+      "priority": 687,
+      "passes": false,
+      "notes": "[P3][iOS/UX] Audit 2026-06-08. UX gap #8: ItemCanvas Add photos = library only, gated on unfilledStandardSlots; stale footer copy. CI validates build."
+    },
+    {
+      "id": "US-688",
+      "title": "iOS: Adopt the brand type scale (Outfit/Inter) app-wide",
+      "description": "As a user, I want the app to render in the GradeThread brand fonts, so the native app matches the brand and the web instead of defaulting to the system font.",
+      "acceptanceCriteria": [
+        "Core surfaces (Dashboard, Inventory list/row, ItemCanvas, Money, Marketplaces, Capture, DetailsIntake, Publish) use Font.brand* tokens for titles/headlines/body",
+        "Decorative .font(.system(size:)) usages in those views are replaced by brand text-style tokens (kept only in renderers/widgets where intentional)",
+        "Spot check confirms Outfit on headings and Inter on body/data rows across >=8 primary screens"
+      ],
+      "priority": 688,
+      "passes": false,
+      "notes": "[P1][iOS/UI] Audit 2026-06-08. UI gap #1: Typography.swift (US-654) used in only 3/267 files; 42 .font(.system) calls instead. CI validates build."
+    },
+    {
+      "id": "US-689",
+      "title": "iOS: Replace raw cornerRadius literals with CornerRadius tokens",
+      "description": "As a user, I want consistent rounding across cards, controls, and chips, so the UI looks intentional rather than mixed.",
+      "acceptanceCriteria": [
+        "Cards/sheets use CornerRadius.card, controls/thumbnails CornerRadius.control, chips/badges CornerRadius.chip",
+        "grep 'cornerRadius: <number>' (excluding tokens and the Disclosure PDF renderer) drops to near-zero",
+        "Inventory row, ItemCanvas tiles, and list cards share one thumbnail radius"
+      ],
+      "priority": 689,
+      "passes": false,
+      "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #2: 70 raw cornerRadius literals vs 6 token uses; 28x12,14x10,11x14,9x8. CI validates build."
+    },
+    {
+      "id": "US-690",
+      "title": "iOS: Standardize CTAs on brand button styles",
+      "description": "As a user, I want primary/secondary/destructive actions to look consistent and on-brand, so CTAs are not different shapes/tints screen to screen.",
+      "acceptanceCriteria": [
+        "Primary CTAs use .brandPrimary, secondary .brandSecondary, destructive .brandDestructive",
+        "System .borderedProminent primary CTAs are eliminated from main flows (Capture, Publish, DetailsIntake, Marketplaces, Money)",
+        "Spot check shows consistent navy primary and red destructive across >=6 screens"
+      ],
+      "priority": 690,
+      "passes": false,
+      "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #3: brand button styles used 10x vs 52x system bordered. CI validates build."
+    },
+    {
+      "id": "US-691",
+      "title": "iOS: Migrate hand-rolled card chrome to .cardStyle()",
+      "description": "As a user, I want grouped content to share one card background/radius, so cards look uniform across screens.",
+      "acceptanceCriteria": [
+        "The 7 files hand-rolling secondarySystemGroupedBackground+RoundedRectangle use .cardStyle()/.cardStyle(.flush)",
+        "Grouped containers in Inventory list/canvas, Capture, Snap, and AIExtract adopt .cardStyle (or document why flush)",
+        "grep secondarySystemGroupedBackground outside DesignTokens.swift is 0"
+      ],
+      "priority": 691,
+      "passes": false,
+      "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #4: raw card chrome in 7 files; primary screens draw their own RoundedRectangles. CI validates build."
+    },
+    {
+      "id": "US-692",
+      "title": "iOS: Add skeleton loaders to primary screens that fall back to bare spinners",
+      "description": "As a user, I want consistent shimmer loading on content screens, so loading does not flip between shimmer and a centered spinner across peer screens.",
+      "acceptanceCriteria": [
+        "Primary content screens (Marketplaces, ItemCanvas content, PublishDialog content, DetailsIntake) render skeletons for initial load instead of a centered ProgressView()",
+        "Bare ProgressView() is reserved for inline/button-level async, not full-screen content load",
+        "No regression in screens that already use skeletons"
+      ],
+      "priority": 692,
+      "passes": false,
+      "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #5: 74 ProgressView() across 44 files vs skeletons in 13; primary flows show bare spinners. CI validates build."
+    },
+    {
+      "id": "US-693",
+      "title": "iOS: Dashboard loading + empty/first-run state",
+      "description": "As a new user, I want the dashboard to show a loading state and a meaningful first-run state, so I do not see zeroed cards with no context.",
+      "acceptanceCriteria": [
+        "Dashboard shows skeleton/redacted stat cards while metrics load",
+        "Dashboard shows a meaningful empty/first-run state (e.g. activation checklist as primary content) when there is no data",
+        "No flash of zeroed cards before data resolves"
+      ],
+      "priority": 693,
+      "passes": false,
+      "notes": "[P2][iOS/UI] Audit 2026-06-08. UI gap #6: DashboardView has no ProgressView/Skeleton/ContentUnavailableView/isLoading. CI validates build."
+    },
+    {
+      "id": "US-694",
+      "title": "iOS: File-protect and auto-delete financial/account export temp files",
+      "description": "As a user, I want my exported financial CSV/PDF and account data file protected at rest and cleaned up, so sensitive exports are not readable while locked or left in tmp forever.",
+      "acceptanceCriteria": [
+        "FinancialExport and AccountExportService writes pass .completeFileProtectionUntilFirstUserAuthentication (or .complete) alongside .atomic",
+        "The temp file is deleted after the share sheet dismisses (or written under a swept subdirectory)",
+        "Unit test asserts the written file's NSFileProtectionKey resource value is the protected class"
+      ],
+      "priority": 694,
+      "passes": false,
+      "notes": "[P2][iOS/Security] Audit 2026-06-08. Sec gap #1: export temp files write .atomic only, no protection class, never deleted; breaks US-658 invariant. CI validates build."
+    },
+    {
+      "id": "US-695",
+      "title": "iOS: Scrub Sentry breadcrumb/event data URLs (not just messages)",
+      "description": "As a user, I want telemetry to redact URLs in structured breadcrumb data, so signed-storage/token URLs from auto HTTP breadcrumbs do not leak.",
+      "acceptanceCriteria": [
+        "beforeBreadcrumb/beforeSend iterate crumb.data and redact string values (especially url, http.url) through TelemetryScrubber, or network breadcrumb capture is disabled",
+        "Unit test feeds a breadcrumb whose data[\"url\"] contains a /storage/v1/object/sign/...?token=... URL and asserts it is redacted",
+        "Confirm Sentry does not capture request/response bodies"
+      ],
+      "priority": 695,
+      "passes": false,
+      "notes": "[P2][iOS/Security] Audit 2026-06-08. Sec gap #2: TelemetryScrubber only scrubs .message; swizzled HTTP breadcrumbs store URL in crumb.data, unredacted. CI validates build."
+    },
+    {
+      "id": "US-696",
+      "title": "iOS: Optional Face ID / passcode app lock",
+      "description": "As a user of a financial+PII app, I want to require Face ID/passcode to open the app, so someone holding my unlocked phone cannot see my sales, payouts, or delete my account.",
+      "acceptanceCriteria": [
+        "Settings exposes an opt-in \"Require Face ID / passcode to open\" toggle (default off acceptable)",
+        "When enabled, foregrounding/cold launch requires LAContext evaluation before MainShell content renders; failure keeps the privacy cover",
+        "NSFaceIDUsageDescription added to Info.plist; graceful fallback to device passcode when biometrics unavailable",
+        "Unit test covers the lock-state gating logic"
+      ],
+      "priority": 696,
+      "passes": false,
+      "notes": "[P2][iOS/Security] Audit 2026-06-08. Sec gap #3: no LAContext/biometric anywhere; privacy cover only hides switcher thumbnail. CI validates build."
+    },
+    {
+      "id": "US-697",
+      "title": "iOS: Pasteboard hardening for capability URLs (expiry + local-only)",
+      "description": "As a user, I want copied invite/referral capability URLs to expire and not sync across devices, so a workspace-invite token is not left on the universal clipboard.",
+      "acceptanceCriteria": [
+        "Invite-accept-URL copy uses UIPasteboard.setItems(options:) with expirationDate (~2 min) and localOnly = true",
+        "Capability-URL pasteboard items are excluded from universal clipboard sync",
+        "Items are flagged so the OS hides previews where applicable"
+      ],
+      "priority": 697,
+      "passes": false,
+      "notes": "[P3][iOS/Security] Audit 2026-06-08. Sec gap #4: TeamView/ReferralsView use plain UIPasteboard.general.string, no expiry/localOnly. CI validates build."
+    },
+    {
+      "id": "US-698",
+      "title": "iOS: Redact realtime debug logging + CI guard against ungated print()",
+      "description": "As a developer, I want error logs redacted and a guard against un-gated prints, so sensitive data does not leak via dev logs/screen recordings or future release prints.",
+      "acceptanceCriteria": [
+        "Realtime debug log prints error.localizedDescription (or TelemetryScrubber.redact) rather than the full \\(error)",
+        "A lint/CI check rejects any un-gated print( in non-test app sources",
+        "Existing #if DEBUG-gated prints pass the check"
+      ],
+      "priority": 698,
+      "passes": false,
+      "notes": "[P3][iOS/Security] Audit 2026-06-08. Sec gap #5: RealtimeService prints full \\(error) (debug). All prints currently DEBUG-gated. CI validates build."
+    },
+    {
+      "id": "US-699",
+      "title": "iOS: Require OAuth state nonce on the eBay connect success path",
+      "description": "As a user, I want the eBay connect success callback to require its CSRF nonce, so the success path keeps the same defense-in-depth as the mismatch path.",
+      "acceptanceCriteria": [
+        "On ebay=connected, require client_state present AND equal to the expected nonce; treat absent-state-on-success as stateExpired",
+        "Cancellation/error callbacks may remain lenient (no capability granted)",
+        "Unit test asserts from(callbackURL: ...?ebay=connected, expectedState: X) with no client_state returns stateExpired"
+      ],
+      "priority": 699,
+      "passes": false,
+      "notes": "[P3][iOS/Security] Audit 2026-06-08. Sec gap #6: EbayConnectResult.from accepts ebay=connected with no client_state (server oauth_states is the real gate). CI validates build."
+    },
+    {
+      "id": "US-700",
+      "title": "iOS: VoiceOver chart descriptors for Analytics and Money charts",
+      "description": "As a VoiceOver user, I want charts to be readable, so I can access the analytics that sighted users see.",
+      "acceptanceCriteria": [
+        "Each Chart exposes an AXChartDescriptor (via .accessibilityChartDescriptor) with titled axes and per-datapoint values, OR each BarMark carries .accessibilityLabel/.accessibilityValue",
+        "With VoiceOver on, swiping into each chart reads category + value for every bar",
+        "Charts with no data expose a single descriptive element, not an empty container"
+      ],
+      "priority": 700,
+      "passes": false,
+      "notes": "[P1][iOS/A11y] Audit 2026-06-08. A11y gap #1: 5 Swift Charts (AnalyticsView, MoneyView) have zero chart a11y. WCAG 1.1.1. CI validates build."
+    },
+    {
+      "id": "US-701",
+      "title": "iOS: Announce and focus async results app-wide",
+      "description": "As a VoiceOver user, I want to be told when a grade, sync, scout scan, or save completes, so I am not left on a silently-changed screen.",
+      "acceptanceCriteria": [
+        "When a grade report renders, post .screenChanged or move accessibility focus to the score (\"Grade X.X of 10, <tier>\")",
+        "Scout scan completion announces result count; eBay sync success/failure announces outcome",
+        "Details-form save success/offline/failure posts an .announcement",
+        "Pattern factored into a small reusable helper so future async surfaces reuse it"
+      ],
+      "priority": 701,
+      "passes": false,
+      "notes": "[P1][iOS/A11y] Audit 2026-06-08. A11y gap #2: UIAccessibility.post used once (PhotoIntake only); grade/sync/scout/save swap content silently. WCAG 4.1.3. CI validates build."
+    },
+    {
+      "id": "US-702",
+      "title": "iOS: Selected trait + non-color cue on stage/filter tabs",
+      "description": "As a VoiceOver user (and color-blind user), I want to know which inventory stage filter is active, so selection is not conveyed by color alone.",
+      "acceptanceCriteria": [
+        "Selected tab carries .accessibilityAddTraits(.isSelected) and reads \"selected\"",
+        "Active state is distinguishable without color (VoiceOver value or a non-color affordance)",
+        "Applies to inventory stage chips and the active filter bar"
+      ],
+      "priority": 702,
+      "passes": false,
+      "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #3: stage filter selection via color+weight only, no .isSelected trait. WCAG 1.4.1. CI validates build."
+    },
+    {
+      "id": "US-703",
+      "title": "iOS: Curate Scout candidate card accessibility and keep its eBay link reachable",
+      "description": "As a VoiceOver user, I want the Scout result card read as one coherent element with the listing link still actionable, so it is not a fragmented blob with an unreachable link.",
+      "acceptanceCriteria": [
+        "Card uses children: .ignore with a composed label (title, shadow grade + confidence, asking/value/margin, deal flag)",
+        "The eBay listing link remains a separate reachable element or an .accessibilityAction",
+        "Deal/Uncertain states are in the spoken label, not implied by border color alone"
+      ],
+      "priority": 703,
+      "passes": false,
+      "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #4: ScoutCandidateRow uses children:.combine which swallows the inner Link. CI validates build."
+    },
+    {
+      "id": "US-704",
+      "title": "iOS: Accessible delete action for captured photo slots",
+      "description": "As a VoiceOver/Switch-Control user, I want a non-gesture way to delete a captured slot, so the long-press-only delete is reachable.",
+      "acceptanceCriteria": [
+        "Filled slots expose an .accessibilityAction(named: \"Delete photo\") (or rotor action) that clears the slot",
+        "Action is reachable with VoiceOver and Switch Control without a long press",
+        "Visible long-press affordance retained for sighted users"
+      ],
+      "priority": 704,
+      "passes": false,
+      "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #5: slot delete is LongPressGesture-only, no accessibilityAction. WCAG 2.5.1/2.1.1. CI validates build."
+    },
+    {
+      "id": "US-705",
+      "title": "iOS: Curate ItemCanvas VoiceOver output (photos, grade/status header, comps)",
+      "description": "As a VoiceOver user, I want the item detail screen to read coherently, so the most-used detail surface is not verbose, fragmented output.",
+      "acceptanceCriteria": [
+        "Photo thumbnails expose meaningful labels (\"Front photo\", \"Detail 1\", etc.) and the empty/placeholder state is labeled",
+        "Status/grade header reads as one coherent element",
+        "Comps rows are individually navigable with price + condition in the label"
+      ],
+      "priority": 705,
+      "passes": false,
+      "notes": "[P2][iOS/A11y] Audit 2026-06-08. A11y gap #6: ItemCanvasView (846 lines) has 1 accessibilityLabel; photos/comps/grade header unlabeled. WCAG 1.3.1/4.1.2. CI validates build."
+    },
+    {
+      "id": "US-706",
+      "title": "iOS: Ensure >=44pt hit targets on chips and inline icon controls",
+      "description": "As a user with motor constraints, I want chips/tabs to meet the 44pt touch minimum, so small controls are reliably tappable.",
+      "acceptanceCriteria": [
+        "Interactive chips/tabs have >=44pt effective touch height (contentShape + min-height frame) without necessarily enlarging visual padding",
+        "Applies to FilterChip, inventory stage chips, and similar inline controls",
+        "Verified against the 44pt target"
+      ],
+      "priority": 706,
+      "passes": false,
+      "notes": "[P3][iOS/A11y] Audit 2026-06-08. A11y gap #7: FilterChip/stage chips ~28-30pt tall. Apple HIG / WCAG 2.5.5. CI validates build."
+    },
+    {
+      "id": "US-707",
+      "title": "iOS: Dynamic Type scaling for fixed font sizes and the grade ring",
+      "description": "As a user relying on large text, I want fixed-size text/glyphs and the grade ring to scale, so content does not stay small or clip at large accessibility sizes.",
+      "acceptanceCriteria": [
+        "Decorative/load-bearing .font(.system(size:)) usages use @ScaledMetric or text styles so they scale (or are accessibilityHidden if purely decorative)",
+        "GradeScoreRing scales legibly at the largest accessibility text size (e.g. @ScaledMetric diameter)",
+        "lineLimit(1)+minimumScaleFactor on financial/grade values audited at AX5 with no critical truncation",
+        "Dashboard cards, Inventory rows, and Money tiles render without clipping at accessibilityExtraExtraExtraLarge on the smallest device"
+      ],
+      "priority": 707,
+      "passes": false,
+      "notes": "[P3][iOS/A11y+UI] Audit 2026-06-08. Merges A11y gap #8 + UI gap #7: 30 .font(.system(size:)) hits; GradeScoreRing sizes off fixed diameter; 50 fixed frames vs 3 minimumScaleFactor. CI validates build."
     }
   ]
 }
