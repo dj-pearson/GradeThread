@@ -35,7 +35,10 @@ const GROUPS: Group[] = [
   },
   {
     title: "List pages",
-    items: [{ keys: ["N"], label: "New submission / inventory item" }],
+    items: [
+      { keys: ["N"], label: "New submission / inventory item" },
+      { keys: ["A"], label: "Select all on the page (inventory tables)" },
+    ],
   },
   {
     title: "Command palette",

@@ -71,6 +71,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ReviseListingDialog } from "@/components/flipdesk/revise-listing-dialog";
@@ -387,6 +388,18 @@ export function FlipdeskListingsPage() {
   const isActive = tab === "active";
   const isDrafts = tab === "drafts";
   const selectable = isToList || isSold || isActive || isDrafts;
+
+  // Power-user shortcut: 'a' toggles select-all on the current page (only on
+  // tabs that support selection). Plain 'a' (no Ctrl/Cmd) so it never collides
+  // with the browser's select-all; the hook ignores it while typing in a field.
+  useKeyboardShortcuts([
+    {
+      key: "a",
+      handler: () => {
+        if (selectable) toggleSelectAll();
+      },
+    },
+  ]);
 
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
