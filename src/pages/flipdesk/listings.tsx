@@ -1487,8 +1487,23 @@ export function FlipdeskListingsPage() {
                               <Pencil className="h-3 w-3" />
                             </Button>
                           </TableCell>
-                          <TableCell className="max-w-[280px] truncate font-medium">
-                            {it.item_title}
+                          <TableCell className="max-w-[280px] font-medium">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate">{it.item_title}</span>
+                              {it.grade_value != null && (
+                                <Badge
+                                  variant="secondary"
+                                  className="shrink-0 px-1.5 py-0 text-[10px]"
+                                  title={
+                                    it.grade_label
+                                      ? `Graded ${it.grade_label}`
+                                      : "GradeThread grade"
+                                  }
+                                >
+                                  {Number(it.grade_value).toFixed(1)}
+                                </Badge>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="max-w-[120px] truncate font-mono text-[11px] tabular-nums text-muted-foreground">
                             {it.item_number ?? ""}
