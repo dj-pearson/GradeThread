@@ -10925,8 +10925,8 @@
         "The 'replay tour' affordance still works and replays the unified flow; build + eslint clean"
       ],
       "priority": 742,
-      "passes": false,
-      "notes": "[P2][IA/Structural] From the cross-functional audit: two disconnected onboarding flows can both fire and neither bridges grading<->FlipDesk. Depends on [[US-736]] for the bridge content."
+      "passes": true,
+      "notes": "[P2][IA/Structural] SHIPPED 2026-06-08 — unified the EXPERIENCE by coordinating the two surfaces (rather than collapsing them into one component, which would mean rewriting the FlipDesk checklist into the modal for little user-visible gain). AC3 (no overlap) FIXED: flipdesk-onboarding.tsx now gates on `!!profile.onboarded_at` — the FlipDesk getting-started checklist no longer renders while the first-run OnboardingFlow welcome modal is still up (a brand-new user on a /dashboard/flipdesk URL used to get BOTH at once); a Settings `reopened` replay still bypasses the gate. AC2 (use-case-aware, bridged) DONE: OnboardingFlow.finish(routeNext) now drops the user on the first action that fits their captured use_case — seller -> /dashboard/flipdesk (where the now-ungated checklist appears, whose 'Send it to GradeThread' step IS the US-736 grading<->FlipDesk bridge), developer -> /dashboard/account?tab=api-keys, buyer/consignment -> /dashboard/submissions/new; the final CTA label is concrete per use case ('Go to FlipDesk' / 'Get API keys' / 'Start grading'). So the sequence is now welcome -> use case -> tour -> routed-to-the-right-first-thing, with the reseller path naturally surfacing the bridge. AC4: Skip/X still close without routing; the Settings replay (reopened) path is preserved. tsc -b + eslint + vitest (287) green. NOTE: kept as two coordinated components, not one; a literal single-component merge is a larger refactor with little added user value. Depends on [[US-736]]."
     },
     {
       "id": "US-743",

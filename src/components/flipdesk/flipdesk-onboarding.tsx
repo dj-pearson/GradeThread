@@ -42,8 +42,15 @@ export function FlipdeskOnboarding() {
   const completedRef = useRef(false);
 
   const onFlipdesk = location.pathname.startsWith("/dashboard/flipdesk");
+  // Don't fight the first-run welcome modal: until general onboarding is
+  // finished (onboarded_at set), the OnboardingFlow dialog owns the screen and
+  // routes sellers here afterwards. A `reopened` replay from Settings bypasses
+  // the gate. (US-742)
   const active =
-    onFlipdesk && !!profile && (!profile.flipdesk_onboarded || reopened);
+    onFlipdesk &&
+    !!profile &&
+    (reopened ||
+      (!!profile.onboarded_at && !profile.flipdesk_onboarded));
 
   const { data: sources = [] } = useSources();
 

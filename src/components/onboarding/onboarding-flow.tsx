@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Sparkles,
   Tag,
@@ -88,8 +89,40 @@ const TOUR_STEPS: {
 
 const LAST_STEP = 1 + TOUR_STEPS.length; // welcome=0, use case=1, tour=2..5
 
+// Where each use case should land first. Sellers go to FlipDesk, which then
+// surfaces its getting-started checklist (incl. the grading bridge); the
+// checklist intentionally waits for onboarded_at before showing (US-742).
+function nextActionFor(useCase: UserUseCase | null): string {
+  switch (useCase) {
+    case "seller":
+      return "/dashboard/flipdesk";
+    case "developer":
+      return "/dashboard/account?tab=api-keys";
+    case "buyer":
+    case "consignment":
+      return "/dashboard/submissions/new";
+    default:
+      return "/dashboard";
+  }
+}
+
+function nextActionLabel(useCase: UserUseCase | null): string {
+  switch (useCase) {
+    case "seller":
+      return "Go to FlipDesk";
+    case "developer":
+      return "Get API keys";
+    case "buyer":
+    case "consignment":
+      return "Start grading";
+    default:
+      return "Get started";
+  }
+}
+
 export function OnboardingFlow() {
   const { user, profile, refreshProfile } = useAuth();
+  const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [useCase, setUseCase] = useState<UserUseCase | null>(null);
   const [saving, setSaving] = useState(false);
@@ -97,7 +130,9 @@ export function OnboardingFlow() {
 
   const shouldShow = !!profile && !profile.onboarded_at && !dismissed;
 
-  async function finish() {
+  // `routeNext` is true only when the user finishes the tour (not Skip), so we
+  // drop them on the first action that fits their use case.
+  async function finish(routeNext = false) {
     if (!user) return;
     setSaving(true);
     try {
@@ -112,6 +147,7 @@ export function OnboardingFlow() {
       if (error) throw error;
       setDismissed(true);
       await refreshProfile();
+      if (routeNext) navigate(nextActionFor(useCase));
     } catch {
       // Don't trap the user — close anyway; it may reappear next session.
       setDismissed(true);
@@ -259,9 +295,13 @@ export function OnboardingFlow() {
                 {step === 1 && !useCase ? "Pick one to continue" : "Next"}
               </Button>
             ) : (
-              <Button size="sm" onClick={() => void finish()} disabled={saving}>
+              <Button
+                size="sm"
+                onClick={() => void finish(true)}
+                disabled={saving}
+              >
                 {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Get started
+                {nextActionLabel(useCase)}
               </Button>
             )}
           </div>
