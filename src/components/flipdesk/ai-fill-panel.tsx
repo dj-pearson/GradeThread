@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -273,16 +274,32 @@ export function AiFillPanel({
                   <div className="min-w-[5rem] text-sm font-medium">
                     {fieldLabels[field] ?? humanize(field)}
                   </div>
-                  <Input
-                    value={values[field] ?? ""}
-                    onChange={(e) =>
-                      setValues((prev) => ({
-                        ...prev,
-                        [field]: e.target.value,
-                      }))
-                    }
-                    className="h-8 flex-1 min-w-[8rem]"
-                  />
+                  {field === "description" ? (
+                    // The AI-generated description is a multi-line paragraph —
+                    // give it room to read/edit instead of a 1-line input.
+                    <Textarea
+                      value={values[field] ?? ""}
+                      onChange={(e) =>
+                        setValues((prev) => ({
+                          ...prev,
+                          [field]: e.target.value,
+                        }))
+                      }
+                      rows={4}
+                      className="w-full min-w-[8rem]"
+                    />
+                  ) : (
+                    <Input
+                      value={values[field] ?? ""}
+                      onChange={(e) =>
+                        setValues((prev) => ({
+                          ...prev,
+                          [field]: e.target.value,
+                        }))
+                      }
+                      className="h-8 flex-1 min-w-[8rem]"
+                    />
+                  )}
                   <Badge variant="outline" className={tier.className}>
                     {tier.label}
                   </Badge>

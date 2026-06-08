@@ -104,6 +104,7 @@ const ENRICHABLE_FIELDS = [
 const AI_FIELD_LABELS: Record<string, string> = {
   item_category: "Category",
   condition_notes: "Internal notes",
+  description: "Description",
 };
 
 interface Props {
@@ -316,6 +317,9 @@ export function ItemCanvas({
       ...ENRICHABLE_FIELDS,
       "title",
       "condition_notes",
+      // US-758: the AI Fill now also returns a buyer-facing listing
+      // description; apply it to the item's description.
+      "description",
     ]);
     setState((s) => {
       const next = { ...s } as unknown as Record<string, unknown>;
@@ -958,6 +962,7 @@ export function ItemCanvas({
           material: state.material,
           item_category: state.item_category,
           condition_notes: state.condition_notes,
+          description: state.description,
         }}
         fieldLabels={AI_FIELD_LABELS}
         onApply={applyAiFields}

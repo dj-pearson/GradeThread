@@ -11134,6 +11134,20 @@
       "priority": 757,
       "passes": false,
       "notes": "[P2][iOS/A11y] PARTIAL 2026-06-08. DONE: SkeletonView.swift's SkeletonRows now announces 'Loading…' to VoiceOver (was fully accessibilityHidden, so VO users heard silence) via accessibilityElement(children:.ignore)+accessibilityLabel — the shimmer rows stay decorative but the container announces the loading state. Also confirmed CachedThumbnail's retry control ALREADY has accessibilityLabel('Retry loading image') (audit was stale on that). CI-verified; no-ungated-print gate passes. REMAINING: explicit accessibilityLabels on the intake/expense form TextFields/Pickers, light haptics on form-field focus / voice-dictation start-stop (extend HapticFeedback), and the brand-navy pull-to-refresh tint on Dashboard/Marketplaces/Money (skipped for now — .tint on a refreshable also tints other controls, so it needs care). Files: Components/SkeletonView.swift (done), Components/CachedThumbnail.swift (already labeled), DetailsIntake/DetailsIntakeView.swift, Haptics/HapticFeedback.swift."
+    },
+    {
+      "id": "US-758",
+      "title": "AI item generation also produces a listing description",
+      "description": "As a reseller, when I generate item details with AI I want a buyer-facing description produced too, so every listing has a description instead of just attributes.",
+      "acceptanceCriteria": [
+        "The AI Fill / extract path (ai-extract.ts extractItemFields) returns a `description` field — a composed, honest, buyer-facing listing description — alongside the attribute fields, in the same single AI call (no extra round-trip)",
+        "The web AI-fill review panel shows the suggested description (multi-line, editable) and applying it writes the item's description; it won't silently overwrite an existing description",
+        "iOS picks up the same description suggestion from the shared extract endpoint and maps it to the item",
+        "Generation stays honest — composed only from supported photos/text/known fields, never inventing attributes or upgrading condition"
+      ],
+      "priority": 758,
+      "passes": true,
+      "notes": "[P2][AI/Listings] SHIPPED 2026-06-08 (reported gap: AI generation produced title/attributes but no description, so AI-filled items had no listing description). EDGE (fixes web + iOS — same endpoint): ai-extract.ts adds 'description' to EXTRACT_FIELDS + the extract tool schema + a system-prompt instruction to compose a concise, HONEST buyer-facing description (opening line -> key attributes -> condition); max_tokens 1500->2000 so the longer field can't truncate the tool-call JSON. The knownFields-strip in flipdesk-ai.ts doesn't remove it (description isn't a known field), so it flows through. WEB: item-canvas applyAiFields allowed-set + AI_FIELD_LABELS + AiFillPanel currentValues now include description (applies on accept; won't default-overwrite an existing one), and ai-fill-panel renders the description suggestion in a multi-line Textarea. iOS: NO code change needed — AIExtractStore decodes suggestions dynamically and AIExtractView.assign already had case \"description\" + the CodingKey. (A separate generateListingCopy flow already produced a description; this makes the PRIMARY AI Fill produce one too.) tsc -b + eslint + vitest (287) + deno check/lint green."
     }
   ]
 }

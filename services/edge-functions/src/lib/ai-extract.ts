@@ -47,6 +47,7 @@ const EXTRACT_FIELDS = [
   "material",
   "item_category",
   "condition_notes",
+  "description",
 ] as const;
 
 export interface FieldSuggestion {
@@ -110,6 +111,7 @@ Hard rules:
 - title: produce a clean, listing-ready title (brand + key descriptors), not a copy of the raw text.
 - color: a single primary color word. material: the primary fabric/material.
 - condition_notes: only condition hints explicitly present in the input.
+- description: compose a clean, buyer-facing LISTING description — an opening line, then the key attributes (brand, item type, size, color, material), then an HONEST condition statement. Use ONLY what the photos/text/known fields support; never invent attributes or upgrade condition (over-promising condition causes returns). Keep it concise — a short paragraph or a few bullet-style lines. Always return a description when there is enough signal to write one.
 - For every field you return, give a calibrated confidence from 0 to 1, and a source string.
 
 Photo guidance (when photos are present):
@@ -181,6 +183,9 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       },
       condition_notes: fieldSchema(
         "Brief condition hints explicitly mentioned or visible"
+      ),
+      description: fieldSchema(
+        "Buyer-facing listing description: opening line, key attributes, then an honest condition statement. Compose only from supported facts."
       ),
       condition_summary: {
         type: "string",
@@ -276,7 +281,9 @@ export async function extractItemFields(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 1500,
+    // 2000 (was 1500): the added buyer-facing `description` field needs a bit
+    // more headroom so the tool-call JSON can't truncate mid-string.
+    max_tokens: 2000,
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [EXTRACT_TOOL],
