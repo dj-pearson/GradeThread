@@ -24,6 +24,9 @@ struct ItemCanvasView: View {
     @Query private var allPhotos: [LocalItemPhoto]
     /// US-665: this item's sale(s) for the realized per-item P&L row.
     @Query private var itemSales: [LocalSale]
+    /// US-748: this item's listing(s) so the canvas shows where it's listed
+    /// and links out to the live listing — part of the Item↔Listing↔Sale thread.
+    @Query private var itemListings: [LocalListing]
     @State private var state: ItemCanvasState?
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
@@ -66,6 +69,10 @@ struct ItemCanvasView: View {
         self._itemSales = Query(
             filter: #Predicate<LocalSale> { $0.inventoryItemId == itemId },
             sort: \.saleDate, order: .reverse
+        )
+        self._itemListings = Query(
+            filter: #Predicate<LocalListing> { $0.inventoryItemId == itemId },
+            sort: \.updatedAt, order: .reverse
         )
     }
 
@@ -217,6 +224,9 @@ struct ItemCanvasView: View {
             compsSection(state: state)
             notesSection(state: state)
             statusSection(state: state)
+            if !itemListings.isEmpty {
+                listingsSection
+            }
             specificsSection
             if canPublish {
                 publishSection

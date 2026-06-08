@@ -812,3 +812,86 @@ export function useSaveEbayCategoryMapping() {
     onError: (err) => toast.error(err.message),
   });
 }
+
+// Sets a single eBay item specific (e.g. "Department") on an item and persists
+// it where the publish validator will actually read it. assemblePublishContext
+// resolves aspects as `listing.item_specifics_override ?? item.ebay_aspects`
+// (most-recent eBay listing row wins), so we mirror that precedence: write to
+// the listing override when a listing row exists, else to inventory_items.
+// Both writes are RLS-scoped to the owner. A blank value drops the key so the
+// server re-derives it from the item's structured column.
+export function useSetItemAspect() {
+  const qc = useQueryClient();
+  return useMutation<
+    void,
+    Error,
+    { itemId: string; aspect: string; values: string[] }
+  >({
+    mutationFn: async ({ itemId, aspect, values }) => {
+      const clean = values.map((v) => v.trim()).filter((v) => v.length > 0);
+      const merge = (map: Record<string, string[]> | null) => {
+        const next = { ...(map ?? {}) };
+        if (clean.length > 0) next[aspect] = clean;
+        else delete next[aspect];
+        return next;
+      };
+
+      const { data: listingRow } = await supabase
+        .from("listings")
+        .select("id, item_specifics_override")
+        .eq("inventory_item_id", itemId)
+        .eq("platform", "ebay")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (listingRow) {
+        const row = listingRow as {
+          id: string;
+          item_specifics_override: Record<string, string[]> | null;
+        };
+        // When the override is still empty, the server is reading aspects from
+        // item.ebay_aspects — seed from there first so writing Department here
+        // doesn't shadow Brand/Size/Color the validator would otherwise see.
+        let base = row.item_specifics_override;
+        if (!base || Object.keys(base).length === 0) {
+          const { data: itemRow } = await supabase
+            .from("inventory_items")
+            .select("ebay_aspects")
+            .eq("id", itemId)
+            .maybeSingle();
+          base =
+            (itemRow as { ebay_aspects: Record<string, string[]> | null } | null)
+              ?.ebay_aspects ?? null;
+        }
+        const next = merge(base);
+        const { error } = await supabase
+          .from("listings")
+          .update({ item_specifics_override: next } as never)
+          .eq("id", row.id);
+        if (error) throw error;
+      } else {
+        const { data: itemRow } = await supabase
+          .from("inventory_items")
+          .select("ebay_aspects")
+          .eq("id", itemId)
+          .maybeSingle();
+        const cur =
+          (itemRow as { ebay_aspects: Record<string, string[]> | null } | null)
+            ?.ebay_aspects ?? null;
+        const next = merge(cur);
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({ ebay_aspects: next } as never)
+          .eq("id", itemId);
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["items_full"] });
+      qc.invalidateQueries({ queryKey: ["inventory_item", vars.itemId] });
+      qc.invalidateQueries({ queryKey: ["inventory_item_ebay", vars.itemId] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   CheckCircle2,
   Loader2,
@@ -17,8 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import {
   usePublishToEbay,
+  useSetItemAspect,
   useValidatePublish,
   type PublishSummary,
 } from "@/hooks/use-ebay";
@@ -32,16 +35,19 @@ interface Props {
 export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
   const validate = useValidatePublish();
   const publish = usePublishToEbay();
+  const setAspect = useSetItemAspect();
   const [result, setResult] = useState<{
     listingUrl: string;
     listingId: string;
   } | null>(null);
+  const [department, setDepartment] = useState("");
 
   // Run validation each time the dialog opens. Resets the result so a second
   // open after a successful publish starts fresh.
   useEffect(() => {
     if (!open) return;
     setResult(null);
+    setDepartment("");
     validate.mutate({ itemId });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, itemId]);
@@ -50,6 +56,31 @@ export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
   const blockers = validate.data?.blockers ?? [];
   const canPublish = !!validate.data?.ok && blockers.length === 0;
   const isPublishing = publish.isPending;
+
+  // eBay's "Department" is the most common missing required specific and has a
+  // small fixed value set, so we let the seller fix it inline here instead of
+  // bouncing them to the full composer. Detect the validator's specifics blocker.
+  const specificsBlocker = blockers.find((b) =>
+    /required eBay specifics/i.test(b),
+  );
+  const departmentMissing =
+    !!specificsBlocker && /department/i.test(specificsBlocker);
+
+  async function handleSaveDepartment() {
+    if (!department) return;
+    try {
+      await setAspect.mutateAsync({
+        itemId,
+        aspect: "Department",
+        values: [department],
+      });
+      // Re-run validation so the blocker clears (or surfaces what's left).
+      await validate.mutateAsync({ itemId });
+      toast.success("Department saved.");
+    } catch {
+      /* hook surfaces the error toast */
+    }
+  }
 
   async function handlePublish() {
     try {
@@ -136,6 +167,60 @@ export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
                 </li>
               ))}
             </ul>
+
+            {/* Inline fix for the most common blocker: missing Department. */}
+            {specificsBlocker && (
+              <div className="space-y-2 rounded-md border p-3">
+                <div className="text-sm font-medium">
+                  {departmentMissing
+                    ? "Set the Department"
+                    : "Fix item specifics"}
+                </div>
+                {departmentMissing ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      eBay requires a Department for clothing. Pick one and
+                      re-check.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={department}
+                        onChange={(e) => setDepartment(e.target.value)}
+                        className="h-9 flex-1 rounded-md border border-input bg-transparent px-2 text-sm"
+                        aria-label="Department"
+                      >
+                        <option value="">Select Department…</option>
+                        {EBAY_DEPARTMENT_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        onClick={handleSaveDepartment}
+                        disabled={!department || setAspect.isPending || validate.isPending}
+                      >
+                        {setAspect.isPending || validate.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : null}
+                        Save &amp; re-check
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  Need to set other specifics?{" "}
+                  <Link
+                    to={`/dashboard/flipdesk/items/${itemId}/draft`}
+                    className="text-primary underline"
+                    onClick={() => onOpenChange(false)}
+                  >
+                    Open the composer
+                  </Link>
+                  .
+                </p>
+              </div>
+            )}
           </div>
         )}
 
