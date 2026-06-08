@@ -65,7 +65,7 @@ import {
   ITEM_STATUS_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import { downloadBlob } from "@/lib/download";
+import { csvBlob, downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
@@ -357,11 +357,8 @@ export function FlipdeskPipelinePage() {
           .join(","),
       );
     }
-    const blob = new Blob([lines.join("\r\n")], {
-      type: "text/csv;charset=utf-8",
-    });
     downloadBlob(
-      blob,
+      csvBlob(lines.join("\r\n")),
       `flipdesk-items-${new Date().toISOString().slice(0, 10)}.csv`,
     );
     toast.success(

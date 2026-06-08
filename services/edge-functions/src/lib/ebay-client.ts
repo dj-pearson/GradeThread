@@ -1411,7 +1411,11 @@ export async function listOffersForSku(
       categoryId?: string;
       listingDescription?: string;
       pricingSummary?: { price?: { value?: string; currency?: string } };
-      listing?: { listingId?: string; listingStatus?: string };
+      listing?: {
+        listingId?: string;
+        listingStatus?: string;
+        listingStartDate?: string;
+      };
     }>;
   }>(userId, `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`);
 
@@ -1435,6 +1439,7 @@ export async function listOffersForSku(
         : null,
       listingId: o.listing?.listingId ?? null,
       listingStatus: o.listing?.listingStatus ?? null,
+      listingStartDate: o.listing?.listingStartDate ?? null,
       listingDescription: o.listingDescription ?? null,
       // title/aspects live on the inventory_item, not the offer — listAllOffers
       // fills them in from the item that produced this offer.
@@ -1590,6 +1595,11 @@ export interface RemoteOffer {
   price: { value: string; currency: string } | null;
   listingId: string | null;
   listingStatus: string | null;
+  // ISO timestamp eBay first made the listing live (listing.listingStartDate).
+  // Sync writes this through to listings.listed_at so the "List Date" column is
+  // populated from eBay's own record rather than left blank on sync-discovered
+  // listings. Null when eBay doesn't return it (e.g. unpublished offers).
+  listingStartDate: string | null;
   // The HTML listing body. Sync writes this through to listings.listing_description
   // so eBay-side edits in Seller Hub don't leave FlipDesk's copy stale.
   listingDescription: string | null;

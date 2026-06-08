@@ -73,4 +73,4 @@ services/edge-functions/cov_profile/
 test-results/
 playwright-report/
 playwright/.cache/
-flipdesk-items-2026-06-08.csv
+flipdesk-items-*.csv

@@ -18,6 +18,20 @@
 // been read costs nothing.
 const REVOKE_DELAY_MS = 40_000;
 
+// UTF-8 byte-order mark. Excel (and Windows generally) defaults to the system
+// code page — Windows-1252 on US machines — when a CSV has no BOM, which turns
+// multi-byte UTF-8 like the right single-quote U+2019 (’) into mojibake (â€™).
+// Prepending the BOM makes Excel/Sheets read the file as UTF-8. The bytes are
+// invisible to anything that parses CSV correctly.
+const UTF8_BOM = String.fromCharCode(0xfeff);
+
+// Builds a download-ready CSV Blob from already-joined CSV text, with the BOM
+// prepended so non-ASCII characters survive the trip into Excel. Use this for
+// every CSV export instead of `new Blob([text], { type: "text/csv" })`.
+export function csvBlob(content: string): Blob {
+  return new Blob([UTF8_BOM + content], { type: "text/csv;charset=utf-8" });
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

@@ -836,6 +836,13 @@ async function doListingsPull(
           listing_status: isActive ? "active" : "ended",
           is_active: isActive,
         };
+        // eBay's own listing start date is authoritative — write it through so
+        // the "List Date" column is populated even on sync-discovered listings
+        // (we never set listed_at on insert below otherwise). Only overwrite
+        // when eBay actually returned a date.
+        if (o.listingStartDate) {
+          patch.listed_at = o.listingStartDate;
+        }
         // Pull description back from eBay so manual Seller Hub edits don't
         // leave FlipDesk's copy stale. Skip empty strings — those usually
         // mean "API didn't return a body", not "user blanked it".
@@ -960,6 +967,9 @@ async function doListingsPull(
             listing_status: "active",
             is_active: true,
           };
+          // Trading API gives us ListingDetails.StartTime — write it through to
+          // listed_at so the "List Date" column reflects eBay's record.
+          if (l.startTime) patch.listed_at = l.startTime;
           if (l.title && l.title.trim()) patch.listing_title = l.title;
           if (l.primaryCategoryId) patch.platform_category_id = l.primaryCategoryId;
           if (existing) {
@@ -1165,19 +1175,69 @@ async function doListingsPull(
           // link the sale (sales.listing_id is nullable but useful).
           const { data: lst } = await supabaseAdmin
             .from("listings")
-            .select("id")
+            .select("id, listing_url")
             .eq("inventory_item_id", itemId)
             .eq("platform", "ebay")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-          const listingId = (lst as { id: string } | null)?.id ?? null;
+          const lstRow = lst as { id: string; listing_url: string | null } | null;
+          let listingId = lstRow?.id ?? null;
+          const existingUrl = lstRow?.listing_url ?? null;
 
           const itemCost = li.itemCost ? Number(li.itemCost.value) : 0;
           const shippingCollected = li.shippingCost
             ? Number(li.shippingCost.value)
             : 0;
           const tax = li.taxes ? Number(li.taxes.value) : 0;
+
+          // Backfill the listings row's eBay link from the order's listingId.
+          // The active-listing passes above (listAllOffers / GetMyeBaySelling)
+          // only return ACTIVE listings, so a listing that already sold/ended
+          // never gets a listings row carrying a URL — which is why sold items
+          // showed a blank "Link" in the export even though the order tells us
+          // the eBay item id. Fill it here. We only WRITE the URL when it's
+          // currently blank so we don't clobber the nicer slug URL the Trading
+          // API gives active listings; platform_listing_id is always set.
+          if (li.legacyItemId) {
+            const hasUrl = !!existingUrl && existingUrl.trim() !== "";
+            const urlPatch = hasUrl
+              ? {}
+              : { listing_url: ebayListingUrl(li.legacyItemId) };
+            // A completed sale means the listing is no longer live.
+            const lifecyclePatch =
+              saleStatus === "completed"
+                ? { listing_status: "sold", is_active: false }
+                : {};
+            if (listingId) {
+              await supabaseAdmin
+                .from("listings")
+                .update({
+                  platform_listing_id: li.legacyItemId,
+                  ...urlPatch,
+                  ...lifecyclePatch,
+                })
+                .eq("id", listingId);
+            } else {
+              // No listings row at all (sold before we ever synced the live
+              // listing) — create one so the item carries its eBay link.
+              const { data: created } = await supabaseAdmin
+                .from("listings")
+                .insert({
+                  inventory_item_id: itemId,
+                  platform: "ebay",
+                  platform_listing_id: li.legacyItemId,
+                  listing_url: ebayListingUrl(li.legacyItemId),
+                  listing_price: itemCost,
+                  listing_status:
+                    saleStatus === "completed" ? "sold" : "ended",
+                  is_active: false,
+                })
+                .select("id")
+                .maybeSingle();
+              listingId = (created as { id: string } | null)?.id ?? null;
+            }
+          }
 
           // Dedupe key is (inventory_item_id, platform_order_id). Migration
           // 00032 adds the unique index that makes this safe under retries.

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { downloadBlob } from "@/lib/download";
+import { csvBlob, downloadBlob } from "@/lib/download";
 import type { InventoryItemRow, SaleRow, ShipmentRow, ListingRow } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -312,10 +312,6 @@ function generatePdfHtml(
 </html>`;
 }
 
-function downloadFile(content: string, filename: string, mimeType: string) {
-  downloadBlob(new Blob([content], { type: mimeType }), filename);
-}
-
 function downloadPdf(htmlContent: string, filename: string) {
   const printWindow = window.open("", "_blank");
   if (!printWindow) {
@@ -362,7 +358,7 @@ export function FinancialExport({ items, sales, shipments, listings }: Financial
       }
       const csv = generateCsv(transactions, summary);
       const filename = `gradethread_financial_report_${startDate}_${endDate}.csv`;
-      downloadFile(csv, filename, "text/csv;charset=utf-8;");
+      downloadBlob(csvBlob(csv), filename);
       toast.success("CSV report downloaded.");
     } catch {
       toast.error("Failed to generate CSV report.");

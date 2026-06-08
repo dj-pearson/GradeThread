@@ -1,4 +1,4 @@
-import { downloadBlob } from "@/lib/download";
+import { csvBlob, downloadBlob } from "@/lib/download";
 import type { ItemFullRow } from "@/types/database";
 
 // Escapes a single CSV cell. Wraps in quotes only when the value contains
@@ -99,9 +99,6 @@ export function downloadItemsCsv(rows: ItemFullRow[]): void {
         .join(","),
     );
   }
-  const blob = new Blob([lines.join("\n")], {
-    type: "text/csv;charset=utf-8",
-  });
   const ts = new Date().toISOString().slice(0, 10);
-  downloadBlob(blob, `flipdesk-items-${ts}.csv`);
+  downloadBlob(csvBlob(lines.join("\n")), `flipdesk-items-${ts}.csv`);
 }
