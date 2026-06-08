@@ -48,6 +48,11 @@ const SERVICE_ROLE_ONLY = new Set([
   // and read ONLY by the service-role edge client; the SPA never touches it
   // (migration 00089 documents "all access via the service-role edge client").
   "google_photos_import_sessions",
+  // Apple IAP consumable dedup ledger: RLS enabled, zero policies by design
+  // (migration 00104 documents "service-role only: deny-all to anon/auth"). It
+  // is written only by the grant_appstore_credits SECURITY DEFINER RPC via the
+  // service-role edge client; the SPA never reads it.
+  "appstore_processed_transactions",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.
