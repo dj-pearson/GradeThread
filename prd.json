@@ -10095,7 +10095,7 @@
         "Unit/UI-model test verifies the post-intake navigation target and seeded title"
       ],
       "priority": 682,
-      "passes": false,
+      "passes": true,
       "notes": "[P1][iOS/UX] Audit 2026-06-08. UX gap #3: PhotoIntakeView onComplete does store.reset()+dismiss(), never opening the created item; item created as 'Untitled item'. CI validates build."
     },
     {

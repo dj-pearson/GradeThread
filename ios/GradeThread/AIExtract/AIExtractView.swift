@@ -463,6 +463,17 @@ struct AIExtractView: View {
             update.measurements = measurementsDict
         }
 
+        // US-682: seed a usable title from accepted brand/style when the AI
+        // didn't surface an explicit title, so the new item isn't left as
+        // "Untitled item" and is easy to find back in the list.
+        if update.title == nil {
+            let seed = [update.brand, update.style ?? update.size]
+                .compactMap { $0 }
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+            if !seed.isEmpty { update.title = seed }
+        }
+
         if !sources.isEmpty {
             update.aiFieldSources = sources
             update.aiEnrichedAt = ISO8601DateFormatter().string(from: .now)

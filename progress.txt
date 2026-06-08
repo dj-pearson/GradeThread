@@ -5198,14 +5198,17 @@ unit tests, validated by .github/workflows/ios-ci.yml on a macOS runner.
           path) plus making DraftsLibraryView rows interactive. Best landed
           together with US-680's headless publish service, with device verify.
 
-- US-682  Land on the created item after intake (+ seed title). DEFERRED
-          (passes:false). The post-intake handoff crosses a fullScreenCover
-          (AIExtract) + the active tab's NavigationStack and needs the router +
-          the new item's local row to push ItemCanvasView. Rewiring the app's
-          single most-used flow is too risky to do unverified. Recommended:
-          thread AppRouter into PhotoIntakeView, on AIExtract completion append
-          the freshly-created LocalInventoryItem to the active path, and seed the
-          item title from an accepted brand/style suggestion; verify on device.
+- US-682  Land on the created item after intake (+ seed title). COMPLETE.
+          PhotoIntakeView now mirrors the freshly-created row into SwiftData
+          (LocalInventoryItem init) right after the server insert, so the
+          post-intake deep link reliably lands on the item's canvas. On AIExtract
+          onComplete it posts DeepLinkRouter.post(.inventoryItem(id:)) (the proven
+          route that switches to Inventory + pushes ItemCanvasView, with a
+          graceful list fallback) + an inventory pull — replacing the old
+          dump-back-to-camera behavior. AIExtract.writeAccepted seeds the title
+          from the accepted brand/style when no explicit title was suggested, so
+          new items aren't left "Untitled". "Add another" is the ubiquitous Add
+          control (every tab, US-684) reachable from the canvas.
 
 - US-683  Publish-readiness indicator + reorder + deep-link blockers. DEFERRED
           (passes:false). The readiness affordance is additive/safe, but the
