@@ -5491,3 +5491,38 @@ test to extend — the right kind of work to land cleanly here.
           deno lint src/ clean (233 files) + Node harness (stuck/threshold/
           claim-mapping). deno check/test in CI; migration validated by
           db-migrations.yml (reap-before-index ordering is safe on existing data).
+
+================================================================================
+## 2026-06-09 — US-462 Atomic reconciliation two-table writes (P2)
+
+- US-462  Make reconciliation two-table writes atomic. COMPLETE (passes:true).
+          Files: new supabase/migrations/00117_reconcile_payout_link.sql,
+          src/routes/flipdesk-reconciliation.ts (/run + /match).
+
+          /run and /match linked a payout to a sale with TWO separate writes —
+          payout_imports(sale_id, reconciled) then sales(payout_reference). A
+          failure of the second left a payout marked reconciled with the sale
+          side never linked (a half-linked row that was only logged).
+
+          AC1 — atomic via RPC. Migration 00117 adds SECURITY DEFINER
+                reconcile_payout_link(p_user_id, p_payout_import_id, p_sale_id,
+                p_payout_reference). A plpgsql function body is one transaction,
+                so both writes commit together or roll back together. It
+                re-verifies tenant ownership of BOTH rows (payout via user_id,
+                sale via inventory_items.user_id since sales has no user_id —
+                US-268) and locks both FOR UPDATE so concurrent reconcilers can't
+                double-link. Both /run and /match now call it instead of two
+                supabaseAdmin updates.
+          AC2 — idempotent + self-repairing. Re-linking the same pair returns
+                already_linked:true (re-running /run is a no-op); if a payout is
+                already reconciled to this sale but the sale's payout_reference
+                was never written (the old failure mode), the RPC backfills it.
+                Conflicts (payout/sale linked elsewhere) return structured errors
+                -> 409 (/match) or ambiguous++ (/run). service_role-only grant.
+
+          VERIFICATION: deno lint src/ clean (233 files) + migration sanity
+          (balanced $$, structure, grants). Atomicity is inherent to the plpgsql
+          transaction. The RPC applies in db-migrations.yml; its tenant/atomicity
+          behavior is exercised by the env-gated reconciliation cross-tenant case
+          in tenant-isolation_test.ts (behavioral DB testing needs a live
+          Postgres = CI, not this sandbox).

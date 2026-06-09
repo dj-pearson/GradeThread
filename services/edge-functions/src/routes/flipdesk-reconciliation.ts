@@ -372,22 +372,28 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
       continue;
     }
 
-    const { error: payoutUpdateErr } = await supabaseAdmin
-      .from("payout_imports")
-      .update({ sale_id: top.sale.id, reconciled: true })
-      .eq("id", p.id);
-    if (payoutUpdateErr) {
-      console.error(
-        "[reconciliation/run] payout update failed:",
-        payoutUpdateErr,
-      );
+    // Atomic two-table link via the RPC (US-462) — both writes commit together
+    // or not at all, so the sweep can't create a half-linked row. Idempotent,
+    // so re-running /run over an already-matched payout is a safe no-op.
+    const { data: linkRes, error: linkErr } = await supabaseAdmin.rpc(
+      "reconcile_payout_link",
+      {
+        p_user_id: userId,
+        p_payout_import_id: p.id,
+        p_sale_id: top.sale.id,
+        p_payout_reference: payoutId,
+      },
+    );
+    const res = (linkRes ?? {}) as { ok?: boolean; error?: string };
+    if (linkErr || !res.ok) {
+      // A conflict (sale/payout already linked elsewhere) isn't an error — leave
+      // it for manual review; a real DB error is logged and skipped.
+      if (linkErr) {
+        console.error("[reconciliation/run] reconcile_payout_link failed:", linkErr);
+      } else {
+        ambiguous++;
+      }
       continue;
-    }
-    if (payoutId && !top.sale.payout_reference) {
-      await supabaseAdmin
-        .from("sales")
-        .update({ payout_reference: payoutId })
-        .eq("id", top.sale.id);
     }
     claimedSales.add(top.sale.id);
     autoMatched++;
@@ -488,31 +494,35 @@ flipdeskReconciliationRoutes.post("/match", async (c) => {
     );
   }
 
-  // 4. Write both directions. Two separate updates because Supabase's batch
-  //    API doesn't span tables; the second failing leaves an inconsistent
-  //    state that the next /run sweep would surface, so we log loudly.
-  const { error: payoutUpdateErr } = await supabaseAdmin
-    .from("payout_imports")
-    .update({ sale_id: saleId, reconciled: true })
-    .eq("id", payoutImportId);
-  if (payoutUpdateErr) {
+  // 4. Link both directions ATOMICALLY (US-462). The RPC writes payout_imports
+  //    + sales in one transaction (re-verifying tenant ownership of both rows),
+  //    so a partial failure can't leave a payout reconciled with an unlinked
+  //    sale. It is idempotent + self-repairing on re-run.
+  const { data: linkRes, error: linkErr } = await supabaseAdmin.rpc(
+    "reconcile_payout_link",
+    {
+      p_user_id: userId,
+      p_payout_import_id: payoutImportId,
+      p_sale_id: saleId,
+      p_payout_reference: payoutId,
+    },
+  );
+  if (linkErr) {
     return c.json(
-      { error: "Failed to update payout", detail: payoutUpdateErr.message },
+      { error: "Failed to reconcile payout", detail: linkErr.message },
       500,
     );
   }
-  if (payoutId && !s.payout_reference) {
-    const { error: saleUpdateErr } = await supabaseAdmin
-      .from("sales")
-      .update({ payout_reference: payoutId })
-      .eq("id", saleId);
-    if (saleUpdateErr) {
-      console.error(
-        "[reconciliation/match] sales.payout_reference write failed:",
-        saleUpdateErr,
-      );
-      // Don't fail the request — payout side is correct.
+  const res = (linkRes ?? {}) as { ok?: boolean; error?: string };
+  if (!res.ok) {
+    // Ownership/conflict outcomes from the RPC → 404/409.
+    if (res.error === "payout_not_found" || res.error === "sale_not_found") {
+      return c.json({ error: "Payout or sale not found" }, 404);
     }
+    return c.json(
+      { error: "This sale or payout is already linked elsewhere. Un-match first.", reason: res.error },
+      409,
+    );
   }
 
   return c.json({ ok: true, payout_import_id: payoutImportId, sale_id: saleId });

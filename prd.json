@@ -7194,8 +7194,8 @@
         "Re-running /run over a partially-linked row is idempotent"
       ],
       "priority": 462,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. /run and /match do non-atomic two-table writes; second-write failure only logged."
+      "passes": true,
+      "notes": "[P2][FlipDesk] DONE 2026-06-09. Migration 00117 adds the SECURITY DEFINER RPC reconcile_payout_link(p_user_id, p_payout_import_id, p_sale_id, p_payout_reference) — a plpgsql function body is one transaction, so the payout_imports (sale_id, reconciled) + sales (payout_reference) writes commit together or roll back together; a second-write failure can no longer leave a payout reconciled with an unlinked sale. AC1: both /run and /match now call this RPC instead of two separate supabaseAdmin updates. It re-verifies tenant ownership of BOTH rows before writing — payout via its own user_id, sale via inventory_items.user_id (sales has no user_id; US-268) — and locks both FOR UPDATE so concurrent reconcilers can't double-link. AC2: idempotent — re-linking the same pair returns {ok:true, already_linked:true} (so re-running /run is a safe no-op), AND self-repairing — if a payout is already reconciled to this sale but the sale's payout_reference was never written (the old non-atomic failure mode), it backfills the sale side. Conflicts (payout already reconciled to a different sale / sale linked to a different payout ref) return structured errors the handlers map to 409 (/match) or ambiguous++ (/run). Grants: service_role only (REVOKE from public/anon/authenticated). The /dismiss path stays a single-table write (no link). Verified: deno lint src/ clean (233 files) + migration sanity (balanced $$, structure); the RPC applies in db-migrations.yml and its tenant/atomicity behavior is exercised by the env-gated reconciliation cross-tenant case in tenant-isolation_test.ts. Atomicity is inherent to the plpgsql transaction; behavioral DB testing needs a live Postgres (CI), not available in this sandbox."
     },
     {
       "id": "US-463",
