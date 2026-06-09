@@ -66,19 +66,29 @@ final class ScreenshotUITests: XCTestCase {
             "Signed-in UI never appeared — check demo credentials, anon key, and network."
         )
 
+        // The app renders from a local SwiftData cache that is EMPTY on a
+        // fresh simulator until the SyncEngine pulls the account's data.
+        // The first CI run snapped "No items yet" on a seeded account purely
+        // because the screenshot beat the sync. Park on Inventory and wait
+        // for real rows before capturing anything.
+        tapDestination(app, "Inventory")
+        let firstCell = app.cells.firstMatch
+        if !firstCell.waitForExistence(timeout: 90) {
+            // Don't fail the run — capture whatever state exists — but make
+            // the cause obvious in the log.
+            print("[snapshot] Initial sync never surfaced inventory rows after 90s — screenshots will show empty states.")
+        }
+
         // 01 — Home dashboard (sales snapshot + aging alerts).
         tapDestination(app, "Home")
         snapshot("01_Home")
 
-        // 02 — Inventory grid.
+        // 02 — Inventory grid (now populated).
         tapDestination(app, "Inventory")
         snapshot("02_Inventory")
 
         // 03 — Item canvas (first item), when the demo account has content.
-        let firstCell = app.collectionViews.cells.firstMatch.exists
-            ? app.collectionViews.cells.firstMatch
-            : app.cells.firstMatch
-        if firstCell.waitForExistence(timeout: 8) {
+        if firstCell.waitForExistence(timeout: 5) {
             firstCell.tap()
             // Let photos/grade panels load before snapping.
             _ = app.navigationBars.firstMatch.waitForExistence(timeout: 5)
@@ -109,12 +119,8 @@ final class ScreenshotUITests: XCTestCase {
 
         snapshot("00_Welcome")
 
-        emailField.tap()
-        emailField.typeText(email)
-
-        let passwordField = app.secureTextFields["Password"]
-        passwordField.tap()
-        passwordField.typeText(password)
+        type(email, into: emailField, app: app)
+        type(password, into: app.secureTextFields["Password"], app: app)
 
         // Dismiss the keyboard if it covers the button, then submit.
         let signIn = app.buttons["Sign in"].firstMatch
@@ -122,6 +128,22 @@ final class ScreenshotUITests: XCTestCase {
             app.swipeUp(velocity: .slow)
         }
         signIn.tap()
+    }
+
+    /// Types into a field, retrying the tap if the keyboard never attached —
+    /// on iPad the first tap occasionally lands before the field can take
+    /// focus ("Neither element nor any descendant has keyboard focus").
+    @MainActor
+    private func type(_ text: String, into field: XCUIElement, app: XCUIApplication) {
+        for attempt in 0..<3 {
+            field.tap()
+            if app.keyboards.firstMatch.waitForExistence(timeout: 3) {
+                field.typeText(text)
+                return
+            }
+            print("[snapshot] keyboard not attached after tap (attempt \(attempt + 1)) — retrying")
+        }
+        XCTFail("Keyboard never attached to \(field) — cannot type credentials.")
     }
 
     /// Navigates to a top-level destination across both layouts: the iPhone
