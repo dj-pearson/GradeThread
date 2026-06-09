@@ -326,8 +326,11 @@ app.use("/api/content/images/*", featureGate("content_ai"));
 // Coarse per-IP ceiling on the unauthenticated webhook receivers — blunts
 // floods only. Legit Stripe/eBay bursts stay well under it, and a 429 just
 // makes the provider retry (idempotency in US-277 makes that safe).
-app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe"));
-app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay"));
+// US-354: these are the most abusable UNAUTHENTICATED surfaces, so they run
+// fail-CLOSED — a counter-store outage drops to a per-replica fallback ceiling
+// (never unlimited), and a header-stripped flood is bucketed, not waved through.
+app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe", undefined, { failClosed: true }));
+app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay", undefined, { failClosed: true }));
 
 // Public API v1 — API key auth + 100 requests per minute
 app.use("/api/v1/*", apiKeyAuthMiddleware);

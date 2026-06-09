@@ -70,6 +70,36 @@ The 16 MiB Traefik cap = the app's 15 MiB upload cap plus multipart/base64
 overhead. **Keep it in sync with `UPLOAD_MAX_BYTES` in `body-limit.ts`** if that
 value changes.
 
+## Cloudflare-only origin + trustworthy rate limiting (US-354)
+
+The rate limiter (`middleware/rate-limit.ts`) attributes unauthenticated
+requests to **`CF-Connecting-IP`** — the only client identifier a caller can't
+forge, because Cloudflare overwrites it. `X-Forwarded-For` is **not** trusted in
+production (it's client-controlled on a direct-to-origin request, so trusting it
+would let an attacker rotate the header to evade IP limits). For that to hold,
+the origin must be reachable **only via Cloudflare** — otherwise a client can hit
+the container directly and there is no CF-set IP to key on.
+
+**Required deploy hardening (verify on the live deploy):**
+
+1. **Lock the origin to Cloudflare at the network layer.** Either run the
+   service behind a `cloudflared` tunnel, or firewall the Coolify/Traefik
+   ingress to accept connections only from
+   [Cloudflare's published IP ranges](https://www.cloudflare.com/ips/). Confirm
+   a direct hit to the origin IP/hostname (bypassing CF) is **refused** — this is
+   the AC3 "direct reachability is verified closed" check.
+2. **(Optional, recommended) Set `CF_ORIGIN_SECRET`** on this resource and add a
+   Cloudflare Transform Rule that injects a request header
+   `cf-origin-secret: <same value>` on all proxied traffic. The limiter then
+   trusts `CF-Connecting-IP` only when that header matches (constant-time
+   compare), so even if the network firewall were misconfigured, a direct hit
+   can't pass off a forged CF IP. Leave unset to rely on the network layer alone.
+
+The unauthenticated webhook receivers (`/api/webhooks/*`,
+`/api/flipdesk/webhooks/*`) run **fail-closed**: if the rate-limit counter store
+is down they fall back to a per-replica in-memory ceiling (degraded, never
+unlimited) rather than allowing unlimited traffic.
+
 ## Healthcheck
 
 Two probes (US-492):

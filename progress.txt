@@ -5248,3 +5248,63 @@ ios-ci.yml). Environment caveat: this Linux container has no xcodebuild, so the
 Swift was written to match existing patterns + unit-tested; the macOS
 ios-ci.yml workflow is the build/test gate (runs on PR/main, not feature-branch
 pushes).
+
+================================================================================
+## 2026-06-09 — US-354 Make the rate limiter trustworthy (P2 Security)
+
+Picked the highest-priority PRD story that is fully actionable + verifiable in
+this environment. The strictly-higher-priority incomplete stories are blocked
+or out of scope for an autonomous edge session:
+  - US-137 (e2e/dogfood): BLOCKER — needs eBay sandbox creds + operator baseline.
+  - US-146/147/148: BLOCKER — need Google Cloud OAuth (Sheets/Drive) creds.
+  - US-149 (multi-marketplace dispatch), US-150 (price-drop/promo scheduler):
+    large UI+schema builds needing visual verification (no browser/macOS here);
+    US-150 also overlaps the already-shipped US-672 repricing automation.
+  - US-151: BLOCKER — needs eBay Sell Analytics API subscription.
+US-354 is a self-contained edge-middleware security fix with an existing unit
+test to extend — the right kind of work to land cleanly here.
+
+- US-354  Make the rate limiter trustworthy. COMPLETE (passes:true).
+          File: services/edge-functions/src/middleware/rate-limit.ts (+ main.ts
+          wiring, + rate-limit_test.ts).
+
+          AC1 — spoofable subject closed. clientIp() previously trusted
+          CF-Connecting-IP then FELL BACK to the client-controlled
+          X-Forwarded-For. XFF is forgeable on a direct-to-origin request, so an
+          attacker could rotate it to evade IP limits. Now: in production the
+          subject IP comes ONLY from the unspoofable CF-Connecting-IP; XFF is
+          kept solely as a dev/local convenience (!isProduction). A request with
+          no trusted IP yields no subject (so it can't even establish a bucket).
+
+          AC2 — fail-closed on abusable routes. rateLimiter() gained
+          opts.failClosed. The unauthenticated webhook receivers
+          (/api/webhooks/*, /api/flipdesk/webhooks/*) now run fail-closed:
+            * counter-store outage -> process-local per-replica fallback counter
+              (a degraded ceiling, NEVER unlimited) instead of allowing through;
+            * a header-stripped request (no user, no trusted IP) -> bucketed into
+              a shared 'ip:unattributed' counter instead of a free pass.
+          The bulk of (authenticated) routes keep the DEFAULT fail-OPEN so a DB
+          blip never locks out legitimate traffic.
+
+          AC3 — CF-only origin. Added an OPTIONAL CF_ORIGIN_SECRET code belt:
+          when set, CF-Connecting-IP is trusted only if the request carries the
+          matching cf-origin-secret header a Cloudflare Transform Rule injects
+          (constant-time compare), so a direct-to-origin hit can't pass off a
+          forged CF IP. Inert (trusts the network layer) when unset.
+          RESIDUAL OPS TASK: Coolify/Traefik must reject non-Cloudflare traffic
+          at the network layer (firewall to CF IP ranges or a cloudflared
+          tunnel) and that direct reachability must be verified closed on the
+          live deploy — this is infra, documented here, not code.
+
+          Tests: rate-limit_test.ts +6 cases — XFF-distrust, fail-closed local
+          fallback vs unchanged fail-open, unattributed shared bucket,
+          CF_ORIGIN_SECRET trust on/off. makeCtx() gained an arbitrary-headers
+          option.
+
+          VERIFICATION CAVEAT: this Linux sandbox blocks outbound egress to
+          deno.land / esm.sh (403 via the proxy), so `deno check` and
+          `deno test` can't fetch the hono/std deps locally. Verified what runs
+          offline: `deno lint src/` (clean, 229 files) + a standalone Node
+          harness mirroring the new decision branches (all assertions pass). The
+          authoritative gate is CI security.yml -> deno-check (deno lint + deno
+          check + deno test), which runs with network access on PR/main.

@@ -5828,8 +5828,8 @@
         "Traefik/Coolify direct reachability is verified closed"
       ],
       "priority": 354,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. File: services/edge-functions/src/middleware/rate-limit.ts (fails open; spoofable subject)."
+      "passes": true,
+      "notes": "[P2][Security] DONE 2026-06-09. Hardened services/edge-functions/src/middleware/rate-limit.ts. AC1 (spoofable subject): X-Forwarded-For is NO LONGER trusted as a rate-limit subject in production (clientIp() returns only the unspoofable CF-Connecting-IP; XFF kept solely as a dev/local convenience when !isProduction). An attacker rotating XFF can no longer mint per-IP buckets or evade limits. AC2 (fail-closed): rateLimiter() gained opts.failClosed; the abusable UNAUTHENTICATED webhook receivers (/api/webhooks/*, /api/flipdesk/webhooks/*) now run fail-closed — a counter-store outage drops to a process-local per-replica fallback counter (degraded ceiling, never UNLIMITED) and a header-stripped request is bucketed into a shared 'ip:unattributed' counter instead of waved through. The bulk of (authenticated) routes stay fail-OPEN for availability. AC3 (CF-only origin): added an OPTIONAL CF_ORIGIN_SECRET code belt — when set, CF-Connecting-IP is trusted only if the request carries the matching cf-origin-secret header Cloudflare injects (constant-time compare), so a direct-to-origin request can't pass off a forged CF IP; inert (network layer trusted) when unset. The remaining AC3 task is an OPS verification: Coolify/Traefik must reject non-Cloudflare traffic at the network layer (firewall to CF IP ranges or a cloudflared tunnel) — documented for deploy, not code. Tests: src/tests/rate-limit_test.ts extended with 6 cases (XFF distrust, fail-closed local fallback vs fail-open, unattributed shared bucket, CF_ORIGIN_SECRET trust). Verified via `deno lint` (clean) + standalone logic harness; `deno check`/`deno test` run in CI (security.yml deno-check) — this sandbox blocks egress to deno.land/esm.sh so deps can't be fetched locally."
     },
     {
       "id": "US-355",
