@@ -64,6 +64,10 @@ import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { PnlPanel } from "@/components/flipdesk/pnl-panel";
 import { MarkListedDialog } from "@/components/flipdesk/mark-listed-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
+import {
+  MergeSkuDialog,
+  type MergeValues,
+} from "@/components/flipdesk/merge-sku-dialog";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
 import {
@@ -89,6 +93,7 @@ import type {
   ItemStatus,
   ItemCategory,
   AiFieldSource,
+  InventoryItemRow,
 } from "@/types/database";
 
 // Fields the "Complete with AI" action targets.
@@ -169,6 +174,34 @@ function toState(item: ItemFullRow): EditState {
   };
 }
 
+// Form-shaped view of a raw inventory_items row, for the duplicate-SKU merge
+// comparison (same string conventions as EditState).
+function rowToMergeValues(row: InventoryItemRow): MergeValues {
+  return {
+    title: row.title ?? "",
+    container: row.container ?? "",
+    brand: row.brand ?? "",
+    style: row.style ?? "",
+    size: row.size ?? "",
+    color: row.color ?? "",
+    material: row.material ?? "",
+    description: row.description ?? "",
+    condition_notes: row.condition_notes ?? "",
+    item_category: row.item_category ?? "",
+    sourced_by: row.sourced_by ?? "",
+    status: row.status,
+    acquired_date: row.acquired_date?.slice(0, 10) ?? "",
+    acquired_price:
+      row.acquired_price == null ? "" : String(row.acquired_price),
+    target_price: row.target_price == null ? "" : String(row.target_price),
+    comp_set: Array.isArray(row.comp_set) ? row.comp_set : [],
+    measurements:
+      row.measurements && typeof row.measurements === "object"
+        ? row.measurements
+        : {},
+  };
+}
+
 function trimOrNull(v: string): string | null {
   const t = v.trim();
   return t === "" ? null : t;
@@ -199,6 +232,13 @@ export function ItemCanvas({
   const [saving, setSaving] = useState(false);
   const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(null);
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(null);
+
+  // Duplicate-SKU merge: set when a save hits the (user_id, sku) unique
+  // index — holds the record that already owns the SKU.
+  const [mergeExisting, setMergeExisting] = useState<InventoryItemRow | null>(
+    null,
+  );
+  const [merging, setMerging] = useState(false);
 
   // AI enrichment ("Complete with AI")
   const aiExtract = useAiExtract();
@@ -349,74 +389,147 @@ export function ItemCanvas({
     }
   }
 
+  // Writes one EditState to the database. Throws on failure so callers can
+  // inspect the error (save() turns a duplicate-SKU 23505 into a merge offer).
+  async function persist(s: EditState, successMessage = "Saved.") {
+    const targetPrice = priceOrNull(s.target_price);
+    const resolvedStatus = resolveStatus(item.status, s.status, {
+      hasMeasurements: Object.keys(s.measurements).length > 0,
+      hasRequiredPhotos: item.has_required_photos === true,
+      hasTargetPrice: targetPrice != null,
+      hasDraftListing: item.listing_id != null,
+    });
+
+    const aiFieldSources: Record<string, AiFieldSource> = {};
+    for (const field of aiFields) {
+      const meta = aiMeta[field];
+      aiFieldSources[field] = {
+        source: meta?.source ?? "text",
+        confidence: meta?.confidence ?? 0,
+        accepted: true,
+      };
+    }
+    const hasAiFields = Object.keys(aiFieldSources).length > 0;
+
+    const update: Record<string, unknown> = {
+      title: s.title.trim() || item.item_title,
+      sku: trimOrNull(s.sku),
+      container: trimOrNull(s.container),
+      brand: trimOrNull(s.brand),
+      style: trimOrNull(s.style),
+      size: trimOrNull(s.size),
+      color: trimOrNull(s.color),
+      material: trimOrNull(s.material),
+      description: trimOrNull(s.description),
+      condition_notes: trimOrNull(s.condition_notes),
+      item_category: s.item_category === "" ? null : s.item_category,
+      sourced_by: trimOrNull(s.sourced_by),
+      status: resolvedStatus,
+      acquired_date: s.acquired_date || null,
+      acquired_price: priceOrNull(s.acquired_price),
+      target_price: targetPrice,
+      comp_set: s.comp_set.filter(
+        (c) => Number.isFinite(c.price) && c.price > 0,
+      ),
+      measurements:
+        Object.keys(s.measurements).length > 0 ? s.measurements : null,
+    };
+
+    if (hasAiFields) {
+      update.ai_field_sources = aiFieldSources;
+      update.ai_enriched_at = new Date().toISOString();
+    }
+
+    const { error } = await supabase
+      .from("inventory_items")
+      .update(update as never)
+      .eq("id", item.id);
+    if (error) throw error;
+
+    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    toast.success(successMessage);
+    onAfterSave?.();
+  }
+
   async function save() {
     setSaving(true);
     try {
-      const targetPrice = priceOrNull(state.target_price);
-      const resolvedStatus = resolveStatus(item.status, state.status, {
-        hasMeasurements: Object.keys(state.measurements).length > 0,
-        hasRequiredPhotos: item.has_required_photos === true,
-        hasTargetPrice: targetPrice != null,
-        hasDraftListing: item.listing_id != null,
-      });
-
-      const aiFieldSources: Record<string, AiFieldSource> = {};
-      for (const field of aiFields) {
-        const meta = aiMeta[field];
-        aiFieldSources[field] = {
-          source: meta?.source ?? "text",
-          confidence: meta?.confidence ?? 0,
-          accepted: true,
-        };
-      }
-      const hasAiFields = Object.keys(aiFieldSources).length > 0;
-
-      const update: Record<string, unknown> = {
-        title: state.title.trim() || item.item_title,
-        sku: trimOrNull(state.sku),
-        container: trimOrNull(state.container),
-        brand: trimOrNull(state.brand),
-        style: trimOrNull(state.style),
-        size: trimOrNull(state.size),
-        color: trimOrNull(state.color),
-        material: trimOrNull(state.material),
-        description: trimOrNull(state.description),
-        condition_notes: trimOrNull(state.condition_notes),
-        item_category:
-          state.item_category === "" ? null : state.item_category,
-        sourced_by: trimOrNull(state.sourced_by),
-        status: resolvedStatus,
-        acquired_date: state.acquired_date || null,
-        acquired_price: priceOrNull(state.acquired_price),
-        target_price: targetPrice,
-        comp_set: state.comp_set.filter(
-          (c) => Number.isFinite(c.price) && c.price > 0,
-        ),
-        measurements:
-          Object.keys(state.measurements).length > 0
-            ? state.measurements
-            : null,
-      };
-
-      if (hasAiFields) {
-        update.ai_field_sources = aiFieldSources;
-        update.ai_enriched_at = new Date().toISOString();
-      }
-
-      const { error } = await supabase
-        .from("inventory_items")
-        .update(update as never)
-        .eq("id", item.id);
-      if (error) throw error;
-
-      await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success("Saved.");
-      onAfterSave?.();
+      await persist(state);
     } catch (err) {
+      // Duplicate SKU (partial unique index on user_id, sku) → offer to merge
+      // the two records instead of dead-ending on the raw Postgres error.
+      const pgErr = err as { code?: string; message?: string };
+      const sku = state.sku.trim();
+      if (
+        pgErr.code === "23505" &&
+        sku &&
+        (pgErr.message ?? "").includes("idx_inventory_items_user_sku")
+      ) {
+        const { data } = await supabase
+          .from("inventory_items")
+          .select("*")
+          .eq("user_id", item.user_id)
+          .eq("sku", sku)
+          .neq("id", item.id)
+          .maybeSingle();
+        if (data) {
+          setMergeExisting(data as InventoryItemRow);
+          return;
+        }
+      }
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Save failed: ${msg}`);
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Confirmed duplicate-SKU merge: the RPC atomically re-points photos,
+  // listings, sales and grading history from the existing record onto this
+  // item, deletes it, and claims the SKU — then the user's field choices are
+  // saved through the normal update path.
+  async function handleMergeConfirm(overrides: Partial<MergeValues>) {
+    if (!mergeExisting) return;
+    const sku = state.sku.trim();
+    setMerging(true);
+    try {
+      const rpcClient = supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: Error | null }>;
+      };
+      const { error } = await rpcClient.rpc("merge_inventory_items", {
+        p_survivor_id: item.id,
+        p_duplicate_id: mergeExisting.id,
+        p_sku: sku,
+      });
+      if (error) throw error;
+
+      const next: EditState = { ...state, ...overrides, sku };
+      setState(next);
+      setMergeExisting(null);
+      // Photos/listings/sales were re-pointed server-side — refresh everything
+      // that might render the absorbed record.
+      await qc.invalidateQueries();
+      try {
+        await persist(next, "Records merged — this item now owns the SKU.");
+      } catch (persistErr) {
+        // The merge itself committed; only the field choices failed to save.
+        toast.error(
+          `Records merged, but saving your field choices failed: ${
+            persistErr instanceof Error
+              ? persistErr.message
+              : String(persistErr)
+          }. Review the item and save again.`,
+        );
+      }
+    } catch (err) {
+      toast.error(
+        `Merge failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setMerging(false);
     }
   }
 
@@ -1024,6 +1137,18 @@ export function ItemCanvas({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {mergeExisting && (
+        <MergeSkuDialog
+          open
+          sku={state.sku.trim()}
+          current={state}
+          existing={rowToMergeValues(mergeExisting)}
+          merging={merging}
+          onCancel={() => setMergeExisting(null)}
+          onConfirm={(overrides) => void handleMergeConfirm(overrides)}
+        />
+      )}
 
       <MarkListedDialog
         item={markListedItem}
