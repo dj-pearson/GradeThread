@@ -11148,6 +11148,181 @@
       "priority": 758,
       "passes": true,
       "notes": "[P2][AI/Listings] SHIPPED 2026-06-08 (reported gap: AI generation produced title/attributes but no description, so AI-filled items had no listing description). EDGE (fixes web + iOS — same endpoint): ai-extract.ts adds 'description' to EXTRACT_FIELDS + the extract tool schema + a system-prompt instruction to compose a concise, HONEST buyer-facing description (opening line -> key attributes -> condition); max_tokens 1500->2000 so the longer field can't truncate the tool-call JSON. The knownFields-strip in flipdesk-ai.ts doesn't remove it (description isn't a known field), so it flows through. WEB: item-canvas applyAiFields allowed-set + AI_FIELD_LABELS + AiFillPanel currentValues now include description (applies on accept; won't default-overwrite an existing one), and ai-fill-panel renders the description suggestion in a multi-line Textarea. iOS: NO code change needed — AIExtractStore decodes suggestions dynamically and AIExtractView.assign already had case \"description\" + the CodingKey. (A separate generateListingCopy flow already produced a description; this makes the PRIMARY AI Fill produce one too.) tsc -b + eslint + vitest (287) + deno check/lint green."
+    },
+    {
+      "id": "US-759",
+      "title": "Buyer-facing certified condition write-up",
+      "description": "As a buyer reading a grade certificate, I want a proper written condition report about the item — not just a one-line summary — so I understand exactly what I'm getting, the way a PSA cert tells the story of the card.",
+      "acceptanceCriteria": [
+        "The grading pipeline (services/edge-functions/src/lib/grading-pipeline.ts + ai-grading.ts COMPOSITE_SYSTEM_PROMPT) produces a longer, structured, HONEST buyer-facing write-up beyond the existing 2-4 sentence ai_summary: what the item is, materials/construction if visible, the condition narrative, and a plain-language 'why this grade'",
+        "A migration adds a `buyer_writeup` text column to grade_reports and the public_grade_reports view (supabase/migrations/00082_public_certificate_view.sql) exposes it; the public cert endpoint (/api/content/public/certificates/:id) returns it",
+        "The write-up renders on the SPA cert page (src/pages/certificate.tsx) AND the crawlable cert SSR (functions/cert/[id].ts), kept consistent per US-425",
+        "Generation is honest per US-758 guardrails: composed only from supported photos/known fields, never invents attributes or upgrades condition; intentional design features are described as styling, not defects",
+        "The write-up is covered by the certificate content hash so it is tamper-evident (coordinate with US-770); existing grades without a write-up degrade gracefully (cert page falls back to ai_summary)"
+      ],
+      "priority": 759,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][AI/Certificate/Buyer-trust] The 'write up about the item' from the request. Extends ai_summary (only 2-4 sentences today) into a real buyer-facing condition report. Reuse the existing composite AI call where possible (one round-trip, like US-758). Depends on integrity reseal (US-770/US-489/US-475) so the new certified text is hashed. Renders on cert.tsx + cert SSR."
+    },
+    {
+      "id": "US-760",
+      "title": "Certificate 'About this item' buyer details panel",
+      "description": "As a buyer on a certificate page, I want the key facts about the item (brand, type, size, materials, measurements) laid out clearly, so I get the full picture without hunting through a marketplace listing.",
+      "acceptanceCriteria": [
+        "The cert page (src/pages/certificate.tsx) renders an 'About this item' panel with available structured facts: title, brand, garment type/category, size, color/material, and measurements where present",
+        "Only public-safe fields are used; extend public_grade_reports view / the public cert endpoint as needed rather than reading private submission columns directly on the client",
+        "Missing fields are omitted gracefully (no empty rows / 'null')",
+        "The same facts are mirrored in the cert SSR (functions/cert/[id].ts) and reflected in the Product JSON-LD (src/lib/seo/json-ld.ts) where a valid schema.org property exists",
+        "No invented data — only facts the seller/grader actually supplied"
+      ],
+      "priority": 760,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/Buyer-trust] The 'more information' from the request. Surfaces structured item facts buyers need. Pairs with US-759 (narrative) for a complete buyer view."
+    },
+    {
+      "id": "US-761",
+      "title": "Certificate photo gallery: lightbox, zoom & download originals",
+      "description": "As a buyer, I want to open and zoom into the actual graded photos and download them, so I can inspect the real item the way I would in hand — the photos are the evidence behind the grade.",
+      "acceptanceCriteria": [
+        "Clicking a photo in the cert gallery opens an accessible lightbox with next/prev (keyboard + touch swipe), pinch/scroll zoom, and the image-type caption (front/back/label/detail/defect)",
+        "Full-resolution images load via short-lived signed URLs (<=15 min, submission-images private bucket) per US-276 — never getPublicUrl",
+        "A per-image 'Download photo' action is available",
+        "Lightbox is mobile-first, focus-trapped, closes on Esc/backdrop, and meets the US-730 accessibility bar (labels, alt text)",
+        "Defect photos are visually associated with the matching entry in the Condition & Flaws list where possible"
+      ],
+      "priority": 761,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/UX] Today the gallery is a static grid (certificate.tsx ~L480). Buyers need to inspect evidence. Consider a small dependency-light lightbox rather than a heavy lib."
+    },
+    {
+      "id": "US-762",
+      "title": "Server-side QR generation for edge / Satori rendering",
+      "description": "As the platform, I need to generate QR codes inside Cloudflare Pages Functions (no DOM) so the grade can be burned into server-rendered images that link back to the official certificate — the digital equivalent of the scannable code on a PSA label.",
+      "acceptanceCriteria": [
+        "A shared, dependency-light utility in functions/_shared (e.g. qr.ts) produces a QR matrix and emits an SVG path/string that Satori (workers-og ImageResponse) can render — no browser/DOM/canvas dependency (qrcode.react is React-only and cannot run here)",
+        "Encodes the canonical cert URL (https://gradethread.com/cert/:id) with an adequate quiet zone and error-correction level (>= M) so it stays scannable when shrunk to a marketplace thumbnail",
+        "High-contrast (brand navy on white) output; configurable module size",
+        "Unit tests cover matrix generation for a known payload; the SVG renders inside an ImageResponse without throwing",
+        "Documented for reuse by the slab (US-763) and any future server-rendered surface"
+      ],
+      "priority": 762,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Infra/Edge] Foundational for the slab. Current QR is client-only SVG (qrcode.react in certificate.tsx). Need a no-DOM generator (small pure-JS QR encoder -> SVG path) usable inside workers-og."
+    },
+    {
+      "id": "US-763",
+      "title": "Digital Slab — PSA-style server-rendered graded photo",
+      "description": "As a seller, I want a single certified image of my item — the garment photo with its grade and a scannable QR burned in — so any buyer who sees my listing thumbnail instantly recognizes the official grade and can tap through to the full certificate, exactly like reading a PSA slab.",
+      "acceptanceCriteria": [
+        "A new Cloudflare Pages Function /slab/cert/[id].ts returns a branded PNG composed of: the garment hero photo, the overall score + grade tier (grade-ring/score treatment), brand/title, a 'GradeThread Verified' mark, the cert id, and a scannable QR (US-762) that points to /cert/:id",
+        "Data is fetched anonymously via /api/content/public/certificates/:id (no auth); the hero image uses a short-lived signed URL; renders via Satori/workers-og, mirroring functions/og/cert/[id].ts and functions/badge/cert/[id].ts",
+        "Returns 404 for private/uncertified ids (US-268); degrades to a label-only card if the hero photo is unavailable",
+        "Cache headers match the OG/badge surfaces (24h edge + stale-while-revalidate); content reflects only sealed, public-safe data (US-770)",
+        "Output is legible and the QR is scannable when downscaled to a typical marketplace thumbnail"
+      ],
+      "priority": 763,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Differentiation/Certificate] The headline feature — the PSA 'grade on the slab' analog. Builds on the existing Satori pipeline (functions/og/cert, functions/badge/cert) + server QR (US-762). Distinct from src/lib/grade-badge.ts (client-side corner badge, no QR)."
+    },
+    {
+      "id": "US-764",
+      "title": "Digital Slab format variants + label-only fallback",
+      "description": "As a seller posting to different marketplaces, I want the graded photo in the right shape for each platform, so it looks native on eBay, Poshmark, Depop, and social.",
+      "acceptanceCriteria": [
+        "/slab/cert/:id supports a ?format= query param: square (1:1, 1080x1080), portrait (4:5), and story (9:16); default is square",
+        "A 'label-only' variant renders the PSA-style grade card with no garment photo (for when a hero can't be shown or the seller prefers a clean badge card)",
+        "Each variant is laid out for legibility at its aspect ratio and keeps the QR scannable; each is cached independently",
+        "Variants documented alongside US-763"
+      ],
+      "priority": 764,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/Marketplace-fit] Marketplace thumbnails differ (eBay square, Poshmark/Depop portrait, IG story). Same render pipeline as US-763, parameterized."
+    },
+    {
+      "id": "US-765",
+      "title": "Seller: generate, preview, download & copy the graded photo (web)",
+      "description": "As a seller, I want to grab my item's graded photo in one tap from the certificate and submission pages, so I can drop it straight into my listing or socials.",
+      "acceptanceCriteria": [
+        "The cert page (src/pages/certificate.tsx) and submission detail (src/pages/submission-detail.tsx) show a 'Graded photo' panel with a live preview, a format picker (US-764), and Download + Copy-image actions",
+        "Download saves the PNG/JPG; Copy puts the image on the clipboard where supported (graceful fallback to download)",
+        "Actions resolve to the /slab/cert/:id endpoint (US-763); a PostHog event fires on download/copy",
+        "Clear helper copy frames it as 'Add your official grade to any listing — buyers scan the code to verify'",
+        "Only the owning seller sees these controls on submission detail; the cert page surfaces it for the owner (public viewers see the certificate, not seller tools)"
+      ],
+      "priority": 765,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Seller/Distribution] The seller's distribution moment — turns the slab (US-763/764) into a one-tap asset. Complements the existing badge-embed (certBadgeEmbedHtml) and verified badge."
+    },
+    {
+      "id": "US-766",
+      "title": "Auto-attach the graded photo to marketplace listings",
+      "description": "As a reseller using FlipDesk, I want the graded photo added to my listing images automatically, so the grade and QR ride along on the marketplace itself — PSA-on-the-listing.",
+      "acceptanceCriteria": [
+        "The listing composer (US-118) / FlipDesk eBay publish path (services/edge-functions/src/routes/flipdesk-ebay.ts) can include the digital slab (US-763) as a supplementary or lead listing image, behind an opt-in toggle",
+        "Reuses the slab render; respects each marketplace's image dimension/count rules (extends the existing src/lib/grade-badge.ts hero-composite path rather than duplicating it)",
+        "The seller can preview and choose slab-as-hero vs slab-as-extra before publishing",
+        "Tenant-scoped per US-268; no cross-tenant image access"
+      ],
+      "priority": 766,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][FlipDesk/Distribution] Puts the grade on the marketplace thumbnail itself. Extends grade-badge.ts (today: client corner badge, no QR) to optionally use the QR-bearing slab."
+    },
+    {
+      "id": "US-767",
+      "title": "Certificate as a first-class shareable: native share + print/PDF",
+      "description": "As a seller, I want to share my certificate everywhere and save it as a clean PDF, so the best trust artifact becomes a distribution channel.",
+      "acceptanceCriteria": [
+        "The cert page exposes a Share action using the Web Share API (sharing the cert URL and, where supported, the slab image), plus a reliable Copy-link fallback",
+        "A print stylesheet produces a clean, single-page certificate when the user prints / 'Save as PDF' (hides nav/tools, keeps grade, factors, write-up, photos thumbnail, QR, cert id)",
+        "Works on mobile and desktop; the shared link unfurls correctly via the existing cert OG image (US-307)",
+        "Closes out the intent of US-607 (which this story supersedes/implements)"
+      ],
+      "priority": 767,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/Distribution] Implements US-607 ('first-class shareable'). Native share + print-to-PDF. Pairs with the slab (US-763) as the shareable image."
+    },
+    {
+      "id": "US-768",
+      "title": "iOS: graded-photo preview, save & share",
+      "description": "As an iOS seller, I want to preview my graded photo, save it to Photos, and share it, so I have the same PSA-style asset on mobile.",
+      "acceptanceCriteria": [
+        "The iOS grade/certificate view renders/fetches the digital slab (US-763) and shows a preview with a format picker (US-764)",
+        "Save-to-Photos and the native share sheet both work; optional 'use as listing image' hook into the iOS listing flow",
+        "Mirrors the web seller flow (US-765) and reuses the same /slab/cert/:id endpoint",
+        "Follows the iOS shared component patterns (US-753) and accessibility/polish bar (US-757)"
+      ],
+      "priority": 768,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][iOS/Distribution] iOS parity for the graded photo. Server-rendered slab means iOS just fetches an image + presents share/save."
+    },
+    {
+      "id": "US-769",
+      "title": "Certificate scan / view attribution + engagement analytics",
+      "description": "As a seller, I want to see how often buyers actually view and scan my certificate, so I can prove the grade is driving buyer trust and engagement.",
+      "acceptanceCriteria": [
+        "Cert URLs embedded in the slab QR and share links carry a source param (e.g. ?s=qr / ?s=share) so views can be attributed to scans vs links without collecting buyer PII",
+        "Certificate views and QR-scan sources are recorded (PostHog and/or a privacy-safe server counter) and aggregated per certificate",
+        "The owning seller sees a 'times viewed / verified' metric on submission detail; optionally a tasteful public 'Verified N times' on the cert",
+        "No buyer PII is stored; counts are coarse and abuse-resistant (no trivial inflation)"
+      ],
+      "priority": 769,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P3][Analytics/Trust-loop] Closes the loop: proves the slab drives scans. Ties into existing PostHog analytics."
+    },
+    {
+      "id": "US-770",
+      "title": "Extend tamper-evident hash + reseal to new certified claims",
+      "description": "As the platform, I need every newly certified field shown to buyers (the buyer write-up and any item facts rendered on the slab) to be covered by the certificate's tamper-evident hash and resealed on change, so the digital slab can't be forged or drift from the sealed record.",
+      "acceptanceCriteria": [
+        "The certificate content hash (US-333/US-489) is extended to include the new buyer_writeup (US-759) and any additional certified claims surfaced on the slab/cert",
+        "Reseal triggers on any change to those fields (US-475) so the hash always matches what's displayed",
+        "The public verify endpoint (/api/content/public/certificates/:id/verify) and the cert page IntegrityPanel cover the extended claim set",
+        "The slab (US-763) renders only sealed, public-safe data — it never shows an unsealed/draft field",
+        "A cross-check/regression test asserts a tampered buyer_writeup is detected as a mismatch"
+      ],
+      "priority": 770,
+      "passes": false,
+      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Security/Integrity] Guards the new certified surface. Extends US-489 (hash all certified claims) + US-475 (reseal on change). Must land with/after US-759."
     }
   ]
 }
