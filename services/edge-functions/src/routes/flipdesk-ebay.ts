@@ -61,6 +61,7 @@ import { parseEbayPayoutsCsv } from "../lib/ebay-payouts-csv.ts";
 import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
+import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
@@ -600,36 +601,8 @@ interface SyncRunStats {
   errors: string[];
 }
 
-// Insert a `running` row the moment a pull starts and return its id, so a sync
-// that HANGS (e.g. eBay API stall mid-pagination) or is killed before it can
-// finalize is still visible in the Reconciliation history as a stuck "running"
-// run — instead of leaving no trace at all (the old behavior, which made a
-// non-completing pull impossible to see from the UI). Returns null on failure;
-// callers fall back to a plain insert at the end.
-async function startSyncRun(
-  userId: string,
-  startedAt: string,
-): Promise<string | null> {
-  try {
-    const { data } = await supabaseAdmin
-      .from("flipdesk_sync_runs")
-      .insert({
-        user_id: userId,
-        marketplace: "ebay",
-        status: "running",
-        started_at: startedAt,
-      })
-      .select("id")
-      .single();
-    return (data as { id: string } | null)?.id ?? null;
-  } catch (err) {
-    console.error("[flipdesk-ebay] failed to start sync run:", err);
-    return null;
-  }
-}
-
 // Finalize a run. When `runId` is present (the normal path) this UPDATES the
-// `running` row started by startSyncRun; otherwise it falls back to an INSERT.
+// `running` row claimed by claimSyncRun; otherwise it falls back to an INSERT.
 async function recordSyncRun(
   userId: string,
   s: SyncRunStats,
@@ -718,11 +691,13 @@ async function doListingsPull(
   connId: string,
   lastSyncedAt: string | null,
   backfill = false,
+  // US-456: the 'running' lock row is claimed by the /listings/pull handler
+  // (claimSyncRun) BEFORE this fires, so overlapping pulls are rejected. Both
+  // finalizers below update it via runId; the handler's .catch fails it on an
+  // unexpected throw. null only on the best-effort path where the claim errored.
+  runId: string | null = null,
 ): Promise<void> {
   const startedAt = new Date().toISOString();
-  // Record a `running` row up front so a hung/killed pull is still visible in
-  // the Reconciliation history; both finalizers below update it via runId.
-  const runId = await startSyncRun(userId, startedAt);
   let offers: RemoteOffer[];
   try {
     offers = await listAllOffers(userId);
@@ -1563,11 +1538,31 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   // that predate the FlipDesk connection get imported.
   const backfill = c.req.query("full") === "true";
 
+  // US-456: claim the in-flight lock BEFORE firing. A concurrent pull for the
+  // same tenant is rejected (409) instead of racing writes; a dead run is reaped
+  // inside claimSyncRun so a crash can't lock the tenant out permanently.
+  const claim = await claimSyncRun(userId, "ebay");
+  if (claim.status === "already_running") {
+    return c.json(
+      { error: "A sync is already running for this account.", alreadyRunning: true },
+      409,
+    );
+  }
+  const runId = claim.status === "claimed" ? claim.runId : null;
+
   // Fire-and-forget — do NOT await this. Returning 202 before the work starts
   // means the HTTP connection closes immediately, safely below Cloudflare's
   // 100s proxy timeout. The frontend polls last_synced_at to detect completion.
-  void doListingsPull(userId, connId, lastSyncedAt, backfill).catch((err) =>
-    console.error("[flipdesk-ebay] background sync crashed:", err),
+  // The .catch finalizes the lock as failed on an unexpected throw (the success
+  // /partial and early fetch-failure paths finalize themselves via runId), so
+  // the run never stays stuck in 'running'.
+  void doListingsPull(userId, connId, lastSyncedAt, backfill, runId).catch(
+    async (err) => {
+      console.error("[flipdesk-ebay] background sync crashed:", err);
+      if (runId) {
+        await failSyncRun(runId, err instanceof Error ? err.message : String(err));
+      }
+    },
   );
 
   return c.json({ ok: true, message: "Sync started in background." }, 202);

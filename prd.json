@@ -7117,8 +7117,8 @@
         "A run stuck in running past N minutes is reaped to failed so the UI unblocks"
       ],
       "priority": 456,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. /listings/pull has no in-flight lock; 00073 reserves a 'running' status the code never writes."
+      "passes": true,
+      "notes": "[P1][FlipDesk] DONE 2026-06-09. Migration 00116 reaps any pre-existing 'running' rows then adds a PARTIAL UNIQUE INDEX on flipdesk_sync_runs(user_id, marketplace) WHERE status='running' — so at most one in-flight sync per tenant, enforced at the DB. New lib/sync-run-lock.ts: claimSyncRun() reaps the caller's own stale runs then INSERTs a 'running' row; a unique violation (23505) maps to {already_running}. AC1: /listings/pull claims BEFORE firing doListingsPull and returns 409 {alreadyRunning:true} on a concurrent pull (was: no lock at all). AC2: the run is finalized on ALL paths — success/partial via recordSyncRun(runId), the early offer-fetch failure via recordSyncRun(failed,runId), and any other unexpected throw via the handler's .catch -> failSyncRun(runId) (a conditional UPDATE ... WHERE status='running', so it's idempotent and never clobbers a finalized run). doListingsPull no longer self-inserts the running row (startSyncRun removed); the handler owns the lock lifecycle. AC3: reapStuckSyncRuns() flips runs 'running' past SYNC_STUCK_THRESHOLD_MIN (default 15m) to 'failed' — run opportunistically in claimSyncRun (so a crash can't lock a tenant out) AND on a new cron POST /api/jobs/sync-reaper (X-Internal-Job-Secret) so the UI unblocks even with no new pull. Pure helpers isStuckRun()/stuckThresholdMs() unit-tested (sync-run-lock_test.ts). Verified offline: deno lint src/ clean (233 files) + Node harness for the stuck/threshold/claim-mapping logic. deno check/test run in CI (security.yml); the migration is validated by db-migrations.yml (the reap-before-index ordering keeps it safe on existing data)."
     },
     {
       "id": "US-457",
