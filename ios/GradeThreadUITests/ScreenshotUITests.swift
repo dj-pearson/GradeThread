@@ -58,23 +58,27 @@ final class ScreenshotUITests: XCTestCase {
         signInIfNeeded(app, email: email, password: password)
 
         // Post-auth chrome. Generous timeout: first sign-in does a real
-        // network round-trip + initial sync.
+        // network round-trip + initial sync. The "Home" text exists in both
+        // layouts (tab bar item on iPhone, nav title/sidebar row on iPad).
         XCTAssertTrue(
-            navButton(app, "Home").waitForExistence(timeout: 45),
+            app.staticTexts["Home"].firstMatch.waitForExistence(timeout: 45)
+                || app.tabBars.buttons["Home"].waitForExistence(timeout: 5),
             "Signed-in UI never appeared — check demo credentials, anon key, and network."
         )
 
         // 01 — Home dashboard (sales snapshot + aging alerts).
-        navButton(app, "Home").tap()
+        tapDestination(app, "Home")
         snapshot("01_Home")
 
         // 02 — Inventory grid.
-        navButton(app, "Inventory").tap()
+        tapDestination(app, "Inventory")
         snapshot("02_Inventory")
 
         // 03 — Item canvas (first item), when the demo account has content.
-        let firstCell = app.collectionViews.cells.firstMatch
-        if firstCell.waitForExistence(timeout: 5) {
+        let firstCell = app.collectionViews.cells.firstMatch.exists
+            ? app.collectionViews.cells.firstMatch
+            : app.cells.firstMatch
+        if firstCell.waitForExistence(timeout: 8) {
             firstCell.tap()
             // Let photos/grade panels load before snapping.
             _ = app.navigationBars.firstMatch.waitForExistence(timeout: 5)
@@ -85,12 +89,12 @@ final class ScreenshotUITests: XCTestCase {
 
         // 04 — Money (sales + payouts). First visit triggers the push
         // permission prompt; clear it before snapping.
-        navButton(app, "Money").tap()
+        tapDestination(app, "Money")
         dismissSystemAlertIfPresent()
         snapshot("04_Money")
 
         // 05 — Marketplaces (eBay connection).
-        navButton(app, "Marketplaces").tap()
+        tapDestination(app, "Marketplaces")
         snapshot("05_Marketplaces")
     }
 
@@ -120,16 +124,51 @@ final class ScreenshotUITests: XCTestCase {
         signIn.tap()
     }
 
-    /// Resolves a top-level destination across both layouts: the iPhone
-    /// tab bar and the iPad sidebar (NavigationSplitView renders sidebar
-    /// rows as buttons; fall back to the row's static text).
+    /// Navigates to a top-level destination across both layouts: the iPhone
+    /// tab bar and the iPad NavigationSplitView sidebar. The sidebar can be
+    /// COLLAPSED (the first CI run failed exactly here: only the "Home" nav
+    /// title matched, no sidebar rows existed) — so when the row isn't on
+    /// screen, reveal the sidebar via its toggle and retry.
     @MainActor
-    private func navButton(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+    private func tapDestination(_ app: XCUIApplication, _ label: String) {
         let tab = app.tabBars.buttons[label]
-        if tab.exists { return tab }
-        let button = app.buttons[label].firstMatch
-        if button.exists { return button }
-        return app.staticTexts[label].firstMatch
+        if tab.waitForExistence(timeout: 2) {
+            tab.tap()
+            return
+        }
+
+        for attempt in 0..<2 {
+            // Sidebar rows surface as buttons, cells, or plain static text
+            // depending on the SwiftUI/OS version — probe in that order.
+            let candidates = [
+                app.buttons[label].firstMatch,
+                app.cells.containing(.staticText, identifier: label).firstMatch,
+                app.staticTexts[label].firstMatch,
+            ]
+            for element in candidates where element.waitForExistence(timeout: 2) {
+                if element.isHittable {
+                    element.tap()
+                    return
+                }
+            }
+            if attempt == 0 { revealSidebar(app) }
+        }
+        XCTFail("Could not navigate to \(label) — no tab bar item or sidebar row found.")
+    }
+
+    /// Opens the NavigationSplitView sidebar when it's collapsed (iPad).
+    @MainActor
+    private func revealSidebar(_ app: XCUIApplication) {
+        let toggle = app.buttons["ToggleSidebar"].firstMatch
+        if toggle.exists {
+            toggle.tap()
+        } else {
+            // SwiftUI's toggle is the leading nav-bar button when unlabeled.
+            let leading = app.navigationBars.firstMatch.buttons.firstMatch
+            if leading.exists { leading.tap() }
+        }
+        // Give the sidebar animation a beat before re-probing.
+        _ = app.wait(for: .runningForeground, timeout: 1)
     }
 
     /// Taps through a system permission alert (push notifications) if one
