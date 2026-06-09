@@ -11323,6 +11323,239 @@
       "priority": 770,
       "passes": false,
       "notes": "[EPIC: Digital Slab] DRAFT 2026-06-09 (code-complete; cert-integrity unit tests added but NOT run locally - no deno; branch CI verify:edge is the gate). [P1][Security/Integrity] cert-integrity.ts bumped to v2: canonicalizeCertificate/computeContentHash are version-aware; v2 seals buyer_writeup; verify canonicalizes under the row's STORED integrity_version (legacy v1 rows verify byte-identically - new tests assert this). Only one seal site exists (finalization); any future reseal (US-475) must pass buyer_writeup (comment left at the call). Guards the new certified surface. Extends US-489 (hash all certified claims) + US-475 (reseal on change). Must land with/after US-759."
+    },
+    {
+      "id": "US-771",
+      "title": "Automated Stripe refund for paid-but-ungraded submissions",
+      "description": "As a customer who paid per-grade via Stripe, if my grading fails or the image-quality gate abstains, I need my payment automatically refunded (not stuck behind manual support), so paying never results in silently losing money. Today reverseChargeForUngradedSubmission() in services/edge-functions/src/lib/grading-pipeline.ts:56-86 handles included/credit reversals but on refund_grade returning 'no_refund_paid_stripe' it only console.errors 'issue a Stripe refund manually'.",
+      "acceptanceCriteria": [
+        "When refund_grade returns no_refund_paid_stripe, the pipeline calls stripe.refunds.create for the submission's payment (payment_intent or charge id stored at checkout), with an idempotency key derived from the submission id so retries/double-calls never double-refund",
+        "Refund outcome is persisted on the submission (e.g. refund_id / refunded_at / refund_error columns or a pending_refunds table) — never only a log line",
+        "If the automatic refund FAILS (Stripe error, missing payment ref), a pending_refunds row is written and surfaced in the admin billing UI so an operator can complete it via the existing manual refund endpoint (admin-billing.ts POST /charges/:id/refund); a Sentry/observability event is captured",
+        "Both trigger paths are covered: pipeline failure (grading-pipeline.ts catch -> reverseChargeForUngradedSubmission) and quality-gate abstention (US-332 needs_photos path)",
+        "Idempotent with submissions.refunded_at semantics — calling reverseChargeForUngradedSubmission twice issues at most one refund",
+        "Deno unit tests cover: successful auto-refund, Stripe failure -> pending_refunds fallback, idempotent second call, and credit/included paths unchanged"
+      ],
+      "priority": 771,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Customer-pays-and-gets-nothing path #1. Migration likely needed for refund tracking columns/table. charge.refunded webhook already writes ledger reversals for credit packs — make sure the per-grade refund doesn't double-interact with that handler."
+    },
+    {
+      "id": "US-772",
+      "title": "Stripe webhook dead-letter queue + operator alerting for dropped events",
+      "description": "As an operator, I need permanently-dropped Stripe webhook events (non-transient handler bugs where webhooks.ts:141-164 returns 200 and logs 'DROPPED') captured in a dead-letter store with admin visibility and alerting, so a paid checkout can never vanish with only a container log line as evidence.",
+      "acceptanceCriteria": [
+        "A webhook_dead_letters table (or equivalent) stores provider, event_id, event_type, payload (redacted of PII where feasible), error message, and created_at whenever a webhook event is dropped on the non-transient path",
+        "The dead-letter write happens BEFORE returning 200 to Stripe and never throws (failure to write falls back to the existing log + Sentry capture)",
+        "A Sentry/observability event is always captured on drop (verify captureServer fires on this path; don't rely on console.error alone)",
+        "Admin UI (or admin API endpoint) lists dead-lettered events with payload detail and a 'mark resolved' action; replaying/reprocessing manually is documented even if not one-click",
+        "Transient-error behavior (release claim, return 500 so Stripe retries) is unchanged and still tested",
+        "Deno tests cover: code-bug drop writes dead letter + returns 200; transient error returns 500 without dead letter; dead-letter write failure still returns 200"
+      ],
+      "priority": 772,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Customer-pays-and-gets-nothing path #2. Existing handler already distinguishes transient vs code-bug (good) — this story only adds durable capture + surfacing, not new retry semantics."
+    },
+    {
+      "id": "US-773",
+      "title": "Sweep abandoned-checkout submissions + server-side pay retry",
+      "description": "As a user who started a per-grade checkout and closed the tab, my submission must not sit in status='pending'/payment_status='unpaid' forever, and when I DO complete checkout, grading must kick off even if the browser redirect (?pay_retry=1 in new-submission.tsx) is lost. Today lib/stuck-submissions.ts only sweeps status='processing'.",
+      "acceptanceCriteria": [
+        "The stuck-submissions reaper also handles submissions stuck at status='pending' AND payment_status='unpaid' older than a threshold (e.g. 24h): mark them expired/abandoned (new status or archived flag) so they don't pollute the user's list, with no charge attempted",
+        "The Stripe checkout.session.completed webhook for per-grade payments triggers the grading pipeline server-side (payment precedence re-run / kickPipeline) so grading starts even if the user never returns to the app — the ?pay_retry=1 client redirect becomes a UX nicety, not the mechanism",
+        "Webhook-triggered kick is idempotent with the client-side /api/grade/pay/:id retry (double-trigger results in one pipeline run, guarded by status transition)",
+        "Expired submissions are clearly shown in the UI (e.g. 'payment not completed — resubmit') rather than disappearing silently",
+        "Deno tests: pending sweep marks only unpaid+old rows; webhook kick starts pipeline once; double-kick is a no-op"
+      ],
+      "priority": 773,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Closes the stuck-pending gap and removes dependence on the browser redirect for paid grading to start. Check webhooks.ts paid_stripe handling (~line 758) — the status update exists; the pipeline kick may be the missing piece."
+    },
+    {
+      "id": "US-774",
+      "title": "E2E critical-path test: signup → submit → grade → certificate",
+      "description": "As the team, we need one Playwright end-to-end test covering the core product loop — account creation, garment submission with photos, a (mocked) AI grade, and the resulting certificate page — so the money path can't silently break. Current e2e suite (e2e/*.spec.ts, ~17 tests) covers auth/billing-entry/cert-view/smoke only.",
+      "acceptanceCriteria": [
+        "A new Playwright spec drives: signup (or seeded login) → new submission with fixture images → submission reaches completed → grade report visible → public certificate page renders the grade",
+        "The Anthropic call is mocked/stubbed at a clean seam (network intercept, test-mode env flag in the edge service, or seeded grade) — no real AI spend in CI; document the seam chosen",
+        "Payment is exercised via the free/included path or a Stripe test-mode/mocked precedence result — the test asserts a submission cannot double-charge on double-submit (double-click the submit button)",
+        "Runs in CI alongside the existing e2e job within a reasonable time budget and is not flaky (retries configured like existing specs)",
+        "Failures upload the Playwright report artifact like existing specs"
+      ],
+      "priority": 774,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Testing] The single highest-leverage test in the repo. May require a small test-support endpoint or env flag in the edge service to stub grading — keep it gated so it cannot be enabled in production (assert isProduction() blocks it)."
+    },
+    {
+      "id": "US-775",
+      "title": "Admin low-confidence human-review queue",
+      "description": "As an admin reviewer, I need a dedicated queue of grades flagged for human review (confidence < 0.75 / needs_human_review, set in grading-pipeline.ts:288) with approve/adjust actions, so flagged grades stop dead-ending. Today only admin/moderation.tsx exists and reviewers would have to search manually.",
+      "acceptanceCriteria": [
+        "Admin API endpoint lists grade reports needing human review (flag + not yet reviewed), oldest first, with submission images (signed URLs, TTL ≤ 900s), per-factor scores, confidence, and AI reasoning/tells visible to the reviewer",
+        "Reviewer actions: approve as-is, adjust grade (records original AI grade + reviewer + timestamp for the self-improvement dataset per migration 00050 patterns), or send back to needs_photos",
+        "Approving/adjusting clears the review flag and (re)finalizes the certificate, resealing the integrity hash if certified fields changed (US-475/US-770 reseal path)",
+        "Admin UI page under /dashboard/admin (or existing admin section) shows the queue with count badge in admin nav; empty state when clear",
+        "All endpoints are admin-MFA-gated like other /api/admin/* routes and tenant rules don't leak other data",
+        "Queue age (oldest unreviewed item) is exposed so ops can alert on SLA breach later",
+        "Tests cover: list filtering, approve clears flag, adjust records original grade, non-admin blocked"
+      ],
+      "priority": 775,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Grading] Completes the human-review loop the pipeline already routes into. Feeds the grading self-improvement dataset (reviewer corrections are training signal)."
+    },
+    {
+      "id": "US-776",
+      "title": "Notify users on silent plan downgrades and past-due cap drops",
+      "description": "As a subscriber whose plan was demoted — unmappable Stripe price fails closed to 'free' (webhooks.ts:283-295) or past-due grace period expired (grade-pricing.ts:92-104) — I need to be told what happened and how to fix it, instead of silently losing caps mid-cycle.",
+      "acceptanceCriteria": [
+        "When the webhook demotes a user due to an unmappable price, a transactional email is sent (existing email infra + retry queue) and an in-app notification/banner is queued explaining the plan change and linking to billing",
+        "When effective plan drops due to past_due beyond grace, the dashboard/billing page shows a persistent banner ('payment failed — your plan benefits are paused') with an update-payment-method CTA, driven by subscription_status already on the user row",
+        "Email sending failures flow through the existing email retry mechanism, not fire-and-forget",
+        "Sentry alert on the unmappable-price path remains (ops still needs to fix the price metadata)",
+        "Tests: demotion writes notification + email enqueue; past-due banner renders from subscription_status fixture; recovered subscription clears the banner"
+      ],
+      "priority": 776,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Payments/UX] Fail-closed behavior is correct and stays — this adds the missing user communication on both downgrade paths."
+    },
+    {
+      "id": "US-777",
+      "title": "Edge service boot-time env validation + feature-aware readiness",
+      "description": "As an operator, I need the edge service to fail loudly at boot when required env vars are missing (today only admin-MFA config is asserted; Stripe/eBay/cron secrets fail at request time), and /health/ready to report per-feature env status, so a misconfigured deploy can't pass health checks while payments or eBay are broken.",
+      "acceptanceCriteria": [
+        "assertRequiredEnv() runs in main.ts before Deno.serve, hard-failing on missing core vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY; in production it also requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, FLIPDESK_INTERNAL_JOB_SECRET, EDGE_ENCRYPTION_KEY, CERT_SIGNING_KEY, API_KEY_PEPPER (audit exact list against Deno.env.get usage)",
+        "Feature-scoped vars (EBAY_*, Stripe price IDs, SMTP_*, GOOGLE_*) are validated as named feature groups: missing group logs a prominent startup warning and flips that feature's readiness flag rather than crashing",
+        "/health/ready reports per-feature status (e.g. { core: ok, stripe: ok, ebay: missing EBAY_VERIFICATION_TOKEN }) while keeping the overall ready boolean for Coolify/Traefik",
+        "Dev/test environments stay permissive (no new friction for local runs and deno test)",
+        "services/edge-functions/.env.example is synced to the full validated list including SENTRY_DSN and MONITOR_ALERT_EMAIL",
+        "Tests: missing core var crashes in prod mode; missing feature var degrades readiness without crashing; dev mode boots with minimal vars"
+      ],
+      "priority": 777,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops] Follows the assertAdminMfaConfig pattern already in main.ts (~line 480). Readiness probe today checks only 3 vars (health.ts:22-30)."
+    },
+    {
+      "id": "US-778",
+      "title": "Schema-version assertion at edge service boot",
+      "description": "As an operator running self-hosted Supabase with manually-applied migrations, I need the edge service to verify at boot that the database schema is at the migration version the code expects, so code/schema drift (the documented root cause of past /verified/* and /flipdesk/pricing/* 500s, see MIGRATIONS.md) crashes loudly at deploy time instead of failing mid-request.",
+      "acceptanceCriteria": [
+        "An EXPECTED_SCHEMA_VERSION constant (latest migration number/name) lives in the edge service and is asserted at boot against the migrations table (supabase_migrations.schema_migrations or equivalent on the self-hosted instance — verify actual table)",
+        "On mismatch in production the service logs a clear error naming expected vs actual and exits non-zero (Coolify restart loop makes the failure visible); in dev it warns only",
+        "If the migrations table is unreadable (permissions/transient), the check logs a warning and does NOT block boot (fail-open on read errors, fail-closed on confirmed mismatch)",
+        "MIGRATIONS.md documents the new rule: bumping a migration requires bumping EXPECTED_SCHEMA_VERSION in the same commit; a CI check (verify:edge or a test) enforces the constant matches the highest file in supabase/migrations/",
+        "Tests cover: match passes, mismatch fails (prod mode), unreadable table warns"
+      ],
+      "priority": 778,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops] MIGRATIONS.md already lists this as a TODO. The CI sync-check (constant vs migrations dir) is the piece that keeps it from going stale."
+    },
+    {
+      "id": "US-779",
+      "title": "Production launch checklist + env/config documentation sync",
+      "description": "As the team, we need a single LAUNCH_CHECKLIST.md capturing every manual production-config and ops-verification step found in the readiness audit — unset env vars (edge SENTRY_DSN, POSTHOG_KEY/VITE_POSTHOG_KEY, MONITOR_ALERT_EMAIL, VITE_GOOGLE_SITE_VERIFICATION/VITE_BING_SITE_VERIFICATION, all 14 Stripe price IDs, CERT_SIGNING_KEY, API_KEY_PEPPER, CF_ORIGIN_SECRET), the backup restore drill, and per-cron verification — so launch isn't gated on tribal knowledge.",
+      "acceptanceCriteria": [
+        "LAUNCH_CHECKLIST.md at repo root lists every item with: where it's set (Cloudflare Pages env / Coolify env / Stripe dashboard), how to verify it's working (concrete command or observable), and a checkbox + date/initials column",
+        "Includes the backup restore drill procedure (referencing BACKUPS.md) with the empty drill-log table moved/linked so completing the drill has a place to be recorded",
+        "Includes all 13 Coolify scheduled tasks from COOLIFY.md with a 'Run Now verified' checkbox each and the expected success output for each",
+        "Includes post-deploy smoke verification steps (health/ready green incl. feature flags from US-777, one test Stripe webhook via stripe trigger, cert page loads, sitemap/robots respond)",
+        ".env.example (frontend) and services/edge-functions/.env.example are audited against actual import.meta.env/Deno.env.get usage and updated to include every var with a one-line comment (notably SENTRY_DSN and the SEO verification vars currently missing)",
+        "CLAUDE.md gets a one-line pointer to LAUNCH_CHECKLIST.md"
+      ],
+      "priority": 779,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops/Docs] Mostly documentation + .env.example sync; the human performs the dashboard steps. Highest risk-reduction-per-hour item — several audit blockers (restore drill, cron verification, missing DSNs) are checklist items, not code."
+    },
+    {
+      "id": "US-780",
+      "title": "Deploy runbook + deployment order automation",
+      "description": "As the team, we need the production deploy process documented and (where possible) automated — today CI validates but nothing deploys; Cloudflare Pages and the Coolify edge service are pushed manually with no documented ordering, risking frontend/edge/schema version skew.",
+      "acceptanceCriteria": [
+        "DEPLOY.md documents the canonical order — 1) apply DB migrations to prod, 2) deploy edge service (Coolify), 3) deploy frontend (Cloudflare Pages) — with the why (schema assertion from US-778, API compatibility) and rollback steps for each layer",
+        "Cloudflare Pages git integration is documented (which branch auto-deploys, build command, env vars) or a .github/workflows/deploy-frontend.yml is added if Pages isn't on git auto-deploy — pick one and document the decision",
+        "Coolify deploy trigger is documented (auto-deploy on push webhook vs manual), including how scheduled tasks survive a redeploy",
+        "A post-deploy verification section links the smoke steps from US-779",
+        "CLAUDE.md links DEPLOY.md from the deployment-related section"
+      ],
+      "priority": 780,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops/Docs] If Cloudflare Pages is already on git auto-deploy from main, this is mostly documentation — verify before building a workflow. Keep secrets out of any workflow file."
+    },
+    {
+      "id": "US-781",
+      "title": "Rate-limit unauthenticated public content endpoints",
+      "description": "As the platform, I need IP-based rate limiting on /api/content/public/* (certificate lookup/verify, seller pages, blog) — the only unauthenticated route mount with no limiter (main.ts:435) — to prevent cert-ID enumeration sweeps and unauthenticated traffic from consuming compute.",
+      "acceptanceCriteria": [
+        "The existing distributed rateLimiter middleware is applied to /api/content/public/* keyed by CF-Connecting-IP, with a budget generous enough for legitimate cert sharing/scanning spikes (e.g. 60/min per IP — document the chosen number)",
+        "Configured fail-closed like other unauthenticated routes per the established pattern (webhooks are fail-closed; confirm the right posture vs blog SSR traffic and document)",
+        "429 responses include Retry-After; the cert page and blog SSR (functions/) degrade gracefully on 429 (retry or friendly message, not a broken page)",
+        "Cloudflare Pages Functions that proxy these endpoints (blog SSR, cert SSR if present) are accounted for — server-to-server calls from Pages must not be starved by per-IP limits (use CF_ORIGIN_SECRET header bypass or a separate higher bucket; document the choice)",
+        "Tests: over-limit returns 429, under-limit passes, Pages-origin bypass works if implemented"
+      ],
+      "priority": 781,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Security] Only unauthenticated-and-unlimited mount found in the security audit. Cert IDs are UUIDs (non-enumerable) so this is defense-in-depth + cost control, not a data-leak fix. The Pages-SSR-origin interaction is the subtle part."
+    },
+    {
+      "id": "US-782",
+      "title": "Fix payment-precedence CAS race fallback + tests",
+      "description": "As a user on a plan with included grades, a concurrent-submission race must never charge me when an included grade should apply: in lib/grade-billing.ts:133-162, when the optimistic CAS on grades_used_this_month fails, code falls through to credits/checkout without re-reading fresh usage — a user double-submitting at the cap boundary can be charged incorrectly.",
+      "acceptanceCriteria": [
+        "On CAS conflict, the precedence re-reads fresh usage and retries the included-grade claim (bounded retries, e.g. 3) before falling back to credits/checkout",
+        "The retry loop cannot double-consume included grades (each retry is itself a CAS) and cannot livelock (bounded with deterministic fallback)",
+        "Deno unit tests simulate CAS conflict: (a) retry succeeds and uses included grade, (b) retries exhausted at true cap falls back to credits, (c) concurrent batch submissions consume exactly the remaining included count",
+        "Behavior for batch/bulk submissions (multiple grades in one precedence run) is covered or explicitly documented as sequential"
+      ],
+      "priority": 782,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Payments] Small fix, meaningful correctness. Consider whether a Postgres function doing claim-or-report-atomically is cleaner than client-side retries — either approach passes, but the tests are mandatory."
+    },
+    {
+      "id": "US-783",
+      "title": "eBay publish atomicity + proactive token refresh job",
+      "description": "As a FlipDesk seller, (1) a publish that succeeds on eBay but fails the local DB write must not surface as a bare 500 with an untracked live listing, and (2) my eBay connection should refresh tokens proactively in the background (18h expiry today is refreshed only reactively per-call in flipdesk-ebay.ts).",
+      "acceptanceCriteria": [
+        "Publish flow: after a successful eBay publish, a DB-write failure is caught — the handler retries the local write, and on persistent failure records a reconciliation marker (or queues it) and returns a 200-level response telling the user the listing IS live and will sync shortly (never a raw 500 for an eBay-side success)",
+        "The existing reconcile path picks up the orphaned listing and the marker is cleared on sync; test covers orphan -> reconciled",
+        "A scheduled job (Coolify cron hitting an internal endpoint, following the existing cron pattern with FLIPDESK_INTERNAL_JOB_SECRET) refreshes eBay access tokens for active connections nearing expiry, using the existing refreshAccessToken + AES-GCM storage",
+        "Refresh failures mark the connection as needing re-auth and surface in the marketplaces UI (existing connection-status surface) rather than failing silently",
+        "Cron endpoint documented in COOLIFY.md scheduled-tasks table",
+        "Tests: publish DB-failure path returns success-with-sync-pending; token refresh updates expiry; refresh failure flags connection"
+      ],
+      "priority": 783,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][FlipDesk] Two related resilience gaps in the eBay integration. Reuse the existing cron auth pattern; remember getOrders/getTransactions date limits gotcha doesn't apply here."
+    },
+    {
+      "id": "US-784",
+      "title": "Error-response and logging hygiene hardening",
+      "description": "As the platform, error output must never leak internals: api-v1.ts echoes up to 500 chars of raw third-party error text to API clients (lines ~288, 308, 331), several catch blocks log raw error objects instead of redactError(), and docker-compose.coolify.yml's Traefik CORS label still includes http://localhost:5173 in production.",
+      "acceptanceCriteria": [
+        "api-v1.ts image-processing error responses return a stable generic envelope (error code + 'Image processing failed…' message); raw upstream text goes only to redacted server logs",
+        "All catch blocks in services/edge-functions/src that log caught errors route through redactError() (sweep console.error/console.warn call sites passing err directly); a lint rule or grep-based test guards regressions where practical",
+        "http://localhost:5173 is removed from the Traefik accesscontrolalloworiginlist label in docker-compose.coolify.yml (app-level CORS in main.ts already drops localhost in prod and is unchanged)",
+        "Frontend: console.error/console.warn in src/ that fire in production paths are routed to Sentry capture (already integrated) and/or gated behind import.meta.env.DEV — sweep error-boundary.tsx, admin pages, photo-uploader, autolister, import",
+        "No behavior changes to what users see beyond friendlier error text; existing tests still pass and new tests assert the generic envelope"
+      ],
+      "priority": 784,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Security/Polish] Bundles the small hygiene findings from edge + frontend + compose into one sweep-style story."
+    },
+    {
+      "id": "US-785",
+      "title": "Launch-visible frontend polish: flags, dead buttons, silent failures",
+      "description": "As a launch-day user, I shouldn't see stale hardcoded dates, dead 'coming soon' buttons, or actions that silently fail: LAUNCH_DATE is hardcoded in signup.tsx:16, listing-kit.tsx:297 ships a disabled 'Send to extension' button, the welcome email is fire-and-forget with .catch(()=>{}) (signup.tsx:51), dispute-status notifications fail silently (admin/disputes.tsx:76-93), and admin audit-log writes fail with only a console.error (admin/user-detail.tsx:119).",
+      "acceptanceCriteria": [
+        "LAUNCH_DATE-driven pre-launch banner moves to an env var (VITE_LAUNCH_DATE) or constants.ts flag with a clear expiry behavior — after the date the banner self-disables with no deploy needed; stale-date risk documented at the definition",
+        "The 'Send to extension' button is hidden entirely until the extension ships (US-716) — no disabled dead control in the listing kit",
+        "Welcome-email failure on signup is captured to Sentry (still non-blocking for the user)",
+        "Dispute status-change notification failures show the admin a toast ('status updated, but user notification failed') and capture to Sentry",
+        "Admin audit-log write failures surface a toast to the admin and capture to Sentry (action still completes; visibility is the fix)",
+        "Error-boundary logo <img> gets an onError text fallback so the error page can't show a broken image",
+        "Existing tests pass; add small tests where the components already have test files"
+      ],
+      "priority": 785,
+      "passes": false,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][UX/Polish] Bundles the small launch-visible frontend findings into one pass. All items are independent — partial completion should split remainder into a follow-up note, not block."
     }
   ]
 }
