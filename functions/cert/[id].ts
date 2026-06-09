@@ -26,6 +26,7 @@ interface PublicCertificate {
   brand: string | null;
   garment_type: string | null;
   garment_category: string | null;
+  description: string | null;
   overall_score: number;
   grade_tier: string;
   fabric_condition_score: number;
@@ -34,6 +35,7 @@ interface PublicCertificate {
   functional_elements_score: number;
   odor_cleanliness_score: number;
   ai_summary: string;
+  buyer_writeup: string | null;
   created_at: string;
   hero_image_url: string | null;
 }
@@ -91,6 +93,24 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
   const gradedOn = formatDate(cert.created_at);
 
+  // US-760: "About this item" — the structured facts a buyer wants. Only rows
+  // with a value are emitted (graceful omission).
+  const aboutRows = [
+    ["Brand", cert.brand],
+    ["Type", formatLabel(cert.garment_type)],
+    ["Category", formatLabel(cert.garment_category)],
+  ]
+    .filter(([, v]) => !!v)
+    .map(
+      ([k, v]) =>
+        `<tr><td style="color:var(--muted)">${k}</td><td style="font-weight:600">${escape(v as string)}</td></tr>`,
+    )
+    .join("");
+  const aboutHtml =
+    aboutRows || cert.description
+      ? `<h2>About this item</h2>${aboutRows ? `<table><tbody>${aboutRows}</tbody></table>` : ""}${cert.description ? `<p>${escape(cert.description)}</p>` : ""}`
+      : "";
+
   const bodyHtml = `<main class="container">
   <p style="color:var(--muted);margin-bottom:8px">Verified Grade Certificate</p>
   <h1>${escape(cert.title)}${cert.brand ? ` <span style="color:var(--muted)">— ${escape(cert.brand)}</span>` : ""}</h1>
@@ -99,10 +119,11 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     <div><div style="font-weight:600">${escape(cert.grade_tier)}</div><div style="color:var(--muted);font-size:0.9rem">Overall Condition Grade · out of 10</div></div>
   </div>
   ${heroHtml}
+  ${aboutHtml}
   <h2>Factor Breakdown</h2>
   <table><tbody>${factorsHtml}</tbody></table>
-  <h2>AI Analysis Summary</h2>
-  <p style="white-space:pre-wrap">${escape(cert.ai_summary)}</p>
+  <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
+  <p style="white-space:pre-wrap">${escape(cert.buyer_writeup || cert.ai_summary)}</p>
   <p style="color:var(--muted);font-size:0.85rem;margin-top:24px">Graded on ${escape(gradedOn)} · Certificate ID <code>${escape(cert.id)}</code></p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
 </main>`;
@@ -165,6 +186,15 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     },
   );
 };
+
+// "outerwear" / "very_good" → "Outerwear" / "Very Good". Null-safe.
+function formatLabel(value: string | null): string | null {
+  if (!value) return null;
+  return value
+    .split(/[-_]/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 function formatDate(iso: string): string {
   try {

@@ -150,3 +150,66 @@ Deno.test("missing stored hash → unverifiable (legacy grade)", async () => {
   assertEquals(res.status, "unverifiable");
   assertEquals(res.verified, false);
 });
+
+// ── US-770: version-aware canonicalization + buyer_writeup sealing ──────────
+
+Deno.test("v1 canonicalization is byte-stable and ignores buyer_writeup", () => {
+  // The original (v1) scheme never carried buyer_writeup, so adding one must not
+  // change the v1 canonical string — that's what keeps legacy certs verifying.
+  const withWriteup: CertIntegrityFields = {
+    ...BASE,
+    buyer_writeup: "A longer buyer-facing condition report.",
+  };
+  assertEquals(
+    canonicalizeCertificate(BASE, 1),
+    canonicalizeCertificate(withWriteup, 1),
+  );
+  // And the v1 string must NOT mention buyer_writeup or v:2.
+  const v1 = canonicalizeCertificate(BASE, 1);
+  assert(!v1.includes("buyer_writeup"));
+  assert(v1.includes('"v":1'));
+});
+
+Deno.test("legacy v1 row still verifies after the version bump to v2", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  // Simulate a row sealed under v1 (hash computed with the v1 field set).
+  const v1Hash = await computeContentHash(BASE, 1);
+  const res = await verifyCertIntegrity(BASE, v1Hash, null, 1);
+  assertEquals(res.status, "verified");
+  assertEquals(res.verified, true);
+});
+
+Deno.test("v2 seals buyer_writeup: tampering it is detected", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  const fields: CertIntegrityFields = {
+    ...BASE,
+    buyer_writeup: "Authentic 1990s wool overcoat; minor cuff wear; grade reflects light age.",
+  };
+  const { content_hash, integrity_version } = await buildCertIntegrity(fields);
+  assertEquals(integrity_version, CERT_INTEGRITY_VERSION); // 2
+
+  // Same write-up → verified.
+  const ok = await verifyCertIntegrity(fields, content_hash, null, integrity_version);
+  assertEquals(ok.status, "verified");
+
+  // Altered write-up, same stored hash → mismatch.
+  const bad = await verifyCertIntegrity(
+    { ...fields, buyer_writeup: "Pristine designer coat, no flaws." },
+    content_hash,
+    null,
+    integrity_version,
+  );
+  assertEquals(bad.status, "mismatch");
+  assertEquals(bad.verified, false);
+});
+
+Deno.test("a v2 row with no write-up still verifies (buyer_writeup defaults to empty)", async () => {
+  _resetSigningKeyCacheForTest();
+  Deno.env.delete("CERT_SIGNING_KEY");
+  // BASE has no buyer_writeup; under v2 it's sealed as "".
+  const { content_hash, integrity_version } = await buildCertIntegrity(BASE);
+  const ok = await verifyCertIntegrity(BASE, content_hash, null, integrity_version);
+  assertEquals(ok.status, "verified");
+});

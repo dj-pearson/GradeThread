@@ -22,7 +22,10 @@
 
 // Bump when the canonical field set or normalization changes. Stored per-row so
 // a future scheme can verify old rows under their original rules.
-export const CERT_INTEGRITY_VERSION = 1;
+// v1 (US-333): scores + tier + ai_summary + certificate_id.
+// v2 (US-770): additionally seals buyer_writeup (the buyer-facing certified
+//   condition report, US-759). Old v1 rows still verify under version 1.
+export const CERT_INTEGRITY_VERSION = 2;
 
 const SIGNING_KEY_ENV = "CERT_SIGNING_KEY";
 
@@ -36,6 +39,9 @@ export interface CertIntegrityFields {
   functional_elements_score: number | string;
   odor_cleanliness_score: number | string;
   ai_summary: string;
+  // US-759/US-770: the longer buyer-facing write-up. Sealed from v2 onward;
+  // absent/ignored when canonicalizing under version 1.
+  buyer_writeup?: string | null;
 }
 
 export interface CertIntegrity {
@@ -69,10 +75,17 @@ function score1(v: number | string): string {
 }
 
 // Deterministic, serialization-stable canonical string for the certificate.
-// Keys are emitted in a fixed sorted order; scores are normalized; the AI
-// summary is Unicode-normalized (NFC) so visually-identical text hashes alike.
-export function canonicalizeCertificate(f: CertIntegrityFields): string {
-  const obj = {
+// Keys are emitted in a fixed sorted order; scores are normalized; text is
+// Unicode-normalized (NFC) so visually-identical text hashes alike.
+//
+// `version` selects the canonical field set so old rows verify under their
+// ORIGINAL rules: v1 omits buyer_writeup entirely (and emits `v:1`), producing
+// byte-identical output to the original scheme; v2+ also seals buyer_writeup.
+export function canonicalizeCertificate(
+  f: CertIntegrityFields,
+  version: number = CERT_INTEGRITY_VERSION,
+): string {
+  const obj: Record<string, unknown> = {
     ai_summary: (f.ai_summary ?? "").normalize("NFC"),
     certificate_id: String(f.certificate_id),
     cosmetic_appearance_score: score1(f.cosmetic_appearance_score),
@@ -82,8 +95,13 @@ export function canonicalizeCertificate(f: CertIntegrityFields): string {
     odor_cleanliness_score: score1(f.odor_cleanliness_score),
     overall_score: score1(f.overall_score),
     structural_integrity_score: score1(f.structural_integrity_score),
-    v: CERT_INTEGRITY_VERSION,
+    v: version,
   };
+  // US-770: v2+ seals the buyer-facing certified write-up. v1 rows never carry
+  // this key, so they keep hashing exactly as they did before the bump.
+  if (version >= 2) {
+    obj.buyer_writeup = (f.buyer_writeup ?? "").normalize("NFC");
+  }
   // Pass the sorted key list as the replacer so output order is fixed
   // regardless of insertion order.
   const keys = Object.keys(obj).sort();
@@ -115,9 +133,14 @@ export async function sha256Hex(input: string): Promise<string> {
   return toHex(digest);
 }
 
-// Stable SHA-256 of the canonical certificate.
-export function computeContentHash(f: CertIntegrityFields): Promise<string> {
-  return sha256Hex(canonicalizeCertificate(f));
+// Stable SHA-256 of the canonical certificate. `version` controls the field
+// set (see canonicalizeCertificate) — defaults to the current scheme for the
+// write path; the verify path passes the row's stored integrity_version.
+export function computeContentHash(
+  f: CertIntegrityFields,
+  version: number = CERT_INTEGRITY_VERSION,
+): Promise<string> {
+  return sha256Hex(canonicalizeCertificate(f, version));
 }
 
 let signingKey: CryptoKey | null | undefined;
@@ -214,9 +237,14 @@ export async function verifyCertIntegrity(
     };
   }
 
+  // Verify under the row's ORIGINAL scheme. A stored hash with no version is a
+  // pre-versioning (v1) row, so default to 1 — never to the current constant,
+  // which would break every legacy certificate after a version bump.
+  const verifyVersion = integrityVersion ?? 1;
+
   let recomputed: string;
   try {
-    recomputed = await computeContentHash(f);
+    recomputed = await computeContentHash(f, verifyVersion);
   } catch {
     return {
       status: "unverifiable",

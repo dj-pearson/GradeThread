@@ -412,6 +412,9 @@ export interface GradeReportRow {
   functional_elements_score: number;
   odor_cleanliness_score: number;
   ai_summary: string;
+  // US-759: longer buyer-facing certified condition report. Null for grades
+  // finalized before the write-up existed (the UI falls back to ai_summary).
+  buyer_writeup: string | null;
   detailed_notes: Record<string, string> | null;
   // Intentional design features the AI recognized (distressing, raw hems, …).
   // These did NOT lower the grade — condition is graded vs. as-manufactured state.
@@ -462,6 +465,9 @@ export interface PublicGradeReportRow {
   functional_elements_score: number;
   odor_cleanliness_score: number;
   ai_summary: string;
+  // US-759: longer buyer-facing certified condition report (null on older
+  // certificates; the cert page falls back to ai_summary).
+  buyer_writeup: string | null;
   model_version: string;
   human_reviewed: boolean;
   defects_found: DefectFound[];

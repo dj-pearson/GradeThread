@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Shield,
@@ -12,6 +12,7 @@ import {
   Gauge,
   UserCheck,
   Info,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,9 +25,13 @@ import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
+import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
+import { ImageLightbox } from "@/components/certificate/image-lightbox";
+import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CopyField } from "@/components/verified/copy-field";
 import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
+import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { Button } from "@/components/ui/button";
 import type {
@@ -209,6 +214,7 @@ function CertificateLoadingSkeleton() {
 
 export function CertificatePage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const [gradeReport, setGradeReport] = useState<PublicGradeReportRow | null>(null);
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
@@ -216,6 +222,7 @@ export function CertificatePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const certificateUrl =
     typeof window !== "undefined"
@@ -245,6 +252,19 @@ export function CertificatePage() {
   useEffect(() => {
     void runVerify();
   }, [runVerify]);
+
+  // US-769: attribute the view once the certificate resolves. `?s=` lets us
+  // tell a QR scan (slab, s=qr) from a shared link (s=share) or a direct visit
+  // — no buyer PII, and consent-gated by track() so it's a no-op until opt-in.
+  useEffect(() => {
+    if (!gradeReport || !id) return;
+    track("cert_view", {
+      certificate_id: id,
+      source: searchParams.get("s") ?? "direct",
+    });
+    // Fire once per resolved certificate, not on every searchParams identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gradeReport?.id, id]);
 
   useEffect(() => {
     if (!id) return;
@@ -407,8 +427,9 @@ export function CertificatePage() {
           ]),
         ]}
       />
-      {/* Header with branding */}
-      <div className="bg-brand-navy py-6 text-white">
+      {/* Header with branding (hidden when printing — replaced by a clean
+          print-only title below). */}
+      <div className="bg-brand-navy py-6 text-white print:hidden">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 px-6">
           <div className="flex items-center gap-3">
             <img
@@ -426,8 +447,26 @@ export function CertificatePage() {
         </div>
       </div>
 
+      {/* Print-only header (US-767): keeps GradeThread branding on the PDF
+          without the dark banner that doesn't render on white paper. */}
+      <div className="mx-auto hidden max-w-3xl px-6 pt-6 print:block">
+        <p className="text-xl font-bold text-brand-navy">GradeThread</p>
+        <p className="text-sm text-muted-foreground">
+          Verified Grade Certificate
+        </p>
+      </div>
+
       {/* Main content */}
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+        {/* Share / save actions (US-767) — interactive, so dropped on print. */}
+        <div className="flex justify-end print:hidden">
+          <CertShareActions
+            certificateId={id ?? ""}
+            title={submission?.title ?? "Graded garment"}
+            score={gradeReport.overall_score}
+            tier={gradeReport.grade_tier}
+          />
+        </div>
         {/* Overall Score */}
         <Card>
           <CardContent className="pt-6">
@@ -476,7 +515,8 @@ export function CertificatePage() {
           </CardContent>
         </Card>
 
-        {/* Photo Gallery */}
+        {/* Photo Gallery — the evidence behind the grade. Tap a photo to open
+            the full-screen viewer (US-761): zoom, step through, download. */}
         {images.length > 0 && (
           <Card>
             <CardHeader>
@@ -484,21 +524,28 @@ export function CertificatePage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {images.map((img) => (
+                {images.map((img, i) => (
                   <div key={img.id} className="space-y-1.5">
-                    <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
-                      {imageUrls[img.id] ? (
+                    {imageUrls[img.id] ? (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxIndex(i)}
+                        className="block aspect-square w-full overflow-hidden rounded-lg border bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label={`View ${formatLabel(img.image_type)} photo full screen`}
+                      >
                         <img
                           src={imageUrls[img.id]}
                           alt={`${img.image_type} photo`}
                           className="h-full w-full object-cover"
                         />
-                      ) : (
+                      </button>
+                    ) : (
+                      <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
                         <div className="flex h-full w-full items-center justify-center">
                           <Skeleton className="h-full w-full" />
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     <Badge variant="outline" className="text-xs">
                       {formatLabel(img.image_type)}
                     </Badge>
@@ -508,6 +555,68 @@ export function CertificatePage() {
             </CardContent>
           </Card>
         )}
+
+        {/* US-761: full-screen photo viewer, opened from the gallery above. */}
+        {lightboxIndex !== null && (
+          <ImageLightbox
+            // Same index space as the gallery grid above (no filtering) so the
+            // clicked thumbnail's index always maps to the right photo.
+            images={images.map((img) => ({
+              id: img.id,
+              src: imageUrls[img.id] ?? "",
+              caption: formatLabel(img.image_type),
+            }))}
+            index={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+            onNavigate={setLightboxIndex}
+          />
+        )}
+
+        {/* About this item (US-760) — the structured facts a buyer wants,
+            alongside the seller's own description. Rows with no value are
+            omitted so the panel never shows empty fields. */}
+        {submission &&
+          (submission.brand ||
+            submission.garment_type ||
+            submission.garment_category ||
+            submission.description) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">About this item</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+                  {submission.brand && (
+                    <div>
+                      <dt className="text-muted-foreground">Brand</dt>
+                      <dd className="font-medium">{submission.brand}</dd>
+                    </div>
+                  )}
+                  {submission.garment_type && (
+                    <div>
+                      <dt className="text-muted-foreground">Type</dt>
+                      <dd className="font-medium">
+                        {formatLabel(submission.garment_type)}
+                      </dd>
+                    </div>
+                  )}
+                  {submission.garment_category && (
+                    <div>
+                      <dt className="text-muted-foreground">Category</dt>
+                      <dd className="font-medium">
+                        {formatLabel(submission.garment_category)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {submission.description && (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    {submission.description}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
         {/* Factor Breakdown */}
         <Card>
@@ -542,14 +651,17 @@ export function CertificatePage() {
           </CardContent>
         </Card>
 
-        {/* AI Summary */}
+        {/* Condition report (US-759) — the longer buyer-facing write-up when
+            present, else the short AI summary. */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">AI Analysis Summary</CardTitle>
+            <CardTitle className="text-base">
+              {gradeReport.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="whitespace-pre-wrap text-sm leading-relaxed">
-              {gradeReport.ai_summary}
+              {gradeReport.buyer_writeup || gradeReport.ai_summary}
             </p>
           </CardContent>
         </Card>
@@ -721,11 +833,34 @@ export function CertificatePage() {
             </Card>
           )}
 
+        {/* Graded photo (US-765) — the PSA-style certified image: the garment
+            photo with the grade + scannable QR burned in. The seller's
+            highest-leverage share asset; the slab is public so anyone viewing
+            the certificate can grab it. */}
+        {id && (
+          <Card className="print:hidden">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ImageIcon className="h-5 w-5 text-brand-navy" />
+                Graded photo
+              </CardTitle>
+              <CardDescription>
+                Download this item&apos;s certified photo — the grade and a
+                scannable code are burned in, so buyers can verify it from any
+                marketplace listing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <GradedPhotoPanel certificateId={id} />
+            </CardContent>
+          </Card>
+        )}
+
         {/* Embed this badge in your listing — the viral surface of
             GradeThread Verified. Buyers see a standardized, verifiable grade
             right inside the marketplace listing and click through to here. */}
         {id && (
-          <Card>
+          <Card className="print:hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BadgeCheck className="h-5 w-5 text-brand-navy" />
