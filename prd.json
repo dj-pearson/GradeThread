@@ -5967,8 +5967,8 @@
         "A fixture test with a real eBay-signed sample passes"
       ],
       "priority": 365,
-      "passes": false,
-      "notes": "[P3][Security] Audit 2026-06-03. File: services/edge-functions/src/routes/flipdesk-webhooks.ts:103-132 (verifyEbayHmac is non-standard)."
+      "passes": true,
+      "notes": "[P3][Security] DONE 2026-06-09. eBay signs EVERY Notification-API message (orders/payouts AND account-deletion) with its OWN X.509/ECDSA key in base64-JSON x-ebay-signature, verified against eBay's published public key — the verification token is only for the GET challenge handshake. The correct verifier (lib/ebay-notification-verify.ts: ECDSA P-256/SHA-1, DER->raw r‖s, public_key fetch by kid, Ed25519/RSA fallbacks) already existed and was used by /ebay/account-deletion. AC1: migrated the /ebay event receiver (flipdesk-webhooks.ts) from the non-standard verifyEbayHmac to verifyEbayNotification so both receivers use eBay's real scheme. AC2: DELETED the dead lib/ebay-signature.ts (HMAC-of-verification-token with accept-hex-or-base64 leniency) + its test — nothing imports it anymore, so the lenient/wrong path can't be wired back in; the WEBHOOK_PAYOUT_DEBUG bypass remains prod-inert via isDebugAllowed (returns false in production). AC3: added an injectable PublicKeyFetcher seam to verifyEbayNotification + a fixture test (ebay-notification-verify_test.ts) that builds an eBay-FORMAT ECDSA-signed sample (P-256/SHA-1, DER, base64-JSON header) and runs it through the full parse->import->DER-to-raw->verify path with the public key injected — asserts a valid sample verifies and tamper/forgery/non-base64-JSON/missing-key all reject. Verified offline via deno lint (clean, 227 files) + a Node WebCrypto harness of the verify flow; deno check/test run in CI (security.yml) where deno.land/esm.sh deps are reachable (this sandbox blocks that egress)."
     },
     {
       "id": "US-366",

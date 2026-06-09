@@ -5,7 +5,6 @@ import { notifyUser } from "../lib/notify.ts";
 import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
-import { verifyEbayHmac } from "../lib/ebay-signature.ts";
 import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 
@@ -16,18 +15,22 @@ import { captureException, recordMetric } from "../lib/observability.ts";
 export const flipdeskWebhookRoutes = new Hono();
 
 // eBay Notification API receiver: order created, paid, shipped, payout,
-// return, etc. Verification: HMAC-SHA256 over the raw body using
-// EBAY_VERIFICATION_TOKEN, presented in the `x-ebay-signature` header.
+// return, etc. Verification: eBay signs every Notification-API message with
+// ITS OWN key (X.509/ECDSA), presented in the `x-ebay-signature` header — NOT
+// an HMAC of our verification token (that token is only for the GET challenge
+// handshake). We verify against eBay's published public key via
+// verifyEbayNotification — the SAME scheme the account-deletion endpoint uses
+// (US-365). EBAY_VERIFICATION_TOKEN being set is kept only as an "integration
+// configured" gate.
 //
 // Returns 204 within milliseconds so eBay's retry timer doesn't fire.
 // Heavy lifting (event parsing, payout dedup + insert) is deferred to
 // processEbayWebhookEvent in the lib layer.
 //
-// Sandbox tip: set WEBHOOK_PAYOUT_DEBUG=true to log the raw payload +
-// headers and SKIP signature verification while you confirm eBay's exact
-// signature scheme matches expectations. This is IGNORED when
-// EDGE_ENV=production (see isDebugAllowed in lib/env.ts) — verification can
-// never be bypassed in prod. See W4 doc comment for details.
+// Sandbox tip: set WEBHOOK_PAYOUT_DEBUG=true to log the raw payload + headers
+// and SKIP signature verification while wiring up a sandbox subscription. This
+// is IGNORED when EDGE_ENV=production (see isDebugAllowed in lib/env.ts) —
+// verification can never be bypassed in prod. See W4 doc comment for details.
 flipdeskWebhookRoutes.post("/ebay", async (c) => {
   const verificationToken = Deno.env.get("EBAY_VERIFICATION_TOKEN");
   if (!verificationToken) {
@@ -71,7 +74,9 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
       );
       return c.json({ error: "Missing signature" }, 401);
     }
-    const ok = await verifyEbayHmac(rawBody, signatureHeader, verificationToken);
+    // eBay signs with its OWN key (verified via eBay's published public key),
+    // NOT an HMAC of our verification token. Same scheme as account-deletion.
+    const ok = await verifyEbayNotification(rawBody, signatureHeader);
     if (!ok) {
       console.warn(
         "[flipdesk-webhooks] eBay event rejected: signature mismatch",
@@ -101,8 +106,9 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
   return c.body(null, 204);
 });
 
-// Signature verification lives in lib/ebay-signature.ts so it can be unit-
-// tested without importing this route module (and its service-role client).
+// Signature verification lives in lib/ebay-notification-verify.ts so it can be
+// unit-tested (with an injected key fixture) without importing this route
+// module (and its service-role client).
 
 // Dispatches a verified eBay notification by topic. Currently handles the
 // FINANCES_PAYOUT_* family — initiated, paid, failed. All other topics

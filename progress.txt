@@ -5308,3 +5308,46 @@ test to extend — the right kind of work to land cleanly here.
           harness mirroring the new decision branches (all assertions pass). The
           authoritative gate is CI security.yml -> deno-check (deno lint + deno
           check + deno test), which runs with network access on PR/main.
+
+================================================================================
+## 2026-06-09 — US-365 eBay notification signature scheme (P3 Security)
+
+- US-365  Verify eBay notification signature scheme is implemented correctly.
+          COMPLETE (passes:true). Files: src/routes/flipdesk-webhooks.ts,
+          src/lib/ebay-notification-verify.ts (+ test), removed
+          src/lib/ebay-signature.ts (+ test), comment fix in ebay-catalog-merge.
+
+          Root cause: the codebase had TWO eBay webhook verifiers. The correct
+          one (verifyEbayNotification) implements eBay's real scheme — eBay
+          signs every Notification-API message with ITS OWN X.509/ECDSA key
+          (base64-JSON x-ebay-signature, verified against eBay's published
+          public key fetched by kid; the verification token is ONLY for the GET
+          challenge handshake). But only /ebay/account-deletion used it; the
+          /ebay event receiver (orders/payouts) still used the WRONG
+          verifyEbayHmac (HMAC-SHA256 of the verification token, accept hex OR
+          base64). eBay would never sign with that, so in prod the HMAC check
+          would reject every genuine event with a 401 (eBay retries endlessly,
+          flags the endpoint unhealthy) — and the lenient hex/base64 acceptance
+          was a footgun.
+
+          AC1 — migrated the /ebay event POST to verifyEbayNotification, so both
+                 receivers use eBay's documented scheme.
+          AC2 — DELETED lib/ebay-signature.ts (the HMAC verifier + its
+                 hex/base64 leniency) and its test; nothing imports it now, so it
+                 can't be wired back in. The WEBHOOK_PAYOUT_DEBUG bypass stays
+                 prod-inert (isDebugAllowed() is false in production).
+          AC3 — added an injectable PublicKeyFetcher param to
+                 verifyEbayNotification (default = the real Notification-API
+                 fetch; the process key-cache is used only for the default
+                 fetcher so injected fixtures stay independent). New fixture test
+                 builds an eBay-FORMAT ECDSA P-256/SHA-1 DER signature in a
+                 base64-JSON header and runs the full parse->import->DER-to-raw->
+                 verify path with the public key injected: a valid sample
+                 verifies; tamper, cross-key forgery, non-base64-JSON (the old
+                 HMAC hex string), empty header, and missing-key all reject.
+
+          VERIFICATION CAVEAT (same as US-354): this sandbox blocks egress to
+          deno.land/esm.sh, so deno check/test can't fetch hono/std deps here.
+          Verified offline: deno lint src/ (clean, 227 files) + a Node WebCrypto
+          harness mirroring the verify flow (all assertions pass). CI
+          security.yml -> deno-check is the authoritative gate.

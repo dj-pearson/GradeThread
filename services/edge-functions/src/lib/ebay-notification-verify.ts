@@ -124,10 +124,15 @@ function keyToDer(key: string): Uint8Array {
   return base64ToBytes(b64);
 }
 
-async function loadPublicKey(kid: string): Promise<CachedKey | null> {
-  const cached = keyCache.get(kid);
-  if (cached) return cached;
+// Fetch eBay's published public-key material for a kid from the Notification
+// API. Isolated from the crypto-import below (loadPublicKey) so it can be
+// swapped for a fixture in tests — verifyEbayNotification takes this as an
+// injectable param, the same pattern as the rate limiter's incrementer.
+export type PublicKeyFetcher = (
+  kid: string,
+) => Promise<EbayPublicKeyResponse | null>;
 
+const fetchPublicKeyMaterial: PublicKeyFetcher = async (kid) => {
   let res: Response;
   try {
     const token = await getAppAccessToken();
@@ -145,8 +150,23 @@ async function loadPublicKey(kid: string): Promise<CachedKey | null> {
     );
     return null;
   }
+  return (await res.json()) as EbayPublicKeyResponse;
+};
 
-  const pk = (await res.json()) as EbayPublicKeyResponse;
+async function loadPublicKey(
+  kid: string,
+  fetchKey: PublicKeyFetcher,
+): Promise<CachedKey | null> {
+  // Only the real (network) fetcher uses the process cache; an injected fixture
+  // fetcher always re-imports so tests stay independent of cache state.
+  const useCache = fetchKey === fetchPublicKeyMaterial;
+  if (useCache) {
+    const cached = keyCache.get(kid);
+    if (cached) return cached;
+  }
+
+  const pk = await fetchKey(kid);
+  if (!pk) return null;
   const alg = (pk.algorithm ?? "").toUpperCase();
   let der: Uint8Array;
   try {
@@ -201,7 +221,7 @@ async function loadPublicKey(kid: string): Promise<CachedKey | null> {
       console.warn(`[ebay-notify] unsupported key algorithm: ${pk.algorithm}`);
       return null;
     }
-    keyCache.set(kid, entry);
+    if (useCache) keyCache.set(kid, entry);
     return entry;
   } catch (err) {
     console.warn("[ebay-notify] importKey failed:", err);
@@ -211,14 +231,17 @@ async function loadPublicKey(kid: string): Promise<CachedKey | null> {
 
 // Verify an inbound eBay Notification-API request. `rawBody` MUST be the exact
 // bytes eBay sent (re-serializing JSON would change them and break the check).
-// Returns true only on a cryptographically valid eBay signature.
+// Returns true only on a cryptographically valid eBay signature. `fetchKey` is
+// injectable so a fixture test can supply eBay-format key material without the
+// network; production callers omit it and use the real Notification-API fetch.
 export async function verifyEbayNotification(
   rawBody: string,
   signatureHeader: string,
+  fetchKey: PublicKeyFetcher = fetchPublicKeyMaterial,
 ): Promise<boolean> {
   const parsed = parseSignatureHeader(signatureHeader);
   if (!parsed) return false;
-  const entry = await loadPublicKey(parsed.kid);
+  const entry = await loadPublicKey(parsed.kid, fetchKey);
   if (!entry) return false;
   let sig: Uint8Array;
   try {
