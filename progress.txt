@@ -5248,3 +5248,310 @@ ios-ci.yml). Environment caveat: this Linux container has no xcodebuild, so the
 Swift was written to match existing patterns + unit-tested; the macOS
 ios-ci.yml workflow is the build/test gate (runs on PR/main, not feature-branch
 pushes).
+
+================================================================================
+## 2026-06-09 — US-354 Make the rate limiter trustworthy (P2 Security)
+
+Picked the highest-priority PRD story that is fully actionable + verifiable in
+this environment. The strictly-higher-priority incomplete stories are blocked
+or out of scope for an autonomous edge session:
+  - US-137 (e2e/dogfood): BLOCKER — needs eBay sandbox creds + operator baseline.
+  - US-146/147/148: BLOCKER — need Google Cloud OAuth (Sheets/Drive) creds.
+  - US-149 (multi-marketplace dispatch), US-150 (price-drop/promo scheduler):
+    large UI+schema builds needing visual verification (no browser/macOS here);
+    US-150 also overlaps the already-shipped US-672 repricing automation.
+  - US-151: BLOCKER — needs eBay Sell Analytics API subscription.
+US-354 is a self-contained edge-middleware security fix with an existing unit
+test to extend — the right kind of work to land cleanly here.
+
+- US-354  Make the rate limiter trustworthy. COMPLETE (passes:true).
+          File: services/edge-functions/src/middleware/rate-limit.ts (+ main.ts
+          wiring, + rate-limit_test.ts).
+
+          AC1 — spoofable subject closed. clientIp() previously trusted
+          CF-Connecting-IP then FELL BACK to the client-controlled
+          X-Forwarded-For. XFF is forgeable on a direct-to-origin request, so an
+          attacker could rotate it to evade IP limits. Now: in production the
+          subject IP comes ONLY from the unspoofable CF-Connecting-IP; XFF is
+          kept solely as a dev/local convenience (!isProduction). A request with
+          no trusted IP yields no subject (so it can't even establish a bucket).
+
+          AC2 — fail-closed on abusable routes. rateLimiter() gained
+          opts.failClosed. The unauthenticated webhook receivers
+          (/api/webhooks/*, /api/flipdesk/webhooks/*) now run fail-closed:
+            * counter-store outage -> process-local per-replica fallback counter
+              (a degraded ceiling, NEVER unlimited) instead of allowing through;
+            * a header-stripped request (no user, no trusted IP) -> bucketed into
+              a shared 'ip:unattributed' counter instead of a free pass.
+          The bulk of (authenticated) routes keep the DEFAULT fail-OPEN so a DB
+          blip never locks out legitimate traffic.
+
+          AC3 — CF-only origin. Added an OPTIONAL CF_ORIGIN_SECRET code belt:
+          when set, CF-Connecting-IP is trusted only if the request carries the
+          matching cf-origin-secret header a Cloudflare Transform Rule injects
+          (constant-time compare), so a direct-to-origin hit can't pass off a
+          forged CF IP. Inert (trusts the network layer) when unset.
+          RESIDUAL OPS TASK: Coolify/Traefik must reject non-Cloudflare traffic
+          at the network layer (firewall to CF IP ranges or a cloudflared
+          tunnel) and that direct reachability must be verified closed on the
+          live deploy — this is infra, documented here, not code.
+
+          Tests: rate-limit_test.ts +6 cases — XFF-distrust, fail-closed local
+          fallback vs unchanged fail-open, unattributed shared bucket,
+          CF_ORIGIN_SECRET trust on/off. makeCtx() gained an arbitrary-headers
+          option.
+
+          VERIFICATION CAVEAT: this Linux sandbox blocks outbound egress to
+          deno.land / esm.sh (403 via the proxy), so `deno check` and
+          `deno test` can't fetch the hono/std deps locally. Verified what runs
+          offline: `deno lint src/` (clean, 229 files) + a standalone Node
+          harness mirroring the new decision branches (all assertions pass). The
+          authoritative gate is CI security.yml -> deno-check (deno lint + deno
+          check + deno test), which runs with network access on PR/main.
+
+================================================================================
+## 2026-06-09 — US-365 eBay notification signature scheme (P3 Security)
+
+- US-365  Verify eBay notification signature scheme is implemented correctly.
+          COMPLETE (passes:true). Files: src/routes/flipdesk-webhooks.ts,
+          src/lib/ebay-notification-verify.ts (+ test), removed
+          src/lib/ebay-signature.ts (+ test), comment fix in ebay-catalog-merge.
+
+          Root cause: the codebase had TWO eBay webhook verifiers. The correct
+          one (verifyEbayNotification) implements eBay's real scheme — eBay
+          signs every Notification-API message with ITS OWN X.509/ECDSA key
+          (base64-JSON x-ebay-signature, verified against eBay's published
+          public key fetched by kid; the verification token is ONLY for the GET
+          challenge handshake). But only /ebay/account-deletion used it; the
+          /ebay event receiver (orders/payouts) still used the WRONG
+          verifyEbayHmac (HMAC-SHA256 of the verification token, accept hex OR
+          base64). eBay would never sign with that, so in prod the HMAC check
+          would reject every genuine event with a 401 (eBay retries endlessly,
+          flags the endpoint unhealthy) — and the lenient hex/base64 acceptance
+          was a footgun.
+
+          AC1 — migrated the /ebay event POST to verifyEbayNotification, so both
+                 receivers use eBay's documented scheme.
+          AC2 — DELETED lib/ebay-signature.ts (the HMAC verifier + its
+                 hex/base64 leniency) and its test; nothing imports it now, so it
+                 can't be wired back in. The WEBHOOK_PAYOUT_DEBUG bypass stays
+                 prod-inert (isDebugAllowed() is false in production).
+          AC3 — added an injectable PublicKeyFetcher param to
+                 verifyEbayNotification (default = the real Notification-API
+                 fetch; the process key-cache is used only for the default
+                 fetcher so injected fixtures stay independent). New fixture test
+                 builds an eBay-FORMAT ECDSA P-256/SHA-1 DER signature in a
+                 base64-JSON header and runs the full parse->import->DER-to-raw->
+                 verify path with the public key injected: a valid sample
+                 verifies; tamper, cross-key forgery, non-base64-JSON (the old
+                 HMAC hex string), empty header, and missing-key all reject.
+
+          VERIFICATION CAVEAT (same as US-354): this sandbox blocks egress to
+          deno.land/esm.sh, so deno check/test can't fetch hono/std deps here.
+          Verified offline: deno lint src/ (clean, 227 files) + a Node WebCrypto
+          harness mirroring the verify flow (all assertions pass). CI
+          security.yml -> deno-check is the authoritative gate.
+
+================================================================================
+## 2026-06-09 — US-330 Shadow / A-B grading of candidate prompts (P330)
+
+- US-330  Shadow / A-B grading on live traffic. COMPLETE — backend (passes:true);
+          admin UI panel deferred as a follow-up (see caveat). Files: new
+          supabase/migrations/00115_shadow_grading.sql, new
+          src/lib/grading-shadow.ts (+ test), src/lib/grading-pipeline.ts hook,
+          src/routes/admin-grading.ts endpoints.
+
+          KEY INSIGHT: compositeGrade(perImageResults, garmentInfo, promptOverride)
+          already accepts a candidate prompt (the eval harness uses it). So a
+          shadow grade re-runs ONLY the composite stage on the SAME per-image
+          analyses — one extra composite API call, not a full re-grade. Cheap
+          enough to sample live traffic.
+
+          AC1 — A candidate marked is_shadow (composite stage) runs after the
+                live grade via a fire-and-forget hook (pipeline Step 7d). Never
+                blocks or alters the customer's grade.
+          AC2 — Output goes to grading_shadow_results ONLY — never grade_reports,
+                never the customer, never the certificate.
+          AC3 — Admin endpoints: GET /api/admin/grading/shadow/comparison?version=
+                &days= returns score-delta distribution (0.5 buckets),
+                agreement_rate, mean/mean-abs delta, and per-tag divergence
+                (incl. the distressed_denim hard case); GET /shadow/results lists
+                recent rows; PATCH /prompts/:id/shadow sets is_shadow +
+                sample_rate + daily_cap (composite-only).
+          AC4 — Cost guardrails: sample-rate gate + per-version daily cap (counts
+                today's rows, fails CLOSED on count error so a blip never
+                overspends). Tenant-isolated: user_id stamped on every row;
+                grading_shadow_results has admin-only RLS.
+          AC5 — Promotion unchanged: activatePromptVersion still requires
+                eval_passed=true. Shadow is advisory evidence only.
+
+          Pure decision math (shouldSample / agreementWithin / roundTenth /
+          deriveDivergenceTags / deltaBucket / summarizeComparisons) unit-tested
+          in grading-shadow_test.ts.
+
+          VERIFICATION: deno lint src/ clean (229 files); Node harness of the
+          pure logic passes; a Python mirror of the rls-guard parser confirms
+          grading_shadow_results passes (RLS enabled + is_admin policy). deno
+          check/test run in CI (security.yml); the migration is validated by
+          db-migrations.yml. (This sandbox blocks deno.land/esm.sh egress so
+          edge deps can't be fetched locally.)
+
+          FOLLOW-UP (deferred, not blocking): an admin comparison PANEL in
+          src/pages/admin/ai-models.tsx that consumes /shadow/comparison +
+          /shadow/results + the PATCH knobs. Deferred because the web toolchain
+          (node_modules) can't be installed in this sandbox (restricted
+          registry), so a React change can't be build- or visually verified
+          here. The comparison data + controls are fully available via the API.
+
+================================================================================
+## 2026-06-09 — US-414 Global Claude concurrency + cost ceiling (P1)
+
+- US-414  Global Claude concurrency + cost ceiling. COMPLETE (passes:true).
+          Files: new src/lib/ai-limiter.ts (+ test), src/lib/ai-config.ts
+          (central wrap), src/lib/ai-grading.ts (comments only — calls now
+          bounded centrally).
+
+          Audit finding: grading-pipeline ran Promise.all over every image with
+          NO global cap — a burst of concurrent grades/autolister batches could
+          spike simultaneous Anthropic calls (rate-limit trips + cost spikes).
+
+          lib/ai-limiter.ts:
+            * Semaphore — process-wide FIFO counting semaphore
+              (AI_MAX_CONCURRENCY, default 8), .run() releases on throw.
+            * reserveGlobalDailyBudget — GLOBAL daily volume ceiling
+              (AI_GLOBAL_DAILY_CALL_CEILING, default 50k; 0 disables) via the
+              shared rate_limit_counters RPC (distributed across replicas);
+              fails OPEN on a counter-store error so a DB blip never halts
+              grading; throws AiCeilingError when exceeded.
+            * runAiCall(fn) = ceiling -> semaphore -> withRetry(fn) with
+              attempts = AI_MAX_RETRIES+1.
+
+          AC1 (process-wide, ALL requests): wired in ONE place —
+          getAnthropicClient() wraps messages.create, so every non-streaming
+          Anthropic call in the whole edge service is bounded (grading,
+          autolister, extract, reconcile, content). No per-call-site wiring to
+          forget. Streaming (messages.stream / create({stream:true})) is
+          bypassed so SSE content flows aren't broken/retried.
+          AC3 (retry.ts on vision calls): retry.ts is the SINGLE retry layer for
+          wrapped calls — the SDK's own per-call retry is disabled (maxRetries:0
+          injected) so a 429 isn't retried twice.
+          AC2 (per-account + global ceilings): GLOBAL daily ceiling added here;
+          over-limit throws -> grading rethrows -> per-grade charge reversed.
+          PER-ACCOUNT spend was already bounded — atomic monthly
+          reserve_ai_action quota (US-387) for FlipDesk AI actions + per-grade
+          billing/credits (US-207) for grading.
+
+          DESIGN NOTE: chose a single central wrap in getAnthropicClient over
+          wrapping ~16 call sites — DRY, future-proof (new callers bounded
+          automatically), and avoids nested-runAiCall deadlocks. The override
+          casts create's return to a Promise (not the SDK's APIPromise); safe
+          because every call site awaits the result and none use APIPromise-only
+          methods (.withResponse()). Streaming guard prevents wrapping a stream.
+
+          VERIFICATION: deno lint src/ clean (231 files); Node harnesses for the
+          Semaphore (concurrency bound/FIFO/release-on-throw), the ceiling
+          decision (throws/disabled/fail-open), and the getAnthropicClient
+          override (streaming bypass + maxRetries:0 injection + method
+          shadowing) all pass. deno check/test run in CI (security.yml); this
+          sandbox blocks deno.land/esm.sh egress so deps can't be fetched here.
+
+================================================================================
+## 2026-06-09 — US-456 eBay sync concurrency guard + stuck-run reaper (P1)
+
+- US-456  Concurrency guard + stuck-run reaper for the eBay sync. COMPLETE
+          (passes:true). Files: new supabase/migrations/00116_sync_run_concurrency.sql,
+          new src/lib/sync-run-lock.ts (+ test), src/routes/flipdesk-ebay.ts,
+          src/main.ts (cron mount).
+
+          The 'running'-row plumbing already existed (startSyncRun/recordSyncRun
+          with runId) but: (a) /listings/pull had NO guard against overlapping
+          pulls, and (b) a throw AFTER the offer fetch (or a killed container)
+          left the row stuck in 'running' forever — the UI's "syncing…" never
+          cleared.
+
+          AC1 — race-free lock. Migration 00116 adds a PARTIAL UNIQUE INDEX on
+                flipdesk_sync_runs(user_id, marketplace) WHERE status='running'
+                (after reaping any pre-existing running rows so the index can be
+                built). claimSyncRun() inserts a 'running' row; a unique
+                violation => already_running. /listings/pull claims before firing
+                and returns 409 {alreadyRunning:true} on a concurrent pull.
+          AC2 — finalize on every path. success/partial via recordSyncRun(runId);
+                early fetch-failure via recordSyncRun(failed,runId); any other
+                throw via the handler .catch -> failSyncRun(runId), a conditional
+                UPDATE WHERE status='running' (idempotent, never clobbers a
+                finalized run). doListingsPull no longer self-claims (startSyncRun
+                removed) — the handler owns the lock lifecycle and passes runId.
+          AC3 — reaper. reapStuckSyncRuns() flips runs stuck past
+                SYNC_STUCK_THRESHOLD_MIN (default 15m) to 'failed'. Runs both
+                opportunistically inside claimSyncRun (a crash can't lock a
+                tenant out) AND on a new cron POST /api/jobs/sync-reaper
+                (X-Internal-Job-Secret) so the UI unblocks with no new pull.
+
+          Pure helpers isStuckRun()/stuckThresholdMs() unit-tested. Verified:
+          deno lint src/ clean (233 files) + Node harness (stuck/threshold/
+          claim-mapping). deno check/test in CI; migration validated by
+          db-migrations.yml (reap-before-index ordering is safe on existing data).
+
+================================================================================
+## 2026-06-09 — US-462 Atomic reconciliation two-table writes (P2)
+
+- US-462  Make reconciliation two-table writes atomic. COMPLETE (passes:true).
+          Files: new supabase/migrations/00117_reconcile_payout_link.sql,
+          src/routes/flipdesk-reconciliation.ts (/run + /match).
+
+          /run and /match linked a payout to a sale with TWO separate writes —
+          payout_imports(sale_id, reconciled) then sales(payout_reference). A
+          failure of the second left a payout marked reconciled with the sale
+          side never linked (a half-linked row that was only logged).
+
+          AC1 — atomic via RPC. Migration 00117 adds SECURITY DEFINER
+                reconcile_payout_link(p_user_id, p_payout_import_id, p_sale_id,
+                p_payout_reference). A plpgsql function body is one transaction,
+                so both writes commit together or roll back together. It
+                re-verifies tenant ownership of BOTH rows (payout via user_id,
+                sale via inventory_items.user_id since sales has no user_id —
+                US-268) and locks both FOR UPDATE so concurrent reconcilers can't
+                double-link. Both /run and /match now call it instead of two
+                supabaseAdmin updates.
+          AC2 — idempotent + self-repairing. Re-linking the same pair returns
+                already_linked:true (re-running /run is a no-op); if a payout is
+                already reconciled to this sale but the sale's payout_reference
+                was never written (the old failure mode), the RPC backfills it.
+                Conflicts (payout/sale linked elsewhere) return structured errors
+                -> 409 (/match) or ambiguous++ (/run). service_role-only grant.
+
+          VERIFICATION: deno lint src/ clean (233 files) + migration sanity
+          (balanced $$, structure, grants). Atomicity is inherent to the plpgsql
+          transaction. The RPC applies in db-migrations.yml; its tenant/atomicity
+          behavior is exercised by the env-gated reconciliation cross-tenant case
+          in tenant-isolation_test.ts (behavioral DB testing needs a live
+          Postgres = CI, not this sandbox).
+
+================================================================================
+## 2026-06-09 — US-464 Idempotent eBay publish (P1)
+
+- US-464  Make eBay publish idempotent. COMPLETE (passes:true). Files:
+          src/lib/ebay-client.ts (publishOrAdoptOffer + export
+          getPublishedListingId), src/routes/flipdesk-ebay.ts
+          (publishItemForOwner step 4), src/tests/publish-idempotency_test.ts.
+
+          The window: publishItemForOwner persisted the local listings row only
+          AFTER publishOffer returned. A publish that succeeded remotely then
+          crashed (or whose container died) before that write left an offer live
+          on eBay with no local record — and a retry (manual re-publish or the
+          publish-due cron) re-published it -> duplicate live listing.
+
+          AC1/AC2 — new publishOrAdoptOffer(userId, offerId, ops) pre-checks
+          getPublishedListingId BEFORE publishing; if the offer is already live
+          it ADOPTS that listingId (skips publishOffer), so a retry reconciles to
+          the existing listing instead of creating a duplicate. createOffer
+          already adopted the existing OFFER (25002 path, US-528); this closes
+          the publish step too.
+          AC3 — publishOrAdoptOffer takes injectable I/O; publish-idempotency_test
+          adds 3 cases including an explicit post-publish-crash + retry
+          simulation (attempt 1 publishes + 'crashes' before persist; attempt 2
+          adopts the same listingId; publishOffer called exactly once).
+
+          Complements US-528 (publishOffer's intra-call reconciliation across its
+          own retries). Verified: deno lint src/ clean (233 files) + Node harness
+          of the 3 scenarios; deno check/test run in CI.

@@ -622,6 +622,9 @@ export async function analyzeImage(
     : { type: "text", text: prompt.text };
 
   try {
+    // US-414: getAnthropicClient() routes every messages.create through the
+    // global concurrency + daily-ceiling + retry limiter, so this per-image
+    // call (run under Promise.all — the path the audit flagged) is bounded.
     const response = await client.messages.create({
       model: getDefaultModel(),
       // Headroom so the added authenticity block can't truncate the JSON
@@ -1088,6 +1091,7 @@ export async function compositeGrade(
     : { type: "text", text: prompt.text };
 
   try {
+    // US-414: bounded by the global limiter via getAnthropicClient().
     const response = await client.messages.create({
       model: compositeModel,
       max_tokens: 2048,

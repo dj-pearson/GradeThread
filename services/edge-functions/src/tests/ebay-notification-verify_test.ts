@@ -16,7 +16,7 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { derToRawEcdsa, digestToHash } = await import(
+const { derToRawEcdsa, digestToHash, verifyEbayNotification } = await import(
   "../lib/ebay-notification-verify.ts"
 );
 
@@ -94,4 +94,99 @@ Deno.test("digestToHash: maps eBay digest field to WebCrypto hash names", () => 
   // eBay's notification keys use SHA-1; default to it when unspecified.
   assertEquals(digestToHash(undefined), "SHA-1");
   assertEquals(digestToHash(""), "SHA-1");
+});
+
+function bytesToB64(b: Uint8Array): string {
+  let s = "";
+  for (const x of b) s += String.fromCharCode(x);
+  return btoa(s);
+}
+
+// End-to-end fixture (US-365). Builds an eBay-FORMAT notification signature —
+// ECDSA P-256 / SHA-1, DER-encoded, in a base64-JSON `x-ebay-signature` header
+// — signed by a test key standing in for eBay's notification key, and verifies
+// it through the full verifyEbayNotification path (header parse → key import →
+// DER→raw → WebCrypto verify) with the public key injected as a fixture. This
+// is the scheme eBay actually uses; a genuine eBay sample would verify the same
+// way once its public key is fetched. Negatives prove tamper/forgery rejection.
+Deno.test("verifyEbayNotification: accepts a genuine eBay-format signature, rejects tampering/forgery", async () => {
+  const kp = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  ) as CryptoKeyPair;
+  const spkiB64 = bytesToB64(
+    new Uint8Array(await crypto.subtle.exportKey("spki", kp.publicKey)),
+  );
+
+  const body = JSON.stringify({
+    metadata: { topic: "MARKETPLACE_ACCOUNT_DELETION" },
+    notification: { notificationId: "fixture-1", data: { username: "seller_x" } },
+  });
+  const rawSig = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-1" },
+      kp.privateKey,
+      new TextEncoder().encode(body),
+    ),
+  );
+  const sigB64 = bytesToB64(rawToDer(rawSig, 32));
+  const header = (kid: string) =>
+    btoa(JSON.stringify({ kid, signature: sigB64, alg: "ECDSA" }));
+
+  // Fixture key fetcher: returns the test public key in eBay's response shape.
+  const fetchKey = (_kid: string) =>
+    Promise.resolve({ algorithm: "ECDSA", digest: "SHA1", key: spkiB64 });
+
+  // 1. A correctly-signed body verifies.
+  assert(
+    await verifyEbayNotification(body, header("kid-ok"), fetchKey),
+    "a valid eBay-format ECDSA signature must verify",
+  );
+
+  // 2. Tampered body (same signature) is rejected.
+  assertEquals(
+    await verifyEbayNotification(body + " ", header("kid-tamper"), fetchKey),
+    false,
+  );
+
+  // 3. Forgery: a signature made with a DIFFERENT key, presented against the
+  //    fixture's published key, is rejected.
+  const other = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  ) as CryptoKeyPair;
+  const forgedSig = bytesToB64(rawToDer(
+    new Uint8Array(
+      await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-1" },
+        other.privateKey,
+        new TextEncoder().encode(body),
+      ),
+    ),
+    32,
+  ));
+  const forgedHeader = btoa(
+    JSON.stringify({ kid: "kid-forge", signature: forgedSig, alg: "ECDSA" }),
+  );
+  assertEquals(
+    await verifyEbayNotification(body, forgedHeader, fetchKey),
+    false,
+  );
+
+  // 4. A non-base64-JSON header (legacy HMAC hex/base64 string) is rejected —
+  //    the leniency US-365 removed can't sneak a forged event past us.
+  assertEquals(
+    await verifyEbayNotification(body, "deadbeef".repeat(8), fetchKey),
+    false,
+  );
+  assertEquals(await verifyEbayNotification(body, "", fetchKey), false);
+
+  // 5. Key material unavailable (fetch returns null) → reject, never accept.
+  assertEquals(
+    await verifyEbayNotification(body, header("kid-nokey"), () =>
+      Promise.resolve(null)),
+    false,
+  );
 });

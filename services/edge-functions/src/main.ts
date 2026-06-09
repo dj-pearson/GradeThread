@@ -36,6 +36,7 @@ import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
+import { handleSyncReaperCron } from "./lib/sync-run-lock.ts";
 import { handleEmailRetryCron } from "./lib/email-retry.ts";
 import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
@@ -326,8 +327,11 @@ app.use("/api/content/images/*", featureGate("content_ai"));
 // Coarse per-IP ceiling on the unauthenticated webhook receivers — blunts
 // floods only. Legit Stripe/eBay bursts stay well under it, and a 429 just
 // makes the provider retry (idempotency in US-277 makes that safe).
-app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe"));
-app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay"));
+// US-354: these are the most abusable UNAUTHENTICATED surfaces, so they run
+// fail-CLOSED — a counter-store outage drops to a per-replica fallback ceiling
+// (never unlimited), and a header-stripped flood is bucketed, not waved through.
+app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe", undefined, { failClosed: true }));
+app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay", undefined, { failClosed: true }));
 
 // Public API v1 — API key auth + 100 requests per minute
 app.use("/api/v1/*", apiKeyAuthMiddleware);
@@ -386,6 +390,11 @@ app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
 // enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
 // reverses their charge so a crash/redeploy can't strand paid work.
 app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
+// US-456 eBay sync-run reaper. OUTSIDE the JWT groups; the handler enforces
+// X-Internal-Job-Secret itself. Flips runs stuck in 'running' past the
+// threshold to 'failed' so the Reconciliation UI unblocks even when no new pull
+// is attempted (a crashed/killed pull would otherwise hang forever).
+app.post("/api/jobs/sync-reaper", (c) => handleSyncReaperCron(c));
 // US-498 transactional-email outbox retry sweep. OUTSIDE the JWT groups; the
 // handler enforces X-Internal-Job-Secret itself. Re-sends failed critical
 // emails with backoff and dead-letters after max attempts.

@@ -32,12 +32,21 @@ interface FakeCtx {
 }
 
 function makeCtx(
-  opts: { userId?: string; cfIp?: string; xff?: string; method?: string } = {},
+  opts: {
+    userId?: string;
+    cfIp?: string;
+    xff?: string;
+    method?: string;
+    headers?: Record<string, string>;
+  } = {},
 ): { c: unknown; rec: FakeCtx } {
   const rec: FakeCtx = { headers: {}, status: null };
   const reqHeaders: Record<string, string> = {};
   if (opts.cfIp) reqHeaders["cf-connecting-ip"] = opts.cfIp;
   if (opts.xff) reqHeaders["x-forwarded-for"] = opts.xff;
+  for (const [k, v] of Object.entries(opts.headers ?? {})) {
+    reqHeaders[k.toLowerCase()] = v;
+  }
   const c = {
     get: (k: string) => (k === "userId" ? opts.userId : undefined),
     req: {
@@ -157,4 +166,83 @@ Deno.test("fails OPEN when the backing store errors", async () => {
   const r2 = await call(mw, { userId: "x" });
   assert(r1.nexted && r2.nexted);
   assertEquals(r2.rec.status, null);
+});
+
+// ─── US-354: trustworthy subject + fail-closed ──────────────────────
+
+// AC1: X-Forwarded-For is fully client-controlled, so it must NOT become a
+// rate-limit subject in production (the test env defaults to production). An
+// unauthenticated request bearing ONLY an XFF header therefore has no trusted
+// subject — on a fail-open limiter it passes through uncounted, so an attacker
+// can't even establish a per-IP bucket to attack (and can't evade by rotating).
+Deno.test("X-Forwarded-For is not trusted as a subject in production", async () => {
+  const mw = rateLimiter(1, 60_000, "xff-distrust", memoryStore());
+  const r1 = await call(mw, { xff: "1.2.3.4" });
+  const r2 = await call(mw, { xff: "1.2.3.4" });
+  // No trusted subject derived from XFF → never counted, never 429.
+  assert(r1.nexted && r2.nexted);
+  assertEquals(r2.rec.status, null);
+});
+
+// AC2: on a fail-CLOSED route the limiter must keep limiting when the
+// distributed store is down — via the process-local fallback counter — instead
+// of allowing the request (the old behavior would have gone unlimited).
+Deno.test("failClosed: store outage falls back to a local counter and still 429s", async () => {
+  const mw = rateLimiter(2, 60_000, "fc-storedown", throwingStore, {
+    failClosed: true,
+  });
+  const r1 = await call(mw, { userId: "z" }); // 1 (fallback)
+  const r2 = await call(mw, { userId: "z" }); // 2 (at limit)
+  const r3 = await call(mw, { userId: "z" }); // 3 (over → 429)
+  assert(r1.nexted && r2.nexted);
+  assertEquals(r3.nexted, false);
+  assertEquals(r3.rec.status, 429);
+});
+
+// AC2: a fail-OPEN route keeps allowing on a store outage (availability first).
+// This is the contrast to the fail-closed case above.
+Deno.test("failClosed off: store outage still fails open (unchanged)", async () => {
+  const mw = rateLimiter(1, 60_000, "fc-open", throwingStore);
+  assert((await call(mw, { userId: "z" })).nexted);
+  assert((await call(mw, { userId: "z" })).nexted);
+});
+
+// AC2: stripping IP headers must not unlock a fail-closed route. With no user
+// and no trusted IP, the request is bucketed into a shared 'unattributed'
+// counter and limited, rather than waved through.
+Deno.test("failClosed: header-stripped requests share one bucket and are limited", async () => {
+  const mw = rateLimiter(1, 60_000, "fc-unattributed", memoryStore(), {
+    failClosed: true,
+  });
+  const r1 = await call(mw, {}); // no user, no IP → ip:unattributed
+  const r2 = await call(mw, {}); // same shared bucket → over limit
+  assert(r1.nexted);
+  assertEquals(r2.nexted, false);
+  assertEquals(r2.rec.status, 429);
+});
+
+// AC3: when CF_ORIGIN_SECRET is configured, a CF-Connecting-IP is only trusted
+// if the request also carries the matching secret header Cloudflare injects —
+// proving it transited CF. A spoofed CF-Connecting-IP on a direct-to-origin
+// request (no/incorrect secret) yields no trusted subject.
+Deno.test("CF_ORIGIN_SECRET: CF-Connecting-IP is only trusted with the matching origin secret", async () => {
+  Deno.env.set("CF_ORIGIN_SECRET", "s3cret-token");
+  try {
+    // Wrong/absent secret → forged CF-Connecting-IP is NOT trusted → no subject
+    // → fail-open allows uncounted (can't be 429'd, can't establish a bucket).
+    const mw = rateLimiter(1, 60_000, "cf-secret", memoryStore());
+    assert((await call(mw, { cfIp: "203.0.113.9" })).nexted);
+    const noSecret = await call(mw, { cfIp: "203.0.113.9" });
+    assert(noSecret.nexted);
+    assertEquals(noSecret.rec.status, null);
+
+    // Correct secret → CF-Connecting-IP is trusted → the IP is limited normally.
+    const mw2 = rateLimiter(1, 60_000, "cf-secret-ok", memoryStore());
+    const hdr = { "cf-origin-secret": "s3cret-token" };
+    assert((await call(mw2, { cfIp: "203.0.113.9", headers: hdr })).nexted);
+    const over = await call(mw2, { cfIp: "203.0.113.9", headers: hdr });
+    assertEquals(over.rec.status, 429);
+  } finally {
+    Deno.env.delete("CF_ORIGIN_SECRET");
+  }
 });

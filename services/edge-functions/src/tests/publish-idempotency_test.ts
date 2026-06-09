@@ -14,9 +14,11 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { isOfferAlreadyExistsError, OFFER_ALREADY_EXISTS_ERROR_ID } = await import(
-  "../lib/ebay-client.ts"
-);
+const {
+  isOfferAlreadyExistsError,
+  OFFER_ALREADY_EXISTS_ERROR_ID,
+  publishOrAdoptOffer,
+} = await import("../lib/ebay-client.ts");
 
 function ebayErr(
   message: string,
@@ -61,4 +63,55 @@ Deno.test("does not match an unrelated error", () => {
 
 Deno.test("OFFER_ALREADY_EXISTS_ERROR_ID is eBay's documented code", () => {
   assertEquals(OFFER_ALREADY_EXISTS_ERROR_ID, 25002);
+});
+
+// ── US-464: idempotent publish (adopt an already-published listing) ──────
+
+Deno.test("publishOrAdoptOffer: publishes when the offer isn't live yet", async () => {
+  let publishCalls = 0;
+  const r = await publishOrAdoptOffer("u", "o1", {
+    getPublishedListingId: () => Promise.resolve(null),
+    publishOffer: () => {
+      publishCalls++;
+      return Promise.resolve({ listingId: "L1" });
+    },
+  });
+  assertEquals(r, { listingId: "L1", adopted: false });
+  assertEquals(publishCalls, 1);
+});
+
+Deno.test("publishOrAdoptOffer: adopts an already-published listing without re-publishing", async () => {
+  let publishCalls = 0;
+  const r = await publishOrAdoptOffer("u", "o1", {
+    getPublishedListingId: () => Promise.resolve("L-existing"),
+    publishOffer: () => {
+      publishCalls++;
+      return Promise.resolve({ listingId: "L-NEW" });
+    },
+  });
+  assertEquals(r, { listingId: "L-existing", adopted: true });
+  assertEquals(publishCalls, 0); // must NOT re-publish → no duplicate listing
+});
+
+Deno.test("publishOrAdoptOffer: post-publish-crash + retry adopts the same listing (no duplicate)", async () => {
+  // Simulate the audit's failure window: attempt 1 publishes remotely and
+  // returns L1, then the caller 'crashes' before persisting the local row.
+  // Attempt 2 (manual re-publish / publish-due cron) sees the offer already
+  // live and adopts it instead of publishing a second time.
+  let live: string | null = null;
+  let publishCalls = 0;
+  const ops = {
+    getPublishedListingId: () => Promise.resolve(live),
+    publishOffer: () => {
+      publishCalls++;
+      live = "L1"; // eBay now has a live listing for this offer
+      return Promise.resolve({ listingId: "L1" });
+    },
+  };
+  const a1 = await publishOrAdoptOffer("u", "o1", ops);
+  assertEquals(a1, { listingId: "L1", adopted: false });
+  // 'crash before persist' — retry the whole publish:
+  const a2 = await publishOrAdoptOffer("u", "o1", ops);
+  assertEquals(a2, { listingId: "L1", adopted: true });
+  assertEquals(publishCalls, 1); // the retry adopts, never re-publishes
 });

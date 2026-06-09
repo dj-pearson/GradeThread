@@ -1485,10 +1485,36 @@ export async function publishOffer(
   throw lastErr;
 }
 
+// US-464: idempotent publish at the FLOW level. publishOffer reconciles WITHIN
+// one call (across its internal retries), but publishItemForOwner persists the
+// local listings row only AFTER publishOffer returns — so a publish that
+// succeeded remotely then crashed (or whose container died) before that write
+// leaves an offer published on eBay with no local record. A retry (manual
+// re-publish or the publish-due cron) would call publishOffer AGAIN. This
+// pre-checks whether the offer is already live and ADOPTS that listingId
+// instead of re-publishing, so the retry can't create a duplicate live listing.
+// I/O is injected so the crash+retry path is unit-testable without eBay.
+export interface PublishOps {
+  getPublishedListingId: (userId: string, offerId: string) => Promise<string | null>;
+  publishOffer: (userId: string, offerId: string) => Promise<{ listingId: string }>;
+}
+
+export async function publishOrAdoptOffer(
+  userId: string,
+  offerId: string,
+  ops: PublishOps = { getPublishedListingId, publishOffer },
+): Promise<{ listingId: string; adopted: boolean }> {
+  const existing = await ops.getPublishedListingId(userId, offerId);
+  if (existing) return { listingId: existing, adopted: true };
+  const published = await ops.publishOffer(userId, offerId);
+  return { listingId: published.listingId, adopted: false };
+}
+
 // Reads the offer and returns its live listingId if eBay has already published
-// it. Used by publishOffer to avoid double-publishing on a retry. Returns null
-// if the offer is unpublished or the lookup fails (treated as "not live yet").
-async function getPublishedListingId(
+// it. Used by publishOffer + publishOrAdoptOffer to avoid double-publishing on
+// a retry. Returns null if the offer is unpublished or the lookup fails
+// (treated as "not live yet").
+export async function getPublishedListingId(
   userId: string,
   offerId: string
 ): Promise<string | null> {

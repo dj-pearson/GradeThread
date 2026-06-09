@@ -1,14 +1,27 @@
 import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
+import { isProduction } from "../lib/env.ts";
 
 // Distributed fixed-window rate limiter (US-265). Backed by the shared
 // rate_limit_counters table + increment_rate_limit() RPC, so limits hold across
 // container restarts and horizontal replicas — unlike the previous in-memory
 // Map. Keyed by user when authenticated, else by client IP.
 //
-// FAIL-OPEN: if the store errors (or no subject can be determined) the request
-// is allowed through. A limiter must never become an availability risk — at
-// worst it stops limiting; it never locks out legitimate traffic.
+// Trust + failure policy (US-354 — "make the rate limiter trustworthy"):
+//   - Subject IP comes ONLY from Cloudflare's CF-Connecting-IP. The
+//     client-controlled X-Forwarded-For is NOT trusted in production (it lets
+//     an attacker rotate the header to evade IP limits). When CF_ORIGIN_SECRET
+//     is configured, a request must also carry the matching header Cloudflare
+//     injects — otherwise it did not transit CF and its IP claim is discarded.
+//   - DEFAULT is FAIL-OPEN: if the store errors (or no subject can be
+//     determined) the request is allowed through, so a DB blip never locks out
+//     legitimate traffic on the bulk of (authenticated) routes.
+//   - opts.failClosed flips that for the most abusable UNAUTHENTICATED routes
+//     (webhook receivers, etc.): a store outage falls back to a process-local
+//     counter (a degraded, per-replica ceiling — never UNLIMITED), and a
+//     request with no trustworthy subject is attributed to a shared bucket
+//     instead of being waved through. So abuse can't be unlocked by knocking
+//     out the counter store or by stripping IP headers.
 
 type RateLimitEnv = {
   Variables: {
@@ -19,7 +32,7 @@ type RateLimitEnv = {
 // Atomically increment the counter for (bucketKey, windowStart) and return the
 // new count. Injectable so the middleware is unit-testable without a database
 // (the test passes an in-memory counter). Throwing signals a store error → the
-// caller fails open.
+// caller fails open (or, on a fail-closed route, drops to the local fallback).
 export type RateLimitIncrementer = (
   bucketKey: string,
   windowStartIso: string,
@@ -44,14 +57,61 @@ const defaultIncrement: RateLimitIncrementer = async (
   return data as number;
 };
 
-// Trust order: Cloudflare's CF-Connecting-IP (set by CF, can't be spoofed by
-// the client), then the first hop of X-Forwarded-For.
+// Process-local fixed-window fallback for fail-closed routes when the
+// distributed store is unreachable (US-354). It is per-replica (not shared), so
+// it is a DEGRADED ceiling, not the real distributed budget — but it keeps an
+// abusable unauthenticated route from going UNLIMITED during a counter-store
+// outage. Pruned lazily: when the window rolls over, the previous window's keys
+// are dropped so the map can't grow without bound.
+const localFallback = new Map<string, number>();
+let localFallbackWindow = "";
+
+function localIncrement(bucketKey: string, windowStartIso: string): number {
+  if (windowStartIso !== localFallbackWindow) {
+    localFallback.clear();
+    localFallbackWindow = windowStartIso;
+  }
+  const next = (localFallback.get(bucketKey) ?? 0) + 1;
+  localFallback.set(bucketKey, next);
+  return next;
+}
+
+// Constant-time string compare for the CF origin secret, so a timing side
+// channel can't be used to recover it byte-by-byte.
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// US-354 / AC3: prove the request actually transited Cloudflare. A Cloudflare
+// Transform Rule injects `cf-origin-secret: <CF_ORIGIN_SECRET>` on every
+// proxied request. The origin firewall (Coolify/Traefik) should already reject
+// non-CF traffic; this is the code-level belt so a direct-to-origin request
+// can't pass off a forged CF-Connecting-IP. When CF_ORIGIN_SECRET is UNSET
+// (default), the check is inert and we trust the network layer.
+function cameThroughCloudflare(c: Context): boolean {
+  const secret = Deno.env.get("CF_ORIGIN_SECRET")?.trim();
+  if (!secret) return true;
+  const got = c.req.header("cf-origin-secret")?.trim();
+  return typeof got === "string" && constantTimeEqual(got, secret);
+}
+
+// The only trustworthy client identifier behind Cloudflare is CF-Connecting-IP
+// (CF overwrites any client-supplied value, so it can't be spoofed). A request
+// that did NOT transit CF (per cameThroughCloudflare) has no trustworthy IP.
+// X-Forwarded-For is fully client-controlled on a direct-to-origin request, so
+// trusting it lets an attacker rotate the header to evade IP limits (US-354):
+// in production we don't trust it at all. In dev/local there is no Cloudflare
+// in front, so we keep the XFF fallback purely for developer convenience.
 function clientIp(c: Context): string | null {
+  if (!cameThroughCloudflare(c)) return null;
   const cf = c.req.header("cf-connecting-ip")?.trim();
   if (cf) return cf;
-  const xff = c.req.header("x-forwarded-for");
-  if (xff) {
-    const first = xff.split(",")[0]?.trim();
+  if (!isProduction()) {
+    const xff = c.req.header("x-forwarded-for");
+    const first = xff?.split(",")[0]?.trim();
     if (first) return first;
   }
   return null;
@@ -66,14 +126,20 @@ function clientIp(c: Context): string | null {
 // same path mount as two limiters with separate budgets — the read-only poll
 // never drains the write budget. Requests whose method isn't listed pass through
 // untouched so a second, method-complementary limiter can govern them.
+//
+// `opts.failClosed` (US-354) hardens abusable UNAUTHENTICATED routes: on a
+// store outage it limits via the process-local fallback instead of allowing the
+// request, and a request with no trustworthy subject is bucketed together
+// rather than waved through.
 export function rateLimiter(
   maxRequests = 60,
   windowMs = 60_000,
   scope = "default",
   increment: RateLimitIncrementer = defaultIncrement,
-  opts: { methods?: string[] } = {},
+  opts: { methods?: string[]; failClosed?: boolean } = {},
 ) {
   const methodFilter = opts.methods?.map((m) => m.toUpperCase());
+  const failClosed = opts.failClosed === true;
   return createMiddleware<RateLimitEnv>(async (c, next) => {
     // Not one of the methods this limiter governs → leave it for whatever else
     // is mounted on this path.
@@ -83,30 +149,52 @@ export function rateLimiter(
     }
 
     const userId = c.get("userId");
-    const subject = userId ? `user:${userId}` : (() => {
+    let subject: string | null;
+    if (userId) {
+      subject = `user:${userId}`;
+    } else {
       const ip = clientIp(c);
-      return ip ? `ip:${ip}` : null;
-    })();
+      subject = ip ? `ip:${ip}` : null;
+    }
 
-    // No subject we can attribute the request to → can't fairly limit. Allow.
+    // No subject we can attribute the request to. On fail-OPEN routes we allow
+    // (availability first — these are mostly authed surfaces keyed by user). On
+    // fail-CLOSED routes we DON'T hand out a free pass: a client that strips its
+    // IP headers (or reaches the origin directly) would otherwise bypass the
+    // limit entirely, so attribute it to a shared bucket and keep counting.
     if (!subject) {
-      await next();
-      return;
+      if (!failClosed) {
+        await next();
+        return;
+      }
+      subject = "ip:unattributed";
     }
 
     const bucketKey = `${scope}|${subject}`;
     const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+    const windowStartIso = windowStart.toISOString();
 
     let count: number;
     try {
-      count = await increment(bucketKey, windowStart.toISOString());
+      count = await increment(bucketKey, windowStartIso);
     } catch (err) {
+      if (!failClosed) {
+        console.error(
+          "[rate-limit] store unavailable — allowing request (fail-open):",
+          err instanceof Error ? err.message : String(err),
+        );
+        await next();
+        return;
+      }
+      // Fail-CLOSED: the distributed store is down but this route is abusable,
+      // so keep limiting via a process-local fallback (a per-replica ceiling —
+      // degraded, but never unlimited).
       console.error(
-        "[rate-limit] store unavailable — allowing request (fail-open):",
+        "[rate-limit] store unavailable on a fail-closed route — using " +
+          "process-local fallback counter:",
         err instanceof Error ? err.message : String(err),
       );
-      await next();
-      return;
+      count = localIncrement(bucketKey, windowStartIso);
     }
 
     const resetAtSec = Math.ceil((windowStart.getTime() + windowMs) / 1000);

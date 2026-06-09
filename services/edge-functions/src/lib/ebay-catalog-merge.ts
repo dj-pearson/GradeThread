@@ -10,8 +10,7 @@
 // whose names vary by category ("Colour", "Fabric Type", "Women's Size", …) —
 // pickAspect maps our field to the right specific case-insensitively.
 //
-// Pure module (no supabase/network import) so it unit-tests without env, the
-// same way lib/ebay-signature.ts does.
+// Pure module (no supabase/network import) so it unit-tests without env.
 
 // The inventory_items catalog fields this sync may write. `title` is handled
 // separately (overwrite); the rest are fill-if-blank.
