@@ -11206,8 +11206,8 @@
         "Documented for reuse by the slab (US-763) and any future server-rendered surface"
       ],
       "priority": 762,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Infra/Edge] Foundational for the slab. Current QR is client-only SVG (qrcode.react in certificate.tsx). Need a no-DOM generator (small pure-JS QR encoder -> SVG path) usable inside workers-og."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P1][Infra/Edge] functions/_shared/qr.ts: qrcode-generator builds the matrix; we emit a single-path SVG + base64 data URI (qrSvg/qrSvgDataUri) that Satori (workers-og) renders with no DOM. Tested via finder-pattern structural checks (src/test/qr.test.ts). Foundational for the slab. Current QR is client-only SVG (qrcode.react in certificate.tsx). Need a no-DOM generator (small pure-JS QR encoder -> SVG path) usable inside workers-og."
     },
     {
       "id": "US-763",
@@ -11221,8 +11221,8 @@
         "Output is legible and the QR is scannable when downscaled to a typical marketplace thumbnail"
       ],
       "priority": 763,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Differentiation/Certificate] The headline feature — the PSA 'grade on the slab' analog. Builds on the existing Satori pipeline (functions/og/cert, functions/badge/cert) + server QR (US-762). Distinct from src/lib/grade-badge.ts (client-side corner badge, no QR)."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P1][Differentiation/Certificate] functions/slab/cert/[id].ts renders a 1080x1080 PNG (buildCertSlabHtml in functions/_shared/og-template.ts): garment hero + PSA-style grade chip + scannable QR (US-762) -> /cert/:id?s=qr. Reuses the public cert API; label-only fallback when no hero; transparent-PNG fallback for private/uncertified ids. tsc(functions)+eslint+vitest(290) green. FOLLOW-UP: format variants (US-764), seller download UI (US-765). The headline feature — the PSA 'grade on the slab' analog. Builds on the existing Satori pipeline (functions/og/cert, functions/badge/cert) + server QR (US-762). Distinct from src/lib/grade-badge.ts (client-side corner badge, no QR)."
     },
     {
       "id": "US-764",
