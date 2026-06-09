@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
+import { ImageLightbox } from "@/components/certificate/image-lightbox";
 import { CopyField } from "@/components/verified/copy-field";
 import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
@@ -218,6 +219,7 @@ export function CertificatePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>({ phase: "idle" });
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   const certificateUrl =
     typeof window !== "undefined"
@@ -478,7 +480,8 @@ export function CertificatePage() {
           </CardContent>
         </Card>
 
-        {/* Photo Gallery */}
+        {/* Photo Gallery — the evidence behind the grade. Tap a photo to open
+            the full-screen viewer (US-761): zoom, step through, download. */}
         {images.length > 0 && (
           <Card>
             <CardHeader>
@@ -486,21 +489,28 @@ export function CertificatePage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {images.map((img) => (
+                {images.map((img, i) => (
                   <div key={img.id} className="space-y-1.5">
-                    <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
-                      {imageUrls[img.id] ? (
+                    {imageUrls[img.id] ? (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxIndex(i)}
+                        className="block aspect-square w-full overflow-hidden rounded-lg border bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label={`View ${formatLabel(img.image_type)} photo full screen`}
+                      >
                         <img
                           src={imageUrls[img.id]}
                           alt={`${img.image_type} photo`}
                           className="h-full w-full object-cover"
                         />
-                      ) : (
+                      </button>
+                    ) : (
+                      <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
                         <div className="flex h-full w-full items-center justify-center">
                           <Skeleton className="h-full w-full" />
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     <Badge variant="outline" className="text-xs">
                       {formatLabel(img.image_type)}
                     </Badge>
@@ -510,6 +520,68 @@ export function CertificatePage() {
             </CardContent>
           </Card>
         )}
+
+        {/* US-761: full-screen photo viewer, opened from the gallery above. */}
+        {lightboxIndex !== null && (
+          <ImageLightbox
+            // Same index space as the gallery grid above (no filtering) so the
+            // clicked thumbnail's index always maps to the right photo.
+            images={images.map((img) => ({
+              id: img.id,
+              src: imageUrls[img.id] ?? "",
+              caption: formatLabel(img.image_type),
+            }))}
+            index={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+            onNavigate={setLightboxIndex}
+          />
+        )}
+
+        {/* About this item (US-760) — the structured facts a buyer wants,
+            alongside the seller's own description. Rows with no value are
+            omitted so the panel never shows empty fields. */}
+        {submission &&
+          (submission.brand ||
+            submission.garment_type ||
+            submission.garment_category ||
+            submission.description) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">About this item</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+                  {submission.brand && (
+                    <div>
+                      <dt className="text-muted-foreground">Brand</dt>
+                      <dd className="font-medium">{submission.brand}</dd>
+                    </div>
+                  )}
+                  {submission.garment_type && (
+                    <div>
+                      <dt className="text-muted-foreground">Type</dt>
+                      <dd className="font-medium">
+                        {formatLabel(submission.garment_type)}
+                      </dd>
+                    </div>
+                  )}
+                  {submission.garment_category && (
+                    <div>
+                      <dt className="text-muted-foreground">Category</dt>
+                      <dd className="font-medium">
+                        {formatLabel(submission.garment_category)}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {submission.description && (
+                  <p className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    {submission.description}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
         {/* Factor Breakdown */}
         <Card>

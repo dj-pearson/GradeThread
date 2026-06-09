@@ -11176,8 +11176,8 @@
         "No invented data — only facts the seller/grader actually supplied"
       ],
       "priority": 760,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/Buyer-trust] The 'more information' from the request. Surfaces structured item facts buyers need. Pairs with US-759 (narrative) for a complete buyer view."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P2][Certificate/Buyer-trust] 'About this item' panel on the cert page (Brand/Type/Category + seller description; rows omitted when empty) and mirrored in the cert SSR (functions/cert/[id].ts). Added `description` to the public cert endpoint (content-public.ts) so SSR+SPA stay consistent (not deno-checked locally - deno unavailable in sandbox; CI verify:edge confirms). The 'more information' from the request. Surfaces structured item facts buyers need. Pairs with US-759 (narrative) for a complete buyer view."
     },
     {
       "id": "US-761",
@@ -11191,8 +11191,8 @@
         "Defect photos are visually associated with the matching entry in the Condition & Flaws list where possible"
       ],
       "priority": 761,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/UX] Today the gallery is a static grid (certificate.tsx ~L480). Buyers need to inspect evidence. Consider a small dependency-light lightbox rather than a heavy lib."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P2][Certificate/UX] ImageLightbox (src/components/certificate/image-lightbox.tsx): full-screen viewer with prev/next (arrows+swipe), click zoom, per-photo caption, download (blob, new-tab fallback for cross-origin), focus trap + Esc + restore focus + scroll lock. Gallery thumbnails are now buttons that open it. Today the gallery is a static grid (certificate.tsx ~L480). Buyers need to inspect evidence. Consider a small dependency-light lightbox rather than a heavy lib."
     },
     {
       "id": "US-762",

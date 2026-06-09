@@ -327,10 +327,11 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   if (!report) return c.json({ error: "Not found" }, 404);
   const rep = report as unknown as CertReportRow;
 
-  // Garment metadata from the parent submission (title/brand/category).
+  // Garment metadata from the parent submission (title/brand/category +
+  // the seller's buyer-facing description, US-760).
   const { data: submission } = await supabaseAdmin
     .from("submissions")
-    .select("title, brand, garment_type, garment_category")
+    .select("title, brand, garment_type, garment_category, description")
     .eq("id", rep.submission_id)
     .maybeSingle();
 
@@ -363,6 +364,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       brand: submission?.brand ?? null,
       garment_type: submission?.garment_type ?? null,
       garment_category: submission?.garment_category ?? null,
+      description: submission?.description ?? null,
       hero_image_url: heroImageUrl,
     },
   });
