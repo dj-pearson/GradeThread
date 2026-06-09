@@ -25,7 +25,8 @@ export function CertShareActions({
 
   const origin =
     typeof window !== "undefined" ? window.location.origin : SITE_URL;
-  const url = `${origin}/cert/${certificateId}`;
+  // ?s=share lets a shared-link view be attributed (US-769) without any PII.
+  const url = `${origin}/cert/${certificateId}?s=share`;
   const text = `${title} — verified condition grade ${score.toFixed(1)}/10 (${tier}) on GradeThread.`;
 
   async function share() {

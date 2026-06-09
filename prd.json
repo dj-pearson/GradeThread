@@ -11307,7 +11307,7 @@
       ],
       "priority": 769,
       "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P3][Analytics/Trust-loop] Closes the loop: proves the slab drives scans. Ties into existing PostHog analytics."
+      "notes": "[EPIC: Digital Slab] PARTIAL 2026-06-09. [P3][Analytics/Trust-loop] DONE (frontend, privacy-safe): cert page fires PostHog cert_view with source from ?s= (qr from the slab QR / share from CertShareActions / direct), consent-gated, no buyer PII; download/copy already emit graded_photo_* (US-765). REMAINING (needs backend - deferred, no deno/DB in sandbox): a server-side per-cert view counter + the seller-facing 'times viewed/verified' metric on submission detail and optional public 'Verified N times'. Ties into existing PostHog analytics."
     },
     {
       "id": "US-770",

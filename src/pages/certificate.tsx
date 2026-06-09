@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import {
   Shield,
@@ -31,6 +31,7 @@ import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CopyField } from "@/components/verified/copy-field";
 import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
+import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { Button } from "@/components/ui/button";
 import type {
@@ -213,6 +214,7 @@ function CertificateLoadingSkeleton() {
 
 export function CertificatePage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const [gradeReport, setGradeReport] = useState<PublicGradeReportRow | null>(null);
   const [submission, setSubmission] = useState<SubmissionRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
@@ -250,6 +252,19 @@ export function CertificatePage() {
   useEffect(() => {
     void runVerify();
   }, [runVerify]);
+
+  // US-769: attribute the view once the certificate resolves. `?s=` lets us
+  // tell a QR scan (slab, s=qr) from a shared link (s=share) or a direct visit
+  // — no buyer PII, and consent-gated by track() so it's a no-op until opt-in.
+  useEffect(() => {
+    if (!gradeReport || !id) return;
+    track("cert_view", {
+      certificate_id: id,
+      source: searchParams.get("s") ?? "direct",
+    });
+    // Fire once per resolved certificate, not on every searchParams identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gradeReport?.id, id]);
 
   useEffect(() => {
     if (!id) return;
