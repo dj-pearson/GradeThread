@@ -12,6 +12,7 @@ import {
   Gauge,
   UserCheck,
   Info,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +25,7 @@ import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
 import { GRADE_FACTORS } from "@/lib/constants";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
+import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { CopyField } from "@/components/verified/copy-field";
 import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
@@ -720,6 +722,29 @@ export function CertificatePage() {
               </CardContent>
             </Card>
           )}
+
+        {/* Graded photo (US-765) — the PSA-style certified image: the garment
+            photo with the grade + scannable QR burned in. The seller's
+            highest-leverage share asset; the slab is public so anyone viewing
+            the certificate can grab it. */}
+        {id && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ImageIcon className="h-5 w-5 text-brand-navy" />
+                Graded photo
+              </CardTitle>
+              <CardDescription>
+                Download this item&apos;s certified photo — the grade and a
+                scannable code are burned in, so buyers can verify it from any
+                marketplace listing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <GradedPhotoPanel certificateId={id} />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Embed this badge in your listing — the viral surface of
             GradeThread Verified. Buyers see a standardized, verifiable grade

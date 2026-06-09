@@ -11235,8 +11235,8 @@
         "Variants documented alongside US-763"
       ],
       "priority": 764,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/Marketplace-fit] Marketplace thumbnails differ (eBay square, Poshmark/Depop portrait, IG story). Same render pipeline as US-763, parameterized."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P2][Certificate/Marketplace-fit] /slab/cert/:id?format=square|portrait(4:5)|story(9:16)|label maps to render dimensions (SLAB_FORMATS); label forces the photo-less PSA card; unknown -> square; each variant caches independently (CF keys on full URL). Marketplace thumbnails differ (eBay square, Poshmark/Depop portrait, IG story). Same render pipeline as US-763, parameterized."
     },
     {
       "id": "US-765",
@@ -11250,8 +11250,8 @@
         "Only the owning seller sees these controls on submission detail; the cert page surfaces it for the owner (public viewers see the certificate, not seller tools)"
       ],
       "priority": 765,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P1][Seller/Distribution] The seller's distribution moment — turns the slab (US-763/764) into a one-tap asset. Complements the existing badge-embed (certBadgeEmbedHtml) and verified badge."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P1][Seller/Distribution] GradedPhotoPanel (src/components/verified/graded-photo-panel.tsx): format picker + live preview + Download (blob->anchor) + Copy image (ClipboardItem, falls back to download); PostHog graded_photo_download/_copy. Wired into submission-detail.tsx (owner, when certificate_id) and the public certificate.tsx (share). tsc-b+eslint+vitest(290)+build green. The seller's distribution moment — turns the slab (US-763/764) into a one-tap asset. Complements the existing badge-embed (certBadgeEmbedHtml) and verified badge."
     },
     {
       "id": "US-766",

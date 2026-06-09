@@ -14,6 +14,7 @@ import {
   Camera,
   Tag,
   ArrowRight,
+  Image as ImageIcon,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { toast } from "sonner";
@@ -1053,6 +1055,26 @@ export function SubmissionDetailPage() {
                 </p>
               </>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Graded photo (US-765): the PSA-style certified image for this grade,
+          ready to drop into a listing. Only once a certificate exists. */}
+      {gradeReport?.certificate_id && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ImageIcon className="h-5 w-5 text-brand-navy" />
+              Your graded photo
+            </CardTitle>
+            <CardDescription>
+              A certified image of this item with the grade and a scannable code
+              burned in — add it to your eBay, Poshmark, Depop or social listing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
           </CardContent>
         </Card>
       )}

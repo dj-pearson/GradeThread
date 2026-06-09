@@ -10,6 +10,11 @@
 // (public) reports resolve, so a private/uncertified id yields the transparent
 // fallback (never leaks a private report, US-268). When the hero photo is
 // unavailable the slab degrades to a label-only card (handled in the template).
+//
+// US-764: ?format= picks the aspect ratio so the graded photo looks native on
+// each marketplace — square (eBay), portrait (Poshmark/Depop), story (social),
+// and a label-only PSA-style card (no photo). Each variant caches independently
+// because Cloudflare keys the edge cache on the full URL (query included).
 
 import { ImageResponse } from "workers-og";
 import { fetchJson, siteUrl, type PagesEnv } from "../../_shared/blog-render";
@@ -27,14 +32,28 @@ interface PublicCertificate {
 
 type Ctx = EventContext<PagesEnv, "id", Record<string, unknown>>;
 
-const SLAB_SIZE = 1080;
+// Supported slab formats → render dimensions. "label" forces the photo-less
+// PSA-style card. Unknown/missing values fall back to square.
+const SLAB_FORMATS: Record<
+  string,
+  { width: number; height: number; labelOnly?: boolean }
+> = {
+  square: { width: 1080, height: 1080 },
+  portrait: { width: 1080, height: 1350 }, // 4:5
+  story: { width: 1080, height: 1920 }, // 9:16
+  label: { width: 1080, height: 1080, labelOnly: true },
+};
+
 const SLAB_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
-  const { params, env } = context;
+  const { params, env, request } = context;
   const id = String(params.id ?? "").trim();
   if (!id) return fallbackImage();
+
+  const formatParam = new URL(request.url).searchParams.get("format") ?? "square";
+  const format = SLAB_FORMATS[formatParam] ?? SLAB_FORMATS.square!;
 
   try {
     const data = await fetchJson<{ certificate: PublicCertificate }>(
@@ -49,20 +68,21 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     const certUrl = `${siteUrl(env)}/cert/${encodeURIComponent(id)}?s=qr`;
 
     const html = buildCertSlabHtml({
-      width: SLAB_SIZE,
-      height: SLAB_SIZE,
+      width: format.width,
+      height: format.height,
       title: cert.title,
       brand: cert.brand,
       score: Number(cert.overall_score),
       gradeTier: cert.grade_tier,
-      heroImageUrl: cert.hero_image_url,
+      // "label" format renders the PSA-style card with no photo.
+      heroImageUrl: format.labelOnly ? null : cert.hero_image_url,
       qrDataUri: qrSvgDataUri(certUrl),
       certId: id,
     });
 
     return new ImageResponse(html, {
-      width: SLAB_SIZE,
-      height: SLAB_SIZE,
+      width: format.width,
+      height: format.height,
       headers: {
         "Cache-Control": SLAB_CACHE_CONTROL,
         "Content-Type": "image/png",
