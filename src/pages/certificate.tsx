@@ -27,6 +27,7 @@ import { GRADE_FACTORS } from "@/lib/constants";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
+import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CopyField } from "@/components/verified/copy-field";
 import { certBadgeEmbedHtml, certBadgeEmbedText } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
@@ -411,8 +412,9 @@ export function CertificatePage() {
           ]),
         ]}
       />
-      {/* Header with branding */}
-      <div className="bg-brand-navy py-6 text-white">
+      {/* Header with branding (hidden when printing — replaced by a clean
+          print-only title below). */}
+      <div className="bg-brand-navy py-6 text-white print:hidden">
         <div className="mx-auto flex max-w-3xl flex-col items-center gap-3 px-6">
           <div className="flex items-center gap-3">
             <img
@@ -430,8 +432,26 @@ export function CertificatePage() {
         </div>
       </div>
 
+      {/* Print-only header (US-767): keeps GradeThread branding on the PDF
+          without the dark banner that doesn't render on white paper. */}
+      <div className="mx-auto hidden max-w-3xl px-6 pt-6 print:block">
+        <p className="text-xl font-bold text-brand-navy">GradeThread</p>
+        <p className="text-sm text-muted-foreground">
+          Verified Grade Certificate
+        </p>
+      </div>
+
       {/* Main content */}
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+        {/* Share / save actions (US-767) — interactive, so dropped on print. */}
+        <div className="flex justify-end print:hidden">
+          <CertShareActions
+            certificateId={id ?? ""}
+            title={submission?.title ?? "Graded garment"}
+            score={gradeReport.overall_score}
+            tier={gradeReport.grade_tier}
+          />
+        </div>
         {/* Overall Score */}
         <Card>
           <CardContent className="pt-6">
@@ -800,7 +820,7 @@ export function CertificatePage() {
             highest-leverage share asset; the slab is public so anyone viewing
             the certificate can grab it. */}
         {id && (
-          <Card>
+          <Card className="print:hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <ImageIcon className="h-5 w-5 text-brand-navy" />
@@ -822,7 +842,7 @@ export function CertificatePage() {
             GradeThread Verified. Buyers see a standardized, verifiable grade
             right inside the marketplace listing and click through to here. */}
         {id && (
-          <Card>
+          <Card className="print:hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BadgeCheck className="h-5 w-5 text-brand-navy" />

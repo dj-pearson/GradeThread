@@ -9203,8 +9203,8 @@
         "Print / PDF export of the certificate"
       ],
       "priority": 607,
-      "passes": false,
-      "notes": "[P2][UX/Differentiation] Deep-dive 2026-06-04. certificate.tsx is the standout artifact but has only meta tags (no OG image), no share, no print/PDF — under-leveraged distribution."
+      "passes": true,
+      "notes": "[P2][UX/Differentiation] SHIPPED 2026-06-09 via US-767 (native share + print/PDF) and US-307 (OG image). Deep-dive 2026-06-04: certificate.tsx had only meta tags, no share, no print/PDF."
     },
     {
       "id": "US-608",
@@ -11278,8 +11278,8 @@
         "Closes out the intent of US-607 (which this story supersedes/implements)"
       ],
       "priority": 767,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] BUILD-NEW. [P2][Certificate/Distribution] Implements US-607 ('first-class shareable'). Native share + print-to-PDF. Pairs with the slab (US-763) as the shareable image."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P2][Certificate/Distribution] CertShareActions (src/components/certificate/cert-share-actions.tsx): Web Share API with the slab PNG attached where canShare allows, copy-link fallback, AbortError-safe; window.print() with print:hidden on seller-tool cards + the navy banner and a print-only branded header. PostHog cert_share/cert_print. Implements US-607 ('first-class shareable'). Native share + print-to-PDF. Pairs with the slab (US-763) as the shareable image."
     },
     {
       "id": "US-768",
