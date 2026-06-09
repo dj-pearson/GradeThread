@@ -5402,3 +5402,55 @@ test to extend — the right kind of work to land cleanly here.
           (node_modules) can't be installed in this sandbox (restricted
           registry), so a React change can't be build- or visually verified
           here. The comparison data + controls are fully available via the API.
+
+================================================================================
+## 2026-06-09 — US-414 Global Claude concurrency + cost ceiling (P1)
+
+- US-414  Global Claude concurrency + cost ceiling. COMPLETE (passes:true).
+          Files: new src/lib/ai-limiter.ts (+ test), src/lib/ai-config.ts
+          (central wrap), src/lib/ai-grading.ts (comments only — calls now
+          bounded centrally).
+
+          Audit finding: grading-pipeline ran Promise.all over every image with
+          NO global cap — a burst of concurrent grades/autolister batches could
+          spike simultaneous Anthropic calls (rate-limit trips + cost spikes).
+
+          lib/ai-limiter.ts:
+            * Semaphore — process-wide FIFO counting semaphore
+              (AI_MAX_CONCURRENCY, default 8), .run() releases on throw.
+            * reserveGlobalDailyBudget — GLOBAL daily volume ceiling
+              (AI_GLOBAL_DAILY_CALL_CEILING, default 50k; 0 disables) via the
+              shared rate_limit_counters RPC (distributed across replicas);
+              fails OPEN on a counter-store error so a DB blip never halts
+              grading; throws AiCeilingError when exceeded.
+            * runAiCall(fn) = ceiling -> semaphore -> withRetry(fn) with
+              attempts = AI_MAX_RETRIES+1.
+
+          AC1 (process-wide, ALL requests): wired in ONE place —
+          getAnthropicClient() wraps messages.create, so every non-streaming
+          Anthropic call in the whole edge service is bounded (grading,
+          autolister, extract, reconcile, content). No per-call-site wiring to
+          forget. Streaming (messages.stream / create({stream:true})) is
+          bypassed so SSE content flows aren't broken/retried.
+          AC3 (retry.ts on vision calls): retry.ts is the SINGLE retry layer for
+          wrapped calls — the SDK's own per-call retry is disabled (maxRetries:0
+          injected) so a 429 isn't retried twice.
+          AC2 (per-account + global ceilings): GLOBAL daily ceiling added here;
+          over-limit throws -> grading rethrows -> per-grade charge reversed.
+          PER-ACCOUNT spend was already bounded — atomic monthly
+          reserve_ai_action quota (US-387) for FlipDesk AI actions + per-grade
+          billing/credits (US-207) for grading.
+
+          DESIGN NOTE: chose a single central wrap in getAnthropicClient over
+          wrapping ~16 call sites — DRY, future-proof (new callers bounded
+          automatically), and avoids nested-runAiCall deadlocks. The override
+          casts create's return to a Promise (not the SDK's APIPromise); safe
+          because every call site awaits the result and none use APIPromise-only
+          methods (.withResponse()). Streaming guard prevents wrapping a stream.
+
+          VERIFICATION: deno lint src/ clean (231 files); Node harnesses for the
+          Semaphore (concurrency bound/FIFO/release-on-throw), the ceiling
+          decision (throws/disabled/fail-open), and the getAnthropicClient
+          override (streaming bypass + maxRetries:0 injection + method
+          shadowing) all pass. deno check/test run in CI (security.yml); this
+          sandbox blocks deno.land/esm.sh egress so deps can't be fetched here.

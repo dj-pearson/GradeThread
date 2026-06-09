@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { runAiCall } from "./ai-limiter.ts";
 
 // Central reader for AI configuration. Values come from Coolify Team Shared
 // Variables so every Pearson Media project flips together when a model or
@@ -109,13 +110,46 @@ export function reviewConfidenceThreshold(): number {
 
 let anthropicClient: Anthropic | null = null;
 
+// US-414: route EVERY non-streaming messages.create through the process-wide
+// limiter (global concurrency cap + daily volume ceiling + retry.ts backoff),
+// in ONE place so every current and future caller is bounded — no per-call-site
+// wiring to forget. We disable the SDK's own per-call retries (maxRetries: 0)
+// so retry.ts is the single retry authority (no double-retry on a 429).
+//
+// Streaming calls are bypassed: the SSE content flows (messages.stream() and
+// create({ stream: true })) are long-lived single calls, not the concurrency
+// spike the audit flagged, and wrapping a stream in await/retry would break it.
+function applyAiLimiter(client: Anthropic): Anthropic {
+  // Treat messages.create loosely here ONLY to wrap it — callers still see the
+  // fully-typed Anthropic client (this returns `client: Anthropic`), so no call
+  // site changes. Avoids depending on the SDK's overloaded create() signature.
+  const messages = client.messages as unknown as {
+    create: (...args: unknown[]) => unknown;
+  };
+  const rawCreate = messages.create.bind(messages);
+
+  messages.create = (...args: unknown[]) => {
+    const body = args[0] as { stream?: boolean } | undefined;
+    // Streaming → bypass the limiter (don't await/retry a stream).
+    if (body?.stream) return rawCreate(...args);
+    const options = (args[1] as Record<string, unknown> | undefined) ?? {};
+    const rest = args.slice(2);
+    return runAiCall(() =>
+      rawCreate(body, { ...options, maxRetries: 0 }, ...rest) as Promise<unknown>
+    );
+  };
+  return client;
+}
+
 export function getAnthropicClient(): Anthropic {
   if (!anthropicClient) {
-    anthropicClient = new Anthropic({
-      apiKey: getAnthropicApiKey(),
-      timeout: getAiTimeoutMs(),
-      maxRetries: getAiMaxRetries(),
-    });
+    anthropicClient = applyAiLimiter(
+      new Anthropic({
+        apiKey: getAnthropicApiKey(),
+        timeout: getAiTimeoutMs(),
+        maxRetries: getAiMaxRetries(),
+      }),
+    );
   }
   return anthropicClient;
 }
