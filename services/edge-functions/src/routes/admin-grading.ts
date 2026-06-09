@@ -10,6 +10,7 @@ import {
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
+import { type ShadowRow, summarizeComparisons } from "../lib/grading-shadow.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
 import { requireStepUp } from "../lib/step-up.ts";
@@ -223,6 +224,110 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
   if (error) return c.json({ error: error.message }, 400);
   await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
+});
+
+// ── Shadow / A-B grading (US-330) ────────────────────────────────────
+
+// PATCH /prompts/:id/shadow — mark a candidate composite prompt to run in
+// shadow on live traffic, with cost guardrails. Body:
+//   { is_shadow: bool, shadow_sample_rate?: 0..1, shadow_daily_cap?: int }
+// Shadow runs are advisory only and never affect a customer's grade;
+// activation still requires the eval gate (POST /prompts/:id/activate).
+adminGradingRoutes.patch("/prompts/:id/shadow", async (c) => {
+  const id = c.req.param("id");
+  let body: {
+    is_shadow?: boolean;
+    shadow_sample_rate?: number;
+    shadow_daily_cap?: number;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  // Only composite-stage candidates can be shadowed (per-image shadowing would
+  // require a full re-grade; the composite re-run reuses per-image analyses).
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, stage")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!row) return c.json({ error: "Prompt version not found" }, 404);
+  if ((row as { stage: string }).stage !== "composite") {
+    return c.json({ error: "Only composite-stage prompts can be shadowed" }, 422);
+  }
+
+  const update: Record<string, unknown> = {};
+  if (typeof body.is_shadow === "boolean") update.is_shadow = body.is_shadow;
+  if (body.shadow_sample_rate !== undefined) {
+    const r = Number(body.shadow_sample_rate);
+    if (!Number.isFinite(r) || r < 0 || r > 1) {
+      return c.json({ error: "shadow_sample_rate must be between 0 and 1" }, 400);
+    }
+    update.shadow_sample_rate = r;
+  }
+  if (body.shadow_daily_cap !== undefined) {
+    const cap = Number(body.shadow_daily_cap);
+    if (!Number.isInteger(cap) || cap < 0) {
+      return c.json({ error: "shadow_daily_cap must be a non-negative integer" }, 400);
+    }
+    update.shadow_daily_cap = cap;
+  }
+  if (Object.keys(update).length === 0) {
+    return c.json({ error: "Nothing to update" }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .update(update)
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) return c.json({ error: error.message }, 400);
+  await auditLog(c, "set_prompt_shadow", "ai_prompt_version", id, update);
+  return c.json({ prompt: data });
+});
+
+// GET /shadow/comparison?version=<name>&days=<n> — aggregate shadow-vs-active
+// comparison for a candidate: score-delta distribution, agreement rate, and
+// per-tag divergence (e.g. distressed_denim). Admin-only platform analytics.
+adminGradingRoutes.get("/shadow/comparison", async (c) => {
+  const version = (c.req.query("version") ?? "").trim();
+  if (!version) return c.json({ error: "version query param is required" }, 400);
+  const days = Math.min(Math.max(Number(c.req.query("days")) || 30, 1), 365);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .from("grading_shadow_results")
+    .select("score_delta, agreement, tags, shadow_overall_score, error")
+    .eq("shadow_prompt_version_name", version)
+    .gte("created_at", since)
+    .limit(10_000);
+  if (error) return c.json({ error: error.message }, 500);
+  const summary = summarizeComparisons((data ?? []) as ShadowRow[]);
+  return c.json({ version, days, ...summary });
+});
+
+// GET /shadow/results?version=<name>&limit=<n> — recent shadow rows for
+// inspection (the divergent cases an admin wants to eyeball).
+adminGradingRoutes.get("/shadow/results", async (c) => {
+  const version = (c.req.query("version") ?? "").trim();
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  let q = supabaseAdmin
+    .from("grading_shadow_results")
+    .select(
+      "id, submission_id, shadow_prompt_version_name, active_prompt_version_name, " +
+        "active_overall_score, active_grade_tier, shadow_overall_score, shadow_grade_tier, " +
+        "score_delta, agreement, tags, error, created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (version) q = q.eq("shadow_prompt_version_name", version);
+  const { data, error } = await q;
+  if (error) return c.json({ error: error.message }, 500);
+  return c.json({ results: data ?? [] });
 });
 
 // ── Eval cases (golden set) ──────────────────────────────────────────

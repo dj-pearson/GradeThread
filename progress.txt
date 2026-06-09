@@ -5351,3 +5351,54 @@ test to extend — the right kind of work to land cleanly here.
           Verified offline: deno lint src/ (clean, 227 files) + a Node WebCrypto
           harness mirroring the verify flow (all assertions pass). CI
           security.yml -> deno-check is the authoritative gate.
+
+================================================================================
+## 2026-06-09 — US-330 Shadow / A-B grading of candidate prompts (P330)
+
+- US-330  Shadow / A-B grading on live traffic. COMPLETE — backend (passes:true);
+          admin UI panel deferred as a follow-up (see caveat). Files: new
+          supabase/migrations/00115_shadow_grading.sql, new
+          src/lib/grading-shadow.ts (+ test), src/lib/grading-pipeline.ts hook,
+          src/routes/admin-grading.ts endpoints.
+
+          KEY INSIGHT: compositeGrade(perImageResults, garmentInfo, promptOverride)
+          already accepts a candidate prompt (the eval harness uses it). So a
+          shadow grade re-runs ONLY the composite stage on the SAME per-image
+          analyses — one extra composite API call, not a full re-grade. Cheap
+          enough to sample live traffic.
+
+          AC1 — A candidate marked is_shadow (composite stage) runs after the
+                live grade via a fire-and-forget hook (pipeline Step 7d). Never
+                blocks or alters the customer's grade.
+          AC2 — Output goes to grading_shadow_results ONLY — never grade_reports,
+                never the customer, never the certificate.
+          AC3 — Admin endpoints: GET /api/admin/grading/shadow/comparison?version=
+                &days= returns score-delta distribution (0.5 buckets),
+                agreement_rate, mean/mean-abs delta, and per-tag divergence
+                (incl. the distressed_denim hard case); GET /shadow/results lists
+                recent rows; PATCH /prompts/:id/shadow sets is_shadow +
+                sample_rate + daily_cap (composite-only).
+          AC4 — Cost guardrails: sample-rate gate + per-version daily cap (counts
+                today's rows, fails CLOSED on count error so a blip never
+                overspends). Tenant-isolated: user_id stamped on every row;
+                grading_shadow_results has admin-only RLS.
+          AC5 — Promotion unchanged: activatePromptVersion still requires
+                eval_passed=true. Shadow is advisory evidence only.
+
+          Pure decision math (shouldSample / agreementWithin / roundTenth /
+          deriveDivergenceTags / deltaBucket / summarizeComparisons) unit-tested
+          in grading-shadow_test.ts.
+
+          VERIFICATION: deno lint src/ clean (229 files); Node harness of the
+          pure logic passes; a Python mirror of the rls-guard parser confirms
+          grading_shadow_results passes (RLS enabled + is_admin policy). deno
+          check/test run in CI (security.yml); the migration is validated by
+          db-migrations.yml. (This sandbox blocks deno.land/esm.sh egress so
+          edge deps can't be fetched locally.)
+
+          FOLLOW-UP (deferred, not blocking): an admin comparison PANEL in
+          src/pages/admin/ai-models.tsx that consumes /shadow/comparison +
+          /shadow/results + the PATCH knobs. Deferred because the web toolchain
+          (node_modules) can't be installed in this sandbox (restricted
+          registry), so a React change can't be build- or visually verified
+          here. The comparison data + controls are fully available via the API.

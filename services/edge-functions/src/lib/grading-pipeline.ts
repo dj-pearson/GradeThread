@@ -9,6 +9,7 @@ import {
   type GarmentInfo,
   type CompositeGradeResult,
 } from "./ai-grading.ts";
+import { runShadowGrades } from "./grading-shadow.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import { sendGradeCompleteEmail } from "./email.ts";
 import { notifyUser } from "./notify.ts";
@@ -538,6 +539,28 @@ export async function processSubmission(submissionId: string) {
       `[Pipeline] Grading pipeline COMPLETE for submission ${submissionId} | ` +
         `overall_score=${compositeResult.overall_score} | grade_tier=${compositeResult.grade_tier} | ` +
         `confidence=${compositeResult.confidence_score} | total_ms=${totalMs}`
+    );
+
+    // --- Step 7d: Shadow / A-B grading (US-330, fire-and-forget) ---
+    // Re-run ONLY the composite stage with any shadow candidate prompt on a
+    // sampled fraction of live traffic, reusing the per-image analyses. Stored
+    // separately in grading_shadow_results; NEVER affects this customer's grade
+    // or certificate. Never blocks/fails the pipeline.
+    void runShadowGrades({
+      submissionId,
+      userId: submission.user_id,
+      gradeReportId: gradeReport.id,
+      activePromptVersion: compositeResult.prompt_version,
+      activeOverallScore: compositeResult.overall_score,
+      activeGradeTier: compositeResult.grade_tier,
+      activeFactorScores: compositeResult.factor_scores,
+      perImageResults,
+      garmentInfo,
+    }).catch((err) =>
+      console.error(
+        `[Pipeline] shadow grading error for submission ${submissionId}:`,
+        err instanceof Error ? err.message : String(err),
+      )
     );
 
     // --- Step 8: Send webhook notifications (fire-and-forget) ---
