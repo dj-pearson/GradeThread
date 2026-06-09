@@ -7220,8 +7220,8 @@
         "Covered by a post-publish-crash + retry test"
       ],
       "priority": 464,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. publishItemForOwner persists the listings row only after publishOffer; publish-due cron retries that window."
+      "passes": true,
+      "notes": "[P1][FlipDesk] DONE 2026-06-09. The window: publishItemForOwner persisted the local listings row only AFTER publishOffer, so a publish that succeeded remotely then crashed before that write left an offer live on eBay with no local record; a retry (manual re-publish or the publish-due cron) re-published -> duplicate live listing. New publishOrAdoptOffer(userId, offerId, ops) in ebay-client.ts pre-checks getPublishedListingId BEFORE publishing — if the offer is already live it ADOPTS that listingId instead of re-publishing. AC1: the flow now checks for an already-published listing and adopts it (createOffer already adopted the existing OFFER via the 25002 path; this closes the publish step). AC2: a remote-success-but-local-fail is reconciled on retry — the offer is found already-published, adopted, and the local row written, with NO second publish. AC3: publishOrAdoptOffer takes injectable I/O (getPublishedListingId/publishOffer) and publish-idempotency_test.ts adds 3 cases incl. an explicit post-publish-crash + retry simulation asserting the retry adopts the same listingId and publishOffer is called exactly once. publishItemForOwner step 4 now calls publishOrAdoptOffer; getPublishedListingId exported (was private). Complements US-528 (publishOffer's intra-call reconciliation + createOffer 25002 adoption). Verified: deno lint src/ clean (233 files) + Node harness of the 3 scenarios; deno check/test run in CI (security.yml)."
     },
     {
       "id": "US-465",

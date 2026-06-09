@@ -21,7 +21,7 @@ import {
   listOffersForSku,
   listRecentOrders,
   listRecentTransactions,
-  publishOffer,
+  publishOrAdoptOffer,
   resolveCachedDefaults,
   searchBrowseComps,
   setDefaultPolicies,
@@ -2123,8 +2123,12 @@ export async function publishItemForOwner(
       });
     }
 
-    // 4. Publish.
-    const published = await publishOffer(ownerId, offerId);
+    // 4. Publish — or ADOPT an already-published listing (US-464). If a prior
+    //    attempt published this offer remotely but crashed before persisting
+    //    the local listings row (step 5), publishOrAdoptOffer returns that live
+    //    listingId instead of re-publishing, so a retry can't create a duplicate
+    //    live listing.
+    const published = await publishOrAdoptOffer(ownerId, offerId);
     const listingId = published.listingId;
     const url = ebayListingUrl(listingId);
 

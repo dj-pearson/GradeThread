@@ -5526,3 +5526,32 @@ test to extend — the right kind of work to land cleanly here.
           behavior is exercised by the env-gated reconciliation cross-tenant case
           in tenant-isolation_test.ts (behavioral DB testing needs a live
           Postgres = CI, not this sandbox).
+
+================================================================================
+## 2026-06-09 — US-464 Idempotent eBay publish (P1)
+
+- US-464  Make eBay publish idempotent. COMPLETE (passes:true). Files:
+          src/lib/ebay-client.ts (publishOrAdoptOffer + export
+          getPublishedListingId), src/routes/flipdesk-ebay.ts
+          (publishItemForOwner step 4), src/tests/publish-idempotency_test.ts.
+
+          The window: publishItemForOwner persisted the local listings row only
+          AFTER publishOffer returned. A publish that succeeded remotely then
+          crashed (or whose container died) before that write left an offer live
+          on eBay with no local record — and a retry (manual re-publish or the
+          publish-due cron) re-published it -> duplicate live listing.
+
+          AC1/AC2 — new publishOrAdoptOffer(userId, offerId, ops) pre-checks
+          getPublishedListingId BEFORE publishing; if the offer is already live
+          it ADOPTS that listingId (skips publishOffer), so a retry reconciles to
+          the existing listing instead of creating a duplicate. createOffer
+          already adopted the existing OFFER (25002 path, US-528); this closes
+          the publish step too.
+          AC3 — publishOrAdoptOffer takes injectable I/O; publish-idempotency_test
+          adds 3 cases including an explicit post-publish-crash + retry
+          simulation (attempt 1 publishes + 'crashes' before persist; attempt 2
+          adopts the same listingId; publishOffer called exactly once).
+
+          Complements US-528 (publishOffer's intra-call reconciliation across its
+          own retries). Verified: deno lint src/ clean (233 files) + Node harness
+          of the 3 scenarios; deno check/test run in CI.
