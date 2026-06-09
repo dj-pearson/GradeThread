@@ -67,6 +67,7 @@ interface CertReportRow {
   functional_elements_score: number | null;
   odor_cleanliness_score: number | null;
   ai_summary: string | null;
+  buyer_writeup: string | null;
   certificate_id: string;
   created_at: string;
   submission_id: string;
@@ -301,7 +302,7 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
 const CERT_REPORT_COLUMNS =
   "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
-  "ai_summary, certificate_id, created_at, submission_id";
+  "ai_summary, buyer_writeup, certificate_id, created_at, submission_id";
 
 // Signed-URL TTL for certificate images (seconds). Long enough for an edge
 // cache window; the cert SSR caches the HTML, not the URL, so this just needs
@@ -388,7 +389,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
       "certificate_id, overall_score, grade_tier, fabric_condition_score, " +
         "structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, " +
-        "content_hash, content_signature, integrity_version, created_at",
+        "buyer_writeup, content_hash, content_signature, integrity_version, created_at",
     )
     .eq("certificate_id", certId)
     .not("certificate_id", "is", null)
@@ -406,6 +407,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     functional_elements_score: number | string;
     odor_cleanliness_score: number | string;
     ai_summary: string | null;
+    buyer_writeup: string | null;
     content_hash: string | null;
     content_signature: string | null;
     integrity_version: number | null;
@@ -423,6 +425,9 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
       functional_elements_score: r.functional_elements_score,
       odor_cleanliness_score: r.odor_cleanliness_score,
       ai_summary: r.ai_summary ?? "",
+      // US-770: sealed under integrity v2. v1 rows store integrity_version=1,
+      // and verifyCertIntegrity canonicalizes them under v1 (ignoring this).
+      buyer_writeup: r.buyer_writeup ?? "",
     },
     r.content_hash,
     r.content_signature,

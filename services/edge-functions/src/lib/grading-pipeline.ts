@@ -369,6 +369,10 @@ export async function processSubmission(submissionId: string) {
         compositeResult.factor_scores.functional_elements,
       odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
       ai_summary: compositeResult.ai_summary,
+      // US-770: the buyer-facing write-up is a certified claim sealed into the
+      // content hash (integrity v2). Any future reseal-on-edit path (US-475)
+      // MUST likewise pass buyer_writeup so the recomputed hash keeps matching.
+      buyer_writeup: compositeResult.buyer_writeup,
     });
 
     const { data: gradeReport, error: reportError } = await supabaseAdmin
@@ -383,6 +387,8 @@ export async function processSubmission(submissionId: string) {
         functional_elements_score: compositeResult.factor_scores.functional_elements,
         odor_cleanliness_score: compositeResult.factor_scores.odor_cleanliness,
         ai_summary: compositeResult.ai_summary,
+        // US-759: longer buyer-facing certified write-up.
+        buyer_writeup: compositeResult.buyer_writeup,
         detailed_notes: detailedNotes,
         // Intentional design features the AI judged present (distressing, raw
         // hems, etc.) — these did NOT lower the grade.

@@ -651,14 +651,17 @@ export function CertificatePage() {
           </CardContent>
         </Card>
 
-        {/* AI Summary */}
+        {/* Condition report (US-759) — the longer buyer-facing write-up when
+            present, else the short AI summary. */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">AI Analysis Summary</CardTitle>
+            <CardTitle className="text-base">
+              {gradeReport.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="whitespace-pre-wrap text-sm leading-relaxed">
-              {gradeReport.ai_summary}
+              {gradeReport.buyer_writeup || gradeReport.ai_summary}
             </p>
           </CardContent>
         </Card>

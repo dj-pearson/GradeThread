@@ -35,6 +35,7 @@ interface PublicCertificate {
   functional_elements_score: number;
   odor_cleanliness_score: number;
   ai_summary: string;
+  buyer_writeup: string | null;
   created_at: string;
   hero_image_url: string | null;
 }
@@ -121,8 +122,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   ${aboutHtml}
   <h2>Factor Breakdown</h2>
   <table><tbody>${factorsHtml}</tbody></table>
-  <h2>AI Analysis Summary</h2>
-  <p style="white-space:pre-wrap">${escape(cert.ai_summary)}</p>
+  <h2>${cert.buyer_writeup ? "Condition Report" : "AI Analysis Summary"}</h2>
+  <p style="white-space:pre-wrap">${escape(cert.buyer_writeup || cert.ai_summary)}</p>
   <p style="color:var(--muted);font-size:0.85rem;margin-top:24px">Graded on ${escape(gradedOn)} · Certificate ID <code>${escape(cert.id)}</code></p>
   <a class="cta" href="/?utm_source=certificate&utm_medium=organic">Grade your own garment with GradeThread &rarr;</a>
 </main>`;
