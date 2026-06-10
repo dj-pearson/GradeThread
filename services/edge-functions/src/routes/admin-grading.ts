@@ -14,6 +14,13 @@ import { type ShadowRow, summarizeComparisons } from "../lib/grading-shadow.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import {
+  clampScore,
+  computeWeightedOverall,
+  type FactorScores,
+  resealCertificate,
+  scoreToGradeTier,
+} from "../lib/human-review.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -837,4 +844,411 @@ adminGradingRoutes.get("/reliability/studies/:id/report", async (c) => {
 
   const report = computeIrrReport(items, aiScores, Number(study.tolerance));
   return c.json({ study, report });
+});
+
+// ── Human-review queue (US-775) ──────────────────────────────────────
+//
+// The low-confidence human-review loop, moved server-side. The old admin UI
+// mutated grades via the browser Supabase client, which (1) couldn't reseal the
+// certificate integrity hash (CERT_SIGNING_KEY is edge-only) so an adjusted
+// grade's public certificate verified as 'mismatch', and (2) bypassed the MFA
+// step-up every other money/grade-mutating admin action requires. These
+// endpoints fix both: every adjust reseals the cert, every mutation is
+// step-up-gated + audited.
+
+const REVIEW_QUEUE_LIMIT = 200;
+const REVIEW_IMAGE_TTL = 900; // ≤ 900s signed URLs for the private bucket (US-276).
+
+interface QueueReportRow {
+  id: string;
+  submission_id: string;
+  overall_score: number;
+  grade_tier: string;
+  confidence_score: number;
+  confidence_label: string | null;
+  fabric_condition_score: number;
+  structural_integrity_score: number;
+  cosmetic_appearance_score: number;
+  functional_elements_score: number;
+  odor_cleanliness_score: number;
+  ai_summary: string;
+  needs_human_review: boolean;
+  human_reviewed: boolean;
+  created_at: string;
+}
+
+// GET /review-queue — grade reports needing human review (low-confidence flag),
+// not yet reviewed, OLDEST FIRST. Returns per-factor scores, confidence, AI
+// reasoning, the customer, and queue_age_seconds (oldest unreviewed) for SLA.
+adminGradingRoutes.get("/review-queue", async (c) => {
+  const { data: reportsRaw, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select(
+      "id, submission_id, overall_score, grade_tier, confidence_score, confidence_label, " +
+        "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
+        "functional_elements_score, odor_cleanliness_score, ai_summary, needs_human_review, " +
+        "human_reviewed, created_at",
+    )
+    // The pipeline-persisted flag (US-073/00049); the OR keeps legacy rows graded
+    // before the column existed.
+    .or("needs_human_review.eq.true,confidence_score.lt.0.75")
+    .eq("human_reviewed", false)
+    .order("created_at", { ascending: true })
+    .limit(REVIEW_QUEUE_LIMIT);
+
+  if (error) {
+    console.error("[admin-grading] review-queue query failed:", error);
+    return c.json({ error: "Failed to load review queue" }, 500);
+  }
+
+  const reports = (reportsRaw ?? []) as unknown as QueueReportRow[];
+  const submissionIds = reports.map((r) => r.submission_id);
+
+  const subById = new Map<
+    string,
+    { id: string; user_id: string; title: string; garment_type: string; garment_category: string; created_at: string }
+  >();
+  const emailByUser = new Map<string, { email: string; full_name: string | null }>();
+  if (submissionIds.length > 0) {
+    const { data: subs } = await supabaseAdmin
+      .from("submissions")
+      .select("id, user_id, title, garment_type, garment_category, created_at")
+      .in("id", submissionIds);
+    for (
+      const s of (subs ?? []) as Array<{
+        id: string;
+        user_id: string;
+        title: string;
+        garment_type: string;
+        garment_category: string;
+        created_at: string;
+      }>
+    ) {
+      subById.set(s.id, s);
+    }
+    const userIds = [...new Set([...subById.values()].map((s) => s.user_id))];
+    if (userIds.length > 0) {
+      const { data: users } = await supabaseAdmin
+        .from("users")
+        .select("id, email, full_name")
+        .in("id", userIds);
+      for (const u of (users ?? []) as Array<{ id: string; email: string; full_name: string | null }>) {
+        emailByUser.set(u.id, { email: u.email, full_name: u.full_name });
+      }
+    }
+  }
+
+  const now = Date.now();
+  const items = reports.map((r) => {
+    const sub = subById.get(r.submission_id);
+    const user = sub ? emailByUser.get(sub.user_id) : undefined;
+    return {
+      report_id: r.id,
+      submission_id: r.submission_id,
+      title: sub?.title ?? null,
+      garment_type: sub?.garment_type ?? null,
+      garment_category: sub?.garment_category ?? null,
+      user_email: user?.email ?? null,
+      user_name: user?.full_name ?? null,
+      overall_score: Number(r.overall_score),
+      grade_tier: r.grade_tier,
+      confidence_score: Number(r.confidence_score),
+      confidence_label: r.confidence_label,
+      factor_scores: {
+        fabric_condition_score: Number(r.fabric_condition_score),
+        structural_integrity_score: Number(r.structural_integrity_score),
+        cosmetic_appearance_score: Number(r.cosmetic_appearance_score),
+        functional_elements_score: Number(r.functional_elements_score),
+        odor_cleanliness_score: Number(r.odor_cleanliness_score),
+      },
+      ai_summary: r.ai_summary,
+      created_at: r.created_at,
+      waiting_ms: now - new Date(r.created_at).getTime(),
+    };
+  });
+
+  // Queue age = how long the OLDEST unreviewed item has waited (for SLA alerting).
+  const queueAgeSeconds = items.length > 0
+    ? Math.floor(Math.max(...items.map((i) => i.waiting_ms)) / 1000)
+    : 0;
+
+  return c.json({ data: items, count: items.length, queue_age_seconds: queueAgeSeconds });
+});
+
+// GET /review/:id — full detail for one report incl. AI reasoning/tells and the
+// submission photos as short-lived signed URLs (≤ 900s; private bucket).
+adminGradingRoutes.get("/review/:id", async (c) => {
+  const reportId = c.req.param("id");
+
+  const { data: report, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("*")
+    .eq("id", reportId)
+    .maybeSingle();
+  if (error || !report) return c.json({ error: "Report not found" }, 404);
+
+  const r = report as { submission_id: string };
+  const { data: submission } = await supabaseAdmin
+    .from("submissions")
+    .select("id, user_id, title, garment_type, garment_category, created_at")
+    .eq("id", r.submission_id)
+    .maybeSingle();
+
+  const { data: imagesRaw } = await supabaseAdmin
+    .from("submission_images")
+    .select("id, image_type, storage_path, display_order")
+    .eq("submission_id", r.submission_id)
+    .order("display_order", { ascending: true });
+  const images = (imagesRaw ?? []) as Array<{
+    id: string;
+    image_type: string;
+    storage_path: string;
+    display_order: number;
+  }>;
+
+  // Batch-sign the photo paths (≤ 900s) instead of getPublicUrl on the private
+  // bucket.
+  let signed: Record<string, string> = {};
+  if (images.length > 0) {
+    const { data: urls } = await supabaseAdmin.storage
+      .from("submission-images")
+      .createSignedUrls(images.map((i) => i.storage_path), REVIEW_IMAGE_TTL);
+    signed = Object.fromEntries(
+      (urls ?? [])
+        .map((u, idx) => [images[idx].id, u.signedUrl] as const)
+        .filter(([, url]) => Boolean(url)),
+    );
+  }
+
+  return c.json({
+    report,
+    submission: submission ?? null,
+    images: images.map((i) => ({ ...i, signed_url: signed[i.id] ?? null })),
+  });
+});
+
+// Load + validate a report for a mutating review action. Returns the row or a
+// JSON error Response.
+async function loadReportForReview(reportId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select(
+      "id, submission_id, overall_score, grade_tier, ai_summary, buyer_writeup, certificate_id, " +
+        "fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, " +
+        "functional_elements_score, odor_cleanliness_score",
+    )
+    .eq("id", reportId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as unknown as {
+    id: string;
+    submission_id: string;
+    overall_score: number;
+    grade_tier: string;
+    ai_summary: string;
+    buyer_writeup: string | null;
+    certificate_id: string | null;
+  };
+}
+
+// POST /review/:id/approve — accept the AI grade as-is. No certified field
+// changes, so no reseal needed; records the human review + clears the flag.
+adminGradingRoutes.post("/review/:id/approve", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const adminId = c.get("userId");
+  const reportId = c.req.param("id");
+
+  let body: { notes?: unknown };
+  try { body = await c.req.json(); } catch { body = {}; }
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 1000) : "";
+
+  const report = await loadReportForReview(reportId);
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const { error: revErr } = await supabaseAdmin.from("human_reviews").insert({
+    grade_report_id: report.id,
+    reviewer_id: adminId,
+    original_score: report.overall_score,
+    adjusted_score: null,
+    review_notes: notes || "Approved AI grade as-is.",
+  });
+  if (revErr) {
+    console.error("[admin-grading] approve: human_reviews insert failed:", revErr);
+    return c.json({ error: "Failed to record review" }, 500);
+  }
+
+  await supabaseAdmin
+    .from("grade_reports")
+    .update({ human_reviewed: true, needs_human_review: false })
+    .eq("id", report.id);
+
+  await auditLog(c, "grading.review_approved", "grade_report", report.id, {
+    submission_id: report.submission_id,
+    original_score: report.overall_score,
+  });
+  return c.json({ ok: true });
+});
+
+// POST /review/:id/adjust — correct the per-factor scores. Records the original
+// AI grade + per-factor corrections for the self-improvement dataset (00050),
+// updates the grade, and **reseals the certificate integrity hash** so the
+// public certificate keeps verifying.
+adminGradingRoutes.post("/review/:id/adjust", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const adminId = c.get("userId");
+  const reportId = c.req.param("id");
+
+  let body: {
+    factors?: Partial<Record<keyof FactorScores, unknown>>;
+    notes?: unknown;
+    intentional_misread?: unknown;
+  };
+  try { body = await c.req.json(); } catch { return c.json({ error: "Invalid JSON body" }, 400); }
+
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 1000) : "";
+  if (!notes) return c.json({ error: "Review notes are required for an adjustment" }, 400);
+
+  const f = body.factors ?? {};
+  const keys: (keyof FactorScores)[] = [
+    "fabric_condition_score",
+    "structural_integrity_score",
+    "cosmetic_appearance_score",
+    "functional_elements_score",
+    "odor_cleanliness_score",
+  ];
+  const factors = {} as FactorScores;
+  for (const k of keys) {
+    const n = Number(f[k]);
+    if (!Number.isFinite(n)) return c.json({ error: `Missing/invalid score: ${k}` }, 400);
+    factors[k] = clampScore(n);
+  }
+
+  const report = await loadReportForReview(reportId);
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const overall = computeWeightedOverall(factors);
+  const tier = scoreToGradeTier(overall);
+
+  const { error: revErr } = await supabaseAdmin.from("human_reviews").insert({
+    grade_report_id: report.id,
+    reviewer_id: adminId,
+    original_score: report.overall_score, // the ORIGINAL AI grade (training signal)
+    adjusted_score: overall,
+    adjusted_fabric_condition: factors.fabric_condition_score,
+    adjusted_structural_integrity: factors.structural_integrity_score,
+    adjusted_cosmetic_appearance: factors.cosmetic_appearance_score,
+    adjusted_functional_elements: factors.functional_elements_score,
+    adjusted_odor_cleanliness: factors.odor_cleanliness_score,
+    intentional_misread: body.intentional_misread === true,
+    review_notes: notes,
+  });
+  if (revErr) {
+    console.error("[admin-grading] adjust: human_reviews insert failed:", revErr);
+    return c.json({ error: "Failed to record review" }, 500);
+  }
+
+  // Reseal the certificate over the NEW certified fields (US-333/US-770). The
+  // ai_summary + buyer_writeup are unchanged by a score adjustment but must be
+  // passed so the v2 hash keeps matching.
+  let resealed = false;
+  const update: Record<string, unknown> = {
+    overall_score: overall,
+    grade_tier: tier,
+    ...factors,
+    human_reviewed: true,
+    needs_human_review: false,
+  };
+  if (report.certificate_id) {
+    const integrity = await resealCertificate({
+      certificate_id: report.certificate_id,
+      overall_score: overall,
+      grade_tier: tier,
+      ...factors,
+      ai_summary: report.ai_summary,
+      buyer_writeup: report.buyer_writeup,
+    });
+    update.content_hash = integrity.content_hash;
+    update.content_signature = integrity.content_signature;
+    update.integrity_version = integrity.integrity_version;
+    resealed = true;
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("grade_reports")
+    .update(update)
+    .eq("id", report.id);
+  if (updErr) {
+    console.error("[admin-grading] adjust: grade_reports update failed:", updErr);
+    return c.json({ error: "Failed to update grade" }, 500);
+  }
+
+  await auditLog(c, "grading.review_adjusted", "grade_report", report.id, {
+    submission_id: report.submission_id,
+    original_score: report.overall_score,
+    adjusted_score: overall,
+    adjusted_factors: factors,
+    intentional_misread: body.intentional_misread === true,
+    resealed,
+    notes,
+  });
+  return c.json({ ok: true, overall_score: overall, grade_tier: tier, resealed });
+});
+
+// POST /review/:id/send-back — the photos can't support a reliable grade. Set
+// the submission to needs_photos (the seller adds clearer photos + resubmits),
+// withhold the certificate, and record the review.
+adminGradingRoutes.post("/review/:id/send-back", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+  const adminId = c.get("userId");
+  const reportId = c.req.param("id");
+
+  let body: { notes?: unknown };
+  try { body = await c.req.json(); } catch { body = {}; }
+  const notes = typeof body.notes === "string" ? body.notes.trim().slice(0, 1000) : "";
+
+  const report = await loadReportForReview(reportId);
+  if (!report) return c.json({ error: "Report not found" }, 404);
+
+  const { error: revErr } = await supabaseAdmin.from("human_reviews").insert({
+    grade_report_id: report.id,
+    reviewer_id: adminId,
+    original_score: report.overall_score,
+    adjusted_score: null,
+    review_notes: notes || "Sent back for better photos.",
+  });
+  if (revErr) {
+    console.error("[admin-grading] send-back: human_reviews insert failed:", revErr);
+    return c.json({ error: "Failed to record review" }, 500);
+  }
+
+  // Withhold the certificate so a needs_photos item isn't publicly certified,
+  // and clear the review flag.
+  await supabaseAdmin
+    .from("grade_reports")
+    .update({ certificate_id: null, needs_human_review: false, human_reviewed: true })
+    .eq("id", report.id);
+
+  // Move the submission to needs_photos with a reviewer-facing prompt.
+  await supabaseAdmin
+    .from("submissions")
+    .update({
+      status: "needs_photos",
+      quality_feedback: {
+        summary:
+          "A reviewer determined the photos weren't clear enough to grade reliably. " +
+          "Please retake the flagged photos and resubmit — you weren't charged.",
+        photo_requests: notes ? [notes] : [],
+        assessed_at: new Date().toISOString(),
+      },
+    })
+    .eq("id", report.submission_id);
+
+  await auditLog(c, "grading.review_sent_back", "grade_report", report.id, {
+    submission_id: report.submission_id,
+    notes,
+  });
+  return c.json({ ok: true });
 });

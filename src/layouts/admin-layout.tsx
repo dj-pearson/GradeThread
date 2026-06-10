@@ -26,7 +26,9 @@ import {
   Bell,
   Gift,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { AdminMfaGate } from "@/components/admin/admin-mfa-gate";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
@@ -87,6 +89,18 @@ export function AdminLayout() {
     (item) => !item.superAdminOnly || isSuperAdmin
   );
 
+  // US-775: pending human-review count for the nav badge (light poll, 60s stale).
+  const { data: reviewCount } = useQuery({
+    queryKey: ["admin-review-queue-count"],
+    queryFn: async (): Promise<number> => {
+      const res = await edgeFetch("/api/admin/grading/review-queue");
+      const json = await res.json().catch(() => ({}));
+      return res.ok ? Number(json.count ?? 0) : 0;
+    },
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+  });
+
   const initials = profile?.full_name
     ? profile.full_name
         .split(" ")
@@ -121,7 +135,12 @@ export function AdminLayout() {
               className={navLinkClass}
             >
               <item.icon className="h-5 w-5" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.to === "/admin/reviews" && (reviewCount ?? 0) > 0 && (
+                <span className="rounded-full bg-brand-red px-2 py-0.5 text-xs font-semibold text-white">
+                  {reviewCount}
+                </span>
+              )}
             </NavLink>
           ))}
 

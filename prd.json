@@ -11400,8 +11400,8 @@
         "Tests cover: list filtering, approve clears flag, adjust records original grade, non-admin blocked"
       ],
       "priority": 775,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Grading] Completes the human-review loop the pipeline already routes into. Feeds the grading self-improvement dataset (reviewer corrections are training signal)."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Grading] Completes the human-review loop the pipeline already routes into. Feeds the grading self-improvement dataset (reviewer corrections are training signal). [DONE 2026-06-10] Moved the human-review loop server-side. lib/human-review.ts (weighting, tier, clamp, resealCertificate). admin-grading.ts: GET /review-queue (oldest-first, queue_age_seconds for SLA), GET /review/:id (detail + <=900s signed photo URLs), POST approve/adjust/send-back — all MFA step-up gated + audited. CRITICAL FIX: adjust now RESEALS the cert integrity hash server-side (browser had no CERT_SIGNING_KEY, so old client-side adjust left certs verifying as tampered); records original AI grade + per-factor corrections + intentional_misread to human_reviews (00050 dataset); clears needs_human_review. send-back -> needs_photos + withholds cert. Rewired src/pages/admin/reviews.tsx to the edge endpoints; pending-count badge added to admin nav. 5 Deno tests incl. reseal verifies/tamper-evident. Full edge suite 552 green."
     },
     {
       "id": "US-776",
