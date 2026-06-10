@@ -11161,8 +11161,8 @@
         "The write-up is covered by the certificate content hash so it is tamper-evident (coordinate with US-770); existing grades without a write-up degrade gracefully (cert page falls back to ai_summary)"
       ],
       "priority": 759,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] DRAFT 2026-06-09 (code-complete; frontend verified, edge/DB NOT run locally - no deno/Docker in sandbox; the branch's CI verify:edge + verify:db are the gate, flip passes:true once green). [P1][AI/Certificate/Buyer-trust] Migration 00118 adds grade_reports.buyer_writeup + appends it to public_grade_reports view. ai-grading.ts: compositeGrade emits buyer_writeup (prompt schema+rule, parse w/ fallback to ai_summary, max_tokens 2048->2560). grading-pipeline.ts persists it. content-public.ts cert GET returns it (CERT_REPORT_COLUMNS) + verify selects+seals it. Frontend: PublicGradeReportRow/GradeReportRow types, cert page + cert SSR render buyer_writeup||ai_summary ('Condition Report'). The 'write up about the item' from the request. Extends ai_summary (only 2-4 sentences today) into a real buyer-facing condition report. Reuse the existing composite AI call where possible (one round-trip, like US-758). Depends on integrity reseal (US-770/US-489/US-475) so the new certified text is hashed. Renders on cert.tsx + cert SSR."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09 (CI GREEN on PR #66: 'Deno lint + type-check (edge)' incl. deno test, 'Migrations apply cleanly (supabase db reset)', and the frontend lane all pass). [P1][AI/Certificate/Buyer-trust] Migration 00118 adds grade_reports.buyer_writeup + appends it to public_grade_reports view. ai-grading.ts: compositeGrade emits buyer_writeup (prompt schema+rule, parse w/ fallback to ai_summary, max_tokens 2048->2560). grading-pipeline.ts persists it. content-public.ts cert GET returns it (CERT_REPORT_COLUMNS) + verify selects+seals it. Frontend: PublicGradeReportRow/GradeReportRow types, cert page + cert SSR render buyer_writeup||ai_summary ('Condition Report'). The 'write up about the item' from the request. Extends ai_summary (only 2-4 sentences today) into a real buyer-facing condition report. Reuse the existing composite AI call where possible (one round-trip, like US-758). Depends on integrity reseal (US-770/US-489/US-475) so the new certified text is hashed. Renders on cert.tsx + cert SSR."
     },
     {
       "id": "US-760",
@@ -11321,8 +11321,8 @@
         "A cross-check/regression test asserts a tampered buyer_writeup is detected as a mismatch"
       ],
       "priority": 770,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] DRAFT 2026-06-09 (code-complete; cert-integrity unit tests added but NOT run locally - no deno; branch CI verify:edge is the gate). [P1][Security/Integrity] cert-integrity.ts bumped to v2: canonicalizeCertificate/computeContentHash are version-aware; v2 seals buyer_writeup; verify canonicalizes under the row's STORED integrity_version (legacy v1 rows verify byte-identically - new tests assert this). Only one seal site exists (finalization); any future reseal (US-475) must pass buyer_writeup (comment left at the call). Guards the new certified surface. Extends US-489 (hash all certified claims) + US-475 (reseal on change). Must land with/after US-759."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09 (CI GREEN on PR #66: the deno edge lane ran the new cert-integrity v2/backward-compat tests; supabase db reset applied migration 00118). [P1][Security/Integrity] cert-integrity.ts bumped to v2: canonicalizeCertificate/computeContentHash are version-aware; v2 seals buyer_writeup; verify canonicalizes under the row's STORED integrity_version (legacy v1 rows verify byte-identically - new tests assert this). Only one seal site exists (finalization); any future reseal (US-475) must pass buyer_writeup (comment left at the call). Guards the new certified surface. Extends US-489 (hash all certified claims) + US-475 (reseal on change). Must land with/after US-759."
     }
   ]
 }
