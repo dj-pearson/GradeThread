@@ -44,3 +44,21 @@ export function canAssignRole(
   if (!ASSIGNABLE_ROLES.includes(targetRole)) return false;
   return roleAtLeast(actorRole, targetRole);
 }
+
+/**
+ * US-799: whether an actor may MANAGE (remove / change the role of) a member who
+ * currently holds `targetCurrentRole`. The actor must be admin+ and must
+ * outrank-or-equal the target. The owner is never a workspace_members row, so a
+ * target whose current role resolves to 'owner' is never manageable through the
+ * member endpoints (guards against demoting/removing the owner). This is the
+ * "can I touch this member at all" gate; role CHANGES additionally pass the new
+ * role through canAssignRole().
+ */
+export function canManageMember(
+  actorRole: WorkspaceRole,
+  targetCurrentRole: WorkspaceRole,
+): boolean {
+  if (!roleAtLeast(actorRole, "admin")) return false;
+  if (targetCurrentRole === "owner") return false;
+  return roleAtLeast(actorRole, targetCurrentRole);
+}

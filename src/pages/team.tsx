@@ -132,15 +132,18 @@ export function TeamPage() {
     }
   }, [lastInvite, queryClient, workspaceOwnerId]);
 
+  // US-799: role changes + removals go through audited, server-enforced edge
+  // endpoints (role cap, owner protection, last-admin guard, audit log) instead
+  // of a direct workspace_members RLS write from the browser.
   async function updateRole(memberId: string, newRole: WorkspaceRole) {
     if (!workspaceOwnerId) return;
-    const { error } = await supabase
-      .from("workspace_members")
-      .update({ role: newRole } as never)
-      .eq("owner_id", workspaceOwnerId)
-      .eq("member_id", memberId);
-    if (error) {
-      toast.error(error.message);
+    const res = await edgeFetch(`/api/workspace/members/${memberId}/role`, {
+      method: "PATCH",
+      json: { role: newRole },
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      toast.error(data.error ?? "Couldn't update that member's role.");
       return;
     }
     toast.success("Role updated");
@@ -149,13 +152,12 @@ export function TeamPage() {
 
   async function removeMember(memberId: string) {
     if (!workspaceOwnerId) return;
-    const { error } = await supabase
-      .from("workspace_members")
-      .delete()
-      .eq("owner_id", workspaceOwnerId)
-      .eq("member_id", memberId);
-    if (error) {
-      toast.error(error.message);
+    const res = await edgeFetch(`/api/workspace/members/${memberId}/remove`, {
+      method: "POST",
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      toast.error(data.error ?? "Couldn't remove that member.");
       return;
     }
     toast.success("Member removed");

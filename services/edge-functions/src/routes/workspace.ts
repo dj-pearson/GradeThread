@@ -4,10 +4,12 @@ import { sendWorkspaceInvitationEmail } from "../lib/email.ts";
 import {
   ASSIGNABLE_ROLES,
   canAssignRole,
+  canManageMember,
   roleAtLeast,
   type WorkspaceRole,
 } from "../lib/workspace-roles.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { writeAuditLog } from "../lib/audit-log.ts";
 
 type WorkspaceEnv = {
   Variables: {
@@ -312,4 +314,178 @@ workspaceRoutes.post("/invitations/:id/resend", async (c) => {
   });
 
   return c.json({ email_sent: emailSent, accept_url: acceptUrl });
+});
+
+// Shared loader: the target's membership row in the ACTIVE workspace, or null.
+async function loadMembership(
+  ownerId: string,
+  memberId: string,
+): Promise<{ role: WorkspaceRole } | null> {
+  const { data } = await supabaseAdmin
+    .from("workspace_members")
+    .select("role")
+    .eq("owner_id", ownerId)
+    .eq("member_id", memberId)
+    .maybeSingle();
+  return (data as { role: WorkspaceRole } | null) ?? null;
+}
+
+// Count members holding 'admin' in the workspace — used to block removing the
+// last admin via self-action (the owner can always re-appoint, but losing your
+// own admin with no peer admin is a foot-gun we refuse).
+async function adminMemberCount(ownerId: string): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("workspace_members")
+    .select("member_id", { count: "exact", head: true })
+    .eq("owner_id", ownerId)
+    .eq("role", "admin");
+  return count ?? 0;
+}
+
+// PATCH /api/workspace/members/:memberId/role
+//
+// US-799: change a member's role through an AUDITED, server-enforced path
+// instead of a direct browser RLS write. Caller must be owner/admin of the
+// active workspace; the new role is capped at the caller's own level
+// (canAssignRole); the owner can't be demoted (never a member row); and an
+// admin can't strip their own admin if they're the last one.
+workspaceRoutes.patch("/members/:memberId/role", async (c) => {
+  const ownerId = c.get("workspaceOwnerId");
+  const callerRole = c.get("workspaceRole");
+  const callerId = c.get("userId");
+  const memberId = c.req.param("memberId");
+
+  if (!roleAtLeast(callerRole, "admin")) {
+    return c.json(
+      { error: "Only the workspace owner and admins can change member roles" },
+      403,
+    );
+  }
+
+  let body: { role?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const newRole = body.role as WorkspaceRole | undefined;
+  if (!newRole || !ASSIGNABLE_ROLES.includes(newRole)) {
+    return c.json(
+      { error: `role must be one of: ${ASSIGNABLE_ROLES.join(", ")}` },
+      400,
+    );
+  }
+  if (!canAssignRole(callerRole, newRole)) {
+    return c.json({ error: "You cannot assign a role higher than your own" }, 403);
+  }
+
+  if (memberId === ownerId) {
+    return c.json({ error: "The workspace owner's role can't be changed" }, 403);
+  }
+
+  const membership = await loadMembership(ownerId, memberId);
+  if (!membership) {
+    return c.json({ error: "Member not found in this workspace" }, 404);
+  }
+  if (!canManageMember(callerRole, membership.role)) {
+    return c.json({ error: "You can't modify a member at or above your own role" }, 403);
+  }
+
+  // Block self-demotion of the last admin — appoint another admin first.
+  if (
+    memberId === callerId &&
+    membership.role === "admin" &&
+    !roleAtLeast(newRole, "admin") &&
+    (await adminMemberCount(ownerId)) <= 1
+  ) {
+    return c.json(
+      { error: "Appoint another admin before stepping down from admin." },
+      409,
+    );
+  }
+
+  if (membership.role === newRole) {
+    return c.json({ ok: true, role: newRole }); // no-op, nothing to audit
+  }
+
+  const { error } = await supabaseAdmin
+    .from("workspace_members")
+    .update({ role: newRole })
+    .eq("owner_id", ownerId)
+    .eq("member_id", memberId);
+  if (error) {
+    console.error("[workspace] role change failed", error);
+    return c.json({ error: "Failed to update member role" }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "workspace.member.role_change",
+    targetType: "workspace_member",
+    targetId: memberId,
+    before: { role: membership.role },
+    after: { role: newRole },
+    details: { owner_id: ownerId, member_id: memberId },
+  });
+
+  return c.json({ ok: true, role: newRole });
+});
+
+// POST /api/workspace/members/:memberId/remove
+//
+// US-799: remove a member through an AUDITED, server-enforced path. Caller must
+// be owner/admin and outrank-or-equal the target; the owner can't be removed;
+// an admin can't remove themselves if they're the last admin.
+workspaceRoutes.post("/members/:memberId/remove", async (c) => {
+  const ownerId = c.get("workspaceOwnerId");
+  const callerRole = c.get("workspaceRole");
+  const callerId = c.get("userId");
+  const memberId = c.req.param("memberId");
+
+  if (!roleAtLeast(callerRole, "admin")) {
+    return c.json(
+      { error: "Only the workspace owner and admins can remove members" },
+      403,
+    );
+  }
+  if (memberId === ownerId) {
+    return c.json({ error: "The workspace owner can't be removed" }, 403);
+  }
+
+  const membership = await loadMembership(ownerId, memberId);
+  if (!membership) {
+    return c.json({ error: "Member not found in this workspace" }, 404);
+  }
+  if (!canManageMember(callerRole, membership.role)) {
+    return c.json({ error: "You can't remove a member at or above your own role" }, 403);
+  }
+  if (
+    memberId === callerId &&
+    membership.role === "admin" &&
+    (await adminMemberCount(ownerId)) <= 1
+  ) {
+    return c.json(
+      { error: "Appoint another admin before removing yourself." },
+      409,
+    );
+  }
+
+  const { error } = await supabaseAdmin
+    .from("workspace_members")
+    .delete()
+    .eq("owner_id", ownerId)
+    .eq("member_id", memberId);
+  if (error) {
+    console.error("[workspace] member removal failed", error);
+    return c.json({ error: "Failed to remove member" }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "workspace.member.remove",
+    targetType: "workspace_member",
+    targetId: memberId,
+    before: { role: membership.role },
+    details: { owner_id: ownerId, member_id: memberId },
+  });
+
+  return c.json({ ok: true });
 });
