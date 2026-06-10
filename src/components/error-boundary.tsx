@@ -55,7 +55,20 @@ export class ErrorBoundary extends Component<Props, State> {
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
                 <AlertTriangle className="h-8 w-8 text-destructive" />
               </div>
-              <img src="/logo_primary.png" alt="GradeThread" className="mt-4 h-6" />
+              <img
+                src="/logo_primary.png"
+                alt="GradeThread"
+                className="mt-4 h-6"
+                onError={(e) => {
+                  // US-785: the error page must never itself show a broken image.
+                  // If the logo can't load, replace it with a plain text wordmark.
+                  const img = e.currentTarget;
+                  const span = document.createElement("span");
+                  span.textContent = "GradeThread";
+                  span.className = "mt-4 text-sm font-bold text-brand-navy";
+                  img.replaceWith(span);
+                }}
+              />
               <h3 className="mt-4 text-lg font-medium">Something went wrong</h3>
               <p className="mt-2 text-sm text-muted-foreground">
                 An unexpected error occurred. Please try again or return home.

@@ -11554,8 +11554,8 @@
         "Existing tests pass; add small tests where the components already have test files"
       ],
       "priority": 785,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][UX/Polish] Bundles the small launch-visible frontend findings into one pass. All items are independent — partial completion should split remainder into a follow-up note, not block."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][UX/Polish] Bundles the small launch-visible frontend findings into one pass. All items are independent — partial completion should split remainder into a follow-up note, not block. [DONE 2026-06-10] launch-banner.tsx reads VITE_LAUNCH_DATE (falls back to default, self-disables on/after date, stale-date risk documented). \"Send to extension\" dead button now hidden behind VITE_LISTER_EXTENSION until US-716 ships. signup welcome-email failure → Sentry (non-blocking). disputes.tsx dispute-notification failure → toast (\"status updated, but notification failed\") + Sentry. user-detail createAuditLog failure → toast + Sentry. error-boundary logo <img> onError → text wordmark fallback. .env.example: VITE_LAUNCH_DATE + VITE_LISTER_EXTENSION. tsc + 319 vitest green."
     },
     {
       "id": "US-786",

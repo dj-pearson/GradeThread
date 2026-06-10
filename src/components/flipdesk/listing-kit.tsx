@@ -289,16 +289,16 @@ function PlatformPanel({
           )}
           Download photos ({inZip})
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled
-          title="Requires the GradeThread Lister browser extension (US-716) — coming soon"
-        >
-          <Puzzle className="mr-1.5 h-3.5 w-3.5" />
-          Send to extension
-        </Button>
+        {/* US-785: the "Send to extension" control is HIDDEN until the Lister
+            browser extension actually ships (US-716) — a disabled dead button is
+            worse than no button. Flip VITE_LISTER_EXTENSION=true when it ships to
+            reveal it without a code change. */}
+        {import.meta.env.VITE_LISTER_EXTENSION === "true" && (
+          <Button type="button" variant="outline" size="sm">
+            <Puzzle className="mr-1.5 h-3.5 w-3.5" />
+            Send to extension
+          </Button>
+        )}
       </div>
 
       <div className="space-y-3">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
+import * as Sentry from "@sentry/react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { track } from "@/lib/analytics";
@@ -47,13 +48,26 @@ export function SignupPage() {
       // until the visitor opts in).
       track("trial.started", { plan: "pro", trial_days: 14 });
 
-      // Send welcome email (fire-and-forget)
+      // Send welcome email (fire-and-forget, non-blocking). US-785: a failure is
+      // no longer SILENT — capture it to Sentry so a broken welcome pipeline is
+      // visible, without ever blocking signup.
       if (data?.user?.id && EDGE_URL) {
         fetch(`${EDGE_URL}/api/notifications/welcome`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: data.user.id }),
-        }).catch(() => {});
+        })
+          .then((res) => {
+            if (!res.ok) {
+              Sentry.captureMessage("signup welcome email request failed", {
+                level: "warning",
+                extra: { status: res.status },
+              });
+            }
+          })
+          .catch((e) => {
+            Sentry.captureException(e, { tags: { area: "signup.welcome_email" } });
+          });
       }
     } catch (err) {
       // US-369: never reveal whether an email is already registered. GoTrue

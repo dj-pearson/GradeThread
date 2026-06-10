@@ -56,6 +56,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";

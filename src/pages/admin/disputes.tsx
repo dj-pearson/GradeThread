@@ -69,6 +69,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import * as Sentry from "@sentry/react";
 
 // Notify the submitter of a dispute status change (in-app always, email on
 // resolve/reject). Best-effort — never blocks the admin action. Uses the edge
