@@ -11353,8 +11353,8 @@
         "Deno tests cover: code-bug drop writes dead letter + returns 200; transient error returns 500 without dead letter; dead-letter write failure still returns 200"
       ],
       "priority": 772,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Customer-pays-and-gets-nothing path #2. Existing handler already distinguishes transient vs code-bug (good) — this story only adds durable capture + surfacing, not new retry semantics."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Customer-pays-and-gets-nothing path #2. Existing handler already distinguishes transient vs code-bug (good) — this story only adds durable capture + surfacing, not new retry semantics. [DONE 2026-06-10] Migration 00124 webhook_dead_letters; lib/webhook-dead-letter.ts (always captureException + durable redacted row, never throws); webhooks.ts handleWebhookDispatchError extracted+exported for testability (transient→500+release, code-bug→200+dead-letter); admin GET/POST /api/admin/webhook-dead-letters + resolve; WebhookDeadLettersCard on admin dashboard; INCIDENT_RESPONSE.md 3a replay runbook; 8 Deno tests in webhook-dead-letter_test.ts."
     },
     {
       "id": "US-773",

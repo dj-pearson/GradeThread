@@ -22,6 +22,7 @@ import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 import { maybeQualifyReferral } from "../lib/referrals.ts";
+import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -139,32 +140,89 @@ webhookRoutes.post("/stripe", async (c) => {
         console.log(`[Webhook] Unhandled event type: ${event.type}`);
     }
   } catch (err) {
-    // US-397: distinguish a TRANSIENT DB failure (retry can fix it) from a code
-    // bug (it can't). On a transient failure, RELEASE the idempotency claim so
-    // Stripe's retry re-processes (side effects are idempotent on the object id,
-    // US-390), and return 500. On a code bug, KEEP the claim so Stripe doesn't
-    // storm a permanently-failing event, alert that the billing event was
-    // dropped, and return 200.
-    if (isTransientWebhookError(err)) {
-      await releaseWebhookEvent("stripe", event.id);
-      console.error(
-        `[Webhook] transient failure on ${event.type} (${event.id}): ${err.message} — released claim, asking Stripe to retry`,
-      );
+    // US-397/US-772: classify the failure (transient vs code-bug), release the
+    // claim + retry on transient, or durably dead-letter + 200 on a code bug.
+    const decision = await handleWebhookDispatchError(err, event);
+    if (decision.retry) {
       return c.json({ error: "Temporary error processing event; please retry." }, 500);
     }
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[Webhook] DROPPED ${event.type} (${event.id}) — non-transient handler error: ${message}`,
-    );
-    void captureServer(event.id, "billing.webhook_dropped", {
-      event_type: event.type,
-      event_id: event.id,
-    });
-    // 200 — a code bug won't be fixed by a Stripe retry; the alert above flags it.
+    // dropped → fall through to 200 (the dead letter + alert are the record).
   }
 
   return c.json({ received: true });
 });
+
+// US-397 + US-772: the /stripe dispatcher's error policy, extracted so it can be
+// unit-tested with injected fakes (the route always uses the real deps).
+//
+//   • TRANSIENT (a DB write blip, TransientWebhookError) → release the
+//     idempotency claim so Stripe's retry re-processes (side effects are
+//     idempotent on the object id, US-390); the caller returns 500.
+//   • NON-TRANSIENT (a code bug a retry can't fix) → KEEP the claim so Stripe
+//     doesn't storm a permanently-failing event, capture an alert, durably
+//     DEAD-LETTER the event BEFORE returning, and the caller returns 200.
+//
+// The dead-letter write never throws (US-772), so the 200 path holds even when
+// the durable write itself fails — only the error-tracker capture + console line
+// remain in that case.
+export interface WebhookDispatchDeps {
+  release: (eventId: string) => Promise<void>;
+  capture: (eventId: string, eventType: string) => void;
+  deadLetter: (args: {
+    eventId: string;
+    eventType: string;
+    payload: unknown;
+    errorMessage: string;
+  }) => Promise<void>;
+}
+
+const defaultDispatchDeps: WebhookDispatchDeps = {
+  release: (eventId) => releaseWebhookEvent("stripe", eventId),
+  capture: (eventId, eventType) => {
+    void captureServer(eventId, "billing.webhook_dropped", {
+      event_type: eventType,
+      event_id: eventId,
+    });
+  },
+  deadLetter: async ({ eventId, eventType, payload, errorMessage }) => {
+    await recordWebhookDeadLetter({
+      provider: "stripe",
+      eventId,
+      eventType,
+      payload,
+      errorMessage,
+    });
+  },
+};
+
+export async function handleWebhookDispatchError(
+  err: unknown,
+  event: Pick<Stripe.Event, "id" | "type" | "data">,
+  deps: WebhookDispatchDeps = defaultDispatchDeps,
+): Promise<{ retry: boolean }> {
+  if (isTransientWebhookError(err)) {
+    await deps.release(event.id);
+    console.error(
+      `[Webhook] transient failure on ${event.type} (${event.id}): ${err.message} — released claim, asking Stripe to retry`,
+    );
+    return { retry: true };
+  }
+
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(
+    `[Webhook] DROPPED ${event.type} (${event.id}) — non-transient handler error: ${message}`,
+  );
+  deps.capture(event.id, event.type);
+  // Durable dead-letter capture BEFORE the 200 so the dropped event can never
+  // vanish with only a console line.
+  await deps.deadLetter({
+    eventId: event.id,
+    eventType: event.type,
+    payload: (event.data as { object?: unknown } | undefined)?.object ?? event,
+    errorMessage: message,
+  });
+  return { retry: false };
+}
 
 // ── Subscription audit trail ─────────────────────────────────────
 type FlipdeskPlan = "free" | "starter" | "pro" | "business";

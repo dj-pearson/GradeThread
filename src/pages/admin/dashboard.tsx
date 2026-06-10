@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlatformAnalytics } from "@/components/admin/platform-analytics";
 import { PendingRefundsCard } from "@/components/admin/pending-refunds-card";
+import { WebhookDeadLettersCard } from "@/components/admin/webhook-dead-letters-card";
 import {
   LayoutDashboard,
   Users,
@@ -405,6 +406,9 @@ export function AdminDashboardPage() {
 
       {/* US-771: operator queue for per-grade refunds that need attention. */}
       <PendingRefundsCard />
+
+      {/* US-772: dropped-webhook dead-letter queue. */}
+      <WebhookDeadLettersCard />
 
       {/* Charts */}
       {isLoading ? (

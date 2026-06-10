@@ -48,6 +48,24 @@ Per-scenario recovery runbooks + escalation, so incidents have a documented path
 2. eBay: `webhook.fail_open` means processed without a claim (idempotent) — check
    the tracker; re-run `ebay-orders-sync` to reconcile.
 
+#### 3a. Dead-lettered webhook (non-transient handler bug) — US-772
+A `webhook.dead_letter` Sentry event (or rows in the Admin → Dashboard "Dropped
+webhook events" card) means a handler hit a **code bug** a Stripe retry can't
+fix. The event returned 200 (so Stripe stops storming it) and was captured in
+`webhook_dead_letters` with a redacted payload. To recover:
+1. Open the card; read the error + redacted payload to identify the failing
+   handler.
+2. Fix the bug and deploy (`ROLLBACK.md` in reverse — ship the fix).
+3. **Replay the event:** Stripe Dashboard → Developers → Events → search the
+   `evt_…` id shown on the row → **Resend**. The resend is a *new* event id, so
+   the idempotency claim (`processed_webhook_events`) won't dedupe it; the (now
+   fixed) handler processes it, and the money-side effects are individually
+   idempotent on the Stripe object id (US-390) so a partial first run is safe.
+4. Confirm the side effect applied (credits granted / submission graded /
+   subscription synced), then click **Mark resolved** on the card.
+5. If the original PaymentIntent can't be reprocessed cleanly, refund via Admin →
+   user Billing actions instead, and note it on the row before resolving.
+
 ### 4. Stuck submissions (grades stranded)
 1. `submissions.stuck` metric > 0. The `stuck-submissions` cron auto-fails +
    refunds them every 10 min (US-495); confirm it's scheduled + running.

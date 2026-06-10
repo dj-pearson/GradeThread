@@ -847,3 +847,83 @@ adminBillingRoutes.post("/pending-refunds/:id/resolve", async (c) => {
     return c.json({ error: `Refund failed: ${msg}` }, 500);
   }
 });
+
+// ── Webhook dead letters (US-772) ────────────────────────────────
+//
+// Non-transient webhook handler drops (a code bug a provider retry can't fix)
+// land in public.webhook_dead_letters with a redacted payload. These endpoints
+// surface the queue and let an operator mark a row resolved after replaying it.
+//
+// Manual replay (no one-click reprocess by design — the failing handler is a bug
+// that needs a code fix first): once the bug is fixed and deployed, an operator
+// re-sends the event from the Stripe dashboard (Developers → Events → the evt_…
+// id shown here → "Resend"). The new delivery is a fresh event id, so the
+// idempotency claim won't dedupe it. After confirming it processed, resolve the
+// row here. See INCIDENT_RESPONSE.md → "3a. Dead-lettered webhook".
+
+// GET /webhook-dead-letters — open (unresolved) queue, newest first.
+adminBillingRoutes.get("/webhook-dead-letters", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("webhook_dead_letters")
+    .select(
+      "id, provider, event_id, event_type, error_message, payload, created_at",
+    )
+    .eq("status", "unresolved")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  if (error) {
+    console.error("[admin-billing] webhook_dead_letters query failed:", error);
+    return c.json({ error: "Failed to load webhook dead letters" }, 500);
+  }
+
+  return c.json({ data: data ?? [] });
+});
+
+// POST /webhook-dead-letters/:id/resolve — mark a dead letter resolved after the
+// operator has replayed/handled it. Body: { note?: string }. This is an
+// acknowledgement (no money moves here), so no step-up — just admin-gated +
+// audited. The replay itself happens out of band (see the note above).
+adminBillingRoutes.post("/webhook-dead-letters/:id/resolve", async (c) => {
+  const adminId = c.get("userId");
+  const id = c.req.param("id");
+
+  let body: { note?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, 1000) : null;
+
+  const { data: updated, error } = await supabaseAdmin
+    .from("webhook_dead_letters")
+    .update({
+      status: "resolved",
+      resolved_at: new Date().toISOString(),
+      resolved_by: adminId,
+      resolution_note: note,
+    })
+    .eq("id", id)
+    .eq("status", "unresolved")
+    .select("id, provider, event_id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("[admin-billing] resolve webhook dead letter failed:", error);
+    return c.json({ error: "Failed to resolve dead letter" }, 500);
+  }
+  if (!updated) {
+    // Either it doesn't exist or it was already resolved by another operator.
+    return c.json({ error: "Dead letter not found or already resolved" }, 404);
+  }
+
+  const row = updated as { provider: string; event_id: string };
+  await auditLog(c, "admin.webhook_dead_letter_resolved", "webhook_dead_letter", id, {
+    provider: row.provider,
+    event_id: row.event_id,
+    note,
+  });
+
+  return c.json({ ok: true });
+});
