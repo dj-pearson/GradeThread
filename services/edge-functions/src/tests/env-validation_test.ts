@@ -81,3 +81,19 @@ Deno.test("a degraded feature group never makes the env REQUIRED check fail", ()
   // …but assertRequiredEnv still passes (boot proceeds).
   assertRequiredEnv(envOf(PROD_OK), "production");
 });
+
+Deno.test("US-788: the appstore feature group reports missing IAP vars without crashing", () => {
+  const env = { ...PROD_OK };
+  const r = computeFeatureReadiness(envOf(env));
+  assert(r.appstore.startsWith("missing:"), "appstore group should report missing");
+  assert(r.appstore.includes("APPLE_APP_APPLE_ID"));
+  assertEquals(missingRequiredEnv(envOf(env), "production"), []);
+  const ok = {
+    ...PROD_OK,
+    APPLE_APP_APPLE_ID: "123456789",
+    APPLE_BUNDLE_ID: "com.gradethread.app",
+    APPLE_ROOT_CA_G3_B64: "base64==",
+    APPSTORE_ENVIRONMENT: "Production",
+  };
+  assertEquals(computeFeatureReadiness(envOf(ok)).appstore, "ok");
+});

@@ -62,6 +62,14 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   { name: "smtp", vars: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_ADMIN_EMAIL"] },
   { name: "google_photos", vars: ["GOOGLE_PHOTOS_CLIENT_ID", "GOOGLE_PHOTOS_CLIENT_SECRET"] },
   { name: "observability", vars: ["SENTRY_DSN"] },
+  // US-788: StoreKit / App Store Server Notifications V2. Missing → IAP receipt
+  // verification + the appstore webhook can't validate Apple's JWS. Surfaced on
+  // /health/ready so a deploy with IAP "on" but these unset is visible (the
+  // verifier also warns at init when APPLE_APP_APPLE_ID is unset in Production).
+  {
+    name: "appstore",
+    vars: ["APPLE_APP_APPLE_ID", "APPLE_BUNDLE_ID", "APPLE_ROOT_CA_G3_B64", "APPSTORE_ENVIRONMENT"],
+  },
 ];
 
 // Required vars missing for the current environment (core always; prod-required
