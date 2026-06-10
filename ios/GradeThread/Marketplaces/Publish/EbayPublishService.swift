@@ -68,6 +68,51 @@ public final class EbayPublishService {
         }
     }
 
+    // MARK: - Revise (edit a live listing in place)
+
+    /// Pushes title / description / price / photo-order edits to a live eBay
+    /// listing. `syncPhotos` forces the inventory_item re-PUT so the current
+    /// photo set + order reach eBay even when no text field changed — eBay
+    /// blocks editing inventory-based listings on its own site, so this is the
+    /// supported path. All text fields are optional; omit one to leave it as
+    /// published.
+    func revise(
+        listingId: String,
+        title: String? = nil,
+        description: String? = nil,
+        price: Double? = nil,
+        syncPhotos: Bool = false
+    ) async -> ReviseOutcome {
+        // Synthesized Encodable uses encodeIfPresent for optionals, so nil
+        // fields are omitted from the body (the server treats missing as
+        // "no change"). `photos` is sent only when a sync is requested.
+        struct Body: Encodable {
+            let title: String?
+            let description: String?
+            let listing_price: Double?
+            let photos: Bool?
+        }
+        let path = "/api/flipdesk/ebay/listings/\(listingId)/revise"
+        do {
+            let response: ReviseResponse = try await postJSON(
+                path: path,
+                body: Body(
+                    title: title,
+                    description: description,
+                    listing_price: price,
+                    photos: syncPhotos ? true : nil
+                )
+            )
+            return .revised(response)
+        } catch let error as PublishHTTPError {
+            if error.statusCode == 409 { return .noOfferId }
+            let parsed = try? JSONDecoder().decode(EdgeErrorBody.self, from: error.body)
+            return .failed(message: parsed?.message ?? "Unexpected error (HTTP \(error.statusCode)).")
+        } catch {
+            return .failed(message: error.localizedDescription)
+        }
+    }
+
     // MARK: - End listing
 
     func endListing(listingId: String) async -> PublishOutcome {

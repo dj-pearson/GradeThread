@@ -68,6 +68,21 @@ struct PriceUpdateResponse: Decodable, Equatable {
     }
 }
 
+/// `POST /api/flipdesk/ebay/listings/:id/revise` success response. Pushes
+/// title / description / price / photo-order edits to a live listing in place.
+struct ReviseResponse: Decodable, Equatable {
+    let ok: Bool
+    let listingId: String
+    /// True when the inventory_item was re-PUT (photo set + order pushed).
+    let photosSynced: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case ok
+        case listingId = "listing_id"
+        case photosSynced = "photos_synced"
+    }
+}
+
 /// `DELETE /api/flipdesk/ebay/listings/:id` response.
 struct EndListingResponse: Decodable, Equatable {
     let ok: Bool
@@ -102,6 +117,15 @@ enum PublishOutcome: Equatable {
     case blockers([String])
     /// HTTP 409 — listing has no platform_offer_id. iOS falls back to
     /// local-only behaviour with a toast.
+    case noOfferId
+    case failed(message: String)
+}
+
+/// Typed outcome for the revise flow. Kept separate from ``PublishOutcome`` so
+/// adding it doesn't force every exhaustive switch over that enum to change.
+enum ReviseOutcome: Equatable {
+    case revised(ReviseResponse)
+    /// HTTP 409 — listing has no platform_offer_id (republish to enable edits).
     case noOfferId
     case failed(message: String)
 }

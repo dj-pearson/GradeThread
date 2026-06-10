@@ -28,9 +28,14 @@ public enum PhotoCompressor {
         maxLongEdge: CGFloat = defaultMaxLongEdge,
         quality: CGFloat = defaultJPEGQuality
     ) -> Output? {
-        let resized = resize(image, maxLongEdge: maxLongEdge)
+        // Bake orientation to `.up` BEFORE encoding so the stored pixels are
+        // upright. Camera/library UIImages carry an `imageOrientation` flag with
+        // pixels in the sensor's native orientation; consumers that ignore EXIF
+        // (eBay's image pipeline does) then render them sideways/upside-down.
+        let upright = normalizedUp(image)
+        let resized = resize(upright, maxLongEdge: maxLongEdge)
         guard let data = resized.jpegData(compressionQuality: quality) else { return nil }
-        let thumb = resize(image, maxLongEdge: defaultThumbnailLongEdge)
+        let thumb = resize(upright, maxLongEdge: defaultThumbnailLongEdge)
         return Output(imageData: data, thumbnail: thumb)
     }
 
@@ -79,6 +84,23 @@ public enum PhotoCompressor {
             next = upper
         }
         return results
+    }
+
+    /// Flattens the image's orientation into its pixels so the result is `.up`.
+    /// Idempotent — returns the input untouched when it's already upright, so
+    /// the common camera case (AVFoundation often delivers `.up`) costs nothing.
+    /// Redrawing rasterizes the oriented pixels once; the subsequent JPEG encode
+    /// is the only lossy step, so no extra quality is lost versus encoding the
+    /// raw image.
+    public static func normalizedUp(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
 
     /// Aspect-preserving resize. If the input is already within the budget
