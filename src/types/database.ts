@@ -442,6 +442,8 @@ export interface GradeReportRow {
   content_hash: string | null;
   content_signature: string | null;
   integrity_version: number | null;
+  // US-769: aggregate certificate view count (no buyer PII). 0 until viewed.
+  view_count: number;
   created_at: string;
 }
 

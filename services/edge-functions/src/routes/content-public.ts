@@ -446,6 +446,21 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
   });
 });
 
+// ── POST /certificates/:id/view ───────────────────────────────────
+// US-769: privacy-safe per-certificate view counter. Records NO buyer PII —
+// it only bumps an aggregate count via a SECURITY DEFINER function that touches
+// certified rows alone. Best-effort: a bad id / DB hiccup never fails the page.
+// The client calls this once per browser session (coarse, abuse-resistant
+// enough for a soft engagement signal — see certificate.tsx).
+contentPublicRoutes.post("/certificates/:id/view", async (c) => {
+  const certId = c.req.param("id");
+  const { error } = await supabaseAdmin.rpc("increment_certificate_view", {
+    p_certificate_id: certId,
+  });
+  // Swallow errors — the counter is non-critical and must never break the cert.
+  return c.json({ ok: !error });
+});
+
 // ── GET /certificates.json ────────────────────────────────────────
 // Compact list for the sitemap (US-293): every public certificate's id +
 // lastmod. Capped + cursor-paginated by created_at so a crawler can't pull the
