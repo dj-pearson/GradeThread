@@ -6,12 +6,18 @@ import {
   hashApiKey,
   isWellFormedApiKey,
 } from "../lib/api-key.ts";
+import { effectivePlanFor } from "../lib/grade-pricing.ts";
 
 type ApiKeyAuthEnv = {
   Variables: {
     user: { id: string; email?: string; [key: string]: unknown };
     userId: string;
     apiKeyScopes: ApiKeyScope[];
+    // US-800: the calling key's id (rate-limit subject — bucketed per key, not
+    // per user) and the owner's effective plan (rate-limit tier). "super_admin"
+    // is funneled through the plan slot so the platform owner gets headroom.
+    apiKeyId: string;
+    apiKeyPlan: string;
   };
 };
 
@@ -65,10 +71,33 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
       }
     });
 
+  // Resolve the owner's effective plan for rate-limit tiering (US-800). Mirrors
+  // plan-gate's resolution so a paused/expired-trial/past-due owner is tiered at
+  // their real (downgraded) plan rather than the plan they once paid for. A
+  // failed lookup falls back to "free" (the tightest tier) rather than blocking
+  // the request — rate limiting is best-effort, not an entitlement gate.
+  let apiKeyPlan = "free";
+  const { data: owner } = await supabaseAdmin
+    .from("users")
+    .select("role, flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+    .eq("id", keyRecord.user_id)
+    .single();
+  if (owner) {
+    apiKeyPlan = owner.role === "super_admin" ? "super_admin" : effectivePlanFor(
+      owner.flipdesk_plan,
+      owner.subscription_status,
+      owner.trial_ends_at,
+      new Date(),
+      owner.past_due_since,
+    );
+  }
+
   // Set user context from the key's user_id + the key's scopes (US-356). A row
   // predating the scopes column reads back null → fall back to the full set.
   c.set("user", { id: keyRecord.user_id });
   c.set("userId", keyRecord.user_id);
+  c.set("apiKeyId", keyRecord.id);
+  c.set("apiKeyPlan", apiKeyPlan);
   c.set(
     "apiKeyScopes",
     ((keyRecord as { scopes?: ApiKeyScope[] }).scopes) ?? [...DEFAULT_API_KEY_SCOPES],

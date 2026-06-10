@@ -624,7 +624,9 @@ private struct ComposerForm: View {
 
     @ViewBuilder
     private var profitEstimate: some View {
-        let price = Double(summary.priceValue) ?? 0
+        // Locale-tolerant parse so "24,99"/"$25" estimate correctly; 0 is fine
+        // here (display-only — the insert path validates before persisting, US-789).
+        let price = CurrencyFormatter().parse(summary.priceValue) ?? 0
         let estimate = ListingProfit.estimate(price: price, costBasis: acquiredCost)
         HStack(alignment: .firstTextBaseline) {
             Text("Est. net profit")

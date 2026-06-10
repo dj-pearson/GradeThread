@@ -61,6 +61,12 @@ import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { rateLimiter } from "./middleware/rate-limit.ts";
+import {
+  apiV1RateLimitBody,
+  apiV1ReadLimit,
+  apiV1Subject,
+  apiV1WriteLimit,
+} from "./middleware/api-v1-rate.ts";
 import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
@@ -333,9 +339,32 @@ app.use("/api/content/images/*", featureGate("content_ai"));
 app.use("/api/webhooks/*", rateLimiter(600, 60_000, "webhook-stripe", undefined, { failClosed: true }));
 app.use("/api/flipdesk/webhooks/*", rateLimiter(600, 60_000, "webhook-ebay", undefined, { failClosed: true }));
 
-// Public API v1 — API key auth + 100 requests per minute
+// Public API v1 — API key auth, then per-key, plan-tiered, fail-closed rate
+// limits (US-800). Reads (GET) and the expensive writes (POST submit / PATCH
+// webhook) get SEPARATE budgets keyed by the API key id — so one key can't
+// drain another's, a read poll can't exhaust the submit budget, and a
+// counter-store outage limits via the local fallback instead of handing a paid
+// API unlimited throughput. Limit + subject + 429 envelope come from
+// middleware/api-v1-rate.ts.
 app.use("/api/v1/*", apiKeyAuthMiddleware);
-app.use("/api/v1/*", rateLimiter(100, 60_000, "api-v1"));
+app.use(
+  "/api/v1/*",
+  rateLimiter(apiV1ReadLimit, 60_000, "api-v1-read", undefined, {
+    methods: ["GET"],
+    subject: apiV1Subject,
+    failClosed: true,
+    errorBody: apiV1RateLimitBody,
+  }),
+);
+app.use(
+  "/api/v1/*",
+  rateLimiter(apiV1WriteLimit, 60_000, "api-v1-write", undefined, {
+    methods: ["POST", "PATCH", "PUT", "DELETE"],
+    subject: apiV1Subject,
+    failClosed: true,
+    errorBody: apiV1RateLimitBody,
+  }),
+);
 
 // Routes
 app.route("/health", healthRoutes);

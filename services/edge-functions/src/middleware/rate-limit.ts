@@ -1,6 +1,7 @@
 import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
 import { isProduction } from "../lib/env.ts";
+import { recordMetric } from "../lib/observability.ts";
 
 // Distributed fixed-window rate limiter (US-265). Backed by the shared
 // rate_limit_counters table + increment_rate_limit() RPC, so limits hold across
@@ -131,12 +132,28 @@ function clientIp(c: Context): string | null {
 // store outage it limits via the process-local fallback instead of allowing the
 // request, and a request with no trustworthy subject is bucketed together
 // rather than waved through.
+// A value derived from the live request context (US-800). Lets the per-window
+// limit be plan-tiered and the subject be keyed by something other than the
+// default user/IP (e.g. an API key id). Typed against the base Context so a
+// caller can declare its own Env without function-variance friction; the
+// middleware passes its own context through unchanged.
+export type RateLimitContextResolver<T> = (c: Context) => T;
+
 export function rateLimiter(
-  maxRequests = 60,
+  maxRequests: number | RateLimitContextResolver<number> = 60,
   windowMs = 60_000,
   scope = "default",
   increment: RateLimitIncrementer = defaultIncrement,
-  opts: { methods?: string[]; failClosed?: boolean } = {},
+  opts: {
+    methods?: string[];
+    failClosed?: boolean;
+    // Override subject resolution. Return a fully-prefixed key (e.g.
+    // "apikey:<id>") so distinct subjects get distinct buckets, or null for "no
+    // trustworthy subject" (handled by the fail-open/closed policy below).
+    subject?: RateLimitContextResolver<string | null>;
+    // Custom 429 body so a route can match its own response envelope.
+    errorBody?: (info: { retryAfter: number; limit: number }) => unknown;
+  } = {},
 ) {
   const methodFilter = opts.methods?.map((m) => m.toUpperCase());
   const failClosed = opts.failClosed === true;
@@ -148,13 +165,21 @@ export function rateLimiter(
       return;
     }
 
-    const userId = c.get("userId");
+    const limit = typeof maxRequests === "function"
+      ? maxRequests(c as unknown as Context)
+      : maxRequests;
+
     let subject: string | null;
-    if (userId) {
-      subject = `user:${userId}`;
+    if (opts.subject) {
+      subject = opts.subject(c as unknown as Context);
     } else {
-      const ip = clientIp(c);
-      subject = ip ? `ip:${ip}` : null;
+      const userId = c.get("userId");
+      if (userId) {
+        subject = `user:${userId}`;
+      } else {
+        const ip = clientIp(c);
+        subject = ip ? `ip:${ip}` : null;
+      }
     }
 
     // No subject we can attribute the request to. On fail-OPEN routes we allow
@@ -198,17 +223,20 @@ export function rateLimiter(
     }
 
     const resetAtSec = Math.ceil((windowStart.getTime() + windowMs) / 1000);
-    c.header("X-RateLimit-Limit", String(maxRequests));
-    c.header("X-RateLimit-Remaining", String(Math.max(0, maxRequests - count)));
+    c.header("X-RateLimit-Limit", String(limit));
+    c.header("X-RateLimit-Remaining", String(Math.max(0, limit - count)));
     c.header("X-RateLimit-Reset", String(resetAtSec));
 
-    if (count > maxRequests) {
+    if (count > limit) {
       const retryAfter = Math.max(1, resetAtSec - Math.ceil(Date.now() / 1000));
       c.header("Retry-After", String(retryAfter));
-      return c.json(
-        { error: "Too many requests. Please try again later." },
-        429,
-      );
+      // US-508/US-800: surface throttling so abuse and undersized limits are
+      // visible in the metrics stream (tagged by scope, no PII).
+      recordMetric("rate_limit.exceeded", 1, { scope });
+      const body = opts.errorBody
+        ? opts.errorBody({ retryAfter, limit })
+        : { error: "Too many requests. Please try again later." };
+      return c.json(body as Record<string, unknown>, 429);
     }
 
     await next();

@@ -11612,8 +11612,8 @@
         "Unit tests cover: valid price, '$24.99', '24,99', empty string, garbage string, '0'"
       ],
       "priority": 789,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [HIGH][iOS/FlipDesk] Verified at ListingDraftService.swift:79. Small, surgical fix."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [HIGH][iOS/FlipDesk] Verified at ListingDraftService.swift:79. Small, surgical fix. DONE 2026-06-10: ListingDraftService.saveDraft now parses the price via the locale-tolerant CurrencyFormatter.parse and throws ListingDraftError.invalidPrice (user-facing) on nil/<=0 — no $0 listings row inserted. Validation extracted to a nonisolated static validatedListingPrice(_:formatter:) for testing. PublishDialog's profit-estimate price (the sibling ?? 0) routed through the same parser. Added GradeThreadTests/ListingDraftPriceTests.swift (valid, $24.99, en_US grouping, de_DE comma-decimal, empty, whitespace, garbage, 0, negative, error message). VERIFICATION CAVEAT: iOS can't be compiled/tested on the Windows dev box — code + tests were written and manually reviewed for compile/concurrency correctness (nonisolated path, AppPreferences is a plain enum); iOS CI (macOS) must confirm green."
     },
     {
       "id": "US-790",
@@ -11773,8 +11773,8 @@
         "deno tests cover: under-limit pass, over-limit 429 with headers, fail-closed behavior"
       ],
       "priority": 800,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, grep-verified absent. [HIGH][API/Cost] US-781 covers unauthenticated public content; this is the authenticated keyed API, which spends money per call."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, grep-verified absent. [HIGH][API/Cost] US-781 covers unauthenticated public content; this is the authenticated keyed API, which spends money per call. DONE 2026-06-10: extended the shared rateLimiter (middleware/rate-limit.ts) with context-resolved limits, a custom subject resolver, and a custom 429 body; added middleware/api-v1-rate.ts (per-key bucketing, plan-tiered budgets, /api/v1 error envelope); api-key-auth.ts now resolves the owner's effective plan + exposes apiKeyId/apiKeyPlan; main.ts mounts split read(GET)/write(POST·PATCH) fail-closed limiters on /api/v1/*; scope-denied + rate-limit-exceeded now emit metrics; docs in docs/PUBLIC_API.md. Verified: deno check + deno lint clean, 520 edge tests pass (incl. new rate-limit_test.ts cases + api-v1-rate_test.ts). NOTE: the prior limiter wasn't fully absent (main.ts had a flat user-keyed 100/min, fail-open, no envelope) — this replaces it with per-key/tiered/fail-closed/metered."
     },
     {
       "id": "US-801",

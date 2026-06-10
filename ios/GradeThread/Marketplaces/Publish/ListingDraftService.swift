@@ -18,6 +18,33 @@ struct ListingDraftService {
 
     private struct ListingIdRow: Decodable { let id: String }
 
+    /// Thrown when the composer hands us a price we can't turn into a positive
+    /// amount — so we never seed a $0 (or garbage) listing draft (US-789).
+    enum ListingDraftError: LocalizedError {
+        case invalidPrice(String)
+        var errorDescription: String? {
+            switch self {
+            case .invalidPrice:
+                return "Enter a valid price greater than $0 before publishing."
+            }
+        }
+    }
+
+    /// Parse a composer-supplied price string into a positive amount, or throw.
+    /// Uses the locale-tolerant currency parser (handles "$25", "24,99", and
+    /// grouping separators) and rejects nil/zero/negative results — the guard
+    /// that stops a $0 listing from being persisted (US-789). `formatter` is
+    /// injectable so tests can pin a locale.
+    nonisolated static func validatedListingPrice(
+        _ priceValue: String,
+        formatter: CurrencyFormatter = CurrencyFormatter()
+    ) throws -> Double {
+        guard let price = formatter.parse(priceValue), price > 0 else {
+            throw ListingDraftError.invalidPrice(priceValue)
+        }
+        return price
+    }
+
     /// Upserts the most-recent eBay listing draft for `inventoryItemId`.
     /// Updates it in place when one exists; otherwise inserts a fresh draft
     /// (`listing_price` is required + has no default, so we seed it from the
@@ -28,6 +55,12 @@ struct ListingDraftService {
         priceValue: String,
         edits: ComposerEdits
     ) async throws {
+        // Reject anything that doesn't yield a positive amount before we touch
+        // the DB. Previously `Double(priceValue) ?? 0` silently turned a
+        // locale-formatted or garbage price into a $0 draft that could then be
+        // published at $0 (US-789).
+        let listingPrice = try Self.validatedListingPrice(priceValue)
+
         let existing: [ListingIdRow] = try await supabase
             .from("listings")
             .select("id")
@@ -76,7 +109,7 @@ struct ListingDraftService {
                     inventory_item_id: inventoryItemId,
                     platform: "ebay",
                     listing_status: "draft",
-                    listing_price: Double(priceValue) ?? 0,
+                    listing_price: listingPrice,
                     listing_title: edits.title,
                     listing_description: edits.description,
                     ebay_condition: edits.condition.rawValue,

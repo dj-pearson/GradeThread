@@ -9,6 +9,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   rateLimiter,
+  type RateLimitContextResolver,
   type RateLimitIncrementer,
 } from "../middleware/rate-limit.ts";
 
@@ -29,6 +30,7 @@ const throwingStore: RateLimitIncrementer = () =>
 interface FakeCtx {
   headers: Record<string, string>;
   status: number | null;
+  body: unknown;
 }
 
 function makeCtx(
@@ -38,17 +40,22 @@ function makeCtx(
     xff?: string;
     method?: string;
     headers?: Record<string, string>;
+    // Arbitrary context vars (e.g. apiKeyId / apiKeyPlan for US-800). Takes
+    // precedence over the userId shorthand when both name the same key.
+    vars?: Record<string, string | undefined>;
   } = {},
 ): { c: unknown; rec: FakeCtx } {
-  const rec: FakeCtx = { headers: {}, status: null };
+  const rec: FakeCtx = { headers: {}, status: null, body: undefined };
   const reqHeaders: Record<string, string> = {};
   if (opts.cfIp) reqHeaders["cf-connecting-ip"] = opts.cfIp;
   if (opts.xff) reqHeaders["x-forwarded-for"] = opts.xff;
   for (const [k, v] of Object.entries(opts.headers ?? {})) {
     reqHeaders[k.toLowerCase()] = v;
   }
+  const vars = opts.vars ?? {};
   const c = {
-    get: (k: string) => (k === "userId" ? opts.userId : undefined),
+    get: (k: string) =>
+      k in vars ? vars[k] : (k === "userId" ? opts.userId : undefined),
     req: {
       method: opts.method ?? "POST",
       header: (name: string) => reqHeaders[name.toLowerCase()],
@@ -56,8 +63,9 @@ function makeCtx(
     header: (name: string, value: string) => {
       rec.headers[name] = value;
     },
-    json: (_body: unknown, status?: number) => {
+    json: (body: unknown, status?: number) => {
       rec.status = status ?? 200;
+      rec.body = body;
       return { __response: true, status: rec.status };
     },
   };
@@ -245,4 +253,86 @@ Deno.test("CF_ORIGIN_SECRET: CF-Connecting-IP is only trusted with the matching 
   } finally {
     Deno.env.delete("CF_ORIGIN_SECRET");
   }
+});
+
+// ─── US-800: context-resolved limit, custom subject, custom 429 body ────
+
+// The per-window limit can be a function of the request context (plan-tiered).
+Deno.test("maxRequests as a resolver: limit is read from the context per request", async () => {
+  const store = memoryStore();
+  // Budget = 5 for a "business" plan var, 1 otherwise.
+  const mw = rateLimiter(
+    (c) =>
+      (c.get as (k: string) => unknown)("apiKeyPlan") === "business" ? 5 : 1,
+    60_000,
+    "tiered",
+    store,
+  );
+  // A "free" caller is limited at 1.
+  assert((await call(mw, { userId: "free-u", vars: { apiKeyPlan: "free" } })).nexted);
+  const freeOver = await call(mw, { userId: "free-u", vars: { apiKeyPlan: "free" } });
+  assertEquals(freeOver.rec.status, 429);
+  assertEquals(freeOver.rec.headers["X-RateLimit-Limit"], "1");
+  // A "business" caller (distinct user → distinct bucket) gets 5.
+  for (let i = 0; i < 5; i++) {
+    const r = await call(mw, { userId: "biz-u", vars: { apiKeyPlan: "business" } });
+    assert(r.nexted, `business request ${i + 1} should pass`);
+  }
+  const bizOver = await call(mw, { userId: "biz-u", vars: { apiKeyPlan: "business" } });
+  assertEquals(bizOver.rec.status, 429);
+  assertEquals(bizOver.rec.headers["X-RateLimit-Limit"], "5");
+});
+
+// opts.subject overrides the default user/IP keying so two keys held by the
+// same user get independent budgets (US-800: bucket per API key, not per user).
+Deno.test("opts.subject: distinct subjects keep independent budgets", async () => {
+  const store = memoryStore();
+  const subjectByKey: RateLimitContextResolver<string | null> = (c) => {
+    const id = (c.get as (k: string) => unknown)("apiKeyId");
+    return typeof id === "string" ? `apikey:${id}` : null;
+  };
+  const mw = rateLimiter(1, 60_000, "by-key", store, { subject: subjectByKey });
+  // Same user, two different keys → two buckets.
+  assert((await call(mw, { userId: "u", vars: { apiKeyId: "k1" } })).nexted);
+  const k1Over = await call(mw, { userId: "u", vars: { apiKeyId: "k1" } });
+  assertEquals(k1Over.rec.status, 429); // k1 exhausted
+  const k2 = await call(mw, { userId: "u", vars: { apiKeyId: "k2" } });
+  assert(k2.nexted); // k2 has its own budget
+  assertEquals(k2.rec.status, null);
+});
+
+// opts.subject returning null on a fail-closed route buckets into the shared
+// 'unattributed' counter (no free pass), matching the IP-stripped behavior.
+Deno.test("opts.subject null + failClosed: shared bucket, still limited", async () => {
+  const nullSubject: RateLimitContextResolver<string | null> = () => null;
+  const mw = rateLimiter(1, 60_000, "subj-null-fc", memoryStore(), {
+    subject: nullSubject,
+    failClosed: true,
+  });
+  const r1 = await call(mw, { userId: "ignored" });
+  const r2 = await call(mw, { userId: "ignored" });
+  assert(r1.nexted);
+  assertEquals(r2.rec.status, 429);
+});
+
+// opts.errorBody renders a custom 429 payload (the /api/v1 envelope).
+Deno.test("opts.errorBody: 429 uses the custom envelope", async () => {
+  const mw = rateLimiter(1, 60_000, "custom-body", memoryStore(), {
+    errorBody: ({ retryAfter }) => ({
+      data: null,
+      error: { message: `slow down ${retryAfter}s`, details: [] },
+      meta: { retry_after_seconds: retryAfter },
+    }),
+  });
+  await call(mw, { userId: "u" });
+  const over = await call(mw, { userId: "u" });
+  assertEquals(over.rec.status, 429);
+  const body = over.rec.body as {
+    data: null;
+    error: { message: string; details: unknown[] };
+    meta: { retry_after_seconds: number };
+  };
+  assertEquals(body.data, null);
+  assert(body.error.message.startsWith("slow down"));
+  assert(body.meta.retry_after_seconds >= 1);
 });

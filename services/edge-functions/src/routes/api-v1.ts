@@ -12,6 +12,7 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
+import { recordMetric } from "../lib/observability.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -30,11 +31,16 @@ function hasScope(
   return (scopes ?? []).includes(required);
 }
 
-const scopeDenied = (required: ApiKeyScope) => ({
-  data: null,
-  error: { message: `This API key lacks the '${required}' scope`, details: [] },
-  meta: null,
-});
+const scopeDenied = (required: ApiKeyScope) => {
+  // US-800: record scope rejections so abuse (a key probing endpoints it lacks
+  // access to) is visible in the metrics stream alongside rate-limit hits.
+  recordMetric("api_v1.scope_denied", 1, { scope: required });
+  return {
+    data: null,
+    error: { message: `This API key lacks the '${required}' scope`, details: [] },
+    meta: null,
+  };
+};
 
 const GARMENT_TYPES = ["tops", "bottoms", "outerwear", "dresses", "footwear", "accessories"] as const;
 const GARMENT_CATEGORIES = [
