@@ -18,10 +18,18 @@ struct CertifiedGradeSection: View {
     @State private var showingRequest = false
     @State private var showingReport = false
     @State private var showingDisclosure = false
+    @State private var showingGradedPhoto = false
 
     private var isGraded: Bool { item.gradeValue != nil }
     private var certificateURL: URL? {
         item.certificateURL.flatMap { URL(string: $0) }
+    }
+    /// US-768: the certificate id, parsed from the stored `/cert/:id` URL, used
+    /// to build the Digital Slab graded-photo URL (`/slab/cert/:id`).
+    private var certificateId: String? {
+        guard let last = certificateURL?.lastPathComponent,
+              !last.isEmpty, last != "cert" else { return nil }
+        return last
     }
 
     var body: some View {
@@ -47,6 +55,11 @@ struct CertifiedGradeSection: View {
         }
         .sheet(isPresented: $showingDisclosure) {
             DisclosureView(itemId: item.id)
+        }
+        .sheet(isPresented: $showingGradedPhoto) {
+            if let certificateId {
+                GradedPhotoView(certificateId: certificateId)
+            }
         }
     }
 
@@ -108,6 +121,17 @@ struct CertifiedGradeSection: View {
             if let certificateURL {
                 ShareLink(item: certificateURL) {
                     Label("Share certificate", systemImage: "square.and.arrow.up")
+                        .font(.subheadline.weight(.medium))
+                }
+            }
+
+            // US-768: the PSA-style graded photo (slab) to drop into a listing.
+            if certificateId != nil {
+                Button {
+                    AppRouter.haptic()
+                    showingGradedPhoto = true
+                } label: {
+                    Label("Graded photo", systemImage: "photo.on.rectangle")
                         .font(.subheadline.weight(.medium))
                 }
             }
