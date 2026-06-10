@@ -84,6 +84,13 @@ public final class EbaySyncService {
         // of a fixed interval so a slow sync stops polling every few seconds.
         let deadline = Date.now.addingTimeInterval(policy.timeout)
         var pollAttempt = 0
+        // US-792: don't silently spin to the deadline when the poll endpoint is
+        // unreachable. Track consecutive failures and bail with a distinct
+        // "lost connection" result (vs. the .timedOut you'd otherwise see),
+        // recording each failure so support can diagnose.
+        var consecutivePollFailures = 0
+        let maxConsecutivePollFailures = 3
+        var lastPollError: String?
         while Date.now < deadline {
             try? await Task.sleep(
                 nanoseconds: Backoff.delayNanos(attempt: pollAttempt, base: policy.interval, cap: max(policy.interval, 8))
@@ -92,6 +99,7 @@ public final class EbaySyncService {
 
             do {
                 let snapshot = try await fetchConnectionSnapshot(userId: userId)
+                consecutivePollFailures = 0 // a reachable server clears the streak
                 // Refresh error overrides whatever last_synced_at says —
                 // the connection's broken and the sync didn't complete
                 // even if the timestamp moved.
@@ -110,7 +118,22 @@ public final class EbaySyncService {
                     return .completed(summary)
                 }
             } catch {
-                // Transient poll failure — keep going until the deadline.
+                // US-792: a poll failed. Record it; tolerate a few transient
+                // blips, but if the endpoint stays unreachable, stop early and
+                // tell the user it's a connection problem rather than letting
+                // the whole window elapse into a misleading "timed out".
+                consecutivePollFailures += 1
+                lastPollError = (error as? EdgeAPIError)?.errorDescription
+                    ?? error.localizedDescription
+                Telemetry.breadcrumb(
+                    "eBay sync poll failed (\(consecutivePollFailures)/\(maxConsecutivePollFailures)): \(lastPollError ?? "unknown")",
+                    category: "ebay"
+                )
+                if consecutivePollFailures >= maxConsecutivePollFailures {
+                    return .failed(
+                        message: "Lost connection while syncing — check your network and try again."
+                    )
+                }
                 continue
             }
         }

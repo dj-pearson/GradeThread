@@ -1002,7 +1002,18 @@ struct ItemCanvasView: View {
             // the next sync pull.
             applyToLocalItem(state: state)
             state.acceptDraftAsOriginal()
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                // US-792: the server write already succeeded — only the local
+                // SwiftData cache mirror failed. The change is persisted remotely
+                // and self-heals on the next sync pull, so we don't fail the user
+                // flow; we log it so a recurring local-persistence fault is visible.
+                Telemetry.breadcrumb(
+                    "ItemCanvas local cache save failed (server write OK): \(error.localizedDescription)",
+                    category: "inventory"
+                )
+            }
             HapticFeedback.success()
             if dismissAfter { dismiss() }
             return true

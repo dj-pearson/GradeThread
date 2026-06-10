@@ -34,6 +34,10 @@ final class AutolisterBatchStore: ObservableObject {
     private let pollIntervalNanos: UInt64
     private var pollTask: Task<Void, Never>?
     private(set) var batchId: String?
+    // US-792: stop polling after a run of consecutive fetch failures instead of
+    // spinning indefinitely while a real outage updates errorMessage forever.
+    private var consecutivePollFailures = 0
+    private let maxConsecutivePollFailures = 5
 
     init(
         service: AutolisterBatching = AutolisterService(),
@@ -129,6 +133,7 @@ final class AutolisterBatchStore: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 if await self.pollOnce() { break }
+                if self.gaveUpPolling { break }
                 try? await Task.sleep(nanoseconds: self.pollIntervalNanos)
             }
         }
@@ -142,12 +147,30 @@ final class AutolisterBatchStore: ObservableObject {
         guard let batchId else { return true }
         do {
             let res = try await service.batchStatus(batchId: batchId)
+            consecutivePollFailures = 0 // a reachable server clears the streak
             apply(res)
             return res.batch.status.isTerminal
         } catch {
+            // US-792: tolerate transient blips, but after a run of failures stop
+            // polling and surface a connection error rather than spinning.
+            consecutivePollFailures += 1
             errorMessage = message(error)
+            Telemetry.breadcrumb(
+                "autolister poll failed (\(consecutivePollFailures)/\(maxConsecutivePollFailures)): \(errorMessage ?? "unknown")",
+                category: "autolister"
+            )
+            if consecutivePollFailures >= maxConsecutivePollFailures {
+                errorMessage =
+                    "Lost connection while generating listings — check your network and reopen this batch."
+            }
             return false
         }
+    }
+
+    /// True once the poll loop has given up after too many consecutive failures
+    /// (startPolling breaks on this so it doesn't spin against a real outage).
+    private var gaveUpPolling: Bool {
+        consecutivePollFailures >= maxConsecutivePollFailures
     }
 
     /// PURE: fold a status response into published state + derived phase.

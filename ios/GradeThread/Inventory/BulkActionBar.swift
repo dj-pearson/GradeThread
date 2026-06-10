@@ -15,7 +15,7 @@ struct BulkActionBar: View {
                 Text("\(selectedCount)")
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(.white)
-                Text(selectedCount == 1 ? "selected" : "selected")
+                Text("selected")
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.85))
             }

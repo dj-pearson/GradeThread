@@ -123,11 +123,18 @@ final class GradeRequestStore {
     }
 
     private func poll(ref: String) async {
+        // US-792: tolerate transient poll blips but don't silently spin to the
+        // window's end when the endpoint is unreachable — record failures and,
+        // after a few in a row, surface a distinct "lost connection" state
+        // instead of the ambiguous "still processing".
+        var consecutiveFailures = 0
+        let maxConsecutiveFailures = 4
         for attempt in 0..<maxPolls {
             // Bail if the sheet was torn down / a newer flow started.
             if Task.isCancelled { return }
             do {
                 let status = try await service.status(submissionRef: ref)
+                consecutiveFailures = 0 // a reachable server clears the streak
                 if status.isCompleted, let report = status.gradeReport {
                     apply(report: report, item: status.item)
                     return
@@ -137,7 +144,17 @@ final class GradeRequestStore {
                     return
                 }
             } catch {
-                // Transient poll error — keep trying within the window.
+                consecutiveFailures += 1
+                Telemetry.breadcrumb(
+                    "grade poll failed (\(consecutiveFailures)/\(maxConsecutiveFailures)): \(message(from: error))",
+                    category: "grading"
+                )
+                if consecutiveFailures >= maxConsecutiveFailures {
+                    phase = .failed(
+                        message: "Lost connection while checking your grade. Your photos are saved — reopen this item to check the result."
+                    )
+                    return
+                }
             }
             // US-638: exponential backoff (1s→2s→4s→… capped) instead of a
             // constant 3s loop, so a long grade stops hammering the endpoint.

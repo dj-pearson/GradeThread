@@ -11641,8 +11641,8 @@
         "no-ungated-print check still passes"
       ],
       "priority": 791,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/UX] Verified at BulkActionExecutor.swift:46-52 and BulkActionBar.swift:18."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/UX] Verified at BulkActionExecutor.swift:46-52 and BulkActionBar.swift:18. DONE 2026-06-10: removed the stubbed .aiEnrich from BulkAction.actions(.toList) so it's no longer a tap-into-guaranteed-failure button; kept its executor case as a defensive guard (clearer message) + updated the enum doc. IMPORTANT correction to the audit: .grade is NOT stubbed — InventoryListView:124 intercepts it into the dedicated bulk-grade sheet, so it stays surfaced. Fixed BulkActionBar's dead ternary (Text(...?\"selected\":\"selected\") → Text(\"selected\")). Updated BulkActionTests to assert .aiEnrich is absent + .grade present. VERIFICATION CAVEAT: iOS not compilable on Windows — hand-reviewed; macOS CI compiles + runs the updated test."
     },
     {
       "id": "US-792",
@@ -11656,8 +11656,8 @@
         "ReconciliationStore (ios/GradeThread/Marketplaces/Reconciliation/ReconciliationStore.swift:55-76): action failure presents a persistent (not auto-dismissing) error so the restored row isn't mistaken for a bug"
       ],
       "priority": 792,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/Robustness] All sites verified by line. Mechanical hardening; no behavior redesign."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/Robustness] All sites verified by line. Mechanical hardening; no behavior redesign. DONE 2026-06-10: added consecutive-failure budgets to the three silent polling loops so a down endpoint surfaces a distinct 'lost connection' result instead of spinning to a misleading timeout, each recording failures via Telemetry: EbaySyncService.sync (3 fails → .failed), GradeRequestStore.poll (4 → .failed), AutolisterBatchStore.pollOnce/startPolling (5 → connection errorMessage + stops). ItemCanvasView's silent `try? modelContext.save()` now logs on failure (server write already succeeded; self-heals on next pull). Audit sub-claims found STALE (already correct, no change): SyncMergeActor:56/70 already applies listingPrice from the wire; ReconciliationStore already restores the row + surfaces the error via a blocking .alert (persistent, not an auto-dismiss toast). No iOS unit test added — the poll-loop give-up is entangled with timers/network (not a clean pure unit like US-789) and an unrunnable test is net-negative risk. VERIFICATION CAVEAT: iOS not compilable on Windows — hand-reviewed; macOS CI compiles."
     },
     {
       "id": "US-793",

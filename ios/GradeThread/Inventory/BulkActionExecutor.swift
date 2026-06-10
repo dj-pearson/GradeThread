@@ -44,7 +44,11 @@ public struct BulkActionExecutor {
         case let .dropPrice(percent):
             return await dropPrices(items, percent: percent, action: action, onProgress: onProgress)
         case .aiEnrich:
-            return notYetWired(action: action, items: items, reason: "Wires up in a focused AI-batch pass.")
+            // US-791: no longer surfaced in any visible action set (see
+            // BulkAction.actions). This stays as a defensive guard so an
+            // accidental future routing degrades to a clear no-op result rather
+            // than a crash — wire it up in the focused AI-batch pass.
+            return notYetWired(action: action, items: items, reason: "AI enrich isn't available yet.")
         case .grade:
             // Grading is intercepted by InventoryListView and routed to its
             // own batch sheet, so this path is never taken in practice. Kept

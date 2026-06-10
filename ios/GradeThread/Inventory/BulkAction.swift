@@ -6,9 +6,10 @@ import Foundation
 /// The eBay-backed actions (drop price, end listing) are wired through
 /// ``BulkActionExecutor`` to the edge publish endpoints (US-185); each
 /// item that has no active eBay listing fails individually with a reason
-/// rather than failing the whole batch. `aiEnrich` is the one action whose
-/// execute path is still a stub (returns a per-item "not yet wired" reason)
-/// pending the AI-batch pass.
+/// rather than failing the whole batch. `aiEnrich`'s execute path is still a
+/// stub, so it is NOT surfaced in any visible action set (US-791) — the enum
+/// case is retained for switch exhaustiveness + a future AI-batch pass; the
+/// executor keeps a defensive "not yet wired" guard in case it's ever routed.
 public enum BulkAction: Identifiable, Hashable {
     case createDraft
     /// US-680: validate + push each selected item to eBay in one batch.
@@ -93,7 +94,11 @@ public enum BulkAction: Identifiable, Hashable {
     public static func actions(for stage: InventoryStage) -> [BulkAction] {
         switch stage {
         case .toList:
-            return [.publish, .grade, .createDraft, .aiEnrich, .exportCSV]
+            // US-791: .aiEnrich is omitted — its executor path is still a stub,
+            // so surfacing it would tap users into a guaranteed per-item failure.
+            // .grade IS surfaced: InventoryListView intercepts it into the
+            // dedicated bulk-grade sheet (it never hits the stub path).
+            return [.publish, .grade, .createDraft, .exportCSV]
         case .drafts:
             return [.publish, .exportCSV]
         case .active:
