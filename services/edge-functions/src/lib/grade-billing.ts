@@ -31,6 +31,65 @@ export {
 } from "./grade-pricing.ts";
 export type { GradeTier } from "./grade-pricing.ts";
 
+// ── Included-grade CAS claim with bounded retries (US-782) ───────────
+//
+// Claiming a monthly included grade is an optimistic compare-and-swap on
+// users.grades_used_this_month. Under concurrent submissions, the loser of a CAS
+// used to fall straight through to credits/checkout — even when included grades
+// remained (cap=3, two concurrent submits: the winner claims used 0→1; the loser
+// read used=0, its CAS misses, and it paid with credits despite 2 included left).
+//
+// This re-reads fresh usage on a miss and RETRIES the claim (bounded), so the
+// included allowance is fully consumed before falling back. Each retry is itself
+// a CAS, so two retriers can't both claim the same slot (no double-consume); the
+// bound + the cap guard make livelock impossible. Pure + injectable so the race
+// is unit-testable without a DB.
+
+export interface IncludedClaimDeps {
+  // Attempt the CAS: set grades_used_this_month from `expectedDbUsed` to
+  // (rolledOver ? 0 : expectedDbUsed) + 1, conditioned on the column still
+  // equalling `expectedDbUsed`. Returns claimed=true iff exactly one row updated.
+  casClaim: (expectedDbUsed: number, rolledOver: boolean) => Promise<{ claimed: boolean }>;
+  // Re-read the live counter after a miss: the actual column value + whether the
+  // reset boundary has passed (rollover).
+  reread: () => Promise<{ dbUsed: number; rolledOver: boolean } | null>;
+}
+
+export interface IncludedClaimResult {
+  claimed: boolean;
+  // The new LOGICAL used count after a successful claim (for newIncludedUsed);
+  // on failure, the last-known logical used (≥ cap or after a dropped re-read).
+  newUsed: number;
+}
+
+export async function claimIncludedGrade(
+  initialDbUsed: number,
+  initialRolledOver: boolean,
+  cap: number,
+  deps: IncludedClaimDeps,
+  maxRetries = 3,
+): Promise<IncludedClaimResult> {
+  let dbUsed = initialDbUsed;
+  let rolledOver = initialRolledOver;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const logicalUsed = rolledOver ? 0 : dbUsed;
+    if (logicalUsed >= cap) return { claimed: false, newUsed: logicalUsed };
+
+    const { claimed } = await deps.casClaim(dbUsed, rolledOver);
+    if (claimed) return { claimed: true, newUsed: logicalUsed + 1 };
+
+    // CAS miss — another submission moved the counter. Out of retries → give up.
+    if (attempt === maxRetries) return { claimed: false, newUsed: logicalUsed };
+
+    const fresh = await deps.reread();
+    if (!fresh) return { claimed: false, newUsed: logicalUsed };
+    dbUsed = fresh.dbUsed;
+    rolledOver = fresh.rolledOver;
+  }
+  return { claimed: false, newUsed: rolledOver ? 0 : dbUsed };
+}
+
 export type PrecedenceResult =
   | { paid: true; method: "included"; newIncludedUsed: number }
   | { paid: true; method: "credits"; newBalance: number }
@@ -113,34 +172,50 @@ export async function runPaymentPrecedence(
   const rolledOver = resetAt <= new Date();
   if (rolledOver) includedUsed = 0;
 
-  // ─ (1) Try included grades — Standard only ─
+  // ─ (1) Try included grades — Standard only, with bounded CAS retries (US-782) ─
   if (tier === "standard" && includedUsed < includedCap) {
-    // Optimistic concurrency: only update if grades_used_this_month hasn't
-    // changed since we read it. If another submission landed in between,
-    // the update affects 0 rows and we fall through.
     const nextReset = new Date();
     nextReset.setMonth(nextReset.getMonth() + 1);
     nextReset.setDate(1);
     nextReset.setHours(0, 0, 0, 0);
 
-    const updatePayload: Record<string, unknown> = {
-      grades_used_this_month: includedUsed + 1,
-    };
-    if (rolledOver) {
-      updatePayload.grade_reset_at = nextReset.toISOString();
-    }
+    const claim = await claimIncludedGrade(
+      user.grades_used_this_month,
+      rolledOver,
+      includedCap,
+      {
+        casClaim: async (expectedDbUsed, didRollOver) => {
+          // Set to (rolledOver ? 0 : expectedDbUsed)+1, conditioned on the column
+          // still equalling expectedDbUsed (the optimistic compare).
+          const updatePayload: Record<string, unknown> = {
+            grades_used_this_month: (didRollOver ? 0 : expectedDbUsed) + 1,
+          };
+          if (didRollOver) updatePayload.grade_reset_at = nextReset.toISOString();
+          const { data, error } = await supabaseAdmin
+            .from("users")
+            .update(updatePayload)
+            .eq("id", userId)
+            .eq("grades_used_this_month", expectedDbUsed)
+            .select("id");
+          return { claimed: !error && Array.isArray(data) && data.length > 0 };
+        },
+        reread: async () => {
+          const { data } = await supabaseAdmin
+            .from("users")
+            .select("grades_used_this_month, grade_reset_at")
+            .eq("id", userId)
+            .maybeSingle();
+          if (!data) return null;
+          const row = data as { grades_used_this_month: number; grade_reset_at: string };
+          return {
+            dbUsed: row.grades_used_this_month,
+            rolledOver: new Date(row.grade_reset_at) <= new Date(),
+          };
+        },
+      },
+    );
 
-    const { data, error } = await supabaseAdmin
-      .from("users")
-      .update(updatePayload)
-      .eq("id", userId)
-      .eq(
-        "grades_used_this_month",
-        rolledOver ? user.grades_used_this_month : includedUsed,
-      )
-      .select("id");
-
-    if (!error && data && data.length > 0) {
+    if (claim.claimed) {
       await supabaseAdmin
         .from("submissions")
         .update({ payment_status: "included", paid_at: new Date().toISOString() })
@@ -156,11 +231,12 @@ export async function runPaymentPrecedence(
         reason: "included_grant",
         balance_after: null,
         submission_id: submissionId,
-        notes: `Included Standard grade #${includedUsed + 1}/${includedCap} on ${effectivePlan}`,
+        notes: `Included Standard grade #${claim.newUsed}/${includedCap} on ${effectivePlan}`,
       });
-      return { paid: true, method: "included", newIncludedUsed: includedUsed + 1 };
+      return { paid: true, method: "included", newIncludedUsed: claim.newUsed };
     }
-    // CAS failed — fall through to credits.
+    // Included allowance genuinely exhausted (or retries spent) — fall through
+    // to credits.
   }
 
   // ─ (2) Try credits ─

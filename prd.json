@@ -11506,8 +11506,8 @@
         "Behavior for batch/bulk submissions (multiple grades in one precedence run) is covered or explicitly documented as sequential"
       ],
       "priority": 782,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Payments] Small fix, meaningful correctness. Consider whether a Postgres function doing claim-or-report-atomically is cleaner than client-side retries — either approach passes, but the tests are mandatory."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Payments] Small fix, meaningful correctness. Consider whether a Postgres function doing claim-or-report-atomically is cleaner than client-side retries — either approach passes, but the tests are mandatory. [DONE 2026-06-10] grade-billing.ts: extracted claimIncludedGrade (bounded CAS retries, injectable deps). On a CAS miss it re-reads fresh usage and retries the included claim (default 3 retries) before falling back to credits/checkout — fixing the bug where a concurrent submit dropped the loser to credits despite included grades remaining. Each retry is its own CAS (no double-consume); bounded + cap-guard (no livelock); rollover-aware. runPaymentPrecedence rewired to use it. Batch = sequential per-submission precedence calls, each CAS-retrying against the shared counter. 5 Deno tests: retry-succeeds, at-cap-no-overconsume, concurrent-batch-exact, no-livelock, rollover. Full edge suite 580 green."
     },
     {
       "id": "US-783",
