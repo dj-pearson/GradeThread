@@ -11522,8 +11522,8 @@
         "Tests: publish DB-failure path returns success-with-sync-pending; token refresh updates expiry; refresh failure flags connection"
       ],
       "priority": 783,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][FlipDesk] Two related resilience gaps in the eBay integration. Reuse the existing cron auth pattern; remember getOrders/getTransactions date limits gotcha doesn't apply here."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][FlipDesk] Two related resilience gaps in the eBay integration. Reuse the existing cron auth pattern; remember getOrders/getTransactions date limits gotcha doesn't apply here. [DONE 2026-06-10] PUBLISH ATOMICITY (the gap): a DB-write failure AFTER publishOrAdoptOffer makes the listing live previously returned 422 \"Publish failed\". New lib/ebay-publish-finalize.ts finalizePublishedListing (bounded retry → on persistent failure upserts an orphan reconcile marker into flipdesk_ebay_listings + returns sync_pending). publishItemForOwner rewired; /listings/push returns sync_pending. Orphan adopted by the existing pull-sync (by SKU). 4 Deno tests. TOKEN REFRESH already done (US-463): /oauth/refresh cron (hourly, in COOLIFY.md) scans connections <24h to expiry + getUserAccessToken refreshes inline; on permanent failure sets refresh_error + is_active=false, surfaced in marketplaces UI. Full edge suite 584 green."
     },
     {
       "id": "US-784",

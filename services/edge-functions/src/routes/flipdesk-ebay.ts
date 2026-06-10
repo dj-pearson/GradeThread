@@ -40,6 +40,7 @@ import {
   type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
+import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
 import {
   getAllActiveEbaySelling,
   getItemSpecifics,
@@ -2098,6 +2099,10 @@ export type PublishItemResult =
     listing_url: string;
     offer_id: string;
     sku: string;
+    // US-783: the listing is live on eBay but the local DB sync didn't land;
+    // a reconcile marker was recorded for the pull-sync. The caller reports
+    // success, not a publish failure.
+    sync_pending?: boolean;
   }
   | { ok: false; status: 400 | 404 | 422 | 500 | 502 | 503; body: Record<string, unknown> };
 
@@ -2287,19 +2292,54 @@ export async function publishItemForOwner(
       publish_error: null,
       publish_failed_at: null,
     };
-    if (listing?.id) {
-      await supabaseAdmin
-        .from("listings")
-        .update(listingPayload)
-        .eq("id", listing.id);
-    } else {
-      await supabaseAdmin.from("listings").insert(listingPayload);
-    }
 
-    await supabaseAdmin
-      .from("inventory_items")
-      .update({ status: "listed" })
-      .eq("id", itemId);
+    // US-783: the listing is LIVE on eBay now. A failure on the local writes
+    // below is NOT a publish failure — retry, then fall back to a reconcile
+    // marker (the pull-sync adopts the orphan by SKU) and return success with
+    // sync_pending. NEVER surface a publish error for an eBay-side success.
+    const { syncPending } = await finalizePublishedListing({
+      persist: async () => {
+        if (listing?.id) {
+          const { error } = await supabaseAdmin
+            .from("listings")
+            .update(listingPayload)
+            .eq("id", listing.id);
+          if (error) throw new Error(`listings update: ${error.message}`);
+        } else {
+          const { error } = await supabaseAdmin.from("listings").insert(listingPayload);
+          if (error) throw new Error(`listings insert: ${error.message}`);
+        }
+        const { error: itemErr } = await supabaseAdmin
+          .from("inventory_items")
+          .update({ status: "listed" })
+          .eq("id", itemId);
+        if (itemErr) throw new Error(`inventory_items update: ${itemErr.message}`);
+      },
+      recordReconcile: async () => {
+        // Snapshot the orphaned-but-live listing into the same table the pull-
+        // sync + Reconciliation page use, so it's adopted on the next sync.
+        await supabaseAdmin
+          .from("flipdesk_ebay_listings")
+          .upsert(
+            {
+              user_id: ownerId,
+              ebay_item_id: listingId,
+              custom_label: sku,
+              title: ctx.summary.title,
+              current_price: Number(ctx.summary.priceValue),
+              listing_url: url,
+              raw: { offerId, source: "publish_orphan", inventory_item_id: itemId },
+              match_status: "unmatched",
+              imported_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id,ebay_item_id" },
+          );
+        console.error(
+          `[flipdesk-ebay] publish ${listingId} is LIVE but local write failed — ` +
+            `recorded reconcile marker; pull-sync will adopt it`,
+        );
+      },
+    });
 
     return {
       ok: true,
@@ -2307,6 +2347,7 @@ export async function publishItemForOwner(
       listing_url: url,
       offer_id: offerId,
       sku,
+      sync_pending: syncPending,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -2370,6 +2411,9 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
     listing_url: result.listing_url,
     offer_id: result.offer_id,
     sku: result.sku,
+    // US-783: true → the listing is live on eBay but the local sync is pending;
+    // the UI should say "live, syncing shortly" rather than treat it as failed.
+    sync_pending: result.sync_pending ?? false,
   });
 });
 
