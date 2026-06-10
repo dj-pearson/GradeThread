@@ -151,7 +151,7 @@ final class GradeRequestStore {
                 )
                 if consecutiveFailures >= maxConsecutiveFailures {
                     phase = .failed(
-                        message: "Lost connection while checking your grade. Your photos are saved — reopen this item to check the result."
+                        "Lost connection while checking your grade. Your photos are saved — reopen this item to check the result."
                     )
                     return
                 }
