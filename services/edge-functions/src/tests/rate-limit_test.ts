@@ -336,3 +336,72 @@ Deno.test("opts.errorBody: 429 uses the custom envelope", async () => {
   assert(body.error.message.startsWith("slow down"));
   assert(body.meta.retry_after_seconds >= 1);
 });
+
+// ─── US-781: public-content limiter + Pages-origin bypass ───────────
+
+import { pagesOriginBypass } from "../middleware/rate-limit.ts";
+
+// The public content surface is fail-closed + per-IP. Under the limit passes;
+// over the limit 429s with Retry-After (mirrors the /api/content/public/* mount).
+Deno.test("content-public: per-IP, 429 over the limit", async () => {
+  const mw = rateLimiter(2, 60_000, "content-public", memoryStore(), {
+    failClosed: true,
+    bypass: pagesOriginBypass,
+  });
+  assert((await call(mw, { cfIp: "198.51.100.5", method: "GET" })).nexted); // 1
+  assert((await call(mw, { cfIp: "198.51.100.5", method: "GET" })).nexted); // 2
+  const over = await call(mw, { cfIp: "198.51.100.5", method: "GET" }); // 3
+  assertEquals(over.rec.status, 429);
+  assert(Number(over.rec.headers["Retry-After"]) >= 1);
+});
+
+// A Pages-origin SSR hop (correct x-pages-origin secret) bypasses the limit so
+// one Pages IP fronting all blog/cert visitors isn't starved.
+Deno.test("content-public: a valid Pages-origin secret bypasses the limit", async () => {
+  Deno.env.set("CF_PAGES_ORIGIN_SECRET", "pages-s3cret");
+  try {
+    const mw = rateLimiter(1, 60_000, "content-public-bypass", memoryStore(), {
+      failClosed: true,
+      bypass: pagesOriginBypass,
+    });
+    const hdr = { "x-pages-origin": "pages-s3cret" };
+    // Far beyond a limit of 1 — all bypass.
+    for (let i = 0; i < 5; i++) {
+      const r = await call(mw, { cfIp: "198.51.100.6", method: "GET", headers: hdr });
+      assert(r.nexted, `bypassed request ${i + 1} should pass`);
+      assertEquals(r.rec.status, null);
+    }
+  } finally {
+    Deno.env.delete("CF_PAGES_ORIGIN_SECRET");
+  }
+});
+
+// A WRONG/absent Pages-origin secret is NOT bypassed — it's limited like any IP.
+Deno.test("content-public: a wrong/absent Pages-origin secret is still limited", async () => {
+  Deno.env.set("CF_PAGES_ORIGIN_SECRET", "pages-s3cret");
+  try {
+    const mw = rateLimiter(1, 60_000, "content-public-nobypass", memoryStore(), {
+      failClosed: true,
+      bypass: pagesOriginBypass,
+    });
+    // Wrong secret → no bypass → normal per-IP limiting.
+    const hdr = { "x-pages-origin": "wrong" };
+    assert((await call(mw, { cfIp: "198.51.100.7", method: "GET", headers: hdr })).nexted);
+    const over = await call(mw, { cfIp: "198.51.100.7", method: "GET", headers: hdr });
+    assertEquals(over.rec.status, 429);
+  } finally {
+    Deno.env.delete("CF_PAGES_ORIGIN_SECRET");
+  }
+});
+
+// When CF_PAGES_ORIGIN_SECRET is UNSET, the bypass is inert (can't be a free pass).
+Deno.test("content-public: bypass is inert when CF_PAGES_ORIGIN_SECRET is unset", async () => {
+  const mw = rateLimiter(1, 60_000, "content-public-inert", memoryStore(), {
+    failClosed: true,
+    bypass: pagesOriginBypass,
+  });
+  const hdr = { "x-pages-origin": "anything" };
+  assert((await call(mw, { cfIp: "198.51.100.8", method: "GET", headers: hdr })).nexted);
+  const over = await call(mw, { cfIp: "198.51.100.8", method: "GET", headers: hdr });
+  assertEquals(over.rec.status, 429);
+});

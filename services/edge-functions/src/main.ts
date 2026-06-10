@@ -60,7 +60,7 @@ import { verifiedRoutes } from "./routes/verified.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
-import { rateLimiter } from "./middleware/rate-limit.ts";
+import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
 import {
   apiV1RateLimitBody,
   apiV1ReadLimit,
@@ -266,6 +266,19 @@ app.use("/api/content/settings/*", adminAuthMiddleware);
 
 // Rate limiting (US-265) — distributed (Postgres-backed), per-scope so budgets
 // don't bleed across endpoint groups. Keyed by user when authed, else by IP.
+// US-781: the only UNAUTHENTICATED, unmetered mount — the public content surface
+// (blog/cert/seller reads + the cert view counter). Cap per-IP and FAIL-CLOSED
+// (a store outage drops to the per-replica fallback, never unlimited), with a
+// Pages-origin bypass so the blog/cert SSR workers — which proxy these endpoints
+// for ALL visitors through one Cloudflare Pages IP — aren't starved. 60/min/IP
+// is generous for legitimate cert sharing/scanning + QR badge fetches.
+app.use(
+  "/api/content/public/*",
+  rateLimiter(60, 60_000, "content-public", undefined, {
+    failClosed: true,
+    bypass: pagesOriginBypass,
+  }),
+);
 app.use("/api/grade/*", rateLimiter(60, 60_000, "grade"));
 app.use("/api/flipdesk/ebay/listings/*", rateLimiter(30, 60_000, "ebay-listings"));
 app.use("/api/flipdesk/grading/*", rateLimiter(60, 60_000, "flipdesk-grading"));

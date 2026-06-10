@@ -11492,8 +11492,8 @@
         "Tests: over-limit returns 429, under-limit passes, Pages-origin bypass works if implemented"
       ],
       "priority": 781,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Security] Only unauthenticated-and-unlimited mount found in the security audit. Cert IDs are UUIDs (non-enumerable) so this is defense-in-depth + cost control, not a data-leak fix. The Pages-SSR-origin interaction is the subtle part."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Security] Only unauthenticated-and-unlimited mount found in the security audit. Cert IDs are UUIDs (non-enumerable) so this is defense-in-depth + cost control, not a data-leak fix. The Pages-SSR-origin interaction is the subtle part. [DONE 2026-06-10] rateLimiter mounted on /api/content/public/* (the one unauthenticated mount): 60/min/IP, fail-closed (store outage→per-replica fallback, never unlimited), keyed by CF-Connecting-IP. Added opts.bypass + pagesOriginBypass helper (x-pages-origin == CF_PAGES_ORIGIN_SECRET, constant-time, inert when unset) so blog/cert SSR Pages Functions (one IP for all visitors) arent starved; fetchJson in functions/_shared/blog-render.ts sends the header. 429s carry Retry-After; fetchJson already degrades to null→graceful page. .env.example documents CF_ORIGIN_SECRET + CF_PAGES_ORIGIN_SECRET. 5 new Deno tests (over/under limit, bypass valid/wrong/inert)."
     },
     {
       "id": "US-782",

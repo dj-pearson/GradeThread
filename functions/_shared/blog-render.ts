@@ -19,6 +19,12 @@ export interface PagesEnv {
   // SPA's stream (G-CMDWCFC275) so blog + app report into one property. Set to
   // "off" / empty to disable injection.
   GA4_MEASUREMENT_ID?: string;
+  // US-781: shared secret sent as `x-pages-origin` on server-to-server calls to
+  // the edge so the public-content rate limiter bypasses this internal hop (one
+  // Pages IP fronts all blog/cert visitors and would otherwise drain one bucket).
+  // Must equal the edge's CF_PAGES_ORIGIN_SECRET. Unset = no header (limiter
+  // treats the Pages worker as a normal IP — degraded but not broken).
+  CF_PAGES_ORIGIN_SECRET?: string;
 }
 
 // The SPA ships this same stream in index.html; keep them in sync so the blog
@@ -504,8 +510,13 @@ export async function fetchJson<T>(
   path: string,
 ): Promise<T | null> {
   try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    // US-781: identify this as a trusted Pages-origin SSR hop so the edge's
+    // public-content rate limiter bypasses it (it fronts ALL visitors via one IP).
+    const originSecret = env.CF_PAGES_ORIGIN_SECRET?.trim();
+    if (originSecret) headers["x-pages-origin"] = originSecret;
     const res = await fetch(`${edgeApi(env)}${path}`, {
-      headers: { Accept: "application/json" },
+      headers,
       // 8s — Cloudflare Pages Functions have a 30s wall but we want the
       // page to fail fast rather than burn the budget on a stuck upstream.
       signal: AbortSignal.timeout(8_000),

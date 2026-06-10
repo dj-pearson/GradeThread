@@ -139,6 +139,20 @@ function clientIp(c: Context): string | null {
 // middleware passes its own context through unchanged.
 export type RateLimitContextResolver<T> = (c: Context) => T;
 
+// US-781: the Cloudflare Pages SSR functions (blog, cert, OG) proxy the public
+// content endpoints server-to-server, so a burst of legitimate blog/cert
+// visitors all arrives at the edge through the one Pages worker and would
+// otherwise drain a single per-IP bucket. They carry
+// `x-pages-origin: <CF_PAGES_ORIGIN_SECRET>`; when it matches, the public-content
+// limiter is bypassed for that internal hop. Constant-time compare; inert (never
+// bypasses) when CF_PAGES_ORIGIN_SECRET is unset so it can't be a free pass.
+export function pagesOriginBypass(c: Context): boolean {
+  const secret = Deno.env.get("CF_PAGES_ORIGIN_SECRET")?.trim();
+  if (!secret) return false;
+  const got = c.req.header("x-pages-origin")?.trim();
+  return typeof got === "string" && constantTimeEqual(got, secret);
+}
+
 export function rateLimiter(
   maxRequests: number | RateLimitContextResolver<number> = 60,
   windowMs = 60_000,
@@ -153,6 +167,9 @@ export function rateLimiter(
     subject?: RateLimitContextResolver<string | null>;
     // Custom 429 body so a route can match its own response envelope.
     errorBody?: (info: { retryAfter: number; limit: number }) => unknown;
+    // US-781: when this returns true the request skips limiting entirely (e.g.
+    // trusted Pages-origin server-to-server hops). Checked before any counting.
+    bypass?: RateLimitContextResolver<boolean>;
   } = {},
 ) {
   const methodFilter = opts.methods?.map((m) => m.toUpperCase());
@@ -161,6 +178,12 @@ export function rateLimiter(
     // Not one of the methods this limiter governs → leave it for whatever else
     // is mounted on this path.
     if (methodFilter && !methodFilter.includes(c.req.method.toUpperCase())) {
+      await next();
+      return;
+    }
+
+    // Trusted bypass (e.g. Pages-origin SSR) → don't count against the limit.
+    if (opts.bypass && opts.bypass(c as unknown as Context)) {
       await next();
       return;
     }
