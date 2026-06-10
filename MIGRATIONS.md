@@ -41,10 +41,32 @@ with `ON_ERROR_STOP=1`. A migration that references a column a prior migration
 didn't create fails here, not in prod.
 
 > **MANUAL / FOLLOW-UP:** wire `scripts/check-migrations.sh` (clean-apply on a
-> throwaway Postgres service container) into CI as a required check, and add a
-> boot-time assertion in the edge service that the latest expected migration
-> version is present (compare a hardcoded `EXPECTED_SCHEMA_VERSION` to
-> `schema_migrations`), logging loudly / refusing risky writes if behind.
+> throwaway Postgres service container) into CI as a required check.
+
+## Schema-version assertion at edge boot (US-778 — DONE)
+
+The edge service refuses to start against a **stale** DB. At boot
+`assertSchemaVersion()` (`services/edge-functions/src/lib/schema-version.ts`)
+compares a hardcoded `EXPECTED_SCHEMA_VERSION` to the latest applied migration,
+read via the `public.latest_schema_migration()` RPC (a `SECURITY DEFINER`
+bridge to `supabase_migrations.schema_migrations`, migration 00126):
+
+- **Behind in production** → logs expected-vs-actual and exits non-zero (Coolify's
+  restart loop makes the bad deploy loud).
+- **Behind in dev** → warns only.
+- **Migrations table unreadable / not recorded** → warns and proceeds
+  (fail-OPEN; only a *confirmed* behind-version is fatal).
+
+> **THE RULE:** every commit that adds a `supabase/migrations/NNNNN_*.sql` file
+> MUST bump `EXPECTED_SCHEMA_VERSION` to that same `NNNNN` in the same commit.
+> A CI sync-check (`src/tests/schema-version_test.ts`, in `verify:edge`) fails the
+> build if the constant doesn't equal the lexically-last migration prefix, so it
+> can't silently go stale.
+
+> **PROD APPLY NOTE:** for the assertion to be *active* in prod, the apply path
+> must record versions into `supabase_migrations.schema_migrations` (the Supabase
+> CLI does this automatically; a raw `psql -f` loop does NOT — add the version
+> rows, or prefer the CLI). If it isn't recorded the check simply fail-opens.
 
 ## One-time backfill: confirm 00057–00074 (and 00094–00097) are applied
 

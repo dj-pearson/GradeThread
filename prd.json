@@ -11446,8 +11446,8 @@
         "Tests cover: match passes, mismatch fails (prod mode), unreadable table warns"
       ],
       "priority": 778,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops] MIGRATIONS.md already lists this as a TODO. The CI sync-check (constant vs migrations dir) is the piece that keeps it from going stale."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops] MIGRATIONS.md already lists this as a TODO. The CI sync-check (constant vs migrations dir) is the piece that keeps it from going stale. [DONE 2026-06-10] Migration 00126 latest_schema_migration RPC; lib/schema-version.ts EXPECTED_SCHEMA_VERSION=00126 + assertSchemaVersion (prod-behind exits nonzero, dev warns, unreadable fail-opens); main.ts boot await; CI sync-check test pins constant to lexically-last migration prefix; MIGRATIONS.md rule documented. 9 Deno tests, full suite 571 green."
     },
     {
       "id": "US-779",

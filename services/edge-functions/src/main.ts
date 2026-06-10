@@ -72,6 +72,7 @@ import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
 import { assertRequiredEnv, warnMissingFeatureGroups } from "./lib/env-validation.ts";
+import { assertSchemaVersion } from "./lib/schema-version.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
 import { featureGate } from "./lib/feature-flags.ts";
@@ -514,6 +515,11 @@ assertAdminMfaConfig();
 // half-configured deploy is loud, not latent. Dev/test stay permissive.
 assertRequiredEnv();
 warnMissingFeatureGroups();
+
+// US-778: refuse to start against a STALE DB in production (a build expecting a
+// migration the DB hasn't applied corrupts data). Fail-open on an unreadable
+// migrations table; fatal only on a confirmed behind-version in prod.
+await assertSchemaVersion();
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
 logEvent("info", "edge.boot", {
