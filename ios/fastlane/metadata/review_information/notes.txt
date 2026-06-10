@@ -1,7 +1,7 @@
 FlipDesk by GradeThread is a workspace for clothing resellers: catalog items, grade their condition with AI, and list/sync to eBay.
 
 GETTING IN
-The app requires sign-in. Use the demo account in the credentials fields. It is pre-populated with sample inventory, a few listings, and recorded sales/payouts so every tab has content to review. The home-screen widget and Share Extension also work once signed in.
+The app requires sign-in. Use the demo account in the credentials fields. It is pre-populated with sample inventory, a few listings, recorded sales/payouts, a completed condition grade with its certificate, and grade credits so every flow can be exercised without payment. The home-screen widget and Share Extension also work once signed in.
 
 eBay CONNECTION
 The demo account is linked to an eBay sandbox seller, so the Marketplaces tab shows a connected account and you can view publish/sync flows without affecting any live eBay listing. No real marketplace transactions occur.
@@ -9,12 +9,20 @@ The demo account is linked to an eBay sandbox seller, so the Marketplaces tab sh
 AI ITEM DETECTION
 On the Add flow, capturing or importing garment photos triggers our vision AI to suggest item fields. Every suggestion is shown for review before it is saved — nothing is written automatically.
 
+IN-APP PURCHASES
+Optional auto-renewing subscriptions (Starter / Pro / Business, monthly or yearly) and consumable grade-credit packs are sold via StoreKit in-app purchase. The free tier plus the demo account's preloaded credits are sufficient to evaluate all core functionality — no purchase is required for review. Users who already subscribed on our website (where billing is handled separately) see a "managed on the web" notice on the paywall instead of purchase buttons; this reflects their existing entitlement for our multiplatform service and the app never directs users to purchase outside the App Store.
+
 PERMISSIONS
 - Camera: capture garment + tag photos and scan SKU barcodes
 - Photo Library: import existing garment shots
-- Notifications: new-sale / payout / token-expiry alerts (optional; prompted on first Sales-tab visit)
+- Microphone / Speech Recognition: optional hands-free dictation of item notes
+- Face ID: optional app lock the user can enable in Settings
+- Notifications: new-sale / payout / token-expiry alerts (optional; prompted on first Money-tab visit)
+
+ACCOUNT DELETION
+Settings → Delete account. Requires typing "delete" to confirm; removes the account and all associated data server-side.
 
 COMMERCE NOTE
-The app supports listing items for resale (commercial activity by the seller). All selling happens on the connected marketplace (eBay), not via in-app purchase. Subscription tiers, if shown, are account-level and not required to evaluate core functionality with the demo account.
+The app supports listing items for resale (commercial activity by the seller). All marketplace selling happens on the seller's connected eBay account via API.
 
 Questions during review: support@pearson-media.com

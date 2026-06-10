@@ -10,7 +10,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   useAiExtractAspects,
@@ -21,6 +20,10 @@ import {
   type EbayCategorySuggestion,
 } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
+import {
+  deriveAspectsFromItem,
+  type ItemAspectSource,
+} from "@/lib/ebay-prefill";
 
 interface Props {
   itemId: string;
@@ -29,6 +32,10 @@ interface Props {
   // When set, the picker uses this as the default query on first mount —
   // typically the item's title so the user lands on a relevant suggestion.
   seedQuery?: string;
+  // Structured item columns (brand, size, color, …). Any aspect still empty
+  // after the saved values are applied is prefilled from these, so the user
+  // isn't re-typing data the item already has. Pass a MEMOIZED object.
+  itemFields?: ItemAspectSource | null;
   // Notifies the parent every time the user picks (or clears) a category,
   // so siblings like the comps panel can react before the save is committed.
   onCategoryChange?: (categoryId: string | null) => void;
@@ -49,6 +56,7 @@ export function EbayCategoryPicker({
   initialCategoryId,
   initialAspects,
   seedQuery,
+  itemFields,
   onCategoryChange,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
@@ -85,13 +93,13 @@ export function EbayCategoryPicker({
   const initialAspectsRef = useRef(initialAspects);
   // When the user picks a different category, drop any aspect values that no
   // longer apply. Keep the rest so a re-pick doesn't wipe the user's work.
+  // Then prefill any still-empty aspect from the item's structured columns
+  // (brand, size, color, material, style, inferred department) — the same
+  // mapping the server applies at publish — so the user only fills true gaps.
   useEffect(() => {
     if (!aspectsQuery.data) return;
-    const valid = new Set(
-      (aspectsQuery.data.aspects.aspects ?? []).map(
-        (a) => a.localizedAspectName
-      )
-    );
+    const aspectList = aspectsQuery.data.aspects.aspects ?? [];
+    const valid = new Set(aspectList.map((a) => a.localizedAspectName));
     setAspectValues((prev) => {
       const next: Record<string, string[]> = {};
       for (const [k, v] of Object.entries(prev)) {
@@ -103,9 +111,13 @@ export function EbayCategoryPicker({
           if (valid.has(k)) next[k] = v;
         }
       }
+      if (itemFields) {
+        const derived = deriveAspectsFromItem(itemFields, aspectList, next);
+        for (const [k, v] of Object.entries(derived)) next[k] = v;
+      }
       return next;
     });
-  }, [aspectsQuery.data]);
+  }, [aspectsQuery.data, itemFields]);
 
   const aspects: EbayAspect[] = useMemo(
     () => aspectsQuery.data?.aspects.aspects ?? [],
@@ -249,16 +261,10 @@ export function EbayCategoryPicker({
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle className="flex items-center gap-2">
-              eBay item specifics
-              <Badge variant="secondary" className="font-normal">
-                Week 1
-              </Badge>
-            </CardTitle>
+            <CardTitle>eBay item specifics</CardTitle>
             <CardDescription>
-              Pick the leaf category. eBay tells us which specifics buyers
-              filter on — we render them below. Week 2 will pre-fill these
-              from the photos.
+              Pick the leaf category. Specifics are prefilled from the item's
+              details where they match — use AI fill for anything left blank.
             </CardDescription>
           </div>
           <div className="flex items-center gap-1">

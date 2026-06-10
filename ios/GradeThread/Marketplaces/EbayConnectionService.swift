@@ -266,7 +266,20 @@ public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
             ? .universalLink(host: Self.universalLinkHost, path: Self.universalLinkPath)
             : .customScheme(Self.callbackURLScheme)
         do {
-            return try await OAuthWebSession.run(url: url, callback: callback, anchorProvider: self)
+            // Non-ephemeral so the session shares Safari's cookie jar: a user
+            // already signed into eBay gets a one-tap "Continue" instead of
+            // re-entering credentials every connect. We deliberately DON'T use
+            // the ephemeral isolation here (unlike our own app's auth) because
+            // this is a third-party marketplace link the user explicitly wants
+            // to keep connected — the smoother re-auth is worth more than the
+            // isolation, and CSRF is already covered by the single-use `state`
+            // nonce (server oauth_states table + client-side check above).
+            return try await OAuthWebSession.run(
+                url: url,
+                callback: callback,
+                prefersEphemeralWebBrowserSession: false,
+                anchorProvider: self
+            )
         } catch let error as OAuthWebSession.SessionError {
             switch error {
             case .cancelled:
@@ -283,12 +296,6 @@ public final class EbayConnectionService: NSObject, EbayConnectionsProviding {
 
 extension EbayConnectionService: ASWebAuthenticationPresentationContextProviding {
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap(\.windows)
-            .first(where: { $0.isKeyWindow }) {
-            return window
-        }
-        return ASPresentationAnchor()
+        WebAuthPresentationAnchor.resolve()
     }
 }

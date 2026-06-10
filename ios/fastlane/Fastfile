@@ -38,7 +38,18 @@ platform :ios do
   desc "Capture App Store screenshots across required device sizes"
   lane :screenshots do
     generate_project
-    capture_screenshots(skip_open_summary: true)
+    # Screenshot builds use the Debug config, whose xcconfig carries a
+    # dummy anon key (the real one is never committed). Sign-in-driven
+    # captures need the real backend, so inject SUPABASE_ANON_KEY from
+    # the env (Infisical in CI) as a command-line build setting — highest
+    # precedence, overrides the xcconfig. Without it the run still
+    # captures the welcome/login surface.
+    anon = ENV["SUPABASE_ANON_KEY"].to_s
+    UI.important("SUPABASE_ANON_KEY not set — capturing login surface only") if anon.empty?
+    capture_screenshots(
+      skip_open_summary: true,
+      xcargs: anon.empty? ? nil : "SUPABASE_ANON_KEY='#{anon}'"
+    )
   end
 
   desc "Upload metadata only (no screenshots, no submission)"

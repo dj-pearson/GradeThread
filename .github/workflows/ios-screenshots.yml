@@ -1,0 +1,120 @@
+name: iOS Screenshots
+
+# Captures App Store screenshots on a macOS runner via fastlane snapshot
+# (US-197) and publishes them as a workflow artifact in exact App Store
+# Connect sizes:
+#   iphone-6.9/ — 1320x2868 (native iPhone 16 Pro Max)
+#   iphone-6.5/ — 1284x2778 (derived — the "6.5-inch Display" slot)
+#   ipad-13/    — 2752x2064 (native iPad Pro 13" M4, landscape)
+#
+# In-app surfaces (Home/Inventory/Money/Marketplaces) are captured by
+# signing in with the seeded demo/review account. The credentials come
+# from Infisical (REVIEW_DEMO_EMAIL / REVIEW_DEMO_PASSWORD) — when those
+# are absent the run still succeeds but only captures the welcome screen.
+#
+# Manual trigger only: screenshots are an operator task, not CI.
+
+on:
+  workflow_dispatch:
+    inputs:
+      devices:
+        description: "Simulator devices (comma-separated; must exist in the selected Xcode's runtime)"
+        type: string
+        default: "iPhone 16 Pro Max,iPad Pro 13-inch (M4)"
+
+concurrency:
+  group: ios-screenshots
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  screenshots:
+    name: Capture + size for App Store
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import secrets from Infisical
+        # SUPABASE_ANON_KEY (the screenshot build talks to the real backend)
+        # and the demo account credentials. Same pattern as ios-release.yml.
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: ${{ secrets.INFISICAL_DOMAIN }}
+          project-slug: grade-thread
+          env-slug: prod
+          secret-path: /
+
+      - name: Select Xcode
+        # Prefer the newest Xcode 16.x — its iOS 18 runtime ships the
+        # iPhone 16 Pro Max + iPad Pro 13-inch (M4) simulators the Snapfile
+        # defaults to. Fall back to the newest installed Xcode with a
+        # warning (override the `devices` input to match its runtime).
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1 || true)
+          if [ -z "$XCODE" ]; then
+            XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n1 || true)
+            echo "::warning::No Xcode 16.x on this image — using $XCODE; verify the devices input matches its simulator runtime."
+          fi
+          [ -n "$XCODE" ] || { echo "::error::No Xcode found on runner"; exit 1; }
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Show available simulators
+        # Debugging aid: when a device name in the input doesn't exist in
+        # this runtime, this listing says what to use instead.
+        run: xcrun simctl list devices available
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install fastlane
+        working-directory: ios
+        run: |
+          gem install bundler --no-document
+          bundle install --jobs 4 --retry 3
+
+      - name: Check demo credentials
+        run: |
+          if [ -z "${REVIEW_DEMO_EMAIL:-}" ] || [ -z "${REVIEW_DEMO_PASSWORD:-}" ]; then
+            echo "::warning::REVIEW_DEMO_EMAIL / REVIEW_DEMO_PASSWORD not found in Infisical — only the welcome/login screen will be captured. Add the seeded demo account credentials to Infisical (prod, /) for full in-app screenshots."
+          else
+            echo "Demo credentials present — capturing signed-in surfaces."
+          fi
+
+      - name: Capture screenshots
+        working-directory: ios
+        env:
+          SNAPSHOT_DEVICES: ${{ inputs.devices }}
+          # xcodebuild strips the TEST_RUNNER_ prefix and forwards the rest
+          # to the UI-test runner's environment (read in ScreenshotUITests).
+          TEST_RUNNER_UITEST_EMAIL: ${{ env.REVIEW_DEMO_EMAIL }}
+          TEST_RUNNER_UITEST_PASSWORD: ${{ env.REVIEW_DEMO_PASSWORD }}
+        run: bundle exec fastlane screenshots
+
+      - name: Produce exact App Store sizes
+        run: bash ios/Scripts/make-appstore-sizes.sh
+
+      - name: Upload raw captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-raw
+          path: ios/fastlane/screenshots/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload App Store-sized sets
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-appstore
+          path: ios/fastlane/screenshots-appstore/
+          if-no-files-found: error
+          retention-days: 14

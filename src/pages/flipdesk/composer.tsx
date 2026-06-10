@@ -58,6 +58,10 @@ import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
+import {
+  mapEbayCondition,
+  type ItemAspectSource,
+} from "@/lib/ebay-prefill";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
@@ -161,7 +165,8 @@ export function FlipdeskComposerPage() {
 
   // eBay taxonomy mapping lives on inventory_items (added in 00030), which
   // isn't exposed through the items_full view. Fetch it on the side so the
-  // composer can render the eBay category picker.
+  // composer can render the eBay category picker. color/material ride along
+  // (also missing from items_full) to feed the aspect prefill.
   const { data: ebayMapping = null } = useQuery({
     queryKey: ["inventory_item_ebay", id],
     enabled: !!id,
@@ -169,10 +174,14 @@ export function FlipdeskComposerPage() {
       ebay_category_id: string | null;
       ebay_aspects: Record<string, string[]> | null;
       ai_generated_aspects_at: string | null;
+      color: string | null;
+      material: string | null;
     } | null> => {
       const { data, error } = await supabase
         .from("inventory_items")
-        .select("ebay_category_id, ebay_aspects, ai_generated_aspects_at")
+        .select(
+          "ebay_category_id, ebay_aspects, ai_generated_aspects_at, color, material",
+        )
         .eq("id", id!)
         .maybeSingle();
       if (error) throw error;
@@ -180,9 +189,31 @@ export function FlipdeskComposerPage() {
         ebay_category_id: string | null;
         ebay_aspects: Record<string, string[]> | null;
         ai_generated_aspects_at: string | null;
+        color: string | null;
+        material: string | null;
       } | null;
     },
   });
+
+  // Structured item columns the aspect prefill can draw from — memoized so the
+  // picker's seed effect doesn't churn on every render.
+  const itemAspectSource = useMemo<ItemAspectSource | null>(
+    () =>
+      item
+        ? {
+            title: item.item_title,
+            brand: item.brand,
+            size: item.size,
+            color: ebayMapping?.color ?? null,
+            material: ebayMapping?.material ?? null,
+            style: item.style,
+            description: item.item_description,
+            condition_notes: item.notes,
+            item_category: item.category,
+          }
+        : null,
+    [item, ebayMapping],
+  );
 
   // Keep the local drag order in sync with fetched photos.
   useEffect(() => {
@@ -190,18 +221,30 @@ export function FlipdeskComposerPage() {
   }, [photos]);
 
   // Seed editable fields once the item, photos, and listing have settled.
+  // Everything the item already knows is carried in (description, condition
+  // notes, grade-derived condition, target price) so the composer never asks
+  // the user to re-enter data — they review and adjust instead.
   useEffect(() => {
     if (initialised || !item) return;
     if (item.listing_id && !listing) return; // wait for the listing fetch
     setTitle(
       (listing?.listing_title ?? item.item_title ?? "").slice(0, TITLE_MAX),
     );
-    setDescription(listing?.listing_description ?? "");
-    setEbayCondition(listing?.ebay_condition ?? "");
-    setConditionDesc(listing?.ebay_condition_description ?? "");
+    setDescription(listing?.listing_description ?? item.item_description ?? "");
+    // Same fallback publish applies server-side: explicit listing value, else
+    // grade-derived mapping — surfaced here so it's visible and editable.
+    setEbayCondition(
+      listing?.ebay_condition ??
+        mapEbayCondition(item.grade_value, item.grade_label),
+    );
+    setConditionDesc(listing?.ebay_condition_description ?? item.notes ?? "");
+    // First POSITIVE price wins — a stale 0 on a draft listing row must not
+    // shadow the item's target price.
     const seedPrice =
-      listing?.listing_price ?? item.target_price ?? item.list_price ?? null;
-    setPrice(seedPrice != null && seedPrice > 0 ? String(seedPrice) : "");
+      [listing?.listing_price, item.target_price, item.list_price].find(
+        (p): p is number => p != null && p > 0,
+      ) ?? null;
+    setPrice(seedPrice != null ? String(seedPrice) : "");
     setPriceEstimated(listing?.price_is_estimated ?? false);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
     setBadgeEnabled(listing?.badge_enabled ?? false);
@@ -344,15 +387,27 @@ export function FlipdeskComposerPage() {
     }
   }
 
-  async function saveDraft() {
-    if (!item) return;
+  // Persists the draft. Returns true on success so the publish flow can
+  // save-then-open in one click. By default the user STAYS on the composer —
+  // the publish CTA lives here, so navigating away after save (the old
+  // behavior) forced a detour through the Drafts list to publish.
+  async function saveDraft(): Promise<boolean> {
+    if (!item) return false;
     if (!title.trim()) {
       toast.error("Title is required.");
-      return;
+      return false;
     }
     setSaving(true);
     try {
       const parsedPrice = Number.parseFloat(price);
+      // First POSITIVE price wins (mirrors the seed logic) — never persist a
+      // 0 that would later shadow the item's target price at publish.
+      const resolvedPrice =
+        [
+          Number.isFinite(parsedPrice) ? parsedPrice : null,
+          item.target_price,
+          item.list_price,
+        ].find((p): p is number => p != null && p > 0) ?? 0;
       // US-319: round-trip the listing-row override columns so publish picks
       // them up. The picker writes aspects to inventory_items on its own
       // save; we null item_specifics_override here so the picker's aspect
@@ -368,9 +423,7 @@ export function FlipdeskComposerPage() {
         inventory_item_id: item.id,
         platform: "ebay",
         listing_status: "draft",
-        listing_price: Number.isFinite(parsedPrice)
-          ? parsedPrice
-          : (item.target_price ?? item.list_price ?? 0),
+        listing_price: resolvedPrice,
         listing_title: title.trim(),
         listing_description: description.trim() || null,
         ebay_condition: ebayCondition || null,
@@ -413,16 +466,22 @@ export function FlipdeskComposerPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       toast.success("Draft saved.");
-      // Return to the item canvas — the next-action CTA there will offer
-      // "Mark listed" so the workflow continues in one place.
-      navigate(`/dashboard/flipdesk/items/${item.id}`);
+      return true;
     } catch (err) {
       toast.error(
         `Save failed: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return false;
     } finally {
       setSaving(false);
     }
+  }
+
+  // Publish reads the DATABASE, not the form — so save first, then open the
+  // dialog. One click instead of save → back out → Drafts list → Publish.
+  async function handlePublishClick() {
+    const ok = await saveDraft();
+    if (ok) setPublishOpen(true);
   }
 
   // US-623: condition-aware sell-through forecast at the price input. Called
@@ -583,6 +642,7 @@ export function FlipdeskComposerPage() {
               listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null
             }
             seedQuery={item.item_title ?? ""}
+            itemFields={itemAspectSource}
             onCategoryChange={setLivePickedCategoryId}
           />
 
@@ -970,7 +1030,7 @@ export function FlipdeskComposerPage() {
 
       <div className="flex justify-end gap-2">
         <Button variant="outline" onClick={() => navigate(-1)} disabled={saving}>
-          Cancel
+          Close
         </Button>
         <Button
           variant="outline"
@@ -985,16 +1045,16 @@ export function FlipdeskComposerPage() {
           Save draft
         </Button>
         <Button
-          onClick={() => setPublishOpen(true)}
+          onClick={() => void handlePublishClick()}
           disabled={!ebayConnection || saving}
           title={
             !ebayConnection
               ? "Connect eBay first on the Marketplaces page."
-              : undefined
+              : "Saves the draft, then publishes."
           }
         >
           <Rocket className="mr-2 h-4 w-4" />
-          Publish to eBay
+          Save &amp; publish to eBay
         </Button>
       </div>
 

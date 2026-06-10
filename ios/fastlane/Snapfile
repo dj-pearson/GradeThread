@@ -7,15 +7,17 @@
 # Requires the .xcodeproj to exist first (CI runs `xcodegen generate`;
 # locally run it manually).
 
-# Apple's required reference sizes. The 6.7" iPhone + 12.9"/13" iPad Pro
-# screenshots are mandatory; the 6.1" set gives App Review the mainline
-# device. Newer simulators (16 Pro Max / iPad Pro 13") map to the same
-# App Store display slots.
-devices([
-  "iPhone 15 Pro Max",   # 6.7" — 1290 x 2796
-  "iPhone 15",           # 6.1" — 1179 x 2556
-  "iPad Pro (12.9-inch) (6th generation)"  # 12.9" — 2048 x 2732
-])
+# Device → App Store slot mapping (portrait; iPad runs landscape in-test):
+#   iPhone 16 Pro Max      → 1320 x 2868 native (6.9" slot); the 6.5" slot
+#                            set (1284 x 2778) is derived from these by
+#                            Scripts/make-appstore-sizes.sh after capture.
+#   iPad Pro 13-inch (M4)  → 2064 x 2752 / 2752 x 2064 native (13" slot,
+#                            accepted as-is — no post-processing).
+#
+# Older simulators (iPhone 15*, iPad Pro 12.9") no longer ship with current
+# Xcode runtimes — don't reference them or fresh CI runners fail. Override
+# per-run without editing this file via SNAPSHOT_DEVICES="A,B".
+devices((ENV["SNAPSHOT_DEVICES"] || "iPhone 16 Pro Max,iPad Pro 13-inch (M4)").split(","))
 
 languages(["en-US"])
 
@@ -30,6 +32,10 @@ override_status_bar(true)
 # Stop on the first failure so a broken nav flow doesn't silently ship
 # half-captured screenshots.
 stop_after_first_error(true)
+
+# The sign-in flow does real network auth against api.gradethread.com;
+# parallel simulators make that flaky and can trip auth rate limits.
+concurrent_simulators(false)
 
 # Where deliver picks them up from.
 output_directory("./fastlane/screenshots")

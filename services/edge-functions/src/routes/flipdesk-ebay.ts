@@ -3107,9 +3107,19 @@ async function assemblePublishContext(
 
   // Price priority: explicit listing edits beat inventory defaults so a user
   // who changed the price in the composer or bulk-edit actually publishes that.
-  // (list_price isn't a real column on inventory_items — only an alias on the
-  // items_full view — so it's not in the fallback chain.)
-  const priceNumber = listing?.listing_price ?? item.target_price ?? null;
+  // A listing_price of 0 means "never priced" (bulk draft-create and old
+  // composer saves wrote 0 when the price box was empty) — it must FALL
+  // THROUGH to the item's target price instead of blocking publish on an item
+  // the user already priced. (list_price isn't a real column on
+  // inventory_items — only an alias on the items_full view — so it's not in
+  // the fallback chain.)
+  const priceNumber =
+    (listing?.listing_price != null && listing.listing_price > 0
+      ? listing.listing_price
+      : null) ??
+    (item.target_price != null && item.target_price > 0
+      ? item.target_price
+      : null);
   if (!priceNumber || priceNumber <= 0) {
     blockers.push("Set a target price.");
   }

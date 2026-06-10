@@ -108,17 +108,9 @@ extension SignInWithAppleCoordinator: ASAuthorizationControllerDelegate {
 
 extension SignInWithAppleCoordinator: ASAuthorizationControllerPresentationContextProviding {
     public func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        // Walk the connected scenes for the first key window. iOS 15+ no
-        // longer surfaces UIApplication.shared.keyWindow without warnings,
-        // so we ask the scene graph directly.
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap(\.windows)
-            .first(where: { $0.isKeyWindow }) {
-            return window
-        }
-        // Last resort — should not happen during foreground use.
-        return ASPresentationAnchor()
+        // Prefer the foreground-active scene's key window, falling back through
+        // real windows before a detached anchor (shared with the web-auth flows).
+        WebAuthPresentationAnchor.resolve()
     }
 }
 

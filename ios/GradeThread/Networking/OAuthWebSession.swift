@@ -114,8 +114,40 @@ enum OAuthWebSession {
             // app can't ride an existing login to drive a silent success.
             session.prefersEphemeralWebBrowserSession = prefersEphemeralWebBrowserSession
             strongSession = session
-            session.start()
+            // `start()` returns false when the session can't be presented — an
+            // invalid/detached presentation anchor, the app not being
+            // foregrounded, or another session already in flight. In that case
+            // the completion handler is NEVER called, so without this guard the
+            // continuation hangs forever, leaving the caller's `isConnecting`
+            // flag stuck `true` and the Connect button disabled with no error
+            // (the "tapping Connect eBay does nothing" report). Surface it.
+            if !session.start() {
+                strongSession = nil
+                cont.resume(throwing: SessionError.failed(
+                    "Couldn't open the sign-in window. Make sure GradeThread is in the foreground, then try again."
+                ))
+            }
         }
+    }
+}
+
+/// Resolves the window to present an `ASWebAuthenticationSession` over. Prefers
+/// the key window of the foreground-active scene; only when no real window can
+/// be found does it fall back to a fresh, detached `ASPresentationAnchor()` —
+/// which `start()` rejects, so we exhaust the real options first.
+@MainActor
+enum WebAuthPresentationAnchor {
+    static func resolve() -> ASPresentationAnchor {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let activeScene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        if let window = activeScene?.keyWindow ?? activeScene?.windows.first {
+            return window
+        }
+        if let anyWindow = scenes.flatMap(\.windows).first(where: \.isKeyWindow)
+            ?? scenes.flatMap(\.windows).first {
+            return anyWindow
+        }
+        return ASPresentationAnchor()
     }
 }
 
@@ -123,12 +155,6 @@ enum OAuthWebSession {
 @MainActor
 final class DefaultPresentationAnchorProvider: NSObject, ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        if let window = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .flatMap(\.windows)
-            .first(where: { $0.isKeyWindow }) {
-            return window
-        }
-        return ASPresentationAnchor()
+        WebAuthPresentationAnchor.resolve()
     }
 }

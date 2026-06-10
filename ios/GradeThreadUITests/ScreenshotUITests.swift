@@ -1,17 +1,22 @@
+import UIKit
 import XCTest
 
 /// Drives App Store screenshot capture for `fastlane snapshot` (US-197).
-/// Run via `cd ios && bundle exec fastlane screenshots`, which launches
-/// this across the device sizes in fastlane/Snapfile.
+/// Run via `cd ios && bundle exec fastlane screenshots`, or in CI via the
+/// ios-screenshots.yml workflow.
 ///
-/// The app gates everything behind sign-in. Capturing the in-app
-/// surfaces (inventory, item canvas, sales) needs a seeded UI-test
-/// session — wired behind the `-uiTestScreenshots` launch argument the
-/// Snapfile passes, which the app can branch on to load a demo dataset
-/// without hitting the network. Until that demo-seed path lands in the
-/// app, this test reliably captures the launch/login surface so the
-/// snapshot pipeline is exercised end-to-end in CI and the screenshot
-/// folders are populated.
+/// The app gates everything behind sign-in, so the in-app surfaces are
+/// captured by signing in with the seeded demo/review account against the
+/// real backend. Credentials arrive via the test runner's environment —
+/// export `TEST_RUNNER_UITEST_EMAIL` / `TEST_RUNNER_UITEST_PASSWORD` before
+/// invoking xcodebuild (the TEST_RUNNER_ prefix is stripped and forwarded
+/// to this process). Without credentials the test still passes and captures
+/// the welcome/login surface only, so the pipeline never hard-fails on a
+/// missing secret.
+///
+/// The build must also carry a REAL anon key (the Debug.xcconfig placeholder
+/// can't talk to api.gradethread.com) — the screenshots lane injects
+/// SUPABASE_ANON_KEY via xcargs when the env var is set.
 final class ScreenshotUITests: XCTestCase {
 
     override func setUpWithError() throws {
@@ -22,44 +27,185 @@ final class ScreenshotUITests: XCTestCase {
     func testCaptureScreenshots() throws {
         let app = XCUIApplication()
         setupSnapshot(app)
-        app.launchArguments += ["-uiTestScreenshots", "YES"]
+        // Suppress the first-run onboarding carousel: `-key value` launch
+        // arguments land in UserDefaults' argument domain, which overlays
+        // the .standard store OnboardingState reads.
+        app.launchArguments += ["-com.gradethread.app.onboarding.completed.v1", "YES"]
         app.launch()
 
-        // 01 — Launch / sign-in surface. Always reachable.
-        // Wait for the first window to settle so we don't snap a blank
-        // frame on slower simulators.
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
-        snapshot("01_Welcome")
 
-        // 02..n — In-app surfaces. Guarded so the test passes whether or
-        // not the demo-seed path is present; when it is, these capture
-        // the inventory grid, item canvas, and sales tabs. We probe for
-        // the tab bar (only present post-auth) and walk it if found.
-        let inventoryTab = app.tabBars.buttons["Inventory"]
-        if inventoryTab.waitForExistence(timeout: 5) {
-            inventoryTab.tap()
-            snapshot("02_Inventory")
+        // iPad renders the sidebar/three-column workspace in landscape —
+        // also the orientation Apple's 13" screenshot slot accepts natively.
+        let isPad = UIDevice.current.userInterfaceIdiom == .pad
+        if isPad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            // Give the split view a beat to settle into the new size class.
+            _ = app.wait(for: .runningForeground, timeout: 2)
+        }
 
-            // Open the first item's canvas if the grid has content.
-            let firstCell = app.collectionViews.cells.firstMatch
-            if firstCell.waitForExistence(timeout: 3) {
-                firstCell.tap()
-                snapshot("03_ItemCanvas")
-                if app.navigationBars.buttons.firstMatch.exists {
-                    app.navigationBars.buttons.firstMatch.tap()
+        let env = ProcessInfo.processInfo.environment
+        let email = env["UITEST_EMAIL"] ?? ""
+        let password = env["UITEST_PASSWORD"] ?? ""
+
+        guard !email.isEmpty, !password.isEmpty else {
+            // No credentials — capture the welcome/login surface so the
+            // pipeline is still exercised end to end, then stop.
+            snapshot("00_Welcome")
+            return
+        }
+
+        signInIfNeeded(app, email: email, password: password)
+
+        // Post-auth chrome. Generous timeout: first sign-in does a real
+        // network round-trip + initial sync. The "Home" text exists in both
+        // layouts (tab bar item on iPhone, nav title/sidebar row on iPad).
+        XCTAssertTrue(
+            app.staticTexts["Home"].firstMatch.waitForExistence(timeout: 45)
+                || app.tabBars.buttons["Home"].waitForExistence(timeout: 5),
+            "Signed-in UI never appeared — check demo credentials, anon key, and network."
+        )
+
+        // The app renders from a local SwiftData cache that is EMPTY on a
+        // fresh simulator until the SyncEngine pulls the account's data.
+        // The first CI run snapped "No items yet" on a seeded account purely
+        // because the screenshot beat the sync. Park on Inventory and wait
+        // for real rows before capturing anything.
+        tapDestination(app, "Inventory")
+        let firstCell = app.cells.firstMatch
+        if !firstCell.waitForExistence(timeout: 90) {
+            // Don't fail the run — capture whatever state exists — but make
+            // the cause obvious in the log.
+            print("[snapshot] Initial sync never surfaced inventory rows after 90s — screenshots will show empty states.")
+        }
+
+        // 01 — Home dashboard (sales snapshot + aging alerts).
+        tapDestination(app, "Home")
+        snapshot("01_Home")
+
+        // 02 — Inventory grid (now populated).
+        tapDestination(app, "Inventory")
+        snapshot("02_Inventory")
+
+        // 03 — Item canvas (first item), when the demo account has content.
+        if firstCell.waitForExistence(timeout: 5) {
+            firstCell.tap()
+            // Let photos/grade panels load before snapping.
+            _ = app.navigationBars.firstMatch.waitForExistence(timeout: 5)
+            snapshot("03_ItemCanvas")
+            let back = app.navigationBars.buttons.firstMatch
+            if back.exists { back.tap() }
+        }
+
+        // 04 — Money (sales + payouts). First visit triggers the push
+        // permission prompt; clear it before snapping.
+        tapDestination(app, "Money")
+        dismissSystemAlertIfPresent()
+        snapshot("04_Money")
+
+        // 05 — Marketplaces (eBay connection).
+        tapDestination(app, "Marketplaces")
+        snapshot("05_Marketplaces")
+    }
+
+    // MARK: - Helpers
+
+    /// Types the demo credentials into the login form when it's showing.
+    /// Skipped entirely when a cached session restores straight to the app.
+    @MainActor
+    private func signInIfNeeded(_ app: XCUIApplication, email: String, password: String) {
+        let emailField = app.textFields["Email"]
+        guard emailField.waitForExistence(timeout: 8) else { return }
+
+        snapshot("00_Welcome")
+
+        type(email, into: emailField, app: app)
+        type(password, into: app.secureTextFields["Password"], app: app)
+
+        // Dismiss the keyboard if it covers the button, then submit.
+        let signIn = app.buttons["Sign in"].firstMatch
+        if !signIn.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
+        signIn.tap()
+    }
+
+    /// Types into a field, retrying the tap if the keyboard never attached —
+    /// on iPad the first tap occasionally lands before the field can take
+    /// focus ("Neither element nor any descendant has keyboard focus").
+    @MainActor
+    private func type(_ text: String, into field: XCUIElement, app: XCUIApplication) {
+        for attempt in 0..<3 {
+            field.tap()
+            if app.keyboards.firstMatch.waitForExistence(timeout: 3) {
+                field.typeText(text)
+                return
+            }
+            print("[snapshot] keyboard not attached after tap (attempt \(attempt + 1)) — retrying")
+        }
+        XCTFail("Keyboard never attached to \(field) — cannot type credentials.")
+    }
+
+    /// Navigates to a top-level destination across both layouts: the iPhone
+    /// tab bar and the iPad NavigationSplitView sidebar. The sidebar can be
+    /// COLLAPSED (the first CI run failed exactly here: only the "Home" nav
+    /// title matched, no sidebar rows existed) — so when the row isn't on
+    /// screen, reveal the sidebar via its toggle and retry.
+    @MainActor
+    private func tapDestination(_ app: XCUIApplication, _ label: String) {
+        let tab = app.tabBars.buttons[label]
+        if tab.waitForExistence(timeout: 2) {
+            tab.tap()
+            return
+        }
+
+        for attempt in 0..<2 {
+            // Sidebar rows surface as buttons, cells, or plain static text
+            // depending on the SwiftUI/OS version — probe in that order.
+            let candidates = [
+                app.buttons[label].firstMatch,
+                app.cells.containing(.staticText, identifier: label).firstMatch,
+                app.staticTexts[label].firstMatch,
+            ]
+            for element in candidates where element.waitForExistence(timeout: 2) {
+                if element.isHittable {
+                    element.tap()
+                    return
                 }
             }
+            if attempt == 0 { revealSidebar(app) }
+        }
+        XCTFail("Could not navigate to \(label) — no tab bar item or sidebar row found.")
+    }
 
-            let salesTab = app.tabBars.buttons["Sales"]
-            if salesTab.exists {
-                salesTab.tap()
-                snapshot("04_Sales")
-            }
+    /// Opens the NavigationSplitView sidebar when it's collapsed (iPad).
+    @MainActor
+    private func revealSidebar(_ app: XCUIApplication) {
+        let toggle = app.buttons["ToggleSidebar"].firstMatch
+        if toggle.exists {
+            toggle.tap()
+        } else {
+            // SwiftUI's toggle is the leading nav-bar button when unlabeled.
+            let leading = app.navigationBars.firstMatch.buttons.firstMatch
+            if leading.exists { leading.tap() }
+        }
+        // Give the sidebar animation a beat before re-probing.
+        _ = app.wait(for: .runningForeground, timeout: 1)
+    }
 
-            let marketplacesTab = app.tabBars.buttons["Marketplaces"]
-            if marketplacesTab.exists {
-                marketplacesTab.tap()
-                snapshot("05_Marketplaces")
+    /// Taps through a system permission alert (push notifications) if one
+    /// is on screen. Springboard-scoped so it works regardless of which
+    /// interaction triggered the prompt.
+    @MainActor
+    private func dismissSystemAlertIfPresent() {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let alert = springboard.alerts.firstMatch
+        guard alert.waitForExistence(timeout: 4) else { return }
+        for label in ["Allow", "Don\u{2019}t Allow", "OK"] {
+            let button = alert.buttons[label]
+            if button.exists {
+                button.tap()
+                return
             }
         }
     }
