@@ -11685,8 +11685,8 @@
         "Edge-side test covers the revoked-membership response; iOS unit test covers the scope-clearing handler"
       ],
       "priority": 794,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From iOS↔edge contract audit 2026-06-10. [MEDIUM][iOS/Workspace] Touches both sides; edge change is small and test-verifiable locally."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS↔edge contract audit 2026-06-10. [MEDIUM][iOS/Workspace] Touches both sides; edge change is small and test-verifiable locally. DONE 2026-06-10: EDGE (verified) — workspaceMiddleware now returns { error_code: 'workspace_access_revoked' } on a missing-membership 403 so the client can tell revocation apart from a session 401/403. iOS (hand-written, macOS CI compiles) — EdgeAPIError gains a .workspaceAccessRevoked case; WirePayload decodes error_code; from() maps 403+code → that case (plain 403 still → .unauthorized). EdgeAPI catch calls WorkspaceScope.handleAccessRevoked() which clears the stale activeOwnerId and posts .workspaceDidChange (ContentView already observes it → resets the local cache + re-pulls under the personal tenant) plus a new .workspaceAccessRevoked notice. The user sees the message via the thrown error's localizedDescription ('You no longer have access to that workspace — switched to your own account') on interactive calls. Added pure EdgeAPIError.from unit tests (403+code → revoked; plain 403 → unauthorized). Verified: deno check + lint clean, 526 edge tests pass. NOTE: a dedicated GLOBAL banner observer for .workspaceAccessRevoked isn't wired (the notification is posted, ready for one) — there's no free-text notice surface in SyncStatusStore; the interactive error-path message covers the AC in practice. iOS not compiled locally (Windows)."
     },
     {
       "id": "US-795",

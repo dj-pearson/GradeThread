@@ -10,9 +10,15 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     case serverError(detail: String?)
     case decoding(String)
     case network(String)
+    /// US-794: the caller's membership in the active (X-Workspace-Owner)
+    /// workspace was revoked mid-session. Distinct from `.unauthorized` so the
+    /// client can clear the stale scope and recover under the personal tenant.
+    case workspaceAccessRevoked
 
     public var errorDescription: String? {
         switch self {
+        case .workspaceAccessRevoked:
+            return "You no longer have access to that workspace — switched to your own account."
         case .unauthorized:
             return "Your session expired. Sign in again to continue."
         case .rateLimited:
@@ -30,10 +36,13 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         }
     }
 
-    /// JSON error shape used by the edge service: `{ "error": "...", "detail": "..." }`.
+    /// JSON error shape used by the edge service: `{ "error": "...", "detail": "...",
+    /// "error_code": "..." }`. `error_code` is the machine-readable discriminator
+    /// (US-794) used to map specific 4xx responses to typed cases.
     struct WirePayload: Decodable {
         let error: String?
         let detail: String?
+        let error_code: String?
     }
 
     /// Maps `(statusCode, body)` to a typed error. The body is best-effort
@@ -42,6 +51,12 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     static func from(statusCode: Int, body: Data) -> EdgeAPIError {
         let payload = (try? JSONDecoder().decode(WirePayload.self, from: body))
         let detail = payload?.detail ?? payload?.error ?? bodyPreview(body)
+        // US-794: a revoked workspace membership comes back as a 403 with this
+        // code — surface it as its own case so the client can drop the stale
+        // scope rather than treating it as a session-expired 401/403.
+        if statusCode == 403, payload?.error_code == "workspace_access_revoked" {
+            return .workspaceAccessRevoked
+        }
         switch statusCode {
         case 401, 403: return .unauthorized
         case 404:      return .notFound(detail: detail)

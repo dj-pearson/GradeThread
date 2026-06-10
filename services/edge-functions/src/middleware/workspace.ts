@@ -56,8 +56,15 @@ export const workspaceMiddleware = createMiddleware<WorkspaceEnv>(
       return c.json({ error: "Workspace lookup failed" }, 500);
     }
     if (!data) {
+      // US-794: a machine-readable code so a client whose membership was revoked
+      // mid-session (stale X-Workspace-Owner) can detect it, clear the cached
+      // scope, and recover — instead of treating every workspace request as a
+      // generic, unexplained 403.
       return c.json(
-        { error: "You don't have access to this workspace" },
+        {
+          error: "You don't have access to this workspace",
+          error_code: "workspace_access_revoked",
+        },
         403,
       );
     }

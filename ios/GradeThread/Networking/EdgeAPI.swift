@@ -119,6 +119,14 @@ public actor EdgeAPI {
                     throw EdgeAPIError.decoding(error.localizedDescription)
                 }
             } catch let error as EdgeAPIError {
+                // US-794: membership in the active workspace was revoked — drop
+                // the stale X-Workspace-Owner scope so the retry/next request
+                // runs under the personal tenant, and notify the UI once. Then
+                // surface the typed error to the caller.
+                if case .workspaceAccessRevoked = error {
+                    WorkspaceScope.handleAccessRevoked()
+                    throw error
+                }
                 if Self.isTransient(error), attempt < Self.maxRetries {
                     try? await Task.sleep(nanoseconds: Backoff.delayNanos(attempt: attempt, base: 0.5, cap: 4))
                     attempt += 1

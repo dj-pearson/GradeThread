@@ -140,6 +140,22 @@ final class EdgeAPITests: XCTestCase {
         await XCTAssertThrowsItem(.serverError(detail: "boom"), with: makeAPI())
     }
 
+    // US-794: a 403 carrying the workspace_access_revoked code maps to its own
+    // case (so the client clears the stale scope), while a plain 403 still maps
+    // to .unauthorized. Tests the pure mapper directly — no network/side effects.
+    func test_403_withWorkspaceRevokedCode_mapsToWorkspaceAccessRevoked() {
+        let body = Data(
+            #"{"error":"You don't have access to this workspace","error_code":"workspace_access_revoked"}"#
+                .utf8
+        )
+        XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .workspaceAccessRevoked)
+    }
+
+    func test_403_withoutCode_stillMapsToUnauthorized() {
+        let body = Data(#"{"error":"forbidden"}"#.utf8)
+        XCTAssertEqual(EdgeAPIError.from(statusCode: 403, body: body), .unauthorized)
+    }
+
     func test_networkFailure_mapsToNetwork() async {
         MockURLProtocol.handler = { _ in
             throw URLError(.notConnectedToInternet)

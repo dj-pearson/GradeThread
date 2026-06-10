@@ -29,12 +29,30 @@ enum WorkspaceScope {
     static func tenantOwnerId(selfId: String) -> String { activeOwnerId ?? selfId }
 
     static func clear() { activeOwnerId = nil }
+
+    /// US-794: recover from a mid-session membership revocation. The edge
+    /// rejected an X-Workspace-Owner request with `workspace_access_revoked`
+    /// because the caller is no longer a member. Drop the stale scope (so
+    /// subsequent requests run under the personal tenant), trigger the same
+    /// cache reset/re-pull a workspace switch does, and post a one-time notice
+    /// for the UI. No-op if there was no active workspace selected. Nonisolated
+    /// so the data layer can call it off the main actor.
+    static func handleAccessRevoked() {
+        guard activeOwnerId != nil else { return }
+        clear()
+        NotificationCenter.default.post(name: .workspaceDidChange, object: nil)
+        NotificationCenter.default.post(name: .workspaceAccessRevoked, object: nil)
+    }
 }
 
 extension Notification.Name {
     /// Posted after the active workspace changes so the app can reset sync
     /// cursors + the local cache and re-pull the new tenant's data.
     static let workspaceDidChange = Notification.Name("com.gradethread.app.workspaceDidChange")
+    /// US-794: posted once when the active workspace membership was revoked
+    /// mid-session and the app auto-switched back to the personal workspace —
+    /// the UI shows a brief notice.
+    static let workspaceAccessRevoked = Notification.Name("com.gradethread.app.workspaceAccessRevoked")
 }
 
 /// A workspace the signed-in user can operate within: their own, plus any they
