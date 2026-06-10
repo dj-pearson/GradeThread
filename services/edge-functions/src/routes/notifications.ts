@@ -194,6 +194,18 @@ notificationRoutes.post("/feedback", async (c) => {
 
 // ─── iOS push registration (US-187) ──────────────────────────────────
 //
+// US-795: APNs environment must be exactly one of the two valid values. An
+// unknown value used to be silently coerced to "development" (so a prod device
+// token registered as dev would never receive pushes). Now: absent → default
+// "development" (back-compat); present-but-invalid → "invalid" (the route 400s).
+export function parsePushEnvironment(
+  raw: unknown,
+): "development" | "production" | "invalid" {
+  if (raw === undefined || raw === null) return "development";
+  if (raw === "development" || raw === "production") return raw;
+  return "invalid";
+}
+
 // POST /register
 // Body: { device_token: string, environment: "development"|"production",
 //         device_name?, os_version?, app_version? }
@@ -224,9 +236,14 @@ notificationRoutes.post("/register", async (c) => {
 
   const deviceToken =
     typeof body.device_token === "string" ? body.device_token.trim() : "";
-  const environment = body.environment === "production" ? "production" : "development";
   if (!deviceToken || deviceToken.length < 32) {
     return c.json({ error: "device_token is required" }, 400);
+  }
+  // US-795: reject an explicit, unrecognized environment instead of silently
+  // mis-registering the token under the wrong APNs environment.
+  const environment = parsePushEnvironment(body.environment);
+  if (environment === "invalid") {
+    return c.json({ error: "environment must be 'development' or 'production'" }, 400);
   }
 
   const { data: existing } = await supabaseAdmin
@@ -257,6 +274,41 @@ notificationRoutes.post("/register", async (c) => {
       .from("push_device_tokens")
       .insert(payload);
   }
+
+  return c.json({ ok: true });
+});
+
+// DELETE /register
+// Body: { device_token: string }
+//
+// US-795: removes the caller's device-token row. iOS calls this on sign-out (so
+// a shared device stops receiving the previous user's pushes) and before
+// registering a replacement token. Tenant-scoped to the authed user — a caller
+// can only ever delete their OWN token. Idempotent: deleting an unknown token is
+// a no-op success.
+notificationRoutes.delete("/register", async (c) => {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) {
+    return c.json({ error: "Sign-in required" }, 401);
+  }
+
+  let body: { device_token?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const deviceToken =
+    typeof body.device_token === "string" ? body.device_token.trim() : "";
+  if (!deviceToken) {
+    return c.json({ error: "device_token is required" }, 400);
+  }
+
+  await supabaseAdmin
+    .from("push_device_tokens")
+    .delete()
+    .eq("user_id", userId)
+    .eq("device_token", deviceToken);
 
   return c.json({ ok: true });
 });

@@ -90,7 +90,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 
 > **COOLIFY.md drift (fix at launch):** its table predates three jobs —
 > `growth-dispatch`, `reprice-rules`, `sync-reaper` are registered in `main.ts`
-> but missing from that table. This checklist is the authoritative set (16 tasks).
+> but missing from that table. This checklist is the authoritative set (17 tasks).
 
 | Task | Schedule | Endpoint (POST) | Run Now ✓ | By / Date |
 |---|---|---|---|---|
@@ -110,6 +110,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | ☐ | |
 | sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | ☐ | |
 | growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | ☐ | |
+| push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | ☐ | |
 
 ---
 

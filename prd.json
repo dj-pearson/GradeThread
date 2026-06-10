@@ -11700,8 +11700,8 @@
         "Edge tests cover register→unregister and the invalid-environment rejection"
       ],
       "priority": 795,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From contract + supporting-modules audits 2026-06-10. [MEDIUM][Notifications] push_device_tokens table is migration 000375."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From contract + supporting-modules audits 2026-06-10. [MEDIUM][Notifications] push_device_tokens table is migration 000375. [DONE 2026-06-10] notifications.ts: parsePushEnvironment rejects values outside development|production (POST /register 400s); NEW DELETE /api/notifications/register (token in body, tenant-scoped, idempotent) for sign-out/replace. push-token-prune.ts cron (job-secret + job-lock, injectable store) deletes is_active=false rows older than PUSH_TOKEN_PRUNE_DAYS (90d); registered /api/jobs/push-token-prune + COOLIFY.md + LAUNCH_CHECKLIST (17 tasks). ALREADY-DONE confirmed: APNs send marks Unregistered/BadDeviceToken/410 inactive (apns.ts); account deletion cascades push_device_tokens via auth.users ON DELETE CASCADE (00375 FK + delete_account RPC). 6 Deno tests (env valid/invalid/absent, POST+DELETE routes wired, prune count). Full edge suite 596 green."
     },
     {
       "id": "US-796",

@@ -36,6 +36,7 @@ import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
+import { handlePushTokenPruneCron } from "./lib/push-token-prune.ts";
 import { handleSyncReaperCron } from "./lib/sync-run-lock.ts";
 import { handleEmailRetryCron } from "./lib/email-retry.ts";
 import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
@@ -434,6 +435,10 @@ app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
 // enforces X-Internal-Job-Secret itself. Fails orphaned 'processing' grades and
 // reverses their charge so a crash/redeploy can't strand paid work.
 app.post("/api/jobs/stuck-submissions", (c) => handleStuckSubmissionsCron(c));
+// US-795 push device-token prune. OUTSIDE the JWT groups; the handler enforces
+// X-Internal-Job-Secret itself. Deletes long-inactive (signed-out / dead-token)
+// rows so the table doesn't grow unbounded and send fan-outs stay cheap.
+app.post("/api/jobs/push-token-prune", (c) => handlePushTokenPruneCron(c));
 // US-456 eBay sync-run reaper. OUTSIDE the JWT groups; the handler enforces
 // X-Internal-Job-Secret itself. Flips runs stuck in 'running' past the
 // threshold to 'failed' so the Reconciliation UI unblocks even when no new pull
