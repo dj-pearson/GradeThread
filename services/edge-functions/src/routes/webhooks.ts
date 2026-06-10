@@ -23,6 +23,8 @@ import { reconcileCustomerLink } from "../lib/stripe-customer.ts";
 import { shouldClearPendingDowngrade } from "../lib/pending-downgrade.ts";
 import { maybeQualifyReferral } from "../lib/referrals.ts";
 import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
+import { captureException } from "../lib/observability.ts";
+import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 
 // Fire-and-forget email helper — webhook MUST NOT fail if email fails.
 function safeSendEmail(promise: Promise<boolean>, label: string) {
@@ -349,6 +351,26 @@ async function handleSubscriptionChange(event: Stripe.Event) {
       subscription_id: sub.id,
       price_id: priceId,
     });
+    // US-776: keep the Sentry alert so ops fixes the price metadata...
+    captureException(
+      new Error(`Unmappable subscription price ${priceId} on sub ${sub.id} — demoting to Free`),
+      {
+        level: "error",
+        route: "webhook.unmappable_price",
+        userId: user.id,
+        tags: { subscription_id: sub.id, price_id: priceId },
+      },
+    );
+    // ...AND tell the user, since a paid→Free demotion is otherwise silent. Only
+    // when they WERE on a paid plan (no message if they were already Free).
+    if (user.flipdesk_plan && user.flipdesk_plan !== "free") {
+      void notifyPlanDowngrade({
+        userId: user.id,
+        email: user.email,
+        userName: userDisplayName(user.email, user.full_name),
+        fromPlan: user.flipdesk_plan.charAt(0).toUpperCase() + user.flipdesk_plan.slice(1),
+      });
+    }
   }
   const plan: FlipdeskPlan = resolvedPlan ?? "free";
   const interval = mapSubscriptionInterval(sub);

@@ -11415,8 +11415,8 @@
         "Tests: demotion writes notification + email enqueue; past-due banner renders from subscription_status fixture; recovered subscription clears the banner"
       ],
       "priority": 776,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Payments/UX] Fail-closed behavior is correct and stays — this adds the missing user communication on both downgrade paths."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Payments/UX] Fail-closed behavior is correct and stays — this adds the missing user communication on both downgrade paths. [DONE 2026-06-10] email.ts sendPlanDowngradedEmail (category=plan_downgraded → durable outbox retry). lib/plan-change-notify.ts notifyPlanDowngrade (injectable): in-app billing notification + durable email. webhooks.ts unmappable-price branch now fires notifyPlanDowngrade (only when was paid) + adds captureException (Sentry) alongside the existing captureServer. Frontend: PastDueBanner (persistent, app-wide, mounted in dashboard-layout) driven by subscription_status, Update-payment-method CTA → Stripe portal; clears on recovery. Tests: 3 Deno (notify + email enqueue; no-email path; best-effort) + 3 vitest (renders past_due, clears active, hidden while loading)."
     },
     {
       "id": "US-777",

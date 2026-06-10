@@ -570,6 +570,40 @@ export async function sendSubscriptionCanceledEmail(
   });
 }
 
+interface PlanDowngradedData {
+  userName: string;
+  // The paid plan the user was demoted FROM (e.g. "Pro").
+  fromPlan: string;
+}
+
+// US-776: a subscription change couldn't be mapped to a paid tier (missing
+// metadata/lookup_key), so the webhook fails closed to Free. The customer was
+// silently demoted — tell them, with a link to fix their billing. Durable
+// (category) so a transient SMTP failure is retried, not lost.
+export async function sendPlanDowngradedEmail(
+  to: string,
+  data: PlanDowngradedData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Your plan was changed to Free
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, we hit a problem applying your <strong>FlipDesk ${escapeHtml(data.fromPlan)}</strong> subscription, so your account is on <strong>Free</strong> for now and your paid plan benefits are paused.
+    </p>
+    <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
+      Your inventory, listings, past grade reports, and grade credits are all safe. Reviewing your billing details — re-subscribing or updating your card — restores your plan right away. If this looks wrong, just reply and we'll sort it out.
+    </p>
+    ${ctaButton("Review billing", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: "Your FlipDesk plan was changed to Free",
+    html: emailLayout(content),
+    category: "plan_downgraded", // durable retry on transient failure
+  });
+}
+
 interface SubscriptionPausedData {
   userName: string;
   plan: string;
