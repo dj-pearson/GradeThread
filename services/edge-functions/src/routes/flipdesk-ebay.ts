@@ -1481,49 +1481,72 @@ async function doListingsPull(
   // no order, etc.). Move those back to 'drafted' so they surface in the Drafts
   // tab where the seller can edit and relist them, and notify once per item.
   let endedToDraft = 0;
-  for (const itemId of endedItemIds) {
-    try {
-      // Defensive: never regress an item that has a completed sale on record,
-      // even if its status drifted (the 'listed'-only guard below already
-      // covers the common case).
-      const { data: sale } = await supabaseAdmin
+  if (endedItemIds.size > 0) {
+    const ids = [...endedItemIds];
+    // Batch the two skip-checks up front instead of per-item (avoids an N+1 of
+    // serial round-trips inside the loop):
+    //  1. completed sales — never regress an item that genuinely sold; and
+    //  2. currently-active eBay listings — guards a republish that raced this
+    //     sync. The offers snapshot at the top can be stale by the time we get
+    //     here (the orders/finances passes take seconds), so a user who relisted
+    //     mid-sync now has is_active=true; without this guard we'd yank their
+    //     fresh listing back to Drafts and fire a bogus "Listing ended" notice.
+    const [{ data: soldRows }, { data: activeRows }] = await Promise.all([
+      supabaseAdmin
         .from("sales")
-        .select("id")
-        .eq("inventory_item_id", itemId)
-        .eq("status", "completed")
-        .limit(1)
-        .maybeSingle();
-      if (sale) continue;
+        .select("inventory_item_id")
+        .in("inventory_item_id", ids)
+        .eq("status", "completed"),
+      supabaseAdmin
+        .from("listings")
+        .select("inventory_item_id")
+        .in("inventory_item_id", ids)
+        .eq("platform", "ebay")
+        .eq("is_active", true),
+    ]);
+    const skip = new Set<string>([
+      ...((soldRows ?? []) as Array<{ inventory_item_id: string }>).map(
+        (r) => r.inventory_item_id,
+      ),
+      ...((activeRows ?? []) as Array<{ inventory_item_id: string }>).map(
+        (r) => r.inventory_item_id,
+      ),
+    ]);
 
-      // Forward-safe: only regress an item that's still sitting in 'listed'.
-      // .select() returns the row only when the update actually applied, so the
-      // notification fires once on the real transition, not on every re-sync.
-      const { data: moved } = await supabaseAdmin
-        .from("inventory_items")
-        .update({ status: "drafted" })
-        .eq("id", itemId)
-        .eq("user_id", userId)
-        .eq("status", "listed")
-        .select("id, title");
-      const row = (moved ?? [])[0] as
-        | { id: string; title: string | null }
-        | undefined;
-      if (row) {
-        endedToDraft += 1;
-        void notifyUser(userId, {
-          type: "item_status_change",
-          title: "Listing ended",
-          message: `${row.title ?? "Your item"} ended on eBay without selling — it's back in Drafts to edit and relist.`,
-          link: `/dashboard/flipdesk/items/${itemId}`,
-        });
+    for (const itemId of ids) {
+      if (skip.has(itemId)) continue;
+      try {
+        // Forward-safe: only regress an item that's still sitting in 'listed'.
+        // .select() returns the row only when the update actually applied, so
+        // the notification fires once on the real transition, not on every
+        // re-sync (and not at all if a concurrent write already moved it).
+        const { data: moved } = await supabaseAdmin
+          .from("inventory_items")
+          .update({ status: "drafted" })
+          .eq("id", itemId)
+          .eq("user_id", userId)
+          .eq("status", "listed")
+          .select("id, title");
+        const row = (moved ?? [])[0] as
+          | { id: string; title: string | null }
+          | undefined;
+        if (row) {
+          endedToDraft += 1;
+          void notifyUser(userId, {
+            type: "item_status_change",
+            title: "Listing ended",
+            message: `${row.title ?? "Your item"} ended on eBay without selling — it's back in Drafts to edit and relist.`,
+            link: `/dashboard/flipdesk/items/${itemId}`,
+          });
+        }
+      } catch (err) {
+        errors.push(
+          `relist-reconcile ${itemId}: ${err instanceof Error ? err.message : String(err)}`.slice(
+            0,
+            160,
+          ),
+        );
       }
-    } catch (err) {
-      errors.push(
-        `relist-reconcile ${itemId}: ${err instanceof Error ? err.message : String(err)}`.slice(
-          0,
-          160,
-        ),
-      );
     }
   }
 
