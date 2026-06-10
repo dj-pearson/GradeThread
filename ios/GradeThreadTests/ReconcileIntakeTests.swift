@@ -22,6 +22,7 @@ final class ReconcileIntakeTests: XCTestCase {
         session: String? = nil
     ) -> ItemPhotoInsert {
         ItemPhotoInsert(
+            id: "11111111-1111-1111-1111-111111111111",
             inventory_item_id: "item-1",
             photo_type: "front",
             storage_path: "user-1/item-1/front_0.jpg",
@@ -35,6 +36,7 @@ final class ReconcileIntakeTests: XCTestCase {
 
     func test_itemPhotoInsert_alwaysEncodesBaseFields() throws {
         let json = try encodeToObject(base())
+        XCTAssertEqual(json["id"] as? String, "11111111-1111-1111-1111-111111111111")
         XCTAssertEqual(json["inventory_item_id"] as? String, "item-1")
         XCTAssertEqual(json["photo_type"] as? String, "front")
         XCTAssertEqual(json["storage_path"] as? String, "user-1/item-1/front_0.jpg")
