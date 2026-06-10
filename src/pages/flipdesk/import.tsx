@@ -383,7 +383,7 @@ export function FlipdeskImportPage() {
       const message = err instanceof Error ? err.message : String(err);
       // Log full error to console so it's visible in DevTools even if the
       // result panel is collapsed.
-      console.error("[FlipDesk import] pre-flight failed:", err);
+      if (import.meta.env.DEV) console.error("[FlipDesk import] pre-flight failed:", err);
       errors.push({ row: 0, message: `Pre-flight failed: ${message}` });
     }
 
@@ -412,7 +412,7 @@ export function FlipdeskImportPage() {
       );
       // Log each error to console for easy copy-paste.
       for (const e of errors) {
-        console.error(`[FlipDesk import] row ${e.row}: ${e.message}`);
+        if (import.meta.env.DEV) console.error(`[FlipDesk import] row ${e.row}: ${e.message}`);
       }
     }
   }

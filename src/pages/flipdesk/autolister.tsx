@@ -306,7 +306,7 @@ export function FlipdeskAutolisterPage() {
         try {
           workFile = await maybeTranscodeHeic(file);
         } catch (heicErr) {
-          console.warn("[autolister] HEIC transcode failed:", heicErr);
+          if (import.meta.env.DEV) console.warn("[autolister] HEIC transcode failed:", heicErr);
           heicFailed++;
           continue;
         }
@@ -332,7 +332,7 @@ export function FlipdeskAutolisterPage() {
           thumbType = thumb.blob.type || "image/webp";
           compressed = true;
         } catch (compErr) {
-          console.warn("[autolister] compress failed, using original:", compErr);
+          if (import.meta.env.DEV) console.warn("[autolister] compress failed, using original:", compErr);
         }
         // If compression failed AND the file is huge (>15MB), the AI generation
         // will likely choke too. Skip with a clear message.
@@ -745,7 +745,7 @@ export function FlipdeskAutolisterPage() {
       thumbBlob = thumb.blob;
       thumbType = thumb.blob.type || "image/webp";
     } catch (compErr) {
-      console.warn("[autolister] edit compress failed, using edited blob:", compErr);
+      if (import.meta.env.DEV) console.warn("[autolister] edit compress failed, using edited blob:", compErr);
     }
 
     const editId = crypto.randomUUID();

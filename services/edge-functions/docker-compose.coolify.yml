@@ -58,7 +58,11 @@ services:
       # These headers fix that: Traefik sets them on every response.
       - traefik.http.middlewares.edge-cors.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS
       - traefik.http.middlewares.edge-cors.headers.accesscontrolallowheaders=Content-Type,Authorization,X-API-Key,X-Internal-Job-Secret
-      - traefik.http.middlewares.edge-cors.headers.accesscontrolalloworiginlist=https://gradethread.com,https://www.gradethread.com,https://flipdesk.com,https://www.flipdesk.com,http://localhost:5173
+      # US-784: no localhost in the production CORS allow-list. Local dev talks to
+      # a locally-run edge service, never this prod origin; app-level CORS in
+      # main.ts already drops localhost in production, and this keeps the edge
+      # (Traefik) layer consistent with it.
+      - traefik.http.middlewares.edge-cors.headers.accesscontrolalloworiginlist=https://gradethread.com,https://www.gradethread.com,https://flipdesk.com,https://www.flipdesk.com
       - traefik.http.middlewares.edge-cors.headers.accesscontrolmaxage=86400
       - traefik.http.middlewares.edge-cors.headers.addvaryheader=true
       # Longer upstream timeouts — /listings/pull does N+M eBay API calls and

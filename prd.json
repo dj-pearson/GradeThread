@@ -11537,8 +11537,8 @@
         "No behavior changes to what users see beyond friendlier error text; existing tests still pass and new tests assert the generic envelope"
       ],
       "priority": 784,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Security/Polish] Bundles the small hygiene findings from edge + frontend + compose into one sweep-style story."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][Security/Polish] Bundles the small hygiene findings from edge + frontend + compose into one sweep-style story. [DONE 2026-06-10] api-v1.ts image-processing errors now return a STABLE generic envelope (code + \"Image processing failed...\" message) via imageProcessingError(); verdict.reason/storage internals go to redacted logs only. All api-v1 caught-error console.error calls routed through redactError(). docker-compose.coolify.yml: removed http://localhost:5173 from the Traefik CORS allow-list. Frontend: error-boundary.tsx console gated behind DEV (Sentry already captures); autolister/import/admin-user-detail breadcrumbs DEV-gated. (Dispute-notification + audit-log toast+Sentry are US-785.) 4 grep-guard Deno tests assert the generic envelope + no bare-error logs. Note: the central error PATH already redacts via http-errors.ts/observability (US-359); this hardens api-v1 + the named frontend files."
     },
     {
       "id": "US-785",

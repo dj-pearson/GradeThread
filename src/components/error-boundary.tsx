@@ -26,7 +26,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("ErrorBoundary caught:", error, errorInfo);
+    // US-784: Sentry is the production record; the console line is a dev-only
+    // breadcrumb (otherwise it just duplicates the captured error in prod logs).
+    if (import.meta.env.DEV) {
+      console.error("ErrorBoundary caught:", error, errorInfo);
+    }
     if (import.meta.env.VITE_SENTRY_DSN) {
       Sentry.captureException(error, {
         extra: { componentStack: errorInfo.componentStack },

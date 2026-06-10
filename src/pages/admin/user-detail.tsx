@@ -225,7 +225,7 @@ export function AdminUserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     } catch (err) {
       toast.error("Failed to change plan");
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     } finally {
       setActionLoading(false);
       setPlanDialogOpen(false);
@@ -263,7 +263,7 @@ export function AdminUserDetailPage() {
       setPendingRole(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to change role");
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     } finally {
       setActionLoading(false);
     }
@@ -305,7 +305,7 @@ export function AdminUserDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
     } catch (err) {
       toast.error(isSuspending ? "Failed to suspend user" : "Failed to unsuspend user");
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
     } finally {
       setActionLoading(false);
       setSuspendDialogOpen(false);

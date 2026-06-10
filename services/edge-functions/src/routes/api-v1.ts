@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
@@ -12,7 +13,8 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
-import { recordMetric } from "../lib/observability.ts";
+import { logEvent, recordMetric } from "../lib/observability.ts";
+import { redactError } from "../lib/log-redact.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -20,6 +22,26 @@ type ApiV1Env = {
     apiKeyScopes: ApiKeyScope[];
   };
 };
+
+// US-784: image-processing failures return a STABLE, generic envelope to the
+// (untrusted) API caller. The specific reason — a validation detail, a storage
+// error, the offending image type — goes ONLY to redacted server logs, never the
+// response, so internals can't leak through the public API.
+const IMAGE_ERROR_MESSAGE =
+  "Image processing failed. Each photo must be a valid JPEG, PNG, or WebP within the size and dimension limits.";
+
+function imageProcessingError(
+  c: Context<ApiV1Env>,
+  code: string,
+  logDetail: unknown,
+  status: 400 | 500 = 400,
+): Response {
+  logEvent("warn", "api_v1.image_error", { code, detail: redactError(logDetail) });
+  return c.json(
+    { data: null, error: { code, message: IMAGE_ERROR_MESSAGE, details: [] }, meta: null },
+    status,
+  );
+}
 
 // US-356: enforce the calling key's scopes. A key with no scopes set (legacy
 // row) is granted the full set by the auth middleware, so this stays
@@ -228,7 +250,7 @@ apiV1Routes.post("/grades", async (c) => {
     .single();
 
   if (submissionError || !submission) {
-    console.error("[API v1] Failed to create submission:", submissionError);
+    console.error("[API v1] Failed to create submission:", redactError(submissionError));
     return c.json({
       data: null,
       error: { message: "Failed to create submission", details: [] },
@@ -283,17 +305,13 @@ apiV1Routes.post("/grades", async (c) => {
         ) as ArrayBuffer;
       }
     } catch (err) {
-      console.error(`[API v1] Failed to process image ${i}:`, err);
+      console.error(`[API v1] Failed to process image ${i}:`, redactError(err));
       // Clean up
       for (const record of imageRecords) {
         await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
       }
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
-      return c.json({
-        data: null,
-        error: { message: `Failed to process image: ${img.image_type}`, details: [] },
-        meta: null,
-      }, 400);
+      return imageProcessingError(c, "image_unreadable", `decode failed for ${img.image_type}`, 400);
     }
 
     // US-276: magic-byte validation (not the declared content-type) + EXIF/GPS
@@ -308,14 +326,13 @@ apiV1Routes.post("/grades", async (c) => {
         await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
       }
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
-      return c.json({
-        data: null,
-        error: {
-          message: `Invalid image (${img.image_type}): ${verdict.reason}`,
-          details: [],
-        },
-        meta: null,
-      }, 400);
+      // verdict.reason (raw validation internals) → logs only, not the response.
+      return imageProcessingError(
+        c,
+        "image_invalid",
+        `${img.image_type}: ${verdict.reason}`,
+        400,
+      );
     }
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
@@ -328,16 +345,11 @@ apiV1Routes.post("/grades", async (c) => {
       });
 
     if (uploadError) {
-      console.error(`[API v1] Failed to upload image ${i}:`, uploadError);
       for (const record of imageRecords) {
         await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
       }
       await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
-      return c.json({
-        data: null,
-        error: { message: `Failed to upload image: ${img.image_type}`, details: [] },
-        meta: null,
-      }, 500);
+      return imageProcessingError(c, "image_upload_failed", uploadError, 500);
     }
 
     imageRecords.push({
@@ -354,16 +366,11 @@ apiV1Routes.post("/grades", async (c) => {
     .insert(imageRecords);
 
   if (imageInsertError) {
-    console.error("[API v1] Failed to insert image records:", imageInsertError);
     for (const record of imageRecords) {
       await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
     }
     await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
-    return c.json({
-      data: null,
-      error: { message: "Failed to save image records", details: [] },
-      meta: null,
-    }, 500);
+    return imageProcessingError(c, "image_save_failed", imageInsertError, 500);
   }
 
   // Charge through the shared payment precedence (included → credits). API
@@ -374,7 +381,7 @@ apiV1Routes.post("/grades", async (c) => {
   try {
     precedence = await runPaymentPrecedence(userId, submissionId, tier);
   } catch (err) {
-    console.error(`[API v1] Payment precedence failed for ${submissionId}:`, err);
+    console.error(`[API v1] Payment precedence failed for ${submissionId}:`, redactError(err));
     for (const record of imageRecords) {
       await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
     }
@@ -415,7 +422,7 @@ apiV1Routes.post("/grades", async (c) => {
   processSubmission(submissionId).catch((error) => {
     console.error(
       `[API v1] Pipeline error for submission ${submissionId}:`,
-      error instanceof Error ? error.message : String(error)
+      redactError(error),
     );
   });
 
@@ -518,7 +525,7 @@ apiV1Routes.get("/grades", async (c) => {
   const { data: submissions, count, error } = await query;
 
   if (error) {
-    console.error("[API v1] Failed to list grades:", error);
+    console.error("[API v1] Failed to list grades:", redactError(error));
     return c.json({
       data: null,
       error: { message: "Failed to list grades", details: [] },
@@ -642,7 +649,7 @@ apiV1Routes.patch("/webhook", async (c) => {
     .eq("user_id", userId);
 
   if (fetchError) {
-    console.error("[API v1] Failed to fetch API keys for webhook update:", fetchError);
+    console.error("[API v1] Failed to fetch API keys for webhook update:", redactError(fetchError));
     return c.json({
       data: null,
       error: { message: "Failed to update webhook URL", details: [] },
@@ -665,7 +672,7 @@ apiV1Routes.patch("/webhook", async (c) => {
     .eq("user_id", userId);
 
   if (updateError) {
-    console.error("[API v1] Failed to update webhook URL:", updateError);
+    console.error("[API v1] Failed to update webhook URL:", redactError(updateError));
     return c.json({
       data: null,
       error: { message: "Failed to update webhook URL", details: [] },
