@@ -176,8 +176,25 @@ flipdeskReconciliationRoutes.get("/queue", async (c) => {
   }
   const payouts = (payoutsRaw ?? []) as PayoutRow[];
 
+  // US-793: the queue is capped at QUEUE_LIMIT. Return the TOTAL unreconciled
+  // count + has_more so the client can show "showing first N of M" instead of
+  // silently truncating (the iOS app surfaces this).
+  const { count: totalUnreconciled } = await supabaseAdmin
+    .from("payout_imports")
+    .select("id", { head: true, count: "exact" })
+    .eq("user_id", userId)
+    .eq("reconciled", false);
+  const total = totalUnreconciled ?? payouts.length;
+  const hasMore = total > payouts.length;
+
   if (payouts.length === 0) {
-    return c.json({ queue: [] satisfies QueueEntry[] });
+    return c.json({
+      queue: [] satisfies QueueEntry[],
+      total,
+      showing: 0,
+      has_more: false,
+      limit: QUEUE_LIMIT,
+    });
   }
 
   // Find the date span of the queued payouts so the candidate-sale query
@@ -256,7 +273,13 @@ flipdeskReconciliationRoutes.get("/queue", async (c) => {
     };
   });
 
-  return c.json({ queue });
+  return c.json({
+    queue,
+    total,
+    showing: queue.length,
+    has_more: hasMore,
+    limit: QUEUE_LIMIT,
+  });
 });
 
 // Auto-match thresholds. Tight on purpose — anything that doesn't clearly

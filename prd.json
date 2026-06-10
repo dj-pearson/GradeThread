@@ -11671,8 +11671,8 @@
         "Document the contract (valid enum values per field) in a shared markdown next to the fixtures"
       ],
       "priority": 793,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From iOS↔edge contract audit 2026-06-10. [MEDIUM-HIGH][Contract] iOS test additions can't run on Windows (macOS CI covers them) — keep edge-side fixture tests runnable in deno test so verify:edge catches drift locally."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS↔edge contract audit 2026-06-10. [MEDIUM-HIGH][Contract] iOS test additions can't run on Windows (macOS CI covers them) — keep edge-side fixture tests runnable in deno test so verify:edge catches drift locally. [DONE 2026-06-10] EDGE (verified): reconciliation /queue now returns total+showing+has_more+limit (count: exact) — no silent truncation; iOS surfaces showing-first-N-of-M. ios/.../Tolerant.swift tolerant enum wrapper (.known/.unknown, value accessor, == convenience, Codable) + TolerantEnumTests (known/unknown-degrades/round-trip). CONTRACT.md documents valid enum values per field + response shapes + tolerant-decoding rule. Fixtures/reconciliation_queue.json + edge flipdesk-reconciliation-shape_test.ts (fixture + source-guard drift check). NOTE: broad migration of existing DTO enum fields to Tolerant<T> + success/failure struct-splitting + per-endpoint iOS fixture-decode tests are an incremental iOS-CI-verified follow-up (Swift cascade not buildable on the Windows dev box per CLAUDE.md); new DTOs adopt Tolerant<T> from the start. iOS no-ungated-print guard green."
     },
     {
       "id": "US-794",

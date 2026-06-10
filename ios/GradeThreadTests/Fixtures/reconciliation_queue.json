@@ -1,0 +1,30 @@
+{
+  "queue": [
+    {
+      "payout_import": {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "payout_date": "2026-06-01",
+        "amount": 42.5,
+        "raw_payload": { "source": "ebay" },
+        "created_at": "2026-06-01T00:00:00Z"
+      },
+      "candidates": [
+        {
+          "sale_id": "22222222-2222-2222-2222-222222222222",
+          "item_id": "33333333-3333-3333-3333-333333333333",
+          "item_title": "Vintage Denim Jacket",
+          "sale_date": "2026-05-30",
+          "sale_price": 45.0,
+          "payout_amount": 42.5,
+          "payout_reference": null,
+          "score": 0.92,
+          "reasons": ["amount within tolerance", "date within window"]
+        }
+      ]
+    }
+  ],
+  "total": 130,
+  "showing": 100,
+  "has_more": true,
+  "limit": 100
+}
