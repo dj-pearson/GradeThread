@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   ExternalLink,
   Rocket,
+  RotateCcw,
 } from "lucide-react";
 import {
   Dialog,
@@ -30,9 +31,21 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   itemId: string;
+  /** Relist mode: publishes a fresh listing for an item that was previously
+   *  listed (ended draft, or a still-live listing being replaced). */
+  relist?: boolean;
+  /** True when the item still has a LIVE eBay listing. Shows a warning that
+   *  relisting ends the current listing and creates a new one. */
+  listingActive?: boolean;
 }
 
-export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
+export function PublishToEbayDialog({
+  open,
+  onOpenChange,
+  itemId,
+  relist = false,
+  listingActive = false,
+}: Props) {
   const validate = useValidatePublish();
   const publish = usePublishToEbay();
   const setAspect = useSetItemAspect();
@@ -84,7 +97,7 @@ export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
 
   async function handlePublish() {
     try {
-      const res = await publish.mutateAsync({ itemId });
+      const res = await publish.mutateAsync({ itemId, relist });
       if (res.listing_url && res.listing_id) {
         setResult({
           listingUrl: res.listing_url,
@@ -106,17 +119,37 @@ export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Rocket className="h-5 w-5" />
-            Publish to eBay
+            {relist ? (
+              <RotateCcw className="h-5 w-5" />
+            ) : (
+              <Rocket className="h-5 w-5" />
+            )}
+            {relist ? "Relist on eBay" : "Publish to eBay"}
           </DialogTitle>
           <DialogDescription>
-            Live listing on{" "}
+            {relist ? "New" : "Live"} listing on{" "}
             <Badge variant="secondary" className="font-normal">
               eBay
             </Badge>{" "}
             using your connected seller account.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Still-active warning: relisting ends the current live listing and
+            creates a brand-new one (new item #, watchers/views reset). */}
+        {!result && listingActive && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+            <div className="text-amber-900 dark:text-amber-200">
+              <div className="font-medium">This item is still live on eBay.</div>
+              <div className="mt-1 text-xs text-amber-800/90 dark:text-amber-200/80">
+                Relisting will <strong>end the current listing</strong> and
+                publish a <strong>new one</strong> — the eBay item number resets
+                and watchers/views start over.
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Already published */}
         {result && (
@@ -262,16 +295,29 @@ export function PublishToEbayDialog({ open, onOpenChange, itemId }: Props) {
             <Button
               onClick={handlePublish}
               disabled={!canPublish || isPublishing}
+              className={
+                listingActive
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  : undefined
+              }
             >
               {isPublishing ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Publishing…
+                  {relist ? "Relisting…" : "Publishing…"}
                 </>
               ) : (
                 <>
-                  <Rocket className="mr-2 h-4 w-4" />
-                  Publish to eBay
+                  {relist ? (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  ) : (
+                    <Rocket className="mr-2 h-4 w-4" />
+                  )}
+                  {listingActive
+                    ? "End & relist"
+                    : relist
+                      ? "Relist on eBay"
+                      : "Publish to eBay"}
                 </>
               )}
             </Button>

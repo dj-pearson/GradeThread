@@ -35,12 +35,23 @@ public final class EbayPublishService {
 
     // MARK: - Push
 
-    func push(inventoryItemId: String) async -> PublishOutcome {
-        struct Body: Encodable { let inventory_item_id: String }
+    /// Publishes the item to eBay. Pass `relist: true` when the item was
+    /// previously listed (an ended draft, or a still-live listing being
+    /// replaced): if a live listing still exists the server ends it first so
+    /// this mints a brand-new listing instead of adopting the live one.
+    /// `relist` is only sent when true so a normal first publish is unchanged.
+    func push(inventoryItemId: String, relist: Bool = false) async -> PublishOutcome {
+        struct Body: Encodable {
+            let inventory_item_id: String
+            let relist: Bool?
+        }
         do {
             let response: PushResponse = try await postJSON(
                 path: "/api/flipdesk/ebay/listings/push",
-                body: Body(inventory_item_id: inventoryItemId)
+                body: Body(
+                    inventory_item_id: inventoryItemId,
+                    relist: relist ? true : nil
+                )
             )
             return .pushed(response)
         } catch let error as PublishHTTPError {

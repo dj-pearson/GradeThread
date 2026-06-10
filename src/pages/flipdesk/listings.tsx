@@ -1695,6 +1695,18 @@ export function FlipdeskListingsPage() {
                                     <Pencil className="h-3.5 w-3.5" />
                                   </Button>
                                 )}
+                                {ebayConnection && (
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setPublishItem(it)}
+                                    aria-label="Relist as a new listing"
+                                    title="End this listing and relist as a new one"
+                                  >
+                                    <RotateCcw className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -1983,6 +1995,14 @@ export function FlipdeskListingsPage() {
           open={!!publishItem}
           onOpenChange={(o) => !o && setPublishItem(null)}
           itemId={publishItem.id}
+          // Relist when the item was previously listed: an ended draft, or a
+          // still-live listing being replaced. A never-listed draft publishes
+          // normally.
+          relist={
+            publishItem.listing_status === "ended" ||
+            publishItem.listing_status === "active"
+          }
+          listingActive={publishItem.listing_status === "active"}
         />
       )}
 

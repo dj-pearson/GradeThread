@@ -68,6 +68,21 @@ struct ItemCanvasView: View {
         }
     }
 
+    /// The item's most recent ended eBay listing, if any — drives relist mode
+    /// (an ended listing republishes as a brand-new listing on the same SKU).
+    private var endedEbayListing: LocalListing? {
+        itemListings.first {
+            $0.platform == "ebay" && $0.listingStatus == "ended"
+        }
+    }
+
+    /// Whether publishing this item is a relist: it was previously listed (an
+    /// ended draft, or a still-live listing being replaced) rather than a
+    /// first-time publish.
+    private var isRelist: Bool {
+        activeEbayListing != nil || endedEbayListing != nil
+    }
+
     init(item: LocalInventoryItem) {
         self.item = item
         // Filter photos by item id at @Query time — far cheaper than
@@ -255,7 +270,14 @@ struct ItemCanvasView: View {
             }
         }
         .sheet(isPresented: $showingPublishDialog) {
-            PublishDialog(inventoryItemId: item.id, acquiredCost: item.acquiredPrice) { response in
+            PublishDialog(
+                inventoryItemId: item.id,
+                acquiredCost: item.acquiredPrice,
+                // Relist when the item was previously listed; warn when a live
+                // listing still exists (the push ends it and creates a new one).
+                relist: isRelist,
+                listingActive: activeEbayListing != nil
+            ) { response in
                 // Optimistic local apply so the row flips to listed
                 // before the next sync pull lands.
                 item.status = "listed"
@@ -348,6 +370,15 @@ struct ItemCanvasView: View {
                 } label: {
                     Label("Edit live listing", systemImage: "square.and.pencil")
                 }
+                // Relist as a NEW listing: ends the current live listing and
+                // publishes a fresh one (new eBay item #). The publish sheet
+                // warns before it does this.
+                Button {
+                    AppRouter.haptic()
+                    showingPublishDialog = true
+                } label: {
+                    Label("Relist as new listing", systemImage: "arrow.triangle.2.circlepath")
+                }
             }
         } header: {
             Text(itemListings.count == 1 ? "Listing" : "Listings")
@@ -385,6 +416,16 @@ struct ItemCanvasView: View {
         )
     }
 
+    /// Label for the canvas publish button, relist-aware so an ended draft
+    /// reads "Relist" instead of "Publish".
+    private var publishButtonLabel: String {
+        let dirty = state?.isDirty == true
+        if isRelist {
+            return dirty ? "Save & relist on eBay" : "Relist on eBay"
+        }
+        return dirty ? "Save & publish to eBay" : "Publish to eBay"
+    }
+
     private var publishSection: some View {
         Section {
             // US-683: surface readiness up front so the user fixes blockers
@@ -420,10 +461,8 @@ struct ItemCanvasView: View {
                 Task { await saveThenPublish() }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "tag.fill")
-                    Text(state?.isDirty == true
-                        ? "Save & publish to eBay"
-                        : "Publish to eBay")
+                    Image(systemName: isRelist ? "arrow.triangle.2.circlepath" : "tag.fill")
+                    Text(publishButtonLabel)
                         .font(.subheadline.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity)
