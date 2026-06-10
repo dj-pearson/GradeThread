@@ -39,7 +39,7 @@ enum Money {
     /// Drift-free sum of a money field projected from each element.
     static func sum<S: Sequence>(
         _ items: S,
-        _ amount: (S.Element) -> Double,
+        _ amount: (S.Element) -> Double
     ) -> Double {
         sumDecimal(items.map(amount)).currencyDouble
     }
