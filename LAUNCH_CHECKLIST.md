@@ -1,0 +1,164 @@
+# Production Launch Checklist (US-779)
+
+The single gate before flipping GradeThread to production. Work top-to-bottom;
+initial + date each row as you verify it. "Where" = which dashboard holds the
+setting. "Verify" = the concrete command/observable that proves it works.
+
+> Deploy order, rollback, and the Cloudflare/Coolify trigger mechanics live in
+> **`DEPLOY.md`**. This file is the *what's configured + is it working* gate.
+
+Legend: ☐ todo · ☑ done. Fill the **By / Date** column.
+
+---
+
+## 1. Environment variables
+
+The edge service validates these at boot (US-777): a missing **required** var
+**crashes** the container in production; a missing **feature group** only warns +
+shows on `/health/ready` → `features`. Authoritative lists with per-var comments:
+`services/edge-functions/.env.example` (edge) and `.env.example` (frontend).
+
+### 1a. Edge service — REQUIRED (Coolify → service → Environment Variables)
+
+| Var | Where | Verify | By / Date |
+|---|---|---|---|
+| `SUPABASE_URL` | Coolify | `/health/ready` → `checks.database: ok` | ☐ |
+| `SUPABASE_SERVICE_ROLE_KEY` | Coolify (Supabase → API) | same as above | ☐ |
+| `ANTHROPIC_API_KEY` (or `CLAUDE_API_KEY`) | Coolify | submit a test grade → it completes | ☐ |
+| `STRIPE_SECRET_KEY` | Coolify (Stripe → Developers) | `stripe trigger checkout.session.completed` lands in logs | ☐ |
+| `STRIPE_WEBHOOK_SECRET` | Coolify (Stripe → Webhooks → signing secret) | webhook returns 200, not 400 sig-fail | ☐ |
+| `FLIPDESK_INTERNAL_JOB_SECRET` | Coolify | a cron **Run Now** returns `{ok:true}` (§3) | ☐ |
+| `EDGE_ENCRYPTION_KEY` | Coolify (`openssl rand -base64 32`) | connect an eBay account → token stored | ☐ |
+| `CERT_SIGNING_KEY` | Coolify (`openssl rand -hex 32`) | `/api/content/public/certificates/<id>/verify` → `signed:true` | ☐ |
+| `API_KEY_PEPPER` | Coolify (set BEFORE issuing prod API keys) | issue + use an API key | ☐ |
+| `EDGE_ENV=production` | Coolify | `/health` shows prod posture; debug flags inert | ☐ |
+
+> Boot proof: after deploy, `curl -fsS https://functions.gradethread.com/health/ready | jq`
+> must be `status:"ready"`. If the container crash-loops, read the logs — a
+> missing required var prints `[BOOT] Missing required env: …`.
+
+### 1b. Edge service — FEATURE GROUPS (degrade, don't crash)
+
+Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
+
+| Group | Vars | Verify | By / Date |
+|---|---|---|---|
+| `stripe_prices` | `STRIPE_PRICE_FLIPDESK_*` (6) + `STRIPE_PRICE_GRADE_*` (3) | plan picker shows prices; checkout opens | ☐ |
+| `ebay` | `EBAY_APP_ID/CERT_ID/DEV_ID/VERIFICATION_TOKEN` | eBay OAuth connect succeeds | ☐ |
+| `smtp` | `SMTP_HOST/USER/PASS/ADMIN_EMAIL` | trigger a welcome email; it arrives | ☐ |
+| `google_photos` | `GOOGLE_PHOTOS_CLIENT_ID/SECRET` (or shared `GOOGLE_CLIENT_*`) | AutoLister Google Photos import opens picker | ☐ |
+| `observability` | `SENTRY_DSN` | `/health` → `errorTracking:"enabled"`; hit `/health/_throw` in staging → event in Sentry | ☐ |
+| (also) | `COMPANY_POSTAL_ADDRESS` | a sent email footer shows the real address (CAN-SPAM) | ☐ |
+| (also) | `MONITOR_ALERT_EMAIL`, `DISPUTE_ALERT_EMAIL` | grading-monitor / dispute alerts route correctly | ☐ |
+
+### 1c. Frontend (Cloudflare Pages → Settings → Environment variables → Production)
+
+| Var | Where | Verify | By / Date |
+|---|---|---|---|
+| `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Pages | login works on the live site | ☐ |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Pages (Stripe) | checkout button loads Stripe | ☐ |
+| `VITE_EDGE_API_URL` | Pages (`https://functions.gradethread.com`) | dashboard data loads (not 404) | ☐ |
+| `VITE_SENTRY_DSN` | Pages | a forced client error shows in Sentry | ☐ |
+| `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | Pages | events appear in PostHog | ☐ |
+| `VITE_GOOGLE_SITE_VERIFICATION` / `VITE_BING_SITE_VERIFICATION` | Pages (GSC / Bing) | view-source shows the verification `<meta>` | ☐ |
+| `VITE_RELEASE_SHA=$CF_PAGES_COMMIT_SHA` | Pages build command | footer build tag shows the SHA | ☐ |
+| `VITE_CF_IMAGE_RESIZING` | Pages — `true` ONLY after enabling zone Transformations | images load (no broken srcset) | ☐ |
+
+---
+
+## 2. Third-party dashboards
+
+| Item | Where | Verify | By / Date |
+|---|---|---|---|
+| Stripe products + prices created (subs, per-grade, credit packs) | Stripe Dashboard | `STRIPE_PRICE_*` ids match live prices | ☐ |
+| Stripe webhook endpoint → `https://functions.gradethread.com/api/webhooks/stripe` | Stripe → Webhooks | `stripe trigger` delivers 200 | ☐ |
+| Stripe **live mode** keys in use (not test) | Stripe | keys start `sk_live`/`pk_live` | ☐ |
+| Supabase Auth: Site URL + redirect allow-list = gradethread.com | Supabase → Auth → URL config | Google OAuth round-trips | ☐ |
+| Supabase Auth: Google OAuth creds | Supabase → Auth → Providers | "Continue with Google" works | ☐ |
+| eBay app keys promoted to production + Marketplace Account Deletion endpoint registered | eBay Developer | OAuth connect + a test notification verify | ☐ |
+| DNS: `functions.gradethread.com` → Coolify; `api.gradethread.com` → Supabase Kong; apex → Pages | Cloudflare DNS | `/health` on functions.*, REST on api.* | ☐ |
+| IndexNow key file hosted at `/<INDEXNOW_KEY>.txt` | `public/` + Pages | the file resolves 200 | ☐ |
+
+---
+
+## 3. Coolify scheduled tasks
+
+Add **each** task (Coolify → service → Scheduled Tasks), then click **Run Now**
+and confirm the expected output. All hit `http://localhost:8787` (in-container,
+skips Traefik/WAF) with header `X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET`.
+A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COOLIFY.md`.
+
+> **COOLIFY.md drift (fix at launch):** its table predates three jobs —
+> `growth-dispatch`, `reprice-rules`, `sync-reaper` are registered in `main.ts`
+> but missing from that table. This checklist is the authoritative set (16 tasks).
+
+| Task | Schedule | Endpoint (POST) | Run Now ✓ | By / Date |
+|---|---|---|---|---|
+| ebay-token-refresh | `0 * * * *` | `/api/flipdesk/ebay/oauth/refresh` | ☐ | |
+| ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | ☐ | |
+| ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | ☐ | |
+| gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | ☐ | |
+| trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | ☐ | |
+| autolister-reclaim | `*/5 * * * *` | `/api/jobs/autolister-reclaim` | ☐ | |
+| reprice-scan | `0 */6 * * *` | `/api/jobs/reprice-scan` | ☐ | |
+| reprice-rules | `0 */6 * * *` | `/api/jobs/reprice-rules` | ☐ | |
+| grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | ☐ | |
+| stuck-submissions | `*/10 * * * *` | `/api/jobs/stuck-submissions` | ☐ | |
+| email-retry | `*/5 * * * *` | `/api/jobs/email-retry` | ☐ | |
+| integrity-scan | `0 7 * * *` | `/api/jobs/integrity-scan` | ☐ | |
+| data-retention | `0 4 * * *` | `/api/jobs/data-retention` | ☐ | |
+| condition-index-refresh | `0 8 * * *` | `/api/jobs/condition-index-refresh` | ☐ | |
+| sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | ☐ | |
+| growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | ☐ | |
+
+---
+
+## 4. Database
+
+| Item | Verify | By / Date |
+|---|---|---|
+| All migrations applied (latest = `00126`) | `select version from supabase_migrations.schema_migrations order by version desc limit 1;` → `00126` | ☐ |
+| Edge boots clean against prod schema (US-778) | edge logs show `[schema-version] OK` (not `STALE`) | ☐ |
+| RLS enabled on every multi-tenant table | spot-check `select relrowsecurity from pg_class where relname='submissions';` → t | ☐ |
+
+---
+
+## 5. Backup + restore drill
+
+Do a REAL restore drill before launch (not just "backups are configured"). Full
+procedure: **`BACKUPS.md`**. Record the result here so the drill has a home.
+
+| Drill date | Backup restored (timestamp) | Restore target | Result (ok/fail) | By |
+|---|---|---|---|---|
+|  |  |  |  |  |
+|  |  |  |  |  |
+
+- ☐ Automated backups confirmed running (schedule + retention per `BACKUPS.md`)
+- ☐ A backup restored to a scratch DB and sanity-queried (row counts plausible)
+- ☐ Restore runtime recorded (informs RTO)
+
+---
+
+## 6. Post-deploy smoke (run after every prod deploy)
+
+| Step | Command / observable | Pass | By / Date |
+|---|---|---|---|
+| Edge liveness | `curl -fsS https://functions.gradethread.com/health` → `status:ok` + release SHA | ☐ | |
+| Edge readiness incl. features (US-777) | `…/health/ready \| jq` → `status:"ready"`, `features.*:"ok"` | ☐ | |
+| Stripe webhook | `stripe trigger checkout.session.completed` → 200 in edge logs, no dead-letter | ☐ | |
+| Certificate page | open a known `/cert/<id>` → grade + AI disclosure render; verify badge `verified` | ☐ | |
+| SEO endpoints | `curl -fsS https://gradethread.com/{robots.txt,sitemap.xml,llms.txt}` → 200 | ☐ | |
+| Critical path | run the Playwright e2e (or manual signup→submit→grade→cert) | ☐ | |
+| Admin review queue | `/admin/reviews` loads; low-confidence grades appear | ☐ | |
+
+---
+
+## 7. Final go/no-go
+
+- ☐ Sentry receiving events (edge + frontend); alert routing confirmed
+- ☐ Uptime monitor hitting `/health` (see `UPTIME_MONITORING.md`)
+- ☐ Incident runbook reachable by on-call (`INCIDENT_RESPONSE.md`)
+- ☐ Pre-launch banner / `VITE_LAUNCH_DATE` set to self-expire (US-785)
+- ☐ All blockers in `prd.json` (US-772…US-785) marked `passes:true`
+
+**Launch approved by:** ________________  **Date:** ____________
