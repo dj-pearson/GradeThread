@@ -50,10 +50,11 @@ enum FinancialExport {
     }
 
     static func summary(_ transactions: [Transaction]) -> Summary {
+        // US-790: exact-Decimal sums — a financial export must foot to the cent.
         Summary(
-            grossRevenue: transactions.reduce(0) { $0 + $1.salePrice },
-            platformFees: transactions.reduce(0) { $0 + $1.fees },
-            cogs: transactions.reduce(0) { $0 + $1.cogs }
+            grossRevenue: Money.sum(transactions) { $0.salePrice },
+            platformFees: Money.sum(transactions) { $0.fees },
+            cogs: Money.sum(transactions) { $0.cogs }
         )
     }
 

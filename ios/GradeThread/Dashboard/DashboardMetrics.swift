@@ -90,8 +90,8 @@ enum DashboardRollup {
         // MARKET value (matches eBay): the item's listed price, falling back to
         // its target price, then cost basis. NOT cost basis alone (which is
         // null for imported items and unrelated to eBay's reported value).
-        let inventoryValue = onHand.reduce(0.0) {
-            $0 + ($1.listingPrice ?? $1.targetPrice ?? $1.acquiredPrice ?? 0)
+        let inventoryValue = Money.sum(onHand) {
+            $0.listingPrice ?? $0.targetPrice ?? $0.acquiredPrice ?? 0
         }
         let listedCount = items.filter { $0.status == "listed" }.count
         let agingCount = items.filter {
@@ -110,9 +110,9 @@ enum DashboardRollup {
         let weekSales = sales.filter {
             $0.saleDate >= windowStart && SalePnL.isCompleted($0)
         }
-        let revenue = weekSales.reduce(0.0) { $0 + SalePnL.revenue($1) }
-        let netProfit = weekSales.reduce(0.0) {
-            $0 + SalePnL.net($1, costBasis: costById[$1.inventoryItemId] ?? 0)
+        let revenue = Money.sum(weekSales) { SalePnL.revenue($0) }
+        let netProfit = Money.sum(weekSales) {
+            SalePnL.net($0, costBasis: costById[$0.inventoryItemId] ?? 0)
         }
 
         return DashboardMetrics(

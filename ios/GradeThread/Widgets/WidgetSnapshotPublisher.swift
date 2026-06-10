@@ -85,12 +85,10 @@ enum WidgetSnapshotPublisher {
         let completedSales = sales.filter { SalePnL.isCompleted($0) }
         let startOfToday = calendar.startOfDay(for: now)
         let todaysSales = completedSales.filter { $0.saleDate >= startOfToday }
-        let soldTodayGross = todaysSales.reduce(0.0) { $0 + $1.salePrice }
+        let soldTodayGross = Money.sum(todaysSales) { $0.salePrice }
 
         let pending = completedSales.filter { ($0.payoutReference ?? "").isEmpty }
-        let pendingNet = pending.reduce(0.0) { acc, sale in
-            acc + max(0, sale.salePrice - sale.platformFees)
-        }
+        let pendingNet = Money.sum(pending) { max(0, $0.salePrice - $0.platformFees) }
 
         return WidgetSnapshot(
             generatedAt: now,

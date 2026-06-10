@@ -231,13 +231,13 @@ enum AnalyticsRollup {
         var costById: [String: Double] = [:]
         for item in items { costById[item.id] = item.acquiredPrice ?? 0 }
         let scoped = scopedCompletedSales(sales, since: since)
-        var gross = 0.0, fees = 0.0, cogs = 0.0
-        for sale in scoped {
-            gross += SalePnL.revenue(sale)
-            fees += SalePnL.fees(sale)
-            // COGS = item cost basis + per-sale selling costs (shipping/grading/
-            // other), so grossProfit = gross − fees − cogs equals SalePnL.net.
-            cogs += (costById[sale.inventoryItemId] ?? 0) + SalePnL.sellerCosts(sale)
+        // US-790: exact-Decimal period totals so the P&L foots to the cent.
+        let gross = Money.sum(scoped) { SalePnL.revenue($0) }
+        let fees = Money.sum(scoped) { SalePnL.fees($0) }
+        // COGS = item cost basis + per-sale selling costs (shipping/grading/
+        // other), so grossProfit = gross − fees − cogs equals SalePnL.net.
+        let cogs = Money.sum(scoped) {
+            (costById[$0.inventoryItemId] ?? 0) + SalePnL.sellerCosts($0)
         }
         return PeriodPnL(grossRevenue: gross, fees: fees, cogs: cogs, unitsSold: scoped.count)
     }

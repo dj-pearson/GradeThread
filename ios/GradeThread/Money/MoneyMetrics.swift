@@ -54,10 +54,11 @@ enum MoneyRollup {
         let monthSales = sales.filter {
             $0.saleDate >= startOfMonth && SalePnL.isCompleted($0)
         }
-        let revenue = monthSales.reduce(0.0) { $0 + SalePnL.revenue($1) }
-        let cost = monthSales.reduce(0.0) { $0 + (costById[$1.inventoryItemId] ?? 0) }
-        let grossProfit = monthSales.reduce(0.0) {
-            $0 + SalePnL.net($1, costBasis: costById[$1.inventoryItemId] ?? 0)
+        // US-790: exact-Decimal sums so monthly revenue/profit don't drift.
+        let revenue = Money.sum(monthSales) { SalePnL.revenue($0) }
+        let cost = Money.sum(monthSales) { costById[$0.inventoryItemId] ?? 0 }
+        let grossProfit = Money.sum(monthSales) {
+            SalePnL.net($0, costBasis: costById[$0.inventoryItemId] ?? 0)
         }
         let roi: Double? = cost > 0 ? grossProfit / cost : nil
 
@@ -67,9 +68,9 @@ enum MoneyRollup {
             guard let mStart = calendar.date(byAdding: .month, value: -offset, to: startOfMonth)
             else { continue }
             let mEnd = calendar.date(byAdding: .month, value: 1, to: mStart) ?? mStart
-            let rev = sales
-                .filter { $0.saleDate >= mStart && $0.saleDate < mEnd && SalePnL.isCompleted($0) }
-                .reduce(0.0) { $0 + SalePnL.revenue($1) }
+            let rev = Money.sum(
+                sales.filter { $0.saleDate >= mStart && $0.saleDate < mEnd && SalePnL.isCompleted($0) }
+            ) { SalePnL.revenue($0) }
             let comps = calendar.dateComponents([.year, .month], from: mStart)
             months.append(MonthlyRevenue(
                 id: "\(comps.year ?? 0)-\(comps.month ?? 0)",

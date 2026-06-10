@@ -26,9 +26,8 @@ final class ExpenseStore {
         guard let startOfMonth = calendar.date(
             from: calendar.dateComponents([.year, .month], from: now)
         ) else { return 0 }
-        return expenses
-            .filter { $0.date >= startOfMonth }
-            .reduce(0.0) { $0 + $1.amount }
+        // US-790: sum in exact Decimal so a month of expenses can't drift.
+        return Money.sum(expenses.filter { $0.date >= startOfMonth }) { $0.amount }
     }
 
     func refresh() async {

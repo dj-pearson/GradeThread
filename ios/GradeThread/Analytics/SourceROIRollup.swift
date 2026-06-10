@@ -132,7 +132,7 @@ enum SourceROIRollup {
         since: Date?
     ) -> SourcingBudgetStatus {
         let scoped = since.map { start in items.filter { $0.createdAt >= start } } ?? items
-        let spent = scoped.reduce(0.0) { $0 + ($1.acquiredPrice ?? 0) }
+        let spent = Money.sum(scoped) { $0.acquiredPrice ?? 0 }
         return SourcingBudgetStatus(budget: budget, spent: spent)
     }
 }

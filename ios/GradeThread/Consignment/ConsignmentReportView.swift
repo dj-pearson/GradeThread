@@ -14,7 +14,7 @@ struct ConsignmentReportView: View {
         ConsignmentReport.compute(items: items, sales: sales, consignors: store.consignors)
     }
 
-    private var totalOwed: Double { rows.reduce(0) { $0 + $1.consignorPayout } }
+    private var totalOwed: Double { Money.sum(rows) { $0.consignorPayout } }
 
     var body: some View {
         List {

@@ -106,7 +106,7 @@ struct DashboardView: View {
                 Text("Revenue · 14 days")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Text(currency.formatDisplay(trendPoints.reduce(0) { $0 + $1.revenue }))
+                Text(currency.formatDisplay(Money.sum(trendPoints) { $0.revenue }))
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(Color.brandNavy)
             }
