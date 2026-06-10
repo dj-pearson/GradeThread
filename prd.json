@@ -11383,8 +11383,8 @@
         "Failures upload the Playwright report artifact like existing specs"
       ],
       "priority": 774,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Testing] The single highest-leverage test in the repo. May require a small test-support endpoint or env flag in the edge service to stub grading — keep it gated so it cannot be enabled in production (assert isProduction() blocks it)."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Testing] The single highest-leverage test in the repo. May require a small test-support endpoint or env flag in the edge service to stub grading — keep it gated so it cannot be enabled in production (assert isProduction() blocks it). [DONE 2026-06-10] e2e/critical-path.spec.ts: seeded-login → new submission (4 fixture photos, e2e/fixtures/garment.png 1200x1200) → mocked included-grade → detail report → public cert. Seam = page.route network intercept (no AI spend), documented in spec header. Double-click Submit asserts exactly ONE /api/grade/submit (added synchronous submitLockRef guard in new-submission.tsx). Runs in existing CI e2e job (testDir ./e2e), report uploaded on failure, retries=2 in CI. 3x repeat-each green, full 12-test suite green."
     },
     {
       "id": "US-775",

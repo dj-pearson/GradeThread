@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -131,6 +131,12 @@ export function NewSubmissionPage() {
   const [garmentInfo, setGarmentInfo] = useState<GarmentInfo | null>(null);
   const [photos, setPhotos] = useState<PhotoUploadItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // US-774: synchronous double-submit guard. The button's disabled={isSubmitting}
+  // only takes effect on the NEXT render, so a fast double-click can fire
+  // handleSubmit twice before React commits the disabled state — which would
+  // create two submissions and risk a double charge. A ref flips synchronously
+  // inside the handler, so the second click is rejected immediately.
+  const submitLockRef = useRef(false);
   // US-207: chosen grade tier + the post-submit payment state when a one-time
   // charge is required (included grades + credits both exhausted).
   const [tier, setTier] = useState<GradeTierKey>("standard");
@@ -247,6 +253,9 @@ export function NewSubmissionPage() {
 
   async function handleSubmit() {
     if (!garmentInfo || photos.length === 0) return;
+    // US-774: reject a re-entrant double-click synchronously (see submitLockRef).
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setIsSubmitting(true);
 
     try {
@@ -353,6 +362,7 @@ export function NewSubmissionPage() {
       );
     } finally {
       setIsSubmitting(false);
+      submitLockRef.current = false;
     }
   }
 
