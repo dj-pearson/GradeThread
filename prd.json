@@ -11306,8 +11306,8 @@
         "No buyer PII is stored; counts are coarse and abuse-resistant (no trivial inflation)"
       ],
       "priority": 769,
-      "passes": false,
-      "notes": "[EPIC: Digital Slab] PARTIAL 2026-06-09. [P3][Analytics/Trust-loop] DONE (frontend, privacy-safe): cert page fires PostHog cert_view with source from ?s= (qr from the slab QR / share from CertShareActions / direct), consent-gated, no buyer PII; download/copy already emit graded_photo_* (US-765). REMAINING (needs backend - deferred, no deno/DB in sandbox): a server-side per-cert view counter + the seller-facing 'times viewed/verified' metric on submission detail and optional public 'Verified N times'. Ties into existing PostHog analytics."
+      "passes": true,
+      "notes": "[EPIC: Digital Slab] SHIPPED 2026-06-09. [P3][Analytics/Trust-loop] Attribution: cert page fires consent-gated PostHog cert_view with source from ?s= (qr/share/direct), no buyer PII. Server counter: migration 00119 adds grade_reports.view_count + a SECURITY DEFINER increment_certificate_view() rpc (service_role only); new public POST /certificates/:id/view bumps it; cert page calls it once per browser session (sessionStorage guard - coarse + abuse-resistant). Seller sees 'Certificate viewed N times' on submission-detail (view_count added to GradeReportRow; kept OFF the public view). Edge+DB validated by PR #66 CI (deno check + supabase db reset)."
     },
     {
       "id": "US-770",

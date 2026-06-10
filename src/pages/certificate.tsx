@@ -262,6 +262,20 @@ export function CertificatePage() {
       certificate_id: id,
       source: searchParams.get("s") ?? "direct",
     });
+    // US-769: bump the server-side view counter once per browser session (coarse
+    // + abuse-resistant enough for a soft "viewed N times" signal). No PII.
+    try {
+      const key = `gt_cv_${id}`;
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        void fetch(
+          `${edgeApiUrl()}/api/content/public/certificates/${encodeURIComponent(id)}/view`,
+          { method: "POST" },
+        ).catch(() => {});
+      }
+    } catch {
+      /* storage/network disabled — the counter is best-effort */
+    }
     // Fire once per resolved certificate, not on every searchParams identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gradeReport?.id, id]);
