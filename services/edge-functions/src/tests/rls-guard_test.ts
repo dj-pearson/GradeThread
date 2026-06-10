@@ -53,6 +53,11 @@ const SERVICE_ROLE_ONLY = new Set([
   // is written only by the grant_appstore_credits SECURITY DEFINER RPC via the
   // service-role edge client; the SPA never reads it.
   "appstore_processed_transactions",
+  // US-771 per-grade refund operator queue: RLS enabled, zero policies by design
+  // (migration 00123). Written by the grading pipeline and read/resolved ONLY by
+  // the admin billing endpoints via the service-role edge client; the SPA never
+  // touches it directly.
+  "pending_refunds",
 ]);
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

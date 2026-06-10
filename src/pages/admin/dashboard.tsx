@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PlatformAnalytics } from "@/components/admin/platform-analytics";
+import { PendingRefundsCard } from "@/components/admin/pending-refunds-card";
 import {
   LayoutDashboard,
   Users,
@@ -401,6 +402,9 @@ export function AdminDashboardPage() {
           </Card>
         </div>
       )}
+
+      {/* US-771: operator queue for per-grade refunds that need attention. */}
+      <PendingRefundsCard />
 
       {/* Charts */}
       {isLoading ? (

@@ -752,11 +752,18 @@ async function handlePerGradePurchase(
     { product: "per_grade", submission_id: submissionId, tier },
   );
 
+  // US-771: store the PaymentIntent so an ungraded paid submission can be
+  // auto-refunded later without hunting for the charge.
+  const paymentIntentId = typeof session.payment_intent === "string"
+    ? session.payment_intent
+    : session.payment_intent?.id ?? null;
+
   const { error: updateError } = await supabaseAdmin
     .from("submissions")
     .update({
       payment_status: "paid_stripe",
       paid_at: new Date().toISOString(),
+      stripe_payment_intent_id: paymentIntentId,
     })
     .eq("id", submissionId)
     .eq("user_id", userId)

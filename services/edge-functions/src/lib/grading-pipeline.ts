@@ -18,6 +18,7 @@ import { detectPhotoReuse } from "./photo-reuse.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { captureServer } from "./posthog.ts";
+import { autoRefundPaidStripe } from "./grade-refund.ts";
 import { pushReviewNeeded } from "./transactional-push.ts";
 
 // Base64-encode a byte array in 32KB chunks. The naive char-by-char
@@ -68,10 +69,10 @@ export async function reverseChargeForUngradedSubmission(
         refundError.message,
       );
     } else if (refundResult === "no_refund_paid_stripe") {
-      console.error(
-        `[Pipeline] Submission ${submissionId} was paid via Stripe but not graded (${reason}) — ` +
-          `issue a Stripe refund manually.`,
-      );
+      // US-771: a real-money per-grade payment with no grade — issue the Stripe
+      // refund automatically (idempotent), or queue it for an operator on
+      // failure. Never throws.
+      await autoRefundPaidStripe(submissionId, reason);
     } else {
       console.log(
         `[Pipeline] Refund for submission ${submissionId} (${reason}): ${refundResult}`,

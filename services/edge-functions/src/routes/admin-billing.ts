@@ -725,3 +725,125 @@ adminBillingRoutes.get("/users/:id/payments", async (c) => {
     return c.json({ error: "Failed to load payments" }, 500);
   }
 });
+
+// ── Pending grade refunds (US-771) ───────────────────────────────
+//
+// Per-grade Stripe refunds the pipeline couldn't issue automatically (a Stripe
+// error, or a paid_stripe submission with no stored PaymentIntent) land in
+// public.pending_refunds. These endpoints let an operator see + complete them.
+
+// GET /pending-refunds — open operator queue.
+adminBillingRoutes.get("/pending-refunds", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("pending_refunds")
+    .select(
+      "id, submission_id, user_id, payment_intent_id, reason, last_error, created_at",
+    )
+    .eq("status", "pending")
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  if (error) {
+    console.error("[admin-billing] pending_refunds query failed:", error);
+    return c.json({ error: "Failed to load pending refunds" }, 500);
+  }
+
+  const rows = (data ?? []) as Array<{ user_id: string }>;
+  // Attach the customer email for context.
+  const userIds = [...new Set(rows.map((r) => r.user_id))];
+  const emailById = new Map<string, string>();
+  if (userIds.length > 0) {
+    const { data: users } = await supabaseAdmin
+      .from("users")
+      .select("id, email")
+      .in("id", userIds);
+    for (const u of (users ?? []) as Array<{ id: string; email: string }>) {
+      emailById.set(u.id, u.email);
+    }
+  }
+
+  return c.json({
+    data: (data ?? []).map((r) => ({
+      ...(r as Record<string, unknown>),
+      user_email: emailById.get((r as { user_id: string }).user_id) ?? null,
+    })),
+  });
+});
+
+// POST /pending-refunds/:id/resolve — issue the Stripe refund (idempotent on
+// the submission) and close the row. Destructive → fresh MFA step-up required.
+adminBillingRoutes.post("/pending-refunds/:id/resolve", async (c) => {
+  const stepUp = requireStepUp(c);
+  if (stepUp) return stepUp;
+
+  const adminId = c.get("userId");
+  const id = c.req.param("id");
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("pending_refunds")
+    .select("id, submission_id, payment_intent_id, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr || !row) return c.json({ error: "Pending refund not found" }, 404);
+  const refund = row as {
+    submission_id: string;
+    payment_intent_id: string | null;
+    status: string;
+  };
+  if (refund.status !== "pending") {
+    return c.json({ error: `Already ${refund.status}` }, 409);
+  }
+  if (!refund.payment_intent_id) {
+    return c.json(
+      {
+        error:
+          "No PaymentIntent on this row — locate the charge in Stripe and refund it via Charges, then this row can be canceled.",
+      },
+      422,
+    );
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const created = await stripe.refunds.create(
+      {
+        payment_intent: refund.payment_intent_id,
+        reason: "requested_by_customer",
+        metadata: { submission_id: refund.submission_id, admin_id: adminId },
+      },
+      // Same key the pipeline would have used → Stripe won't double-refund.
+      { idempotencyKey: `grade-refund:${refund.submission_id}` },
+    );
+
+    await supabaseAdmin
+      .from("pending_refunds")
+      .update({
+        status: "resolved",
+        stripe_refund_id: created.id,
+        resolved_at: new Date().toISOString(),
+        resolved_by: adminId,
+      })
+      .eq("id", id);
+    await supabaseAdmin
+      .from("submissions")
+      .update({ stripe_refund_id: created.id })
+      .eq("id", refund.submission_id);
+
+    await auditLog(c, "admin.grade_refund_resolved", "pending_refund", id, {
+      submission_id: refund.submission_id,
+      refund_id: created.id,
+    });
+
+    return c.json({ ok: true, refund_id: created.id });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[admin-billing] resolve pending refund failed:", msg);
+    await supabaseAdmin
+      .from("pending_refunds")
+      .update({ last_error: msg.slice(0, 1000) })
+      .eq("id", id);
+    return c.json({ error: `Refund failed: ${msg}` }, 500);
+  }
+});
