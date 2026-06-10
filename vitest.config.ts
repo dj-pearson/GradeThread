@@ -14,6 +14,13 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
     globals: true,
+    // Dummy Supabase env so modules that construct the client at import time
+    // (src/lib/supabase.ts throws when these are unset) load under tests — CI
+    // doesn't provide real VITE_* vars, and tests never hit the network.
+    env: {
+      VITE_SUPABASE_URL: "http://localhost:54321",
+      VITE_SUPABASE_ANON_KEY: "test-anon-key",
+    },
     // US-519: coverage with a FAILING minimum threshold so coverage of the
     // tested modules can't silently erode. Thresholds sit a margin below the
     // current numbers (stmts 81.7 / branches 74.2 / funcs 80 / lines 83.7) so a
