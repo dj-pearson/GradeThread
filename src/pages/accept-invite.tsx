@@ -15,6 +15,10 @@ import type { WorkspaceInvitationPeek } from "@/types/database";
 // invite as soon as they confirm their email and land back on the app.
 const PENDING_INVITE_KEY = "gradethread:pendingInviteToken";
 
+// Bound the invitation lookup so a hung RPC can't spin the page forever — the
+// user gets a retry-able error instead (US-798, mirroring auth-callback).
+const PEEK_TIMEOUT_MS = 15_000;
+
 export function AcceptInvitePage() {
   const [params] = useSearchParams();
   const token = params.get("token") ?? "";
@@ -28,6 +32,8 @@ export function AcceptInvitePage() {
   const [peekLoading, setPeekLoading] = useState(true);
   const [peekError, setPeekError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
+  // Bumped by "Try again" to re-run the lookup effect.
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!token) {
@@ -37,13 +43,33 @@ export function AcceptInvitePage() {
     }
     // Stash so we can resume after signup.
     sessionStorage.setItem(PENDING_INVITE_KEY, token);
+
+    let settled = false;
+    setPeekLoading(true);
+    setPeekError(null);
+    setPeek(null);
+
+    // The Supabase RPC has no client-side timeout, so a stalled request would
+    // leave the page spinning indefinitely. Race it against a bounded timer.
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setPeekError(
+        "This is taking longer than expected. Check your connection and try again.",
+      );
+      setPeekLoading(false);
+    }, PEEK_TIMEOUT_MS);
+
     (
       supabase.rpc as unknown as (
         fn: string,
         args: Record<string, unknown>,
       ) => Promise<{ data: WorkspaceInvitationPeek[] | null; error: Error | null }>
-    )("peek_workspace_invitation", { invitation_token: token }).then(
-      ({ data, error }) => {
+    )("peek_workspace_invitation", { invitation_token: token })
+      .then(({ data, error }) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
         if (error) {
           setPeekError(error.message);
         } else if (!data || data.length === 0) {
@@ -52,9 +78,22 @@ export function AcceptInvitePage() {
           setPeek(data[0] ?? null);
         }
         setPeekLoading(false);
-      },
-    );
-  }, [token]);
+      })
+      .catch((err: unknown) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        setPeekError(
+          err instanceof Error ? err.message : "Couldn't load this invitation.",
+        );
+        setPeekLoading(false);
+      });
+
+    return () => {
+      settled = true;
+      window.clearTimeout(timer);
+    };
+  }, [token, retryKey]);
 
   async function handleAccept() {
     if (!token || !user) return;
@@ -104,7 +143,10 @@ export function AcceptInvitePage() {
             <CardTitle className="mt-2">Invitation unavailable</CardTitle>
             <CardDescription>{peekError ?? "We couldn't find this invitation."}</CardDescription>
           </CardHeader>
-          <CardContent className="text-center">
+          <CardContent className="flex flex-col items-center gap-2 text-center">
+            {token && (
+              <Button onClick={() => setRetryKey((k) => k + 1)}>Try again</Button>
+            )}
             <Button variant="outline" asChild>
               <Link to="/">Go home</Link>
             </Button>

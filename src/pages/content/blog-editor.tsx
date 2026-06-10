@@ -142,6 +142,9 @@ function Editor({
   const [body, setBody] = useState(initial.body_html);
   const [editor, setEditor] = useState<TiptapEditorInstance | null>(null);
   const lastSavedRef = useRef<string>(initial.body_html);
+  // Pending body-autosave timer, so an explicit Save can cancel it and stay the
+  // single in-flight write (US-798).
+  const bodyTimerRef = useRef<number | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   // US-254: A/B title candidates returned by the last generation. Shown as
   // selectable options until the user picks one (which becomes post.title).
@@ -158,7 +161,7 @@ function Editor({
   // Debounced autosave of body HTML. Other fields save on Save click.
   useEffect(() => {
     if (body === lastSavedRef.current) return;
-    const t = setTimeout(async () => {
+    const t = window.setTimeout(async () => {
       setSaving(true);
       try {
         await update.mutateAsync({ body_html: body });
@@ -167,7 +170,8 @@ function Editor({
         setSaving(false);
       }
     }, 1500);
-    return () => clearTimeout(t);
+    bodyTimerRef.current = t;
+    return () => window.clearTimeout(t);
   }, [body, update]);
 
   // Parse the "Question | Answer" textarea into structured FAQ pairs.
@@ -184,7 +188,15 @@ function Editor({
       .filter((f): f is { q: string; a: string } => f !== null);
 
   const saveMeta = async () => {
+    // Cancel any pending body autosave so this explicit Save is the single
+    // in-flight write, and fold the latest body into it so nothing is lost
+    // (US-798).
+    if (bodyTimerRef.current !== undefined) {
+      window.clearTimeout(bodyTimerRef.current);
+      bodyTimerRef.current = undefined;
+    }
     await update.mutateAsync({
+      body_html: body,
       title,
       slug: slug || undefined,
       excerpt: excerpt || null,
@@ -209,6 +221,7 @@ function Editor({
         .filter(Boolean),
       faqs: parseFaqs(faqsText),
     });
+    lastSavedRef.current = body;
     toast.success("Saved.");
   };
 

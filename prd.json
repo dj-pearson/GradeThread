@@ -11714,8 +11714,8 @@
         "A test covers the gated and ungated render paths"
       ],
       "priority": 796,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From web + supporting-modules audits 2026-06-10 (two agents independently flagged it). [MEDIUM][Web/Billing]"
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From web + supporting-modules audits 2026-06-10 (two agents independently flagged it). [MEDIUM][Web/Billing] DONE 2026-06-10: api-keys.tsx now gates on the effective FlipDesk plan from usePlanUsage()/billing summary via FLIPDESK_PLANS[plan].gateFlags.apiAccess (the same source the backend enforces — business-only), replacing the legacy profile.plan check; added a loading guard so the gate doesn't flash; corrected the upgrade copy to 'Business plan'. New api-keys-gate.test.tsx (business ungated; free/pro gated; loading shows neither). Verified: tsc + eslint clean, 4 tests pass."
     },
     {
       "id": "US-797",
@@ -11728,8 +11728,8 @@
         "A test simulates webhook-lands-after-unmount and asserts the UI converges"
       ],
       "priority": 797,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From web frontend audit 2026-06-10. [MEDIUM][Web/Billing] Complements US-776 (downgrade notifications); this is the upgrade-visibility half."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From web frontend audit 2026-06-10. [MEDIUM][Web/Billing] Complements US-776 (downgrade notifications); this is the upgrade-visibility half. DONE 2026-06-10: post-checkout reconciliation now survives navigation. New lib/checkout-pending.ts (sessionStorage marker + pure nextReconcileAction decision) + hooks/use-checkout-reconciler.ts mounted in dashboard-layout: while a marker is set it re-invalidates billing_summary AND force-refreshes the auth profile (drives the header plan badge) every 2.5s until the plan/credits change or a 60s window elapses (then prompts a refresh); also (re)starts on window focus. billing.tsx + useFlipdeskSubscribe set the marker; useBillingSummary now sets explicit refetchOnWindowFocus/refetchOnReconnect. Exported refreshAuthProfile from use-auth. New checkout-pending.test.ts (13 cases incl. webhook-lands convergence + timeout). Verified: tsc + eslint clean, full web suite 316 tests pass."
     },
     {
       "id": "US-798",
@@ -11744,8 +11744,8 @@
         "reset-password waits for the auth event up to ~10s (or until PASSWORD_RECOVERY fires) before declaring the link expired"
       ],
       "priority": 798,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From web frontend audit 2026-06-10. [LOW-MEDIUM][Web/Polish] Six independent small fixes; partial completion should note the remainder, not block."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From web frontend audit 2026-06-10. [LOW-MEDIUM][Web/Polish] Six independent small fixes; partial completion should note the remainder, not block. DONE 2026-06-10: accept-invite peek now races a 15s timeout + has a .catch and a 'Try again' retry; blog-editor + social-editor cancel the pending body-autosave debounce on explicit Save and fold the body into that single write; team.tsx copyInviteLink wrapped in try/catch with a manual-copy fallback; verified-seller clears stale profile/listings state on fetch error; reset-password waits 10s (was 4s) before declaring the link expired. NOTE: the announcements save-button disable-when-empty was ALREADY in place (announcements.tsx:197) — stale audit item, no change made. Verified: tsc + eslint clean, full web suite 316 tests pass."
     },
     {
       "id": "US-799",

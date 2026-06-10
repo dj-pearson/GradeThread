@@ -23,11 +23,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAuth } from "@/hooks/use-auth";
 import { Key, Plus, Copy, Trash2, Check, Loader2, AlertTriangle, Crown, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import type { UserPlan } from "@/types/database";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { FLIPDESK_PLANS } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 interface ApiKeyItem {
@@ -64,7 +64,6 @@ function formatDateTime(dateStr: string): string {
 }
 
 export function ApiKeysPage() {
-  const { profile } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
@@ -76,8 +75,13 @@ export function ApiKeysPage() {
   const [newlyCreatedKey, setNewlyCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const userPlan = (profile?.plan ?? "free") as UserPlan;
-  const hasApiAccess = userPlan === "professional" || userPlan === "enterprise";
+  // Gate on the effective FlipDesk plan from the billing summary — the SAME
+  // source of truth the backend enforces (plan-gate apiAccess, business-only).
+  // The old `profile.plan` check used the legacy user_plan enum, which no longer
+  // tracks the live FlipDesk plan, so paid resellers were mis-gated and a
+  // downgrade wasn't reflected until refresh (US-796).
+  const { plan, isLoading: planLoading } = usePlanUsage();
+  const hasApiAccess = FLIPDESK_PLANS[plan]?.gateFlags.apiAccess ?? false;
 
   const { data: keys, isLoading } = useQuery<ApiKeyItem[]>({
     queryKey: ["api-keys"],
@@ -176,7 +180,17 @@ export function ApiKeysPage() {
     setCreateOpen(open);
   }
 
-  // Plan gate: show upgrade prompt for Free/Starter
+  // Wait for the billing summary before deciding access, so we never flash the
+  // upgrade gate at a user who actually has API access (US-796).
+  if (planLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  // Plan gate: API access is a Business-plan feature.
   if (!hasApiAccess) {
     return (
       <div className="space-y-6">
@@ -190,10 +204,10 @@ export function ApiKeysPage() {
             <div className="rounded-full bg-amber-100 p-4">
               <Crown className="h-8 w-8 text-amber-600" />
             </div>
-            <h3 className="mt-4 text-lg font-semibold">API Access Requires an Upgrade</h3>
+            <h3 className="mt-4 text-lg font-semibold">API Access Requires the Business Plan</h3>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              API keys are available on Professional and Enterprise plans. Upgrade your plan to
-              access the GradeThread API for programmatic grading.
+              API keys are available on the Business plan. Upgrade to access the GradeThread API
+              for programmatic grading.
             </p>
             <Button
               className="mt-6"

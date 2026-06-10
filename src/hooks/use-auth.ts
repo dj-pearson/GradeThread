@@ -123,6 +123,17 @@ async function loadProfileAndWorkspaces(
   }
 }
 
+// Force-reload the signed-in user's profile + workspaces from a stable module
+// reference (no React closure). Used by the post-checkout reconciler (US-797)
+// so the header plan badge — which reads profile.flipdesk_plan — updates without
+// a page reload once the Stripe webhook flips the plan. No-op when signed out.
+export async function refreshAuthProfile(): Promise<void> {
+  const userId = useAuthStore.getState().user?.id;
+  if (userId) {
+    await loadProfileAndWorkspaces(userId, { force: true });
+  }
+}
+
 // Runs exactly once for the app lifetime. The subscription is intentionally
 // never torn down — auth state should track the whole session, and the
 // previous per-component subscribe/unsubscribe churn was the bug.
@@ -166,10 +177,7 @@ export function useAuth() {
   }, []);
 
   async function refreshProfile() {
-    const userId = useAuthStore.getState().user?.id;
-    if (userId) {
-      await loadProfileAndWorkspaces(userId, { force: true });
-    }
+    await refreshAuthProfile();
   }
 
   return {

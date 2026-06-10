@@ -9,6 +9,11 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 
+// How long to wait for a recovery session (getSession or PASSWORD_RECOVERY)
+// before declaring the reset link expired. Generous so a slow network doesn't
+// misreport a valid link as expired (US-798).
+const RECOVERY_SESSION_TIMEOUT_MS = 10_000;
+
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const hasToken = searchParams.has("token") || searchParams.has("code");
@@ -111,11 +116,12 @@ function UpdatePasswordForm() {
         setPhase("ready");
       }
     });
-    // If no recovery session has materialized shortly after mount, the link is
-    // bad or expired — stop showing the form.
+    // If no recovery session has materialized within this window, the link is
+    // bad or expired — stop showing the form. 10s (not 4s) so a slow network or
+    // a delayed PASSWORD_RECOVERY event isn't misreported as expired (US-798).
     const timer = window.setTimeout(() => {
       setPhase((p) => (p === "checking" ? "expired" : p));
-    }, 4000);
+    }, RECOVERY_SESSION_TIMEOUT_MS);
     return () => {
       active = false;
       sub.subscription.unsubscribe();

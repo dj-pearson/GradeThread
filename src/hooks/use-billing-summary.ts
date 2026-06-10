@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
+import { markCheckoutPending } from "@/lib/checkout-pending";
 import type {
   FlipdeskPlanKey,
   CreditPackSize,
@@ -85,6 +86,13 @@ export function useBillingSummary() {
     queryKey: ["billing_summary", user?.id],
     enabled: !!user,
     staleTime: 30_000,
+    // US-797: reconcile whenever the user returns to the tab or reconnects, so a
+    // subscription/credit change that landed while they were away (e.g. a Stripe
+    // webhook after a checkout redirect) surfaces without a manual refresh.
+    // Explicit (not just the TanStack default) so a future global
+    // refetchOnWindowFocus:false wouldn't silently regress billing.
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     queryFn: async (): Promise<BillingSummary> => {
       const res = await edgeFetch("/api/payments/billing-summary");
       const json = await res.json().catch(() => ({}));
@@ -128,11 +136,14 @@ export function useFlipdeskSubscribe() {
       }
       // Existing subscription was modified in place (upgrade / interval swap).
       // The customer.subscription.updated webhook persists the new plan a beat
-      // later, so poll the summary instead of reading it once.
+      // later. Set the durable checkout marker so the layout-level reconciler
+      // (US-797) keeps refreshing until it lands, surviving navigation; also
+      // kick an immediate poll for fast on-page feedback.
       if (data.updated) {
         toast.success(
           data.unchanged ? "You're already on that plan." : "Plan updated.",
         );
+        if (!data.unchanged) markCheckoutPending("subscription");
         pollBillingSummary(qc);
       }
     },

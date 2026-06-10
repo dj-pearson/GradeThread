@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { track } from "@/lib/analytics";
+import { markCheckoutPending } from "@/lib/checkout-pending";
 import { FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import {
@@ -109,6 +110,11 @@ export function BillingPage() {
         ? "Payment received — adding your credits…"
         : "Payment received — updating your subscription…",
     );
+    // Durable marker so the layout-level reconciler (US-797) keeps refreshing
+    // the summary + header plan badge until the webhook lands, even if the user
+    // navigates off this page; also kick an immediate poll for fast feedback
+    // while they stay here.
+    markCheckoutPending(product === "credit_pack" ? "credit_pack" : "subscription");
     const cancelPoll = pollBillingSummary(qc);
 
     const next = new URLSearchParams(searchParams);

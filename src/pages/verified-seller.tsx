@@ -157,13 +157,22 @@ export function VerifiedSellerPage() {
           { headers: { Accept: "application/json" } },
         );
         if (!res.ok) {
-          if (!cancelled) setError("Profile not found");
+          // Clear any previously-rendered profile so a failed reload (e.g. the
+          // handle changed / profile was disabled) can't show stale listings
+          // alongside the error (US-798).
+          if (!cancelled) {
+            setData(null);
+            setError("Profile not found");
+          }
           return;
         }
         const json = (await res.json()) as SellerProfile;
         if (!cancelled) setData(json);
       } catch {
-        if (!cancelled) setError("Couldn't load this profile");
+        if (!cancelled) {
+          setData(null);
+          setError("Couldn't load this profile");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

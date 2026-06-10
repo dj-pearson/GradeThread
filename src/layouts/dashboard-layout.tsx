@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/dashboard/sidebar";
 import { Header } from "@/components/dashboard/header";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
+import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
 import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
@@ -14,6 +15,9 @@ import { AnnouncementBanner } from "@/components/announcements/announcement-bann
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
   useRealtimeSubmissions();
+  // Keep the billing summary + header plan badge reconciling after a Stripe
+  // checkout, even if the user navigates off the billing page (US-797).
+  useCheckoutReconciler();
 
   return (
     <div className="flex h-screen overflow-hidden">

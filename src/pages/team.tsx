@@ -175,10 +175,16 @@ export function TeamPage() {
     queryClient.invalidateQueries({ queryKey: ["workspace-invitations", workspaceOwnerId] });
   }
 
-  function copyInviteLink(token: string) {
+  async function copyInviteLink(token: string) {
     const url = `${window.location.origin}/accept-invite?token=${token}`;
-    navigator.clipboard.writeText(url);
-    toast.success("Invite link copied");
+    // clipboard.writeText throws in denied-permission / insecure-origin contexts
+    // — guard it so the page doesn't crash on an unhandled rejection (US-798).
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Invite link copied");
+    } catch {
+      toast.error("Couldn't copy — copy the link manually from the address bar.");
+    }
   }
 
   async function resendInvitation(id: string) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
@@ -93,11 +93,14 @@ function SocialEditorInner({
   const [ctaUrl, setCtaUrl] = useState(initial.cta_url ?? "");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // Pending body-autosave timer, so an explicit Save can cancel it and stay the
+  // single in-flight write (US-798).
+  const bodyTimerRef = useRef<number | undefined>(undefined);
 
   // Debounced autosave of body fields. Hashtags/cta save on Save click.
   useEffect(() => {
     if (!dirty) return;
-    const t = setTimeout(async () => {
+    const t = window.setTimeout(async () => {
       setSaving(true);
       try {
         await update.mutateAsync({
@@ -109,11 +112,20 @@ function SocialEditorInner({
         setSaving(false);
       }
     }, 1500);
-    return () => clearTimeout(t);
+    bodyTimerRef.current = t;
+    return () => window.clearTimeout(t);
   }, [longBody, shortBody, dirty, update]);
 
   const saveMeta = async () => {
+    // Cancel any pending body autosave so this explicit Save is the single
+    // in-flight write, and fold the latest body fields into it (US-798).
+    if (bodyTimerRef.current !== undefined) {
+      window.clearTimeout(bodyTimerRef.current);
+      bodyTimerRef.current = undefined;
+    }
     await update.mutateAsync({
+      long_body: longBody,
+      short_body: shortBody,
       product_focus: productFocus,
       hashtags: hashtags
         .split(",")
@@ -121,6 +133,7 @@ function SocialEditorInner({
         .filter(Boolean),
       cta_url: ctaUrl || null,
     });
+    setDirty(false);
     toast.success("Saved.");
   };
 
