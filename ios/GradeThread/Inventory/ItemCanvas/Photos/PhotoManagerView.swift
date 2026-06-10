@@ -10,12 +10,19 @@ struct PhotoManagerView: View {
     let item: LocalInventoryItem
     /// Photos in current sort order, passed in from the canvas `@Query`.
     let photos: [LocalItemPhoto]
+    /// The item's live eBay listing, when one exists. Drives the "Sync photo
+    /// order to eBay" action — eBay won't let you reorder photos on an
+    /// inventory-based listing from its own site, so we push the new order
+    /// through the revise endpoint.
+    var liveListing: LocalListing? = nil
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
 
     @State private var working: [LocalItemPhoto] = []
     @State private var isSaving = false
+    @State private var isSyncing = false
+    @State private var syncSucceeded = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -32,6 +39,16 @@ struct PhotoManagerView: View {
                                     } label: {
                                         Label("Set as cover", systemImage: "star")
                                     }
+                                }
+                                Button {
+                                    rotate(photo, clockwise: true)
+                                } label: {
+                                    Label("Rotate right", systemImage: "rotate.right")
+                                }
+                                Button {
+                                    rotate(photo, clockwise: false)
+                                } label: {
+                                    Label("Rotate left", systemImage: "rotate.left")
                                 }
                                 Menu {
                                     ForEach(FlipdeskPhotoType.all, id: \.self) { type in
@@ -55,6 +72,29 @@ struct PhotoManagerView: View {
                     .onDelete(perform: deleteAt)
                 } footer: {
                     Text("The top photo is the cover — it's the thumbnail in your inventory and the main image on eBay.")
+                }
+
+                if let listing = liveListing {
+                    Section {
+                        Button {
+                            AppRouter.haptic()
+                            syncToEbay(listing)
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isSyncing {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                }
+                                Text("Sync photo order to eBay")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
+                        .disabled(isSyncing || isSaving)
+                    } footer: {
+                        Text("This listing is live on eBay. eBay won't let you reorder or edit its photos on its own site, so push the new order from here.")
+                    }
                 }
             }
             .navigationTitle("Photos")
@@ -82,6 +122,11 @@ struct PhotoManagerView: View {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(errorMessage ?? "")
+            }
+            .alert("Photos synced to eBay", isPresented: $syncSucceeded) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("The new photo order is now live on your eBay listing.")
             }
         }
         .onAppear {
@@ -135,6 +180,56 @@ struct PhotoManagerView: View {
                 // LocalItemPhoto is @Model (observable) — the row label
                 // refreshes on mutation without touching `working`.
                 try await PhotoEditService().retag(photo, to: serverType, context: modelContext)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    /// Persists the current order (so the freshest sequence is on the server),
+    /// then pushes the photo set to the live eBay listing via the revise
+    /// endpoint. Keeps every image self-hosted, which avoids eBay's "mixture of
+    /// Self Hosted and EPS pictures" error you hit when editing on eBay's site.
+    private func syncToEbay(_ listing: LocalListing) {
+        let snapshot = working
+        Task {
+            isSyncing = true
+            defer { isSyncing = false }
+            do {
+                try await PhotoEditService().persistOrder(snapshot, item: item, context: modelContext)
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+            let outcome = await EbayPublishService().revise(
+                listingId: listing.id,
+                syncPhotos: true
+            )
+            switch outcome {
+            case .revised:
+                HapticFeedback.success()
+                syncSucceeded = true
+            case .noOfferId:
+                errorMessage = "This listing has no eBay offer yet. Publish it first, then sync."
+            case .failed(let message):
+                HapticFeedback.error()
+                errorMessage = message
+            }
+        }
+    }
+
+    /// Rotates a photo 90° in place. The bytes are re-uploaded to the same
+    /// storage path; when the item has a live listing, "Sync photo order to
+    /// eBay" then pushes the rotated image to the listing.
+    private func rotate(_ photo: LocalItemPhoto, clockwise: Bool) {
+        AppRouter.haptic()
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+            do {
+                try await PhotoRotateService().rotate(
+                    photo, clockwise: clockwise, context: modelContext
+                )
             } catch {
                 errorMessage = error.localizedDescription
             }

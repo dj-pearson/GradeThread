@@ -280,9 +280,18 @@ public final class PhotoUploadService {
 
     // MARK: - DB insert
 
+    /// Deterministic `item_photos.id` for a task — derived from the task's own
+    /// UUID so the direct insert and the pending-mutation replay write the SAME
+    /// row. Lowercased to match Postgres `uuid` text form (the storage-folder
+    /// RLS comparison relies on the same convention).
+    static func photoId(for task: PhotoUploadTask) -> String {
+        task.id.uuidString.lowercased()
+    }
+
     private func insertPhotoRow(for task: PhotoUploadTask, sortOrder: Int) async {
         let publicURL = storagePublicURL(for: task.storagePath)
         let row = ItemPhotoInsert(
+            id: Self.photoId(for: task),
             inventory_item_id: task.inventoryItemId,
             photo_type: task.slot.serverPhotoType,
             storage_path: task.storagePath,
@@ -293,17 +302,18 @@ public final class PhotoUploadService {
             reconcile_session_id: task.reconcileSessionId
         )
         do {
+            // Upsert (not insert) keyed on the primary key: if a previous
+            // attempt's response was lost after the server committed, this
+            // updates that same row instead of creating a duplicate.
             try await supabaseClient
                 .from("item_photos")
-                .insert(row)
+                .upsert(row)
                 .execute()
             store.updatePhase(task.id, to: .uploaded(publicURL: publicURL))
         } catch {
-            // Storage upload succeeded but the DB insert failed. Surface
-            // it as a failure so the user can retry — the retry path will
-            // re-attempt the (idempotent) storage upload and re-insert.
-            // TODO(US-180): consider a separate PendingMutation kind for
-            // the row insert so we don't re-upload bytes on retry.
+            // Storage upload succeeded but the DB write failed. Surface it as a
+            // failure so the user can retry — the retry path re-attempts the
+            // (idempotent) storage upload and upserts the SAME id.
             store.updatePhase(
                 task.id,
                 to: .failed(error: "Saved photo, couldn't link it: \(error.localizedDescription)")
@@ -347,8 +357,10 @@ public final class PhotoUploadService {
             let slot: String
             let storage_path: String
             let local_file_url: String
-            // Client-generated row id so the SyncEngine replay UPSERTs the
-            // item_photos row (US-640) — a retry can't double-insert.
+            // Deterministic row id (the task's own id) so the SyncEngine replay
+            // UPSERTs the SAME row the direct insert targeted — a retry after a
+            // lost response can't create a second row with a fresh id (the
+            // duplicate-photo bug).
             let photo_id: String
             // US-289: carry capture-time + reconcile session so an offline
             // retry doesn't drop them from the item_photos row.
@@ -361,7 +373,7 @@ public final class PhotoUploadService {
             slot: task.slot.rawValue,
             storage_path: task.storagePath,
             local_file_url: task.localFileURL.path,
-            photo_id: UUID().uuidString,
+            photo_id: Self.photoId(for: task),
             captured_at: task.capturedAt.map { Self.iso8601.string(from: $0) },
             reconcile_session_id: task.reconcileSessionId
         )

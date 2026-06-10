@@ -1656,10 +1656,15 @@ flipdeskEbayRoutes.post("/listings/:id/price", async (c) => {
   return c.json({ ok: true, listing_id: listingId, price });
 });
 
-// Revises a live listing — title / description / price. Photos and aspects
-// flow through implicitly via the inventory_item PUT (which is sourced from
+// Revises a live listing — title / description / price / photo order. Photos
+// and aspects flow through the inventory_item PUT (which is sourced from
 // current local state), so editing a photo via the photo manager and then
-// hitting revise will sync the new image set to eBay.
+// hitting revise with `photos: true` syncs the new image set + order to eBay.
+//
+// IMPORTANT (US-310/eBay): listings created through the Sell Inventory API
+// CANNOT be edited on eBay's own site ("Inventory-based listing management is
+// not currently supported by this tool"). This endpoint is the supported way
+// to push edits back — including a photo reorder with no other change.
 flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   if (!isEbayConfigured()) {
     return c.json({ error: "eBay is not configured on this server." }, 503);
@@ -1671,6 +1676,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     title?: unknown;
     description?: unknown;
     listing_price?: unknown;
+    photos?: unknown;
   };
   try {
     body = await c.req.json();
@@ -1690,10 +1696,16 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   const hasTitle = nextTitle !== undefined;
   const hasDesc = nextDesc !== undefined;
   const hasPrice = nextPrice !== undefined;
+  // `photos: true` forces the inventory_item re-PUT so the current photo set
+  // and sort order reach eBay even when no text field changed.
+  const syncPhotos = body.photos === true;
 
-  if (!hasTitle && !hasDesc && !hasPrice) {
+  if (!hasTitle && !hasDesc && !hasPrice && !syncPhotos) {
     return c.json(
-      { error: "Provide at least one of: title, description, listing_price" },
+      {
+        error:
+          "Provide at least one of: title, description, listing_price, photos",
+      },
       400
     );
   }
@@ -1728,15 +1740,16 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
   if (hasTitle) localUpdates.listing_title = nextTitle;
   if (hasDesc) localUpdates.listing_description = nextDesc;
   if (hasPrice) localUpdates.listing_price = nextPrice;
-  await supabaseAdmin
-    .from("listings")
-    .update(localUpdates)
-    .eq("id", listingId);
+  // A photos-only revise has nothing to write locally — skip the no-op update
+  // (an empty PATCH would error on PostgREST).
+  if (Object.keys(localUpdates).length > 0) {
+    await supabaseAdmin.from("listings").update(localUpdates).eq("id", listingId);
+  }
 
-  // Re-PUT the inventory_item when product fields changed (title / desc).
-  // We send full state — photos, aspects, brand — so any drift from the
-  // photo manager / category picker also syncs here.
-  if (hasTitle || hasDesc) {
+  // Re-PUT the inventory_item when product fields changed (title / desc) OR a
+  // photo sync was requested. We send full state — photos, aspects, brand — so
+  // any drift from the photo manager / category picker also syncs here.
+  if (hasTitle || hasDesc || syncPhotos) {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
@@ -1786,10 +1799,20 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       })
     );
 
-    const finalTitle = hasTitle ? (nextTitle as string) : (item.title ?? "").trim();
+    // When the caller didn't override title/desc (e.g. a photos-only sync),
+    // fall back to the values that were actually PUBLISHED (the listing row),
+    // then the inventory_items mirror — never let a photo reorder silently
+    // revert the live title/description.
+    const finalTitle = hasTitle
+      ? (nextTitle as string)
+      : (row.listing.listing_title ?? item.title ?? "").trim();
     const finalDesc = hasDesc
       ? (nextDesc as string)
-      : (item.description ?? finalTitle).trim() || finalTitle;
+      : (
+          row.listing.listing_description ??
+          item.description ??
+          finalTitle
+        ).trim() || finalTitle;
 
     try {
       await createOrReplaceInventoryItem(userId, sku, {
@@ -1845,6 +1868,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
     ok: true,
     listing_id: listingId,
     updated: localUpdates,
+    photos_synced: syncPhotos || hasTitle || hasDesc,
   });
 });
 
@@ -2651,6 +2675,11 @@ interface ListingRowForManage {
   inventory_item_id: string;
   platform_offer_id: string | null;
   platform_listing_id: string | null;
+  // The values that were actually published. A photos-only revise re-PUTs the
+  // inventory_item, so we need the live title/description as the basis to
+  // avoid silently reverting them to the inventory_items mirror.
+  listing_title: string | null;
+  listing_description: string | null;
 }
 
 type LoadListingResult =
@@ -2666,7 +2695,7 @@ async function loadListingOwned(
   const { data } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, platform_offer_id, platform_listing_id, inventory_items!inner(user_id)"
+      "id, inventory_item_id, platform_offer_id, platform_listing_id, listing_title, listing_description, inventory_items!inner(user_id)"
     )
     .eq("id", listingId)
     .maybeSingle();
@@ -2686,6 +2715,8 @@ async function loadListingOwned(
       inventory_item_id: row.inventory_item_id,
       platform_offer_id: row.platform_offer_id,
       platform_listing_id: row.platform_listing_id,
+      listing_title: row.listing_title,
+      listing_description: row.listing_description,
     },
   };
 }

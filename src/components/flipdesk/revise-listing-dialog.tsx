@@ -14,13 +14,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { PhotoManager } from "@/components/flipdesk/photo-manager";
 import { useEbayReviseListing } from "@/hooks/use-ebay";
 import type { ItemFullRow } from "@/types/database";
 
-// Revises a live eBay listing's title / description / price in place via
-// Sell API. Photos and aspects sync implicitly when the inventory_item is
-// re-PUT server-side, so editing those through their own surfaces will also
-// land on the next save here.
+// Revises a live eBay listing's title / description / price / photo order in
+// place via the Sell API. eBay blocks editing inventory-based listings on its
+// own site ("refer to the tool used to create this listing"), so this dialog
+// is the supported way to push edits — including a photo reorder with no text
+// change. Reordering happens inline (PhotoManager) and the submit always
+// re-syncs the current photo set to eBay.
 export function ReviseListingDialog({
   item,
   onClose,
@@ -56,7 +59,14 @@ export function ReviseListingDialog({
       title?: string;
       description?: string;
       listing_price?: number;
-    } = {};
+      photos?: boolean;
+    } = {
+      // Always re-sync the current photo set + order to eBay on submit. This is
+      // what makes a photo-only reorder reach the live listing (the server
+      // re-PUTs the inventory_item), and it's harmless when photos are
+      // unchanged.
+      photos: true,
+    };
     const trimmedTitle = title.trim();
     const trimmedDesc = description.trim();
     const numericPrice = Number(price);
@@ -75,18 +85,17 @@ export function ReviseListingDialog({
       patch.listing_price = numericPrice;
     }
 
-    if (Object.keys(patch).length === 0) {
-      toast.info("No changes to push.");
-      return;
-    }
+    const fieldCount = Object.keys(patch).filter((k) => k !== "photos").length;
 
     try {
       await revise.mutateAsync({ listingId: item.listing_id, patch });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       toast.success(
-        `Listing updated on eBay (${Object.keys(patch).length} field${
-          Object.keys(patch).length === 1 ? "" : "s"
-        }).`,
+        fieldCount > 0
+          ? `Listing updated on eBay (${fieldCount} field${
+              fieldCount === 1 ? "" : "s"
+            } + photo order).`
+          : "Photo order synced to eBay.",
       );
       onClose();
     } catch (err) {
@@ -108,12 +117,13 @@ export function ReviseListingDialog({
 
   return (
     <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit live listing</DialogTitle>
           <DialogDescription>
-            Pushes title, description, and price changes to eBay in place. Photos
-            and category aspects sync from their own surfaces.
+            Pushes title, description, price, and photo order to eBay in place.
+            eBay won't let you edit this listing on its own site, so this is the
+            way to change it.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -160,6 +170,15 @@ export function ReviseListingDialog({
               value={price}
               onChange={(e) => setPrice(e.target.value)}
             />
+          </div>
+
+          <div className="space-y-1">
+            <Label>Photos</Label>
+            <p className="text-xs text-muted-foreground">
+              Drag to reorder — the first photo is the eBay main image. Changes
+              save instantly and are pushed to eBay when you submit.
+            </p>
+            <PhotoManager itemId={item.id} />
           </div>
         </div>
         <DialogFooter>

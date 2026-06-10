@@ -13,6 +13,7 @@ import {
   PHOTO_TYPE_LABELS,
 } from "@/lib/constants";
 import { advanceItemStatus } from "@/lib/status-writer";
+import { nextUploadSortOrder } from "@/lib/photo-order";
 import { compressImage } from "@/lib/image-utils";
 import { cn } from "@/lib/utils";
 import type {
@@ -81,7 +82,13 @@ export function PhotoUploader({
       let thumbType = "image/webp";
       try {
         const main = await compressImage(file, 2400, 0.85);
-        if (main.blob.size > 0 && main.blob.size < originalSize) {
+        // Always prefer the canvas-baked output: compressImage applies EXIF
+        // orientation to the PIXELS (upright) and strips metadata, so the
+        // stored image renders the right way up everywhere — including eBay,
+        // which ignores EXIF orientation tags. Falling back to the original
+        // only to dodge a marginally larger file would re-introduce
+        // sideways/upside-down photos, so correctness wins over a few KB.
+        if (main.blob.size > 0) {
           body = main.blob;
           bodyType = main.blob.type || "image/webp";
           ext = extForBlobType(bodyType, ext);
@@ -155,7 +162,10 @@ export function PhotoUploader({
           photo_url: pub.publicUrl,
           storage_path: path,
           photo_type: photoType,
-          sort_order: photos.length,
+          // Canonical default order: Front → Back → Tag → Detail … so the
+          // listing's photo order (and eBay cover) is sensible without any
+          // manual drag. A later reorder densifies sort_order and wins.
+          sort_order: nextUploadSortOrder(photos, photoType),
           thumbnail_url: thumbnailUrl,
           thumbnail_storage_path: thumbnailPath,
           width,

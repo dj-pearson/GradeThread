@@ -558,10 +558,14 @@ export function useEbayUpdateListingPrice() {
 // Revises a live listing — title / description / price all optional.
 // Server PUTs the inventory_item and offer as needed. 409 → no offer_id
 // (caller should treat the listing as not-yet-on-eBay and edit locally).
+// `photos: true` forces the inventory_item re-PUT so the current photo set and
+// sort order reach eBay even when no text field changed (eBay blocks editing
+// inventory-based listings on its own site, so this is the supported path).
 export interface ReviseListingPatch {
   title?: string;
   description?: string;
   listing_price?: number;
+  photos?: boolean;
 }
 
 export function useEbayReviseListing() {
@@ -574,6 +578,7 @@ export function useEbayReviseListing() {
         listing_description: string;
         listing_price: number;
       }>;
+      photos_synced?: boolean;
     },
     Error & { status?: number },
     { listingId: string; patch: ReviseListingPatch }

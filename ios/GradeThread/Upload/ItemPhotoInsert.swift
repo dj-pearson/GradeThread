@@ -10,6 +10,11 @@ import Foundation
 /// the JSON when nil — so existing single-item uploads send exactly the same
 /// payload they did before, plus `captured_at` when the device knows it.
 struct ItemPhotoInsert: Encodable, Equatable {
+    /// Client-supplied primary key. We set it (rather than letting Postgres
+    /// default `gen_random_uuid()`) so the direct insert and any retry/replay
+    /// target the SAME row — a lost insert response no longer leaves a second
+    /// row behind with a fresh id (the iOS duplicate-photo bug).
+    let id: String
     let inventory_item_id: String
     let photo_type: String
     let storage_path: String
@@ -20,6 +25,7 @@ struct ItemPhotoInsert: Encodable, Equatable {
     var reconcile_session_id: String?
 
     enum CodingKeys: String, CodingKey {
+        case id
         case inventory_item_id
         case photo_type
         case storage_path
@@ -40,6 +46,7 @@ struct ItemPhotoInsert: Encodable, Equatable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
         try c.encode(inventory_item_id, forKey: .inventory_item_id)
         try c.encode(photo_type, forKey: .photo_type)
         try c.encode(storage_path, forKey: .storage_path)

@@ -31,6 +31,9 @@ struct ItemCanvasView: View {
     @State private var showingDiscardConfirmation = false
     @State private var showingPublishDialog = false
     @State private var showingPhotoManager = false
+    // US-310: edit a live listing in place (eBay blocks editing inventory-based
+    // listings on its own site, so revisions must come from here).
+    @State private var showingReviseSheet = false
     @State private var compsStore = CompsStore()
     /// US-676: consignors for the consignment picker.
     @State private var consignorStore = ConsignorStore()
@@ -54,6 +57,15 @@ struct ItemCanvasView: View {
         PublishReadiness.publishableStatuses
     private var canPublish: Bool {
         Self.publishableStatuses.contains(item.status)
+    }
+
+    /// The item's live eBay listing, if any — drives the "Edit live listing"
+    /// and "Sync photo order to eBay" affordances.
+    private var activeEbayListing: LocalListing? {
+        itemListings.first {
+            $0.platform == "ebay"
+                && ($0.listingStatus == "active" || $0.listingStatus == "relisted")
+        }
     }
 
     init(item: LocalInventoryItem) {
@@ -253,7 +265,12 @@ struct ItemCanvasView: View {
             }
         }
         .sheet(isPresented: $showingPhotoManager) {
-            PhotoManagerView(item: item, photos: allPhotos)
+            PhotoManagerView(item: item, photos: allPhotos, liveListing: activeEbayListing)
+        }
+        .sheet(isPresented: $showingReviseSheet) {
+            if let listing = activeEbayListing {
+                ReviseListingSheet(item: item, listing: listing)
+            }
         }
         // US-650/US-687: add photos straight into THIS item (not a new intake).
         // selectionLimit 0 = unlimited, so users can add extra/detail shots
@@ -323,10 +340,19 @@ struct ItemCanvasView: View {
                 }
                 .padding(.vertical, 2)
             }
+
+            if activeEbayListing != nil {
+                Button {
+                    AppRouter.haptic()
+                    showingReviseSheet = true
+                } label: {
+                    Label("Edit live listing", systemImage: "square.and.pencil")
+                }
+            }
         } header: {
             Text(itemListings.count == 1 ? "Listing" : "Listings")
         } footer: {
-            Text("Where this item is listed. Tap the arrow to open the live listing.")
+            Text("Where this item is listed. Tap the arrow to open the live listing. eBay won't let you edit an inventory-based listing on its site — use “Edit live listing” to push title, price, description, or photo-order changes.")
                 .font(.caption)
         }
     }
