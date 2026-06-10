@@ -11556,7 +11556,254 @@
       "priority": 785,
       "passes": false,
       "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [MEDIUM][UX/Polish] Bundles the small launch-visible frontend findings into one pass. All items are independent — partial completion should split remainder into a follow-up note, not block."
-
+    },
+    {
+      "id": "US-786",
+      "title": "iOS App Store submission unblock: review metadata, demo account, IAP privacy declaration",
+      "description": "As the release owner, I can't submit the iOS app while the App Review metadata is placeholder garbage: ios/fastlane/metadata/review_information/demo_user.txt is 'REVIEW_DEMO_EMAIL_PLACEHOLDER@gradethread.com', demo_password.txt is a placeholder, and phone_number.txt is '+10000000000'. Apple rejects apps without working demo credentials. Additionally ios/APP_STORE_SUBMISSION.md (line ~264) documents that with StoreKit IAP live, the privacy manifest must also declare In-App Purchase history as collected — PrivacyInfo.xcprivacy currently only covers the reseller-sales bookkeeping sense of purchases.",
+      "acceptanceCriteria": [
+        "A real, working demo account exists in production (review-only user with seeded example data: a graded submission with certificate, a few inventory items) and its credentials are placed in ios/fastlane/metadata/review_information/demo_user.txt and demo_password.txt",
+        "phone_number.txt contains a real reachable contact number",
+        "PrivacyInfo.xcprivacy declares IAP purchase history as collected (App Functionality, linked to identity) per the APP_STORE_SUBMISSION.md section 7 note, and the note is removed/marked done",
+        "The Section 10 pre-submission checklist in APP_STORE_SUBMISSION.md is walked: each item either checked off or annotated with who/when it will be done — no silent unknowns",
+        "python3 ios/Scripts/no-ungated-print.py still passes (the only iOS check runnable on Windows)"
+      ],
+      "priority": 786,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS production-readiness audit 2026-06-10. [BLOCKER][iOS/Release] App Review will reject or stall without these. The demo-account creation is partly an ops task — do the code/file changes and document exactly what credentials the operator must drop in if they can't be created from here."
+    },
+    {
+      "id": "US-787",
+      "title": "iOS release builds ship with zero crash reporting — inject Sentry/PostHog keys + dSYM upload in CI",
+      "description": "As the on-call engineer, I need crash reports from production iOS builds. Today ios/GradeThread/Config/Release.xcconfig has SENTRY_DSN= (blank) and POSTHOG_API_KEY= (blank), and .github/workflows/ios-release.yml injects only SUPABASE_ANON_KEY (line ~312) at archive time — so every TestFlight/App Store build ships with telemetry compiled out. A production crash would be invisible.",
+      "acceptanceCriteria": [
+        "ios-release.yml injects SENTRY_DSN and POSTHOG_API_KEY (and POSTHOG_HOST if needed) from GitHub secrets into the build the same way SUPABASE_ANON_KEY is injected",
+        "The release lane fails loudly (clear error message) if SENTRY_DSN is missing from secrets, unless an explicit ALLOW_NO_TELEMETRY=1 escape hatch is set — no more silent empty-string telemetry",
+        "A post-archive step uploads dSYMs to Sentry via sentry-cli (the archive's dSYM path is already documented in APP_STORE_SUBMISSION.md section 10)",
+        "iOS telemetry init code verifiably no-ops gracefully on empty DSN (read the init path and confirm/fix — no crash, no retry storm)",
+        "README or APP_STORE_SUBMISSION.md documents the required GitHub secrets"
+      ],
+      "priority": 787,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS production-readiness audit 2026-06-10. [HIGH][iOS/Release] CI workflow edits are testable by inspection + actionlint; the actual secret values are an ops task — document them."
+    },
+    {
+      "id": "US-788",
+      "title": "App Store server-notification sandbox round-trip + ASC webhook registration",
+      "description": "As the release owner, before launch I need proof the StoreKit purchase loop works end-to-end: the edge webhook (services/edge-functions/src/routes/appstore.ts) is wired in code, but APP_STORE_SUBMISSION.md sections 6.4/6.7 record that the App Store Server Notifications V2 URL has not been registered in App Store Connect, the sandbox purchase round-trip has never been run, and APPLE_APP_APPLE_ID / APPLE_ROOT_CA_G3_B64 / APPSTORE_ENVIRONMENT are not confirmed set in any deployed environment.",
+      "acceptanceCriteria": [
+        "A written, step-ordered verification script exists (extend APP_STORE_SUBMISSION.md): register V2 Production + Sandbox notification URLs (https://functions.gradethread.com/api/webhooks/appstore) in ASC, deploy staging edge with APPSTORE_ENVIRONMENT=Sandbox, sandbox-purchase each product, assert users.flipdesk_plan / billing_source / credit balance update, assert subscription expiry lapses to free tier",
+        "Any code gaps the dry-run reveals in appstore.ts (signature env handling, unknown product ids, missing APPLE_APP_APPLE_ID strict-validation path) are fixed with tests",
+        "The edge boot-time env validation (US-777) treats the appstore env vars as feature-gated: warn when IAP is enabled but they're unset",
+        "Checklist boxes in APP_STORE_SUBMISSION.md for 6.4/6.7 are checked or explicitly assigned to the operator with exact instructions"
+      ],
+      "priority": 788,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS production-readiness audit 2026-06-10. [HIGH][iOS/Payments][ops-heavy] The agent can do the code+docs half; the ASC clicks and sandbox purchases need the operator — produce the exact instructions and verify the code paths with tests."
+    },
+    {
+      "id": "US-789",
+      "title": "iOS: invalid price silently becomes a $0 listing draft",
+      "description": "As a seller, a price that fails to parse must never turn into a $0 listing. ios/GradeThread/Marketplaces/Publish/ListingDraftService.swift:79 inserts listing_price: Double(priceValue) ?? 0 — any non-numeric or locale-formatted price string (e.g. '24,99' or '$25') writes a $0 draft to the listings table with no warning, which can then be published at $0.",
+      "acceptanceCriteria": [
+        "Price is parsed with a locale-tolerant numeric parser (strip currency symbols/grouping; accept comma decimal) before insert",
+        "A price that still fails to parse, or parses to <= 0, throws a user-visible validation error and no listings row is inserted",
+        "Audit the other ListingDraftService/publish paths for the same `?? 0` money pattern and fix any siblings",
+        "Unit tests cover: valid price, '$24.99', '24,99', empty string, garbage string, '0'"
+      ],
+      "priority": 789,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [HIGH][iOS/FlipDesk] Verified at ListingDraftService.swift:79. Small, surgical fix."
+    },
+    {
+      "id": "US-790",
+      "title": "iOS: migrate money math from Double to Decimal in Sales/Money/Expenses",
+      "description": "As a reseller tracking finances, my numbers must add up exactly. All iOS currency storage and arithmetic uses Double: ios/GradeThread/Sales/SalesTypes.swift:9-17 (salePrice, platformFees, computed net), ios/GradeThread/Persistence/Models/LocalSale.swift:13-21, ios/GradeThread/Money/ExpenseTypes.swift:51, ios/GradeThread/Money/ExpenseFormSheet.swift:20-23. Binary-float rounding errors accumulate across sums and fee math, so totals can drift from the server's numeric(12,2) values by cents.",
+      "acceptanceCriteria": [
+        "Currency fields in the Sales/Money/Expense model layer use Decimal (decoded from JSON numbers via a shared helper that round-trips exactly) — or integer cents if that proves cleaner with SwiftData; pick one and apply consistently",
+        "All arithmetic (net, totals, fee sums, report aggregations) happens in Decimal; conversion to Double only at chart-rendering boundaries",
+        "Display formatting goes through one shared currency formatter",
+        "SwiftData local models migrate without data loss (lightweight migration or re-pull from server)",
+        "Unit tests assert penny-exact totals for a list of sales/fees that is known to drift under Double (e.g. 0.1+0.2 family cases)"
+      ],
+      "priority": 790,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/Money] Server-side columns are already numeric — this closes the client half. Touches several files; keep it mechanical."
+    },
+    {
+      "id": "US-791",
+      "title": "iOS: hide or wire the stubbed bulk actions (aiEnrich, grade) + fix selected-count label",
+      "description": "As a user multi-selecting inventory items, I see bulk action buttons that always fail: ios/GradeThread/Inventory/BulkActionExecutor.swift:46-52 routes .aiEnrich and .grade to notYetWired(), so tapping them fails every item with 'Wires up in a focused AI-batch pass.' / 'Grading runs in its own batch flow.' Also ios/GradeThread/Inventory/BulkActionBar.swift:18 has Text(selectedCount == 1 ? \"selected\" : \"selected\") — a dead ternary.",
+      "acceptanceCriteria": [
+        "Stubbed actions are removed from the visible action sets returned by BulkAction.actions() until they're actually implemented — no button a user can tap into a guaranteed failure (alternatively, implement them against the existing AI-enrich and grading-batch endpoints if that's small; decide and note which)",
+        "notYetWired() either becomes dead code (deleted) or remains only as a guard with a comment explaining it must never be reachable from visible UI",
+        "BulkActionBar count label reads correctly (e.g. '3 selected' / '1 selected' or 'item/items' — match the existing design intent)",
+        "no-ungated-print check still passes"
+      ],
+      "priority": 791,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/UX] Verified at BulkActionExecutor.swift:46-52 and BulkActionBar.swift:18."
+    },
+    {
+      "id": "US-792",
+      "title": "iOS: stop swallowing errors in polling loops + fix known stale-cache spots",
+      "description": "As a user, when a sync or grading poll is failing I should see 'failed', not 'timed out', and support should see telemetry. Verified silent-swallow sites: ios/GradeThread/Marketplaces/EbaySyncService.swift:112-115 (empty catch + continue — a permanently-down endpoint burns the whole poll window silently), ios/GradeThread/Grading/GradeRequestStore.swift:139-141 (no-op catch), ios/GradeThread/AutoLister/AutolisterBatchStore.swift:140-151 (errors update a message but never break the loop). Related cache bugs: ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift:1005 does try? modelContext.save() after a successful server write (local cache silently stays stale on failure), and ios/GradeThread/Persistence/Models/LocalInventoryItem.swift:44 documents listingPrice as cached but no sync-merge path ever updates it after a re-list.",
+      "acceptanceCriteria": [
+        "Each polling loop gets a consecutive-failure budget: after N identical failures it exits early with a user-facing error distinguishing 'couldn't reach the server' from 'timed out waiting'",
+        "Poll errors are recorded via the existing Telemetry facade (scrubbed) so failure patterns are diagnosable",
+        "ItemCanvasView save: a failed modelContext.save() after a successful server write is logged to telemetry (user flow still succeeds; staleness self-heals on next sync)",
+        "SyncEngine merge updates LocalInventoryItem.listingPrice from the listings data so a re-listed price isn't stale until the next full pull",
+        "ReconciliationStore (ios/GradeThread/Marketplaces/Reconciliation/ReconciliationStore.swift:55-76): action failure presents a persistent (not auto-dismissing) error so the restored row isn't mistaken for a bug"
+      ],
+      "priority": 792,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/Robustness] All sites verified by line. Mechanical hardening; no behavior redesign."
+    },
+    {
+      "id": "US-793",
+      "title": "iOS↔edge contract hardening: tolerant enum decoding + fixture-based decoder tests",
+      "description": "As an iOS user, a server-side addition of a new plan/tier/status value must not brick a whole screen. The contract audit found iOS decodes plan, tier, submission status, and grade tier as raw Strings that downstream code pattern-matches (ios/GradeThread/Grading/GradingTypes.swift:29,39,80,98), several response structs whose success-critical fields are optional only because failure shapes share the struct (GradingTypes.swift:64 GradingSubmitResult; NegotiationService OKResponse with ok: Bool?), and the reconciliation queue endpoint silently truncates at the server's QUEUE_LIMIT=100 with no has_more signal. There are no decoder tests pinning either side.",
+      "acceptanceCriteria": [
+        "Enum-like fields decode through a tolerant wrapper (known cases + .unknown(String)) so an unrecognized value degrades one label, never the whole decode; UI renders .unknown sensibly",
+        "Success/failure response shapes are either split into distinct structs or documented invariants are enforced with throwing accessors (e.g. submissionId required when ok == true)",
+        "Reconciliation queue: server returns a has_more/total field (or accepts offset/limit) and iOS surfaces 'showing first 100' instead of silently truncating",
+        "Fixture-based decode tests: capture real JSON responses for grading submit/status, autolister batch, reconciliation queue, negotiation offers, disclosure item, and appstore verify; iOS tests decode the fixtures, and an edge-side test asserts the handlers still produce the fixture shape (drift fails CI on whichever side moved)",
+        "Document the contract (valid enum values per field) in a shared markdown next to the fixtures"
+      ],
+      "priority": 793,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS↔edge contract audit 2026-06-10. [MEDIUM-HIGH][Contract] iOS test additions can't run on Windows (macOS CI covers them) — keep edge-side fixture tests runnable in deno test so verify:edge catches drift locally."
+    },
+    {
+      "id": "US-794",
+      "title": "iOS: handle workspace-access revocation gracefully (stale X-Workspace-Owner)",
+      "description": "As a team member who gets removed from a workspace mid-session, the app should tell me what happened instead of every request mysteriously failing. iOS attaches X-Workspace-Owner from cached WorkspaceScope.activeOwnerId (ios/GradeThread/Networking/EdgeAPI.swift:156-166); when membership is revoked the edge middleware rejects with a generic 403 and iOS has no recovery path — the stale header sticks until app restart.",
+      "acceptanceCriteria": [
+        "Edge workspace middleware returns a distinct machine-readable error code (e.g. { error_code: \"workspace_access_revoked\" }) when the X-Workspace-Owner membership lookup fails for an otherwise-authenticated user",
+        "iOS EdgeAPI detects that code, clears the cached workspace scope, refreshes the membership list, and shows a one-time notice ('You no longer have access to <workspace> — switched to your own account')",
+        "Subsequent requests proceed under the user's own tenant without restart",
+        "Edge-side test covers the revoked-membership response; iOS unit test covers the scope-clearing handler"
+      ],
+      "priority": 794,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS↔edge contract audit 2026-06-10. [MEDIUM][iOS/Workspace] Touches both sides; edge change is small and test-verifiable locally."
+    },
+    {
+      "id": "US-795",
+      "title": "Push device-token lifecycle: unregister on sign-out, validate environment, prune dead tokens",
+      "description": "As a user who signs out or switches devices, pushes shouldn't keep flowing to a stale token. services/edge-functions/src/routes/notifications.ts:177-243 implements POST /register only — there is no unregister endpoint, the environment field is stored as-is without validating it's 'development'|'production' (a wrong compile-time flag silently kills delivery, ios/GradeThread/Notifications/PushService.swift:126-131), and tokens APNs rejects (410/BadDeviceToken) are never marked inactive or pruned.",
+      "acceptanceCriteria": [
+        "DELETE /api/notifications/register (token in body) removes/deactivates the row; iOS calls it on sign-out and before registering a replacement token",
+        "POST /register rejects environment values outside development|production with a 400",
+        "The push send path marks tokens inactive when APNs returns Unregistered/BadDeviceToken, and a periodic prune (existing jobs pattern + job lock) deletes long-inactive rows",
+        "Account deletion removes the user's push_device_tokens rows (verify the delete-account RPC covers the table; add if missing)",
+        "Edge tests cover register→unregister and the invalid-environment rejection"
+      ],
+      "priority": 795,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From contract + supporting-modules audits 2026-06-10. [MEDIUM][Notifications] push_device_tokens table is migration 000375."
+    },
+    {
+      "id": "US-796",
+      "title": "Web: API keys page gates on the wrong plan column",
+      "description": "As a paying user, the API Keys page must agree with the server about whether I have API access. src/pages/api-keys.tsx:79-80 gates on profile.plan (the legacy user_plan enum: professional|enterprise) while the backend api-keys route enforces a different gate (FlipDesk-plan based). A user the server allows can see a locked page, and vice versa a user can see the UI then get 403s.",
+      "acceptanceCriteria": [
+        "The page derives API access from the backend's answer, not a client-side plan check: either a capability flag in the billing summary the page already loads, or by always calling GET /api/keys and rendering the upgrade gate from a structured 403 { error_code: \"plan_required\", required_plan: ... }",
+        "Frontend and backend agate on the same plan definition; the required plan named in the upgrade CTA matches what the backend actually requires",
+        "The stale client-side userPlan/hasApiAccess derivation at api-keys.tsx:79-80 is removed",
+        "A test covers the gated and ungated render paths"
+      ],
+      "priority": 796,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From web + supporting-modules audits 2026-06-10 (two agents independently flagged it). [MEDIUM][Web/Billing]"
+    },
+    {
+      "id": "US-797",
+      "title": "Web: billing page misses subscription activation when checkout polling is interrupted",
+      "description": "As a user returning from Stripe checkout, I should see my new plan without a hard refresh. src/pages/billing.tsx:98-122 polls the billing summary after checkout, but the poll is cancelled on unmount/navigation and nothing refetches on tab refocus — if the webhook lands after the user navigates away (or the poll window closes early), the UI keeps showing the free tier until a full reload.",
+      "acceptanceCriteria": [
+        "The billing-summary query refetches on window focus/visibilitychange (TanStack refetchOnWindowFocus or an explicit listener) so returning to the tab/page always reconciles",
+        "The post-checkout poll persists across in-app navigation (e.g. keyed off a sessionStorage checkout-pending marker rather than component lifetime) until it reaches a terminal state or times out with a 'still processing — refresh in a moment' notice",
+        "Plan badge in the dashboard header reflects the change without reload (shared query invalidation)",
+        "A test simulates webhook-lands-after-unmount and asserts the UI converges"
+      ],
+      "priority": 797,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From web frontend audit 2026-06-10. [MEDIUM][Web/Billing] Complements US-776 (downgrade notifications); this is the upgrade-visibility half."
+    },
+    {
+      "id": "US-798",
+      "title": "Web module polish batch: timeout, autosave race, validation, and error-state fixes",
+      "description": "As a user of the secondary web surfaces, small verified gaps bite in edge cases: src/pages/accept-invite.tsx:40-56 has no timeout on the peek_workspace_invitation RPC (page can spin forever, unlike auth-callback's 15s guard); the blog/social editors' 1.5s debounced autosave can race a manual Save click (src/pages/content/blog-editor.tsx, social-editor.tsx); the admin announcements dialog allows saving with empty title/body (src/pages/admin/growth/announcements.tsx:61-114); src/pages/team.tsx:178-182 calls navigator.clipboard.writeText without a guard (throws in denied-permission contexts); src/pages/verified-seller.tsx:155-162 doesn't clear previously-rendered listings state when a later profile fetch errors; and src/pages/reset-password.tsx:104-124 declares the link expired after a fixed 4s even on slow networks.",
+      "acceptanceCriteria": [
+        "accept-invite peek races a 15s timeout (mirror auth-callback's CALLBACK_TIMEOUT_MS pattern) and renders a retry-able error state",
+        "Editors cancel the pending autosave debounce when manual Save fires (one mutation, no race); cover with a test if the editor has a test file",
+        "Announcements save button disabled until title and body are non-empty",
+        "team.tsx clipboard copy wrapped in try/catch with a fallback toast (same pattern referrals.tsx:41-50 already uses)",
+        "verified-seller clears stale listings/profile state on fetch error before rendering the error view",
+        "reset-password waits for the auth event up to ~10s (or until PASSWORD_RECOVERY fires) before declaring the link expired"
+      ],
+      "priority": 798,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From web frontend audit 2026-06-10. [LOW-MEDIUM][Web/Polish] Six independent small fixes; partial completion should note the remainder, not block."
+    },
+    {
+      "id": "US-799",
+      "title": "Workspace member removal/role-change via audited server endpoints + invite-accept rate limit",
+      "description": "As a workspace owner, membership changes need an audit trail and server-enforced guards. Today src/pages/team.tsx:135-163 performs role changes and member removal as direct RLS-backed Supabase writes from the browser — no audit log, no self-removal guard, and the role-cap validation that exists at invite time (canAssignRole in services/edge-functions/src/routes/workspace.ts:85-95) is not re-applied on role updates. Invitation acceptance also has no rate limit on token guesses.",
+      "acceptanceCriteria": [
+        "POST /api/workspace/members/:memberId/remove and PATCH /api/workspace/members/:memberId/role edge endpoints: verify caller is owner/admin of the workspace, re-apply the canAssignRole cap on role changes, block removing/demoting the owner and self-demotion of the last admin, and write an audit-log row for every change",
+        "team.tsx switches to the new endpoints; direct workspace_members writes from the browser removed (RLS stays as defense-in-depth)",
+        "Invitation accept attempts are rate-limited per IP+token-prefix via the existing rate_limit_counters infra",
+        "Tenant-isolation/regression tests cover: non-admin member cannot remove others, owner cannot be removed, role cap enforced on update"
+      ],
+      "priority": 799,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10. [MEDIUM][Workspace/Security] Mirrors the US-476 pattern (move sensitive writes behind audited service-role routes)."
+    },
+    {
+      "id": "US-800",
+      "title": "Public API v1: per-key rate limiting, quotas, and X-RateLimit headers",
+      "description": "As the platform operator, the public API must not be an unmetered cost hole: services/edge-functions/src/middleware/api-key-auth.ts and src/routes/api-v1.ts contain no rate limiting at all — a single leaked or greedy key can hammer /api/v1/grades (which spends AI credits and DB capacity) as fast as it can send requests. The api-keys page also promises a professional-tier API with no enforced limits behind it.",
+      "acceptanceCriteria": [
+        "Per-key sliding-window rate limit enforced in the API-key auth middleware using the existing Postgres-backed rate_limit_counters infrastructure (fail-closed on counter outage, consistent with webhooks)",
+        "Limits are plan-tiered (define sane defaults, e.g. 60/min read, 10/min submit; configurable constants in one place) and documented in the API docs surface",
+        "Every /api/v1 response carries X-RateLimit-Limit / X-RateLimit-Remaining / X-RateLimit-Reset; 429 responses include Retry-After",
+        "Scope-denied (403) and rate-limited (429) outcomes record a metric so abuse is visible",
+        "deno tests cover: under-limit pass, over-limit 429 with headers, fail-closed behavior"
+      ],
+      "priority": 800,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, grep-verified absent. [HIGH][API/Cost] US-781 covers unauthenticated public content; this is the authenticated keyed API, which spends money per call."
+    },
+    {
+      "id": "US-801",
+      "title": "Transactional email: durable retry for every critical category + missing feedback helper + CAN-SPAM env guards",
+      "description": "As a user, account-critical emails must survive a transient SMTP failure. services/edge-functions/src/lib/email.ts:61-67 only enqueues a failed send for durable retry when options.category is set — and only grade_ready (email.ts:312) and payment_failed (email.ts:664) set one, so welcome, subscription lifecycle, dispute, workspace-invitation, and trial-expiring emails are silently lost on failure. services/edge-functions/src/routes/notifications.ts:160-168 still logs feedback instead of emailing support ('sendFeedbackEmail helper would go here'). email.ts:164-169 falls back to a '[SET COMPANY_POSTAL_ADDRESS]' placeholder in the CAN-SPAM footer, and the site URL is hardcoded rather than env-derived (email.ts:21).",
+      "acceptanceCriteria": [
+        "Every transactional send passes a category (welcome, subscription_started/canceled, dispute_filed/dispute_status, workspace_invite, trial_expiring, referral_reward, feedback) so failures flow into the existing US-498 outbox retry",
+        "sendFeedbackEmail implemented in lib/email.ts and wired in notifications.ts (row remains system-of-record; email is best-effort but now retried)",
+        "Boot-time env validation (US-777 hook point) warns when COMPANY_POSTAL_ADDRESS is unset; the footer never renders the literal placeholder in production",
+        "Email base URL comes from an env var with the prod default, so staging sends don't link to production",
+        "deno tests: uncategorized send no longer exists (lint/test asserts category present), failed categorized send enqueues"
+      ],
+      "priority": 801,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Email/Reliability] Complements US-222 (receipts/dunning are new sends; this fixes the delivery substrate)."
+    },
+    {
+      "id": "US-802",
+      "title": "Referral loop completion: reward notifications + redemption guards",
+      "description": "As a referrer, when my reward is granted I should hear about it — today the admin grant endpoint (services/edge-functions/src/routes/admin-growth.ts:880-936) credits both parties and writes the audit log but sends no email and no in-app notification to either user, so granted rewards go unnoticed and the growth loop dies. The redeem endpoint (services/edge-functions/src/routes/referrals.ts:112-146) also attributes referrals without checking the redeeming account's standing (suspended accounts can still attach attribution).",
+      "acceptanceCriteria": [
+        "On grant, both referrer and referred user get an in-app notification (existing notify lib, respecting preferences) and an email (categorized referral_reward so it's retried per US-801)",
+        "Redeem rejects accounts that are suspended/deleted with a clear error; attribution rows are not created for them",
+        "The referrals page copy reflects reality (credits appear automatically when granted)",
+        "deno tests cover: grant fires both notifications, suspended-account redeem rejected, double-grant stays idempotent"
+      ],
+      "priority": 802,
+      "passes": false,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Growth] Qualification automation (auto-promote pending→qualified) is deliberately out of scope — keep admin-manual for launch."
     }
   ]
 }
