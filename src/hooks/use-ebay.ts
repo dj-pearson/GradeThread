@@ -832,14 +832,20 @@ export function useValidatePublish() {
 
 export function usePublishToEbay() {
   const qc = useQueryClient();
-  return useMutation<PublishResponse, Error, { itemId: string }>({
-    mutationFn: async ({ itemId }) => {
+  return useMutation<PublishResponse, Error, { itemId: string; relist?: boolean }>({
+    mutationFn: async ({ itemId, relist }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/push`,
         {
           method: "POST",
           headers: await ebayHeaders(),
-          body: JSON.stringify({ inventory_item_id: itemId }),
+          // relist=true → if the item still has a live eBay listing the server
+          // ends it first, so this publishes a brand-new listing (new item #)
+          // instead of adopting the live one.
+          body: JSON.stringify({
+            inventory_item_id: itemId,
+            ...(relist ? { relist: true } : {}),
+          }),
         }
       );
       const json = (await res.json().catch(() => ({}))) as PublishResponse;

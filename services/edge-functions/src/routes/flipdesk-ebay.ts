@@ -782,6 +782,11 @@ async function doListingsPull(
   // by the modern Sell Inventory loop.
   const processedListingIds = new Set<string>();
   const errors: string[] = [];
+  // Items whose eBay listing came back ended/inactive this sync. After the
+  // orders pass marks genuine sales as 'sold', anything left here that's still
+  // 'listed' ended WITHOUT a sale → auto-move it back to Drafts so the seller
+  // can edit + relist it (Path A).
+  const endedItemIds = new Set<string>();
 
   for (const o of offers) {
     try {
@@ -873,6 +878,11 @@ async function doListingsPull(
               link: `/dashboard/flipdesk/items/${itemId}`,
             });
           }
+        } else {
+          // eBay reports this offer's listing as ended/inactive. Remember it so
+          // the post-orders reconciliation can move it back to Drafts if it
+          // ended without a sale (Path A — relist of ended listings).
+          endedItemIds.add(itemId);
         }
         // eBay as source of truth: title overwrite, specifics fill-if-blank.
         // Modern offers carry title + aspects (from listAllOffers) — free.
@@ -1464,6 +1474,59 @@ async function doListingsPull(
     );
   }
 
+  // ── Ended-without-sale → Drafts (Path A) ────────────────────────────
+  // eBay reported these listings as ended/inactive this sync. The orders pass
+  // above already flipped genuine sales to 'sold', so anything still in 'listed'
+  // here ended without selling (expired, ended on Seller Hub, out of stock with
+  // no order, etc.). Move those back to 'drafted' so they surface in the Drafts
+  // tab where the seller can edit and relist them, and notify once per item.
+  let endedToDraft = 0;
+  for (const itemId of endedItemIds) {
+    try {
+      // Defensive: never regress an item that has a completed sale on record,
+      // even if its status drifted (the 'listed'-only guard below already
+      // covers the common case).
+      const { data: sale } = await supabaseAdmin
+        .from("sales")
+        .select("id")
+        .eq("inventory_item_id", itemId)
+        .eq("status", "completed")
+        .limit(1)
+        .maybeSingle();
+      if (sale) continue;
+
+      // Forward-safe: only regress an item that's still sitting in 'listed'.
+      // .select() returns the row only when the update actually applied, so the
+      // notification fires once on the real transition, not on every re-sync.
+      const { data: moved } = await supabaseAdmin
+        .from("inventory_items")
+        .update({ status: "drafted" })
+        .eq("id", itemId)
+        .eq("user_id", userId)
+        .eq("status", "listed")
+        .select("id, title");
+      const row = (moved ?? [])[0] as
+        | { id: string; title: string | null }
+        | undefined;
+      if (row) {
+        endedToDraft += 1;
+        void notifyUser(userId, {
+          type: "item_status_change",
+          title: "Listing ended",
+          message: `${row.title ?? "Your item"} ended on eBay without selling — it's back in Drafts to edit and relist.`,
+          link: `/dashboard/flipdesk/items/${itemId}`,
+        });
+      }
+    } catch (err) {
+      errors.push(
+        `relist-reconcile ${itemId}: ${err instanceof Error ? err.message : String(err)}`.slice(
+          0,
+          160,
+        ),
+      );
+    }
+  }
+
   // Stamp last_synced_at so the UI can show "Synced 2m ago" + the next
   // /listings/pull picks up where this one left off.
   await supabaseAdmin
@@ -1479,6 +1542,7 @@ async function doListingsPull(
       `sales_skipped=${salesSkipped} sales_enriched=${salesEnriched} ` +
       `catalog_updated=${catalogUpdated} specifics_fetched=${specificsFetched}` +
       `${specificsCapped ? ` (capped at ${MAX_SPECIFICS_FETCH_PER_SYNC}; remaining items backfill next sync)` : ""} ` +
+      `ended_to_draft=${endedToDraft} ` +
       `errors=${errors.length}`,
   );
 
@@ -2044,6 +2108,7 @@ export type PublishItemResult =
 export async function publishItemForOwner(
   ownerId: string,
   itemId: string,
+  opts: { relist?: boolean } = {},
 ): Promise<PublishItemResult> {
   const ctx = await assemblePublishContext(ownerId, itemId);
   if (!ctx.ok) return { ok: false, status: ctx.status, body: ctx.error };
@@ -2061,6 +2126,41 @@ export async function publishItemForOwner(
   }
 
   const { item, listing, photos, policies, sku } = ctx;
+
+  // Relist (end-old-then-relist): when the caller asks to relist and this item
+  // still has a LIVE eBay listing, withdraw it first so the publish below mints
+  // a brand-new listing id instead of publishOrAdoptOffer (US-464) adopting the
+  // still-live one. eBay only allows one live offer per SKU, so we end the old
+  // listing rather than create a duplicate. Best-effort: an already-ended offer
+  // throws here, which is fine — we just want it not-live before re-publishing.
+  if (opts.relist) {
+    const { data: liveRow } = await supabaseAdmin
+      .from("listings")
+      .select("platform_offer_id, is_active, listing_status")
+      .eq("inventory_item_id", itemId)
+      .eq("platform", "ebay")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const live = liveRow as
+      | { platform_offer_id: string | null; is_active: boolean | null; listing_status: string | null }
+      | null;
+    const stillLive =
+      !!live?.platform_offer_id &&
+      (live.is_active === true || live.listing_status === "active");
+    if (stillLive && live?.platform_offer_id) {
+      try {
+        await withdrawOffer(ownerId, live.platform_offer_id);
+      } catch (err) {
+        // Already ended / not found → proceed. A real failure (still genuinely
+        // live) would surface on publish as an adopt instead of a fresh listing.
+        console.warn(
+          "[flipdesk-ebay] relist: withdrawOffer before re-publish failed (continuing):",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
 
   // 1. Ensure the SKU is persisted on the item so reconciliation works
   //    (eBay's "Custom label" maps back to this).
@@ -2242,7 +2342,7 @@ export async function publishItemForOwner(
 
 flipdeskEbayRoutes.post("/listings/push", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const itemId = await readItemId(c);
+  const { itemId, relist } = await readPushBody(c);
   if (!itemId) return c.json({ error: "inventory_item_id is required" }, 400);
 
   // US-382: enforce the active-listing cap server-side (was UI-only). Skip the
@@ -2262,7 +2362,7 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
   });
   if (capGate) return capGate;
 
-  const result = await publishItemForOwner(userId, itemId);
+  const result = await publishItemForOwner(userId, itemId, { relist });
   if (!result.ok) return c.json(result.body, result.status);
   return c.json({
     ok: true,
@@ -2733,6 +2833,29 @@ async function readItemId(
       : null;
   } catch {
     return null;
+  }
+}
+
+// Push body reader that also surfaces the optional `relist` flag. The body can
+// only be consumed once, so callers that need both fields use this instead of
+// readItemId().
+async function readPushBody(
+  c: Context<EbayEnv>
+): Promise<{ itemId: string | null; relist: boolean }> {
+  try {
+    const body = (await c.req.json()) as {
+      inventory_item_id?: unknown;
+      relist?: unknown;
+    };
+    return {
+      itemId:
+        typeof body.inventory_item_id === "string"
+          ? body.inventory_item_id
+          : null,
+      relist: body.relist === true,
+    };
+  } catch {
+    return { itemId: null, relist: false };
   }
 }
 

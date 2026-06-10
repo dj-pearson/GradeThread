@@ -9,6 +9,13 @@ struct PublishDialog: View {
     let inventoryItemId: String
     /// Cost basis for the live profit estimate in the composer (nil when unknown).
     var acquiredCost: Double? = nil
+    /// Relist mode: the item was previously listed (ended draft, or a still-live
+    /// listing being replaced). Sends `relist` to the push so a live listing is
+    /// ended first and a brand-new one is created.
+    var relist: Bool = false
+    /// True when the item still has a LIVE eBay listing. Shows a warning that
+    /// relisting ends the current listing and creates a new one.
+    var listingActive: Bool = false
     let onPublished: (PushResponse) -> Void
 
     @State private var phase: Phase = .validating
@@ -33,7 +40,7 @@ struct PublishDialog: View {
             .padding(.vertical, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-            .navigationTitle("Publish to eBay")
+            .navigationTitle(relist ? "Relist on eBay" : "Publish to eBay")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -64,7 +71,9 @@ struct PublishDialog: View {
             ComposerForm(
                 summary: summary,
                 inventoryItemId: inventoryItemId,
-                acquiredCost: acquiredCost
+                acquiredCost: acquiredCost,
+                pushLabel: relist ? "Relist on eBay" : "Push to eBay",
+                showRelistWarning: listingActive
             ) { edits in
                 Task { await runPush(edits: edits, priceValue: summary.priceValue) }
             }
@@ -298,7 +307,7 @@ struct PublishDialog: View {
             return
         }
 
-        let outcome = await service.push(inventoryItemId: inventoryItemId)
+        let outcome = await service.push(inventoryItemId: inventoryItemId, relist: relist)
         switch outcome {
         case .pushed(let response):
             phase = .succeeded(response)
@@ -346,6 +355,11 @@ private struct ComposerForm: View {
     let summary: PublishSummary
     let inventoryItemId: String
     let acquiredCost: Double?
+    /// Label for the primary action button (e.g. "Push to eBay" / "Relist on eBay").
+    var pushLabel: String = "Push to eBay"
+    /// When true, show a banner warning that the item is still live and
+    /// relisting ends the current listing + creates a new one.
+    var showRelistWarning: Bool = false
     let onPush: (ComposerEdits) -> Void
 
     @State private var title: String
@@ -367,11 +381,15 @@ private struct ComposerForm: View {
         summary: PublishSummary,
         inventoryItemId: String,
         acquiredCost: Double?,
+        pushLabel: String = "Push to eBay",
+        showRelistWarning: Bool = false,
         onPush: @escaping (ComposerEdits) -> Void
     ) {
         self.summary = summary
         self.inventoryItemId = inventoryItemId
         self.acquiredCost = acquiredCost
+        self.pushLabel = pushLabel
+        self.showRelistWarning = showRelistWarning
         self.onPush = onPush
         _title = State(initialValue: String(summary.title.prefix(Self.titleLimit)))
         _condition = State(initialValue: EbayCondition.resolve(summary.condition))
@@ -386,6 +404,10 @@ private struct ComposerForm: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if showRelistWarning {
+                    relistWarningBanner
+                }
+
                 aiCopyButton
 
                 if !templateStore.templates.isEmpty {
@@ -454,7 +476,7 @@ private struct ComposerForm: View {
                         description: description
                     ))
                 } label: {
-                    Text("Push to eBay")
+                    Text(pushLabel)
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -516,6 +538,27 @@ private struct ComposerForm: View {
             conditionDescription = note
         }
         HapticFeedback.success()
+    }
+
+    /// Shown when relisting an item whose eBay listing is still live: pushing
+    /// ends the current listing and creates a new one (new item #, watchers
+    /// reset).
+    private var relistWarningBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("This item is still live on eBay.")
+                    .font(.subheadline.weight(.semibold))
+                Text("Relisting ends the current listing and publishes a new one — the eBay item number resets and watchers/views start over.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12))
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
     }
 
     @ViewBuilder
