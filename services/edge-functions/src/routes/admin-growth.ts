@@ -24,7 +24,8 @@ import {
   validateRules,
 } from "../lib/segments.ts";
 import type { SegmentRules } from "../lib/segments.ts";
-import { sendBroadcastEmail } from "../lib/email.ts";
+import { sendBroadcastEmail, sendReferralRewardEmail } from "../lib/email.ts";
+import { notifyUser } from "../lib/notify.ts";
 import { sendPushToUser } from "../lib/apns.ts";
 
 type AdminEnv = {
@@ -931,6 +932,44 @@ adminGrowthRoutes.post("/referrals/:id/grant", async (c) => {
       referred_credits: REFERRED_REWARD_CREDITS,
     },
   });
+
+  // US-802: tell both parties their reward landed — in-app + email. Best-effort:
+  // the credits are already granted and the status is persisted, so a
+  // notification failure must not 500 the grant. notifyUser swallows its own
+  // errors; the email is wrapped so a throw can't bubble.
+  const rewardNotify = async (
+    rewardUserId: string,
+    credits: number,
+    isReferrer: boolean,
+  ): Promise<void> => {
+    await notifyUser(rewardUserId, {
+      type: "billing",
+      title: "Referral reward added",
+      message: `${credits} grade credit${credits === 1 ? "" : "s"} were added to your account from a referral.`,
+      link: "/dashboard/billing",
+    });
+    const { data: u } = await supabaseAdmin
+      .from("users")
+      .select("email, full_name")
+      .eq("id", rewardUserId)
+      .maybeSingle();
+    const row = u as { email?: string; full_name?: string | null } | null;
+    if (row?.email) {
+      await sendReferralRewardEmail(row.email, {
+        userName: row.full_name ?? null,
+        credits,
+        isReferrer,
+      });
+    }
+  };
+  await Promise.all([
+    rewardNotify(event.referrer_user_id, REFERRER_REWARD_CREDITS, true).catch(
+      (err) => console.error("[admin-growth] referrer reward notify failed:", err),
+    ),
+    rewardNotify(event.referred_user_id, REFERRED_REWARD_CREDITS, false).catch(
+      (err) => console.error("[admin-growth] referred reward notify failed:", err),
+    ),
+  ]);
 
   return c.json({ ok: true });
 });

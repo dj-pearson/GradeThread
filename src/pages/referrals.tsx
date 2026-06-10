@@ -79,7 +79,8 @@ export function ReferralsPage() {
           <Gift className="h-6 w-6 text-brand-red" /> Refer a friend
         </h1>
         <p className="text-muted-foreground">
-          Share your link. When a friend joins and qualifies, you both earn grade credits.
+          Share your link. When a friend joins and qualifies, you both earn grade
+          credits — added to your balance automatically, and we'll let you know.
         </p>
       </div>
 

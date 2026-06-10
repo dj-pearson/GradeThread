@@ -18,7 +18,9 @@ const BRAND_NAVY = "#0F3460";
 const BRAND_RED = "#E94560";
 const BRAND_NIGHT = "#1A1A2E";
 const BRAND_GRAY = "#F5F5F5";
-const SITE_URL = "https://gradethread.com";
+// US-801: derive the email base URL from env (same PUBLIC_SITE_URL the rest of
+// the edge service uses) so staging/preview sends don't deep-link to production.
+const SITE_URL = Deno.env.get("PUBLIC_SITE_URL")?.trim() || "https://gradethread.com";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -160,13 +162,24 @@ async function enqueueFailedEmail(options: EmailOptions, category: string): Prom
 // ─── HTML Layout ────────────────────────────────────────────────────
 
 // US-516 (CAN-SPAM): a valid physical postal address in every commercial email
-// footer. Set COMPANY_POSTAL_ADDRESS to the real registered address; the
-// fallback is a clearly-marked placeholder that MUST be replaced before launch.
+// footer. Set COMPANY_POSTAL_ADDRESS to the real registered address.
+// US-801: never render the bracketed "[SET …]" dev placeholder to a real
+// recipient. When the env var is unset we warn (once) and fall back to the
+// registered company + state — not a valid full street address, but compliant-
+// looking and not obviously broken. Boot-time env validation (US-777) should
+// also flag the missing var so it's caught before mail goes out.
+let warnedMissingPostal = false;
 function postalAddress(): string {
-  return (
-    Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim() ||
-    "Pearson Media LLC, [SET COMPANY_POSTAL_ADDRESS], Iowa, USA"
-  );
+  const configured = Deno.env.get("COMPANY_POSTAL_ADDRESS")?.trim();
+  if (configured) return configured;
+  if (!warnedMissingPostal) {
+    warnedMissingPostal = true;
+    console.warn(
+      "[email] COMPANY_POSTAL_ADDRESS is unset — CAN-SPAM footer is using a " +
+        "fallback registered-entity line. Set it to the real postal address.",
+    );
+  }
+  return "Pearson Media LLC, Iowa, USA";
 }
 
 // `unsubscribeUrl` (US-516): when provided (MARKETING email), render a no-login
@@ -372,6 +385,7 @@ export async function sendDisputeResolvedEmail(
     to,
     subject: `Dispute ${outcomeLabel}: ${data.submissionTitle}`,
     html: emailLayout(content),
+    category: "dispute_status", // US-801: durable retry on transient failure
   });
 }
 
@@ -446,6 +460,7 @@ export async function sendWelcomeEmail(
     to,
     subject: "Welcome to GradeThread — Start Grading with AI",
     html: emailLayout(content),
+    category: "welcome", // US-801: durable retry on transient failure
   });
 }
 
@@ -527,6 +542,7 @@ export async function sendSubscriptionStartedEmail(
     to,
     subject: `FlipDesk ${data.plan} active — welcome aboard`,
     html: emailLayout(content),
+    category: "subscription_started", // US-801: durable retry on transient failure
   });
 }
 
@@ -550,6 +566,7 @@ export async function sendSubscriptionCanceledEmail(
     to,
     subject: `Your FlipDesk ${data.plan} plan ends ${formatDate(data.endsAt)}`,
     html: emailLayout(content),
+    category: "subscription_canceled", // US-801: durable retry on transient failure
   });
 }
 
@@ -585,6 +602,7 @@ export async function sendSubscriptionPausedEmail(
     to,
     subject: `FlipDesk ${data.plan} paused — resumes ${formatDate(data.resumesAt)}`,
     html: emailLayout(content),
+    category: "subscription_paused", // US-801: durable retry on transient failure
   });
 }
 
@@ -605,6 +623,7 @@ export async function sendSubscriptionResumedEmail(
     to,
     subject: `FlipDesk ${data.plan} is active again`,
     html: emailLayout(content),
+    category: "subscription_resumed", // US-801: durable retry on transient failure
   });
 }
 
@@ -638,6 +657,7 @@ export async function sendCreditPackPurchasedEmail(
     to,
     subject: `Receipt: ${data.credits} GradeThread credits — ${dollars(data.amountCents)}`,
     html: emailLayout(content),
+    category: "credit_pack_purchased", // US-801: durable retry on transient failure
   });
 }
 
@@ -688,6 +708,7 @@ export async function sendTrialExpiringEmail(
     to,
     subject: `${data.daysLeft} day${data.daysLeft === 1 ? "" : "s"} left on your FlipDesk Pro trial`,
     html: emailLayout(content, { unsubscribeUrl }),
+    category: "trial_expiring", // US-801: durable retry on transient failure
   });
 }
 
@@ -733,6 +754,7 @@ export async function sendWorkspaceInvitationEmail(
     to,
     subject: `${data.inviterName} invited you to ${data.workspaceName} on GradeThread`,
     html: emailLayout(content),
+    category: "workspace_invite", // US-801: durable retry on transient failure
   });
 }
 
@@ -806,6 +828,7 @@ export async function sendGradingRegressionAlertEmail(
     to,
     subject: `${isCritical ? "🔴" : "🟡"} GradeThread grading-quality alert (${data.severity})`,
     html: emailLayout(content),
+    category: "grading_regression_alert", // US-801: durable retry on transient failure
   });
 }
 
@@ -848,6 +871,107 @@ export async function sendDisputeFiledAdminEmail(
     to,
     subject: `New grade dispute: ${data.submissionTitle}`,
     html: emailLayout(content),
+    category: "dispute_filed_admin", // US-801: durable retry on transient failure
+  });
+}
+
+// ─── Referral reward ────────────────────────────────────────────────
+
+interface ReferralRewardData {
+  userName: string | null;
+  credits: number;
+  /** Referrer (their invitee qualified) vs the referred user (they joined). */
+  isReferrer: boolean;
+}
+
+/**
+ * US-802: tell a user their referral reward landed. Sent to both the referrer
+ * and the referred user when an admin grants a referral. Categorized so a
+ * transient SMTP failure is retried from the outbox (US-801).
+ */
+export async function sendReferralRewardEmail(
+  to: string,
+  data: ReferralRewardData,
+): Promise<boolean> {
+  const greeting = data.userName ? `Hi ${escapeHtml(data.userName)}, ` : "";
+  const reason = data.isReferrer
+    ? "someone you referred qualified"
+    : "you joined through a referral";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      You earned ${data.credits} grade credit${data.credits === 1 ? "" : "s"}
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      ${greeting}because ${reason}, we've added
+      <strong>${data.credits} grade credit${data.credits === 1 ? "" : "s"}</strong>
+      to your account. They're ready to use now.
+    </p>
+    ${ctaButton("View your balance", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `You earned ${data.credits} GradeThread credit${data.credits === 1 ? "" : "s"}`,
+    html: emailLayout(content),
+    category: "referral_reward", // US-801/US-802: durable retry on transient failure
+  });
+}
+
+// ─── User feedback (internal/support alert) ─────────────────────────
+
+interface FeedbackData {
+  userEmail: string;
+  userName: string | null;
+  message: string;
+  source: string;
+  appVersion: string | null;
+  osVersion: string | null;
+  deviceModel: string | null;
+}
+
+/**
+ * US-801: route an in-app feedback submission to support so a human triages it
+ * without polling feedback_messages. The DB row remains the system-of-record;
+ * this is the best-effort notification (categorized so a transient SMTP failure
+ * is retried from the outbox).
+ */
+export async function sendFeedbackEmail(
+  to: string,
+  data: FeedbackData,
+): Promise<boolean> {
+  const meta = [
+    ["From", `${data.userName ? `${data.userName} ` : ""}<${data.userEmail}>`],
+    ["Source", data.source],
+    ["App version", data.appVersion],
+    ["OS", data.osVersion],
+    ["Device", data.deviceModel],
+  ]
+    .filter(([, v]) => v)
+    .map(
+      ([k, v]) =>
+        `<tr><td style="padding:4px 12px;color:#666;font-size:12px;">${escapeHtml(
+          k as string,
+        )}</td><td style="padding:4px 12px;font-size:13px;color:#333;">${escapeHtml(
+          String(v),
+        )}</td></tr>`,
+    )
+    .join("");
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      New in-app feedback
+    </h2>
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin: 0 0 16px;">
+      ${meta}
+    </table>
+    <div style="padding:12px;background:${BRAND_GRAY};border-radius:8px;font-size:14px;color:#333;line-height:1.5;white-space:pre-wrap;">${escapeHtml(
+      data.message,
+    )}</div>
+  `;
+  return await sendEmail({
+    to,
+    subject: `New feedback from ${data.userName ?? data.userEmail}`,
+    html: emailLayout(content),
+    category: "feedback", // US-801: durable retry on transient failure
   });
 }
 
@@ -880,6 +1004,7 @@ export async function sendAccountDeletedEmail(
     to,
     subject: "Your GradeThread account has been deleted",
     html: emailLayout(content),
+    category: "account_deleted", // US-801: durable retry on transient failure
   });
 }
 

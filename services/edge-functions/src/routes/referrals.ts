@@ -108,6 +108,21 @@ referralRoutes.post("/redeem", async (c) => {
   const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
   if (!code) return c.json({ error: "code is required" }, 400);
 
+  // US-802: a suspended/deleted account must not accrue referral attribution
+  // (which would later trigger a reward grant). Reject before inserting.
+  const { data: me } = await supabaseAdmin
+    .from("users")
+    .select("suspended")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!me) return c.json({ error: "Account not found." }, 404);
+  if ((me as { suspended?: boolean }).suspended) {
+    return c.json(
+      { error: "Suspended accounts can't redeem referral codes." },
+      403,
+    );
+  }
+
   // Already attributed? (one referral per referred user — UNIQUE in schema)
   const { data: existing } = await supabaseAdmin
     .from("referral_events")

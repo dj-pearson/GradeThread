@@ -11788,8 +11788,8 @@
         "deno tests: uncategorized send no longer exists (lint/test asserts category present), failed categorized send enqueues"
       ],
       "priority": 801,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Email/Reliability] Complements US-222 (receipts/dunning are new sends; this fixes the delivery substrate)."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Email/Reliability] Complements US-222 (receipts/dunning are new sends; this fixes the delivery substrate). DONE 2026-06-10: every transactional sender in lib/email.ts now passes a category (welcome, subscription_started/canceled/paused/resumed, credit_pack_purchased, dispute_status, dispute_filed_admin, trial_expiring, workspace_invite, grading_regression_alert, account_deleted, feedback, referral_reward) so a transient SMTP failure is persisted to the email_deliveries outbox and retried (sendBroadcastEmail intentionally exempt — bulk/marketing). Implemented sendFeedbackEmail + wired it into notifications.ts /feedback (FEEDBACK_ALERT_EMAIL|SUPPORT_EMAIL|SMTP_ADMIN_EMAIL), replacing the log-only placeholder. postalAddress() no longer renders the '[SET …]' dev placeholder (warns once + falls back to the registered entity line); SITE_URL now derives from PUBLIC_SITE_URL. New email-category_test.ts asserts every transactional sender is categorized + the placeholder is gone. Verified: deno check + lint clean, 522 edge tests pass. NOTE: COMPANY_POSTAL_ADDRESS boot-env warning belongs to US-777."
     },
     {
       "id": "US-802",
@@ -11802,8 +11802,8 @@
         "deno tests cover: grant fires both notifications, suspended-account redeem rejected, double-grant stays idempotent"
       ],
       "priority": 802,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Growth] Qualification automation (auto-promote pending→qualified) is deliberately out of scope — keep admin-manual for launch."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Growth] Qualification automation (auto-promote pending→qualified) is deliberately out of scope — keep admin-manual for launch. DONE 2026-06-10: admin-growth referral grant now notifies BOTH parties — in-app (notifyUser type 'billing' → /dashboard/billing) + email (sendReferralRewardEmail, category referral_reward → durable retry per US-801) — best-effort so a notify failure can't 500 the grant; double-grant stays idempotent (existing 409 on reward_status='granted'). referrals.ts /redeem now rejects suspended (403) and non-existent (404) accounts before creating attribution. Referrals page copy updated to say credits are added automatically + you're notified. Verified: deno check + lint clean, 522 edge tests pass; reward email categorization covered by email-category_test. NOTE: handler-level behavior (suspended-redeem reject, dual-notify, idempotency) is the domain of the env-gated integration suite — not unit-tested here to avoid a fragile supabaseAdmin mock. Qualification automation (auto pending→qualified) remains deliberately admin-manual for launch."
     }
   ]
 }

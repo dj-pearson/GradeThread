@@ -5,6 +5,7 @@ import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
 import {
   sendDisputeFiledAdminEmail,
   sendDisputeResolvedEmail,
+  sendFeedbackEmail,
   sendTrialExpiringEmail,
   sendWelcomeEmail,
 } from "../lib/email.ts";
@@ -157,16 +158,33 @@ notificationRoutes.post("/feedback", async (c) => {
     .eq("id", userId)
     .maybeSingle();
 
-  // Wired to existing email infra would go here. For now we log so
-  // the operator can see what would have been sent until the
-  // sendFeedbackEmail helper lands in services/edge-functions/src/lib/
-  // email.ts.
-  console.info("[feedback] new message", {
-    id: (inserted as { id: string } | null)?.id ?? null,
-    user_email: (user as { email?: string } | null)?.email ?? "unknown",
-    source: insertPayload.source,
-    length: insertPayload.message.length,
-  });
+  // US-801: route to support via the email infra (categorized → durable retry
+  // from the outbox). Don't block or fail the request on it — the row is the
+  // system-of-record copy.
+  const supportEmail =
+    Deno.env.get("FEEDBACK_ALERT_EMAIL") ||
+    Deno.env.get("SUPPORT_EMAIL") ||
+    Deno.env.get("SMTP_ADMIN_EMAIL") ||
+    "";
+  const userRow = user as { email?: string; full_name?: string | null } | null;
+  if (supportEmail) {
+    void sendFeedbackEmail(supportEmail, {
+      userEmail: userRow?.email ?? "unknown",
+      userName: userRow?.full_name ?? null,
+      message: cappedMessage,
+      source: insertPayload.source,
+      appVersion: insertPayload.app_version,
+      osVersion: insertPayload.os_version,
+      deviceModel: insertPayload.device_model,
+    }).catch((err) => console.error("[feedback] support email failed:", err));
+  } else {
+    console.info("[feedback] new message (no support email configured)", {
+      id: (inserted as { id: string } | null)?.id ?? null,
+      user_email: userRow?.email ?? "unknown",
+      source: insertPayload.source,
+      length: insertPayload.message.length,
+    });
+  }
 
   return c.json({
     ok: true,
