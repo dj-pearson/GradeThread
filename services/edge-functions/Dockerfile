@@ -14,6 +14,18 @@ ENV RELEASE_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
 LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread"
 
+# Patch known base-image OS CVEs before the app layers (stable, rarely-changing
+# layer). The Trivy gate (security.yml, --severity HIGH,CRITICAL --ignore-unfixed
+# --exit-code 1) fails the build on a fixed-but-unpatched CVE — e.g. CVE-2026-45447
+# in libssl shipped by denoland/deno:debian-2.8.0. A targeted --only-upgrade keeps
+# the image small and avoids a full dist-upgrade. Re-run this when Trivy flags a
+# new fixed OS CVE, or bump the base image once denoland ships a patched tag.
+USER root
+RUN apt-get update \
+    && apt-get install --only-upgrade -y \
+        libssl3t64 openssl-provider-legacy openssl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy manifests first so dep caching can be a separate layer.
