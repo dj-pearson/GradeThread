@@ -1,10 +1,11 @@
 import SwiftData
 import SwiftUI
 
-/// Reorder / set-cover / delete the photos on an item. Presented as a sheet
-/// from ``ItemCanvasView``. The top row is the cover (drives the grid
-/// thumbnail + eBay main image); drag to reorder, swipe to delete,
-/// long-press for "Set as cover". Each change persists immediately.
+/// Reorder / set-cover / retag / delete the photos on an item. Presented as
+/// a sheet from ``ItemCanvasView``. The top row is the cover (drives the
+/// grid thumbnail + eBay main image); drag to reorder, swipe to delete,
+/// long-press for "Set as cover" / "Change type". Each change persists
+/// immediately.
 struct PhotoManagerView: View {
     let item: LocalInventoryItem
     /// Photos in current sort order, passed in from the canvas `@Query`.
@@ -31,6 +32,22 @@ struct PhotoManagerView: View {
                                     } label: {
                                         Label("Set as cover", systemImage: "star")
                                     }
+                                }
+                                Menu {
+                                    ForEach(FlipdeskPhotoType.all, id: \.self) { type in
+                                        Button {
+                                            retag(photo, to: type)
+                                        } label: {
+                                            if type == photo.photoType {
+                                                Label(FlipdeskPhotoType.label(for: type), systemImage: "checkmark")
+                                            } else {
+                                                Text(FlipdeskPhotoType.label(for: type))
+                                            }
+                                        }
+                                        .disabled(type == photo.photoType)
+                                    }
+                                } label: {
+                                    Label("Change type", systemImage: "tag")
                                 }
                             }
                     }
@@ -109,6 +126,21 @@ struct PhotoManagerView: View {
         }
     }
 
+    private func retag(_ photo: LocalItemPhoto, to serverType: String) {
+        AppRouter.haptic()
+        Task {
+            isSaving = true
+            defer { isSaving = false }
+            do {
+                // LocalItemPhoto is @Model (observable) — the row label
+                // refreshes on mutation without touching `working`.
+                try await PhotoEditService().retag(photo, to: serverType, context: modelContext)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func runDelete(_ photo: LocalItemPhoto) async {
         isSaving = true
         defer { isSaving = false }
@@ -143,7 +175,7 @@ private struct PhotoManagerRow: View {
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(photo.photoType.capitalized)
+                Text(FlipdeskPhotoType.label(for: photo.photoType))
                     .font(.subheadline)
                 if isCover {
                     Label("Cover", systemImage: "star.fill")

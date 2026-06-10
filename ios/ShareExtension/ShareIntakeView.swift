@@ -3,7 +3,8 @@ import UIKit
 
 /// SwiftUI surface hosted inside the Share Extension. Lets the user
 /// assign each shared image to a slot (Front / Back / Tag / Detail /
-/// Defect 1-3) before tapping 'Add to FlipDesk'. The extension's
+/// Defect 1-3 / Tag 2 / Detail 2-4 / Interior / Flat lay / On model /
+/// measurements) before tapping 'Add to FlipDesk'. The extension's
 /// principal class receives the assignments + writes them to the App
 /// Group inbox.
 ///
@@ -39,23 +40,40 @@ struct ShareIntakeView: View {
         _assignments = State(initialValue: initial)
     }
 
-    /// Mirror of PhotoSlotType ordering — first four required, then
-    /// up to three defects.
+    /// Mirror of PhotoSlotType ordering — first four required, then up to
+    /// three defects, then the extended optional taxonomy (tag 2, extra
+    /// details, interior, flat lay, on-model, measurements).
     static let allSlots: [String] = [
         "front", "back", "tag", "detail",
         "defect1", "defect2", "defect3",
+        "tag_2", "detail_2", "detail_3", "detail_4",
+        "interior", "flatlay", "on_model",
+        "measurement_chest", "measurement_waist", "measurement_length",
+        "measurement_sleeve", "measurement_inseam",
     ]
 
     static func displayName(for slot: String) -> String {
         switch slot {
-        case "front":   return "Front"
-        case "back":    return "Back"
-        case "tag":     return "Tag"
-        case "detail":  return "Detail"
-        case "defect1": return "Defect 1"
-        case "defect2": return "Defect 2"
-        case "defect3": return "Defect 3"
-        default:        return slot.capitalized
+        case "front":    return "Front"
+        case "back":     return "Back"
+        case "tag":      return "Tag"
+        case "detail":   return "Detail"
+        case "defect1":  return "Defect 1"
+        case "defect2":  return "Defect 2"
+        case "defect3":  return "Defect 3"
+        case "tag_2":    return "Tag 2"
+        case "detail_2": return "Detail 2"
+        case "detail_3": return "Detail 3"
+        case "detail_4": return "Detail 4"
+        case "interior": return "Interior"
+        case "flatlay":  return "Flat lay"
+        case "on_model": return "On model"
+        case "measurement_chest":  return "Measure: Chest / Bust"
+        case "measurement_waist":  return "Measure: Waist"
+        case "measurement_length": return "Measure: Length"
+        case "measurement_sleeve": return "Measure: Sleeve"
+        case "measurement_inseam": return "Measure: Inseam"
+        default:         return slot.capitalized
         }
     }
 

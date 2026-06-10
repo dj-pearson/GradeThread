@@ -332,10 +332,42 @@ struct PhotoIntakeView: View {
                     }
                 }
 
-                if store.canAddDefectSlot {
-                    Button {
-                        AppRouter.haptic()
-                        store.revealNextDefectSlot()
+                if !store.hiddenExtraSlots.isEmpty {
+                    Menu {
+                        if let defect = store.nextHiddenDefectSlot {
+                            Button {
+                                AppRouter.haptic()
+                                store.reveal(defect)
+                            } label: {
+                                Label("Defect", systemImage: defect.systemImage)
+                            }
+                        }
+                        ForEach(
+                            PhotoSlotType.extras.filter {
+                                !store.extraSlots.contains($0)
+                            }
+                        ) { slot in
+                            Button {
+                                AppRouter.haptic()
+                                store.reveal(slot)
+                            } label: {
+                                Label(slot.label, systemImage: slot.systemImage)
+                            }
+                        }
+                        Section("Measurements") {
+                            ForEach(
+                                PhotoSlotType.measurements.filter {
+                                    !store.extraSlots.contains($0)
+                                }
+                            ) { slot in
+                                Button {
+                                    AppRouter.haptic()
+                                    store.reveal(slot)
+                                } label: {
+                                    Label(slot.label, systemImage: slot.systemImage)
+                                }
+                            }
+                        }
                     } label: {
                         VStack(spacing: 4) {
                             Image(systemName: "plus")
@@ -348,12 +380,12 @@ struct PhotoIntakeView: View {
                                         .stroke(.white.opacity(0.4), style: .init(lineWidth: 1, dash: [4, 3]))
                                 )
                                 .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
-                            Text("Defect")
+                            Text("More")
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.7))
                         }
                     }
-                    .accessibilityLabel("Add a defect slot")
+                    .accessibilityLabel("Add a photo slot")
                 }
             }
             .padding(.horizontal, 16)
@@ -589,30 +621,18 @@ struct PhotoIntakeView: View {
     // MARK: - Library import (US-174)
 
     /// Slots eligible for the given staged photo — empty slots in the
-    /// currently-visible strip, plus the next defect slot if any remain
-    /// hidden. Re-evaluated per-photo so two staged photos can both pick
-    /// "Defect 1" or both target newly-revealed slots without confusing
-    /// the menu.
+    /// currently-visible strip, plus every optional slot not yet revealed
+    /// (next hidden defect first, then the extended taxonomy). Re-evaluated
+    /// per-photo so two staged photos can both pick "Defect 1" or both
+    /// target newly-revealed slots without confusing the menu.
     private func availableSlots(for _: PhotoCapture) -> [PhotoSlotType] {
-        var slots = store.visibleSlots.filter { store.photos[$0] == nil }
-        if store.canAddDefectSlot {
-            // The "next" hidden defect slot, surfaced so the user can park
-            // a defect-only library import without leaving the tray to
-            // hit the "+ Defect" tile.
-            let nextHidden = PhotoSlotType.defects[store.defectSlotsVisible]
-            slots.append(nextHidden)
-        }
-        return slots
+        store.visibleSlots.filter { store.photos[$0] == nil }
+            + store.hiddenExtraSlots
     }
 
     private func assign(stagedPhoto: PhotoCapture, to slot: PhotoSlotType) {
-        // Reveal the defect slot if the user picked one beyond the
-        // currently-visible set, so the strip shows the assigned photo.
-        if slot.isRequired == false {
-            while !store.visibleSlots.contains(slot) && store.canAddDefectSlot {
-                store.revealNextDefectSlot()
-            }
-        }
+        // setPhoto auto-reveals hidden optional slots, so the strip always
+        // shows the assigned photo.
         store.setPhoto(stagedPhoto, for: slot)
         stagedPhotos.removeAll { $0.id == stagedPhoto.id }
     }

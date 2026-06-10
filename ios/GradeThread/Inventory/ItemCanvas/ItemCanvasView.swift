@@ -573,7 +573,7 @@ struct ItemCanvasView: View {
         } footer: {
             if !allPhotos.isEmpty {
                 // US-687: corrected copy — adding happens here, not the + tab.
-                Text("Tap Add to capture or import more photos, or Manage to reorder, set the cover, or remove photos.")
+                Text("Tap Add to capture or import more photos, or Manage to reorder, set the cover, change a photo's type, or remove photos.")
                     .font(.footnote)
             }
         }
@@ -592,7 +592,7 @@ struct ItemCanvasView: View {
             }
             .frame(width: 84, height: 84)
             .clipped()
-            Text(photo.photoType.capitalized)
+            Text(FlipdeskPhotoType.label(for: photo.photoType))
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
@@ -604,7 +604,7 @@ struct ItemCanvasView: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
         // US-705: each photo reads as "<type> photo" instead of an unlabeled image.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(photo.photoType.capitalized) photo")
+        .accessibilityLabel("\(FlipdeskPhotoType.label(for: photo.photoType)) photo")
     }
 
     private var measurementsSection: some View {
@@ -764,7 +764,9 @@ struct ItemCanvasView: View {
     // MARK: - Item-level actions (US-650)
 
     /// Standard photo slots this item doesn't have yet — the targets the
-    /// "Add photos" action fills (front/back/tag/detail, then unused defects).
+    /// "Add photos" action fills (front/back/tag/detail, then unused defects,
+    /// then detail 2–4). Exotic types (interior, flat lay, measurements…)
+    /// are never auto-assigned — retag via Manage instead.
     private var unfilledStandardSlots: [PhotoSlotType] {
         let present = Set(allPhotos.map(\.photoType))
         var slots: [PhotoSlotType] = []
@@ -777,12 +779,16 @@ struct ItemCanvasView: View {
         if defectCount < defectSlots.count {
             slots.append(contentsOf: defectSlots[defectCount...])
         }
+        for slot in [PhotoSlotType.detail2, .detail3, .detail4]
+        where !present.contains(slot.serverPhotoType) {
+            slots.append(slot)
+        }
         return slots
     }
 
     /// US-687: the slot a newly-added photo at `offset` should fill — unfilled
     /// standard slots first, then extra `.detail` shots once the standard set
-    /// is full (so users aren't capped at front/back/tag/detail + 3 defects).
+    /// is full (so users aren't capped at the standard slot count).
     private func slotForAddedPhoto(offset: Int) -> PhotoSlotType {
         let slots = unfilledStandardSlots
         return offset < slots.count ? slots[offset] : .detail

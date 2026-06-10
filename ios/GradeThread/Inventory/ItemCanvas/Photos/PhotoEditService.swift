@@ -74,6 +74,25 @@ struct PhotoEditService {
         try? context.save()
     }
 
+    private struct TypeUpdate: Encodable { let photo_type: String }
+
+    /// Changes a photo's `photo_type` (web "retag" parity). `serverType`
+    /// must be one of `FlipdeskPhotoType.all`. Server first, then local
+    /// mirror — on throw the local row is untouched.
+    func retag(
+        _ photo: LocalItemPhoto,
+        to serverType: String,
+        context: ModelContext
+    ) async throws {
+        try await supabase
+            .from("item_photos")
+            .update(TypeUpdate(photo_type: serverType))
+            .eq("id", value: photo.id)
+            .execute()
+        photo.photoType = serverType
+        try? context.save()
+    }
+
     /// Mirrors the order into the local rows + refreshes the cached cover.
     private func applyLocalOrder(_ ordered: [LocalItemPhoto], item: LocalInventoryItem) {
         for (index, photo) in ordered.enumerated() {

@@ -156,6 +156,51 @@ final class PhotoIntakeTests: XCTestCase {
         XCTAssertNotNil(store.photos[.defect1])
     }
 
+    // MARK: - Extended optional slots (web photo-type parity)
+
+    func test_store_reveal_addsArbitraryOptionalSlot() {
+        let store = PhotoIntakeStore()
+        XCTAssertFalse(store.visibleSlots.contains(.flatlay))
+
+        store.reveal(.flatlay)
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + [.flatlay])
+
+        // Re-revealing is a no-op; required slots can't be "revealed".
+        store.reveal(.flatlay)
+        store.reveal(.front)
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required + [.flatlay])
+    }
+
+    func test_store_setPhoto_autoRevealsHiddenOptionalSlot() {
+        let store = PhotoIntakeStore()
+        store.setPhoto(makeCapture(), for: .measurementChest)
+
+        XCTAssertTrue(store.visibleSlots.contains(.measurementChest))
+        XCTAssertNotNil(store.photos[.measurementChest])
+    }
+
+    func test_store_hiddenExtraSlots_surfacesNextDefectAndUnrevealedExtras() {
+        let store = PhotoIntakeStore()
+        // Only the FIRST hidden defect is offered (defects reveal in order).
+        XCTAssertEqual(store.hiddenExtraSlots.first, .defect1)
+        XCTAssertFalse(store.hiddenExtraSlots.contains(.defect2))
+        XCTAssertTrue(store.hiddenExtraSlots.contains(.tag2))
+        XCTAssertTrue(store.hiddenExtraSlots.contains(.measurementInseam))
+
+        store.reveal(.defect1)
+        store.reveal(.tag2)
+        XCTAssertEqual(store.hiddenExtraSlots.first, .defect2)
+        XCTAssertFalse(store.hiddenExtraSlots.contains(.tag2))
+    }
+
+    func test_store_reset_clearsRevealedExtraSlots() {
+        let store = PhotoIntakeStore()
+        store.reveal(.interior)
+        store.revealNextDefectSlot()
+        store.reset()
+        XCTAssertEqual(store.visibleSlots, PhotoSlotType.required)
+    }
+
     // MARK: - PhotoSlotType
 
     func test_slotType_serverPhotoType_collapsesDefectsToDefect() {
@@ -170,6 +215,35 @@ final class PhotoIntakeTests: XCTestCase {
         XCTAssertEqual(PhotoSlotType.required, [.front, .back, .tag, .detail])
         XCTAssertEqual(PhotoSlotType.required.filter { $0.isRequired }.count, 4)
         XCTAssertEqual(PhotoSlotType.defects.filter { $0.isRequired }.count, 0)
+        XCTAssertEqual(PhotoSlotType.extras.filter { $0.isRequired }.count, 0)
+        XCTAssertEqual(PhotoSlotType.measurements.filter { $0.isRequired }.count, 0)
+    }
+
+    func test_slotType_extendedSlots_rawValueIsServerType() {
+        // Every non-defect slot's rawValue IS its server photo_type, so
+        // drafts / share-inbox manifests / offline sync round-trip without
+        // translation.
+        for slot in PhotoSlotType.allCases where !PhotoSlotType.defects.contains(slot) {
+            XCTAssertEqual(slot.serverPhotoType, slot.rawValue)
+        }
+        XCTAssertEqual(PhotoSlotType.tag2.serverPhotoType, "tag_2")
+        XCTAssertEqual(PhotoSlotType.onModel.serverPhotoType, "on_model")
+        XCTAssertEqual(PhotoSlotType.measurementChest.serverPhotoType, "measurement_chest")
+    }
+
+    func test_slotType_serverTypes_existInFlipdeskPhotoTypeCatalog() {
+        // The retag picker + display labels are driven by the server-type
+        // catalog — every slot must map into it.
+        for slot in PhotoSlotType.allCases {
+            XCTAssertTrue(
+                FlipdeskPhotoType.all.contains(slot.serverPhotoType),
+                "\(slot.rawValue) maps to \(slot.serverPhotoType), missing from FlipdeskPhotoType.all"
+            )
+        }
+        // And the catalog mirrors web FLIPDESK_PHOTO_TYPES (17 entries).
+        XCTAssertEqual(FlipdeskPhotoType.all.count, 17)
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "on_model"), "On model")
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "interior"), "Interior / Lining")
     }
 
     // MARK: - Helpers

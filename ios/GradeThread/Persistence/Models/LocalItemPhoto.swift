@@ -7,7 +7,7 @@ final class LocalItemPhoto {
     @Attribute(.unique) var id: String
     var inventoryItemId: String
 
-    var photoType: String     // front, back, tag, detail, defect, flatlay, on_model
+    var photoType: String     // server flipdesk_photo_type — see FlipdeskPhotoType.all
     var photoURL: String
     var thumbnailURL: String?
     var storagePath: String?

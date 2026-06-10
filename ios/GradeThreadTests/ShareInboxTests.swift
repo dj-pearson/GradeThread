@@ -144,6 +144,10 @@ final class ShareInboxTests: XCTestCase {
         let mirroredSlots: [String] = [
             "front", "back", "tag", "detail",
             "defect1", "defect2", "defect3",
+            "tag_2", "detail_2", "detail_3", "detail_4",
+            "interior", "flatlay", "on_model",
+            "measurement_chest", "measurement_waist", "measurement_length",
+            "measurement_sleeve", "measurement_inseam",
         ]
         let canonical = PhotoSlotType.allCases.map(\.rawValue)
         XCTAssertEqual(mirroredSlots, canonical,

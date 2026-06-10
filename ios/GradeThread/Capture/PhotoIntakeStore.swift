@@ -14,17 +14,25 @@ public final class PhotoIntakeStore {
     /// update this; the auto-advance after each capture also writes here.
     public var activeSlot: PhotoSlotType = .front
 
-    /// How many defect slots are currently revealed (0…3). Bound to the
-    /// "Add detail / defect" button on the intake view.
-    public private(set) var defectSlotsVisible: Int = 0
+    /// Optional slots the user has revealed, in reveal order. Defects reveal
+    /// one at a time via ``revealNextDefectSlot()``; every other optional
+    /// type (tag 2, extra details, interior, flat lay, on-model,
+    /// measurements) reveals directly via ``reveal(_:)`` from the "Add"
+    /// menu on the intake view.
+    public private(set) var extraSlots: [PhotoSlotType] = []
 
     public init() {}
 
     // MARK: - Derived state
 
-    /// Slots currently displayed in the strip: 4 required + first N defects.
+    /// Slots currently displayed in the strip: 4 required + revealed extras.
     public var visibleSlots: [PhotoSlotType] {
-        PhotoSlotType.required + PhotoSlotType.defects.prefix(defectSlotsVisible)
+        PhotoSlotType.required + extraSlots
+    }
+
+    /// How many defect slots are currently revealed (0…3).
+    public var defectSlotsVisible: Int {
+        extraSlots.filter { PhotoSlotType.defects.contains($0) }.count
     }
 
     /// First slot without a capture, scanning the visible strip in order.
@@ -45,7 +53,23 @@ public final class PhotoIntakeStore {
     }
 
     public var canAddDefectSlot: Bool {
-        defectSlotsVisible < PhotoSlotType.defects.count
+        nextHiddenDefectSlot != nil
+    }
+
+    /// The first defect slot not yet revealed, if any.
+    public var nextHiddenDefectSlot: PhotoSlotType? {
+        PhotoSlotType.defects.first { !extraSlots.contains($0) }
+    }
+
+    /// Optional slots offerable from the "Add" menu: the next hidden defect
+    /// (defects reveal one at a time), then every extended-taxonomy slot not
+    /// yet revealed, in canonical display order.
+    public var hiddenExtraSlots: [PhotoSlotType] {
+        var out: [PhotoSlotType] = []
+        if let nextDefect = nextHiddenDefectSlot { out.append(nextDefect) }
+        out += (PhotoSlotType.extras + PhotoSlotType.measurements)
+            .filter { !extraSlots.contains($0) }
+        return out
     }
 
     // MARK: - Mutations
@@ -60,8 +84,11 @@ public final class PhotoIntakeStore {
     }
 
     /// Stores a photo in a specific slot. Used by the library-import flow
-    /// (US-174) which lets the user assign each picked image after picking.
+    /// (US-174) which lets the user assign each picked image after picking,
+    /// and by draft restore. Optional slots auto-reveal so the assigned photo
+    /// is always visible in the strip.
     public func setPhoto(_ photo: PhotoCapture, for slot: PhotoSlotType) {
+        reveal(slot)
         photos[slot] = photo
     }
 
@@ -75,22 +102,29 @@ public final class PhotoIntakeStore {
     }
 
     public func setActiveSlot(_ slot: PhotoSlotType) {
-        // Don't allow focusing a defect slot that hasn't been revealed yet
-        // — the slot strip wouldn't be rendering it.
+        // Don't allow focusing an optional slot that hasn't been revealed
+        // yet — the slot strip wouldn't be rendering it.
         guard visibleSlots.contains(slot) else { return }
         activeSlot = slot
     }
 
+    /// Reveals an optional slot so it appears in the strip. No-op for
+    /// required slots (always visible) and already-revealed ones.
+    public func reveal(_ slot: PhotoSlotType) {
+        guard !slot.isRequired, !extraSlots.contains(slot) else { return }
+        extraSlots.append(slot)
+    }
+
     /// Reveals one more defect slot, up to the max of 3.
     public func revealNextDefectSlot() {
-        guard canAddDefectSlot else { return }
-        defectSlotsVisible += 1
+        guard let next = nextHiddenDefectSlot else { return }
+        reveal(next)
     }
 
     /// Resets state for a fresh intake session.
     public func reset() {
         photos.removeAll()
         activeSlot = .front
-        defectSlotsVisible = 0
+        extraSlots.removeAll()
     }
 }
