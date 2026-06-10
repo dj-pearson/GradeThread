@@ -19,7 +19,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
-import { reverseChargeForUngradedSubmission } from "./grading-pipeline.ts";
+import { processSubmission, reverseChargeForUngradedSubmission } from "./grading-pipeline.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
 
@@ -28,6 +28,13 @@ import { captureException, logEvent, recordMetric } from "./observability.ts";
 function staleThresholdMs(): number {
   const raw = Number(Deno.env.get("STUCK_SUBMISSION_MINUTES"));
   return (Number.isFinite(raw) && raw > 0 ? raw : 20) * 60_000;
+}
+
+// A 'pending' + 'unpaid' submission older than this is a closed-tab checkout —
+// the user started a per-grade Checkout and never paid. We expire it (no charge).
+function abandonedThresholdMs(): number {
+  const raw = Number(Deno.env.get("ABANDONED_CHECKOUT_HOURS"));
+  return (Number.isFinite(raw) && raw > 0 ? raw : 24) * 3_600_000;
 }
 
 const BATCH_LIMIT = 100;
@@ -101,6 +108,132 @@ export async function recoverStuckSubmissions(): Promise<StuckSweepResult> {
   return { scanned: stuck.length, recovered, failed };
 }
 
+// US-773: sweep abandoned-checkout submissions (closed the Checkout tab, never
+// paid) and recover stranded-paid ones (paid, but the grade kick never landed —
+// a crash between the webhook's paid flip and processSubmission). Distinct from
+// recoverStuckSubmissions (which handles 'processing' orphans):
+//
+//   • ABANDONED  — status='pending' + payment_status='unpaid' + older than 24h →
+//                  mark 'expired'. NO charge is attempted; the UI shows "payment
+//                  not completed — resubmit" instead of a stale pending row.
+//   • STRANDED-PAID — status='pending' + payment satisfied + grading never
+//                  claimed + older than the processing-stale threshold → re-kick
+//                  the pipeline. The grading_started_at claim makes the re-kick
+//                  idempotent, so a concurrent kick can't double-grade.
+export interface AbandonedSweepResult {
+  expired: number;
+  rekicked: number;
+}
+
+// Injectable data access so the sweep's orchestration is unit-testable without a
+// DB (mirrors the injectable-deps idiom used in webhook-idempotency / rate-limit).
+export interface AbandonedSweepStore {
+  /** Ids of pending+unpaid submissions older than the abandon threshold. */
+  findAbandonedUnpaid: (beforeIso: string, limit: number) => Promise<string[]>;
+  /**
+   * Expire a row, re-asserting pending+unpaid in the UPDATE. Returns true only
+   * when it actually transitioned — a row paid in the race window fails the
+   * match and is left alone.
+   */
+  expireIfStillAbandoned: (id: string) => Promise<boolean>;
+  /** Ids of pending + paid + unclaimed submissions older than the stale threshold. */
+  findStrandedPaid: (beforeIso: string, limit: number) => Promise<string[]>;
+  /** Re-kick the grading pipeline (fire-and-forget). */
+  rekick: (id: string) => void;
+}
+
+const defaultAbandonedStore: AbandonedSweepStore = {
+  findAbandonedUnpaid: async (beforeIso, limit) => {
+    const { data, error } = await supabaseAdmin
+      .from("submissions")
+      .select("id")
+      .eq("status", "pending")
+      .eq("payment_status", "unpaid")
+      .lt("updated_at", beforeIso)
+      .limit(limit);
+    if (error) {
+      captureException(error, { route: "abandoned-checkouts.scan_unpaid" });
+      throw new Error(`abandoned-checkout unpaid scan failed: ${error.message}`);
+    }
+    return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  },
+  expireIfStillAbandoned: async (id) => {
+    // Re-assert pending+unpaid in the UPDATE so we never expire a row that just
+    // got paid in the race window (a concurrent webhook flip fails the match).
+    const { data } = await supabaseAdmin
+      .from("submissions")
+      .update({ status: "expired" })
+      .eq("id", id)
+      .eq("status", "pending")
+      .eq("payment_status", "unpaid")
+      .select("id")
+      .maybeSingle();
+    return Boolean(data);
+  },
+  findStrandedPaid: async (beforeIso, limit) => {
+    const { data, error } = await supabaseAdmin
+      .from("submissions")
+      .select("id")
+      .eq("status", "pending")
+      .neq("payment_status", "unpaid")
+      .is("grading_started_at", null)
+      .lt("updated_at", beforeIso)
+      .limit(limit);
+    if (error) {
+      captureException(error, { route: "abandoned-checkouts.scan_paid" });
+      throw new Error(`abandoned-checkout paid scan failed: ${error.message}`);
+    }
+    return ((data ?? []) as Array<{ id: string }>).map((r) => r.id);
+  },
+  rekick: (id) => {
+    // Fire-and-forget; processSubmission's atomic claim guards a concurrent kick.
+    processSubmission(id).catch((err) => {
+      captureException(err, {
+        route: "abandoned-checkouts.rekick",
+        extra: { submissionId: id },
+      });
+    });
+  },
+};
+
+export async function recoverAbandonedCheckouts(
+  store: AbandonedSweepStore = defaultAbandonedStore,
+): Promise<AbandonedSweepResult> {
+  const now = Date.now();
+  const abandonedBefore = new Date(now - abandonedThresholdMs()).toISOString();
+  const strandedBefore = new Date(now - staleThresholdMs()).toISOString();
+
+  // ── 1) Abandoned unpaid checkouts → expire (no charge) ──
+  const abandoned = await store.findAbandonedUnpaid(abandonedBefore, BATCH_LIMIT);
+  let expired = 0;
+  for (const id of abandoned) {
+    if (await store.expireIfStillAbandoned(id)) {
+      expired += 1;
+      logEvent("info", "submission.expired", { submissionId: id });
+    }
+  }
+
+  // ── 2) Stranded-paid submissions → re-kick the pipeline ──
+  const stranded = await store.findStrandedPaid(strandedBefore, BATCH_LIMIT);
+  let rekicked = 0;
+  for (const id of stranded) {
+    rekicked += 1;
+    store.rekick(id);
+  }
+
+  if (expired > 0) recordMetric("submissions.expired", expired, {});
+  if (rekicked > 0) {
+    // A non-zero count means paid grades had to be rescued — surface it.
+    recordMetric("submissions.paid_rekicked", rekicked, {});
+    captureException(
+      new Error(`${rekicked} paid submission(s) were stranded pending and re-kicked`),
+      { level: "warn", route: "abandoned-checkouts", tags: { count: String(rekicked) } },
+    );
+  }
+
+  return { expired, rekicked };
+}
+
 // Cron entry point. Mounted OUTSIDE /api/* JWT groups; guards with the shared
 // internal-job secret (mirrors the other crons). Wrapped in an overlap lock so
 // two ticks can't contend over the same orphan set.
@@ -117,7 +250,9 @@ export async function handleStuckSubmissionsCron(c: {
   }
   try {
     const result = await recoverStuckSubmissions();
-    return c.json({ ok: true, ...result });
+    // US-773: same tick also sweeps abandoned checkouts + stranded-paid grades.
+    const abandoned = await recoverAbandonedCheckouts();
+    return c.json({ ok: true, ...result, ...abandoned });
   } catch (err) {
     captureException(err, { route: "stuck-submissions.cron" });
     return c.json(

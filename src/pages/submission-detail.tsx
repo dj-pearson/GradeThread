@@ -561,6 +561,8 @@ export function SubmissionDetailPage() {
                 "border-yellow-200 bg-yellow-100 text-yellow-800",
               submission.status === "needs_photos" &&
                 "border-amber-200 bg-amber-100 text-amber-800",
+              submission.status === "expired" &&
+                "border-gray-200 bg-gray-100 text-gray-600",
               submission.status === "failed" &&
                 "border-red-200 bg-red-100 text-red-800"
             )}
@@ -1041,6 +1043,19 @@ export function SubmissionDetailPage() {
                       ))}
                     </ul>
                   )}
+                <Button asChild className="mt-6">
+                  <Link to="/dashboard/submissions/new">Start a new submission</Link>
+                </Button>
+              </>
+            ) : submission.status === "expired" ? (
+              <>
+                <Info className="h-12 w-12 text-muted-foreground/60" />
+                <h3 className="mt-4 text-lg font-medium">Payment not completed</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  This submission expired because checkout was never completed, so
+                  it was never graded and you weren’t charged. Start a new
+                  submission to grade this item.
+                </p>
                 <Button asChild className="mt-6">
                   <Link to="/dashboard/submissions/new">Start a new submission</Link>
                 </Button>

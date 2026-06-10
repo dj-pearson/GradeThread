@@ -71,6 +71,8 @@ function getStatusBadgeClasses(status: string): string {
       return "border-red-200 bg-red-100 text-red-800";
     case "disputed":
       return "border-purple-200 bg-purple-100 text-purple-800";
+    case "expired":
+      return "border-gray-200 bg-gray-100 text-gray-600";
     default:
       return "";
   }

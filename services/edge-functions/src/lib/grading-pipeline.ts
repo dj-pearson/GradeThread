@@ -86,10 +86,63 @@ export async function reverseChargeForUngradedSubmission(
   }
 }
 
+// US-773: the atomic grading claim, extracted (with an injectable updater) so
+// the double-kick idempotency is unit-testable without a DB. The default updater
+// is a single conditional UPDATE: it sets grading_started_at ONLY when still NULL
+// (and the row is still gradeable), returning the row exclusively to the caller
+// that won the transition. Postgres serializes the row-level update, so of N
+// concurrent kicks exactly one gets a row back.
+export type GradingClaimUpdater = (submissionId: string) => Promise<{
+  row: { id: string } | null;
+  error: { message?: string } | null;
+}>;
+
+const defaultGradingClaimUpdater: GradingClaimUpdater = async (submissionId) => {
+  const { data, error } = await supabaseAdmin
+    .from("submissions")
+    .update({ grading_started_at: new Date().toISOString(), status: "processing" })
+    .eq("id", submissionId)
+    .is("grading_started_at", null)
+    // Only claim a gradeable row. The status guard also stops a re-kick of a
+    // legacy completed/failed row (whose grading_started_at predates the column
+    // and is NULL) from re-grading.
+    .in("status", ["pending", "processing"])
+    .select("id")
+    .maybeSingle();
+  return { row: (data as { id: string } | null) ?? null, error };
+};
+
+export async function claimSubmissionForGrading(
+  submissionId: string,
+  update: GradingClaimUpdater = defaultGradingClaimUpdater,
+): Promise<"claimed" | "already" | "error"> {
+  const { row, error } = await update(submissionId);
+  if (error) return "error";
+  return row ? "claimed" : "already";
+}
+
 export async function processSubmission(submissionId: string) {
   const startTime = Date.now();
 
   console.log(`[Pipeline] Starting grading pipeline for submission ${submissionId}`);
+
+  // US-773: atomic single-claim guard against a double-kick (webhook + client
+  // ?pay_retry=1 both call processSubmission, and a second grade run double-bills
+  // Claude). Exactly one caller wins the claim; duplicates no-op.
+  const claimResult = await claimSubmissionForGrading(submissionId);
+  if (claimResult === "error") {
+    // Transient DB error claiming the row — propagate so the caller's .catch
+    // reports it. We have NOT started grading, so there's no spend to reverse.
+    throw new Error(`Failed to claim submission ${submissionId} for grading`);
+  }
+  if (claimResult === "already") {
+    // Already claimed by a prior/concurrent kick, or no longer gradeable. Don't
+    // run a second grade. This is the normal outcome of a double-kick.
+    console.log(
+      `[Pipeline] Submission ${submissionId} already claimed (or not pending) — skipping duplicate grade run`,
+    );
+    return;
+  }
 
   try {
     // --- Step 1: Fetch submission record ---
@@ -101,18 +154,6 @@ export async function processSubmission(submissionId: string) {
 
     if (submissionError || !submission) {
       throw new Error(`Submission not found: ${submissionId}`);
-    }
-
-    if (submission.status !== "pending" && submission.status !== "processing") {
-      throw new Error(`Submission ${submissionId} is not pending/processing (status: ${submission.status})`);
-    }
-
-    // Update status to 'processing' if not already set
-    if (submission.status === "pending") {
-      await supabaseAdmin
-        .from("submissions")
-        .update({ status: "processing" })
-        .eq("id", submissionId);
     }
 
     // --- Step 2: Fetch associated images ---

@@ -32,7 +32,9 @@ export type SubmissionStatus =
   | "failed"
   | "disputed"
   // US-332: image-quality gate abstained — seller must add better photos.
-  | "needs_photos";
+  | "needs_photos"
+  // US-773: abandoned checkout (started but never paid) retired by the reaper.
+  | "expired";
 
 // US-332: actionable feedback recorded when the quality gate abstains.
 export interface QualityFeedback {

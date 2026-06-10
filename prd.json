@@ -11368,8 +11368,8 @@
         "Deno tests: pending sweep marks only unpaid+old rows; webhook kick starts pipeline once; double-kick is a no-op"
       ],
       "priority": 773,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Closes the stuck-pending gap and removes dependence on the browser redirect for paid grading to start. Check webhooks.ts paid_stripe handling (~line 758) — the status update exists; the pipeline kick may be the missing piece."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [BLOCKER][Payments] Closes the stuck-pending gap and removes dependence on the browser redirect for paid grading to start. Check webhooks.ts paid_stripe handling (~line 758) — the status update exists; the pipeline kick may be the missing piece. [DONE 2026-06-10] Migration 00125 adds submission_status=expired + submissions.grading_started_at + pending partial index. grading-pipeline.ts: extracted claimSubmissionForGrading (atomic UPDATE … WHERE grading_started_at IS NULL AND status IN pending/processing) — processSubmission now single-claims so webhook+client double-kick grades once. stuck-submissions.ts: recoverAbandonedCheckouts (injectable store) expires pending+unpaid>24h with no charge AND re-kicks pending+paid+unclaimed stranded grades; wired into the stuck-submissions cron. Webhook per-grade already kicks server-side (handlePerGradePurchase). UI: expired badge + \"Payment not completed — resubmit\" banner in submission-detail/submissions. 12 Deno tests (abandoned-checkout_test.ts)."
     },
     {
       "id": "US-774",
