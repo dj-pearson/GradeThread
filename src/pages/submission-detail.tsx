@@ -15,6 +15,7 @@ import {
   Tag,
   ArrowRight,
   Image as ImageIcon,
+  Eye,
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
@@ -1073,7 +1074,14 @@ export function SubmissionDetailPage() {
               burned in — add it to your eBay, Poshmark, Depop or social listing.
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {gradeReport.view_count > 0 && (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Eye className="h-3.5 w-3.5" />
+                Certificate viewed {gradeReport.view_count.toLocaleString()}{" "}
+                {gradeReport.view_count === 1 ? "time" : "times"}
+              </p>
+            )}
             <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
           </CardContent>
         </Card>
