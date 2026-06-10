@@ -66,6 +66,9 @@ struct VerifiedView: View {
     private var enabledBinding: Binding<Bool> {
         Binding(get: { store.enabled }, set: { store.enabled = $0 })
     }
+    private var showListingsBinding: Binding<Bool> {
+        Binding(get: { store.showListings }, set: { store.showListings = $0 })
+    }
 
     // MARK: - Loading / failed
 
@@ -167,6 +170,9 @@ struct VerifiedView: View {
         Section {
             Toggle("Public profile", isOn: enabledBinding)
                 .tint(.brandNavy)
+            Toggle("Show my listings (storefront)", isOn: showListingsBinding)
+                .tint(.brandNavy)
+                .disabled(!store.enabled)
         } footer: {
             if store.needsHandleToEnable {
                 Label("Claim a handle before making your profile public.",
@@ -174,7 +180,7 @@ struct VerifiedView: View {
                     .font(.footnote)
                     .foregroundStyle(Color.brandRed)
             } else {
-                Text("When public, anyone with your link can see your verified grades and stats.")
+                Text("When public, anyone with your link can see your verified grades and stats. Turn on listings to also show your active items — graded ones link to their certificate, the rest to their marketplace listing.")
             }
         }
     }
@@ -221,7 +227,8 @@ struct VerifiedView: View {
                     Telemetry.event("verified_profile_shared")
                 })
                 Link(destination: url) {
-                    Label("View public profile", systemImage: "safari")
+                    Label(store.showListings ? "View my shop" : "View public profile",
+                          systemImage: "safari")
                 }
             } footer: {
                 Text(url.absoluteString)

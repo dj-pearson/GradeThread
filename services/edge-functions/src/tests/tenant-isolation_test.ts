@@ -584,3 +584,63 @@ Deno.test({
     assert(status === 401, `unauthenticated reply should 401, got ${status}`);
   },
 });
+
+// ── Verified storefront (public seller listings) ────────────────────────
+//
+// GET /api/content/public/sellers/:handle is anonymous + service-role, so the
+// listings array must (1) appear ONLY when the seller opted in
+// (verified_show_listings) and (2) contain ONLY that seller's own active
+// listings. Additional env:
+//   TEST_SELLER_NO_STOREFRONT_HANDLE  a verified_enabled handle with the
+//                                     storefront toggle OFF
+//   TEST_USER_B_HANDLE                B's verified_enabled handle
+//   TEST_USER_A_LISTING_ID            one of A's listing ids (reused from above)
+
+// The opt-in gate: a public seller with the storefront OFF must return
+// show_listings=false and an empty listings array — never their inventory.
+Deno.test({
+  name: "storefront listings hidden when the seller hasn't opted in",
+  ignore: !BASE || !Deno.env.get("TEST_SELLER_NO_STOREFRONT_HANDLE"),
+  fn: async () => {
+    const handle = Deno.env.get("TEST_SELLER_NO_STOREFRONT_HANDLE")!;
+    const res = await fetch(
+      `${BASE}/api/content/public/sellers/${encodeURIComponent(handle)}`,
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      show_listings?: boolean;
+      listings?: unknown[];
+    };
+    assert(
+      body.show_listings === false,
+      `opted-out seller should report show_listings=false, got ${body.show_listings}`,
+    );
+    assert(
+      Array.isArray(body.listings) && body.listings.length === 0,
+      `opted-out seller should expose 0 listings, got ${JSON.stringify(body.listings)}`,
+    );
+  },
+});
+
+// Cross-tenant: A's listing id must never surface in B's public storefront.
+Deno.test({
+  name: "B's storefront never includes A's listing id",
+  ignore:
+    !BASE ||
+    !Deno.env.get("TEST_USER_B_HANDLE") ||
+    !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const bHandle = Deno.env.get("TEST_USER_B_HANDLE")!;
+    const aListingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/content/public/sellers/${encodeURIComponent(bHandle)}`,
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      listings?: Array<{ id: string }>;
+    };
+    const ids = (body.listings ?? []).map((l) => l.id);
+    assert(
+      !ids.includes(aListingId),
+      `B's storefront leaked A's listing ${aListingId}`,
+    );
+  },
+});

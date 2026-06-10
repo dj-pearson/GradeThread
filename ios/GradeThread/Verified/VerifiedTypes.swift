@@ -21,6 +21,40 @@ struct VerifiedProfile: Decodable, Equatable {
     let bio: String?
     let enabled: Bool
     let verifiedSince: String?
+    /// Storefront opt-in — when on (and `enabled`), the public page lists the
+    /// seller's active listings. Decoded with a default so the app survives an
+    /// edge that predates the field (rollout ordering).
+    let showListings: Bool
+
+    init(
+        handle: String?,
+        displayName: String?,
+        bio: String?,
+        enabled: Bool,
+        verifiedSince: String?,
+        showListings: Bool = false
+    ) {
+        self.handle = handle
+        self.displayName = displayName
+        self.bio = bio
+        self.enabled = enabled
+        self.verifiedSince = verifiedSince
+        self.showListings = showListings
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case handle, displayName, bio, enabled, verifiedSince, showListings
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        handle = try c.decodeIfPresent(String.self, forKey: .handle)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+        bio = try c.decodeIfPresent(String.self, forKey: .bio)
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        verifiedSince = try c.decodeIfPresent(String.self, forKey: .verifiedSince)
+        showListings = try c.decodeIfPresent(Bool.self, forKey: .showListings) ?? false
+    }
 }
 
 struct VerifiedStats: Decodable, Equatable {
@@ -47,4 +81,5 @@ struct VerifiedProfileUpdate: Encodable, Equatable {
     var displayName: String?
     var bio: String?
     var enabled: Bool?
+    var showListings: Bool?
 }

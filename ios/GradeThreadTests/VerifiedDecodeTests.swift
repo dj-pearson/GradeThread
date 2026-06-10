@@ -17,8 +17,20 @@ final class VerifiedDecodeTests: XCTestCase {
         XCTAssertEqual(r.profile.bio, "Vintage tees")
         XCTAssertTrue(r.profile.enabled)
         XCTAssertEqual(r.profile.verifiedSince, "2026-01-15T00:00:00.000Z")
+        // Absent show_listings decodes to false (rollout-safe default).
+        XCTAssertFalse(r.profile.showListings)
         XCTAssertEqual(r.stats.totalGraded, 42)
         XCTAssertEqual(r.stats.averageGrade, 7.8, accuracy: 0.001)
+    }
+
+    func test_decodesProfile_showListings() throws {
+        let json = #"""
+        {"profile":{"handle":"rick","display_name":"Rick","bio":null,
+          "enabled":true,"verified_since":null,"show_listings":true},
+         "stats":{"total_graded":3,"average_grade":8.0}}
+        """#
+        let r = try JSONDecoder.iso8601.decode(VerifiedProfileResponse.self, from: Data(json.utf8))
+        XCTAssertTrue(r.profile.showListings)
     }
 
     func test_decodesProfile_emptyNulls() throws {
@@ -67,5 +79,14 @@ final class VerifiedDecodeTests: XCTestCase {
         XCTAssertNil(obj["handle"])
         XCTAssertNil(obj["display_name"])
         XCTAssertNil(obj["enabled"])
+        XCTAssertNil(obj["show_listings"])
+    }
+
+    func test_updateBody_encodesShowListings() throws {
+        var body = VerifiedProfileUpdate()
+        body.showListings = true
+        let data = try JSONEncoder.iso8601.encode(body)
+        let obj = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(obj["show_listings"] as? Bool, true)
     }
 }

@@ -67,6 +67,15 @@ final class VerifiedStoreTests: XCTestCase {
         XCTAssertTrue(store.canSave)
     }
 
+    func test_showListingsChange_enablesSave() async {
+        let store = VerifiedStore(service: FakeVerifiedService(profile: makeResponse()))
+        await store.load()
+        XCTAssertFalse(store.showListings)
+        store.showListings = true
+        XCTAssertEqual(store.pendingUpdate()?.showListings, true)
+        XCTAssertTrue(store.canSave)
+    }
+
     func test_needsHandleToEnable_blocksSave() async {
         let store = VerifiedStore(service: FakeVerifiedService(profile: makeResponse(handle: nil, enabled: false)))
         await store.load()

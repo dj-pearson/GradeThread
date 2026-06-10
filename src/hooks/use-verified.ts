@@ -13,6 +13,8 @@ export interface VerifiedProfile {
   bio: string | null;
   enabled: boolean;
   verified_since: string | null;
+  // Storefront opt-in: list active listings on the public profile.
+  show_listings: boolean;
 }
 
 export interface VerifiedStats {
@@ -30,6 +32,7 @@ export interface VerifiedProfileUpdate {
   display_name?: string | null;
   bio?: string | null;
   enabled?: boolean;
+  show_listings?: boolean;
 }
 
 export function useVerifiedProfile() {

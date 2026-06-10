@@ -261,6 +261,8 @@ export interface UserRow {
   verified_bio: string | null;
   verified_enabled: boolean;
   verified_since: string | null;
+  // Storefront opt-in: list active listings on the public profile (migration 00122).
+  verified_show_listings: boolean;
   created_at: string;
   updated_at: string;
 }

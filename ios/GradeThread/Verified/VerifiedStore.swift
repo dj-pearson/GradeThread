@@ -40,6 +40,7 @@ final class VerifiedStore {
     var displayNameDraft = ""
     var bioDraft = ""
     var enabled = false
+    var showListings = false
 
     var handleCheck: HandleCheck = .idle
     var isSaving = false
@@ -98,6 +99,10 @@ final class VerifiedStore {
         }
         if enabled != (original?.enabled ?? false) {
             update.enabled = enabled
+            changed = true
+        }
+        if showListings != (original?.showListings ?? false) {
+            update.showListings = showListings
             changed = true
         }
         return changed ? update : nil
@@ -183,6 +188,7 @@ final class VerifiedStore {
         displayNameDraft = profile.displayName ?? ""
         bioDraft = profile.bio ?? ""
         enabled = profile.enabled
+        showListings = profile.showListings
     }
 
     private func message(_ error: Error) -> String {

@@ -507,6 +507,8 @@ const SELLER_RECENT_CERTS = 12;
 // Stats are computed over (at most) this many of the seller's most recent
 // certified grades — bounds the work per request for prolific sellers.
 const SELLER_STATS_SAMPLE = 1000;
+// Cap on active listings surfaced on the storefront, newest first.
+const SELLER_MAX_LISTINGS = 60;
 
 interface SellerCertRow {
   overall_score: number;
@@ -514,6 +516,147 @@ interface SellerCertRow {
   certificate_id: string;
   created_at: string;
   submissions: { user_id: string; title: string | null; brand: string | null } | null;
+}
+
+// One active-listing card for the public storefront. A card is EITHER graded
+// (has cert fields, links to /cert/:id) or non-graded (has listing_url, links
+// out to the marketplace) — never both, never neither.
+interface StorefrontListing {
+  id: string;
+  title: string;
+  brand: string | null;
+  price: number;
+  photo_url: string | null;
+  platform: string;
+  certificate_id?: string;
+  overall_score?: number;
+  grade_tier?: string;
+  listing_url?: string;
+}
+
+interface ListingJoinRow {
+  id: string;
+  inventory_item_id: string;
+  listing_title: string | null;
+  listing_price: number;
+  listing_url: string | null;
+  platform: string;
+  primary_photo_id: string | null;
+  inventory_items: {
+    title: string | null;
+    brand: string | null;
+    grade_report_id: string | null;
+  } | null;
+}
+
+// Build the storefront listing cards for a seller. PUBLIC + service-role, so
+// every query is scoped to the seller's own rows (US-268): listings are reached
+// through inventory_items.user_id; nothing else is exposed. Caller must already
+// have confirmed verified_enabled + verified_show_listings.
+async function loadStorefrontListings(
+  sellerId: string,
+): Promise<StorefrontListing[]> {
+  const { data: listingRows, error } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, listing_title, listing_price, listing_url, platform, primary_photo_id, inventory_items!inner(user_id, title, brand, grade_report_id)",
+    )
+    .eq("inventory_items.user_id", sellerId)
+    .eq("is_active", true)
+    .eq("listing_status", "active")
+    .order("listed_at", { ascending: false })
+    .limit(SELLER_MAX_LISTINGS);
+  if (error) throw error;
+  const rows = (listingRows ?? []) as unknown as ListingJoinRow[];
+  if (rows.length === 0) return [];
+
+  // Public certs for the graded items, keyed by grade_report_id. Only reports
+  // with a non-null certificate_id are "graded" on the storefront.
+  const reportIds = [
+    ...new Set(
+      rows
+        .map((r) => r.inventory_items?.grade_report_id)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const certByReport = new Map<
+    string,
+    { certificate_id: string; overall_score: number; grade_tier: string }
+  >();
+  if (reportIds.length > 0) {
+    const { data: certs } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id, certificate_id, overall_score, grade_tier")
+      .in("id", reportIds)
+      .not("certificate_id", "is", null);
+    for (const c of (certs ?? []) as Array<{
+      id: string;
+      certificate_id: string;
+      overall_score: number;
+      grade_tier: string;
+    }>) {
+      certByReport.set(c.id, {
+        certificate_id: c.certificate_id,
+        overall_score: c.overall_score,
+        grade_tier: c.grade_tier,
+      });
+    }
+  }
+
+  // Cover photo per item: the listing's chosen primary photo if set, else the
+  // item's lowest sort_order photo. One query, grouped in JS.
+  const itemIds = [...new Set(rows.map((r) => r.inventory_item_id))];
+  const photoById = new Map<string, string | null>();
+  const firstPhotoByItem = new Map<string, string | null>();
+  if (itemIds.length > 0) {
+    const { data: photos } = await supabaseAdmin
+      .from("item_photos")
+      .select("id, inventory_item_id, photo_url, thumbnail_url, sort_order")
+      .in("inventory_item_id", itemIds)
+      .order("sort_order", { ascending: true });
+    for (const p of (photos ?? []) as Array<{
+      id: string;
+      inventory_item_id: string;
+      photo_url: string;
+      thumbnail_url: string | null;
+    }>) {
+      const url = p.thumbnail_url ?? p.photo_url;
+      photoById.set(p.id, url);
+      if (!firstPhotoByItem.has(p.inventory_item_id)) {
+        firstPhotoByItem.set(p.inventory_item_id, url);
+      }
+    }
+  }
+
+  const cards: StorefrontListing[] = [];
+  for (const r of rows) {
+    const item = r.inventory_items;
+    const cert = item?.grade_report_id
+      ? certByReport.get(item.grade_report_id)
+      : undefined;
+    // Nothing to link to → skip (e.g. a not-yet-published draft with no URL).
+    if (!cert && !r.listing_url) continue;
+    const photo =
+      (r.primary_photo_id ? photoById.get(r.primary_photo_id) : undefined) ??
+      firstPhotoByItem.get(r.inventory_item_id) ??
+      null;
+    cards.push({
+      id: r.id,
+      title: r.listing_title || item?.title || "Listed item",
+      brand: item?.brand ?? null,
+      price: r.listing_price,
+      photo_url: photo,
+      platform: r.platform,
+      ...(cert
+        ? {
+            certificate_id: cert.certificate_id,
+            overall_score: cert.overall_score,
+            grade_tier: cert.grade_tier,
+          }
+        : { listing_url: r.listing_url ?? undefined }),
+    });
+  }
+  return cards;
 }
 
 // ── GET /sellers/:handle ──────────────────────────────────────────
@@ -524,7 +667,9 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
   // Public, enabled profile only. ilike (no wildcards) = case-insensitive exact.
   const { data: seller, error: sellerErr } = await supabaseAdmin
     .from("users")
-    .select("id, verified_handle, verified_display_name, verified_bio, verified_since")
+    .select(
+      "id, verified_handle, verified_display_name, verified_bio, verified_since, verified_show_listings",
+    )
     .ilike("verified_handle", handle)
     .eq("verified_enabled", true)
     .maybeSingle();
@@ -564,6 +709,18 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     created_at: r.created_at,
   }));
 
+  // Storefront listings — only when the seller opted in. A failure here must not
+  // take down the (more important) trust profile, so degrade to an empty shop.
+  const showListings = seller.verified_show_listings === true;
+  let listings: StorefrontListing[] = [];
+  if (showListings) {
+    try {
+      listings = await loadStorefrontListings(seller.id);
+    } catch (err) {
+      console.error("[content-public] storefront listings failed:", err);
+    }
+  }
+
   return c.json({
     seller: {
       handle: seller.verified_handle,
@@ -579,6 +736,8 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
       tier_distribution: tierDistribution,
     },
     recent_certificates: recent,
+    show_listings: showListings,
+    listings,
   });
 });
 

@@ -31,6 +31,7 @@ interface ProfileBody {
   display_name?: unknown;
   bio?: unknown;
   enabled?: unknown;
+  show_listings?: unknown;
 }
 
 /** Normalize + validate a handle. Returns the clean handle or an error reason. */
@@ -101,7 +102,7 @@ verifiedRoutes.get("/profile", async (c) => {
   const { data: user, error } = await supabaseAdmin
     .from("users")
     .select(
-      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, full_name",
+      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, verified_show_listings, full_name",
     )
     .eq("id", userId)
     .maybeSingle();
@@ -115,6 +116,7 @@ verifiedRoutes.get("/profile", async (c) => {
       bio: user?.verified_bio ?? null,
       enabled: user?.verified_enabled ?? false,
       verified_since: user?.verified_since ?? null,
+      show_listings: user?.verified_show_listings ?? false,
     },
     stats,
   });
@@ -148,6 +150,11 @@ verifiedRoutes.put("/profile", async (c) => {
   if (body.bio !== undefined) {
     const bio = typeof body.bio === "string" ? body.bio.trim() : "";
     update.verified_bio = bio ? bio.slice(0, MAX_BIO) : null;
+  }
+
+  // Storefront opt-in: surface active listings on the public profile.
+  if (body.show_listings !== undefined) {
+    update.verified_show_listings = body.show_listings === true;
   }
 
   // Determine the resulting handle (incoming or already-stored) so we can
@@ -184,7 +191,7 @@ verifiedRoutes.put("/profile", async (c) => {
     .update(update)
     .eq("id", userId)
     .select(
-      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since",
+      "verified_handle, verified_display_name, verified_bio, verified_enabled, verified_since, verified_show_listings",
     )
     .maybeSingle();
 
@@ -203,6 +210,7 @@ verifiedRoutes.put("/profile", async (c) => {
       bio: data?.verified_bio ?? null,
       enabled: data?.verified_enabled ?? false,
       verified_since: data?.verified_since ?? null,
+      show_listings: data?.verified_show_listings ?? false,
     },
   });
 });

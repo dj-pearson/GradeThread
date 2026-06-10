@@ -30,6 +30,19 @@ interface RecentCert {
   created_at: string;
 }
 
+interface StorefrontListing {
+  id: string;
+  title: string;
+  brand: string | null;
+  price: number;
+  photo_url: string | null;
+  platform: string;
+  certificate_id?: string;
+  overall_score?: number;
+  grade_tier?: string;
+  listing_url?: string;
+}
+
 interface SellerResponse {
   seller: {
     handle: string;
@@ -44,7 +57,26 @@ interface SellerResponse {
     tier_distribution: Record<string, number>;
   };
   recent_certificates: RecentCert[];
+  show_listings?: boolean;
+  listings?: StorefrontListing[];
 }
+
+// Marketplace display names. Inlined — Pages Functions can't import from src/.
+// Keep in sync with MARKETPLACE_LABELS in src/lib/constants.ts.
+const PLATFORM_LABELS: Record<string, string> = {
+  ebay: "eBay",
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  depop: "Depop",
+  grailed: "Grailed",
+  facebook: "Facebook",
+  offerup: "OfferUp",
+  shopify: "Shopify",
+  whatnot: "Whatnot",
+  other: "Other",
+};
+
+const platformLabel = (p: string): string => PLATFORM_LABELS[p] ?? p;
 
 type Ctx = EventContext<PagesEnv, "handle", Record<string, unknown>>;
 
@@ -110,6 +142,39 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     ? `<h2>Recent verified grades</h2><div class="vt-grid">${certCards}</div>`
     : `<p style="color:var(--muted)">No public certificates yet.</p>`;
 
+  // Storefront — active listings (only when the seller opted in). Graded items
+  // link to their certificate; the rest link out to the marketplace.
+  const listings = data.show_listings ? data.listings ?? [] : [];
+  const listingCards = listings
+    .map((l) => {
+      const graded = !!l.certificate_id;
+      const href = graded ? `/cert/${escape(l.id)}` : escape(l.listing_url ?? "#");
+      const rel = graded ? "" : ` target="_blank" rel="nofollow noopener"`;
+      const price = `$${l.price.toFixed(2)}`;
+      const img = l.photo_url
+        ? `<img class="sf-img" src="${escape(l.photo_url)}" alt="${escape(l.title)}" loading="lazy" />`
+        : `<div class="sf-img sf-img-empty"></div>`;
+      const badge = graded
+        ? `<span class="sf-badge">✓ ${(l.overall_score ?? 0).toFixed(1)}</span>`
+        : `<span class="sf-plat">${escape(platformLabel(l.platform))}</span>`;
+      const sub = graded
+        ? `<div class="sf-sub sf-graded">Verified grade · ${escape(l.grade_tier ?? "")}</div>`
+        : `<div class="sf-sub">View on ${escape(platformLabel(l.platform))} &rarr;</div>`;
+      return `<a class="sf-card" href="${href}"${rel}>
+        <div class="sf-imgwrap">${img}${badge}</div>
+        <div class="sf-body">
+          <div class="sf-title">${escape(l.title)}</div>
+          ${l.brand ? `<div class="sf-brand">${escape(l.brand)}</div>` : ""}
+          <div class="sf-price">${escape(price)}</div>
+          ${sub}
+        </div>
+      </a>`;
+    })
+    .join("");
+  const shopSection = listings.length
+    ? `<h2>Shop ${escape(seller.display_name)}</h2><div class="sf-grid">${listingCards}</div>`
+    : "";
+
   const extraStyles = `
     .vt-hero { display:flex; flex-direction:column; gap:8px; padding:24px 0 8px; }
     .vt-badge { display:inline-flex; align-items:center; gap:8px; align-self:flex-start; background:var(--accent); color:#fff; padding:6px 14px; border-radius:999px; font-size:0.85rem; font-weight:600; }
@@ -126,6 +191,21 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     .vt-card-title { font-weight:600; }
     .vt-card-brand { color:var(--muted); font-size:0.9rem; }
     .vt-card-tier { color:var(--muted); font-size:0.8rem; margin-top:2px; }
+    .sf-grid { display:grid; gap:16px; grid-template-columns:1fr 1fr; margin-bottom:8px; }
+    @media (min-width:640px){ .sf-grid { grid-template-columns:1fr 1fr 1fr; } }
+    .sf-card { display:block; border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; text-decoration:none; color:inherit; }
+    .sf-card:hover { background:#f9fafb; }
+    .sf-imgwrap { position:relative; aspect-ratio:1/1; background:#f3f4f6; }
+    .sf-img { width:100%; height:100%; object-fit:cover; display:block; }
+    .sf-img-empty { width:100%; height:100%; }
+    .sf-badge { position:absolute; left:6px; top:6px; background:var(--accent); color:#fff; font-weight:800; font-size:0.8rem; padding:2px 8px; border-radius:999px; }
+    .sf-plat { position:absolute; left:6px; top:6px; background:rgba(0,0,0,0.6); color:#fff; font-size:0.7rem; padding:2px 8px; border-radius:999px; }
+    .sf-body { padding:10px; }
+    .sf-title { font-weight:600; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sf-brand { color:var(--muted); font-size:0.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .sf-price { font-weight:700; color:var(--accent); font-size:0.9rem; margin-top:2px; }
+    .sf-sub { color:var(--muted); font-size:0.75rem; margin-top:2px; }
+    .sf-graded { color:#15803d; font-weight:600; }
   `;
 
   const bodyHtml = `<main class="container">
@@ -141,6 +221,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     <div class="vt-stat"><div class="n">${escape(avg)}</div><div class="l">average grade · out of 10</div></div>
   </div>
   ${tierChips ? `<div class="vt-chips">${tierChips}</div>` : ""}
+  ${shopSection}
   ${certsSection}
   <a class="cta" href="/for-resellers?utm_source=verified_profile&utm_medium=organic">Get your own GradeThread Verified profile &rarr;</a>
 </main>`;
@@ -181,13 +262,33 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     ],
   };
 
+  // ItemList of the storefront listings — real data only (name + URL); no
+  // fabricated ratings or offers, so it's policy-compliant.
+  const listingsLd: Record<string, unknown> | null = listings.length
+    ? {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        name: `${seller.display_name} — items for sale`,
+        itemListElement: listings.map((l, i) => ({
+          "@type": "ListItem",
+          position: i + 1,
+          name: l.title,
+          url: l.certificate_id
+            ? `${base}/cert/${l.certificate_id}`
+            : l.listing_url,
+        })),
+      }
+    : null;
+
   return new Response(
     renderLayout({
       title,
       description,
       canonicalUrl: canonical,
       ogImage,
-      jsonLd: [profileLd, breadcrumbLd],
+      jsonLd: listingsLd
+        ? [profileLd, breadcrumbLd, listingsLd]
+        : [profileLd, breadcrumbLd],
       bodyHtml,
     }),
     {

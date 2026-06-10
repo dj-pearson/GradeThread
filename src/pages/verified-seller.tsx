@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { BadgeCheck, AlertTriangle } from "lucide-react";
+import { BadgeCheck, AlertTriangle, ExternalLink, ImageOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -11,6 +11,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 interface RecentCert {
@@ -20,6 +21,21 @@ interface RecentCert {
   overall_score: number;
   grade_tier: string;
   created_at: string;
+}
+
+// One active-listing card. Graded items carry cert fields and link to /cert/:id;
+// non-graded items carry listing_url and link out to the marketplace.
+interface StorefrontListing {
+  id: string;
+  title: string;
+  brand: string | null;
+  price: number;
+  photo_url: string | null;
+  platform: string;
+  certificate_id?: string;
+  overall_score?: number;
+  grade_tier?: string;
+  listing_url?: string;
 }
 
 interface SellerProfile {
@@ -36,6 +52,84 @@ interface SellerProfile {
     tier_distribution: Record<string, number>;
   };
   recent_certificates: RecentCert[];
+  show_listings: boolean;
+  listings: StorefrontListing[];
+}
+
+function platformLabel(platform: string): string {
+  return (
+    MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform
+  );
+}
+
+function StorefrontCard({ listing }: { listing: StorefrontListing }) {
+  const graded = !!listing.certificate_id;
+  const price = `$${listing.price.toFixed(2)}`;
+  const cardClass =
+    "group block overflow-hidden rounded-lg border transition-colors hover:bg-muted/50";
+
+  const inner = (
+    <>
+      <div className="relative aspect-square overflow-hidden bg-muted">
+        {listing.photo_url ? (
+          <img
+            src={listing.photo_url}
+            alt={listing.title}
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground/50">
+            <ImageOff className="h-8 w-8" />
+          </div>
+        )}
+        {graded ? (
+          <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-full bg-brand-navy px-2 py-0.5 text-xs font-bold text-white shadow">
+            <BadgeCheck className="h-3 w-3" />
+            <span className={scoreColor(listing.overall_score ?? 0)}>
+              {(listing.overall_score ?? 0).toFixed(1)}
+            </span>
+          </span>
+        ) : (
+          <span className="absolute left-1.5 top-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
+            {platformLabel(listing.platform)}
+          </span>
+        )}
+      </div>
+      <div className="p-2.5">
+        <p className="truncate text-sm font-medium">{listing.title}</p>
+        {listing.brand && (
+          <p className="truncate text-xs text-muted-foreground">{listing.brand}</p>
+        )}
+        <p className="mt-0.5 text-sm font-semibold text-brand-navy">{price}</p>
+        {graded ? (
+          <p className="mt-0.5 text-xs font-medium text-green-700">
+            Verified grade · {listing.grade_tier}
+          </p>
+        ) : (
+          <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
+            View on {platformLabel(listing.platform)}
+            <ExternalLink className="h-3 w-3" />
+          </span>
+        )}
+      </div>
+    </>
+  );
+
+  return graded ? (
+    <Link to={`/cert/${listing.certificate_id}`} className={cardClass}>
+      {inner}
+    </Link>
+  ) : (
+    <a
+      href={listing.listing_url}
+      target="_blank"
+      rel="nofollow noopener"
+      className={cardClass}
+    >
+      {inner}
+    </a>
+  );
 }
 
 function scoreColor(score: number): string {
@@ -110,6 +204,7 @@ export function VerifiedSellerPage() {
   }
 
   const { seller, stats, recent_certificates } = data;
+  const listings = data.show_listings ? (data.listings ?? []) : [];
   const avg = stats.average_grade > 0 ? stats.average_grade.toFixed(1) : "—";
   const count = stats.total_is_capped
     ? `${stats.total_graded.toLocaleString()}+`
@@ -125,7 +220,7 @@ export function VerifiedSellerPage() {
     <div className="min-h-screen bg-background">
       <SEO
         title={`${seller.display_name} — GradeThread Verified Seller`}
-        description={`${seller.display_name} is a GradeThread Verified seller with ${count} AI-graded items${stats.average_grade > 0 ? ` averaging ${avg}/10` : ""}. Every grade is independently verifiable.`}
+        description={`${seller.display_name} is a GradeThread Verified seller with ${count} AI-graded items${stats.average_grade > 0 ? ` averaging ${avg}/10` : ""}.${listings.length > 0 ? ` Shop ${listings.length} item${listings.length === 1 ? "" : "s"} for sale.` : ""} Every grade is independently verifiable.`}
         canonicalUrl={`https://gradethread.com/verified/${seller.handle}`}
       />
 
@@ -172,6 +267,24 @@ export function VerifiedSellerPage() {
                 </Badge>
               ))}
           </div>
+        )}
+
+        {/* Shop — active listings, graded items highlighted */}
+        {listings.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                Shop {seller.display_name}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {listings.map((listing) => (
+                  <StorefrontCard key={listing.id} listing={listing} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         )}
 
         {/* Recent certificates */}

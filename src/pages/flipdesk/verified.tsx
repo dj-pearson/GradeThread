@@ -47,6 +47,7 @@ export function FlipdeskVerifiedPage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [enabled, setEnabled] = useState(false);
+  const [showListings, setShowListings] = useState(false);
   const [availability, setAvailability] = useState<Availability>({ state: "idle" });
   const seeded = useRef(false);
 
@@ -57,6 +58,7 @@ export function FlipdeskVerifiedPage() {
     setDisplayName(data.profile.display_name ?? "");
     setBio(data.profile.bio ?? "");
     setEnabled(data.profile.enabled);
+    setShowListings(data.profile.show_listings);
     seeded.current = true;
   }, [data]);
 
@@ -117,6 +119,15 @@ export function FlipdeskVerifiedPage() {
       });
     } catch {
       setEnabled(!next);
+    }
+  }
+
+  async function handleShowListingsToggle(next: boolean) {
+    setShowListings(next);
+    try {
+      await update.mutateAsync({ show_listings: next });
+    } catch {
+      setShowListings(!next);
     }
   }
 
@@ -276,6 +287,25 @@ export function FlipdeskVerifiedPage() {
               disabled={!savedHandle || update.isPending}
               onCheckedChange={handleToggle}
               aria-label="Toggle public profile"
+            />
+          </div>
+
+          {/* Storefront opt-in — turns the profile into a shop. Only meaningful
+              once the profile is public. */}
+          <div className="flex items-center justify-between rounded-lg border p-4">
+            <div className="space-y-0.5">
+              <p className="font-medium">Show my listings (storefront)</p>
+              <p className="text-sm text-muted-foreground">
+                List your active items on your profile — graded items show their
+                grade and link to the certificate, the rest link to their
+                marketplace listing.
+              </p>
+            </div>
+            <Switch
+              checked={showListings}
+              disabled={!isLive || update.isPending}
+              onCheckedChange={handleShowListingsToggle}
+              aria-label="Toggle storefront listings"
             />
           </div>
 

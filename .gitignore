@@ -83,3 +83,4 @@ IMG_5130.PNG
 
 # Supabase CLI local-stack artifacts
 supabase/.branches/
+supabase/migrations/00122_verified_storefront_listings.sql
