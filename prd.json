@@ -11431,8 +11431,8 @@
         "Tests: missing core var crashes in prod mode; missing feature var degrades readiness without crashing; dev mode boots with minimal vars"
       ],
       "priority": 777,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops] Follows the assertAdminMfaConfig pattern already in main.ts (~line 480). Readiness probe today checks only 3 vars (health.ts:22-30)."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops] Follows the assertAdminMfaConfig pattern already in main.ts (~line 480). Readiness probe today checks only 3 vars (health.ts:22-30). [DONE 2026-06-10] lib/env-validation.ts: assertRequiredEnv (core always + prod-only Stripe/crypto/cert/job vars; FATAL in prod, warn-only dev/test), computeFeatureReadiness + warnMissingFeatureGroups (stripe_prices/ebay/smtp/google_photos/observability groups degrade, never crash). Wired into main.ts before Deno.serve (after assertAdminMfaConfig). health.ts /ready now returns per-feature  map while keeping overall ready=db+core only. .env.example: boot-validation header + SENTRY_DSN added. 7 Deno tests (prod crash on core/prod-required, Anthropic dual-name, dev permissive, feature degrade never fails required). Full edge suite 562 green."
     },
     {
       "id": "US-778",

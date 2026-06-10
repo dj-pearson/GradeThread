@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
+import { computeFeatureReadiness } from "../lib/env-validation.ts";
 
 export const healthRoutes = new Hono();
 
@@ -37,13 +38,20 @@ export interface ReadinessSummary {
     status: "ready" | "not_ready";
     checks: { database: "ok" | "fail"; env: "ok" | "missing" };
     missing_env?: string[];
+    // US-777: per-feature config status (e.g. { ebay: "missing: EBAY_…" }). A
+    // degraded feature does NOT flip `ready` — the orchestrator keeps routing —
+    // it's surfaced so ops can see WHICH integration is unconfigured.
+    features?: Record<string, string>;
   };
 }
 
-// Pure decision (unit-tested) so the route's I/O stays trivial.
+// Pure decision (unit-tested) so the route's I/O stays trivial. `features` is
+// informational: overall readiness is still just DB + core env so a missing
+// optional integration can't take the container out of rotation.
 export function summarizeReadiness(
   dbOk: boolean,
   missingEnv: string[],
+  features: Record<string, string> = {},
 ): ReadinessSummary {
   const ready = dbOk && missingEnv.length === 0;
   return {
@@ -56,6 +64,7 @@ export function summarizeReadiness(
         env: missingEnv.length === 0 ? "ok" : "missing",
       },
       ...(missingEnv.length > 0 ? { missing_env: missingEnv } : {}),
+      ...(Object.keys(features).length > 0 ? { features } : {}),
     },
   };
 }
@@ -102,7 +111,7 @@ healthRoutes.get("/ready", async (c) => {
     dbOk = false;
   }
 
-  const summary = summarizeReadiness(dbOk, missingEnv);
+  const summary = summarizeReadiness(dbOk, missingEnv, computeFeatureReadiness());
   return c.json(
     { ...summary.body, timestamp: new Date().toISOString() },
     summary.httpStatus,

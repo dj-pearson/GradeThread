@@ -71,6 +71,7 @@ import { workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
 import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
+import { assertRequiredEnv, warnMissingFeatureGroups } from "./lib/env-validation.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
 import { featureGate } from "./lib/feature-flags.ts";
@@ -507,6 +508,12 @@ assertNoProdDebugFlags();
 // here (before Deno.serve) so a misconfigured deploy crashes loudly instead of
 // serving admin routes without the AAL2 gate.
 assertAdminMfaConfig();
+
+// US-777: hard-fail at boot on a missing REQUIRED env var (prod only); warn on
+// incomplete FEATURE groups (eBay / SMTP / Stripe prices / Google Photos) so a
+// half-configured deploy is loud, not latent. Dev/test stay permissive.
+assertRequiredEnv();
+warnMissingFeatureGroups();
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
 logEvent("info", "edge.boot", {
