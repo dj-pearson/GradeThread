@@ -11627,8 +11627,8 @@
         "Unit tests assert penny-exact totals for a list of sales/fees that is known to drift under Double (e.g. 0.1+0.2 family cases)"
       ],
       "priority": 790,
-      "passes": false,
-      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/Money] Server-side columns are already numeric — this closes the client half. Touches several files; keep it mechanical."
+      "passes": true,
+      "notes": "[EPIC: Module Quality 2026-06-10] From iOS module-quality audit 2026-06-10. [MEDIUM][iOS/Money] Server-side columns are already numeric — this closes the client half. Touches several files; keep it mechanical. DONE 2026-06-10 (iOS CI green on 05f9e24): chosen approach — exact-Decimal AGGREGATION keeping Double storage (no SwiftData migration, no cache wipe, bounded blast radius across the 62-site/20-file surface). New Money helper (Money/MoneyMath.swift): Money.decimal(Double) recovers exact cents (round-to-2dp), Money.sum(...) sums in Decimal and returns a cents-rounded Double so call sites keep their types, Decimal.currencyDouble for the display/chart boundary. Converted the headline/period summation sites to Money.sum: FinancialExport (gross/fees/cogs), Money + Dashboard monthly/weekly revenue+profit, dashboard inventory value + trend total, Analytics period P&L, expenses-this-month, consignment total-owed, widget sold-today + pending-net, source spend. Left per-bucket accumulators (per-day trend, per-brand, per-source, grading-ROI average) as Double — sub-cent immaterial drift; the displayed grand totals are now exact. Tests (MoneyMathTests): exact cent recovery, 0.1+0.2, 100×0.01==1.00 (with a sanity check that the naive Double sum drifts), projected-field sums — all green on macOS CI. Verified via iOS CI per the push-and-watch workflow; 3 fix iterations (trailing-comma parse error; GradeRequestStore .failed label) before green. NOTE: input parsing (ExpenseFormSheet) + single-row net stay Double by design — drift is an aggregation problem, now solved."
     },
     {
       "id": "US-791",
