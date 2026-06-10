@@ -66,7 +66,8 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
       // Inventory consolidated into the FlipDesk section (US-740) — no duplicate
       // here; the single canonical inventory lives under FlipDesk.
-      { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
+      // Finances moved to the FlipDesk group — it reports purely on reseller
+      // data (inventory/listings/sales) alongside Expenses/Reconciliation.
       { to: "/dashboard/analytics/suggestions", icon: Lightbulb, label: "Price Suggestions", end: false },
     ],
   },
@@ -89,6 +90,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
       { to: "/dashboard/flipdesk/expenses", icon: Wallet, label: "Expenses", end: false },
+      { to: "/dashboard/finances", icon: DollarSign, label: "Finances", end: false },
       { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
       { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: false, requiresFlipdeskFlag: "compPulls" },
       { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },

@@ -10,6 +10,9 @@ import {
   History,
   AlertTriangle,
   MapPin,
+  CheckCircle2,
+  AlertCircle,
+  Circle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,6 +27,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
   useCreateEbayLocation,
@@ -34,10 +45,19 @@ import {
   useStartEbayOauth,
   useSyncEbayListings,
   useSyncEbayPolicies,
+  type EbayConnection,
 } from "@/hooks/use-ebay";
 
-const PHASE_2 = ["poshmark", "mercari", "shopify"] as const;
-const PHASE_3 = ["depop", "grailed", "whatnot"] as const;
+// Marketplaces still "coming soon" — shown as a single muted row, not big
+// disabled cards, so they don't compete with the eBay setup that matters now.
+const COMING_SOON = [
+  "poshmark",
+  "mercari",
+  "shopify",
+  "depop",
+  "grailed",
+  "whatnot",
+] as const;
 
 // User-facing copy for the result codes the OAuth callback may add to the URL.
 const CALLBACK_MESSAGES: Record<
@@ -82,18 +102,119 @@ function formatAgo(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-// Business-policy defaults. eBay attaches a fulfillment (shipping), payment, and
-// return policy to every published offer. We auto-pick a default on first sync,
-// but that guess can be wrong/invalid (publish then fails with eBay 25007
-// "invalid shipping policy"). This card lets the seller choose the correct
-// default per type and re-sync the list from eBay when it's stale.
+// eBay attaches a fulfillment (shipping), payment, and return policy to every
+// published offer. We auto-pick a default on first sync, but that guess can be
+// wrong/invalid (publish then fails with eBay 25007 "invalid shipping policy").
 const POLICY_KINDS = [
   { type: "fulfillment", label: "Shipping policy", key: "fulfillment_policy_id" },
   { type: "payment", label: "Payment policy", key: "payment_policy_id" },
   { type: "return", label: "Return policy", key: "return_policy_id" },
 ] as const;
 
-function EbayBusinessPoliciesCard() {
+// ── Ship-from location dialog ────────────────────────────────────────────
+// eBay requires an ENABLED location on every published offer and offers no
+// Seller Hub UI to create one, so we capture a ZIP once and create it via the
+// Inventory API. Without this, publish fails with a "merchant location" blocker.
+function EbayLocationDialog({
+  open,
+  onOpenChange,
+  hasLocation,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  hasLocation: boolean;
+}) {
+  const createLocation = useCreateEbayLocation();
+  const [zip, setZip] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+
+  const save = async () => {
+    if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {
+      toast.error("Enter a valid US ZIP code (e.g. 90210).");
+      return;
+    }
+    try {
+      await createLocation.mutateAsync({
+        postal_code: zip.trim(),
+        country: "US",
+        state: state.trim() || undefined,
+        city: city.trim() || undefined,
+      });
+      onOpenChange(false);
+    } catch {
+      /* surfaced by the hook */
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5" />
+            Ship-from location
+          </DialogTitle>
+          <DialogDescription>
+            eBay requires a ship-from location on every listing, and there&apos;s
+            no way to add one in Seller Hub. Set it here once — it&apos;s used for
+            all your published listings.
+            {hasLocation && " Saving a new ZIP replaces the current one."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="ship-zip">ZIP code</Label>
+            <Input
+              id="ship-zip"
+              inputMode="numeric"
+              placeholder="90210"
+              value={zip}
+              onChange={(e) => setZip(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ship-city">City (optional)</Label>
+            <Input
+              id="ship-city"
+              placeholder="Beverly Hills"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ship-state">State (optional)</Label>
+            <Input
+              id="ship-state"
+              placeholder="CA"
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={save} disabled={createLocation.isPending}>
+            {createLocation.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <MapPin className="mr-2 h-4 w-4" />
+            )}
+            Save location
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Business policies dialog ─────────────────────────────────────────────
+function EbayPoliciesDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
   const { data, isLoading } = useEbayPolicies(true);
   const setDefaults = useSetDefaultPolicies();
   const resync = useSyncEbayPolicies();
@@ -110,11 +231,10 @@ function EbayBusinessPoliciesCard() {
   }, [data]);
 
   const policies = data?.policies ?? [];
-  const dirty = !!data &&
+  const dirty =
+    !!data &&
     POLICY_KINDS.some(
-      (k) =>
-        (selection[k.key] ?? "") !==
-        (data.defaults[k.key] ?? ""),
+      (k) => (selection[k.key] ?? "") !== (data.defaults[k.key] ?? ""),
     );
 
   const save = async () => {
@@ -124,19 +244,29 @@ function EbayBusinessPoliciesCard() {
     }
     try {
       await setDefaults.mutateAsync(payload);
+      onOpenChange(false);
     } catch {
       /* surfaced by the hook */
     }
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
             <FileSpreadsheet className="h-5 w-5" />
-            eBay — business policies
-          </CardTitle>
+            Business policies
+          </DialogTitle>
+          <DialogDescription>
+            eBay attaches a shipping, payment, and return policy to every listing.
+            Pick the default for each — these are used when you publish. If a
+            publish fails with &quot;invalid shipping policy,&quot; re-sync and
+            re-pick the right one.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex justify-end">
           <Button
             variant="outline"
             size="sm"
@@ -151,14 +281,7 @@ function EbayBusinessPoliciesCard() {
             Re-sync from eBay
           </Button>
         </div>
-        <CardDescription>
-          eBay attaches a shipping, payment, and return policy to every listing.
-          Pick the default for each — these are used when you publish. If a
-          publish fails with &quot;invalid shipping policy,&quot; re-sync and
-          re-pick the right one here.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+
         {isLoading ? (
           <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -171,7 +294,7 @@ function EbayBusinessPoliciesCard() {
             &quot;Re-sync from eBay.&quot;
           </p>
         ) : (
-          <>
+          <div className="space-y-3">
             {POLICY_KINDS.map((kind) => {
               const options = policies.filter((p) => p.policy_type === kind.type);
               return (
@@ -201,160 +324,311 @@ function EbayBusinessPoliciesCard() {
                 </div>
               );
             })}
-            <div className="flex justify-end pt-1">
-              <Button onClick={save} disabled={!dirty || setDefaults.isPending}>
-                {setDefaults.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Save defaults
-              </Button>
-            </div>
-          </>
+          </div>
         )}
-      </CardContent>
-    </Card>
+
+        <DialogFooter>
+          <Button onClick={save} disabled={!dirty || setDefaults.isPending}>
+            {setDefaults.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            Save defaults
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-// Ship-from (merchant inventory) location setup. eBay requires an ENABLED
-// location on every published offer and offers no Seller Hub UI to create one,
-// so we capture a ZIP once and create it via the Inventory API. Without this,
-// publish fails with a "merchant location" blocker.
-function EbayLocationCard() {
-  const { data, isLoading } = useEbayPolicies(true);
-  const createLocation = useCreateEbayLocation();
-  const [editing, setEditing] = useState(false);
-  const [zip, setZip] = useState("");
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
+// ── Setup checklist row ──────────────────────────────────────────────────
+type StepState = "done" | "todo" | "blocked" | "loading";
 
-  const hasLocation = !!data?.defaults.merchant_location_key;
+function StepRow({
+  state,
+  label,
+  status,
+  action,
+}: {
+  state: StepState;
+  label: string;
+  status: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        {state === "done" ? (
+          <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-600" />
+        ) : state === "blocked" ? (
+          <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/40" />
+        ) : state === "loading" ? (
+          <Loader2 className="h-5 w-5 flex-shrink-0 animate-spin text-muted-foreground" />
+        ) : (
+          <AlertCircle className="h-5 w-5 flex-shrink-0 text-amber-500" />
+        )}
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{label}</p>
+          <p className="truncate text-xs text-muted-foreground">{status}</p>
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
 
-  const save = async () => {
-    if (!/^\d{5}(-\d{4})?$/.test(zip.trim())) {
-      toast.error("Enter a valid US ZIP code (e.g. 90210).");
-      return;
-    }
-    try {
-      await createLocation.mutateAsync({
-        postal_code: zip.trim(),
-        country: "US",
-        state: state.trim() || undefined,
-        city: city.trim() || undefined,
-      });
-      setEditing(false);
-    } catch {
-      /* surfaced by the hook */
-    }
-  };
+// ── eBay setup + sync card ───────────────────────────────────────────────
+// One cohesive surface: a readiness checklist (connection → location →
+// policies) that collapses to a "Ready to publish" banner when complete, plus
+// the day-to-day sync actions once connected.
+function EbaySetup({
+  connection,
+  connLoading,
+  syncing,
+  onSync,
+  onConnect,
+  oauthPending,
+}: {
+  connection: EbayConnection | null | undefined;
+  connLoading: boolean;
+  syncing: boolean;
+  onSync: (full: boolean) => void;
+  onConnect: () => void;
+  oauthPending: boolean;
+}) {
+  const connected = !!connection;
+  const { data: policyData, isLoading: polLoading } = useEbayPolicies(connected);
+  const defaults = policyData?.defaults;
+  const hasLocation = !!defaults?.merchant_location_key;
+  const hasPolicies = !!(
+    defaults?.fulfillment_policy_id &&
+    defaults?.payment_policy_id &&
+    defaults?.return_policy_id
+  );
+
+  const [dialog, setDialog] = useState<null | "location" | "policies">(null);
+  const [manageOpen, setManageOpen] = useState(false);
+
+  const doneCount =
+    (connected ? 1 : 0) +
+    (connected && hasLocation ? 1 : 0) +
+    (connected && hasPolicies ? 1 : 0);
+  const allReady = connected && hasLocation && hasPolicies;
+  const pct = Math.round((doneCount / 3) * 100);
+  const polReady = connected && !polLoading;
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
-            <MapPin className="h-5 w-5" />
-            eBay — ship-from location
+            <Plug className="h-5 w-5" />
+            {allReady ? "eBay" : "Get ready to sell on eBay"}
           </CardTitle>
-          {isLoading ? (
-            <Badge variant="secondary">Checking…</Badge>
-          ) : hasLocation ? (
+          {connected ? (
             <Badge className="bg-emerald-600 hover:bg-emerald-600">
               <Check className="mr-1 h-3 w-3" />
-              Set
+              Connected
+              {connection?.account_handle ? ` · ${connection.account_handle}` : ""}
             </Badge>
           ) : (
             <Badge variant="secondary">Setup required</Badge>
           )}
         </div>
-        <CardDescription>
-          eBay requires a ship-from location on every listing. There&apos;s no
-          way to add one in Seller Hub, so set it here once — it&apos;s used for
-          all your published listings.
-        </CardDescription>
+        {!allReady && (
+          <CardDescription>
+            Three quick steps before FlipDesk can publish listings to eBay.
+          </CardDescription>
+        )}
       </CardHeader>
-      <CardContent className="space-y-3">
-        {hasLocation && !editing ? (
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm text-muted-foreground">
-              Location set ({data?.defaults.merchant_location_key}).
-            </p>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-              Update ZIP
+
+      <CardContent className="space-y-4">
+        {allReady && !manageOpen ? (
+          <div className="flex items-center justify-between rounded-lg border border-emerald-600/30 bg-emerald-600/5 px-3 py-2.5">
+            <span className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" />
+              Ready to publish on eBay
+            </span>
+            <Button variant="ghost" size="sm" onClick={() => setManageOpen(true)}>
+              Manage
             </Button>
           </div>
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1">
-                <Label htmlFor="ship-zip">ZIP code</Label>
-                <Input
-                  id="ship-zip"
-                  inputMode="numeric"
-                  placeholder="90210"
-                  value={zip}
-                  onChange={(e) => setZip(e.target.value)}
-                />
+            {!allReady && (
+              <div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full bg-brand-navy transition-all"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {doneCount} of 3 complete
+                </p>
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="ship-city">City (optional)</Label>
-                <Input
-                  id="ship-city"
-                  placeholder="Beverly Hills"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="ship-state">State (optional)</Label>
-                <Input
-                  id="ship-state"
-                  placeholder="CA"
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                />
-              </div>
+            )}
+
+            <div className="rounded-lg border px-3 [&>*+*]:border-t">
+              {/* 1 — account */}
+              <StepRow
+                state={connected ? "done" : connLoading ? "loading" : "todo"}
+                label="Connect your eBay account"
+                status={
+                  connLoading
+                    ? "Checking…"
+                    : connected
+                      ? `Connected${connection?.account_handle ? ` as ${connection.account_handle}` : ""}`
+                      : "A direct OAuth connection syncs listings, pushes drafts, and streams payouts."
+                }
+                action={
+                  connected ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={onConnect}
+                      disabled={oauthPending}
+                    >
+                      Reconnect
+                    </Button>
+                  ) : (
+                    <Button size="sm" onClick={onConnect} disabled={oauthPending}>
+                      {oauthPending && (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      )}
+                      Connect eBay
+                    </Button>
+                  )
+                }
+              />
+
+              {/* 2 — ship-from location */}
+              <StepRow
+                state={
+                  !connected
+                    ? "blocked"
+                    : polLoading
+                      ? "loading"
+                      : hasLocation
+                        ? "done"
+                        : "todo"
+                }
+                label="Ship-from location"
+                status={
+                  !connected
+                    ? "Connect your account first"
+                    : polLoading
+                      ? "Checking…"
+                      : hasLocation
+                        ? "Set — used on every listing"
+                        : "eBay needs a ship-from location to publish"
+                }
+                action={
+                  polReady ? (
+                    <Button
+                      size="sm"
+                      variant={hasLocation ? "ghost" : "default"}
+                      onClick={() => setDialog("location")}
+                    >
+                      {hasLocation ? "Edit" : "Set up"}
+                    </Button>
+                  ) : undefined
+                }
+              />
+
+              {/* 3 — business policies */}
+              <StepRow
+                state={
+                  !connected
+                    ? "blocked"
+                    : polLoading
+                      ? "loading"
+                      : hasPolicies
+                        ? "done"
+                        : "todo"
+                }
+                label="Business policies"
+                status={
+                  !connected
+                    ? "Connect your account first"
+                    : polLoading
+                      ? "Checking…"
+                      : hasPolicies
+                        ? "Shipping, payment & return set"
+                        : "Pick a shipping, payment & return default"
+                }
+                action={
+                  polReady ? (
+                    <Button
+                      size="sm"
+                      variant={hasPolicies ? "ghost" : "default"}
+                      onClick={() => setDialog("policies")}
+                    >
+                      {hasPolicies ? "Edit" : "Set up"}
+                    </Button>
+                  ) : undefined
+                }
+              />
             </div>
-            <Button
-              onClick={save}
-              disabled={createLocation.isPending}
-              className="w-full sm:w-auto"
-            >
-              {createLocation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <MapPin className="mr-2 h-4 w-4" />
-              )}
-              Save ship-from location
-            </Button>
+
+            {allReady && manageOpen && (
+              <div className="flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setManageOpen(false)}
+                >
+                  Done
+                </Button>
+              </div>
+            )}
           </>
         )}
-      </CardContent>
-    </Card>
-  );
-}
 
-function MarketplaceCard({
-  marketplace,
-  phase,
-}: {
-  marketplace: keyof typeof MARKETPLACE_LABELS;
-  phase: "Phase 2" | "Phase 3";
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle>{MARKETPLACE_LABELS[marketplace]}</CardTitle>
-          <Badge variant="secondary">{phase}</Badge>
-        </div>
-        <CardDescription>Not connected</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button disabled className="w-full">
-          Available later
-        </Button>
+        {/* Day-to-day sync — only once connected */}
+        {connected && (
+          <div className="space-y-2 border-t pt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => onSync(false)} disabled={syncing} size="sm">
+                {syncing ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                {syncing ? "Syncing…" : "Sync listings from eBay"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onSync(true)}
+                disabled={syncing}
+              >
+                <History className="mr-2 h-4 w-4" />
+                Import full sales history
+              </Button>
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {connection?.last_synced_at
+                  ? `Last synced ${formatAgo(connection.last_synced_at)}.`
+                  : "Never synced yet."}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Full import is a one-time backfill: it pulls sold orders from the
+              last ~24 months, including items not yet in FlipDesk (those land in
+              Reconciliation).
+            </p>
+          </div>
+        )}
       </CardContent>
+
+      <EbayLocationDialog
+        open={dialog === "location"}
+        onOpenChange={(o) => setDialog(o ? "location" : null)}
+        hasLocation={hasLocation}
+      />
+      <EbayPoliciesDialog
+        open={dialog === "policies"}
+        onOpenChange={(o) => setDialog(o ? "policies" : null)}
+      />
     </Card>
   );
 }
@@ -471,8 +745,10 @@ export function FlipdeskMarketplacesPage() {
     setParams(next, { replace: true });
   }, [params, setParams]);
 
+  const syncing = syncListings.isPending || syncSince != null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
           <Plug className="h-5 w-5" />
@@ -511,162 +787,48 @@ export function FlipdeskMarketplacesPage() {
         </div>
       )}
 
-      {/* eBay — the primary integration */}
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Phase 1 — eBay
+      {/* Active — eBay setup + sync */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Active
         </h2>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* Available now: CSV sync */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <FileSpreadsheet className="h-5 w-5" />
-                  eBay — CSV sync
-                </CardTitle>
-                <Badge>Available now</Badge>
-              </div>
-              <CardDescription>
-                Export the Active Listings report from eBay Seller Hub and
-                upload it. FlipDesk reads each listing&apos;s{" "}
-                <strong>Custom label (SKU)</strong> and matches it to your
-                FlipDesk SKUs — then flags every mismatch so you can resolve
-                them. No eBay developer account needed.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild className="w-full">
-                <Link to="/dashboard/flipdesk/reconciliation">
-                  Open SKU match
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
+        <EbaySetup
+          connection={connection}
+          connLoading={connLoading}
+          syncing={syncing}
+          onSync={runSync}
+          onConnect={() => startOauth.mutate()}
+          oauthPending={startOauth.isPending}
+        />
+      </section>
 
-          {/* OAuth API connection */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>eBay — API connection</CardTitle>
-                {connection ? (
-                  <Badge className="bg-emerald-600 hover:bg-emerald-600">
-                    <Check className="mr-1 h-3 w-3" />
-                    Connected
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary">Setup required</Badge>
-                )}
-              </div>
-              <CardDescription>
-                {connection
-                  ? `Connected${
-                      connection.account_handle
-                        ? ` as ${connection.account_handle}`
-                        : ""
-                    }. FlipDesk can now sync listings, push drafts, and stream payouts automatically.`
-                  : "A direct OAuth connection pulls listings, pushes drafts, and streams payouts automatically — no CSV step. Needs the edge service to be configured with eBay developer credentials."}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {connLoading ? (
-                <Button disabled className="w-full">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Checking…
-                </Button>
-              ) : connection ? (
-                <>
-                  <Button
-                    className="w-full"
-                    onClick={() => runSync(false)}
-                    disabled={syncListings.isPending || syncSince != null}
-                  >
-                    {syncListings.isPending || syncSince != null ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-2 h-4 w-4" />
-                    )}
-                    {syncSince != null ? "Syncing…" : "Sync listings from eBay"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => runSync(true)}
-                    disabled={syncListings.isPending || syncSince != null}
-                  >
-                    <History className="mr-2 h-4 w-4" />
-                    Import full sales history
-                  </Button>
-                  <p className="text-[11px] text-muted-foreground">
-                    One-time backfill: pulls sold orders from the last ~24
-                    months, including items not yet in FlipDesk (those land in
-                    Reconciliation).
-                  </p>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[11px] text-muted-foreground">
-                      {connection.last_synced_at
-                        ? `Last synced ${formatAgo(connection.last_synced_at)}.`
-                        : "Never synced yet."}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => startOauth.mutate()}
-                      disabled={startOauth.isPending}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Reconnect
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <Button
-                  className="w-full"
-                  onClick={() => startOauth.mutate()}
-                  disabled={startOauth.isPending}
-                >
-                  {startOauth.isPending ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : null}
-                  Connect eBay account
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Ship-from location — only relevant once the API connection exists,
-            since the location lives on the connected eBay account. */}
-        {connection && (
-          <div className="mt-4 space-y-4">
-            <EbayLocationCard />
-            <EbayBusinessPoliciesCard />
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Phase 2 — Multi-marketplace
+      {/* More ways to sync — CSV as the no-developer-account fallback */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          More ways to sync
         </h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          {PHASE_2.map((m) => (
-            <MarketplaceCard key={m} marketplace={m} phase="Phase 2" />
-          ))}
-        </div>
-      </div>
+        <Link
+          to="/dashboard/flipdesk/reconciliation"
+          className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
+        >
+          <span className="flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+            Import via CSV — upload your Active Listings report, no developer
+            account needed.
+          </span>
+          <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        </Link>
+      </section>
 
-      <div>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Phase 3 — Niche
+      {/* Coming soon — muted single row, not big disabled cards */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Coming soon
         </h2>
-        <div className="grid gap-4 md:grid-cols-3">
-          {PHASE_3.map((m) => (
-            <MarketplaceCard key={m} marketplace={m} phase="Phase 3" />
-          ))}
+        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+          {COMING_SOON.map((m) => MARKETPLACE_LABELS[m]).join(" · ")}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
