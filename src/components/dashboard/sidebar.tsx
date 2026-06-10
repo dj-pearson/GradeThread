@@ -50,6 +50,10 @@ type NavItem = {
   // Optional FlipDesk plan-tier gate (US-323). When set, the item is only
   // shown if the workspace's current FlipDesk plan has this gate flag true.
   requiresFlipdeskFlag?: keyof FlipdeskGateFlags;
+  // Inverse gate: hide this item once the plan HAS the flag. Used to tier two
+  // overlapping tools so a user never sees both — e.g. Reconcile (the ungated
+  // bulk-photo→item tool) is hidden once AutoLister becomes available.
+  hiddenWhenFlipdeskFlag?: keyof FlipdeskGateFlags;
 };
 type NavGroup = { title?: string; items: NavItem[]; adminOnly?: boolean };
 
@@ -77,7 +81,10 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
-      { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false },
+      // Reconcile is the ungated bulk-photo→item tool. Once a plan unlocks
+      // AutoLister (Pro+), AutoLister supersedes it, so hide Reconcile to avoid
+      // showing two overlapping tools. The route still works via deep link.
+      { to: "/dashboard/flipdesk/reconcile", icon: Layers, label: "Reconcile", end: false, hiddenWhenFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/sources", icon: MapPin, label: "Sources", end: false },
       { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
       { to: "/dashboard/flipdesk/reconciliation", icon: Scale, label: "Reconciliation", end: false },
@@ -149,6 +156,9 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         const visibleItems = group.items.filter((item) => {
           if (item.requires && !can(item.requires)) return false;
           if (item.requiresFlipdeskFlag && !flipdeskFlags[item.requiresFlipdeskFlag]) {
+            return false;
+          }
+          if (item.hiddenWhenFlipdeskFlag && flipdeskFlags[item.hiddenWhenFlipdeskFlag]) {
             return false;
           }
           return true;
