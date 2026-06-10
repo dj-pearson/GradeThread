@@ -89,7 +89,11 @@ async function sendDisputeNotification(disputeId: string): Promise<void> {
       body: JSON.stringify({ disputeId }),
     });
   } catch (err) {
-    console.error("[Disputes] Failed to send status notification:", err);
+    // US-785: the status change already succeeded — only the user notification
+    // failed. Surface it to the admin + Sentry instead of swallowing it.
+    if (import.meta.env.DEV) console.error("[Disputes] Failed to send status notification:", err);
+    Sentry.captureException(err, { tags: { area: "admin.dispute_notification" } });
+    toast.warning("Status updated, but the user notification failed to send.");
   }
 }
 

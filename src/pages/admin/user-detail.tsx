@@ -117,7 +117,11 @@ async function createAuditLog(entry: AdminAuditLogInsert) {
     .from("admin_audit_log")
     .insert(entry as never);
   if (error) {
-    console.error("Failed to create audit log:", error);
+    // US-785: the admin action itself already completed — surface the audit-log
+    // failure (a compliance gap) to the admin + Sentry rather than swallowing it.
+    if (import.meta.env.DEV) console.error("Failed to create audit log:", error);
+    Sentry.captureException(error, { tags: { area: "admin.audit_log_write" } });
+    toast.warning("Action completed, but the audit-log entry failed to write.");
   }
 }
 
