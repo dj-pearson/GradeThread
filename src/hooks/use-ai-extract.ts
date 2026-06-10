@@ -16,6 +16,17 @@ export interface AiFieldConflict {
   photo_value: string;
 }
 
+export interface AiExtractEbayBlock {
+  category_id: string;
+  category_path: string | null;
+  // Merged aspects as persisted on inventory_items.ebay_aspects.
+  aspects: Record<string, string[]>;
+  suggestions: Record<
+    string,
+    { values: string[]; confidence: number; source: string }
+  >;
+}
+
 export interface AiExtractResponse {
   suggestions: Record<string, AiFieldSuggestion>;
   condition_summary: string | null;
@@ -26,6 +37,9 @@ export interface AiExtractResponse {
   model: string;
   log_id: string | null;
   actions_remaining: number;
+  // One-call listing prep: the eBay category + item-specifics the server
+  // resolved and persisted onto the item (null when skipped/unavailable).
+  ebay: AiExtractEbayBlock | null;
 }
 
 export interface AiExtractInput {

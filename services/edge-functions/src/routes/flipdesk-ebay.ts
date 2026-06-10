@@ -1769,13 +1769,13 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
       .select("storage_path, photo_url, sort_order")
       .eq("inventory_item_id", itemId)
       .order("sort_order", { ascending: true });
-    const imageUrls = (
-      (photoRows ?? []) as Array<{
-        storage_path: string | null;
-        photo_url: string | null;
-      }>
-    )
-      .map((p) => {
+    const imageUrls = toEbayImageUrls(
+      (
+        (photoRows ?? []) as Array<{
+          storage_path: string | null;
+          photo_url: string | null;
+        }>
+      ).map((p) => {
         if (p.photo_url) return p.photo_url;
         if (p.storage_path) {
           return supabaseAdmin.storage
@@ -1784,7 +1784,7 @@ flipdeskEbayRoutes.post("/listings/:id/revise", async (c) => {
         }
         return null;
       })
-      .filter((u): u is string => !!u);
+    );
 
     const finalTitle = hasTitle ? (nextTitle as string) : (item.title ?? "").trim();
     const finalDesc = hasDesc
@@ -1992,6 +1992,17 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   });
 });
 
+// eBay allows at most 24 pictures per listing (Inventory API product.imageUrls).
+// Sending more returns error 25601 ("The size for ImageLinks cannot exceed …").
+// Photos arrive sorted by sort_order, so capping keeps the cover + best shots.
+const EBAY_MAX_IMAGES = 24;
+
+// Drop empties, dedupe (re-uploads can share a URL), and cap to eBay's limit.
+function toEbayImageUrls(urls: Array<string | null | undefined>): string[] {
+  return [...new Set(urls.filter((u): u is string => !!u && u.trim() !== ""))]
+    .slice(0, EBAY_MAX_IMAGES);
+}
+
 export type PublishItemResult =
   | {
     ok: true;
@@ -2045,7 +2056,7 @@ export async function publishItemForOwner(
         title: ctx.summary.title,
         description: ctx.summary.description,
         aspects: ctx.summary.aspects,
-        imageUrls: photos.map((p) => p.public_url),
+        imageUrls: toEbayImageUrls(photos.map((p) => p.public_url)),
         // eBay requires a Brand+MPN product identifier (error 25002
         // <BrandMPN>). Default Brand to "Unbranded" and MPN to "Does Not
         // Apply" — the standard values for used items without a manufacturer

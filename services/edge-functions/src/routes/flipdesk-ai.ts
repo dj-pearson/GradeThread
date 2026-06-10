@@ -5,10 +5,12 @@ import {
   extractEbayAspects,
   extractItemFields,
   generateListingCopy,
+  type AspectValueSuggestion,
   type EbayAspectSpec,
+  type ExtractionResult,
   type ExtractPhoto,
 } from "../lib/ai-extract.ts";
-import { getCategoryAspects } from "../lib/ebay-client.ts";
+import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
 import {
   classifyPhotoTypes,
   extractMatchHints,
@@ -164,8 +166,17 @@ const QUOTA_EXHAUSTED_429 = {
 
 /**
  * POST /extract
- * Body: { text?, photo_urls?, known_fields?, item_id? }
+ * Body: { text?, photo_urls?, known_fields?, item_id?, include_ebay_aspects? }
  * Routes to Haiku (text) or Sonnet (photos), logs usage, returns suggestions.
+ *
+ * One-call listing prep: when an owned item_id is supplied (and
+ * include_ebay_aspects isn't explicitly false), the route ALSO resolves an
+ * eBay leaf category (saved on the item, else taxonomy search on the
+ * AI-suggested category query) and fills that category's item-specifics in a
+ * second model pass, persisting ebay_category_id + ebay_aspects on the item —
+ * so the category picker opens prefilled on web and iOS. The aspects pass is
+ * best-effort: any failure still returns the core extraction. It consumes a
+ * second AI action when it runs.
  */
 flipdeskAiRoutes.post("/extract", async (c) => {
   // Re-bind userId to the active workspace owner. For solo users this is
@@ -179,6 +190,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     photos?: unknown;
     known_fields?: unknown;
     item_id?: unknown;
+    include_ebay_aspects?: unknown;
   };
   try {
     body = await c.req.json();
@@ -214,6 +226,10 @@ flipdeskAiRoutes.post("/extract", async (c) => {
       ? (body.known_fields as Record<string, unknown>)
       : {};
   const itemId = typeof body.item_id === "string" ? body.item_id : null;
+  // Aspects pass defaults ON when an item is in play; callers can opt out.
+  const includeEbayAspects = body.include_ebay_aspects === undefined
+    ? itemId != null
+    : body.include_ebay_aspects === true;
 
   if ((!text || text.trim() === "") && cappedPhotos.length === 0) {
     return c.json({ error: "Provide text or photos." }, 400);
@@ -287,9 +303,33 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     console.error("[flipdesk-ai] failed to write log row:", logErr.message);
   }
 
-  // Action already reserved atomically above (US-387).
+  // One-call listing prep: resolve the eBay category + fill its
+  // item-specifics, persisting both onto the item. Best-effort — never
+  // fails the core extraction.
+  let ebay: EbayAspectsBlock | null = null;
+  let extraActions = 0;
+  if (includeEbayAspects && itemId) {
+    try {
+      const phase = await runEbayAspectsPhase({
+        userId,
+        itemId,
+        limit,
+        photos: cappedPhotos,
+        extraction: result,
+      });
+      ebay = phase.block;
+      extraActions = phase.actionsSpent;
+    } catch (err) {
+      console.error(
+        "[flipdesk-ai] eBay aspects phase failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+
+  // Action(s) already reserved atomically above (US-387).
   const actionsRemaining =
-    limit === -1 ? -1 : Math.max(0, limit - used - 1);
+    limit === -1 ? -1 : Math.max(0, limit - used - 1 - extraActions);
 
   return c.json({
     suggestions: result.suggestions,
@@ -299,6 +339,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     model: result.model,
     log_id: logRow?.id ?? null,
     actions_remaining: actionsRemaining,
+    ebay,
   });
 });
 
@@ -549,6 +590,213 @@ flipdeskAiRoutes.post("/extract-aspects", async (c) => {
     aspects_available: allSpecs.length,
   });
 });
+
+// ─── One-call eBay aspects phase (rides on POST /extract) ─────────
+//
+// Resolves a leaf category for the item (saved ebay_category_id, else eBay
+// Taxonomy search on the model's ebay_category_query), fills that category's
+// item-specifics with a second model pass, and persists ebay_category_id +
+// ebay_aspects on the item so the category picker opens prefilled everywhere.
+
+interface EbayAspectsBlock {
+  category_id: string;
+  category_path: string | null;
+  /** Merged, persisted aspects (existing values win over AI suggestions). */
+  aspects: Record<string, string[]>;
+  /** Raw per-aspect AI suggestions with confidence + source. */
+  suggestions: Record<string, AspectValueSuggestion>;
+}
+
+function sanitizeAspectMap(raw: unknown): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [name, values] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(values)) continue;
+    const clean = values
+      .filter((v): v is string => typeof v === "string")
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0);
+    if (clean.length > 0) out[name] = clean;
+  }
+  return out;
+}
+
+async function runEbayAspectsPhase(args: {
+  userId: string;
+  itemId: string;
+  limit: number;
+  photos: ExtractPhoto[];
+  extraction: ExtractionResult;
+}): Promise<{ block: EbayAspectsBlock | null; actionsSpent: number }> {
+  const { userId, itemId, limit, photos, extraction } = args;
+
+  // Ownership gate — this phase WRITES to the item.
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, user_id, title, brand, style, size, color, material, condition_notes, ebay_category_id, ebay_aspects"
+    )
+    .eq("id", itemId)
+    .single();
+  if (!item || item.user_id !== userId) return { block: null, actionsSpent: 0 };
+
+  // 1. Resolve a leaf category: saved mapping wins; otherwise taxonomy
+  //    search on the AI's category query (falling back to the title).
+  let categoryId = (item.ebay_category_id as string | null) ?? null;
+  let categoryPath: string | null = null;
+  if (!categoryId) {
+    const query = extraction.ebayCategoryQuery ??
+      extraction.suggestions.title?.value ??
+      (typeof item.title === "string" ? item.title : null);
+    if (!query || !query.trim()) return { block: null, actionsSpent: 0 };
+    const matches = await suggestCategories(query.trim());
+    if (matches.length === 0) return { block: null, actionsSpent: 0 };
+    categoryId = matches[0]!.categoryId;
+    categoryPath = matches[0]!.categoryTreePath ?? null;
+  }
+
+  // 2. Category aspect spec (cached taxonomy read).
+  const aspectsResponse = await getCategoryAspects(categoryId);
+  const rawAspects = (aspectsResponse.aspects as Record<string, unknown>)
+    .aspects;
+  const allSpecs = toAspectSpecs(rawAspects);
+  const aiSpecs = prioritizeAspects(allSpecs, rawAspects);
+
+  const existingAspects = sanitizeAspectMap(item.ebay_aspects);
+
+  // Persist the resolved category even if there's nothing for the AI to do —
+  // the picker pre-selecting the right category is half the win.
+  if (aiSpecs.length === 0) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ ebay_category_id: categoryId })
+      .eq("id", itemId)
+      .eq("user_id", userId);
+    return {
+      block: {
+        category_id: categoryId,
+        category_path: categoryPath,
+        aspects: existingAspects,
+        suggestions: {},
+      },
+      actionsSpent: 0,
+    };
+  }
+
+  // 3. Second model pass — billable, so reserve another AI action. If the
+  //    budget is exhausted, persist the category alone and stop.
+  if (!(await reserveAiAction(userId, limit))) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ ebay_category_id: categoryId })
+      .eq("id", itemId)
+      .eq("user_id", userId);
+    return {
+      block: {
+        category_id: categoryId,
+        category_path: categoryPath,
+        aspects: existingAspects,
+        suggestions: {},
+      },
+      actionsSpent: 0,
+    };
+  }
+
+  // Text context: just-extracted core fields + item columns.
+  const textParts = [
+    extraction.suggestions.title?.value ?? item.title,
+    extraction.suggestions.brand?.value ?? item.brand,
+    extraction.suggestions.style?.value ?? item.style,
+    extraction.suggestions.size?.value ?? item.size,
+    extraction.suggestions.color?.value ?? item.color,
+    extraction.suggestions.material?.value ?? item.material,
+    extraction.suggestions.condition_notes?.value ?? item.condition_notes,
+    extraction.conditionSummary,
+  ]
+    .filter((t): t is string => !!t && String(t).trim() !== "")
+    .join("\n");
+
+  const start = Date.now();
+  let aspectResult;
+  try {
+    aspectResult = await extractEbayAspects({
+      text: textParts || undefined,
+      photos,
+      knownAspects: existingAspects,
+      aspects: aiSpecs,
+      categoryPath,
+    });
+  } catch (err) {
+    await refundAiAction(userId);
+    console.error(
+      "[flipdesk-ai] one-call aspect extraction failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ ebay_category_id: categoryId })
+      .eq("id", itemId)
+      .eq("user_id", userId);
+    return {
+      block: {
+        category_id: categoryId,
+        category_path: categoryPath,
+        aspects: existingAspects,
+        suggestions: {},
+      },
+      actionsSpent: 0,
+    };
+  }
+  const latencyMs = Date.now() - start;
+
+  // 4. Merge (user-entered values are ground truth) + persist.
+  const merged: Record<string, string[]> = { ...existingAspects };
+  for (const [name, suggestion] of Object.entries(aspectResult.suggestions)) {
+    if (!merged[name] || merged[name].length === 0) {
+      merged[name] = suggestion.values;
+    }
+  }
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({
+      ebay_category_id: categoryId,
+      ebay_aspects: merged,
+      ai_generated_aspects_at: new Date().toISOString(),
+    })
+    .eq("id", itemId)
+    .eq("user_id", userId);
+
+  // Telemetry log row, mirroring POST /extract-aspects.
+  const costUsd = estimateCost(
+    aspectResult.model,
+    aspectResult.tokensIn,
+    aspectResult.tokensOut
+  );
+  await supabaseAdmin.from("ai_enrichment_log").insert({
+    user_id: userId,
+    inventory_item_id: itemId,
+    model: aspectResult.model,
+    input_kind: photos.length > 0 ? "both" : "text",
+    tokens_in: aspectResult.tokensIn,
+    tokens_out: aspectResult.tokensOut,
+    cost_usd: costUsd,
+    latency_ms: latencyMs,
+    suggested_fields: {
+      category_id: categoryId,
+      aspect_suggestions: aspectResult.suggestions,
+    },
+  });
+
+  return {
+    block: {
+      category_id: categoryId,
+      category_path: categoryPath,
+      aspects: merged,
+      suggestions: aspectResult.suggestions,
+    },
+    actionsSpent: 1,
+  };
+}
 
 // Item photos as typed { url, type } pairs from the public item-photos bucket.
 async function loadItemPhotos(itemId: string): Promise<ExtractPhoto[]> {

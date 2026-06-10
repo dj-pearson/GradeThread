@@ -126,6 +126,9 @@ struct AIExtractView: View {
                 if !result.measurements.isEmpty {
                     measurementsCard(result.measurements)
                 }
+                if let prep = store.ebayPrep {
+                    ebayPrepCard(prep)
+                }
                 applyRow
             }
             .padding(.horizontal, 16)
@@ -198,6 +201,31 @@ struct AIExtractView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         // US-691: unified card chrome (radius 16) via the shared token.
+        .cardStyle(.flush)
+    }
+
+    /// Confirmation that the one-call extract also resolved the eBay
+    /// category + item-specifics. Already saved server-side — this card just
+    /// tells the user the listing prep is done.
+    private func ebayPrepCard(_ prep: AIExtractEbayBlock) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("eBay listing prep", systemImage: "checkmark.seal")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let path = prep.categoryPath, !path.isEmpty {
+                Text(path)
+                    .font(.subheadline.weight(.semibold))
+            }
+            Text(
+                prep.aspects.isEmpty
+                    ? "Category saved — fill the item specifics from the item's Specifics editor."
+                    : "Category + \(prep.aspects.count) item specific\(prep.aspects.count == 1 ? "" : "s") saved. Review them in the item's Specifics editor."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
         .cardStyle(.flush)
     }
 

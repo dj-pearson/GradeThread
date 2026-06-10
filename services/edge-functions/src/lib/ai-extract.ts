@@ -83,6 +83,9 @@ export interface ExtractionResult {
   conditionSummary: string | null;
   conflicts: FieldConflict[];
   measurements: MeasurementSuggestions | null;
+  /** Short eBay Taxonomy search query (e.g. "men's flannel shirt") so the
+   * caller can resolve a leaf category without a second AI call. */
+  ebayCategoryQuery: string | null;
   model: string;
   tokensIn: number;
   tokensOut: number;
@@ -127,6 +130,7 @@ When BOTH text and photos are provided:
 
 Fields supplied as already-known are ground truth — do not contradict them; only fill genuine gaps.
 Always also return a short condition_summary describing the item's observed condition.
+Always also return ebay_category_query: a short, generic eBay category search phrase for this item (e.g. "men's flannel button-up shirt", "women's ankle boots") — item type + department, NO brand, NO size, NO color.
 
 Measurement suggestions:
 - ONLY suggest measurements when brand AND size AND item type are clearly identifiable. If any of those are unknown, OMIT measurements entirely.
@@ -190,6 +194,11 @@ const EXTRACT_TOOL: Anthropic.Tool = {
       condition_summary: {
         type: "string",
         description: "A short overall condition summary of the item",
+      },
+      ebay_category_query: {
+        type: "string",
+        description:
+          "Short eBay category search phrase: item type + department, no brand/size/color (e.g. \"men's flannel button-up shirt\")",
       },
       conflicts: {
         type: "array",
@@ -331,6 +340,12 @@ export async function extractItemFields(
       ? raw.condition_summary.trim()
       : null;
 
+  const ebayCategoryQuery =
+    typeof raw.ebay_category_query === "string" &&
+      raw.ebay_category_query.trim() !== ""
+      ? raw.ebay_category_query.trim()
+      : null;
+
   const conflicts: FieldConflict[] = Array.isArray(raw.conflicts)
     ? (raw.conflicts as unknown[])
         .filter(
@@ -366,6 +381,7 @@ export async function extractItemFields(
     conditionSummary,
     conflicts,
     measurements: Object.keys(measurements).length > 0 ? measurements : null,
+    ebayCategoryQuery,
     model,
     tokensIn:
       response.usage.input_tokens +

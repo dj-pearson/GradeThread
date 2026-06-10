@@ -66,6 +66,23 @@ enum KnownFieldValue: Encodable {
     }
 }
 
+/// One-call listing prep: the eBay category + item-specifics the server
+/// resolved from the photos and ALREADY PERSISTED onto the item
+/// (inventory_items.ebay_category_id / ebay_aspects). The client only needs
+/// to display it — the specifics editor reads the saved values.
+struct AIExtractEbayBlock: Decodable, Equatable {
+    let categoryId: String
+    let categoryPath: String?
+    /// Merged aspects as persisted (existing values win over AI fills).
+    let aspects: [String: [String]]
+
+    private enum CodingKeys: String, CodingKey {
+        case categoryId = "category_id"
+        case categoryPath = "category_path"
+        case aspects
+    }
+}
+
 /// Successful response from the extract endpoint. The `suggestions` dict
 /// keys are field names like "brand" / "size" / "garment_category" — we
 /// deliberately decode without snake-to-camel conversion so the keys
@@ -79,6 +96,11 @@ struct AIExtractResponse: Decodable, Equatable {
     let logId: String?
     /// `-1` means unlimited.
     let actionsRemaining: Int
+    /// nil when the server skipped the eBay phase (no category resolvable,
+    /// AI budget exhausted, taxonomy hiccup, or an older edge build).
+    /// Defaulted `var` so the synthesized memberwise init keeps working for
+    /// callers that build synthetic responses (Live Text fallback, tests).
+    var ebay: AIExtractEbayBlock? = nil
 
     private enum CodingKeys: String, CodingKey {
         case suggestions
@@ -88,6 +110,7 @@ struct AIExtractResponse: Decodable, Equatable {
         case model
         case logId = "log_id"
         case actionsRemaining = "actions_remaining"
+        case ebay
     }
 }
 

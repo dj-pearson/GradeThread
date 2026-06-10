@@ -337,6 +337,20 @@ export function ItemCanvas({
       });
       setAiResult(result);
       setAiPanelOpen(true);
+      // The server also resolves the eBay category + item-specifics and
+      // persists them on the item — refresh the mapping the composer /
+      // category picker read so they open prefilled.
+      if (result.ebay) {
+        await qc.invalidateQueries({
+          queryKey: ["inventory_item_ebay", item.id],
+        });
+        const filled = Object.keys(result.ebay.aspects).length;
+        if (filled > 0) {
+          toast.success(
+            `eBay category + ${filled} item specific${filled === 1 ? "" : "s"} filled from photos.`,
+          );
+        }
+      }
     } catch {
       /* error toast handled by the hook */
     }

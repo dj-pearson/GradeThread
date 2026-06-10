@@ -46,11 +46,12 @@ struct ItemCanvasView: View {
     private let currencyFormatter = CurrencyFormatter()
 
     /// Statuses where "Publish to eBay" makes sense — anything pre-list
-    /// where the item could reasonably go live. Mirrors the web canvas
-    /// predicate.
-    private static let publishableStatuses: Set<String> = [
-        "photographed", "graded", "comped", "drafted", "measured",
-    ]
+    /// where the item could reasonably go live. Mirrors
+    /// `PublishReadiness.publishableStatuses` (and the inventory list's
+    /// swipe action) so the canvas never hides a publish path the list
+    /// offers.
+    private static let publishableStatuses: Set<String> =
+        PublishReadiness.publishableStatuses
     private var canPublish: Bool {
         Self.publishableStatuses.contains(item.status)
     }
@@ -218,7 +219,9 @@ struct ItemCanvasView: View {
                 // US-746: a graded, still-publishable item can jump straight to
                 // the existing publish flow (parent owns the dialog + post-
                 // publish handling); nil once listed so the CTA disappears.
-                onListItem: canPublish ? { showingPublishDialog = true } : nil
+                onListItem: canPublish
+                    ? { Task { await saveThenPublish() } }
+                    : nil
             )
             measurementsSection
             compsSection(state: state)
@@ -388,11 +391,13 @@ struct ItemCanvasView: View {
             }
             Button {
                 AppRouter.haptic()
-                showingPublishDialog = true
+                Task { await saveThenPublish() }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "tag.fill")
-                    Text("Publish to eBay")
+                    Text(state?.isDirty == true
+                        ? "Save & publish to eBay"
+                        : "Publish to eBay")
                         .font(.subheadline.weight(.semibold))
                 }
                 .frame(maxWidth: .infinity)
@@ -401,10 +406,11 @@ struct ItemCanvasView: View {
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
             }
+            .disabled(state?.savePhase == .saving)
             .listRowBackground(Color.clear)
             .listRowInsets(.init(top: 4, leading: 0, bottom: 4, trailing: 0))
         } footer: {
-            Text("Validates against eBay's metadata rules first; you'll see any blockers before the push.")
+            Text("Unsaved edits are saved first, then validated against eBay's metadata rules — you'll see any blockers before the push.")
                 .font(.caption)
         }
     }
@@ -903,13 +909,18 @@ struct ItemCanvasView: View {
 
     // MARK: - Save
 
-    private func save() async {
-        guard let state else { return }
-        guard state.isSavable, state.isDirty else { return }
+    /// Persists the draft. Returns true when the item is saved (or had
+    /// nothing to save). `dismissAfter` is false for flows that continue on
+    /// the canvas after saving — e.g. save-then-publish.
+    @discardableResult
+    private func save(dismissAfter: Bool = true) async -> Bool {
+        guard let state else { return false }
+        guard state.isSavable else { return false }
+        guard state.isDirty else { return true }
         guard state.canTransition(to: state.draft.status) else {
             HapticFeedback.error()
             state.failSaving("Can't move a \(state.original.status) item back to \(state.draft.status).")
-            return
+            return false
         }
         state.beginSaving()
 
@@ -928,11 +939,23 @@ struct ItemCanvasView: View {
             state.acceptDraftAsOriginal()
             try? modelContext.save()
             HapticFeedback.success()
-            dismiss()
+            if dismissAfter { dismiss() }
+            return true
         } catch {
             HapticFeedback.error()
             state.failSaving(error.localizedDescription)
+            return false
         }
+    }
+
+    /// One-tap "save my edits, then publish" — saves any dirty draft (staying
+    /// on the canvas) before opening the publish dialog, so the user never
+    /// has to save, back out, and swipe the row to list an item.
+    private func saveThenPublish() async {
+        if state?.isDirty == true {
+            guard await save(dismissAfter: false) else { return }
+        }
+        showingPublishDialog = true
     }
 
     /// Encodable subset of inventory_items columns the canvas writes.

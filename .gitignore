@@ -79,3 +79,7 @@ ios-screenshots/screenshots-raw (1).zip
 ios-screenshots/screenshots-appstore/ipad-13/iPad Pro 13-inch (M4)-01_Home.png
 ios-screenshots/screenshots-appstore.zip
 ios-screenshots/screenshots-appstore.zip
+IMG_5130.PNG
+
+# Supabase CLI local-stack artifacts
+supabase/.branches/

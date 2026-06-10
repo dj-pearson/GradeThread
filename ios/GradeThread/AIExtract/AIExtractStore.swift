@@ -39,6 +39,10 @@ final class AIExtractStore {
     /// surfaces a small banner so the user knows where those values came
     /// from.
     var liveTextFallbackUsed: Bool = false
+    /// eBay category + item-specifics the server resolved AND persisted onto
+    /// the item during extraction. Display-only here — the specifics editor
+    /// reads the saved values.
+    var ebayPrep: AIExtractEbayBlock?
 
     // MARK: - Lifecycle
 
@@ -112,6 +116,7 @@ final class AIExtractStore {
         acceptedFields = Set(entries.filter { $0.confidence >= 0.8 }.map(\.field))
         // Measurements default-on per AC.
         acceptMeasurements = !measurements.isEmpty
+        ebayPrep = response.ebay
 
         phase = .ready(Result(
             entries: entries,
