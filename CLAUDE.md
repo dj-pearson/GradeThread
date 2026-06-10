@@ -297,6 +297,14 @@ FlipDesk is the reseller-management surface inside GradeThread. It's a section u
 - **AutoLister** (bulk photos → AI eBay listings → publish) is being built as US-310..US-325; new edge module `flipdesk-autolister.ts`, prompt in `ai-listing.ts`, migrations 00052/00053.
 - See `services/edge-functions/COOLIFY.md` for deploy instructions.
 
+## Deployment & Launch
+
+- **`DEPLOY.md`** — canonical deploy order (DB migrations → edge → frontend), the
+  Cloudflare Pages / Coolify auto-deploy triggers, and per-layer rollback.
+- **`LAUNCH_CHECKLIST.md`** — pre-launch gate: every env var (where set + how to
+  verify), the 16 Coolify scheduled tasks, the backup restore drill, and the
+  post-deploy smoke steps.
+
 ## PRD & Roadmap
 
 The full product roadmap is in `prd.json` (Ralph AI format). 100 user stories across 11 phases:

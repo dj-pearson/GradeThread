@@ -11462,8 +11462,8 @@
         "CLAUDE.md gets a one-line pointer to LAUNCH_CHECKLIST.md"
       ],
       "priority": 779,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops/Docs] Mostly documentation + .env.example sync; the human performs the dashboard steps. Highest risk-reduction-per-hour item — several audit blockers (restore drill, cron verification, missing DSNs) are checklist items, not code."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops/Docs] Mostly documentation + .env.example sync; the human performs the dashboard steps. Highest risk-reduction-per-hour item — several audit blockers (restore drill, cron verification, missing DSNs) are checklist items, not code. [DONE 2026-06-10] LAUNCH_CHECKLIST.md: env vars (edge required+feature groups per US-777, frontend VITE_*) with where-set + verify + checkbox/date; 16 Coolify scheduled tasks (flags COOLIFY.md drift: growth-dispatch/reprice-rules/sync-reaper missing there); backup restore drill table; post-deploy smoke (health/ready+features, stripe trigger, cert, sitemap/robots, e2e); third-party dashboards. Frontend .env.example synced (added VITE_GOOGLE/BING_SITE_VERIFICATION + VITE_RELEASE_SHA). CLAUDE.md pointer added."
     },
     {
       "id": "US-780",
@@ -11477,8 +11477,8 @@
         "CLAUDE.md links DEPLOY.md from the deployment-related section"
       ],
       "priority": 780,
-      "passes": false,
-      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops/Docs] If Cloudflare Pages is already on git auto-deploy from main, this is mostly documentation — verify before building a workflow. Keep secrets out of any workflow file."
+      "passes": true,
+      "notes": "[EPIC: Production Readiness] From prod-readiness audit 2026-06-09. [HIGH][Ops/Docs] If Cloudflare Pages is already on git auto-deploy from main, this is mostly documentation — verify before building a workflow. Keep secrets out of any workflow file. [DONE 2026-06-10] DEPLOY.md: canonical order (migrations→edge→frontend) with the US-778 schema-assertion + API-compat rationale; per-layer rollback; Cloudflare Pages git auto-deploy from main (confirmed, no workflow added) + build cmd + env vars; Coolify push-webhook auto-deploy + scheduled-task survival; post-deploy verification links LAUNCH_CHECKLIST §6. CLAUDE.md Deployment section links both docs."
     },
     {
       "id": "US-781",
