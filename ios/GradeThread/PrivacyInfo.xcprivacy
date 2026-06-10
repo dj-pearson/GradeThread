@@ -47,8 +47,13 @@
                 <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
             </array>
         </dict>
-        <!-- Sales + payouts the user records / imports. Core to the
-             reseller-bookkeeping product. -->
+        <!-- Purchase History (Apple's "Purchases" category). Covers BOTH:
+             (1) the sales + payouts the user records/imports for reseller
+             bookkeeping, AND (2) StoreKit in-app purchases (grading credits +
+             FlipDesk subscriptions, US-786) tied to the account. There is no
+             separate "in-app purchases" data type in the privacy-manifest
+             schema — PurchaseHistory is the one purchase type, so both map here.
+             Linked to identity, App Functionality, never used for tracking. -->
         <dict>
             <key>NSPrivacyCollectedDataType</key>
             <string>NSPrivacyCollectedDataTypePurchaseHistory</string>

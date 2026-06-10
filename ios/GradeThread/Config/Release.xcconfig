@@ -7,7 +7,9 @@ SUPABASE_URL = https:/$()/api.gradethread.com
 SUPABASE_ANON_KEY = REPLACE_ME_WITH_REAL_SUPABASE_ANON_KEY
 EDGE_API_URL = https:/$()/functions.gradethread.com
 
-// US-191 telemetry. Set real values for TestFlight + App Store builds.
+// US-191 telemetry. Intentionally blank here — ios-release.yml injects the real
+// values as build settings from Infisical (prod) at archive time (US-787), the
+// same way SUPABASE_ANON_KEY is handled. Don't hardcode secrets in this file.
 SENTRY_DSN =
 POSTHOG_API_KEY =
 POSTHOG_HOST = https:/$()/us.i.posthog.com

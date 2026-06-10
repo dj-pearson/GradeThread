@@ -279,6 +279,23 @@ jobs:
             echo "No override — using project default MARKETING_VERSION from project.yml."
           fi
 
+      - name: Require telemetry secrets
+        # US-787: a production build must ship with crash reporting. Previously
+        # SENTRY_DSN/POSTHOG_API_KEY weren't injected, so every TestFlight / App
+        # Store build shipped with telemetry compiled out — a prod crash was
+        # invisible. Fail loudly when SENTRY_DSN is missing (set
+        # ALLOW_NO_TELEMETRY=1 in the env for a deliberate one-off). PostHog is
+        # analytics-only → warn, don't fail.
+        run: |
+          set -euo pipefail
+          if [ -z "${SENTRY_DSN:-}" ] && [ "${ALLOW_NO_TELEMETRY:-}" != "1" ]; then
+            echo "::error::SENTRY_DSN is empty — this release build would ship with NO crash reporting. Add SENTRY_DSN to Infisical (prod env), or set ALLOW_NO_TELEMETRY=1 to bypass." >&2
+            exit 1
+          fi
+          if [ -z "${POSTHOG_API_KEY:-}" ]; then
+            echo "::warning::POSTHOG_API_KEY is empty — product analytics will be disabled in this build."
+          fi
+
       - name: Archive
         working-directory: ios
         run: |
@@ -310,9 +327,29 @@ jobs:
             CODE_SIGNING_ALLOWED=YES \
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            SENTRY_DSN="${SENTRY_DSN:-}" \
+            POSTHOG_API_KEY="${POSTHOG_API_KEY:-}" \
+            POSTHOG_HOST="${POSTHOG_HOST:-https://us.i.posthog.com}" \
             CURRENT_PROJECT_VERSION=${{ steps.build_number.outputs.value }} \
             "${VERSION_ARGS[@]}" \
             archive | xcbeautify --renderer github-actions
+
+      - name: Upload dSYMs to Sentry
+        # US-787: upload debug symbols so production crashes symbolicate. Runs
+        # only when a Sentry auth token is configured (Infisical prod), and is
+        # best-effort — the archive already succeeded, so a symbol-upload hiccup
+        # must not fail the release.
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # SENTRY_AUTH_TOKEN / SENTRY_ORG / SENTRY_PROJECT come from Infisical
+          # (prod env) via $GITHUB_ENV, same as the other build secrets.
+          brew install getsentry/tools/sentry-cli
+          sentry-cli debug-files upload \
+            --org "$SENTRY_ORG" \
+            --project "$SENTRY_PROJECT" \
+            "$RUNNER_TEMP/GradeThread.xcarchive/dSYMs"
 
       - name: Export .ipa
         working-directory: ios

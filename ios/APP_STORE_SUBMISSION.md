@@ -244,6 +244,35 @@ APPSTORE_ENVIRONMENT=Production
 - Verify the Stripe-precedence guard: a user with an active Stripe sub sees the
   "managed on web" paywall state and cannot double-subscribe (`PaywallStore.managedOnWeb`).
 
+### 6.8 Pre-submission IAP verification runbook (US-788) — run in order
+
+Code status (done): `lib/appstore/verify.ts` now parses `APPLE_APP_APPLE_ID`
+correctly (unset → `undefined`, not the silent `0` that broke Production JWS
+validation) and warns at verifier init if it's missing in Production. The
+webhook is idempotent (`processed_webhook_events`). What remains is OPERATOR
+execution + ASC config:
+
+1. **Register the V2 notification URLs in ASC** → App Information → App Store
+   Server Notifications: set BOTH Production and Sandbox "Version 2" URLs to
+   `https://functions.gradethread.com/api/webhooks/appstore` (§6.4).
+2. **Set the server env** on a staging edge deploy (§6.6) with
+   `APPSTORE_ENVIRONMENT=Sandbox` and the real `APPLE_BUNDLE_ID`,
+   `APPLE_ROOT_CA_G3_B64`, `APPLE_APP_APPLE_ID`. Confirm the boot logs show NO
+   "[appstore] APPLE_APP_APPLE_ID is unset" warning.
+3. **Create a Sandbox tester** (ASC → Users and Access → Sandbox).
+4. **Purchase each product** (3 sub tiers + the 4 credit packs) in a sandbox
+   build; after each, assert in the DB: subscriptions →
+   `users.flipdesk_plan` + `billing_source='appstore'`; credit packs →
+   `grade_credit_transactions` row + balance increase (idempotent on
+   `transactionId`).
+5. **Expire a subscription** (sandbox renews/cancels fast); assert the
+   `EXPIRED`/`GRACE_PERIOD_EXPIRED` notification lapses the user to free.
+6. **Re-deliver test**: trigger an ASC "Request Test Notification" and confirm a
+   200 + a `processed_webhook_events` row; re-send the same UUID → still 200, no
+   double-grant.
+7. Flip the prod edge to `APPSTORE_ENVIRONMENT=Production` only after the
+   sandbox round-trip passes.
+
 ---
 
 ## 7. App Privacy (nutrition labels)
@@ -253,17 +282,23 @@ Summary (must match `PrivacyInfo.xcprivacy`):
 
 - **Tracking: NO** (no IDFA, no ATT, nothing shared for cross-app tracking)
 - Collected, linked to identity, App Functionality: Email Address, Name,
-  Purchase History (the seller's own sales bookkeeping — clarify in review notes
-  if asked), Photos (garment shots)
+  Purchase History (covers BOTH the seller's own sales bookkeeping AND StoreKit
+  IAP records — clarify in review notes if asked), Photos (garment shots)
 - Collected, NOT linked: Crash Data (Sentry, always on, non-PII user UUID),
   Product Interaction (PostHog, **opt-in only** via Settings toggle)
 - Privacy Policy URL: `https://gradethread.com/privacy`
 - Required-reason APIs already declared in the manifest: UserDefaults `CA92.1`,
   file timestamp `C617.1`
 
-⚠️ One new addition since that doc was written: **In-App Purchase history** —
-with StoreKit IAP live, also declare "Purchases" as collected (App Functionality,
-linked to identity), covering both the bookkeeping data AND Apple purchase state.
+✅ RESOLVED (US-786): StoreKit IAP records ARE already covered by the existing
+`NSPrivacyCollectedDataTypePurchaseHistory` entry (Linked, App Functionality).
+There is **no separate "In-App Purchases" data type** in the privacy-manifest
+schema — "Purchase History" is Apple's single purchases type, so the bookkeeping
+data and the IAP purchase state map to the same declaration. In the App Store
+Connect privacy questionnaire, when asked about Purchases, answer YES and select
+"Purchase History" / App Functionality / linked to identity. No manifest type to
+add — the prior note's "add NSPrivacyCollectedDataTypePurchases" was based on a
+type code that doesn't exist.
 
 ---
 
@@ -291,8 +326,14 @@ Files: `ios/fastlane/metadata/review_information/`.
    payouts, eBay **sandbox** connection, a completed grade with certificate,
    and a few grade credits so the reviewer can run a grading without paying).
 2. `phone_number.txt` — `+10000000000` is invalid; use a real reachable number.
-3. `Release.xcconfig` — `SENTRY_DSN` is an empty placeholder; set it (or ship
-   knowingly without crash reporting).
+3. Telemetry secrets (US-787): release builds inject `SENTRY_DSN` /
+   `POSTHOG_API_KEY` / `POSTHOG_HOST` as build settings in `ios-release.yml`
+   (the empty `Release.xcconfig` placeholders are intentional — CI overrides
+   them, exactly like `SUPABASE_ANON_KEY`). **Add these to Infisical (prod env)**
+   so the workflow can read them: `SENTRY_DSN` (required — the build now FAILS
+   without it unless `ALLOW_NO_TELEMETRY=1`), `POSTHOG_API_KEY` (analytics; warns
+   if absent), and for dSYM upload `SENTRY_AUTH_TOKEN` + `SENTRY_ORG` +
+   `SENTRY_PROJECT` (the upload step skips cleanly if the token is absent).
 
 ### Review notes
 `notes.txt` has been updated (see file) — the previous version told Apple that
@@ -349,6 +390,8 @@ services); permissions rationale; account deletion location.
 - [ ] Content rights: No third-party content
 - [ ] Accessibility: Larger Text, Reduced Motion, Dark Interface declared
 - [ ] Screenshots: 6.9" iPhone + 13" iPad sets
-- [ ] SENTRY_DSN set in Release.xcconfig (or accepted gap)
+- [ ] SENTRY_DSN (+ POSTHOG_API_KEY, and SENTRY_AUTH_TOKEN/ORG/PROJECT for dSYMs)
+      added to Infisical prod — injected by ios-release.yml (US-787); build fails
+      without SENTRY_DSN unless ALLOW_NO_TELEMETRY=1
 - [ ] TestFlight external beta passed
 - [ ] Release set to Manual
