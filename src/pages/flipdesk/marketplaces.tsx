@@ -802,22 +802,35 @@ export function FlipdeskMarketplacesPage() {
         />
       </section>
 
-      {/* More ways to sync — CSV as the no-developer-account fallback */}
+      {/* More ways to sync — Google Sheets + CSV fallback */}
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           More ways to sync
         </h2>
-        <Link
-          to="/dashboard/flipdesk/reconciliation"
-          className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
-        >
-          <span className="flex items-center gap-2">
-            <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
-            Import via CSV — upload your Active Listings report, no developer
-            account needed.
-          </span>
-          <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-        </Link>
+        <div className="space-y-2">
+          <Link
+            to="/dashboard/flipdesk/marketplaces/google"
+            className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
+          >
+            <span className="flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              Google Sheets — connect a Google account and FlipDesk keeps a live
+              sync spreadsheet on your Drive.
+            </span>
+            <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          </Link>
+          <Link
+            to="/dashboard/flipdesk/reconciliation"
+            className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
+          >
+            <span className="flex items-center gap-2">
+              <FileSpreadsheet className="h-4 w-4 text-muted-foreground" />
+              Import via CSV — upload your Active Listings report, no developer
+              account needed.
+            </span>
+            <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          </Link>
+        </div>
       </section>
 
       {/* Coming soon — muted single row, not big disabled cards */}

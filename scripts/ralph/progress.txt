@@ -413,3 +413,44 @@ Branch: ralph/gradethread-build
   garment + 4 weeks of use) -> captured as a ready-to-execute runbook in FLIPDESK_DOGFOOD.md.
 - Timestamp: 2026-06-11
 ---
+
+## US-146: Google Sheets OAuth + connection setup
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00131_google_connections.sql (new — google_connections + google_oauth_states)
+  - services/edge-functions/src/routes/flipdesk-google.ts (new — OAuth + sheet create/use + disconnect + token refresh)
+  - services/edge-functions/src/main.ts (import, auth/workspace middleware per-path, route mount, rate limiters)
+  - services/edge-functions/src/lib/env-validation.ts (google_sheets FEATURE_GROUP)
+  - services/edge-functions/src/tests/google-sheets-oauth_test.ts (new — consent scopes + config gating)
+  - services/edge-functions/src/tests/rls-guard_test.ts (google_oauth_states -> SERVICE_ROLE_ONLY)
+  - services/edge-functions/.env.example (GOOGLE_SHEETS_* docs)
+  - src/hooks/use-google-sheets.ts (new — connection/config/oauth/create/use/disconnect hooks)
+  - src/pages/flipdesk/marketplaces-google.tsx (new — setup wizard)
+  - src/pages/flipdesk/marketplaces.tsx (entry card linking to wizard)
+  - src/routes/index.tsx (lazy route /dashboard/flipdesk/marketplaces/google)
+  - src/types/database.ts (GoogleConnection Row/Insert/Update + tables map)
+- Notes:
+  - oauth_states could NOT be reused for Google: its `marketplace` column is the
+    listing_platform enum, and Google isn't a listing platform. Added a dedicated
+    single-use google_oauth_states table (service-role only, self-expiring).
+  - Encryption uses crypto-aes.ts encryptToken/decryptToken (AES-256-GCM, AAD=user_id),
+    the canonical helper that superseded US-119's FLIPDESK_INTERNAL_JOB_SECRET approach
+    (same one google-photos + eBay already use). The AC's mention of the job-secret key
+    is stale.
+  - Mounting order matters: /api/flipdesk/google/photos is mounted (and its public
+    callback wired) BEFORE /api/flipdesk/google; the new google routes are listed
+    per-path in middleware (not a /google/* wildcard) so they never shadow the public
+    Photos callback.
+  - Scopes: drive.file (per-file, NOT full drive) + spreadsheets, access_type=offline +
+    prompt=consent so Google always returns a refresh token (even on reconnect).
+  - DEVIATION from AC#4: "Use existing sheet" is a paste-link/id input validated
+    server-side via Sheets API (clear 403 when the app lacks drive.file access to that
+    file) rather than the full gapi Drive Picker. The Picker needs a client-side Google
+    API key that isn't provisioned yet (the story's original blocker). "Create new sync
+    sheet" is the fully-wired primary path; the Picker can be layered in later behind a
+    VITE_GOOGLE_API_KEY without touching the server contract.
+  - "Migration 00017" in the AC was a stale story-era number; next free migration is 00131.
+  - First `npm run build` hit a transient esbuild vite:dep-scan error on an UNRELATED file
+    (use-remove-bg, which exists and was unmodified); a clean re-run exits 0.
+- Timestamp: 2026-06-11
+---

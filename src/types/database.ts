@@ -1443,6 +1443,38 @@ export interface MarketplaceConnectionInsert {
   merchant_location_key?: string | null;
 }
 
+// US-146: Google Sheets connection (migration 00131). The SPA only ever READs
+// its own row (status surfacing) — writes go through the service-role edge
+// client — but typing Insert/Update keeps the table shape in one place.
+export interface GoogleConnectionRow {
+  id: string;
+  user_id: string;
+  google_email: string | null;
+  access_token_enc: string | null;
+  refresh_token_enc: string | null;
+  token_expires_at: string | null;
+  sheet_id: string | null;
+  sheet_url: string | null;
+  last_sync_at: string | null;
+  sync_status: string;
+  sync_error: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoogleConnectionInsert {
+  user_id: string;
+  google_email?: string | null;
+  access_token_enc?: string | null;
+  refresh_token_enc?: string | null;
+  token_expires_at?: string | null;
+  sheet_id?: string | null;
+  sheet_url?: string | null;
+  sync_status?: string;
+  is_active?: boolean;
+}
+
 export interface PayoutImportInsert {
   user_id: string;
   marketplace: ListingPlatform;
@@ -1824,6 +1856,7 @@ export type NotificationUpdate = Partial<Omit<NotificationRow, "id" | "user_id" 
 export type SourceUpdate = Partial<Omit<SourceRow, "id" | "user_id" | "created_at" | "updated_at">>;
 export type ItemPhotoUpdate = Partial<Omit<ItemPhotoRow, "id" | "inventory_item_id" | "created_at">>;
 export type MarketplaceConnectionUpdate = Partial<Omit<MarketplaceConnectionRow, "id" | "user_id" | "created_at" | "updated_at">>;
+export type GoogleConnectionUpdate = Partial<Omit<GoogleConnectionRow, "id" | "user_id" | "created_at" | "updated_at">>;
 export type PayoutImportUpdate = Partial<Omit<PayoutImportRow, "id" | "user_id" | "created_at" | "updated_at">>;
 export type FlipdeskGradingSubmissionUpdate = Partial<Omit<FlipdeskGradingSubmissionRow, "id" | "inventory_item_id" | "created_at" | "updated_at">>;
 
@@ -2126,6 +2159,11 @@ export interface Database {
         Row: MarketplaceConnectionRow;
         Insert: MarketplaceConnectionInsert;
         Update: MarketplaceConnectionUpdate;
+      };
+      google_connections: {
+        Row: GoogleConnectionRow;
+        Insert: GoogleConnectionInsert;
+        Update: GoogleConnectionUpdate;
       };
       flipdesk_reconcile_sessions: {
         Row: ReconcileSessionRow;

@@ -61,6 +61,9 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   { name: "ebay", vars: ["EBAY_APP_ID", "EBAY_CERT_ID", "EBAY_DEV_ID", "EBAY_VERIFICATION_TOKEN"] },
   { name: "smtp", vars: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_ADMIN_EMAIL"] },
   { name: "google_photos", vars: ["GOOGLE_PHOTOS_CLIENT_ID", "GOOGLE_PHOTOS_CLIENT_SECRET"] },
+  // US-146: Google Sheets sync. Falls back to the shared GOOGLE_CLIENT_* if the
+  // Sheets-specific override isn't set, so the group lists the override pair.
+  { name: "google_sheets", vars: ["GOOGLE_SHEETS_CLIENT_ID", "GOOGLE_SHEETS_CLIENT_SECRET"] },
   { name: "observability", vars: ["SENTRY_DSN"] },
   // US-788: StoreKit / App Store Server Notifications V2. Missing → IAP receipt
   // verification + the appstore webhook can't validate Apple's JWS. Surfaced on

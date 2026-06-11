@@ -105,6 +105,7 @@ const FlipdeskAnalyticsPage = lazy(() => import("@/pages/flipdesk/analytics").th
 const FlipdeskIntakePage = lazy(() => import("@/pages/flipdesk/intake").then(m => ({ default: m.FlipdeskIntakePage })));
 const FlipdeskImportPage = lazy(() => import("@/pages/flipdesk/import").then(m => ({ default: m.FlipdeskImportPage })));
 const FlipdeskMarketplacesPage = lazy(() => import("@/pages/flipdesk/marketplaces").then(m => ({ default: m.FlipdeskMarketplacesPage })));
+const FlipdeskMarketplacesGooglePage = lazy(() => import("@/pages/flipdesk/marketplaces-google").then(m => ({ default: m.FlipdeskMarketplacesGooglePage })));
 const FlipdeskReconciliationPage = lazy(() => import("@/pages/flipdesk/reconciliation").then(m => ({ default: m.FlipdeskReconciliationPage })));
 const FlipdeskReconcilePage = lazy(() => import("@/pages/flipdesk/reconcile").then(m => ({ default: m.FlipdeskReconcilePage })));
 const FlipdeskRepricingPage = lazy(() => import("@/pages/flipdesk/repricing").then(m => ({ default: m.FlipdeskRepricingPage })));
@@ -282,6 +283,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/verified", element: <SuspenseWrapper><FlipdeskVerifiedPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/sources", element: <SuspenseWrapper><FlipdeskSourcesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/marketplaces", element: <SuspenseWrapper><FlipdeskMarketplacesPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/marketplaces/google", element: <SuspenseWrapper><FlipdeskMarketplacesGooglePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/reconciliation", element: <SuspenseWrapper><FlipdeskReconciliationPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/reconcile", element: <SuspenseWrapper><FlipdeskReconcilePage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/repricing", element: <SuspenseWrapper><FlipdeskRepricingPage /></SuspenseWrapper> },

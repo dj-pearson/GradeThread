@@ -23,6 +23,7 @@ import {
   handleAutolisterReclaimCron,
 } from "./routes/flipdesk-autolister.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
+import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import {
   flipdeskPricingRoutes,
@@ -206,6 +207,15 @@ app.use("/api/flipdesk/google/photos/oauth/start", authMiddleware);
 app.use("/api/flipdesk/google/photos/poll", authMiddleware);
 app.use("/api/flipdesk/google/photos/import", authMiddleware);
 app.use("/api/flipdesk/google/photos/config", authMiddleware);
+// Google Sheets sync (US-146) — everything authed EXCEPT /oauth/callback
+// (Google redirects the browser there unauthenticated; the single-use `state`
+// row identifies the user). Listed per-path so the wildcard can't shadow the
+// public Photos callback above.
+app.use("/api/flipdesk/google/oauth/start", authMiddleware);
+app.use("/api/flipdesk/google/connection", authMiddleware);
+app.use("/api/flipdesk/google/config", authMiddleware);
+app.use("/api/flipdesk/google/sheet/*", authMiddleware);
+app.use("/api/flipdesk/google/disconnect", authMiddleware);
 // Workspace (team) management: auth + workspace context. The route handlers
 // enforce per-action role checks (owner/admin required to invite, etc.).
 app.use("/api/workspace/*", authMiddleware);
@@ -240,6 +250,12 @@ app.use("/api/flipdesk/autolister/*", workspaceMiddleware);
 // Only /oauth/start needs the workspace owner (to stage imports under the
 // owner); /poll + /import resolve the owner from the session row.
 app.use("/api/flipdesk/google/photos/oauth/start", workspaceMiddleware);
+// Google Sheets sync — workspace-scope every user-authed route so the grant
+// and sync sheet live under the workspace owner (mirrors the eBay wiring).
+app.use("/api/flipdesk/google/oauth/start", workspaceMiddleware);
+app.use("/api/flipdesk/google/connection", workspaceMiddleware);
+app.use("/api/flipdesk/google/sheet/*", workspaceMiddleware);
+app.use("/api/flipdesk/google/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
@@ -320,6 +336,8 @@ app.use("/api/flipdesk/ebay/policies/*", rateLimiter(30, 60_000, "ebay-policies"
 app.use("/api/flipdesk/images/*", rateLimiter(30, 60_000, "flipdesk-images"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
+app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oauth"));
+app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
 app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
@@ -406,6 +424,7 @@ app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
+app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 // Condition-aware repricing cron. OUTSIDE /api/flipdesk so the user-JWT
