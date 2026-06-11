@@ -8297,8 +8297,8 @@
         "Publish-all and bulk actions available from it"
       ],
       "priority": 548,
-      "passes": false,
-      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. The queue exists only at a ?batch= URL; close the tab and there's no drafts cockpit."
+      "passes": true,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. The queue exists only at a ?batch= URL; close the tab and there's no drafts cockpit. | DONE 2026-06-11 (was partial). Added the missing pieces to autolister-drafts.tsx: (AC1) a Status column — Ready / Needs review (from US-541 needs_review) plus live publish state (Publishing/Live/Failed, failed deep-links to the composer); (AC2) a 5-way Sort control (newest/oldest/price hi-lo/lo-hi/title) alongside the existing session-persistent title search (not ?batch-tied); (AC3) a 'Publish N ready' bulk action from the cockpit via the reusable useBulkPublish hook (ready = not-needs_review + priced + categorized + unscheduled), gated on an eBay connection, with per-row status. tsc/eslint clean."
     },
     {
       "id": "US-549",

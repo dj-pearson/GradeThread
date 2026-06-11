@@ -5861,3 +5861,12 @@ sandbox round-trip) — left false per the scaffold+document decision.
           ebay_error_ids) and stores it in listings.publish_error; the RAW eBay
           detail stays server-side (logs only) per AC3. The queue's failed-publish
           message now deep-links to the item composer (AC2).
+
+- US-548  Persistent AutoLister drafts cockpit. COMPLETE (was partial). File:
+          src/pages/flipdesk/autolister-drafts.tsx. Added the three missing ACs:
+          a Status column (Ready / Needs review from US-541 + live publish state
+          Publishing/Live/Failed, failed deep-links to the composer); a 5-way Sort
+          control beside the session-persistent search (not ?batch-tied); and a
+          "Publish N ready" bulk action from the cockpit via the reusable
+          useBulkPublish hook (ready = not-needs_review + priced + categorized +
+          unscheduled), eBay-gated, with per-row status.
