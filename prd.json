@@ -6556,8 +6556,8 @@
         "Dashboard load time is independent of inventory size"
       ],
       "priority": 411,
-      "passes": false,
-      "notes": "[P2][Performance] Audit 2026-06-03. dashboard.tsx loads ALL inventory_items select('*')."
+      "passes": true,
+      "notes": "[P2][Performance] Audit 2026-06-03. dashboard.tsx loads ALL inventory_items select('*'). | DONE 2026-06-11. dashboard.tsx listing-suggestions query no longer select('*') over ALL inventory_items: now selects only the 4 rendered columns (id,status,title,submission_id), pushes the terminal-status filter server-side (.not status in sold/shipped/completed/returned), orders by created_at desc and caps to 200 candidates. listings/grade_reports sub-queries also column-selected. A separate cheap head count (count exact, head:true) preserves FlipdeskPromoCard's total-inventory gate. Dashboard load is now independent of inventory size."
     },
     {
       "id": "US-412",

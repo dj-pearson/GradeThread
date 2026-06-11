@@ -5658,3 +5658,15 @@ test to extend — the right kind of work to land cleanly here.
           "/pricing", matching the prerendered/head-builder canonical; covered by
           two new seo.test.tsx cases. (AC3) hreflang/x-default OMITTED on purpose
           (single-locale en) — recorded in code comments. Full suite 392 green.
+
+- US-411  Cap and column-select the dashboard inventory query. COMPLETE
+          (passes:true). File: src/pages/dashboard.tsx.
+          The "listing suggestions" widget query loaded select('*') over ALL
+          inventory_items (then all their listings + grade_reports). It now (a)
+          selects only the 4 columns the widget reads (id, status, title,
+          submission_id), (b) pushes the terminal-status skip to the server
+          (.not("status","in","(sold,shipped,completed,returned)")), (c) orders
+          by created_at desc and caps to 200 candidates, and (d) column-selects
+          the listings/grade_reports sub-queries. A separate index-only head
+          count (no rows) preserves FlipdeskPromoCard's "any inventory yet?" gate.
+          Dashboard load is now independent of inventory size. tsc/eslint clean.
