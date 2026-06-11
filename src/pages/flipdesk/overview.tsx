@@ -11,6 +11,7 @@ import {
   Tag,
   Plus,
   Upload,
+  Eye,
 } from "lucide-react";
 import {
   Card,
@@ -104,6 +105,9 @@ export function FlipdeskOverviewPage() {
     let netProfitThisWeek = 0;
     let inventoryValue = 0;
     const agingItems: Array<{ item: ItemFullRow; days: number }> = [];
+    // US-151: active listings that have been live > 14 days with zero watchers —
+    // strong "dud" signal worth a price drop or relist.
+    const staleListings: Array<{ item: ItemFullRow; days: number }> = [];
     const brandProfit = new Map<string, { profit: number; sold: number }>();
 
     for (const it of items) {
@@ -111,6 +115,17 @@ export function FlipdeskOverviewPage() {
 
       const listedAt = it.list_date ? new Date(it.list_date).getTime() : null;
       if (listedAt && listedAt >= weekAgo) listedThisWeek++;
+
+      if (
+        it.listing_status === "active" &&
+        listedAt != null &&
+        (it.listing_watchers ?? 0) === 0
+      ) {
+        const listedDays = Math.floor((now - listedAt) / DAY_MS);
+        if (listedDays >= AGING_THRESHOLD_DAYS) {
+          staleListings.push({ item: it, days: listedDays });
+        }
+      }
 
       // Only COMPLETED sales count — a cancelled/refunded order was never a
       // real sale (00111 adds items_full.sale_status).
@@ -148,6 +163,7 @@ export function FlipdeskOverviewPage() {
     }
 
     agingItems.sort((a, b) => b.days - a.days);
+    staleListings.sort((a, b) => b.days - a.days);
 
     const topBrands = [...brandProfit.entries()]
       .map(([brand, v]) => ({ brand, ...v }))
@@ -173,6 +189,8 @@ export function FlipdeskOverviewPage() {
       inventoryValue,
       agingItems: agingItems.slice(0, 5),
       agingCount: agingItems.length,
+      staleListings: staleListings.slice(0, 5),
+      staleCount: staleListings.length,
       topBrands,
       recentSales,
     };
@@ -371,6 +389,67 @@ export function FlipdeskOverviewPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Stale listings (US-151): live > 14d with zero watchers */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                Stale listings
+              </CardTitle>
+              <CardDescription>
+                Active &gt; {AGING_THRESHOLD_DAYS} days with zero watchers
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge variant={stats.staleCount > 0 ? "destructive" : "outline"}>
+                {stats.staleCount}
+              </Badge>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/dashboard/flipdesk/analytics/performance">
+                  Performance
+                  <ArrowRight className="ml-1 h-3 w-3" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {stats.staleListings.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No stale listings. Everything's getting eyes.
+            </div>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {stats.staleListings.map(({ item, days }) => (
+                <li
+                  key={item.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-2 hover:bg-muted/40"
+                >
+                  <div className="min-w-0 flex-1">
+                    <Link
+                      to={`/dashboard/flipdesk/items/${item.id}`}
+                      className="block truncate font-medium hover:underline"
+                    >
+                      {item.item_title}
+                    </Link>
+                    <div className="text-xs text-muted-foreground">
+                      {fmtMoney(item.list_price)}
+                      {item.brand ? ` · ${item.brand}` : ""}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-destructive">
+                    <Clock className="h-3 w-3" />
+                    {days}d listed
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recent sales */}
       <Card>

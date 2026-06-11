@@ -24,6 +24,7 @@ import {
   ChevronDown,
   CircleUser,
   Zap,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -95,7 +96,8 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/repricing", icon: TrendingUp, label: "Repricing", end: false },
       { to: "/dashboard/flipdesk/automations", icon: Zap, label: "Automations", end: false },
       { to: "/dashboard/flipdesk/scout", icon: Radar, label: "ScoutAI", end: false, requiresFlipdeskFlag: "compPulls" },
-      { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },
+      { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: true },
+      { to: "/dashboard/flipdesk/analytics/performance", icon: Eye, label: "Listing Performance", end: false },
     ],
   },
   {

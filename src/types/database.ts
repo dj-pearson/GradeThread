@@ -637,6 +637,15 @@ export interface ListingRow {
   draft_id: string | null;
   // Promoted Listings ad rate, local-first (US-150, migration 00135)
   promo_rate_pct: number | null;
+  // Listing-performance metrics from Sell Analytics getTrafficReport
+  // (US-151, migration 00136), synced every 6h. view_trend_7d is a rolling
+  // per-day array of views snapshots (oldest→newest, max 7) for the sparkline.
+  views_total: number;
+  watchers_count: number;
+  impressions_7d: number;
+  click_through_rate: number | null;
+  last_metrics_synced_at: string | null;
+  view_trend_7d: Array<{ date: string; views: number }>;
   created_at: string;
   updated_at: string;
 }
@@ -762,6 +771,9 @@ export interface MarketplaceConnectionRow {
   refresh_error: string | null;
   // 00054: cached default Sell Inventory location key (US-314).
   merchant_location_key: string | null;
+  // 00136: set when getTrafficReport 403s for missing Sell Analytics access
+  // (US-151) so the UI can prompt a reconnect to enable performance metrics.
+  analytics_access_denied: boolean;
   created_at: string;
   updated_at: string;
 }

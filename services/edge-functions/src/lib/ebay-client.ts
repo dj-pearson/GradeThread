@@ -181,6 +181,11 @@ function getScopes(): string {
       // Required by /sell/finances/v1/transaction for fees + payout sync
       // (lets sales rows flip from "Pending" to "Cleared" with real numbers).
       "https://api.ebay.com/oauth/api_scope/sell.finances",
+      // US-151: required by /sell/analytics/v1/traffic_report for per-listing
+      // views/impressions/CTR. Users connected BEFORE this scope was added must
+      // reconnect — old tokens 403 the Analytics API, which the performance sync
+      // detects and flags (marketplace_connections.analytics_access_denied).
+      "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly",
       // NOTE: the two eBay-restricted scopes below are intentionally NOT
       // requested. They are granted in Sandbox but NOT on our Production
       // keyset (eBay gates them behind extra licensing/contracts), so
@@ -326,6 +331,118 @@ export function isPermanentEbayAuthFailure(err: unknown): boolean {
 // the UI banner can tell them to reconnect.
 export const EBAY_RECONNECT_MESSAGE =
   "eBay disconnected: your authorization was revoked or expired. Please reconnect your eBay account.";
+
+// ── US-151: Sell Analytics getTrafficReport ──────────────────────────
+//
+// Per-listing engagement (views / impressions / click-through-rate) over a
+// rolling window. Sell Analytics is a SEPARATE grant beyond basic OAuth — a
+// token issued before the sell.analytics.readonly scope was added (or a seller
+// whose account lacks Analytics access) gets a 403. The performance sync treats
+// that as "access not granted" rather than an error, flips the per-connection
+// analytics_access_denied flag, and prompts a reconnect in the UI.
+
+/** True when an error from getTrafficReport means the seller hasn't granted
+ *  Sell Analytics access (403 / insufficient-scope) rather than a transient
+ *  failure. Such an error must NOT trip retries or the breaker. */
+export function isAnalyticsAccessDenied(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status;
+  if (status === 403 || status === 401) return true;
+  const ids = (err as { ebayErrorIds?: number[] } | null)?.ebayErrorIds ?? [];
+  // 1100 = insufficient permissions / scope on the Analytics API.
+  if (ids.includes(1100)) return true;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return /insufficient (permissions|scope)|not authorized|access.*denied/.test(msg);
+}
+
+export interface ListingTraffic {
+  /** eBay listing id (platform_listing_id). */
+  listingId: string;
+  views: number;
+  impressions: number;
+  /** Click-through-rate as a fraction (0–1), or null when eBay omits it. */
+  clickThroughRate: number | null;
+}
+
+interface TrafficReportResponse {
+  header?: {
+    dimensionKeys?: Array<{ key?: string }>;
+    metricKeys?: Array<{ key?: string }>;
+  };
+  records?: Array<{
+    dimensionValues?: Array<{ value?: string }>;
+    metricValues?: Array<{ value?: string | null }>;
+  }>;
+}
+
+/**
+ * Pull a per-listing traffic report for the trailing `days` (default 7).
+ * Returns one row per listing eBay reports engagement for; listings with no
+ * activity may be absent. Throws on a real API error — callers classify with
+ * isAnalyticsAccessDenied to handle the no-access case gracefully.
+ */
+export async function getTrafficReport(
+  userId: string,
+  days = 7,
+): Promise<ListingTraffic[]> {
+  // eBay's date filter is an inclusive YYYYMMDD..YYYYMMDD range; metrics lag a
+  // day so the window ends "yesterday".
+  const end = new Date(Date.now() - 24 * 60 * 60_000);
+  const start = new Date(end.getTime() - (days - 1) * 24 * 60 * 60_000);
+  const ymd = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const marketplaceId = getMarketplaceId();
+
+  // Metric order we request — parsed back by index from header.metricKeys.
+  const metrics = [
+    "LISTING_IMPRESSION_TOTAL",
+    "LISTING_VIEWS_TOTAL",
+    "CLICK_THROUGH_RATE",
+  ];
+  const filter =
+    `marketplace_ids:{${marketplaceId}},` +
+    `date_range:[${ymd(start)}..${ymd(end)}]`;
+  const qs = new URLSearchParams({
+    dimension: "LISTING",
+    metric: metrics.join(","),
+    filter,
+    sort: "LISTING_VIEWS_TOTAL",
+  });
+
+  const report = await fetchAuthed<TrafficReportResponse>(
+    userId,
+    `/sell/analytics/v1/traffic_report?${qs.toString()}`,
+  );
+
+  // Map header metric keys → column index so we don't depend on eBay echoing
+  // our requested order.
+  const metricCols = new Map<string, number>();
+  (report.header?.metricKeys ?? []).forEach((m, i) => {
+    if (m.key) metricCols.set(m.key, i);
+  });
+  const num = (vals: Array<{ value?: string | null }>, key: string): number => {
+    const i = metricCols.get(key);
+    if (i == null) return 0;
+    const n = Number(vals[i]?.value ?? 0);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  const out: ListingTraffic[] = [];
+  for (const rec of report.records ?? []) {
+    const listingId = rec.dimensionValues?.[0]?.value;
+    if (!listingId) continue;
+    const vals = rec.metricValues ?? [];
+    const ctrRaw = num(vals, "CLICK_THROUGH_RATE");
+    out.push({
+      listingId,
+      impressions: Math.round(num(vals, "LISTING_IMPRESSION_TOTAL")),
+      views: Math.round(num(vals, "LISTING_VIEWS_TOTAL")),
+      // eBay returns CTR as a percentage (e.g. 4.2 = 4.2%); store a fraction.
+      clickThroughRate: metricCols.has("CLICK_THROUGH_RATE")
+        ? ctrRaw / 100
+        : null,
+    });
+  }
+  return out;
+}
 
 export async function refreshUserToken(
   refreshToken: string

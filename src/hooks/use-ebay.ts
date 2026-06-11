@@ -12,6 +12,9 @@ export interface EbayConnection {
   token_expires_at: string | null;
   is_active: boolean;
   last_synced_at: string | null;
+  // US-151: set when the Sell Analytics getTrafficReport call 403s for missing
+  // access; the Listing Performance page prompts a reconnect when true.
+  analytics_access_denied: boolean;
 }
 
 // Reads marketplace_connections directly via supabase-js so we don't need a
@@ -29,7 +32,7 @@ export function useEbayConnection(pollingInterval?: number) {
       const { data, error } = await supabase
         .from("marketplace_connections")
         .select(
-          "id, account_handle, token_expires_at, is_active, last_synced_at"
+          "id, account_handle, token_expires_at, is_active, last_synced_at, analytics_access_denied"
         )
         .eq("marketplace", "ebay")
         .eq("is_active", true)

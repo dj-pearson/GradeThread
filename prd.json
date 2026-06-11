@@ -2638,8 +2638,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 151,
-      "passes": false,
-      "notes": "BLOCKER: requires eBay Sell Analytics API access (separate subscription beyond basic OAuth). No code yet."
+      "passes": true,
+      "notes": "Implemented. Migration 00136 adds listings.{views_total,watchers_count,impressions_7d,click_through_rate,last_metrics_synced_at,view_trend_7d} + marketplace_connections.analytics_access_denied + partial index on active listings. Edge: ebay-client.getTrafficReport (Sell Analytics) + sell.analytics.readonly scope + isAnalyticsAccessDenied; POST /api/flipdesk/ebay/sync/performance (job-auth) batch-syncs per active eBay connection, tenant-scoped via inventory_items.user_id, flips analytics_access_denied on 403 and clears on success, maintains rolling 7-day view_trend. Scheduler: ebay-performance-sync 0 */6 * * * documented in COOLIFY.md + LAUNCH_CHECKLIST.md. Frontend: new /dashboard/flipdesk/analytics/performance page (sortable table, No-views-in-N-days filter chip, Recharts sparkline, access-denied banner+toast), sidebar Listing Performance link, Active tab Impr./CTR columns, overview stale-listings widget (active >14d, zero watchers). Tenant-isolation test asserts the sync rejects a user JWT. Note: AC referenced migration 00021 (stale PRD numbering) — used next free 00136. Sell Analytics requires a separate eBay grant; pre-scope tokens degrade gracefully via reconnect prompt."
     },
     {
       "id": "US-152",

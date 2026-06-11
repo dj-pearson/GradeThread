@@ -14,7 +14,9 @@ import {
   getCategoryName,
   getItemConditionPolicies,
   getMarketplaceId,
+  getTrafficReport,
   getUserAccessToken,
+  isAnalyticsAccessDenied,
   getUserIdentityFromToken,
   isEbayConfigured,
   isOfferAlreadyExistsError,
@@ -327,6 +329,149 @@ flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
     }
   }
   return c.json({ scanned: userIds.length, refreshed, failed });
+});
+
+// ── US-151: listing-performance sync (views / watchers / impressions) ──
+//
+// POST /api/flipdesk/ebay/sync/performance — internal cron (every 6h via
+// US-131 scheduler). Pulls Sell Analytics getTrafficReport per active eBay
+// connection and writes engagement metrics onto that seller's active listings.
+//
+// Sell Analytics is a separate grant; sellers on a pre-scope token get a 403.
+// We treat that as "access not granted" (flag the connection, skip) rather than
+// a failure so one un-upgraded seller never fails the whole batch. The UI reads
+// marketplace_connections.analytics_access_denied to prompt a reconnect.
+
+interface PerfListingRow {
+  id: string;
+  platform_listing_id: string | null;
+  watchers: number;
+  views_total: number;
+  view_trend_7d: Array<{ date: string; views: number }> | null;
+}
+
+/** Pull metrics for one seller and write them onto their active eBay listings.
+ *  Returns the per-user outcome for the batch summary. */
+async function syncListingPerformanceForUser(
+  userId: string,
+): Promise<{ updated: number; accessDenied: boolean }> {
+  let traffic;
+  try {
+    traffic = await getTrafficReport(userId);
+  } catch (err) {
+    if (isAnalyticsAccessDenied(err)) {
+      await supabaseAdmin
+        .from("marketplace_connections")
+        .update({ analytics_access_denied: true })
+        .eq("user_id", userId)
+        .eq("marketplace", "ebay");
+      return { updated: 0, accessDenied: true };
+    }
+    throw err;
+  }
+
+  // Access worked — clear any stale denial flag.
+  await supabaseAdmin
+    .from("marketplace_connections")
+    .update({ analytics_access_denied: false })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("analytics_access_denied", true);
+
+  const byListingId = new Map(traffic.map((t) => [t.listingId, t]));
+
+  // This seller's active eBay listings (tenant-scoped via inventory_items —
+  // listings has no user_id of its own, US-268).
+  const { data: listingRows } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, platform_listing_id, watchers, views_total, view_trend_7d, inventory_items!inner(user_id)",
+    )
+    .eq("platform", "ebay")
+    .eq("listing_status", "active")
+    .eq("inventory_items.user_id", userId)
+    .not("platform_listing_id", "is", null);
+
+  const rows = (listingRows ?? []) as unknown as PerfListingRow[];
+  const today = new Date().toISOString().slice(0, 10);
+  const nowIso = new Date().toISOString();
+  let updated = 0;
+
+  for (const row of rows) {
+    const metrics = row.platform_listing_id
+      ? byListingId.get(row.platform_listing_id)
+      : undefined;
+
+    // watchers_count mirrors the watcher total kept fresh by the listings pull
+    // (getTrafficReport doesn't return watchers) so the analytics columns are
+    // self-contained. Stamp every active listing; layer traffic on when eBay
+    // reported engagement for it.
+    const patch: Record<string, unknown> = {
+      watchers_count: row.watchers ?? 0,
+      last_metrics_synced_at: nowIso,
+    };
+
+    if (metrics) {
+      // Rolling 7-day sparkline series: one point per day, latest snapshot
+      // wins, keep the most recent 7.
+      const prev = Array.isArray(row.view_trend_7d) ? row.view_trend_7d : [];
+      const trend = prev.filter((p) => p && p.date !== today);
+      trend.push({ date: today, views: metrics.views });
+      patch.views_total = metrics.views;
+      patch.impressions_7d = metrics.impressions;
+      patch.click_through_rate = metrics.clickThroughRate;
+      patch.view_trend_7d = trend.slice(-7);
+    }
+
+    const { error } = await supabaseAdmin
+      .from("listings")
+      .update(patch)
+      .eq("id", row.id);
+    if (!error) updated += 1;
+  }
+
+  return { updated, accessDenied: false };
+}
+
+flipdeskEbayRoutes.post("/sync/performance", async (c) => {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+
+  const { data: conns, error } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("user_id")
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+  if (error) {
+    console.error("[flipdesk-ebay] performance scan failed:", error);
+    return c.json({ error: "Performance scan failed" }, 500);
+  }
+
+  const userIds = Array.from(
+    new Set(((conns ?? []) as { user_id: string }[]).map((r) => r.user_id)),
+  );
+
+  let updated = 0;
+  let accessDenied = 0;
+  let failed = 0;
+  for (const userId of userIds) {
+    try {
+      const r = await syncListingPerformanceForUser(userId);
+      updated += r.updated;
+      if (r.accessDenied) accessDenied += 1;
+    } catch (err) {
+      failed += 1;
+      console.error(
+        `[flipdesk-ebay] performance sync failed for user ${userId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return c.json({ scanned: userIds.length, updated, accessDenied, failed });
 });
 
 // ── US-314: business policies + merchant location ────────────────────

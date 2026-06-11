@@ -98,6 +98,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 |---|---|---|---|---|
 | ebay-token-refresh | `0 * * * *` | `/api/flipdesk/ebay/oauth/refresh` | ☐ | |
 | ebay-orders-sync | `*/30 * * * *` | `/api/flipdesk/ebay/listings/pull` | ☐ | |
+| ebay-performance-sync | `0 */6 * * *` | `/api/flipdesk/ebay/sync/performance` | ☐ | |
 | ebay-publish-due | `*/5 * * * *` | `/api/flipdesk/ebay/jobs/publish-due` | ☐ | |
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | ☐ | |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | ☐ | |

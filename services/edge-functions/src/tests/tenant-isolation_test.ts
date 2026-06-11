@@ -644,3 +644,19 @@ Deno.test({
     );
   },
 });
+
+// US-151: the listing-performance sync is an internal cron endpoint gated by the
+// shared job secret — a user JWT (even a valid one) must NOT be accepted, so a
+// tenant can never trigger or scope-escape the cross-tenant batch sync.
+Deno.test({
+  name: "performance sync rejects a user JWT (job-secret only)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/sync/performance`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST sync/performance with user JWT");
+  },
+});

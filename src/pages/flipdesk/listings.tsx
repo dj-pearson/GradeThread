@@ -484,6 +484,36 @@ export function FlipdeskListingsPage() {
     },
   });
 
+  // US-151: per-item analytics metrics (impressions / CTR) for the Active tab.
+  // Views/watchers already come through items_full; impressions + CTR live only
+  // on the new listings columns, so pull them in a lightweight map rather than
+  // widening the items_full view.
+  const { data: metricsByItem } = useQuery({
+    queryKey: ["item_listing_metrics", user?.id],
+    enabled: !!user && isActive,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, { impressions: number; ctr: number | null }>> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("inventory_item_id, impressions_7d, click_through_rate")
+        .eq("platform", "ebay")
+        .eq("listing_status", "active");
+      if (error) throw error;
+      const map = new Map<string, { impressions: number; ctr: number | null }>();
+      for (const row of (data ?? []) as Array<{
+        inventory_item_id: string;
+        impressions_7d: number | null;
+        click_through_rate: number | null;
+      }>) {
+        map.set(row.inventory_item_id, {
+          impressions: row.impressions_7d ?? 0,
+          ctr: row.click_through_rate,
+        });
+      }
+      return map;
+    },
+  });
+
   const tabCounts = useMemo(() => {
     const counts: Record<TabId, number> = {
       all: 0,
@@ -1452,6 +1482,8 @@ export function FlipdeskListingsPage() {
                               Watchers
                             </SortHeader>
                           </TableHead>
+                          <TableHead className="w-16 text-right">Impr.</TableHead>
+                          <TableHead className="w-16 text-right">CTR</TableHead>
                           <TableHead className="w-20 text-right">
                             <SortHeader
                               field="list_date"
@@ -1666,6 +1698,15 @@ export function FlipdeskListingsPage() {
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-muted-foreground">
                                 {it.listing_watchers ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {metricsByItem?.get(it.id)?.impressions?.toLocaleString() ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-muted-foreground">
+                                {(() => {
+                                  const ctr = metricsByItem?.get(it.id)?.ctr;
+                                  return ctr == null ? "—" : `${(ctr * 100).toFixed(1)}%`;
+                                })()}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {daysSince(it.list_date) ?? "—"}
