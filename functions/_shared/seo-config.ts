@@ -110,3 +110,99 @@ export function buildLlmsTxt(opts: {
   }
   return lines.join("\n");
 }
+
+// ── llms.txt section builder, driven by the route registry (US-431) ──────────
+//
+// The llms.txt body used to be hand-curated (~10 links) and drifted from
+// src/lib/seo/public-routes.ts. This pure builder derives the sections from the
+// SAME registry the sitemap/manifest use, so a new public page auto-appears in
+// llms.txt with no hand-edit. The Pages Function feeds it the build-emitted
+// dist/seo-manifest.json (which is PUBLIC_ROUTES); a CI guard
+// (src/test/llms-txt.test.ts) feeds it PUBLIC_ROUTES directly and fails the
+// build if any registry route is missing from the output.
+
+/** Minimal route shape the llms.txt builder needs (subset of PublicRoute). */
+export interface LlmsRoute {
+  path: string;
+  title: string;
+  description?: string;
+  priority?: number;
+}
+
+/** Stable site summary line for llms.txt (also reused by the CI guard). */
+export const LLMS_SUMMARY =
+  "GradeThread is the trusted standard for pre-owned clothing condition grading. " +
+  "Sellers upload garment photos and receive an objective numerical condition grade " +
+  "(1.0–10.0), a detailed condition report, and a shareable verification certificate — " +
+  "like a PSA or CGC grade, but for used clothing. Resellers also run their full " +
+  "eBay/Poshmark/Mercari workflow in FlipDesk: source, catalog, grade, list, sell, and " +
+  "reconcile. Built by Pearson Media LLC.";
+
+// Legal pages get their own section (title-only, no note). Kept in sync with the
+// 0.3-priority legal block in public-routes.ts.
+const LLMS_LEGAL_PATHS: ReadonlySet<string> = new Set([
+  "/privacy",
+  "/terms",
+  "/cookies",
+  "/acceptable-use",
+  "/dpa",
+  "/subprocessors",
+  "/dmca",
+  "/accessibility",
+]);
+
+/**
+ * Build the llms.txt sections from registry routes plus a few dynamic
+ * collection links (blog/RSS/sitemap are static; representative cert + seller
+ * URLs are passed in by the caller when available).
+ */
+export function buildLlmsSections(opts: {
+  routes: LlmsRoute[];
+  certUrls?: Array<{ title: string; url: string }>;
+  sellerUrls?: Array<{ title: string; url: string }>;
+}): LlmsSection[] {
+  const product: LlmsSection["links"] = [];
+  const glossary: LlmsSection["links"] = [];
+  const legal: LlmsSection["links"] = [];
+
+  // Highest-priority pages first within the Product section.
+  const sorted = [...opts.routes].sort(
+    (a, b) => (b.priority ?? 0) - (a.priority ?? 0),
+  );
+  for (const r of sorted) {
+    if (LLMS_LEGAL_PATHS.has(r.path)) {
+      legal.push({ title: r.title, url: r.path });
+    } else if (r.path.startsWith("/grading/")) {
+      glossary.push({ title: r.title, url: r.path, note: r.description });
+    } else {
+      product.push({ title: r.title, url: r.path, note: r.description });
+    }
+  }
+
+  const sections: LlmsSection[] = [];
+  if (product.length) sections.push({ heading: "Product & Guides", links: product });
+  if (glossary.length) {
+    sections.push({ heading: "Condition-Grading Glossary", links: glossary });
+  }
+  sections.push({
+    heading: "Content",
+    links: [
+      {
+        title: "Blog",
+        url: "/blog",
+        note: "Condition-grading guides, reseller workflows, and FlipDesk how-tos.",
+      },
+      { title: "RSS feed", url: "/rss.xml", note: "Latest published articles." },
+    ],
+  });
+  const verified = [...(opts.certUrls ?? []), ...(opts.sellerUrls ?? [])];
+  if (verified.length) {
+    sections.push({ heading: "Verified Certificates & Sellers", links: verified });
+  }
+  sections.push({
+    heading: "Reference",
+    links: [{ title: "Sitemap", url: "/sitemap.xml", note: "All indexable URLs." }],
+  });
+  if (legal.length) sections.push({ heading: "Legal", links: legal });
+  return sections;
+}

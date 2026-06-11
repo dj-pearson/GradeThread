@@ -6806,8 +6806,8 @@
         "A CI guard fails if a registry route is missing"
       ],
       "priority": 431,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. functions/llms.txt.ts hand-curates ~10 links and drifts from the registry."
+      "passes": true,
+      "notes": "[P3][SEO] Audit 2026-06-03. functions/llms.txt.ts hand-curates ~10 links and drifts from the registry. | DONE 2026-06-11. functions/llms.txt.ts now builds sections from the build-emitted seo-manifest (=PUBLIC_ROUTES) via new pure buildLlmsSections()/LLMS_SUMMARY in seo-config.ts; includes transparency/faq/pricing/how-it-works, glossary pillar+spokes, representative cert/verified URLs. CI guard src/test/llms-txt.test.ts fails if a registry route is missing."
     },
     {
       "id": "US-432",
@@ -8754,8 +8754,8 @@
         "No remaining getPublicUrl call targets submission-images anywhere in the codebase"
       ],
       "priority": 572,
-      "passes": false,
-      "notes": "[P0][Security] Deep-dive 2026-06-04. settings.tsx ~line 160 uses getPublicUrl on the PRIVATE submission-images bucket for avatars; violates the CLAUDE.md storage gotcha (signed URLs only)."
+      "passes": true,
+      "notes": "[P0][Security] Deep-dive 2026-06-04. settings.tsx ~line 160 uses getPublicUrl on the PRIVATE submission-images bucket for avatars; violates the CLAUDE.md storage gotcha (signed URLs only). | DONE 2026-06-11. New PUBLIC `avatars` bucket (migration 00127) + per-user-folder RLS; settings.tsx avatar upload/getPublicUrl now targets `avatars` instead of the private `submission-images` bucket. No getPublicUrl call targets submission-images anywhere."
     },
     {
       "id": "US-573",
@@ -8795,8 +8795,8 @@
         "Verified a deploy does not strand an open tab on the old shell"
       ],
       "priority": 575,
-      "passes": false,
-      "notes": "[P1][Performance] Deep-dive 2026-06-04. public/_headers only marks /assets/* immutable; HTML relies on Cloudflare Pages defaults (stale-shell risk)."
+      "passes": true,
+      "notes": "[P1][Performance] Deep-dive 2026-06-04. public/_headers only marks /assets/* immutable; HTML relies on Cloudflare Pages defaults (stale-shell risk). | DONE 2026-06-11. public/_headers now sets Cache-Control: public, max-age=0, must-revalidate for / and /index.html; /assets/* immutable caching preserved."
     },
     {
       "id": "US-576",
@@ -8860,8 +8860,8 @@
         "Stale comment in content-public.ts:291-297 referencing the dropped RLS policy is corrected to describe the in-code column allowlist gate"
       ],
       "priority": 580,
-      "passes": false,
-      "notes": "[P3][Security] Deep-dive 2026-06-04. public-grading.ts:36-38 and content-public.ts (162,179,209,...) return raw error.message to anonymous callers."
+      "passes": true,
+      "notes": "[P3][Security] Deep-dive 2026-06-04. public-grading.ts:36-38 and content-public.ts (162,179,209,...) return raw error.message to anonymous callers. | DONE 2026-06-11. Added publicError() helper in content-public.ts (logs+captureException server-side, returns generic {error:'Internal error'}); replaced all 12 raw error.message 500 returns. public-grading /transparency no longer echoes err detail. Stale RLS-policy comment (dropped in 00082) corrected to describe the in-code certificate_id + CERT_REPORT_COLUMNS allowlist gate."
     },
     {
       "id": "US-581",

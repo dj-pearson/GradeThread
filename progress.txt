@@ -5555,3 +5555,52 @@ test to extend — the right kind of work to land cleanly here.
           Complements US-528 (publishOffer's intra-call reconciliation across its
           own retries). Verified: deno lint src/ clean (233 files) + Node harness
           of the 3 scenarios; deno check/test run in CI.
+
+================================================================================
+## 2026-06-11 — Pre-launch false-story sweep (security + SEO hygiene)
+
+- US-572  Stop serving avatars from the private submission-images bucket.
+          COMPLETE (passes:true). Files: new supabase/migrations/00127_avatars_bucket.sql,
+          src/pages/settings.tsx.
+          P0: settings.tsx uploaded avatars to the PRIVATE submission-images
+          bucket and served them via getPublicUrl — an unfetchable/leaky link
+          that violated the CLAUDE.md signed-URL-only contract. Added a dedicated
+          PUBLIC `avatars` bucket (2MB cap, image mimes) with the standard
+          per-user-folder RLS (insert/update/delete gated on
+          (storage.foldername(name))[1] = auth.uid()::text; public read). Avatar
+          upload + URL now target `avatars`. Verified: no getPublicUrl call
+          targets submission-images anywhere in the tree.
+
+- US-575  No-cache headers for the SPA shell. COMPLETE (passes:true). File:
+          public/_headers. Added Cache-Control: public, max-age=0, must-revalidate
+          for / and /index.html so an open tab is never stranded on a stale asset
+          manifest after a deploy; /assets/* immutable caching preserved.
+
+- US-580  Stop leaking raw error.message on public/unauthenticated endpoints.
+          COMPLETE (passes:true). Files: services/edge-functions/src/routes/
+          content-public.ts, public-grading.ts.
+          Added publicError(c, err, label) in content-public.ts — logs the detail
+          server-side (console.error + captureException with route/correlation
+          context, mirroring the global app.onError) and returns a generic
+          {error:"Internal error"} 500. Replaced all 12 `error.message` 500
+          returns; public-grading /transparency no longer echoes err detail. Also
+          corrected the stale comment that referenced the
+          "Public can view grade reports with certificates" RLS policy (DROPPED in
+          00082) — it now documents that the public-ness gate lives entirely in
+          code (the certificate_id-not-null filter + CERT_REPORT_COLUMNS
+          allowlist). (deno check/test run in CI; deno not available in sandbox.)
+
+- US-431  Generate llms.txt from the route registry. COMPLETE (passes:true).
+          Files: functions/_shared/seo-config.ts (new buildLlmsSections() +
+          LLMS_SUMMARY + LlmsRoute), functions/llms.txt.ts (rewritten),
+          new src/test/llms-txt.test.ts.
+          /llms.txt was hand-curated (~10 links) and drifted from PUBLIC_ROUTES.
+          It now fetches the build-emitted dist/seo-manifest.json (= PUBLIC_ROUTES)
+          and builds Product/Glossary/Content/Verified/Reference/Legal sections
+          via the pure buildLlmsSections() (graceful static fallback if the
+          manifest is missing). Representative cert + verified-seller URLs are
+          pulled best-effort from the edge certificates.json/sellers.json. The CI
+          guard src/test/llms-txt.test.ts builds the body from PUBLIC_ROUTES and
+          fails if any registry route (incl. glossary spokes) is missing.
+          Verified: vitest 5/5 green; tsc -b + eslint clean; sitemap/seo suites
+          still 40/40.

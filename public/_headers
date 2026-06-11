@@ -24,3 +24,11 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# US-575: the SPA shell (HTML) must always be revalidated so an open tab is not
+# stranded on a stale asset manifest after a deploy. The hashed /assets/* files
+# above stay immutable; only the entrypoint HTML is forced to revalidate.
+/
+  Cache-Control: public, max-age=0, must-revalidate
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
