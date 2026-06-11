@@ -5715,3 +5715,36 @@ test to extend — the right kind of work to land cleanly here.
           formula. AC3 — new sales_reversed count (migration 00128) incremented per
           reversed line item, recorded by recordSyncRun and shown as a red "-N"
           (cancelled/returned) in the reconciliation sync-history. lint/tsc/eslint clean.
+
+================================================================================
+## 2026-06-11 — AutoLister reconciliation (verified already-implemented; flags flipped)
+
+Reconciled the prd.json flags with reality: a large block of AutoLister stories
+were fully built in prior sessions (migrations 00087 autolister_reliability,
+00088 listings_ai_confidence; the US-310..US-325 AutoLister work and beyond) but
+their `passes` flags were never flipped. Verified each against its acceptance
+criteria (code + dedicated deno/web tests + UI wiring) and marked the
+fully-satisfied ones true. NO code changes — pure reconciliation.
+
+  DONE (verified): US-525 (durable queue + reclaim cron */5min + claim/heartbeat),
+  US-526 (90s per-item withTimeout), US-527 (atomic reserve_ai_action RPC +
+  concurrency test), US-528 (publish-due claim-lock + 25002 errorId + adopt-on-
+  retry), US-530 (real drag/drop + folder + paste ingest), US-531 (in-browser
+  HEIC transcode), US-532 (EXIF-burst + dHash auto-grouping w/ merge/split),
+  US-533 (AI cover + role auto-tag), US-534 (PhotoEditorDialog + straighten in
+  staging grid), US-535 (on-device @imgly background removal + white compositing),
+  US-536 (batch auto-enhance w/ multi-angle consistency), US-537 (AI photo-QA
+  readiness score), US-541 (per-field confidence persisted + needs_review).
+
+  Tests backing these: autolister-reliability_test.ts, ai-quota-concurrency_test.ts,
+  publish-idempotency_test.ts, ai-photo-roles_test.ts, ai-photo-qa_test.ts,
+  listing-confidence_test.ts.
+
+  STILL OPEN (verified NOT fully done — left false):
+  - US-548 drafts cockpit: view exists but no margin/status column, no sort, no
+    publish-all/bulk action FROM the page.
+  - US-550 confidence triage: NOT built — no green/amber/red batch sort, no
+    accept-all-green action (only the per-row needs_review/PhotoQA badges exist).
+  - US-553 profit calc: done in the composer (estimateListingProfit live), but the
+    bulk grid lacks a margin column and the advanced price rules (median comp -X%,
+    floor at X% margin, match recommended) — only markup%/round-.99 exist.

@@ -8002,8 +8002,8 @@
         "retry handling can recover stuck running jobs (not only status=failed)"
       ],
       "priority": 525,
-      "passes": false,
-      "notes": "[P0][AutoLister/Reliability] Deep-dive 2026-06-03. flipdesk-autolister.ts dispatches processBatch via void...catch() and returns 202; no orphan sweeper exists. Ties to US-407."
+      "passes": true,
+      "notes": "[P0][AutoLister/Reliability] Deep-dive 2026-06-03. flipdesk-autolister.ts dispatches processBatch via void...catch() and returns 202; no orphan sweeper exists. Ties to US-407. | VERIFIED DONE 2026-06-11 (implemented under migration 00087_autolister_reliability; prd flag lagged). processBatch claims jobs (status=running, attempts++, heartbeat via finalizeBatch bumping batch.updated_at). Scheduled reclaim sweeper handleAutolisterReclaimCron at POST /api/jobs/autolister-reclaim (Coolify */5min) requeues stale-running batches + resumes pending jobs after a restart; MAX_JOB_ATTEMPTS terminalizes runaway jobs; finalizeBatch always terminalizes. Eager dispatch is fire-and-forget for HTTP latency only — durability comes from the persisted jobs + sweeper. Tests: autolister-reliability_test.ts (deriveBatchStatus, withTimeout)."
     },
     {
       "id": "US-526",
@@ -8014,8 +8014,8 @@
         "A timed-out job is marked failed with a clear reason and is retryable"
       ],
       "priority": 526,
-      "passes": false,
-      "notes": "[P1][AutoLister/Reliability] Deep-dive 2026-06-03. Only the SDK 120s socket timeout protects a job today."
+      "passes": true,
+      "notes": "[P1][AutoLister/Reliability] Deep-dive 2026-06-03. Only the SDK 120s socket timeout protects a job today. | VERIFIED DONE 2026-06-11. withTimeout() wraps generateListing with a 90s wall-clock cap (GENERATION_TIMEOUT_MS) across the sequential Anthropic+eBay calls; a timed-out job is markJobFailed with a clear reason and is retryable (retry-failed + reclaim). Tested in autolister-reliability_test.ts."
     },
     {
       "id": "US-527",
@@ -8026,8 +8026,8 @@
         "Concurrent batches from the same workspace cannot collectively exceed the cap (test)"
       ],
       "priority": 527,
-      "passes": false,
-      "notes": "[P1][AutoLister/Billing] Deep-dive 2026-06-03. Per-item local consumed counter vs a snapshot allowance is racy across parallel batches."
+      "passes": true,
+      "notes": "[P1][AutoLister/Billing] Deep-dive 2026-06-03. Per-item local consumed counter vs a snapshot allowance is racy across parallel batches. | VERIFIED DONE 2026-06-11. reserve_ai_action(p_user_id,p_limit) RPC (migration 00087) is the single row-locking check-and-increment reserved per item at processing; refund_ai_action on per-item failure. Concurrency proven by ai-quota-concurrency_test.ts (N parallel reservations never exceed the cap)."
     },
     {
       "id": "US-528",
@@ -8039,8 +8039,8 @@
         "Duplicate-offer detection uses eBay's structured errorId (25002), not a message regex"
       ],
       "priority": 528,
-      "passes": false,
-      "notes": "[P0][AutoLister/Publish] Deep-dive 2026-06-03. 5-min cron has no lock; publish_ wrapped in withRetry; isOfferAlreadyExistsError is a fragile regex. Ties to US-464/US-503."
+      "passes": true,
+      "notes": "[P0][AutoLister/Publish] Deep-dive 2026-06-03. 5-min cron has no lock; publish_ wrapped in withRetry; isOfferAlreadyExistsError is a fragile regex. Ties to US-464/US-503. | VERIFIED DONE 2026-06-11. POST /jobs/publish-due atomically CLAIMS each due draft via a conditional UPDATE (publish_claimed_at, re-checking listing_status='draft' + synced_to_ebay_at is null under row lock) — no claim => skip. publishOrAdoptOffer re-fetches the offer's listingId and short-circuits if already live (no blind retry). Duplicate detection uses eBay structured errorId 25002 (OFFER_ALREADY_EXISTS_ERROR_ID), not a regex. Tested in publish-idempotency_test.ts."
     },
     {
       "id": "US-529",
@@ -8065,8 +8065,8 @@
         "Misleading 'pick a folder' copy now matches real behavior"
       ],
       "priority": 530,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx is click-to-pick only; no onDrop/onPaste/webkitdirectory."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx is click-to-pick only; no onDrop/onPaste/webkitdirectory. | VERIFIED DONE 2026-06-11. filesFromDataTransfer uses dataTransfer.items + webkitGetAsEntry recursive folder walk wired to onDrop/onDragOver/onDragLeave; webkitdirectory folder input + onPaste clipboard ingest; copy updated to match real behavior. (autolister.tsx)"
     },
     {
       "id": "US-531",
@@ -8078,8 +8078,8 @@
         "Verified on real iPhone exports"
       ],
       "priority": 531,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx skips HEIC/HEIF with a toast telling users to change iOS settings."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx skips HEIC/HEIF with a toast telling users to change iOS settings. | VERIFIED DONE 2026-06-11. maybeTranscodeHeic dynamic-imports heic2any for HEIC/HEIF -> JPEG before compression, invoked in the ingest loop; no hard-reject (failures toast + counted), orientation baked upright, .heic/.heif accepted. (autolister.tsx)"
     },
     {
       "id": "US-532",
@@ -8091,8 +8091,8 @@
         "Measured: a 100-photo folder produces sensible per-item groups with minimal correction"
       ],
       "priority": 532,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03 — MARQUEE FEATURE. Building blocks (readCaptureTime in exif.ts, computeDHash in image-utils, reconcile-cluster.ts) already exist but aren't wired into AutoLister; grouping is 100% manual today."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03 — MARQUEE FEATURE. Building blocks (readCaptureTime in exif.ts, computeDHash in image-utils, reconcile-cluster.ts) already exist but aren't wired into AutoLister; grouping is 100% manual today. | VERIFIED DONE 2026-06-11. autoGroupPhotos clusters by EXIF capture-time bursts (readCaptureTime) + optional dHash visual second pass; wired via Auto-group button preserving manual groups; merge (mergeGroups) + split (removePhotoFromGroup / createGroupFromSelection) supported."
     },
     {
       "id": "US-533",
@@ -8104,8 +8104,8 @@
         "Cover feeds primary_photo_id and gallery order"
       ],
       "priority": 533,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. Today cover is manual (Star) and non-cover photos are all tagged 'detail' in order."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. Today cover is manual (Star) and non-cover photos are all tagged 'detail' in order. | VERIFIED DONE 2026-06-11. ai-photo-roles.ts vision pass picks the best cover (cover_index) + assigns front/back/tag/detail/defect roles keyed by caller photo ids; cover feeds primary + gallery order; user override supported. Tested in ai-photo-roles_test.ts."
     },
     {
       "id": "US-534",
@@ -8117,8 +8117,8 @@
         "Edits apply to both the AI input and the published image"
       ],
       "priority": 534,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. PhotoEditorDialog exists (used by photo-manager/uploader) but isn't mounted in AutoLister."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. PhotoEditorDialog exists (used by photo-manager/uploader) but isn't mounted in AutoLister. | VERIFIED DONE 2026-06-11. PhotoEditorDialog mounted per-photo in both staging + group grids; straighten/deskew (±15° fine range with cover-scaling) added alongside crop+rotate; replacePhotoWithBlob re-runs the stage pipeline so edits feed BOTH AI input and the published image."
     },
     {
       "id": "US-535",
@@ -8130,8 +8130,8 @@
         "Runs without per-image API cost; preview + undo per photo"
       ],
       "priority": 535,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. remove-bg today is paid remove.bg, transparent-PNG only, and not in AutoLister."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. remove-bg today is paid remove.bg, transparent-PNG only, and not in AutoLister. | VERIFIED DONE 2026-06-11. On-device @imgly/background-removal WASM (no per-image API cost, replaces remove.bg for this path); transparent-PNG + studio-white compositing; batch 'Clean all' + per-photo clean/undo; cleaned image re-staged for AI input + listing."
     },
     {
       "id": "US-536",
@@ -8143,8 +8143,8 @@
         "Per-photo preview + revert"
       ],
       "priority": 536,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. No enhance/white-balance/straighten anywhere in app code."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. No enhance/white-balance/straighten anywhere in app code. | VERIFIED DONE 2026-06-11. Batch auto-enhance: subject auto-crop (detectSubjectBBox) + gray-world white-balance + percentile auto-levels; multi-angle consistency by enhancing the cover first and reusing its EnhanceStats across the item's photos; per-photo preview + revert."
     },
     {
       "id": "US-537",
@@ -8156,8 +8156,8 @@
         "Score persisted per item"
       ],
       "priority": 537,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input/AI] Deep-dive 2026-06-03. The AI sees photos but never returns photo-quality feedback."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input/AI] Deep-dive 2026-06-03. The AI sees photos but never returns photo-quality feedback. | VERIFIED DONE 2026-06-11. ai-photo-qa.ts vision pass scores the item's gallery 0-100 for listing-readiness with concrete reshoot issues; surfaced as a queue badge; persisted per item. Tested in ai-photo-qa_test.ts."
     },
     {
       "id": "US-538",
@@ -8206,8 +8206,8 @@
         "The editor surfaces 'AI is unsure about X'"
       ],
       "priority": 541,
-      "passes": false,
-      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03 — biggest near-free quality lever. confidence is generated but never acted on; extractEbayAspects confidence is thrown away."
+      "passes": true,
+      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03 — biggest near-free quality lever. confidence is generated but never acted on; extractEbayAspects confidence is thrown away. | VERIFIED DONE 2026-06-11. ai-listing.ts captures pass-2 per-aspect confidence (fieldConfidence) + overall, persists ai_confidence/ai_field_confidence/needs_review; listingNeedsReview() sets needs_review below a configurable threshold (overall OR any required aspect); editor surfaces the 'needs review' flag. Tested in listing-confidence_test.ts."
     },
     {
       "id": "US-542",
