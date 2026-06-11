@@ -5776,8 +5776,8 @@
         "CI fails on any cross-tenant read/write"
       ],
       "priority": 350,
-      "passes": false,
-      "notes": "[P1][Security] Audit 2026-06-03. tenant-isolation_test.ts is env-gated (ignore:!CONFIGURED) and almost certainly never runs in CI."
+      "passes": true,
+      "notes": "[P1][Security] Audit 2026-06-03. tenant-isolation_test.ts is env-gated (ignore:!CONFIGURED) and almost certainly never runs in CI. IMPLEMENTED 2026-06-11: new .github/workflows/tenant-isolation.yml boots a local Supabase stack, seeds a two-tenant fixture (services/edge-functions/scripts/seed-tenant-isolation-fixture.ts), starts the edge service, and runs tenant-isolation_test.ts with TENANT_ISOLATION_REQUIRED=1 so the merge gate FAILS (no silent SKIP) if the fixture is missing or any cross-tenant read/write succeeds. Added cross-tenant cases for revise, category-check, reconciliation commit (dismiss + conflicts/resolve), disclosure upload, and sync-runs."
     },
     {
       "id": "US-351",

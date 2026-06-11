@@ -1,0 +1,120 @@
+name: Tenant Isolation
+
+# US-350: the US-268 tenant-isolation guarantee, CI-enforced. The edge service
+# talks to Supabase with the SERVICE-ROLE client (bypasses RLS), so isolation
+# rests entirely on each handler scoping every query by the caller. This job
+# boots a LOCAL throwaway Supabase stack, seeds a two-tenant fixture, starts the
+# edge service against it, and runs tenant-isolation_test.ts with
+# TENANT_ISOLATION_REQUIRED=1 so the suite FAILS (never silently SKIPs) if the
+# fixture is missing or any cross-tenant read/write succeeds.
+#
+# This is a separate workflow (not folded into security.yml's deno-check, which
+# runs the unit suite with the integration tests skipping cleanly) because it
+# needs the full Supabase stack + a running edge service — heavier setup that
+# shouldn't block the fast static lanes.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: tenant-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cross-tenant:
+    name: Cross-tenant regression suite (seeded two-tenant fixture)
+    runs-on: ubuntu-latest
+    # config.toml interpolates Google OAuth creds via env(); the CLI rejects an
+    # enabled provider with empty values. The OAuth handshake is never exercised
+    # here, so feed harmless dummies to satisfy the config parser (same as
+    # db-migrations.yml).
+    env:
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID: ci-dummy-client-id.apps.googleusercontent.com
+      SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET: ci-dummy-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.0"
+
+      # Boot the full local stack (Postgres + GoTrue + PostgREST + Storage) and
+      # apply every migration. We need auth (to create users + mint JWTs),
+      # PostgREST (the reconcile-session RLS probe), and storage.
+      - name: Start local Supabase
+        run: supabase start
+
+      # Capture the local API URL + keys for the seed script and edge service.
+      - name: Export Supabase env
+        run: |
+          status="$(supabase status -o env)"
+          val() { echo "$status" | grep "^$1=" | cut -d= -f2- | tr -d '"'; }
+          {
+            echo "SUPABASE_URL=$(val API_URL)"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$(val SERVICE_ROLE_KEY)"
+            echo "SUPABASE_ANON_KEY=$(val ANON_KEY)"
+          } >> "$GITHUB_ENV"
+
+      # Seed the two-tenant fixture. Emits TEST_* KEY=VALUE lines on stdout for
+      # $GITHUB_ENV; any failure (incl. schema drift) exits non-zero → job fails.
+      - name: Seed two-tenant fixture
+        working-directory: services/edge-functions
+        run: |
+          deno run --allow-net --allow-env scripts/seed-tenant-isolation-fixture.ts \
+            | tee fixture.env
+          cat fixture.env >> "$GITHUB_ENV"
+
+      # Start the edge service against the local stack. EDGE_ENV=test keeps the
+      # boot-time env validation permissive (prod-only fatals stay off). Dummy
+      # eBay creds make isEbayConfigured() true so revise/category-check reach
+      # the ownership check (404) instead of short-circuiting at 503. The job
+      # secret lets the job-secret-gated routes assert a user JWT is rejected.
+      - name: Start edge service
+        working-directory: services/edge-functions
+        env:
+          EDGE_ENV: test
+          PORT: "8787"
+          EBAY_APP_ID: ci-dummy-app-id
+          EBAY_CERT_ID: ci-dummy-cert-id
+          EBAY_RU_NAME: ci-dummy-ru-name
+          FLIPDESK_INTERNAL_JOB_SECRET: ci-dummy-job-secret
+        run: |
+          deno run --allow-net --allow-env --allow-read src/main.ts &
+          echo "EDGE_PID=$!" >> "$GITHUB_ENV"
+          # Wait for /health (max ~30s).
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/health >/dev/null 2>&1; then
+              echo "edge service is up"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "edge service did not become healthy in time" >&2
+          exit 1
+
+      # Run the suite for real. TENANT_ISOLATION_REQUIRED=1 turns a missing
+      # fixture (or a missing seeded resource id) into a FAILURE, not a skip.
+      - name: Run tenant-isolation suite (required)
+        working-directory: services/edge-functions
+        env:
+          TEST_EDGE_BASE_URL: http://127.0.0.1:8787
+          TENANT_ISOLATION_REQUIRED: "1"
+        run: deno test --allow-net --allow-env --allow-read src/tests/tenant-isolation_test.ts
+
+      - name: Stop edge service
+        if: always()
+        run: kill "$EDGE_PID" 2>/dev/null || true
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop || true

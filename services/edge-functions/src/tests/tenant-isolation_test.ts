@@ -58,6 +58,46 @@ function assertDenied(status: number, label: string) {
   );
 }
 
+// US-350: in CI the merge gate must FAIL if this suite would silently SKIP.
+// The tenant-isolation workflow seeds a two-tenant fixture, then runs with
+// TENANT_ISOLATION_REQUIRED=1 so a missing fixture (or a missing seeded
+// resource id the cross-tenant cases need) is a hard failure, not a skip.
+const REQUIRED = Boolean(Deno.env.get("TENANT_ISOLATION_REQUIRED"));
+
+// Resource ids whose cross-tenant cases MUST run in CI (they'd otherwise skip
+// when their id env var is unset). Keep in sync with the seed script.
+const REQUIRED_RESOURCE_IDS = [
+  "TEST_USER_A_SUBMISSION_ID",
+  "TEST_USER_A_LISTING_ID",
+  "TEST_USER_A_API_KEY_ID",
+  "TEST_USER_A_TEMPLATE_ID",
+  "TEST_USER_A_RULE_ID",
+  "TEST_USER_A_ITEM_ID",
+  "TEST_USER_A_BATCH_ID",
+  "TEST_USER_A_SYNC_RUN_ID",
+  "TEST_USER_A_PAYOUT_ID",
+  "TEST_USER_A_CONFLICT_ID",
+  "TEST_USER_A_RECONCILE_SESSION",
+];
+
+Deno.test({
+  name: "fixture is configured — suite must not SKIP in CI",
+  ignore: !REQUIRED,
+  fn: () => {
+    assert(
+      CONFIGURED,
+      "TENANT_ISOLATION_REQUIRED is set but TEST_EDGE_BASE_URL + TEST_USER_A_JWT " +
+        "+ TEST_USER_B_JWT are not all present — the suite would SKIP. Seed the " +
+        "two-tenant fixture (scripts/seed-tenant-isolation-fixture.ts) first.",
+    );
+    const missing = REQUIRED_RESOURCE_IDS.filter((k) => !Deno.env.get(k));
+    assert(
+      missing.length === 0,
+      `seeded resource ids missing, cross-tenant cases would SKIP: ${missing.join(", ")}`,
+    );
+  },
+});
+
 Deno.test({
   name: "B cannot read A's grading submission status",
   ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SUBMISSION_ID"),
@@ -658,5 +698,158 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST sync/performance with user JWT");
+  },
+});
+
+// ── US-350 additions: revise, category-check, reconcile commit, ──────────
+//                      disclosure upload, sync-runs ─────────────────────
+//
+// These five surfaces were not previously covered. Each writes to or reads
+// from a tenant-scoped table; B must never reach one of A's rows.
+
+// 503 = eBay isn't configured on the server, so the handler returns BEFORE the
+// ownership check ever runs (it never touched A's listing). A configured server
+// reaches loadListingOwned and 404s. Either is a pass — A's row is untouched.
+const DENIED_OR_UNCONFIGURED = new Set([401, 403, 404, 422, 503]);
+
+// revise (POST /listings/:id/revise) is scoped via loadListingOwned. B revising
+// A's listing must be refused — never a 200 that mutated A's eBay listing.
+Deno.test({
+  name: "B cannot revise A's eBay listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/${id}/revise`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ title: "pwned", listing_price: 1 }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_UNCONFIGURED.has(status),
+      `POST listings/:id/revise for another tenant should be denied ` +
+        `(401/403/404/422/503) but got ${status}`,
+    );
+  },
+});
+
+// category-check (GET /listings/:id/category-check) loads the listing joined to
+// its inventory_item and 404s when item.user_id != caller. B must not read A's
+// category context.
+Deno.test({
+  name: "B cannot category-check A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/listings/${id}/category-check`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_UNCONFIGURED.has(status),
+      `GET listings/:id/category-check for another tenant should be denied ` +
+        `(401/403/404/503) but got ${status}`,
+    );
+  },
+});
+
+// reconciliation commit — dismiss (POST /reconciliation/dismiss/:id) writes
+// `reconciled=true` onto a payout_imports row. The handler 404s when the
+// payout's user_id != caller, so B can't commit a dismissal on A's payout.
+Deno.test({
+  name: "B cannot commit a dismissal on A's payout import",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_PAYOUT_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_PAYOUT_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/reconciliation/dismiss/${id}`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST reconciliation/dismiss (A's payout)");
+  },
+});
+
+// reconciliation commit — conflict resolve (POST /reconciliation/conflicts/
+// resolve) writes the winning value onto A's listing + closes the conflict.
+// Conflicts load .eq(user_id), so B passing A's conflict id resolves NOTHING:
+// the response reports it as failed and `resolved` is 0.
+Deno.test({
+  name: "B cannot resolve A's cross-source conflict",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CONFLICT_ID"),
+  fn: async () => {
+    const conflictId = Deno.env.get("TEST_USER_A_CONFLICT_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/reconciliation/conflicts/resolve`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({
+          resolutions: [{ conflict_id: conflictId, source: "ebay" }],
+        }),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      resolved?: number;
+      failed?: Array<{ conflict_id: string }>;
+    };
+    assert(
+      body.resolved === 0,
+      `B resolved ${body.resolved} of A's conflicts — should be 0`,
+    );
+    const failedIds = (body.failed ?? []).map((f) => f.conflict_id);
+    assert(
+      failedIds.includes(conflictId),
+      `A's conflict ${conflictId} was not reported as unresolved for B`,
+    );
+  },
+});
+
+// disclosure upload (POST /disclosure/item/:itemId/annotated-photo) stores a
+// photo against an item via loadOwnedItem; ownership 404s before any upload, so
+// B can't attach disclosure imagery to A's item.
+Deno.test({
+  name: "B cannot upload a disclosure photo to A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    // 1x1 transparent PNG — ownership is checked before the body is even read,
+    // so this never actually gets stored.
+    const onePx =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const res = await fetch(
+      `${BASE}/api/flipdesk/disclosure/item/${itemId}/annotated-photo`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ data_url: onePx, image_type: "defect" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST disclosure annotated-photo (A's item)");
+  },
+});
+
+// sync-runs (GET /ebay/sync-runs) lists the caller's own sync runs (.eq
+// user_id). B's list must never surface A's sync-run id.
+Deno.test({
+  name: "B's sync-runs never include A's run id",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SYNC_RUN_ID"),
+  fn: async () => {
+    const aRunId = Deno.env.get("TEST_USER_A_SYNC_RUN_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/sync-runs`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      runs?: Array<{ id: string }>;
+    };
+    const ids = (body.runs ?? []).map((r) => r.id);
+    assert(
+      !ids.includes(aRunId),
+      `B's sync-runs leaked A's run ${aRunId}`,
+    );
   },
 });
