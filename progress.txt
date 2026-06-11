@@ -5895,3 +5895,12 @@ sandbox round-trip) — left false per the scaffold+document decision.
           monitor now raises a `model_changed` warn alert (evaluateAlerts +
           runGradingRegressionScan counting distinct composite models in the last
           50 grade_reports). Tests added.
+
+- US-489  Extend the certificate hash to all certified claims. COMPLETE. AC1 was
+          already met by the v2 canonical hash (US-770) — it covers overall +
+          5 factor scores + tier + ai_summary + certificate_id + buyer_writeup,
+          which IS the full set of buyer-facing certified claims (the public cert
+          columns); defects_found/detected_issues are not buyer-facing. AC2/AC3:
+          certificate.tsx now states PRECISELY what the seal covers (the grade
+          claims) and that it does NOT bind the photographs — distinguishing
+          claim-verification from image-binding so buyers aren't misled.

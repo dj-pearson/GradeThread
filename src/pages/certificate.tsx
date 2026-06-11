@@ -150,13 +150,20 @@ function IntegrityPanel({
       <div className="rounded-lg border border-green-600/30 bg-green-50 px-4 py-3 text-sm dark:bg-green-950/30">
         <div className="flex items-center gap-2 font-medium text-green-700 dark:text-green-400">
           <ShieldCheck className="h-5 w-5" />
-          Authentic — integrity verified
+          Authentic — grade claims verified
         </div>
         <p className="mt-1 text-xs text-green-800/80 dark:text-green-300/80">
-          The grade data on this certificate matches what GradeThread sealed at
-          finalization{result.signed ? " and carries a valid signature" : ""}.
-          {" "}
-          {result.algorithm}.
+          The certified grade claims — overall score, tier, the five factor
+          scores, the condition summary and buyer write-up — match what
+          GradeThread sealed at finalization
+          {result.signed ? " and carry a valid signature" : ""}. {result.algorithm}.
+        </p>
+        {/* US-489: be precise about scope — the seal binds the grade CLAIMS,
+            not the photo pixels, so a buyer isn't misled into thinking the
+            images are cryptographically bound. */}
+        <p className="mt-1 text-[11px] text-green-800/70 dark:text-green-300/70">
+          The seal covers the grade data above; it does not cryptographically
+          bind the photographs themselves.
         </p>
         {result.content_hash && (
           <p className="mt-1 break-all font-mono text-[10px] text-green-800/60 dark:text-green-300/60">

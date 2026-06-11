@@ -7540,8 +7540,8 @@
         "Verify result distinguishes scores-verified from full-certificate-verified if scope is intentionally narrow"
       ],
       "priority": 489,
-      "passes": false,
-      "notes": "[P3][Certificates] Audit 2026-06-03. canonicalizeCertificate hashes only scores+tier+id+ai_summary."
+      "passes": true,
+      "notes": "[P3][Certificates] Audit 2026-06-03. canonicalizeCertificate hashes only scores+tier+id+ai_summary. | DONE 2026-06-11. AC1 was already satisfied by the v2 canonical hash (US-770): canonicalizeCertificate v2 covers overall_score + all 5 factor scores + grade_tier + ai_summary + certificate_id + buyer_writeup — which is EXACTLY the set of buyer-facing certified claims the public cert displays (CERT_REPORT_COLUMNS); defects_found/detected_issues are NOT buyer-facing (not in the public columns). AC2/AC3: certificate.tsx verified verdict now PRECISELY scopes what's sealed ('overall score, tier, the five factor scores, the condition summary and buyer write-up') and explicitly states the seal does NOT cryptographically bind the photographs — so a buyer isn't misled and claim-verification is distinguished from image-binding. tsc/eslint clean."
     },
     {
       "id": "US-490",
