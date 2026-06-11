@@ -362,9 +362,24 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // the seller's buyer-facing description, US-760).
   const { data: submission } = await supabaseAdmin
     .from("submissions")
-    .select("title, brand, garment_type, garment_category, description")
+    .select(
+      "title, brand, garment_type, garment_category, description, flagged, moderation_status",
+    )
     .eq("id", rep.submission_id)
     .maybeSingle();
+
+  // US-484: WITHHOLD a suspect certificate. A grade whose submission was flagged
+  // for moderation (not-clothing / suspected image manipulation / cross-account
+  // photo reuse — set in grading-pipeline.ts) must NOT be publicly resolvable
+  // until a human clears it (admin approve sets flagged=false +
+  // moderation_status='approved', US-476). 404 exactly like a private report so
+  // a forged/altered grade can't be trusted via the public cert/SSR/OG path.
+  const sub = submission as
+    | { flagged?: boolean | null; moderation_status?: string | null }
+    | null;
+  if (sub?.flagged === true && sub.moderation_status !== "approved") {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   // A representative image (front, else lowest display_order) → signed URL so
   // the SSR/OG card can show it without exposing the private bucket wholesale.
@@ -416,7 +431,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
   const { data: report, error } = await supabaseAdmin
     .from("grade_reports")
     .select(
-      "certificate_id, overall_score, grade_tier, fabric_condition_score, " +
+      "certificate_id, submission_id, overall_score, grade_tier, fabric_condition_score, " +
         "structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, " +
         "buyer_writeup, content_hash, content_signature, integrity_version, created_at",
@@ -429,6 +444,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
 
   const r = report as unknown as {
     certificate_id: string;
+    submission_id: string;
     overall_score: number | string;
     grade_tier: string;
     fabric_condition_score: number | string;
@@ -443,6 +459,19 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     integrity_version: number | null;
     created_at: string;
   };
+
+  // US-484: withhold verification for a flagged (suspect) certificate until a
+  // human clears it — same gate as the cert endpoint, so a forged grade can't
+  // be "verified" as authentic via the public path.
+  const { data: vSub } = await supabaseAdmin
+    .from("submissions")
+    .select("flagged, moderation_status")
+    .eq("id", r.submission_id)
+    .maybeSingle();
+  const vs = vSub as { flagged?: boolean | null; moderation_status?: string | null } | null;
+  if (vs?.flagged === true && vs.moderation_status !== "approved") {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   const result = await verifyCertIntegrity(
     {

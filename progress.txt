@@ -5904,3 +5904,12 @@ sandbox round-trip) — left false per the scaffold+document decision.
           certificate.tsx now states PRECISELY what the seal covers (the grade
           claims) and that it does NOT bind the photographs — distinguishing
           claim-verification from image-binding so buyers aren't misled.
+
+- US-484  Atomic report+status+moderation; withhold suspect certificates.
+          PARTIAL (left false). AC2 DONE: content-public.ts /certificates/:id and
+          /:id/verify now 404 a certificate whose parent submission is flagged
+          for moderation and not yet approved — so a manipulation/moderation-
+          flagged grade is not publicly resolvable (or "verifiable") until an
+          admin clears it (US-476 approve). STILL OPEN: AC1 (one-transaction
+          finalize via RPC) is a high-risk change to the critical grading path,
+          deferred + unverifiable here; AC3 behavioral test needs a live DB.

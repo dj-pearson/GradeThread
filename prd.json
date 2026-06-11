@@ -7476,7 +7476,7 @@
       ],
       "priority": 484,
       "passes": false,
-      "notes": "[P2][Grading/Certificates] Audit 2026-06-03. report insert and status update are separate; flagged grades still get a live certificate_id."
+      "notes": "[P2][Grading/Certificates] Audit 2026-06-03. report insert and status update are separate; flagged grades still get a live certificate_id. | PARTIAL 2026-06-11. AC2 DONE: the public cert endpoints (/api/content/public/certificates/:id and /:id/verify) now WITHHOLD a suspect certificate — if the parent submission is flagged for moderation (not-clothing / suspected manipulation / cross-account photo reuse, set in grading-pipeline.ts) and not yet moderation_status='approved', both return 404 (same as a private report). An admin approve (US-476: flagged=false + approved) makes it resolvable again. So a manipulation/moderation-flagged grade is not publicly resolvable until cleared (incl. the cert SSR/OG path which fetches these endpoints). deno lint clean. STILL OPEN: AC1 (report insert + submission status + moderation flag in ONE transaction) — that's a risky refactor of the critical grading-finalization path into an RPC, deferred (can't be verified in this sandbox); AC3 behavioral test needs a live DB (CI/env-gated)."
     },
     {
       "id": "US-485",
