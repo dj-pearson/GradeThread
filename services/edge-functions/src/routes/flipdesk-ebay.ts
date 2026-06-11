@@ -957,7 +957,11 @@ async function doListingsPull(
                 categoryId: o.categoryId,
                 price: o.price,
               },
-              match_status: "unmatched",
+              // US-465 AC2: do NOT write match_status here. Omitting it means a
+              // brand-new orphan gets the column default ('unmatched') on INSERT,
+              // while an existing row's match_status (and matched_item_id, also
+              // omitted) is PRESERVED on conflict — so a manually-linked orphan
+              // is never resurrected as unmatched by a later re-sync.
               imported_at: new Date().toISOString(),
             },
             { onConflict: "user_id,ebay_item_id" }
@@ -1088,7 +1092,9 @@ async function doListingsPull(
                   watchCount: l.watchCount,
                   endTime: l.endTime,
                 },
-                match_status: "unmatched",
+                // US-465 AC2: omit match_status so a manual link survives re-sync
+                // (default 'unmatched' applies only to brand-new rows; existing
+                // match_status + matched_item_id are preserved on conflict).
                 imported_at: new Date().toISOString(),
               },
               { onConflict: "user_id,ebay_item_id" }

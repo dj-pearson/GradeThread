@@ -7233,8 +7233,8 @@
         "The UI exposes the link action"
       ],
       "priority": 465,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orphans are snapshotted but no link path exists; SKU-less listings are unlinkable."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orphans are snapshotted but no link path exists; SKU-less listings are unlinkable. | DONE 2026-06-11. AC2 (re-sync no longer resurrects a manual link): the two orphan-listing upserts in doListingsPull (REST + Trading-API legacy) NO LONGER write match_status — omitting it lets the column default ('unmatched') apply only to brand-new rows while PostgREST preserves an existing row's match_status + matched_item_id on conflict, so a manually-linked/ignored orphan survives every sync. AC1 (link creates/updates the listings row): linking an orphan to an EXISTING item (quickLink + LinkItemDialog) previously only flipped match_status; new shared upsertEbayListingRowForItem() in components/flipdesk/ebay-sku-match.tsx now also creates/updates the listings row mirroring the live eBay listing (platform_listing_id, listing_url, price, status active) — matching what the create-new-item path already did. AC3 (UI link action) already shipped (Create / Link / quick 'Link to this' buttons on the Reconciliation SKU-match surface). NOTE: frontend couldn't be compile-verified in this container (node_modules not installed, network blocked); all types hand-checked against src/types/database.ts (ListingRow columns, ListingPlatform includes 'ebay'). Run npm run verify:web before deploy."
     },
     {
       "id": "US-466",

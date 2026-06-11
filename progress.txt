@@ -5997,3 +5997,35 @@ libs + one Taxonomy cache table; no live-API or frontend changes required.
           not run here — Deno absent + network blocked. Pure logic validated by
           Node port; run `npm run verify:edge` + `supabase db reset` on a proper
           host before deploy.)
+
+================================================================================
+## 2026-06-11 — Link orphaned eBay listings to inventory (US-465)
+
+- US-465  Let users link orphaned eBay listings to inventory. COMPLETE.
+          AC2 (re-syncs don't resurrect a manual link): the two orphan-listing
+          upserts in doListingsPull (REST inventory pass + Trading-API legacy
+          pass) NO LONGER write match_status. Omitting it means the column
+          default ('unmatched') applies only to brand-NEW orphan rows, while
+          PostgREST preserves an EXISTING row's match_status + matched_item_id on
+          conflict — so a manually-linked or ignored orphan is never flipped back
+          to unmatched by a later sync. (matched_item_id was already omitted.)
+
+          AC1 (link creates/updates the listings row): linking an orphan to an
+          EXISTING FlipDesk item (quickLink + LinkItemDialog) previously only set
+          match_status + matched_item_id on the orphan, leaving the item with no
+          listings row for the live eBay listing. New shared
+          upsertEbayListingRowForItem() in components/flipdesk/ebay-sku-match.tsx
+          now also creates/updates the listings row (platform_listing_id,
+          listing_url, listing_price, listing_status active) — mirroring what the
+          create-new-item path (createItemFromListing) already did.
+
+          AC3 (UI exposes the link action): already shipped — Create / Link /
+          one-click "Link to this" / Ignore buttons on the Reconciliation
+          SKU-match surface.
+
+          NOTE: frontend couldn't be compile-verified here (node_modules absent,
+          network blocked). All types were hand-checked against
+          src/types/database.ts (ListingRow has every column used; ListingPlatform
+          includes 'ebay'). Run `npm run verify:web` before deploy. The edge AC2
+          change is pure omission of a field from an existing upsert — no schema
+          change, no migration.
