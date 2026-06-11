@@ -5870,3 +5870,12 @@ sandbox round-trip) — left false per the scaffold+document decision.
           "Publish N ready" bulk action from the cockpit via the reusable
           useBulkPublish hook (ready = not-needs_review + priced + categorized +
           unscheduled), eBay-gated, with per-row status.
+
+- US-554  Queue filtering/sorting + selective bulk-publish. COMPLETE. File:
+          src/pages/flipdesk/autolister-queue.tsx. Added a Filter (all/ready/
+          needs-review/failed) + Sort (confidence-tier/price/status) toolbar,
+          per-row multi-select checkboxes with select-all-in-view/clear and a
+          "Publish N selected" action, and chunked the title + review/price `.in()`
+          maps (200/page) so large batches don't overflow or fall back to raw
+          UUIDs. (has-blockers sort omitted — it needs a per-row validate call;
+          blockers stay lazy at publish.)

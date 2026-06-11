@@ -8375,8 +8375,8 @@
         "Title map for large batches is paginated (no raw UUID fallbacks at scale)"
       ],
       "priority": 554,
-      "passes": false,
-      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Flat list; publish-all is all-or-nothing-minus-blocked; selective select-to-publish only in the (non-publishing) bulk grid."
+      "passes": true,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Flat list; publish-all is all-or-nothing-minus-blocked; selective select-to-publish only in the (non-publishing) bulk grid. | DONE 2026-06-11. autolister-queue.tsx: added a Filter (all / ready / needs-review / failed) and Sort (confidence-tier / price high-low / status) toolbar; the list is filtered+sorted via visibleJobs. Multi-select via per-row checkboxes + 'Select all in view' / 'Clear', with a 'Publish N selected' action (openPublishDialog on the chosen rows). The title + review/price maps are now chunked (.in() in 200s) so large batches don't overflow the request and there's no raw-UUID fallback at scale. (The 'has-blockers' sort option is intentionally omitted — it would require running /listings/validate on every row; blockers are still computed lazily at publish.) tsc/eslint clean."
     },
     {
       "id": "US-555",
