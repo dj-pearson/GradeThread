@@ -35,6 +35,8 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { toast } from "sonner";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 
 interface FlaggedSubmission {
   submission: SubmissionRow;
@@ -82,6 +84,10 @@ function deriveFlagTypes(
 export function AdminModerationPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [banTarget, setBanTarget] = useState<FlaggedSubmission | null>(null);
+  // US-476: the ban endpoint requires a fresh MFA step-up; on a STEP_UP_REQUIRED
+  // response we open this dialog and retry the pending ban after re-verification.
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [pendingBan, setPendingBan] = useState<FlaggedSubmission | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["admin-moderation"],
@@ -155,14 +161,19 @@ export function AdminModerationPage() {
     staleTime: 30 * 1000,
   });
 
+  // US-476/477: moderation actions go through audited service-role edge routes
+  // (POST /api/admin/moderation/:id/{approve,reject,ban}) instead of direct
+  // browser-client writes — so authz isn't left to RLS and every action writes
+  // an admin_audit_log row attributed to the acting admin.
   async function handleApprove(entry: FlaggedSubmission) {
     setBusyId(entry.submission.id);
     try {
-      const { error } = await supabase
-        .from("submissions")
-        .update({ flagged: false, moderation_status: "approved" } as never)
-        .eq("id", entry.submission.id);
-      if (error) throw error;
+      const res = await edgeFetch(
+        `/api/admin/moderation/${entry.submission.id}/approve`,
+        { method: "POST", json: {} },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to approve submission.");
       toast.success("Submission approved — flag cleared.");
       await refetch();
     } catch (err) {
@@ -178,24 +189,17 @@ export function AdminModerationPage() {
   async function handleReject(entry: FlaggedSubmission) {
     setBusyId(entry.submission.id);
     try {
-      const { error } = await supabase
-        .from("submissions")
-        .update({
-          flagged: false,
-          moderation_status: "rejected",
-          status: "failed",
-        } as never)
-        .eq("id", entry.submission.id);
-      if (error) throw error;
-
-      if (entry.user) {
-        const refunded = Math.max(0, entry.user.grades_used_this_month - 1);
-        await supabase
-          .from("users")
-          .update({ grades_used_this_month: refunded } as never)
-          .eq("id", entry.user.id);
-      }
-      toast.success("Submission rejected and the grade credit refunded.");
+      const res = await edgeFetch(
+        `/api/admin/moderation/${entry.submission.id}/reject`,
+        { method: "POST", json: {} },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to reject submission.");
+      toast.success(
+        j.grade_credit_refunded
+          ? "Submission rejected and the grade credit refunded."
+          : "Submission rejected.",
+      );
       await refetch();
     } catch (err) {
       toast.error(
@@ -210,22 +214,18 @@ export function AdminModerationPage() {
     if (!entry.user) return;
     setBusyId(entry.submission.id);
     try {
-      const { error: banError } = await supabase
-        .from("users")
-        .update({ suspended: true } as never)
-        .eq("id", entry.user.id);
-      if (banError) throw banError;
-
-      // Banning over a submission also rejects that submission.
-      await supabase
-        .from("submissions")
-        .update({
-          flagged: false,
-          moderation_status: "rejected",
-          status: "failed",
-        } as never)
-        .eq("id", entry.submission.id);
-
+      const res = await edgeFetch(
+        `/api/admin/moderation/${entry.submission.id}/ban`,
+        { method: "POST", json: {}, silentGate: true },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 403 && j?.code === "STEP_UP_REQUIRED") {
+        // Re-verify MFA, then retry this ban.
+        setPendingBan(entry);
+        setStepUpOpen(true);
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "Failed to ban user.");
       toast.success("User suspended and submission rejected.");
       setBanTarget(null);
       await refetch();
@@ -470,6 +470,16 @@ export function AdminModerationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          const target = pendingBan;
+          setPendingBan(null);
+          if (target) void handleBan(target);
+        }}
+      />
     </div>
   );
 }

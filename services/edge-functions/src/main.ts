@@ -33,6 +33,7 @@ import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
+import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
@@ -423,6 +424,9 @@ app.route("/api/admin", adminBillingRoutes);
 app.route("/api/admin/feature-flags", adminFlagsRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
+// US-476/477 admin content moderation (approve/reject/ban) — audited
+// service-role routes (admin JWT + AAL2 via the /api/admin/* group).
+app.route("/api/admin/moderation", adminModerationRoutes);
 // US-326 public transparency report. Lives at /api/grading/public (NOT
 // /api/grade/*, which is JWT-gated) so the unauthenticated /transparency page
 // can read platform-wide aggregate accuracy stats. Returns no per-tenant data.

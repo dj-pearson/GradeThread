@@ -5791,3 +5791,26 @@ VERIFIED STILL OPEN (left false):
           (approve/reject/suspend/ban) writes NO audit row (client-side).
 - US-569  AI grading is still fire-and-forget (processSubmission un-awaited), not a
           durable claimed job — large infra story, deferred.
+
+================================================================================
+## 2026-06-11 — Admin moderation audit (US-476/477) + iOS verification (746/757)
+
+- US-476/477  Move admin moderation to audited service-role routes. COMPLETE.
+          New services/edge-functions/src/routes/admin-moderation.ts (mounted
+          /api/admin/moderation, admin JWT + AAL2): POST /:id/approve, /:id/reject
+          (+ grade-credit refund), /:id/ban (suspend owner + reject; fresh MFA
+          step-up + self-suspend guard). Each writes a writeAuditLog row
+          (admin.moderation_*) attributing the acting admin + before/after.
+          src/pages/admin/moderation.tsx now calls these via edgeFetch instead of
+          direct browser supabase writes; ban wires MfaStepUpDialog on
+          STEP_UP_REQUIRED. admin_audit_log is append-only (00003 SELECT+INSERT
+          RLS only). tsc/eslint/deno-lint clean.
+- US-746  iOS grade->publish bridge. VERIFIED already-done (gradeReady notif +
+          List-this-item CTA + context carried into PublishDialog). Flag flipped.
+- US-757  iOS accessibility pass. VERIFIED genuine repo-wide a11y pass. Flag flipped.
+
+iOS still open (verified partial): US-750 (Sales migrated but Expenses still on
+Remote* shims; shims not removed), US-753 (only StatusBadge exists; InfoCard +
+DataRow missing). App Store US-786/788 scaffolded+documented; remaining steps are
+inherently external operator actions (fill demo creds, register ASC webhook, run
+sandbox round-trip) — left false per the scaffold+document decision.
