@@ -1,6 +1,6 @@
 # GradeThread Progress Tracker
 # Ralph AI / Snarktank Format
-# Last updated: 2026-06-08
+# Last updated: 2026-06-11
 
 ## Completed Stories
 
@@ -5913,3 +5913,53 @@ sandbox round-trip) — left false per the scaffold+document decision.
           admin clears it (US-476 approve). STILL OPEN: AC1 (one-transaction
           finalize via RPC) is a high-risk change to the critical grading path,
           deferred + unverifiable here; AC3 behavioral test needs a live DB.
+
+================================================================================
+## 2026-06-11 — eBay listing/management hardening (US-473, US-566, US-803)
+
+Sourced from the eBay Sell/Taxonomy API capabilities (Inventory API image cap,
+get_item_condition_policies, 80-char title rule). Two new pure, unit-tested edge
+libs + one Taxonomy cache table; no live-API or frontend changes required.
+
+- US-803  Keyword-priority eBay title trim (no mid-word slice). COMPLETE.
+          NEW (carved out of US-546's shippable AC1). File: lib/title-trim.ts
+          (trimTitleToLimit / trimTitleWithReport / normalizeTitleWhitespace,
+          EBAY_TITLE_MAX=80) + tests/title-trim_test.ts. Replaces the blind
+          `raw.title.slice(0,80)` in ai-listing.ts. Trims on word boundaries
+          (never mid-word), strips dangling separators, hard-slices only a single
+          over-long token as a last resort, and preserves the highest-priority
+          leading keywords (brand → item type → modifiers). Logic validated
+          (14/14 assertions). US-546 stays open for its remaining ACs (eBay
+          search/autosuggest demand terms into the prompt; A/B title variants).
+
+- US-473  Validate publish images (cap + reachability). COMPLETE. File:
+          lib/publish-preflight.ts (dedupeAndCapImages, imageCapBlocker,
+          checkImageReachability, reachabilityBlocker) + tests/publish-
+          preflight_test.ts. toEbayImageUrls now delegates to the shared
+          de-dup/cap helper. assemblePublishContext de-dups + caps to eBay's real
+          24-image limit (the 12-cap was Trading-API-era) and pushes a fixable
+          blocker when a set EXCEEDS the cap — lowest-priority shots are never
+          silently dropped. publishItemForOwner HEAD-probes the image URLs
+          pre-publish (headProbe + fetchWithTimeout, 5s) and converts a definitive
+          404/410/403 into a 422 blocker; transient errors/timeouts are treated as
+          reachable so a flaky CDN never blocks a legit publish. Image-count/URL
+          issues now surface as blockers, not raw 502s (AC3).
+
+- US-566  Harden publish pre-flight (condition + image cap). COMPLETE. New
+          Taxonomy helper getItemConditionPolicies (ebay-client.ts) calls
+          get_item_condition_policies and read-through caches the per-category
+          conditionId allow-list in ebay_category_condition_policies (migration
+          00129, same shared-cache/RLS model as ebay_category_aspects).
+          assemblePublishContext validates the resolved condition against that
+          allow-list via validateConditionForCategory (CONDITION_ENUM_TO_ID maps
+          the Inventory-API enum → numeric conditionId); a disallowed condition
+          becomes a fixable blocker naming what the category DOES accept.
+          Unrestricted/unknown categories and any policy-fetch failure never block
+          (best-effort). Image-cap pre-flight shared with US-473. Both surface as
+          fixable blockers instead of raw eBay 25002/25019/25601.
+
+  NOTE: edge `deno test` / `deno check` could not be run in this container (Deno
+  not installed; outbound network blocked → can't fetch std/remote imports). The
+  two new libs are PURE and were validated by porting the logic to Node
+  (title-trim 14/14, preflight 15/15). Run `npm run verify:edge` on a Deno host
+  before deploy.

@@ -7335,8 +7335,8 @@
         "Image-count/URL issues appear as blockers, not raw 502s"
       ],
       "priority": 473,
-      "passes": false,
-      "notes": "[P3][FlipDesk] Audit 2026-06-03. Publish sends item-photos public URLs with no count/reachability validation."
+      "passes": true,
+      "notes": "[P3][FlipDesk] Audit 2026-06-03. Publish sends item-photos public URLs with no count/reachability validation. | DONE 2026-06-11: new lib/publish-preflight.ts (dedupeAndCapImages + imageCapBlocker + checkImageReachability/reachabilityBlocker, unit-tested in tests/publish-preflight_test.ts). assemblePublishContext now de-dups + caps to eBay's real 24-image limit (the 12-cap was Trading-API-era) and pushes a fixable blocker when the set exceeds the cap (lowest-priority shots, never silently dropped). publishItemForOwner HEAD-probes image URLs pre-publish (headProbe + fetchWithTimeout) and turns a definitive 404/410/403 into a 422 blocker; transient errors are treated as reachable so a flaky CDN never blocks a real publish. Image-count/URL issues now surface as blockers, not raw 502s (AC3)."
     },
     {
       "id": "US-474",
@@ -8272,7 +8272,7 @@
       ],
       "priority": 546,
       "passes": false,
-      "notes": "[P2][AutoLister/AI/SEO] Deep-dive 2026-06-03. Title is hard .slice(0,80); no search-demand input."
+      "notes": "[P2][AutoLister/AI/SEO] Deep-dive 2026-06-03. Title is hard .slice(0,80); no search-demand input. | AC1 DONE 2026-06-11 (split to US-803): keyword-priority title trim shipped in lib/title-trim.ts (trimTitleToLimit/trimTitleWithReport) and wired into ai-listing.ts (replaced the blind .slice(0,80)) — word-boundary trim, never mid-word, no dangling separator, leading keywords preserved. STILL OPEN: AC2 (feed eBay search/autosuggest demand terms into the title/description prompt) and AC3 (A/B title variants tracked to sell-through)."
     },
     {
       "id": "US-547",
@@ -8529,8 +8529,8 @@
         "Both surface as fixable blockers, not raw errors"
       ],
       "priority": 566,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Condition mapping is lossy and not category-validated; image cap not pre-checked."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Condition mapping is lossy and not category-validated; image cap not pre-checked. | DONE 2026-06-11: assemblePublishContext validates the resolved condition against the leaf category's allowed conditionIds via the new Taxonomy helper getItemConditionPolicies (get_item_condition_policies, read-through cached in ebay_category_condition_policies, migration 00129). validateConditionForCategory (lib/publish-preflight.ts, CONDITION_ENUM_TO_ID enum->id map) returns a fixable blocker naming the conditions the category DOES accept; unrestricted/unknown categories and policy-fetch failures never block (best-effort). eBay's 24-image cap is enforced as a pre-flight blocker with de-dup/ordering (shared with US-473). Both surface as fixable blockers instead of raw eBay 25002/25019/25601."
     },
     {
       "id": "US-567",
@@ -11804,6 +11804,21 @@
       "priority": 802,
       "passes": true,
       "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Growth] Qualification automation (auto-promote pending→qualified) is deliberately out of scope — keep admin-manual for launch. DONE 2026-06-10: admin-growth referral grant now notifies BOTH parties — in-app (notifyUser type 'billing' → /dashboard/billing) + email (sendReferralRewardEmail, category referral_reward → durable retry per US-801) — best-effort so a notify failure can't 500 the grant; double-grant stays idempotent (existing 409 on reward_status='granted'). referrals.ts /redeem now rejects suspended (403) and non-existent (404) accounts before creating attribution. Referrals page copy updated to say credits are added automatically + you're notified. Verified: deno check + lint clean, 522 edge tests pass; reward email categorization covered by email-category_test. NOTE: handler-level behavior (suspended-redeem reject, dual-notify, idempotency) is the domain of the env-gated integration suite — not unit-tested here to avoid a fragile supabaseAdmin mock. Qualification automation (auto pending→qualified) remains deliberately admin-manual for launch."
+    },
+    {
+      "id": "US-803",
+      "title": "Keyword-priority eBay title trim (no mid-word slice)",
+      "description": "As a reseller, generated/edited listing titles must fit eBay's 80-char limit by dropping whole lowest-priority (trailing) keywords on a word boundary — never slicing a word in half or leaving a dangling separator — so titles read well and the high-value leading keywords (brand -> item type -> modifiers) always survive. Carved out of US-546 as the concretely shippable piece (US-546's demand-SEO + A/B-variant ACs remain open).",
+      "acceptanceCriteria": [
+        "Pure lib/title-trim.ts trims to a configurable limit (default 80) on word boundaries, never mid-word, and strips any trailing separator",
+        "A single token longer than the limit is hard-sliced as a last resort (never returns empty)",
+        "trimTitleWithReport surfaces the dropped trailing words so callers can warn or reuse them in the description",
+        "Wired into ai-listing.ts, replacing the blind .slice(0,80); EBAY_TITLE_MAX = 80",
+        "Unit tests cover whitespace normalization, boundary trim, dangling-separator strip, leading-keyword preservation, hard-slice, and the dropped-words report"
+      ],
+      "priority": 803,
+      "passes": true,
+      "notes": "DONE 2026-06-11. lib/title-trim.ts + tests/title-trim_test.ts (14 assertions, validated). Wired in ai-listing.ts. eBay title best-practice puts highest-value keywords first, so dropping trailing words keeps the terms that rank."
     }
   ]
 }

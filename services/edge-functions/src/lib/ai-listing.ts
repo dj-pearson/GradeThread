@@ -42,6 +42,7 @@ import {
   type MarketplacePlatform,
 } from "./marketplace-specs.ts";
 import { resolveSeededCategory } from "./marketplace-category.ts";
+import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 
 // Bump when the prompt or tool schema changes in a way that should be tracked
 // for accuracy/eval attribution. Mirrors PER_IMAGE_PROMPT_VERSION etc.
@@ -343,7 +344,11 @@ export async function generateListingFields(
   }
   const raw = toolUse.input as Record<string, unknown>;
 
-  const title = typeof raw.title === "string" ? raw.title.trim().slice(0, 80) : "";
+  // US-546: keyword-priority trim (never mid-word) instead of a blind slice(0,80).
+  // Leading keywords (brand → item type → modifiers) are the highest-priority,
+  // so dropping whole trailing words keeps the terms that actually rank.
+  const title =
+    typeof raw.title === "string" ? trimTitleToLimit(raw.title, EBAY_TITLE_MAX) : "";
   const description =
     typeof raw.description === "string" ? raw.description.trim() : "";
   if (!title || !description) {
