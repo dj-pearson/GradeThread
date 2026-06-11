@@ -5748,3 +5748,26 @@ fully-satisfied ones true. NO code changes — pure reconciliation.
   - US-553 profit calc: done in the composer (estimateListingProfit live), but the
     bulk grid lacks a margin column and the advanced price rules (median comp -X%,
     floor at X% margin, match recommended) — only markup%/round-.99 exist.
+
+================================================================================
+## 2026-06-11 — Marketplace registry reconciliation (US-719/720/723)
+
+Verified already-implemented (subagent AC-by-AC audit), flags flipped, no code
+changes:
+- US-719  marketplace-specs.ts MARKETPLACE_SPECS single registry (fields, char
+          limits, photo caps, condition values, taxonomy flag) consumed by
+          validation/kit/photo-export/AI-gen across all 6 connectors.
+- US-720  gradeToConditionBucket + CONDITION_BY_BUCKET + mapCondition map the
+          1.0-10.0 grade to each platform's condition enum, used at publish-prep.
+- US-723  ListingKit per-platform copyable fields + live char counts, mounted in
+          the composer.
+
+STILL OPEN (verified partial — left false):
+- US-722  per-platform category mapping: deterministic seeded map exists, but AC2
+          (AI-assisted suggestion for the no-API platforms) + AC3 (cache for that
+          map) are not built.
+- US-725  cross-list pre-flight: validateListingForPlatform exists w/ actionable
+          messages, but it does NOT block copy on errors (kit only displays them)
+          and is NOT wired into the API publish path. (AC4 wiring carries
+          publish-path risk + is partly redundant with eBay's own pre-flight —
+          deferred rather than half-done.)

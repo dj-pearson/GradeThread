@@ -10601,8 +10601,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 719,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Registry SHIPPED: src/lib/marketplace-specs.ts (+ byte-identical edge mirror, guarded by src/lib/__tests__/marketplace-specs.test.ts) declares MARKETPLACE_SPECS for ebay/poshmark/mercari/depop/grailed/shopify — fields, title/desc char limits, condition enums, photo caps, tag rules, taxonomy + brand-allow-list flags, each with a VERIFY sourceNote. getMarketplaceSpec/manualKitPlatforms/charStatus helpers + 73 passing tests. REMAINING: consumption by US-721/723/724/725 (this is the single source they read). Source: Cross_Listing.md."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Registry SHIPPED: src/lib/marketplace-specs.ts (+ byte-identical edge mirror, guarded by src/lib/__tests__/marketplace-specs.test.ts) declares MARKETPLACE_SPECS for ebay/poshmark/mercari/depop/grailed/shopify — fields, title/desc char limits, condition enums, photo caps, tag rules, taxonomy + brand-allow-list flags, each with a VERIFY sourceNote. getMarketplaceSpec/manualKitPlatforms/charStatus helpers + 73 passing tests. REMAINING: consumption by US-721/723/724/725 (this is the single source they read). Source: Cross_Listing.md. | VERIFIED DONE 2026-06-11. Single registry MARKETPLACE_SPECS (services/edge-functions/src/lib/marketplace-specs.ts, mirrored src/lib/marketplace-specs.ts) defines required/optional fields, title/desc char limits, photo caps, condition values, usesOwnTaxonomy + brandAllowList per marketplace; consumed (not duplicated) by validateListingForPlatform, the Listing Kit UI, photo-export, and AI generation/platform-variants. Covers all 6 connectors (ebay/poshmark/mercari/depop/grailed/shopify)."
     },
     {
       "id": "US-720",
@@ -10615,8 +10615,8 @@
         "The grading auto-disclosure (existing in ai-listing.ts) is carried into each platform's condition note, not just eBay's"
       ],
       "priority": 720,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Mapper SHIPPED in src/lib/marketplace-specs.ts: gradeToConditionBucket(grade,label) + mapCondition(platform,grade,label) covering ebay/poshmark/mercari/depop/grailed (shopify→null, no condition field). eBay path is a provable no-op vs the legacy mapEbayCondition (property test over the grade×label matrix). REMAINING: adopt mapCondition() inside flipdesk-ebay.ts (replace the inline mapper) and carry the grading auto-disclosure into each platform's condition note (lands with US-721). Depends on [[US-719]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Mapper SHIPPED in src/lib/marketplace-specs.ts: gradeToConditionBucket(grade,label) + mapCondition(platform,grade,label) covering ebay/poshmark/mercari/depop/grailed (shopify→null, no condition field). eBay path is a provable no-op vs the legacy mapEbayCondition (property test over the grade×label matrix). REMAINING: adopt mapCondition() inside flipdesk-ebay.ts (replace the inline mapper) and carry the grading auto-disclosure into each platform's condition note (lands with US-721). Depends on [[US-719]]. | VERIFIED DONE 2026-06-11. gradeToConditionBucket maps the 1.0-10.0 grade/tier to a normalized bucket; CONDITION_BY_BUCKET + mapCondition map each bucket to the platform condition enum (eBay NEW/LIKE_NEW/USED_*, Poshmark NWT/EUC/.., Mercari, Depop, Grailed; Shopify->null by design). Used at variant assembly/publish-prep in platform-variants.ts assemblePlatformVariant. Covers every connector with a condition concept."
     },
     {
       "id": "US-721",
@@ -10658,8 +10658,8 @@
         "A photos block links to the per-platform photo export (US-724); the panel shows the US-725 pre-flight checklist so the user can't copy an over-limit/missing-required field unaware"
       ],
       "priority": 723,
-      "passes": false,
-      "notes": "[P1][FlipDesk/UX] PARTIAL 2026-06-08. SHIPPED: src/components/flipdesk/listing-kit.tsx mounted in the composer (src/pages/flipdesk/composer.tsx). Per-platform tabs (Poshmark/Mercari/Depop/Grailed) render every registry field with a one-tap Copy button, live char-count vs each platform's limit (red over), 'Copy all fields', per-platform validation banner (US-725 errors/warnings), and an 'Open <platform>' link. 'Generate for all marketplaces' calls the US-721 endpoint (useGeneratePlatformFields in use-autolister.ts) and seeds from persisted listings.platform_fields. Title/description are inline-editable for copy. Frontend build + eslint clean. REMAINING: persist inline edits back to the DB (currently local-only); 'Send to extension' is a disabled stub pending US-716; the photo block shows count/cap but the download lands in US-724; category is the passthrough query pending US-722. Depends on [[US-721]]; pairs with [[US-716]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/UX] PARTIAL 2026-06-08. SHIPPED: src/components/flipdesk/listing-kit.tsx mounted in the composer (src/pages/flipdesk/composer.tsx). Per-platform tabs (Poshmark/Mercari/Depop/Grailed) render every registry field with a one-tap Copy button, live char-count vs each platform's limit (red over), 'Copy all fields', per-platform validation banner (US-725 errors/warnings), and an 'Open <platform>' link. 'Generate for all marketplaces' calls the US-721 endpoint (useGeneratePlatformFields in use-autolister.ts) and seeds from persisted listings.platform_fields. Title/description are inline-editable for copy. Frontend build + eslint clean. REMAINING: persist inline edits back to the DB (currently local-only); 'Send to extension' is a disabled stub pending US-716; the photo block shows count/cap but the download lands in US-724; category is the passthrough query pending US-722. Depends on [[US-721]]; pairs with [[US-716]]. | VERIFIED DONE 2026-06-11. ListingKit (src/components/flipdesk/listing-kit.tsx) renders per-platform tabs (Poshmark/Mercari/Depop/Grailed), each registry field as a labeled block with a per-field Copy button + live char-count vs the registry limit (turns red over cap) + 'Copy all'; mounted in the composer. The 3 ACs (per-field copyable kit / per-field char counts / reachable from UI) are met. (Known sub-gap outside the ACs: inline edits are local-only, tracked separately.)"
     },
     {
       "id": "US-724",
