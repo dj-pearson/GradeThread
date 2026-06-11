@@ -8193,8 +8193,8 @@
         "Borderline images warn rather than silently pass"
       ],
       "priority": 540,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. AutoLister only calls compressImage; validateImage() exists but is unused here."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. AutoLister only calls compressImage; validateImage() exists but is unused here. | DONE 2026-06-11. autolister.tsx handleFiles now calls validateImage() (min 1200px + JPEG/PNG/WebP allowlist) AFTER the HEIC->JPEG transcode and BEFORE upload/AI-generation; type/resolution/decode failures are skipped with a clear per-file reason toast (size is left to the existing compressor). Borderline images (min edge 1200-1500px) pass but raise a soft 'low-resolution' warning. tsc/eslint clean."
     },
     {
       "id": "US-541",

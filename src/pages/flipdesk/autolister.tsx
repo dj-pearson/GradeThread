@@ -30,7 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { compressImage } from "@/lib/image-utils";
+import { compressImage, validateImage } from "@/lib/image-utils";
 import { readCaptureTime } from "@/lib/exif";
 import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
@@ -294,6 +294,9 @@ export function FlipdeskAutolisterPage() {
     setUploading((n) => n + list.length);
     const added: StagedPhoto[] = [];
     let heicFailed = 0;
+    // US-540: per-file gate on quality/resolution + a soft borderline warning.
+    const rejected: string[] = [];
+    const borderline: string[] = [];
     for (const file of list) {
       try {
         // US-532: capture EXIF time from the ORIGINAL file (incl. HEIC) before
@@ -311,6 +314,26 @@ export function FlipdeskAutolisterPage() {
           continue;
         }
         if (!workFile.type.startsWith("image/")) continue;
+
+        // US-540: gate on type + minimum resolution (1200px) BEFORE we spend an
+        // upload + AI generation on an image too small/wrong-type to list well.
+        // Size is NOT gated here (the compressor below downsizes large files);
+        // we only act on the type/resolution/decode failures from validateImage,
+        // each with a clear per-file reason. Borderline (just above the floor)
+        // images warn but still pass.
+        const validation = await validateImage(workFile);
+        const blockingErr = validation.errors.find(
+          (e) => e.field === "type" || e.field === "resolution" || e.field === "file",
+        );
+        if (blockingErr) {
+          rejected.push(`"${file.name}": ${blockingErr.message}`);
+          continue;
+        }
+        if (validation.width && validation.height) {
+          const minDim = Math.min(validation.width, validation.height);
+          if (minDim < 1500) borderline.push(file.name);
+        }
+
         const id = crypto.randomUUID();
         let body: Blob = workFile;
         let bodyType = workFile.type || "image/webp";
@@ -397,6 +420,26 @@ export function FlipdeskAutolisterPage() {
         {
           description:
             "Re-export them as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
+          duration: 8_000,
+        },
+      );
+    }
+    // US-540: clear per-file reasons for anything rejected on quality.
+    if (rejected.length > 0) {
+      toast.error(
+        `${rejected.length} photo${rejected.length === 1 ? "" : "s"} skipped — too low quality.`,
+        {
+          description: rejected.slice(0, 4).join(" "),
+          duration: 10_000,
+        },
+      );
+    }
+    if (borderline.length > 0) {
+      toast.warning(
+        `${borderline.length} photo${borderline.length === 1 ? "" : "s"} are low-resolution.`,
+        {
+          description:
+            "They'll list, but a sharper, larger shot (1500px+) reads better and sells faster.",
           duration: 8_000,
         },
       );

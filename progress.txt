@@ -5844,3 +5844,10 @@ sandbox round-trip) — left false per the scaffold+document decision.
           "Publish N green" button publishes ONLY the high-confidence drafts via
           the existing pre-flight publish flow (hard eBay blockers still gate at
           publish), leaving amber/red queued for review.
+
+- US-540  Gate AutoLister photos on minimum quality/resolution. COMPLETE. File:
+          src/pages/flipdesk/autolister.tsx. handleFiles now runs validateImage()
+          (min 1200px + JPEG/PNG/WebP allowlist) after the HEIC transcode, before
+          upload — type/resolution/decode failures are skipped with a clear
+          per-file reason toast; borderline (1200-1500px min edge) images pass but
+          raise a soft low-resolution warning. Size stays handled by the compressor.
