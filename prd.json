@@ -7398,8 +7398,8 @@
         "Test: a non-super_admin adjustment >1.5 is rejected by the server"
       ],
       "priority": 478,
-      "passes": false,
-      "notes": "[P1][Admin] Audit 2026-06-03. The 1.5-pt gate is client-side (button disabled) only."
+      "passes": true,
+      "notes": "[P1][Admin] Audit 2026-06-03. The 1.5-pt gate is client-side (button disabled) only. | DONE 2026-06-11. New pure lib/grade-adjust-rules.ts requiresSuperAdmin(original, adjusted) (>1.5-pt swing, FP-safe) + test grade-adjust-rules_test.ts. admin-grading POST /review/:id/adjust now enforces it SERVER-SIDE: a >1.5-point correction by a non-super_admin returns 403 SUPER_ADMIN_REQUIRED before any write. The rule can't be bypassed by a direct call (grade_reports writes only go through this service-role route; client RLS blocks direct writes). deno lint clean; logic verified via vite-node."
     },
     {
       "id": "US-479",
@@ -7449,8 +7449,8 @@
         "The accuracy monitor alerts on model changes"
       ],
       "priority": 482,
-      "passes": false,
-      "notes": "[P2][Grading] Audit 2026-06-03. GRADING_COMPOSITE_MODEL silently falls back to default."
+      "passes": true,
+      "notes": "[P2][Grading] Audit 2026-06-03. GRADING_COMPOSITE_MODEL silently falls back to default. | DONE 2026-06-11. ai-config.ts adds GRADING_MODEL_ALLOWLIST + isAllowedGradingModel; getGradingCompositeModel() now REJECTS an off-allowlist GRADING_COMPOSITE_MODEL override (warn + fall back to the default) instead of silently using an unvetted model. The accuracy monitor alerts on model changes: grading-monitor evaluateAlerts gains a model_changed warn alert, and runGradingRegressionScan derives it by counting distinct composite models (model_version prefix) in the last 50 grade_reports (>1 = changed). Tests added to grading-monitor_test.ts. deno lint clean."
     },
     {
       "id": "US-483",

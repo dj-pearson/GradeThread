@@ -5879,3 +5879,19 @@ sandbox round-trip) — left false per the scaffold+document decision.
           maps (200/page) so large batches don't overflow or fall back to raw
           UUIDs. (has-blockers sort omitted — it needs a per-row validate call;
           blockers stay lazy at publish.)
+
+================================================================================
+## 2026-06-11 — Grading integrity (US-478, US-482)
+
+- US-478  Enforce the >1.5-point super_admin grade rule server-side. COMPLETE.
+          New pure lib/grade-adjust-rules.ts requiresSuperAdmin() (+test).
+          admin-grading /review/:id/adjust returns 403 SUPER_ADMIN_REQUIRED when a
+          non-super_admin tries a >1.5-pt correction — before any write, so the
+          client-only gate can no longer be bypassed by a direct API call.
+- US-482  Validate the grading composite model against an allowlist. COMPLETE.
+          ai-config GRADING_MODEL_ALLOWLIST + isAllowedGradingModel; an
+          off-allowlist GRADING_COMPOSITE_MODEL override is refused (warn +
+          fall back to default) instead of silently grading traffic. The grading
+          monitor now raises a `model_changed` warn alert (evaluateAlerts +
+          runGradingRegressionScan counting distinct composite models in the last
+          50 grade_reports). Tests added.

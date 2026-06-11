@@ -99,6 +99,10 @@ export interface AlertInputs {
   eval_passed: boolean | null; // null = eval not run this cycle
   eval_regression: boolean;
   production: MonitorProductionMetrics;
+  // US-482: true when more than one distinct grading model appears in the recent
+  // production window (i.e. the active model changed) — graders must alert on
+  // this since a model swap can silently shift accuracy/reproducibility.
+  model_changed?: boolean;
 }
 
 /**
@@ -111,6 +115,19 @@ export function evaluateAlerts(
 ): MonitorAlert[] {
   const alerts: MonitorAlert[] = [];
   const p = inputs.production;
+
+  // US-482: the active grading model changed within the recent window.
+  if (inputs.model_changed) {
+    alerts.push({
+      code: "model_changed",
+      severity: "warn",
+      metric: "grading_model",
+      value: 1,
+      threshold: 0,
+      message:
+        "The active grading model changed (more than one model in the recent grade window). Confirm the new model is allowlisted and clears the eval gate.",
+    });
+  }
 
   if (inputs.eval_passed === false) {
     alerts.push({
@@ -311,11 +328,33 @@ export async function runGradingRegressionScan(
     dispute_rate: outcomes.overall_dispute_rate,
   };
 
+  // US-482: detect a grading-model change from the recent grade window. The
+  // composite model is recorded as the part before "|" in model_version
+  // (grading-pipeline.ts). More than one distinct value = the model changed.
+  let modelChanged = false;
+  try {
+    const { data: recentReports } = await supabaseAdmin
+      .from("grade_reports")
+      .select("model_version")
+      .not("model_version", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const models = new Set(
+      ((recentReports ?? []) as Array<{ model_version: string | null }>)
+        .map((r) => (r.model_version ?? "").split("|")[0]?.trim())
+        .filter((m): m is string => !!m),
+    );
+    modelChanged = models.size > 1;
+  } catch (err) {
+    console.error("[grading-monitor] model-change check failed:", err);
+  }
+
   const alerts = evaluateAlerts(
     {
       eval_passed: evalResult.ran ? evalResult.passed ?? null : null,
       eval_regression: evalResult.regression_vs_baseline,
       production,
+      model_changed: modelChanged,
     },
     t,
   );

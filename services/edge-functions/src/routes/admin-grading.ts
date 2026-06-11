@@ -14,6 +14,7 @@ import { type ShadowRow, summarizeComparisons } from "../lib/grading-shadow.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
 import { requireStepUp } from "../lib/step-up.ts";
+import { requiresSuperAdmin } from "../lib/grade-adjust-rules.ts";
 import {
   clampScore,
   computeWeightedOverall,
@@ -1130,6 +1131,23 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
 
   const overall = computeWeightedOverall(factors);
   const tier = scoreToGradeTier(overall);
+
+  // US-478: enforce the >1.5-point rule SERVER-SIDE (the client only disables
+  // the button). A large correction requires a super_admin and cannot be
+  // bypassed by a direct API call.
+  if (
+    requiresSuperAdmin(report.overall_score, overall) &&
+    c.get("adminRole") !== "super_admin"
+  ) {
+    return c.json(
+      {
+        error:
+          "A grade change greater than 1.5 points requires super-admin approval.",
+        code: "SUPER_ADMIN_REQUIRED",
+      },
+      403,
+    );
+  }
 
   const { error: revErr } = await supabaseAdmin.from("human_reviews").insert({
     grade_report_id: report.id,

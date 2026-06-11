@@ -43,6 +43,24 @@ Deno.test("healthy metrics raise no alerts", () => {
   assertEquals(worstSeverity(alerts), "ok");
 });
 
+// US-482: a grading-model change in the recent window raises a warn alert.
+Deno.test("model_changed raises a warn alert", () => {
+  const alerts = evaluateAlerts(
+    { eval_passed: true, eval_regression: false, production: HEALTHY, model_changed: true },
+    THRESHOLDS,
+  );
+  assertEquals(alerts.map((a) => a.code), ["model_changed"]);
+  assertEquals(worstSeverity(alerts), "warn");
+});
+
+Deno.test("no model_changed alert when the model is stable", () => {
+  const alerts = evaluateAlerts(
+    { eval_passed: true, eval_regression: false, production: HEALTHY, model_changed: false },
+    THRESHOLDS,
+  );
+  assertEquals(alerts, []);
+});
+
 Deno.test("low agreement above min_sample is a critical alert", () => {
   const alerts = evaluateAlerts(
     {
