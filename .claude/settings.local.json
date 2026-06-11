@@ -147,7 +147,8 @@
       "Bash(xargs grep -l \"onOpenURL\\\\|deepLink\")",
       "Bash(grep -E \"\\\\.swift$\")",
       "Bash(xargs grep -l \"paywall\\\\|upgrade.*prompt\\\\|free.*trial\\\\|SignInWithApple\")",
-      "Bash(xargs grep -l \"plan.*limit\\\\|grade.*cap\\\\|free.*tier\")"
+      "Bash(xargs grep -l \"plan.*limit\\\\|grade.*cap\\\\|free.*tier\")",
+      "PowerShell(curl.exe -s https://api.gradethread.com/auth/v1/settings)"
     ]
   },
   "hooks": {

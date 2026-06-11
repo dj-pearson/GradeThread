@@ -433,7 +433,8 @@ Files: `ios/fastlane/metadata/review_information/`.
    `SENTRY_PROJECT` (the upload step skips cleanly if the token is absent).
 
 ### Review notes
-`notes.txt` has been updated (see file) — the previous version told Apple that
+`ios/fastlane/metadata/review_information/notes.txt` has been updated (see file) —
+the previous version told Apple that
 subscriptions are NOT sold in-app, which is now false (StoreKit IAP shipped).
 Key points the notes must convey: demo account is pre-populated; eBay connection
 is sandbox-only (no live marketplace effects); AI suggestions are review-before-save;
