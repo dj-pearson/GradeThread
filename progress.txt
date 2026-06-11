@@ -5835,3 +5835,12 @@ sandbox round-trip) — left false per the scaffold+document decision.
           design choices (same-process sync; client-side image processing) with
           explanatory bodies. Fixed the stale "Still-stubbed (Week 2-3)" header in
           flipdesk-ebay.ts and documented the classification inline.
+
+- US-550  Confidence-based triage view with accept-all-green. COMPLETE. File:
+          src/pages/flipdesk/autolister-queue.tsx. Classifies each draft into a
+          green/amber/red tier from the persisted per-field confidence (US-541
+          needs_review) + photo-QA score (US-537): summary line + per-row tier
+          dots + the queue is sorted in-progress->green->amber->red. New
+          "Publish N green" button publishes ONLY the high-confidence drafts via
+          the existing pre-flight publish flow (hard eBay blockers still gate at
+          publish), leaving amber/red queued for review.

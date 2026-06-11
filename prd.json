@@ -8323,8 +8323,8 @@
         "Built on the persisted per-field confidence (US-541)"
       ],
       "priority": 550,
-      "passes": false,
-      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. Depends on US-541 confidence persistence."
+      "passes": true,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. Depends on US-541 confidence persistence. | DONE 2026-06-11. autolister-queue.tsx now classifies each generated draft into a confidence TIER (green = high-confidence: not needs_review (US-541) and photo-QA>=80 (US-537); amber = needs_review or low QA; red = failed) — shown as a green/amber/red summary line, per-row tier dots, and the list is SORTED in-progress->green->amber->red. A 'Publish N green' button runs the existing /listings/validate pre-flight publish on ONLY the green drafts (hard eBay blockers still caught at publish), leaving amber/red for review. tsc/eslint clean."
     },
     {
       "id": "US-551",

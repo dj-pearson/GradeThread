@@ -221,12 +221,47 @@ export function FlipdeskAutolisterQueuePage() {
     (j) => j.status === "pending" || j.status === "running",
   ).length;
 
+  // US-550: confidence-based triage. Classify each draft green/amber/red from
+  // the per-field AI confidence (US-541 needs_review) + the photo-QA score
+  // (US-537), so a seller can accept the high-confidence ones in one click and
+  // focus review on the rest. (Hard eBay blockers are still caught by the
+  // /listings/validate pre-flight at publish time, so "green" = AI-confident.)
+  type Tier = "green" | "amber" | "red";
+  function tierOf(job: AutolisterJob): Tier {
+    if (job.status === "failed") return "red";
+    const review = job.listing_id ? reviewByListing[job.listing_id] : undefined;
+    const qa = itemMeta[job.inventory_item_id]?.qaScore ?? null;
+    const lowQa = qa != null && qa < 80;
+    if (review?.needsReview || lowQa) return "amber";
+    return "green";
+  }
+  const greenJobs = succeededJobs.filter((j) => tierOf(j) === "green");
+  const amberCount = succeededJobs.length - greenJobs.length;
+  const redCount = jobs.filter((j) => j.status === "failed").length;
+  // Sort for triage: in-progress first (still working), then green, amber, red.
+  const TIER_RANK: Record<string, number> = {
+    running: 0,
+    pending: 0,
+    green: 1,
+    amber: 2,
+    red: 3,
+  };
+  const sortedJobs = [...jobs].sort((a, b) => {
+    const ra = a.status === "pending" || a.status === "running"
+      ? 0
+      : TIER_RANK[tierOf(a)] ?? 9;
+    const rb = b.status === "pending" || b.status === "running"
+      ? 0
+      : TIER_RANK[tierOf(b)] ?? 9;
+    return ra - rb;
+  });
+
   // Open the confirmation dialog (US-321) and run pre-flight /listings/validate
   // on each succeeded item in parallel. Blockers render per-row and gate the
   // "Publish N clean" button — items with unresolved blockers are refused.
-  async function openPublishDialog() {
-    if (succeededJobs.length === 0) return;
-    const initial: PreflightItem[] = succeededJobs.map((j) => ({
+  async function openPublishDialog(subset: AutolisterJob[] = succeededJobs) {
+    if (subset.length === 0) return;
+    const initial: PreflightItem[] = subset.map((j) => ({
       itemId: j.inventory_item_id,
       listingId: j.listing_id,
       title: titleOf(j.inventory_item_id),
@@ -357,6 +392,27 @@ export function FlipdeskAutolisterQueuePage() {
               ? "AI is generating your listings — this page updates automatically."
               : "Batch complete."}
           </p>
+          {/* US-550: confidence-tier summary. */}
+          {!isRunning && succeededJobs.length > 0 && (
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                {greenJobs.length} ready
+              </span>
+              {amberCount > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  {amberCount} needs review
+                </span>
+              )}
+              {redCount > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-rose-500" />
+                  {redCount} failed
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {pendingCount > 0 && (
@@ -399,8 +455,29 @@ export function FlipdeskAutolisterQueuePage() {
               Check photos ({succeededJobs.length})
             </Button>
           )}
+          {/* US-550: one-click accept of the high-confidence (green) drafts. */}
+          {greenJobs.length > 0 && !isRunning && (
+            <Button
+              onClick={() => void openPublishDialog(greenJobs)}
+              disabled={bulkPublish.running || !ebayConnection}
+              className="bg-emerald-600 hover:bg-emerald-700"
+              title={
+                !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : "Validate and publish only the high-confidence (green) drafts."
+              }
+            >
+              {bulkPublish.running ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              Publish {greenJobs.length} green
+            </Button>
+          )}
           {succeededJobs.length > 0 && !isRunning && (
             <Button
+              variant={greenJobs.length > 0 ? "outline" : "default"}
               onClick={() => void openPublishDialog()}
               disabled={bulkPublish.running || !ebayConnection}
               title={
@@ -470,13 +547,27 @@ export function FlipdeskAutolisterQueuePage() {
 
       {/* Per-item rows */}
       <div className="space-y-2">
-        {jobs.map((job) => {
+        {sortedJobs.map((job) => {
           const pub = bulkPublish.results[job.inventory_item_id];
+          // US-550: tier dot (only meaningful once a draft is generated).
+          const tier = job.status === "success" ? tierOf(job) : null;
+          const tierColor =
+            tier === "green"
+              ? "bg-emerald-500"
+              : tier === "amber"
+                ? "bg-amber-500"
+                : null;
           return (
             <div key={job.id} className="space-y-1.5">
             <div
               className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
             >
+              {tierColor && (
+                <span
+                  className={cn("h-2 w-2 shrink-0 rounded-full", tierColor)}
+                  aria-hidden="true"
+                />
+              )}
               <StatusIcon status={job.status} />
               <span className="flex-1 truncate">
                 {titleOf(job.inventory_item_id)}
