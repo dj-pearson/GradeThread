@@ -3825,8 +3825,8 @@
         "Each email rendered in dev via /admin/email-preview/:template (admin-only) for designers/PMs to QA without firing real sends"
       ],
       "priority": 222,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": " | DONE 2026-06-11. Credit-pack receipt + dunning were already wired. ADDED the missing per-renewal subscription receipt: new sendSubscriptionRenewalReceiptEmail() in lib/email.ts, sent from handleInvoicePaymentSucceeded when billing_reason='subscription_cycle' (first charge stays covered by sendSubscriptionStartedEmail on subscription.created). Uses invoice.amount_paid/period_end/number + the line price interval; best-effort with the email retry outbox (US-498/801). deno lint clean."
     },
     {
       "id": "US-223",
@@ -7360,8 +7360,8 @@
         "Verify endpoint returns verified for a freshly human-adjusted certificate (test)"
       ],
       "priority": 475,
-      "passes": false,
-      "notes": "[P0][Certificates] Audit 2026-06-03. content_hash computed once at finalization; adjustments don't reseal -> verify shows 'do not trust'."
+      "passes": true,
+      "notes": "[P0][Certificates] Audit 2026-06-03. content_hash computed once at finalization; adjustments don't reseal -> verify shows 'do not trust'. | VERIFIED DONE 2026-06-11. POST /review/:id/adjust (admin-grading.ts) recomputes + rewrites content_hash/content_signature/integrity_version via resealCertificate -> buildCertIntegrity (cert-integrity.ts) on any score change, server-side under service-role + step-up + audit; public verify (content-public.ts verifyCertIntegrity) re-derives over the new fields so it still passes. Send-back/refund withhold the cert by nulling certificate_id rather than leaving a stale hash."
     },
     {
       "id": "US-476",

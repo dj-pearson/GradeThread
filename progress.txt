@@ -5771,3 +5771,23 @@ STILL OPEN (verified partial — left false):
           and is NOT wired into the API publish path. (AC4 wiring carries
           publish-path risk + is partly redundant with eBay's own pre-flight —
           deferred rather than half-done.)
+
+================================================================================
+## 2026-06-11 — Admin/grading/email cluster (US-475 verified, US-222 finished)
+
+- US-475  Reseal certificate on score change. VERIFIED already-done. /review/:id/
+          adjust reseals via resealCertificate->buildCertIntegrity server-side;
+          public verifyCertIntegrity re-derives so it still passes. Flag flipped.
+- US-222  Transactional receipts + dunning. FINISHED. Credit-pack receipt +
+          payment-failed dunning were already wired; ADDED the missing per-renewal
+          subscription receipt (sendSubscriptionRenewalReceiptEmail, fired on
+          billing_reason='subscription_cycle' in handleInvoicePaymentSucceeded).
+
+VERIFIED STILL OPEN (left false):
+- US-476  refund IS an audited service-role route, but admin moderation/suspend
+          still run as direct browser-client writes (src/pages/admin/moderation.tsx)
+          with no edge route + no audit row.
+- US-477  grade-correction + review audit logs exist server-side, but moderation
+          (approve/reject/suspend/ban) writes NO audit row (client-side).
+- US-569  AI grading is still fire-and-forget (processSubmission un-awaited), not a
+          durable claimed job — large infra story, deferred.
