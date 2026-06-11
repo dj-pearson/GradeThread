@@ -629,6 +629,10 @@ export interface ListingRow {
   // {"price": "flipdesk"} (US-148, migration 00133). A field pinned to a
   // non-eBay source is protected from the eBay pull's default overwrite.
   source_of_truth: Record<string, string>;
+  // Cross-listing group key (US-149, migration 00134): siblings created by a
+  // multi-marketplace push share the source draft's id; the source draft
+  // points at itself.
+  draft_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1082,6 +1086,24 @@ export type EbayListingUpdate = Partial<
   Omit<EbayListingRow, "id" | "user_id" | "ebay_item_id" | "created_at" | "updated_at">
 >;
 
+// Per-user FlipDesk behavior settings (US-149, migration 00134). One row per
+// user, created lazily on first write; absent row = all defaults.
+export interface FlipdeskSettingsRow {
+  user_id: string;
+  auto_end_cross_listings: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FlipdeskSettingsInsert {
+  user_id: string;
+  auto_end_cross_listings?: boolean;
+}
+
+export type FlipdeskSettingsUpdate = Partial<
+  Omit<FlipdeskSettingsRow, "user_id" | "created_at" | "updated_at">
+>;
+
 export interface FlipdeskGradingSubmissionRow {
   id: string;
   inventory_item_id: string;
@@ -1390,6 +1412,8 @@ export interface ListingInsert {
   best_offer_enabled?: boolean;
   synced_to_ebay_at?: string | null;
   price_is_estimated?: boolean;
+  // Cross-listing group key (US-149)
+  draft_id?: string | null;
 }
 
 export interface SaleInsert {
@@ -2231,6 +2255,11 @@ export interface Database {
         Row: EbayListingRow;
         Insert: EbayListingInsert;
         Update: EbayListingUpdate;
+      };
+      flipdesk_settings: {
+        Row: FlipdeskSettingsRow;
+        Insert: FlipdeskSettingsInsert;
+        Update: FlipdeskSettingsUpdate;
       };
       ai_enrichment_log: {
         Row: AiEnrichmentLogRow;

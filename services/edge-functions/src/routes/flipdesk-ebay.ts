@@ -42,6 +42,7 @@ import {
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
+import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import {
   recordSourceObservations,
   type SourceObservation,
@@ -1428,6 +1429,14 @@ async function doListingsPull(
                 .maybeSingle();
               listingId = (created as { id: string } | null)?.id ?? null;
             }
+          }
+
+          // US-149: a completed sale ends this listing's cross-listed
+          // siblings (rows sharing draft_id), honoring the per-user
+          // flipdesk_settings.auto_end_cross_listings toggle. Best-effort —
+          // never fails the sync.
+          if (saleStatus === "completed" && listingId) {
+            await autoEndCrossListings(userId, listingId);
           }
 
           // US-468: dedupe key is (inventory_item_id, platform_order_id,

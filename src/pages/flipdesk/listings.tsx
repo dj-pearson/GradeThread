@@ -98,11 +98,13 @@ import {
   useSyncEbayListings,
 } from "@/hooks/use-ebay";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
+import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type {
   ItemFullRow,
   ItemStatus,
   ListingInsert,
+  ListingPlatform,
 } from "@/types/database";
 
 type TabId =
@@ -240,6 +242,14 @@ function scoreColor(score: number): string {
   if (score >= 70) return "text-emerald-600 dark:text-emerald-400";
   if (score >= 45) return "text-amber-600 dark:text-amber-400";
   return "text-muted-foreground";
+}
+
+// One chip in the Platforms column (US-149) — a listings row this item has
+// on a marketplace, cross-listing siblings included.
+interface PlatformChip {
+  id: string;
+  platform: ListingPlatform;
+  status: string;
 }
 
 type PayoutState = "cleared" | "pending" | "discrepancy";
@@ -440,6 +450,37 @@ export function FlipdeskListingsPage() {
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
+    },
+  });
+
+  // US-149: which marketplaces each item is listed on (draft/active/sold rows
+  // across the cross-listing group) — drives the Platforms column chips.
+  const { data: platformsByItem } = useQuery({
+    queryKey: ["item_listing_platforms", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<Map<string, PlatformChip[]>> => {
+      const { data, error } = await supabase
+        .from("listings")
+        .select("id, inventory_item_id, platform, listing_status")
+        .in("listing_status", ["draft", "active", "sold"]);
+      if (error) throw error;
+      const map = new Map<string, PlatformChip[]>();
+      for (const row of (data ?? []) as Array<{
+        id: string;
+        inventory_item_id: string;
+        platform: ListingPlatform;
+        listing_status: string;
+      }>) {
+        const arr = map.get(row.inventory_item_id) ?? [];
+        arr.push({
+          id: row.id,
+          platform: row.platform,
+          status: row.listing_status,
+        });
+        map.set(row.inventory_item_id, arr);
+      }
+      return map;
     },
   });
 
@@ -1437,6 +1478,9 @@ export function FlipdeskListingsPage() {
                         </>
                       )}
                       <TableHead className="w-24">Status</TableHead>
+                      {(isDrafts || isActive) && (
+                        <TableHead className="w-28">Platforms</TableHead>
+                      )}
                       {!isSold && !isActive && (
                         <TableHead className="w-16 text-right">Age</TableHead>
                       )}
@@ -1656,6 +1700,30 @@ export function FlipdeskListingsPage() {
                               className="text-[10px]"
                             />
                           </TableCell>
+                          {(isDrafts || isActive) && (
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {(platformsByItem?.get(it.id) ?? []).map(
+                                  (l) => (
+                                    <span
+                                      key={l.id}
+                                      title={`${MARKETPLACE_LABELS[l.platform]} — ${l.status}`}
+                                      className={cn(
+                                        "rounded border px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                                        l.status === "active"
+                                          ? "border-emerald-400/60 text-emerald-600 dark:text-emerald-400"
+                                          : l.status === "sold"
+                                            ? "border-brand-navy/40 text-brand-navy dark:text-foreground"
+                                            : "text-muted-foreground",
+                                      )}
+                                    >
+                                      {MARKETPLACE_LABELS[l.platform]}
+                                    </span>
+                                  ),
+                                )}
+                              </div>
+                            </TableCell>
+                          )}
                           {!isSold && !isActive && (
                             <TableCell className="text-right">
                               {age != null && (

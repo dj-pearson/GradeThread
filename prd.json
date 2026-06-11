@@ -2601,8 +2601,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 149,
-      "passes": false,
-      "notes": "Deferred. Substantial new build (multi-marketplace dispatch + adapter interface + draft_id schema change + per-listing platform fan-out). Requires its own focused session; not started this pass."
+      "passes": true,
+      "notes": "Done 2026-06-11. Migration 00134: listings.draft_id (uuid self-ref, partial index) + flipdesk_settings (auto_end_cross_listings, default true, own-row RLS). Edge: POST /api/flipdesk/listings/cross-push (flipdesk-listings.ts) fans a draft out to one listings row per platform sharing draft_id; adapter interface in services/edge-functions/src/lib/marketplace-adapters/ — ebay wraps publishItemForOwner (US-121), poshmark/mercari/depop return structured 501 stubs. autoEndCrossListings (lib/cross-listings.ts) hooked into the eBay orders sync where a completed sale marks a listing sold; withdraws live eBay sibling offers and ends local rows; honors the flipdesk_settings toggle (surfaced on the Marketplaces page). Composer gained the multi-select Push to control with per-platform price overrides (defaults to the draft price/target_price); eBay-only selection keeps the preflight dialog. Listings tab shows a Platforms chip column on Drafts/Active. NOTE: auto-end triggers from the eBay orders sync (the only real sale-detection path today), not from manual RecordSaleDialog sales."
     },
     {
       "id": "US-150",

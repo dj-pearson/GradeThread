@@ -706,6 +706,17 @@ export const MARKETPLACE_LABELS: Record<(typeof LISTING_PLATFORMS)[number], stri
   other: "Other",
 };
 
+// Platforms selectable in the composer's "Push to" control (US-149). eBay
+// publishes live; the others create local listings rows via stub adapters
+// until their integrations ship.
+export const CROSS_LISTING_PLATFORMS = [
+  "ebay",
+  "poshmark",
+  "mercari",
+  "depop",
+] as const;
+export type CrossListingPlatform = (typeof CROSS_LISTING_PLATFORMS)[number];
+
 // Stripe price IDs (US-202) — populated from import.meta.env at build time
 // by the setup script in US-203. Placeholders for local dev; production
 // IDs ship through VITE_STRIPE_PRICE_* env vars.

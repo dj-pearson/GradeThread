@@ -54,7 +54,12 @@ import {
   templateGroupFor,
 } from "@/lib/listing-templates";
 import { compositeGradeBadge } from "@/lib/grade-badge";
-import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
+import {
+  CROSS_LISTING_PLATFORMS,
+  EBAY_CONDITION_OPTIONS,
+  MARKETPLACE_LABELS,
+  type CrossListingPlatform,
+} from "@/lib/constants";
 import { resolveStatus, factsOf } from "@/lib/workflow";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
@@ -67,6 +72,7 @@ import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ListingKit } from "@/components/flipdesk/listing-kit";
 import { useEbayConnection } from "@/hooks/use-ebay";
+import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
   ItemFullRow,
@@ -103,7 +109,16 @@ export function FlipdeskComposerPage() {
     string | null
   >(null);
   const [publishOpen, setPublishOpen] = useState(false);
+  // US-149: multi-marketplace "Push to" picks + per-platform price overrides
+  // (string-typed like the main price input; blank = use the main price).
+  const [pushPlatforms, setPushPlatforms] = useState<Set<CrossListingPlatform>>(
+    () => new Set<CrossListingPlatform>(["ebay"]),
+  );
+  const [platformPrices, setPlatformPrices] = useState<
+    Partial<Record<CrossListingPlatform, string>>
+  >({});
   const { data: ebayConnection } = useEbayConnection();
+  const crossPush = useCrossPush();
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ["items_full", user?.id],
@@ -387,15 +402,16 @@ export function FlipdeskComposerPage() {
     }
   }
 
-  // Persists the draft. Returns true on success so the publish flow can
-  // save-then-open in one click. By default the user STAYS on the composer —
-  // the publish CTA lives here, so navigating away after save (the old
-  // behavior) forced a detour through the Drafts list to publish.
-  async function saveDraft(): Promise<boolean> {
-    if (!item) return false;
+  // Persists the draft. Returns the listing row's id on success (so the
+  // publish flow can save-then-push in one click), null on failure. By
+  // default the user STAYS on the composer — the publish CTA lives here, so
+  // navigating away after save (the old behavior) forced a detour through
+  // the Drafts list to publish.
+  async function saveDraft(): Promise<string | null> {
+    if (!item) return null;
     if (!title.trim()) {
       toast.error("Title is required.");
-      return false;
+      return null;
     }
     setSaving(true);
     try {
@@ -439,17 +455,22 @@ export function FlipdeskComposerPage() {
         badge_enabled: badgeEnabled,
       };
 
+      let listingId: string;
       if (item.listing_id && item.listing_status === "draft") {
         const { error } = await supabase
           .from("listings")
           .update(payload as never)
           .eq("id", item.listing_id);
         if (error) throw error;
+        listingId = item.listing_id;
       } else {
-        const { error } = await supabase
+        const { data: created, error } = await supabase
           .from("listings")
-          .insert(payload as never);
+          .insert(payload as never)
+          .select("id")
+          .single();
         if (error) throw error;
+        listingId = (created as { id: string }).id;
       }
 
       // Forward-only: never regress a listed/sold item back to "drafted".
@@ -466,22 +487,75 @@ export function FlipdeskComposerPage() {
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       toast.success("Draft saved.");
-      return true;
+      return listingId;
     } catch (err) {
       toast.error(
         `Save failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      return false;
+      return null;
     } finally {
       setSaving(false);
     }
   }
 
-  // Publish reads the DATABASE, not the form — so save first, then open the
-  // dialog. One click instead of save → back out → Drafts list → Publish.
+  function togglePushPlatform(platform: CrossListingPlatform) {
+    setPushPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(platform)) next.delete(platform);
+      else next.add(platform);
+      return next;
+    });
+  }
+
+  // Publish reads the DATABASE, not the form — so save first, then push. One
+  // click instead of save → back out → Drafts list → Publish. eBay-only keeps
+  // the preflight dialog; any other selection dispatches through cross-push
+  // (US-149), which fans the draft out to one listings row per platform.
   async function handlePublishClick() {
-    const ok = await saveDraft();
-    if (ok) setPublishOpen(true);
+    const listingId = await saveDraft();
+    if (!listingId) return;
+
+    const platforms = [...pushPlatforms];
+    if (platforms.length === 1 && platforms[0] === "ebay") {
+      setPublishOpen(true);
+      return;
+    }
+
+    const prices: Partial<Record<CrossListingPlatform, number>> = {};
+    for (const p of platforms) {
+      const raw = platformPrices[p];
+      const parsed = raw != null ? Number.parseFloat(raw) : NaN;
+      if (Number.isFinite(parsed) && parsed > 0) prices[p] = parsed;
+    }
+
+    try {
+      const res = await crossPush.mutateAsync({ listingId, platforms, prices });
+      const stubbed: string[] = [];
+      const failed: string[] = [];
+      for (const p of platforms) {
+        const r = res.results[p];
+        if (!r) continue;
+        if (r.ok) {
+          toast.success(`Published to ${MARKETPLACE_LABELS[p]}.`);
+        } else if (r.status === 501) {
+          stubbed.push(MARKETPLACE_LABELS[p]);
+        } else {
+          failed.push(
+            `${MARKETPLACE_LABELS[p]}: ${r.blockers?.[0] ?? r.error ?? "failed"}`,
+          );
+        }
+      }
+      if (stubbed.length > 0) {
+        toast.info(
+          `${stubbed.join(", ")} listing${stubbed.length === 1 ? "" : "s"} saved locally — publishing there ships soon.`,
+        );
+      }
+      for (const f of failed) toast.error(f, { duration: 12_000 });
+    } catch (err) {
+      toast.error(
+        `Cross-listing push failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   // US-623: condition-aware sell-through forecast at the price input. Called
@@ -810,6 +884,63 @@ export function FlipdeskComposerPage() {
             </CardContent>
           </Card>
 
+          {/* Push to marketplaces (US-149) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Push to</CardTitle>
+              <CardDescription>
+                Cross-list this draft to multiple marketplaces. Each platform
+                gets its own price — leave it blank to use the price above.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {CROSS_LISTING_PLATFORMS.map((p) => {
+                const checked = pushPlatforms.has(p);
+                return (
+                  <div
+                    key={p}
+                    className="flex items-center justify-between gap-3 rounded-md border p-2.5"
+                  >
+                    <label className="flex cursor-pointer items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePushPlatform(p)}
+                        className="h-3.5 w-3.5 cursor-pointer"
+                      />
+                      <span className="font-medium">
+                        {MARKETPLACE_LABELS[p]}
+                      </span>
+                      {p !== "ebay" && (
+                        <Badge variant="outline" className="text-[10px]">
+                          saved locally — publish coming soon
+                        </Badge>
+                      )}
+                    </label>
+                    {checked && (
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={platformPrices[p] ?? ""}
+                        onChange={(e) =>
+                          setPlatformPrices((prev) => ({
+                            ...prev,
+                            [p]: e.target.value,
+                          }))
+                        }
+                        placeholder={price || "Price"}
+                        className="h-8 max-w-[7rem] text-right"
+                        aria-label={`${MARKETPLACE_LABELS[p]} price`}
+                      />
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+
           {/* Photos */}
           <Card>
             <CardHeader>
@@ -1046,15 +1177,30 @@ export function FlipdeskComposerPage() {
         </Button>
         <Button
           onClick={() => void handlePublishClick()}
-          disabled={!ebayConnection || saving}
+          disabled={
+            saving ||
+            crossPush.isPending ||
+            pushPlatforms.size === 0 ||
+            (pushPlatforms.has("ebay") && !ebayConnection)
+          }
           title={
-            !ebayConnection
+            pushPlatforms.has("ebay") && !ebayConnection
               ? "Connect eBay first on the Marketplaces page."
-              : "Saves the draft, then publishes."
+              : pushPlatforms.size === 0
+                ? "Pick at least one marketplace in the Push to card."
+                : "Saves the draft, then publishes."
           }
         >
-          <Rocket className="mr-2 h-4 w-4" />
-          Save &amp; publish to eBay
+          {crossPush.isPending ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Rocket className="mr-2 h-4 w-4" />
+          )}
+          {pushPlatforms.size === 1 && pushPlatforms.has("ebay")
+            ? "Save & publish to eBay"
+            : `Save & push to ${pushPlatforms.size} marketplace${
+                pushPlatforms.size === 1 ? "" : "s"
+              }`}
         </Button>
       </div>
 

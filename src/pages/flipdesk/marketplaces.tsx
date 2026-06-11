@@ -15,7 +15,7 @@ import {
   Circle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -35,6 +35,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/auth-store";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
   useCreateEbayLocation,
@@ -747,6 +750,53 @@ export function FlipdeskMarketplacesPage() {
 
   const syncing = syncListings.isPending || syncSince != null;
 
+  // US-149: per-user cross-listing behavior. Absent row = enabled (the
+  // migration default), so the toggle reads true until the user opts out.
+  const user = useAuthStore((s) => s.user);
+  const { data: autoEndSetting } = useQuery({
+    queryKey: ["flipdesk_settings", user?.id],
+    enabled: !!user,
+    queryFn: async (): Promise<boolean> => {
+      const { data, error } = await supabase
+        .from("flipdesk_settings")
+        .select("auto_end_cross_listings")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return (
+        (data as { auto_end_cross_listings: boolean } | null)
+          ?.auto_end_cross_listings ?? true
+      );
+    },
+  });
+  const [autoEndSaving, setAutoEndSaving] = useState(false);
+
+  async function toggleAutoEnd(next: boolean) {
+    if (!user) return;
+    setAutoEndSaving(true);
+    try {
+      const { error } = await supabase
+        .from("flipdesk_settings")
+        .upsert(
+          { user_id: user.id, auto_end_cross_listings: next } as never,
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["flipdesk_settings", user.id] });
+      toast.success(
+        next
+          ? "Cross-listed siblings will end automatically when one sells."
+          : "Auto-end disabled — end other listings yourself after a sale.",
+      );
+    } catch (err) {
+      toast.error(
+        `Couldn't save the setting: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setAutoEndSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-3">
@@ -830,6 +880,30 @@ export function FlipdeskMarketplacesPage() {
             </span>
             <ArrowRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
           </Link>
+        </div>
+      </section>
+
+      {/* Cross-listing behavior (US-149) */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Cross-listing
+        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-end-cross" className="text-sm font-medium">
+              Auto-end cross-listings on sale
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              When an item pushed to multiple marketplaces sells on one of
+              them, automatically end its listings on the others.
+            </p>
+          </div>
+          <Switch
+            id="auto-end-cross"
+            checked={autoEndSetting ?? true}
+            disabled={autoEndSaving || autoEndSetting === undefined}
+            onCheckedChange={(v) => void toggleAutoEnd(v)}
+          />
         </div>
       </section>
 
