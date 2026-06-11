@@ -2583,8 +2583,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 148,
-      "passes": false,
-      "notes": "BLOCKER: depends on US-122 (eBay sync, code complete pending creds) + US-147 (Sheets sync, blocked on creds)."
+      "passes": true,
+      "notes": "Done. Detection layer (lib/sync-conflicts.ts, migration 00133 — numbering moved past 00018) was committed in de37d96; this iteration completed the story: Cross-source tab on /dashboard/flipdesk/reconciliation (components/flipdesk/cross-source-conflicts.tsx) with per-listing 3-col diff, per-field source picker, Accept-all-from-X per listing + for multi-selection, and the mark-ended auto-flag CTA; edge endpoints GET /api/flipdesk/reconciliation/conflicts + POST /conflicts/resolve (applies winner to listings, pins listings.source_of_truth, closes conflict); wired the previously-unused Sheets-side detection into the Listings-tab merge in flipdesk-google-sync.ts (records observations, holds undecided conflicted cells from the DB-authoritative rewrite, agreeing observations auto-converge open conflicts); email threshold config UI (users.sync_conflict_email_threshold). Bumped EXPECTED_SCHEMA_VERSION to 00133 + classified flipdesk_sync_conflicts service-role-only in rls-guard_test (both guards were failing from de37d96)."
     },
     {
       "id": "US-149",

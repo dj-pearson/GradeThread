@@ -265,6 +265,9 @@ export interface UserRow {
   verified_since: string | null;
   // Storefront opt-in: list active listings on the public profile (migration 00122).
   verified_show_listings: boolean;
+  // Cross-source sync-conflict email alert: send one email when the open
+  // conflict count crosses this number (US-148, migration 00133). NULL disables.
+  sync_conflict_email_threshold: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -622,6 +625,10 @@ export interface ListingRow {
   best_offer_enabled: boolean;
   synced_to_ebay_at: string | null;
   price_is_estimated: boolean;
+  // Per-field winning source for cross-source sync conflicts, e.g.
+  // {"price": "flipdesk"} (US-148, migration 00133). A field pinned to a
+  // non-eBay source is protected from the eBay pull's default overwrite.
+  source_of_truth: Record<string, string>;
   created_at: string;
   updated_at: string;
 }

@@ -32,6 +32,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EbaySkuMatch } from "@/components/flipdesk/ebay-sku-match";
+import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflicts";
+import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { detectDiscrepancies } from "@/lib/pnl";
@@ -104,6 +106,8 @@ export function FlipdeskReconciliationPage() {
   const { data: payoutImports = [], isLoading: payoutsLoading } =
     usePayoutImports();
   const { data: queue = [], isLoading: queueLoading } = useReconciliationQueue();
+  // Open cross-source conflict count for the tab badge (US-148).
+  const { data: conflicts } = useSyncConflicts();
 
   async function handlePayoutFile(file: File) {
     setImporting(true);
@@ -209,10 +213,22 @@ export function FlipdeskReconciliationPage() {
         <TabsList>
           <TabsTrigger value="ebay">eBay SKU match</TabsTrigger>
           <TabsTrigger value="payouts">Payouts &amp; fees</TabsTrigger>
+          <TabsTrigger value="cross-source">
+            Cross-source
+            {(conflicts?.total ?? 0) > 0 && (
+              <Badge variant="destructive" className="ml-1.5 px-1.5 text-[10px]">
+                {conflicts!.total}
+              </Badge>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="ebay" className="mt-6">
           <EbaySkuMatch />
+        </TabsContent>
+
+        <TabsContent value="cross-source" className="mt-6">
+          <CrossSourceConflicts />
         </TabsContent>
 
         <TabsContent value="payouts" className="mt-6 space-y-6">

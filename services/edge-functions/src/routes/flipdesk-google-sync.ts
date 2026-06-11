@@ -111,7 +111,17 @@ const INVENTORY_SELECT =
   "target_price, condition_notes, grade_value, location_bin, created_at, updated_at";
 const LISTINGS_SELECT =
   "id, listing_title, platform, listing_status, listing_price, watchers, " +
-  "views, listing_url, listed_at, updated_at, inventory_items!inner(user_id)";
+  "views, listing_url, listed_at, updated_at, source_of_truth, " +
+  "inventory_items!inner(user_id)";
+
+// Listings-tab columns that participate in cross-source conflict detection
+// (US-148), mapped to their flipdesk_sync_conflicts field name. The Listings
+// tab has no quantity column, so quantity is eBay-vs-FlipDesk only.
+const LISTING_CONFLICT_FIELDS: Record<string, ConflictField> = {
+  listing_price: "price",
+  listing_status: "listing_status",
+  listing_title: "title",
+};
 const SALES_SELECT =
   "id, sale_price, platform_fees, shipping_collected, shipping_cost, " +
   "net_profit, buyer_username, sold_at, created_at, inventory_items!inner(user_id)";
@@ -360,6 +370,19 @@ async function runMerge(
   // 6. Merge each tab.
   const snapshotUpserts: Row[] = [];
   const conflictAppends: (string | number)[][] = [];
+  // US-148: what the sheet currently says about each listing's price/status/
+  // title — recorded as cross-source observations after the merge. Listings
+  // with an open conflict also report AGREEING values, so a sheet edited back
+  // to FlipDesk's original value auto-converges its conflict.
+  const sheetsObservations: SourceObservation[] = [];
+  const { data: openConfRows } = await supabaseAdmin
+    .from("flipdesk_sync_conflicts")
+    .select("listing_id")
+    .eq("user_id", userId)
+    .is("resolved_at", null);
+  const openConflictListings = new Set(
+    ((openConfRows ?? []) as { listing_id: string }[]).map((r) => r.listing_id),
+  );
   const nowIso = new Date().toISOString();
 
   for (let t = 0; t < DATA_TABS.length; t++) {
@@ -402,13 +425,50 @@ async function runMerge(
 
       if (!tab.writable) {
         // Read-only tab: the DB is authoritative; rewrite the row on any drift.
-        const drift = tab.columns.some((col, i) =>
-          normalizeCell(entry.cells[i + 1], col.kind) !== dbRow[i + 1]
+        // EXCEPT (US-148): on the Listings tab a hand-edited price/status/title
+        // cell is a cross-source observation. Record it, and while the field is
+        // undecided (no listings.source_of_truth entry) HOLD the cell — don't
+        // rewrite it — so the divergent value survives until the user picks a
+        // winner on the Cross-source reconciliation tab. Decided fields and
+        // non-conflict columns rewrite as before.
+        const finalRow = [...dbRow];
+        tab.columns.forEach((col, i) => {
+          const sheetVal = normalizeCell(entry.cells[i + 1], col.kind);
+          const field =
+            tab.title === "Listings" ? LISTING_CONFLICT_FIELDS[col.field] : undefined;
+          if (sheetVal === dbRow[i + 1]) {
+            // Agreement is only worth reporting when a conflict is open —
+            // it lets the conflict auto-converge.
+            if (field && sheetVal !== "" && openConflictListings.has(id)) {
+              sheetsObservations.push({
+                listingId: id,
+                field,
+                flipdeskValue: dbRow[i + 1]!,
+                observedValue: sheetVal,
+              });
+            }
+            return;
+          }
+          // An emptied cell isn't a usable observation — just rewrite it.
+          if (!field || sheetVal === "") return;
+          sheetsObservations.push({
+            listingId: id,
+            field,
+            flipdeskValue: dbRow[i + 1]!,
+            observedValue: sheetVal,
+          });
+          const decided = !!(
+            record.source_of_truth as Record<string, string> | null
+          )?.[field];
+          if (!decided) finalRow[i + 1] = sheetVal;
+        });
+        const needsWrite = tab.columns.some(
+          (col, i) => normalizeCell(entry.cells[i + 1], col.kind) !== finalRow[i + 1],
         );
-        if (drift) {
+        if (needsWrite) {
           cellUpdates.push({
             range: `'${tab.title}'!A${entry.rowNumber}:${endCol}${entry.rowNumber}`,
-            values: [dbRow],
+            values: [finalRow as (string | number)[]],
           });
           summary.pushed++;
         }
@@ -520,6 +580,14 @@ async function runMerge(
       .from("google_sheet_sync_state")
       .upsert(batch, { onConflict: "user_id,tab,flipdesk_id" });
     if (error) summary.errors.push(`Snapshot save failed: ${error.message}`);
+  }
+
+  // US-148: persist the sheet-vs-FlipDesk disagreements as cross-source
+  // conflicts (one open row per listing+field; auto-converges if the sheet
+  // returns to FlipDesk's original value).
+  if (sheetsObservations.length > 0) {
+    const res = await recordSourceObservations(userId, "sheets", sheetsObservations);
+    summary.errors.push(...res.errors.map((e) => `cross-source: ${e.slice(0, 160)}`));
   }
 
   summary.errors = summary.errors.slice(0, MAX_LOGGED_ERRORS);

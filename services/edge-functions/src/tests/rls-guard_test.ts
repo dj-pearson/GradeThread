@@ -52,6 +52,11 @@ const SERVICE_ROLE_ONLY = new Set([
   // design (migration 00132 documents "read/written only by the service-role
   // edge client"). Sync bookkeeping, never read by the SPA.
   "google_sheet_sync_state",
+  // US-148 cross-source sync conflicts: RLS enabled, zero policies by design
+  // (migration 00133 documents "read/written only via the service-role edge
+  // client"). The SPA reads/resolves via /api/flipdesk/reconciliation/conflicts*,
+  // which tenant-scope every query by user_id.
+  "flipdesk_sync_conflicts",
   // RLS enabled, zero policies by design — the OAuth import session is written
   // and read ONLY by the service-role edge client; the SPA never touches it
   // (migration 00089 documents "all access via the service-role edge client").

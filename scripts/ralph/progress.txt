@@ -468,3 +468,10 @@ Branch: ralph/gradethread-build
   * Docker was down so the local supabase db reset lane was skipped (simple CREATE TABLE migration; CI db-migrations.yml will verify).
 - Timestamp: 2026-06-11 09:35
 ---
+
+## US-148: 3-way reconciliation (FlipDesk <-> eBay <-> Google Sheets) with conflict UI
+- Status: COMPLETE
+- Files changed: src/types/database.ts, src/hooks/use-sync-conflicts.ts (new), src/components/flipdesk/cross-source-conflicts.tsx (new), src/pages/flipdesk/reconciliation.tsx, services/edge-functions/src/routes/flipdesk-reconciliation.ts, services/edge-functions/src/routes/flipdesk-google-sync.ts, services/edge-functions/src/lib/schema-version.ts, services/edge-functions/src/tests/rls-guard_test.ts
+- Notes: Detection layer (lib/sync-conflicts.ts + migration 00133, not 00018 - numbering moved on) pre-existed from commit de37d96; this iteration added the missing surface: edge endpoints GET /conflicts + POST /conflicts/resolve on the reconciliation route (Business-gated, tenant-scoped per US-268), the Cross-source tab (3-col diff, per-field picks, per-listing + multi-select Accept-all-from-X, mark-ended auto-flag CTA, email-threshold card). Key find: flipdesk-google-sync.ts imported recordSourceObservations but never called it (deno lint caught it) - wired Sheets observations into the read-only Listings-tab merge; undecided conflicted cells are HELD from the DB-authoritative rewrite so the divergent sheet value survives until the user picks a winner, and agreeing observations are reported for open-conflict listings so they auto-converge. Resolving picks flipdesk/ebay/sheets per field, applies the value to listings (price/quantity/status+is_active/title), pins listings.source_of_truth (eBay pull respects it via pinnedAgainstEbay), closes the row. Also fixed two guard tests failing since de37d96: EXPECTED_SCHEMA_VERSION 00132->00133 and flipdesk_sync_conflicts added to SERVICE_ROLE_ONLY in rls-guard_test. Verified: tsc -b, eslint, vite build, deno lint/check, 653 edge tests, 402 web tests.
+- Timestamp: 2026-06-11 14:30
+---
