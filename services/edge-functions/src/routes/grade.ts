@@ -94,6 +94,61 @@ type GarmentType = (typeof GARMENT_TYPES)[number];
 type GarmentCategory = (typeof GARMENT_CATEGORIES)[number];
 type ImageType = (typeof IMAGE_TYPES)[number];
 
+// US-339: original-image retention is OFF unless an operator opts in. When off,
+// any `original_images` the client sends are ignored (defense-in-depth) so the
+// fast compressed-upload path is the default and originals are never stored
+// without an explicit config choice. EXIF capture below runs regardless.
+const RETAIN_ORIGINAL_IMAGES =
+  (Deno.env.get("RETAIN_ORIGINAL_IMAGES") ?? "").toLowerCase() === "true";
+
+// Sanitize + bound the client-supplied EXIF blob (US-339). Never trust the
+// client: keep only known fields, cap string lengths, and validate GPS ranges.
+// Returns null when nothing usable remains (the common case).
+function sanitizeExif(
+  raw: FormDataEntryValue | undefined,
+): Record<string, unknown> | null {
+  if (typeof raw !== "string" || raw.trim() === "") return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const src = parsed as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const copyStr = (k: string) => {
+    const v = src[k];
+    if (typeof v === "string" && v.trim()) out[k] = v.trim().slice(0, 256);
+  };
+  copyStr("make");
+  copyStr("model");
+  copyStr("software");
+  copyStr("lensModel");
+  copyStr("dateTime");
+  copyStr("dateTimeOriginal");
+  if (typeof src.orientation === "number" && Number.isFinite(src.orientation)) {
+    const o = Math.trunc(src.orientation);
+    if (o >= 1 && o <= 8) out.orientation = o;
+  }
+  const gps = src.gps;
+  if (gps && typeof gps === "object" && !Array.isArray(gps)) {
+    const lat = (gps as Record<string, unknown>).latitude;
+    const lon = (gps as Record<string, unknown>).longitude;
+    if (
+      typeof lat === "number" && Number.isFinite(lat) && lat >= -90 &&
+      lat <= 90 &&
+      typeof lon === "number" && Number.isFinite(lon) && lon >= -180 &&
+      lon <= 180
+    ) {
+      out.gps = { latitude: lat, longitude: lon };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 export const gradeRoutes = new Hono<GradeEnv>();
 
 // Payment precedence (included → credits → checkout) now lives in
@@ -180,9 +235,15 @@ gradeRoutes.post("/submit", async (c) => {
   // chars when present; "" / invalid is stored as null and simply skipped by
   // reuse detection.
   const imagePhashes: (string | null)[] = [];
+  // US-339: provenance EXIF per image, aligned to imageFiles by push order.
+  const imageExif: (Record<string, unknown> | null)[] = [];
   const allEntries = formData.getAll("images");
   const allTypes = formData.getAll("image_types");
   const allPhashes = formData.getAll("phashes");
+  const allExif = formData.getAll("exif_metadata");
+  // US-339: optional uncompressed originals, sent (in image order) only when
+  // the client opted in. Consumed only if RETAIN_ORIGINAL_IMAGES is set.
+  const allOriginals = formData.getAll("original_images");
 
   for (let i = 0; i < allEntries.length; i++) {
     const entry = allEntries[i];
@@ -195,9 +256,15 @@ gradeRoutes.post("/submit", async (c) => {
         imageTypes.push(type);
         const ph = typeof allPhashes[i] === "string" ? (allPhashes[i] as string).trim() : "";
         imagePhashes.push(/^[0-9a-f]{16}$/i.test(ph) ? ph.toLowerCase() : null);
+        imageExif.push(sanitizeExif(allExif[i]));
       }
     }
   }
+
+  // Originals must line up 1:1 with accepted images to be retained safely
+  // (any mismatch means we'd store the wrong original against an image).
+  const retainOriginals = RETAIN_ORIGINAL_IMAGES &&
+    allOriginals.length === imageFiles.length;
 
   for (const required of REQUIRED_IMAGE_TYPES) {
     if (!imageTypes.includes(required)) errors.push(`A '${required}' image is required`);
@@ -262,6 +329,8 @@ gradeRoutes.post("/submit", async (c) => {
     storage_path: string;
     display_order: number;
     phash: string | null;
+    exif: Record<string, unknown> | null;
+    original_storage_path: string | null;
   }> = [];
 
   for (let i = 0; i < imageFiles.length; i++) {
@@ -300,12 +369,50 @@ gradeRoutes.post("/submit", async (c) => {
       return c.json({ error: `Failed to upload image: ${imageType}` }, 500);
     }
 
+    // US-339: optionally retain the uncompressed ORIGINAL (EXIF intact) for
+    // forensic/provenance use. Stored in the SAME private bucket + owner folder
+    // as the compressed image (tenant-scoped, signed-URL-only access). Unlike
+    // the compressed copy we deliberately DO NOT strip metadata here — that's
+    // the whole point. Validation still runs (sniff + size/dim cap). Best
+    // effort: a failed original upload never fails the submission.
+    let originalStoragePath: string | null = null;
+    if (retainOriginals) {
+      const orig = allOriginals[i];
+      if (orig instanceof File && orig.size > 0) {
+        try {
+          const origBytes = new Uint8Array(await orig.arrayBuffer());
+          const origVerdict = validateImageUpload(origBytes, {
+            allow: ["jpeg", "png", "webp"],
+          });
+          if (origVerdict.ok) {
+            const origPath =
+              `${ownerId}/${submissionId}/original_${imageType}_${timestamp}.${origVerdict.ext}`;
+            const { error: origErr } = await supabaseAdmin.storage
+              .from("submission-images")
+              .upload(origPath, origBytes, {
+                contentType: origVerdict.contentType,
+                upsert: false,
+              });
+            if (origErr) {
+              console.error(`Failed to upload original ${i}:`, origErr);
+            } else {
+              originalStoragePath = origPath;
+            }
+          }
+        } catch (err) {
+          console.error(`Original retention failed for image ${i}:`, err);
+        }
+      }
+    }
+
     imageRecords.push({
       submission_id: submissionId,
       image_type: imageType,
       storage_path: storagePath,
       display_order: i,
       phash: imagePhashes[i] ?? null,
+      exif: imageExif[i] ?? null,
+      original_storage_path: originalStoragePath,
     });
   }
 
@@ -316,7 +423,10 @@ gradeRoutes.post("/submit", async (c) => {
   if (imageInsertError) {
     console.error("Failed to insert image records:", imageInsertError);
     for (const record of imageRecords) {
-      await supabaseAdmin.storage.from("submission-images").remove([record.storage_path]);
+      const paths = [record.storage_path];
+      // US-339: clean up any retained original alongside the compressed copy.
+      if (record.original_storage_path) paths.push(record.original_storage_path);
+      await supabaseAdmin.storage.from("submission-images").remove(paths);
     }
     await supabaseAdmin.from("submissions").delete().eq("id", submissionId);
     return c.json({ error: "Failed to save image records" }, 500);

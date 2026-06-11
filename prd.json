@@ -5625,8 +5625,8 @@
         "No regression to the existing fast compressed-upload path; tenant isolation preserved"
       ],
       "priority": 339,
-      "passes": false,
-      "notes": "BUILD-NEW. GATING ENABLER for US-340/US-341 — current pipeline (image-utils.ts compressImage) destroys EXIF + forensic artifacts. Add an EXIF reader (e.g. exifr) client-side; store on submission_images/item_photos. Privacy-sensitive: requires policy + disclosure update."
+      "passes": true,
+      "notes": "BUILD-NEW. GATING ENABLER for US-340/US-341 — current pipeline (image-utils.ts compressImage) destroys EXIF + forensic artifacts. Add an EXIF reader (e.g. exifr) client-side; store on submission_images/item_photos. Privacy-sensitive: requires policy + disclosure update. IMPLEMENTED: client EXIF reader extractExif() in image-utils.ts (pure-TS JPEG APP1/TIFF walk) runs on the ORIGINAL file before compressImage; PhotoUploadItem carries exif + originalFile; new-submission.tsx submits exif_metadata parallel array (and original_images when VITE_RETAIN_ORIGINALS). Edge grade.ts sanitizes/bounds EXIF (GPS range-checked) and stores submission_images.exif jsonb; optional uncompressed original (EXIF intact) stored to private bucket owner folder when RETAIN_ORIGINAL_IMAGES=true (default off). Migration 00137 adds exif jsonb + original_storage_path. Types in database.ts (ImageExifMetadata). Privacy disclosed in /privacy + upload-step note; tenant-scoped paths."
     },
     {
       "id": "US-340",

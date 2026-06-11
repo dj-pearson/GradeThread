@@ -55,6 +55,11 @@ const STEPS = [
   { label: "Review & Pay", description: "Confirm and submit" },
 ] as const;
 
+// US-339: client-side opt-in for retaining the uncompressed ORIGINAL files
+// (forensic/provenance enabler). Off by default so the fast compressed path is
+// the norm; the edge service gates storage independently.
+const RETAIN_ORIGINALS = import.meta.env.VITE_RETAIN_ORIGINALS === "true";
+
 // US-207: the payment state returned by /api/grade/submit when included grades
 // and credits are both exhausted and a one-time charge is required.
 interface CheckoutRequiredState {
@@ -275,13 +280,29 @@ export function NewSubmissionPage() {
       if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
       if (garmentInfo.description) formData.append("description", garmentInfo.description);
 
-      // Append images, their types, and perceptual hashes as parallel arrays.
-      // phashes power server-side photo-reuse detection (US-337); empty when
-      // hashing failed client-side.
+      // Append images, their types, perceptual hashes, and provenance EXIF as
+      // parallel arrays. phashes power server-side photo-reuse detection
+      // (US-337). exif_metadata (US-339) is structured provenance read from the
+      // ORIGINAL file before compression — "" when none was found.
       for (const photo of photos) {
         formData.append("images", photo.file);
         formData.append("image_types", photo.imageType);
         formData.append("phashes", photo.phash ?? "");
+        formData.append(
+          "exif_metadata",
+          photo.exif ? JSON.stringify(photo.exif) : ""
+        );
+      }
+
+      // US-339: optional original-image retention for server-side forensic /
+      // provenance use. Heavy (uncompressed, EXIF-intact), privacy-sensitive,
+      // and OFF by default so the fast compressed-upload path never regresses.
+      // The server also gates storage independently (RETAIN_ORIGINAL_IMAGES),
+      // so sending these is a no-op unless retention is enabled there too.
+      if (RETAIN_ORIGINALS && photos.every((p) => p.originalFile)) {
+        for (const photo of photos) {
+          formData.append("original_images", photo.originalFile as File);
+        }
       }
 
       // Send the active workspace owner so the submission lands in the
@@ -453,6 +474,24 @@ export function NewSubmissionPage() {
           {currentStep === 1 && (
             <div className="space-y-6">
               <PhotoUpload onChange={handlePhotosChange} />
+              {/* US-339: provenance/EXIF disclosure. We read camera metadata
+                  (and location, if your photo contains it) from the original
+                  file to support authenticity features. It is access-controlled
+                  and never shown publicly or to buyers. */}
+              <p className="text-[11px] leading-snug text-muted-foreground">
+                We read photo metadata (camera details and, if present, capture
+                time and location) to support grade authenticity. This is kept
+                private — never shown publicly or to buyers — and handled per our{" "}
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline hover:text-foreground"
+                >
+                  Privacy Policy
+                </a>
+                .
+              </p>
               <div className="flex items-center justify-between pt-4">
                 <Button type="button" variant="outline" onClick={handleBack}>
                   <ChevronLeft className="mr-1 h-4 w-4" />

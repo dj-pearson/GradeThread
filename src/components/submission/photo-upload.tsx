@@ -10,8 +10,8 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { validateImage, compressImage } from "@/lib/image-utils";
-import type { ImageType } from "@/types/database";
+import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
+import type { ImageType, ImageExifMetadata } from "@/types/database";
 
 export interface PhotoUploadItem {
   file: File;
@@ -19,6 +19,13 @@ export interface PhotoUploadItem {
   preview: string;
   // 64-bit dHash (16 hex chars) of the photo for reuse detection (US-337).
   phash?: string;
+  // US-339: provenance EXIF read from the ORIGINAL file before compression
+  // (camera make/model, capture time, GPS). Null/absent is normal.
+  exif?: ImageExifMetadata | null;
+  // US-339: the uncompressed original, kept so the caller can optionally upload
+  // it for forensic/provenance retention (gated). The compressed `file` is what
+  // the fast grading path uses.
+  originalFile?: File;
 }
 
 type SlotGroup = "required" | "more" | "measurements" | "defects";
@@ -202,6 +209,8 @@ interface SlotState {
   errors: string[];
   isProcessing: boolean;
   phash?: string;
+  exif?: ImageExifMetadata | null;
+  originalFile?: File;
 }
 
 const DEFAULT_SLOT_STATE: SlotState = {
@@ -241,6 +250,8 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
             imageType: slot.imageType,
             preview: state.preview,
             phash: state.phash,
+            exif: state.exif,
+            originalFile: state.originalFile,
           });
         }
       }
@@ -271,6 +282,9 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
       }
 
       try {
+        // US-339: read provenance EXIF from the ORIGINAL file BEFORE the canvas
+        // re-encode in compressImage destroys it. Best-effort — never blocks.
+        const exif = await extractExif(file).catch(() => null);
         const compressed = await compressImage(file);
         const compressedFile = new File([compressed.blob], file.name, {
           type: compressed.blob.type,
@@ -289,6 +303,8 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
             errors: [],
             isProcessing: false,
             phash: compressed.phash,
+            exif,
+            originalFile: file,
           });
           emitChange(next);
           return next;

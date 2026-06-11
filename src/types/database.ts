@@ -399,6 +399,22 @@ export interface ImageAuthenticity {
   summary: string;
 }
 
+// EXIF/provenance metadata captured client-side from the ORIGINAL file before
+// compression (US-339). Every field is optional — absence is normal (re-shared
+// photos, screenshots, stripped uploads) and is never penalized on its own.
+// GPS, when present, is privacy-sensitive: access-controlled, never exposed
+// publicly or to buyers.
+export interface ImageExifMetadata {
+  make?: string;
+  model?: string;
+  software?: string;
+  lensModel?: string;
+  orientation?: number;
+  dateTime?: string;
+  dateTimeOriginal?: string;
+  gps?: { latitude: number; longitude: number };
+}
+
 export interface SubmissionImageRow {
   id: string;
   submission_id: string;
@@ -406,6 +422,16 @@ export interface SubmissionImageRow {
   storage_path: string;
   display_order: number;
   created_at: string;
+  // US-337: 64-bit dHash (16 hex chars) for cross-submission photo-reuse
+  // detection. Null when client-side hashing was unavailable.
+  phash?: string | null;
+  // US-339: structured EXIF/provenance read from the original file before
+  // compression. Null/absent is normal.
+  exif?: ImageExifMetadata | null;
+  // US-339: path to the retained ORIGINAL (uncompressed, EXIF-intact) file in
+  // the private bucket, for server-side forensic/provenance use. Null unless
+  // original retention is enabled. Never public, never served to buyers.
+  original_storage_path?: string | null;
 }
 
 export interface GradeReportRow {
@@ -1317,6 +1343,9 @@ export interface SubmissionImageInsert {
   image_type: ImageType;
   storage_path: string;
   display_order?: number;
+  phash?: string | null;
+  exif?: ImageExifMetadata | null;
+  original_storage_path?: string | null;
 }
 
 export interface GradeReportInsert {

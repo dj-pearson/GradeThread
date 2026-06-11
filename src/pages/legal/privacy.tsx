@@ -48,6 +48,20 @@ export function PrivacyPage() {
           measurements, defect notes, and cost basis.
         </li>
         <li>
+          <strong>Photo (EXIF) metadata.</strong> When you upload a garment
+          photo, we may read technical metadata embedded in the original file —
+          camera make and model, the date and time the photo was taken, and, if
+          your device recorded it, GPS location. We use this only to support
+          grade authenticity and provenance features. This metadata is stored
+          privately against your submission, is access-controlled, and is{" "}
+          <strong>never shown publicly, on certificates, or to buyers</strong>.
+          Its absence is normal and never lowers a grade. We may optionally
+          retain the unmodified original file for forensic verification where
+          enabled for your plan; you can request deletion of this metadata and
+          any retained original at any time (see “Your rights” below), and it is
+          removed when the underlying submission is deleted.
+        </li>
+        <li>
           <strong>Reseller workflow data (FlipDesk).</strong> Sources, intake
           batches, drafts, listings, sales, payouts, expenses, and notes you
           enter into FlipDesk.
