@@ -573,7 +573,19 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
   }
 });
 
-// ── Still-stubbed handlers (Week 2-3 work) ─────────────────────────
+// US-470: 501-stub classification. The eBay module is fully wired (OAuth, sync,
+// publish, policies, comps, reconciliation) — the old "Still-stubbed (Week 2-3)"
+// header here was stale; the helpers below ARE implemented. The only remaining
+// 501s in the FlipDesk surface are DELIBERATE, not missing features:
+//   • flipdesk-grading.ts POST /webhook → 501: same-process DB sync is used
+//     instead (grading-pipeline.ts); the webhook receiver is reserved for the
+//     Phase-2 split when FlipDesk consumes the GradeThread Public API.
+//   • flipdesk-images.ts POST /process → 501: thumbnails + EXIF strip happen
+//     client-side (PhotoUploader); /remove-bg is replaced by on-device @imgly
+//     segmentation (US-535). Both carry explanatory error bodies.
+// No accidental 501 hides unfinished reseller functionality.
+
+// ── eBay sync helpers ──────────────────────────────────────────────
 
 // Pulls every offer for the connected seller from the Sell Inventory API.
 // Each offer's SKU is matched to inventory_items.sku for THIS user:

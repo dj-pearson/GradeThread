@@ -5823,3 +5823,15 @@ sandbox round-trip) — left false per the scaffold+document decision.
           detection (>10min) with a recoverable hint while keeping Sync-now
           enabled — the server claim-lock reclaims the stale row so a stuck run
           no longer blocks the UI (AC3).
+
+- US-460  Sold-price comps (or surface the limitation). COMPLETE via the
+          surface-the-limitation path. Comps are Browse-API ACTIVE asking prices
+          (eBay Marketplace Insights sold-price API needs restricted access we
+          don't hold). Added an explicit caveat under the recommended-price band
+          in EbayCompsPanel + the Repricing header so sellers treat the
+          recommendation as a ceiling, not a realized sale price.
+- US-470  Classify and resolve 501-stub FlipDesk handlers. COMPLETE. The only
+          remaining 501s (grading /webhook, images /process) are deliberate
+          design choices (same-process sync; client-side image processing) with
+          explanatory bodies. Fixed the stale "Still-stubbed (Week 2-3)" header in
+          flipdesk-ebay.ts and documented the classification inline.

@@ -146,6 +146,11 @@ export function FlipdeskRepricingPage() {
             Condition-aware price nudges. We compare each active listing against
             comps matched to its grade — so a grade-9 isn't priced like a grade-6.
           </p>
+          {/* US-460: comps are active asking prices, not sold prices. */}
+          <p className="text-xs text-muted-foreground">
+            Comps are <strong>active</strong> asking prices, not sold prices —
+            real sale prices are usually lower, so nudges trend toward a ceiling.
+          </p>
         </div>
         <Button onClick={() => scan.mutate(undefined)} disabled={scan.isPending}>
           {scan.isPending ? (

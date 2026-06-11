@@ -7169,8 +7169,8 @@
         "Callers degrade gracefully when sold data is unavailable"
       ],
       "priority": 460,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. searchBrowseComps uses active listings; sold comps explicitly deferred."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. searchBrowseComps uses active listings; sold comps explicitly deferred. | DONE 2026-06-11 via the 'surface the limitation' AC path. eBay's sold-price feed (Marketplace Insights API) requires restricted production access we don't hold, so comps remain Browse-API active listings. Made the limitation explicit: EbayCompsPanel now shows a bordered caveat under the recommended-price band ('Asking prices from active listings, not sold prices — actual sale prices are often lower. Treat the recommended price as a ceiling.') and the Repricing page header carries the same caveat. tsc/eslint clean."
     },
     {
       "id": "US-461",
@@ -7297,8 +7297,8 @@
         "The stub list in CLAUDE.md is updated to match reality"
       ],
       "priority": 470,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. flipdesk-images.ts /process, flipdesk-grading.ts /webhook return 501; sheets 502."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. flipdesk-images.ts /process, flipdesk-grading.ts /webhook return 501; sheets 502. | DONE 2026-06-11. Classified every remaining 501 in the FlipDesk surface as DELIBERATE (not a missing feature): flipdesk-grading POST /webhook (same-process DB sync via grading-pipeline; reserved for the Phase-2 Public-API split) and flipdesk-images POST /process (thumbnails+EXIF client-side; /remove-bg superseded by on-device @imgly per US-535) — both already carry explanatory error bodies. Fixed the stale 'Still-stubbed handlers (Week 2-3 work)' header in flipdesk-ebay.ts (the helpers below it are fully implemented) and documented the classification inline. No accidental 501 hides unfinished reseller functionality."
     },
     {
       "id": "US-471",
