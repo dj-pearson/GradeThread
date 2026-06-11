@@ -558,6 +558,8 @@ export interface InventoryItemRow {
   photo_qa_score: number | null;
   photo_qa_issues: PhotoQaIssue[] | null;
   photo_qa_at: string | null;
+  // Per-listing automation override (US-150, migration 00135)
+  exclude_from_automations: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -633,6 +635,8 @@ export interface ListingRow {
   // multi-marketplace push share the source draft's id; the source draft
   // points at itself.
   draft_id: string | null;
+  // Promoted Listings ad rate, local-first (US-150, migration 00135)
+  promo_rate_pct: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -1376,6 +1380,7 @@ export interface InventoryItemInsert {
   ebay_category_id?: string | null;
   ebay_aspects?: Record<string, string[]> | null;
   ai_generated_aspects_at?: string | null;
+  exclude_from_automations?: boolean;
 }
 
 export interface ListingInsert {
@@ -1414,6 +1419,7 @@ export interface ListingInsert {
   price_is_estimated?: boolean;
   // Cross-listing group key (US-149)
   draft_id?: string | null;
+  promo_rate_pct?: number | null;
 }
 
 export interface SaleInsert {

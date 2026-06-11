@@ -32,6 +32,10 @@ import {
   handleRepriceRulesCron,
   handleRepriceScanCron,
 } from "./routes/flipdesk-pricing.ts";
+import {
+  flipdeskAutomationsRoutes,
+  handleAutomationRulesCron,
+} from "./routes/flipdesk-automations.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
@@ -203,6 +207,7 @@ app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
+app.use("/api/flipdesk/automations/*", authMiddleware);
 // Google Photos import — everything authed EXCEPT /oauth/callback (Google
 // redirects the browser there unauthenticated; the `state` row identifies the
 // user and the import is one-shot + tenant-scoped to the session's owner_id).
@@ -266,6 +271,7 @@ app.use("/api/flipdesk/google/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/google/sync/now", workspaceMiddleware);
 app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
+app.use("/api/flipdesk/automations/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
 
 // Admin billing: user JWT auth, then admin role check
@@ -331,6 +337,9 @@ app.use("/api/flipdesk/disclosure/*", rateLimiter(40, 60_000, "flipdesk-disclosu
 // A repricing scan fans out to one eBay Browse call per listing — cap tightly.
 app.use("/api/flipdesk/pricing/scan", rateLimiter(6, 60_000, "flipdesk-reprice-scan"));
 app.use("/api/flipdesk/pricing/*", rateLimiter(60, 60_000, "flipdesk-pricing"));
+// An automation run/dry-run scans every active listing — keep CRUD snappy but
+// cap the whole surface.
+app.use("/api/flipdesk/automations/*", rateLimiter(60, 60_000, "flipdesk-automations"));
 
 // Broadened coverage: sensitive / abusable surfaces that previously had none.
 app.use("/api/payments/*", rateLimiter(30, 60_000, "payments"));
@@ -438,6 +447,7 @@ app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleSyncRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
+app.route("/api/flipdesk/automations", flipdeskAutomationsRoutes);
 // Condition-aware repricing cron. OUTSIDE /api/flipdesk so the user-JWT
 // middleware above doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync cron).
@@ -445,6 +455,9 @@ app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
 // US-672 repricing-automation cron — applies owner-defined rules. Same
 // X-Internal-Job-Secret gate as reprice-scan.
 app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));
+// US-150 price-drop/promo scheduler cron (hourly) — trigger/action/scope
+// rules over active listings. Same X-Internal-Job-Secret gate.
+app.post("/api/jobs/automation-rules", (c) => handleAutomationRulesCron(c));
 // US-525 AutoLister reclaim sweeper. OUTSIDE the /api/flipdesk/autolister/*
 // JWT wildcard so a cron (no user token) can reach it; the handler enforces
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.

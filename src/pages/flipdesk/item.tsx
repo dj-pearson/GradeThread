@@ -1,9 +1,12 @@
 import { useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, Zap } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
@@ -101,6 +104,72 @@ export function FlipdeskItemPage() {
 
       {/* Auto-Disclosure Engine: condition & flaws + annotated defect photos. */}
       <DisclosurePanel itemId={item.id} />
+
+      {/* US-150: per-listing opt-out from the price-drop/promo scheduler. */}
+      <AutomationOptOutCard itemId={item.id} />
     </div>
+  );
+}
+
+// items_full doesn't expose the flag, so read/write inventory_items directly
+// (RLS scopes both to the caller's own rows).
+function AutomationOptOutCard({ itemId }: { itemId: string }) {
+  const queryClient = useQueryClient();
+
+  const { data: excluded, isLoading } = useQuery({
+    queryKey: ["item_automation_optout", itemId],
+    queryFn: async (): Promise<boolean> => {
+      const { data, error } = await supabase
+        .from("inventory_items")
+        .select("exclude_from_automations")
+        .eq("id", itemId)
+        .single();
+      if (error) throw error;
+      return (data as { exclude_from_automations: boolean })
+        .exclude_from_automations;
+    },
+  });
+
+  const toggle = useMutation({
+    mutationFn: async (next: boolean) => {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ exclude_from_automations: next } as never)
+        .eq("id", itemId);
+      if (error) throw error;
+      return next;
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData(["item_automation_optout", itemId], next);
+      toast.success(
+        next
+          ? "Excluded from automations — rules will skip this item."
+          : "Automations re-enabled for this item.",
+      );
+    },
+    onError: () => toast.error("Couldn't update the automation setting."),
+  });
+
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between gap-4 pt-6">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 font-medium">
+            <Zap className="h-4 w-4 text-brand-red" />
+            Exclude from automations
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Price-drop, promo, and end-listing rules from the Automations page
+            will skip this item.
+          </p>
+        </div>
+        <Switch
+          checked={excluded ?? false}
+          onCheckedChange={(next) => toggle.mutate(next)}
+          disabled={isLoading || toggle.isPending}
+          aria-label="Exclude from automations"
+        />
+      </CardContent>
+    </Card>
   );
 }

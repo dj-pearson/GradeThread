@@ -161,6 +161,7 @@ the handler returns 401.
 | trial-expiry            | `15 0 * * *` (00:15)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/trial-expiry`                          |
 | autolister-reclaim      | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/autolister-reclaim`                    |
 | reprice-scan            | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/reprice-scan`                          |
+| automation-rules        | `30 * * * *` (hourly)  | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/automation-rules`                      |
 | grading-monitor         | `0 */12 * * *` (12h)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/grading-monitor`                       |
 | stuck-submissions       | `*/10 * * * *` (10min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/stuck-submissions`                     |
 | email-retry             | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/email-retry`                           |
@@ -177,6 +178,9 @@ the handler returns 401.
 >   Set **`MONITOR_ALERT_EMAIL`** (and/or **`MONITOR_ALERT_WEBHOOK`** for
 >   Slack/PagerDuty) so a regression actually pages someone; with neither set the
 >   run records the alert but reports it as undelivered (US-502).
+> - `automation-rules` (US-150) applies user-defined price-drop / promo / end
+>   rules hourly (offset to :30 so it never races reprice-scan for the eBay
+>   rate budget). Per-rule cooldowns stop hourly re-fires; overlap-locked.
 > - `stuck-submissions` fails+refunds grades stranded in `processing` (US-495);
 >   `email-retry` re-sends failed critical email (US-498); `integrity-scan`
 >   reports DB anomalies (US-504); `data-retention` purges grading photos past

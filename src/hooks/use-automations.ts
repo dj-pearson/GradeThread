@@ -1,0 +1,232 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { edgeFetch } from "@/lib/edge-fetch";
+import type { FilterField, FilterOp } from "@/lib/item-filter";
+
+// Price-drop and promo scheduler (US-150) — rule CRUD, per-rule dry-run,
+// activity log, and on-demand run. Wire shapes mirror
+// services/edge-functions/src/lib/automation-rules.ts.
+
+export type AutomationTrigger =
+  | { type: "days_listed_gt"; days: number; cooldown_days: number }
+  | { type: "no_views_in_days"; days: number; cooldown_days: number }
+  | { type: "watchers_lt_after_days"; watchers: number; days: number; cooldown_days: number };
+
+export type AutomationAction =
+  | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
+  | { type: "set_promo_rate_pct"; pct: number }
+  | { type: "end_listing" };
+
+// Same vocabulary the US-143 FilterBuilder edits, plus the discriminator.
+// The builder's per-rule `id` keys are accepted and ignored server-side, and
+// the server returns rules WITHOUT ids — hence the optional `id`.
+export interface AutomationScopeRule {
+  id?: string;
+  field: FilterField;
+  op: FilterOp;
+  value: string;
+}
+
+export type AutomationScope =
+  | { type: "all" }
+  | { type: "filter"; combinator: "and" | "or"; rules: AutomationScopeRule[] };
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  trigger_json: AutomationTrigger;
+  action_json: AutomationAction;
+  scope_json: AutomationScope;
+  is_active: boolean;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutomationRuleInput {
+  name: string;
+  is_active: boolean;
+  trigger_json: AutomationTrigger;
+  action_json: AutomationAction;
+  scope_json: AutomationScope;
+}
+
+export interface AutomationDryRunMatch {
+  rule_id: string;
+  rule_name: string;
+  listing_id: string;
+  inventory_item_id: string;
+  title: string | null;
+  action_type: AutomationAction["type"];
+  current_price_cents: number;
+  new_price_cents: number | null;
+  current_promo_rate_pct: number | null;
+  new_promo_rate_pct: number | null;
+  floored: boolean;
+}
+
+export interface AutomationActionRow {
+  id: string;
+  rule_id: string;
+  listing_id: string | null;
+  inventory_item_id: string | null;
+  action_type: AutomationAction["type"];
+  before_json: Record<string, unknown> | null;
+  after_json: Record<string, unknown> | null;
+  ebay_synced: boolean;
+  created_at: string;
+  inventory_items: { title: string | null; brand: string | null } | null;
+}
+
+const RULES_KEY = ["automation_rules"];
+
+export function useAutomationRules() {
+  return useQuery({
+    queryKey: RULES_KEY,
+    staleTime: 30_000,
+    queryFn: async (): Promise<AutomationRule[]> => {
+      const res = await edgeFetch("/api/flipdesk/automations/rules");
+      if (!res.ok) throw new Error("Failed to load automation rules");
+      const data = (await res.json()) as { rules: AutomationRule[] };
+      return data.rules ?? [];
+    },
+  });
+}
+
+export function useCreateAutomationRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AutomationRuleInput) => {
+      const res = await edgeFetch("/api/flipdesk/automations/rules", {
+        method: "POST",
+        json: input,
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        rule?: AutomationRule;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Failed to create the rule");
+      return data.rule!;
+    },
+    onSuccess: () => {
+      toast.success("Automation rule created.");
+      queryClient.invalidateQueries({ queryKey: RULES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useUpdateAutomationRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: string; input: AutomationRuleInput }) => {
+      const res = await edgeFetch(`/api/flipdesk/automations/rules/${id}`, {
+        method: "PUT",
+        json: input,
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        rule?: AutomationRule;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Failed to update the rule");
+      return data.rule!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: RULES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useDeleteAutomationRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await edgeFetch(`/api/flipdesk/automations/rules/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Failed to delete the rule");
+      }
+      return true;
+    },
+    onSuccess: () => {
+      toast.success("Rule deleted.");
+      queryClient.invalidateQueries({ queryKey: RULES_KEY });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useDryRunAutomationRule() {
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const res = await edgeFetch(
+        `/api/flipdesk/automations/rules/${id}/dry-run`,
+        { method: "POST" },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        listings_scanned?: number;
+        affected?: AutomationDryRunMatch[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Dry run failed");
+      return {
+        listings_scanned: data.listings_scanned ?? 0,
+        affected: data.affected ?? [],
+      };
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+export function useAutomationRuleActions(ruleId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["automation_rule_actions", ruleId],
+    enabled,
+    staleTime: 30_000,
+    queryFn: async (): Promise<AutomationActionRow[]> => {
+      const res = await edgeFetch(
+        `/api/flipdesk/automations/rules/${ruleId}/actions`,
+      );
+      if (!res.ok) throw new Error("Failed to load the activity log");
+      const data = (await res.json()) as { actions: AutomationActionRow[] };
+      return data.actions ?? [];
+    },
+  });
+}
+
+export function useRunAutomations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/automations/run", {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        skipped?: boolean;
+        applied?: number;
+        listings_scanned?: number;
+        errors?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Run failed");
+      return data;
+    },
+    onSuccess: (r) => {
+      if (r.skipped) {
+        toast.info("Automations are temporarily disabled.");
+        return;
+      }
+      toast.success(
+        `Scanned ${r.listings_scanned ?? 0} listing${r.listings_scanned === 1 ? "" : "s"} — applied ${r.applied ?? 0} action${r.applied === 1 ? "" : "s"}.`,
+      );
+      queryClient.invalidateQueries({ queryKey: RULES_KEY });
+      queryClient.invalidateQueries({ queryKey: ["automation_rule_actions"] });
+      queryClient.invalidateQueries({ queryKey: ["items_full"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}

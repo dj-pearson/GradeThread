@@ -2620,8 +2620,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 150,
-      "passes": false,
-      "notes": "Deferred. Substantial new build (automation rule schema, scheduler integration, dry-run + margin-floor logic, per-listing override toggles, activity log). Requires its own focused session; not started this pass."
+      "passes": true,
+      "notes": "Completed 2026-06-11. Migration 00135 (not 00020 — numbering moved on): flipdesk_automation_rules (trigger_json/action_json/scope_json, RLS user-scoped) + flipdesk_automation_actions activity log + inventory_items.exclude_from_automations + listings.promo_rate_pct. Edge: lib/automation-rules.ts (pure, 16 unit tests) + routes/flipdesk-automations.ts (CRUD, per-rule dry-run, last-50 activity, on-demand /run, hourly cron /api/jobs/automation-rules — job-secret + lock + repricing kill-switch). Triggers: days_listed_gt / no_views_in_days (= zero views after N days; no per-day view history exists) / watchers_lt_after_days, each with cooldown_days (default 7) so the hourly cron cannot re-fire endlessly. Actions: price_drop_pct (floor = cost_basis x (1+margin_floor_pct/100), default 10%, integer-cents math; eBay push FIRST via updateOfferPrice per US-467), end_listing (withdrawOffer + item back to drafted, mirrors manual end-early), set_promo_rate_pct LOCAL-FIRST (listings.promo_rate_pct; eBay Marketing API push deferred — same precedent as US-141 promote). Scope reuses the US-143 FilterQuery vocabulary; edge evaluator mirrors src/lib/item-filter.ts semantics. UI: /dashboard/flipdesk/automations (rule cards, create/edit dialog reusing FilterBuilder, dry-run preview, activity log, active toggle) + Exclude-from-automations switch on item detail. First matching rule wins per listing per run. COOLIFY.md cron documented at :30 hourly. verify web+edge+db all green (db lane proved 00135 applies from zero)."
     },
     {
       "id": "US-151",
