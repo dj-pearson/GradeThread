@@ -5646,3 +5646,15 @@ test to extend — the right kind of work to land cleanly here.
           leaked into <body> (the Helmet-strip correctness check). It runs inside
           npm run build (the ci.yml build job / verify:web), failing the build on
           any violation. Verified clean across all 28 prerendered routes.
+
+- US-426  Define a trailing-slash canonical policy. COMPLETE (passes:true).
+          Files: scripts/prerender.mjs, src/components/seo.tsx, seo.test.tsx.
+          Policy: NO trailing slash (except root "/"). (AC1) prerender.mjs emits
+          an explicit 301 per prerendered route ("/pricing/ /pricing 301", 27
+          rules) prepended to dist/_redirects BEFORE the "/* /index.html 200"
+          fallback — deterministic (no reliance on Cloudflare Pages auto
+          behavior), idempotent. (AC2) <SEO> normalizePath()s
+          window.location.pathname so a visit to "/pricing/" still emits canonical
+          "/pricing", matching the prerendered/head-builder canonical; covered by
+          two new seo.test.tsx cases. (AC3) hreflang/x-default OMITTED on purpose
+          (single-locale en) — recorded in code comments. Full suite 392 green.

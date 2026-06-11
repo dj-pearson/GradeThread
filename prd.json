@@ -6743,8 +6743,8 @@
         "hreflang/x-default decision recorded (omit for single-locale) so it's intentional"
       ],
       "priority": 426,
-      "passes": false,
-      "notes": "[P2][SEO] Audit 2026-06-03. Both /pricing and /pricing/ resolve 200; client canonical derives from window.location."
+      "passes": true,
+      "notes": "[P2][SEO] Audit 2026-06-03. Both /pricing and /pricing/ resolve 200; client canonical derives from window.location. | DONE 2026-06-11. Single trailing-slash policy = NO slash (except root). AC1: prerender.mjs generates an explicit 301 per prerendered route ('/pricing/ /pricing 301', 27 rules) prepended to dist/_redirects ahead of the SPA fallback — deterministic, no reliance on CF Pages auto-behavior; idempotent. AC2: <SEO> now normalizePath()s window.location.pathname so the SPA canonical on a slash URL ('/pricing/') matches the prerendered canonical ('/pricing'); tested in seo.test.tsx. AC3: hreflang/x-default intentionally OMITTED (single-locale en), documented in prerender.mjs + seo.tsx."
     },
     {
       "id": "US-427",

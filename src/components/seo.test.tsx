@@ -53,6 +53,23 @@ describe("<SEO> component (US-301)", () => {
     expect(meta("meta[name='twitter:card']")).toBe("summary_large_image");
   });
 
+  it("US-426: strips a trailing slash from the auto-derived canonical", async () => {
+    window.history.pushState({}, "", "/pricing/");
+    await renderSEO({ title: "Pricing" });
+    expect(
+      document.head.querySelector("link[rel='canonical']")?.getAttribute("href"),
+    ).toBe("https://gradethread.com/pricing");
+    window.history.pushState({}, "", "/");
+  });
+
+  it("US-426: keeps the root canonical as a single slash", async () => {
+    window.history.pushState({}, "", "/");
+    await renderSEO({ title: "Home" });
+    expect(
+      document.head.querySelector("link[rel='canonical']")?.getAttribute("href"),
+    ).toBe("https://gradethread.com/");
+  });
+
   it("emits noindex,nofollow when noindex is set", async () => {
     await renderSEO({ title: "Dashboard", noindex: true });
     expect(meta("meta[name='robots']")).toBe("noindex, nofollow");

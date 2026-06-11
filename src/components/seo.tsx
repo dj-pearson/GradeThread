@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Helmet } from "react-helmet-async";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL, normalizePath } from "@/lib/seo/public-routes";
 
 type JsonLdValue = Record<string, unknown>;
 
@@ -46,10 +46,15 @@ export function SEO({
 
   // Default the canonical to the current pathname under the production origin
   // so every page is self-canonical even when the caller forgets to pass one.
+  // US-426: normalize the pathname (strip any trailing slash) so a visit to
+  // "/pricing/" still emits the canonical "/pricing" — matching the prerendered
+  // canonical (head-builder uses absoluteUrl → normalizePath) and the
+  // no-trailing-slash policy enforced by the 301s in dist/_redirects. Without
+  // this the SPA canonical would drift from the prerendered one on slash URLs.
   const resolvedCanonical =
     canonicalUrl ??
     (typeof window !== "undefined"
-      ? `${SITE_URL}${window.location.pathname}`
+      ? `${SITE_URL}${normalizePath(window.location.pathname)}`
       : undefined);
 
   // Normalize jsonLd to an array and JSON-encode. `<` is escaped so a value
