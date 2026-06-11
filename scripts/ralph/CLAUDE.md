@@ -93,3 +93,5 @@ If there are remaining stories, just finish cleanly. Ralph will spawn a new iter
 - **Don't modify `src/components/ui/*`** — those are shadcn-managed.
 - **Don't commit `.env` files or secrets.**
 - **Read before you write.** Always read existing files before modifying them.
+
+Trigger to run Ralph is "npm run ralph -- 10"
