@@ -20,6 +20,7 @@
     "verify:db": "node scripts/verify.mjs --db",
     "verify:security": "node scripts/verify.mjs --security",
     "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
+    "ralph": "node scripts/ralph/run.mjs --tool claude",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "repository": {

@@ -29,6 +29,11 @@ import {
   SYNC_LOG_TAB,
   type TabDef,
 } from "../lib/sheet-sync.ts";
+import {
+  type ConflictField,
+  recordSourceObservations,
+  type SourceObservation,
+} from "../lib/sync-conflicts.ts";
 
 // Google Sheets 2-way live sync (US-147).
 //

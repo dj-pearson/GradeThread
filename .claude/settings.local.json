@@ -137,7 +137,17 @@
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 30; Write-Output \"---LINT---\"; npx eslint src/components/flipdesk/publish-to-ebay-dialog.tsx src/hooks/use-ebay.ts 2>&1 | Select-Object -First 30)",
       "PowerShell(npx tsc -b 2>&1 | Select-Object -First 25; Write-Output \"---LINT---\"; npx eslint src/components/flipdesk/reconcile-panel.tsx src/hooks/use-autolister.ts 2>&1 | Select-Object -First 25)",
       "PowerShell(ConvertTo-Json *)",
-      "Bash(xargs grep -l \"verified\\\\|handle\\\\|profile\")"
+      "Bash(xargs grep -l \"verified\\\\|handle\\\\|profile\")",
+      "Bash(npm audit *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(gh run *)",
+      "Bash(xargs grep -l \"inventory_items\")",
+      "Bash(xargs -I {} basename {})",
+      "Bash(xargs grep -l \"email.*confirm\\\\|confirmation\\\\|universal.*link\\\\|deep.*link\")",
+      "Bash(xargs grep -l \"onOpenURL\\\\|deepLink\")",
+      "Bash(grep -E \"\\\\.swift$\")",
+      "Bash(xargs grep -l \"paywall\\\\|upgrade.*prompt\\\\|free.*trial\\\\|SignInWithApple\")",
+      "Bash(xargs grep -l \"plan.*limit\\\\|grade.*cap\\\\|free.*tier\")"
     ]
   },
   "hooks": {

@@ -42,6 +42,10 @@ import {
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
+import {
+  recordSourceObservations,
+  type SourceObservation,
+} from "../lib/sync-conflicts.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
 import {
   type ExistingSaleRow,
@@ -826,6 +830,32 @@ async function doListingsPull(
   // 'listed' ended WITHOUT a sale → auto-move it back to Drafts so the seller
   // can edit + relist it (Path A).
   const endedItemIds = new Set<string>();
+  // US-148: what eBay said about each matched listing, captured BEFORE the
+  // eBay-wins overwrite below, so cross-source conflicts keep FlipDesk's
+  // original value. Recorded in one batch after the orders pass (status
+  // observations for listings that ended via a genuine sale are dropped —
+  // "sold vs ended" isn't a disagreement worth flagging).
+  const ebayObservations: (SourceObservation & { itemId?: string })[] = [];
+  // Statuses where an eBay-vs-FlipDesk status diff is meaningful; sold /
+  // relisted are FlipDesk-richer states eBay can't express.
+  const COMPARABLE_STATUSES = new Set(["active", "ended", "draft"]);
+  type ExistingListingRow = {
+    id: string;
+    listing_price: number | null;
+    listing_status: string | null;
+    listing_title: string | null;
+    quantity: number | null;
+    source_of_truth: Record<string, string> | null;
+  };
+  // True when the user already picked a non-eBay winner for this field — the
+  // pull must not overwrite it (US-148 source-of-truth persistence).
+  const pinnedAgainstEbay = (
+    row: ExistingListingRow | null,
+    field: string,
+  ): boolean => {
+    const winner = row?.source_of_truth?.[field];
+    return !!winner && winner !== "ebay";
+  };
 
   for (const o of offers) {
     try {
@@ -841,14 +871,60 @@ async function doListingsPull(
 
       if (itemId) {
         // Upsert into listings (by inventory_item_id + platform).
-        const { data: existing } = await supabaseAdmin
+        const { data: existingRow } = await supabaseAdmin
           .from("listings")
-          .select("id")
+          .select(
+            "id, listing_price, listing_status, listing_title, quantity, source_of_truth",
+          )
           .eq("inventory_item_id", itemId)
           .eq("platform", "ebay")
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+        const existing = (existingRow ?? null) as ExistingListingRow | null;
+
+        // US-148: capture eBay-vs-FlipDesk disagreements before the overwrite.
+        if (existing) {
+          const ebayStatus = isActive ? "active" : "ended";
+          if (priceNum != null) {
+            ebayObservations.push({
+              listingId: existing.id,
+              field: "price",
+              flipdeskValue: existing.listing_price,
+              observedValue: priceNum,
+            });
+          }
+          // Quantity only once FlipDesk has an opinion (column seeded below).
+          if (existing.quantity != null && o.availableQuantity != null) {
+            ebayObservations.push({
+              listingId: existing.id,
+              field: "quantity",
+              flipdeskValue: existing.quantity,
+              observedValue: o.availableQuantity,
+            });
+          }
+          if (
+            existing.listing_status &&
+            COMPARABLE_STATUSES.has(existing.listing_status)
+          ) {
+            ebayObservations.push({
+              listingId: existing.id,
+              field: "listing_status",
+              flipdeskValue: existing.listing_status,
+              observedValue: ebayStatus,
+              itemId,
+            });
+          }
+          if (o.title && o.title.trim()) {
+            ebayObservations.push({
+              listingId: existing.id,
+              field: "title",
+              flipdeskValue: existing.listing_title,
+              observedValue: o.title,
+            });
+          }
+        }
+
         const patch: Record<string, unknown> = {
           platform_listing_id: o.listingId,
           platform_offer_id: o.offerId,
@@ -856,7 +932,15 @@ async function doListingsPull(
           listing_price: priceNum ?? undefined,
           listing_status: isActive ? "active" : "ended",
           is_active: isActive,
+          quantity: o.availableQuantity ?? undefined,
         };
+        // US-148: fields the user pinned to FlipDesk/Sheets keep their value.
+        if (pinnedAgainstEbay(existing, "price")) delete patch.listing_price;
+        if (pinnedAgainstEbay(existing, "quantity")) delete patch.quantity;
+        if (pinnedAgainstEbay(existing, "listing_status")) {
+          delete patch.listing_status;
+          delete patch.is_active;
+        }
         // eBay's own listing start date is authoritative — write it through so
         // the "List Date" column is populated even on sync-discovered listings
         // (we never set listed_at on insert below otherwise). Only overwrite
@@ -998,25 +1082,79 @@ async function doListingsPull(
         if (itemId) {
           // Same upsert path as the modern flow — but no platform_offer_id
           // because legacy listings don't have a Sell Inventory offer.
-          const { data: existing } = await supabaseAdmin
+          const { data: existingRow } = await supabaseAdmin
             .from("listings")
-            .select("id")
+            .select(
+              "id, listing_price, listing_status, listing_title, quantity, source_of_truth",
+            )
             .eq("inventory_item_id", itemId)
             .eq("platform", "ebay")
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
+          const existing = (existingRow ?? null) as ExistingListingRow | null;
+
+          // US-148: GetMyeBaySelling only returns ACTIVE listings.
+          if (existing) {
+            const legacyQty = l.quantityAvailable ?? l.quantity;
+            if (l.currentPrice != null) {
+              ebayObservations.push({
+                listingId: existing.id,
+                field: "price",
+                flipdeskValue: existing.listing_price,
+                observedValue: l.currentPrice,
+              });
+            }
+            if (existing.quantity != null && legacyQty != null) {
+              ebayObservations.push({
+                listingId: existing.id,
+                field: "quantity",
+                flipdeskValue: existing.quantity,
+                observedValue: legacyQty,
+              });
+            }
+            if (
+              existing.listing_status &&
+              COMPARABLE_STATUSES.has(existing.listing_status)
+            ) {
+              ebayObservations.push({
+                listingId: existing.id,
+                field: "listing_status",
+                flipdeskValue: existing.listing_status,
+                observedValue: "active",
+                itemId,
+              });
+            }
+            if (l.title && l.title.trim()) {
+              ebayObservations.push({
+                listingId: existing.id,
+                field: "title",
+                flipdeskValue: existing.listing_title,
+                observedValue: l.title,
+              });
+            }
+          }
+
           const patch: Record<string, unknown> = {
             platform_listing_id: l.ebayItemId,
             listing_url: l.listingUrl ?? ebayListingUrl(l.ebayItemId),
             listing_price: l.currentPrice ?? undefined,
             listing_status: "active",
             is_active: true,
+            quantity: l.quantityAvailable ?? l.quantity ?? undefined,
           };
           // Trading API gives us ListingDetails.StartTime — write it through to
           // listed_at so the "List Date" column reflects eBay's record.
           if (l.startTime) patch.listed_at = l.startTime;
           if (l.title && l.title.trim()) patch.listing_title = l.title;
+          // US-148: respect per-field source-of-truth picks.
+          if (pinnedAgainstEbay(existing, "price")) delete patch.listing_price;
+          if (pinnedAgainstEbay(existing, "quantity")) delete patch.quantity;
+          if (pinnedAgainstEbay(existing, "listing_status")) {
+            delete patch.listing_status;
+            delete patch.is_active;
+          }
+          if (pinnedAgainstEbay(existing, "title")) delete patch.listing_title;
           if (l.primaryCategoryId) patch.platform_category_id = l.primaryCategoryId;
           if (existing) {
             await supabaseAdmin
@@ -1551,6 +1689,9 @@ async function doListingsPull(
   // no order, etc.). Move those back to 'drafted' so they surface in the Drafts
   // tab where the seller can edit and relist them, and notify once per item.
   let endedToDraft = 0;
+  // US-148: ended listings whose item has a completed sale — their
+  // "ended vs active" status observation is a sale, not a conflict.
+  const soldEndedItemIds = new Set<string>();
   for (const itemId of endedItemIds) {
     try {
       // Defensive: never regress an item that has a completed sale on record,
@@ -1563,7 +1704,10 @@ async function doListingsPull(
         .eq("status", "completed")
         .limit(1)
         .maybeSingle();
-      if (sale) continue;
+      if (sale) {
+        soldEndedItemIds.add(itemId);
+        continue;
+      }
 
       // Forward-safe: only regress an item that's still sitting in 'listed'.
       // .select() returns the row only when the update actually applied, so the
@@ -1597,6 +1741,30 @@ async function doListingsPull(
     }
   }
 
+  // ── Cross-source conflict detection (US-148) ────────────────────────
+  // Runs after the orders pass so status observations for genuinely-sold
+  // listings can be dropped instead of flagged.
+  let conflictsRecorded = 0;
+  let conflictsResolved = 0;
+  try {
+    const toRecord = ebayObservations.filter(
+      (obs) =>
+        !(
+          obs.field === "listing_status" &&
+          obs.itemId &&
+          soldEndedItemIds.has(obs.itemId)
+        ),
+    );
+    const res = await recordSourceObservations(userId, "ebay", toRecord);
+    conflictsRecorded = res.recorded;
+    conflictsResolved = res.resolved;
+    errors.push(...res.errors.map((e) => `conflicts: ${e.slice(0, 160)}`));
+  } catch (err) {
+    errors.push(
+      `conflicts: ${err instanceof Error ? err.message : String(err)}`.slice(0, 200),
+    );
+  }
+
   // Stamp last_synced_at so the UI can show "Synced 2m ago" + the next
   // /listings/pull picks up where this one left off.
   await supabaseAdmin
@@ -1613,6 +1781,7 @@ async function doListingsPull(
       `catalog_updated=${catalogUpdated} specifics_fetched=${specificsFetched}` +
       `${specificsCapped ? ` (capped at ${MAX_SPECIFICS_FETCH_PER_SYNC}; remaining items backfill next sync)` : ""} ` +
       `ended_to_draft=${endedToDraft} ` +
+      `conflicts_recorded=${conflictsRecorded} conflicts_resolved=${conflictsResolved} ` +
       `errors=${errors.length}`,
   );
 

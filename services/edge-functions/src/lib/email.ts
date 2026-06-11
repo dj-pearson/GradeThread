@@ -1150,3 +1150,40 @@ export async function sendBroadcastEmail(
     html: emailLayout(content, { unsubscribeUrl }),
   });
 }
+
+/**
+ * Cross-source sync conflicts crossed the user's threshold (US-148): FlipDesk,
+ * eBay, and the Google Sheet disagree on enough listings to warrant a review.
+ */
+export async function sendSyncConflictsEmail(
+  to: string,
+  data: { userName: string; openCount: number; threshold: number },
+): Promise<boolean> {
+  const reviewUrl = `${SITE_URL}/dashboard/flipdesk/reconciliation`;
+
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Sync Conflicts Need Your Review
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, your listings now have
+      <strong>${data.openCount} open cross-source conflict${data.openCount === 1 ? "" : "s"}</strong>
+      — places where FlipDesk, eBay, and your Google Sheet disagree on price,
+      quantity, status, or title. That's at or above your alert threshold of
+      ${data.threshold}.
+    </p>
+    <p style="margin: 0 0 8px; color: #666; font-size: 14px; line-height: 1.5; text-align: center;">
+      Review each conflict and pick which source wins — per field or in bulk.
+    </p>
+    ${ctaButton("Review Conflicts", reviewUrl)}
+    <p style="margin: 0; color: #999; font-size: 13px; text-align: center;">
+      Adjust or disable this alert on the Cross-source tab of the Reconciliation page.
+    </p>
+  `;
+
+  return await sendEmail({
+    to,
+    subject: `${data.openCount} sync conflict${data.openCount === 1 ? "" : "s"} need review — FlipDesk, eBay & Sheets disagree`,
+    html: emailLayout(content),
+  });
+}
