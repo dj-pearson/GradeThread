@@ -44,6 +44,11 @@ import {
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
 import {
+  type ExistingSaleRow,
+  normalizeUnitCount,
+  pickSaleRowForLine,
+} from "../lib/ebay-order-lines.ts";
+import {
   checkImageReachability,
   dedupeAndCapImages,
   EBAY_MAX_IMAGES as PREFLIGHT_MAX_IMAGES,
@@ -689,6 +694,9 @@ async function snapshotOrphanSale(
         ebay_item_id: li.legacyItemId,
         sku: li.sku,
         title: li.title,
+        quantity: normalizeUnitCount(li.quantity),
+        // li.itemCost is the EXTENDED line total (unit price × quantity); store
+        // it as-is — it is already the line revenue, not a per-unit figure.
         sale_price: li.itemCost ? Number(li.itemCost.value) : null,
         shipping_collected: li.shippingCost
           ? Number(li.shippingCost.value)
@@ -1220,7 +1228,11 @@ async function doListingsPull(
           let listingId = lstRow?.id ?? null;
           const existingUrl = lstRow?.listing_url ?? null;
 
+          // li.itemCost is eBay's lineItemCost — the EXTENDED line total (unit
+          // price × quantity), NOT a per-unit price (verified vs the Fulfillment
+          // API docs). So this IS the line revenue; never multiply by quantity.
           const itemCost = li.itemCost ? Number(li.itemCost.value) : 0;
+          const quantity = normalizeUnitCount(li.quantity);
           const shippingCollected = li.shippingCost
             ? Number(li.shippingCost.value)
             : 0;
@@ -1274,20 +1286,28 @@ async function doListingsPull(
             }
           }
 
-          // Dedupe key is (inventory_item_id, platform_order_id). Migration
-          // 00032 adds the unique index that makes this safe under retries.
-          const { data: existing } = await supabaseAdmin
+          // US-468: dedupe key is (inventory_item_id, platform_order_id,
+          // line_item_id) — migration 00130 adds line_item_id to the unique
+          // index so two line items of the SAME item in one order don't collapse
+          // onto one row. Fetch every existing row for this item+order and let
+          // pickSaleRowForLine choose the right one (adopting a legacy null-id
+          // row once on the first post-migration re-sync).
+          const { data: existingRows } = await supabaseAdmin
             .from("sales")
-            .select("id")
+            .select("id, line_item_id")
             .eq("inventory_item_id", itemId)
-            .eq("platform_order_id", order.orderId)
-            .limit(1)
-            .maybeSingle();
+            .eq("platform_order_id", order.orderId);
+          const existing = pickSaleRowForLine(
+            (existingRows ?? []) as ExistingSaleRow[],
+            li.lineItemId,
+          );
 
           const salePayload = {
             inventory_item_id: itemId,
             listing_id: listingId,
             platform_order_id: order.orderId,
+            line_item_id: li.lineItemId ?? "",
+            quantity,
             sale_price: itemCost,
             sale_date: order.creationDate?.slice(0, 10) ?? null,
             sold_at: order.creationDate ?? null,

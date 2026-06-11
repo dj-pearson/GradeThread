@@ -5963,3 +5963,37 @@ libs + one Taxonomy cache table; no live-API or frontend changes required.
   two new libs are PURE and were validated by porting the logic to Node
   (title-trim 14/14, preflight 15/15). Run `npm run verify:edge` on a Deno host
   before deploy.
+
+================================================================================
+## 2026-06-11 — Multi-quantity / multi-line eBay orders (US-468)
+
+- US-468  Handle multi-quantity / multi-line eBay orders. COMPLETE. Migration
+          00130 adds sales.quantity (unit count, CHECK >= 1) + sales.line_item_id
+          and REPLACES the (inventory_item_id, platform_order_id) unique index
+          with (inventory_item_id, platform_order_id, COALESCE(line_item_id,''))
+          so distinct line items that resolve to the SAME inventory item in one
+          order no longer collapse onto a single sale row (legacy null-line rows
+          keep their old dedupe behavior). flipdesk_ebay_orphan_sales also gains
+          a quantity column.
+
+          New pure lib/ebay-order-lines.ts: normalizeUnitCount (eBay quantity ->
+          positive int), pickSaleRowForLine (per-line dedupe selection with a
+          one-time legacy-row adoption so the first post-migration re-sync doesn't
+          duplicate), and perUnitPrice (display only). Unit-tested in
+          tests/ebay-order-lines_test.ts (18 assertions, validated via Node port).
+
+          doListingsPull now fetches ALL sale rows for the item+order, selects the
+          right one per line item, and writes quantity + line_item_id;
+          snapshotOrphanSale records quantity too.
+
+          KEY CORRECTNESS NOTE: verified against the eBay Fulfillment API LineItem
+          docs that `lineItemCost` is the EXTENDED line total (unit price ×
+          quantity), NOT a per-unit price. So sale_price = lineItemCost is already
+          the correct line revenue and is NEVER multiplied by quantity (doing so
+          would double-count). Documented inline at both write sites to prevent a
+          future "fix" from reintroducing the bug.
+
+          (Same container caveat as the prior entry: edge deno test/check could
+          not run here — Deno absent + network blocked. Pure logic validated by
+          Node port; run `npm run verify:edge` + `supabase db reset` on a proper
+          host before deploy.)

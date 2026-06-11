@@ -7271,8 +7271,8 @@
         "sale_price reflects line quantity; dedupe key disambiguates multiple line items in one order"
       ],
       "priority": 468,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orders pass dedupes on (item, order) and assumes single-unit items."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orders pass dedupes on (item, order) and assumes single-unit items. | DONE 2026-06-11: migration 00130 adds sales.quantity (unit count, CHECK >=1) + sales.line_item_id, and REPLACES the (inventory_item_id, platform_order_id) unique index with (inventory_item_id, platform_order_id, COALESCE(line_item_id,'')) so two line items resolving to the SAME inventory item in one order no longer collapse onto one row (legacy null-id rows still dedupe as before). New pure lib/ebay-order-lines.ts (normalizeUnitCount / pickSaleRowForLine / perUnitPrice, unit-tested in tests/ebay-order-lines_test.ts, 18 assertions) drives the matched sale-row selection with one-time legacy adoption. doListingsPull now fetches all rows for item+order, picks the right one per line, and writes quantity + line_item_id; snapshotOrphanSale records quantity too (orphan table gains a quantity column). VERIFIED vs the eBay Fulfillment API docs that lineItemCost is the EXTENDED line total (unit price × quantity), so sale_price stays as-is and is NEVER multiplied by quantity (that would double-count) — documented inline."
     },
     {
       "id": "US-469",
