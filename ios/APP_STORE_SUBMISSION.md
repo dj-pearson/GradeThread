@@ -171,8 +171,71 @@ Create ONE group: **"FlipDesk Plans"**. Add all 6 auto-renewables. Rank levels
 | 2 | `com.gradethread.sub.pro.monthly` / `com.gradethread.sub.pro.yearly` | $59/mo / $590/yr |
 | 3 | `com.gradethread.sub.starter.monthly` / `com.gradethread.sub.starter.yearly` | $29/mo / $290/yr |
 
-Display names: "Starter", "Pro", "Business" (+ "(Yearly)" suffix on annual).
-Group display name shown on Apple's manage-subscriptions sheet: "FlipDesk Plans".
+Group display name shown on Apple's manage-subscriptions sheet: **"FlipDesk Plans"**.
+
+#### Per-product detail (enter exactly as shown in ASC)
+
+> ⚠️ **ASC description limit: 45 characters** (subscription localization field). Values below are within that limit — do not expand them.
+
+**Starter — Monthly**
+| Field | Value |
+|---|---|
+| Reference name | FlipDesk Starter Monthly |
+| Product ID | `com.gradethread.sub.starter.monthly` |
+| Display name | Starter |
+| Description | 250 listings · 200 AI actions · 10 grades/mo |
+| Price | $29.00 / month |
+| Review notes | Grants the "starter" plan tier. Allows 250 listings, 200 AI-assist actions, and 10 AI condition grading reports per billing period. The demo account has pre-loaded credits — no purchase is required to review core flows. |
+
+**Starter — Yearly**
+| Field | Value |
+|---|---|
+| Reference name | FlipDesk Starter Yearly |
+| Product ID | `com.gradethread.sub.starter.yearly` |
+| Display name | Starter (Yearly) |
+| Description | 250 listings · 200 AI actions · 10 grades/mo |
+| Price | $290.00 / year |
+| Review notes | Same entitlements as Starter Monthly; auto-renews annually. Grants "starter" plan with 250 listings, 200 AI actions, 10 grades/month. |
+
+**Pro — Monthly**
+| Field | Value |
+|---|---|
+| Reference name | FlipDesk Pro Monthly |
+| Product ID | `com.gradethread.sub.pro.monthly` |
+| Display name | Pro |
+| Description | 1,000 listings · 1,000 AI actions · 30 grades |
+| Price | $59.00 / month |
+| Review notes | Grants the "pro" plan tier. Allows 1,000 listings, 1,000 AI-assist actions, 30 grades/month, and unlocks the AutoLister bulk-workflow feature. |
+
+**Pro — Yearly**
+| Field | Value |
+|---|---|
+| Reference name | FlipDesk Pro Yearly |
+| Product ID | `com.gradethread.sub.pro.yearly` |
+| Display name | Pro (Yearly) |
+| Description | 1,000 listings · 1,000 AI actions · 30 grades |
+| Price | $590.00 / year |
+| Review notes | Same entitlements as Pro Monthly; auto-renews annually. Grants "pro" plan with 1,000 listings, 1,000 AI actions, 30 grades/month, and AutoLister. |
+
+**Business — Monthly**
+| Field | Value |
+|---|---|
+| Reference name | FlipDesk Business Monthly |
+| Product ID | `com.gradethread.sub.business.monthly` |
+| Display name | Business |
+| Description | Unlimited listings · team seats · API · reconciliation |
+| Price | $99.00 / month |
+| Review notes | Grants the "business" plan tier. Unlocks unlimited listings, team/multi-seat access, public API, and automated reconciliation. |
+
+**Business — Yearly**
+| Field | Value |
+|---|---|
+| Reference name | FlipDesk Business Yearly |
+| Product ID | `com.gradethread.sub.business.yearly` |
+| Display name | Business (Yearly) |
+| Description | Unlimited listings · team seats · API · reconciliation |
+| Price | $990.00 / year |
+| Review notes | Same entitlements as Business Monthly; auto-renews annually. Grants "business" plan with unlimited listings, team seats, API, and reconciliation. |
 
 ⚠️ Pricing decision (yours): web Stripe prices are $29/$59/$99 with no Apple
 commission. Listing identical prices in-app nets 15–30% less after Apple's cut.
@@ -190,14 +253,48 @@ Recommended group settings:
 
 ### 6.2 Consumables (grade credit packs)
 
-| Product ID | Display name | Price |
-|---|---|---|
-| `com.gradethread.credits.10` | 10 Grade Credits | $24.99 |
-| `com.gradethread.credits.25` | 25 Grade Credits | $59.99 |
-| `com.gradethread.credits.50` | 50 Grade Credits | $109.99 |
-| `com.gradethread.credits.100` | 100 Grade Credits | $199.99 |
+> These are **in-app purchases** — specifically the **Consumable** IAP type. Create them in ASC under **In-App Purchases → Create New → Consumable** (NOT inside the subscription group). They are one-time, non-expiring, and can be purchased multiple times.
 
-Description (each): "Credits for AI condition grading reports. Credits never expire."
+**10 Grade Credits**
+| Field | Value |
+|---|---|
+| Reference name | 10 Grade Credits |
+| Product ID | `com.gradethread.credits.10` |
+| Display name | 10 Grade Credits |
+| Description | 10 AI condition grading credits. Never expire. |
+| Price | $24.99 |
+| Review notes | One-time consumable. Grants 10 AI grading credits added to the user's balance. Credits are non-expiring and used one-per-grading-submission. Server grants idempotently on `transactionId`. |
+
+**25 Grade Credits**
+| Field | Value |
+|---|---|
+| Reference name | 25 Grade Credits |
+| Product ID | `com.gradethread.credits.25` |
+| Display name | 25 Grade Credits |
+| Description | 25 AI condition grading credits. Never expire. |
+| Price | $59.99 |
+| Review notes | One-time consumable. Grants 25 AI grading credits. Credits are non-expiring and used one-per-grading-submission. Server grants idempotently on `transactionId`. |
+
+**50 Grade Credits**
+| Field | Value |
+|---|---|
+| Reference name | 50 Grade Credits |
+| Product ID | `com.gradethread.credits.50` |
+| Display name | 50 Grade Credits |
+| Description | 50 AI condition grading credits. Never expire. |
+| Price | $109.99 |
+| Review notes | One-time consumable. Grants 50 AI grading credits. Credits are non-expiring and used one-per-grading-submission. Server grants idempotently on `transactionId`. |
+
+**100 Grade Credits**
+| Field | Value |
+|---|---|
+| Reference name | 100 Grade Credits |
+| Product ID | `com.gradethread.credits.100` |
+| Display name | 100 Grade Credits |
+| Description | 100 AI condition grading credits. Never expire. |
+| Price | $199.99 |
+| Review notes | One-time consumable. Grants 100 AI grading credits. Credits are non-expiring and used one-per-grading-submission. Server grants idempotently on `transactionId`. |
+
 Server grants credits idempotently via `grant_appstore_credits` RPC
 (migration `00104_appstore_billing.sql`) keyed on Apple `transactionId`.
 

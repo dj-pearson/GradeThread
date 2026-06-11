@@ -6,10 +6,25 @@ import SwiftUI
 struct PlanSection: View {
     @Environment(AuthStore.self) private var authStore
     @State private var store = PlanStore()
-    @State private var showingBilling = false
-    @State private var showingPaywall = false
+    @State private var activeSheet: ActiveSheet?
 
     private static let billingURL = URL(string: "https://gradethread.com/dashboard/billing")!
+
+    /// A single sheet selector. Stacking multiple `.sheet(isPresented:)`
+    /// modifiers on one view makes SwiftUI tear the presentation down the
+    /// instant either toggles — the sheet flashes open and immediately
+    /// dismisses. One `.sheet(item:)` (like ProfileSection) presents reliably.
+    private enum ActiveSheet: Identifiable {
+        case paywall(UUID)
+        case billing
+
+        var id: String {
+            switch self {
+            case let .paywall(userId): return "paywall-\(userId.uuidString)"
+            case .billing: return "billing"
+            }
+        }
+    }
 
     private var userId: UUID? {
         if case let .signedIn(user) = authStore.phase { return user.id }
@@ -51,12 +66,12 @@ struct PlanSection: View {
                 .font(.footnote)
         }
         .task { await store.load() }
-        .sheet(isPresented: $showingBilling) {
-            SafariView(url: Self.billingURL).ignoresSafeArea()
-        }
-        .sheet(isPresented: $showingPaywall) {
-            if let userId {
+        .sheet(item: $activeSheet) { sheet in
+            switch sheet {
+            case let .paywall(userId):
                 NavigationStack { PaywallView(userId: userId) }
+            case .billing:
+                SafariView(url: Self.billingURL).ignoresSafeArea()
             }
         }
     }
@@ -79,10 +94,10 @@ struct PlanSection: View {
             )
         }
 
-        if userId != nil {
+        if let userId {
             Button {
                 AppRouter.haptic()
-                showingPaywall = true
+                activeSheet = .paywall(userId)
             } label: {
                 Label("See plans & credits", systemImage: "sparkles")
             }
@@ -90,7 +105,7 @@ struct PlanSection: View {
 
         Button {
             AppRouter.haptic()
-            showingBilling = true
+            activeSheet = .billing
         } label: {
             Label("Manage plan & billing", systemImage: "creditcard")
         }
