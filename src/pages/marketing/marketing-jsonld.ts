@@ -7,7 +7,6 @@
 import {
   howToLd,
   faqPageLd,
-  breadcrumbLd,
   transparencyDatasetLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
@@ -190,13 +189,13 @@ export function glossaryBreadcrumbItems(
 }
 
 /**
- * Page-specific JSON-LD for a glossary entry: a 3-level BreadcrumbList back to
- * the pillar + an FAQPage from the entry's visible Q&A. Organization is added
- * separately by the layout/head-builder, matching the other marketing pages.
+ * Page-specific JSON-LD for a glossary entry: an FAQPage from the entry's
+ * visible Q&A. Organization AND the 3-level BreadcrumbList are added separately
+ * — by MarketingLayout's `breadcrumbs` override on the live page and by the
+ * prerender head-builder — so the breadcrumb is emitted EXACTLY ONCE. (US-423:
+ * this used to also return breadcrumbLd() here, which double-emitted the
+ * BreadcrumbList on the live page since the layout already emits one.)
  */
 export function glossaryJsonLd(entry: GlossaryEntry): JsonLd[] {
-  return [
-    breadcrumbLd(glossaryBreadcrumbItems(entry)),
-    faqPageLd(entry.faqs),
-  ];
+  return [faqPageLd(entry.faqs)];
 }

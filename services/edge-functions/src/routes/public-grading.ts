@@ -32,13 +32,14 @@ publicGradingRoutes.get("/transparency", async (c) => {
       "Cache-Control": "public, max-age=300, s-maxage=900",
     });
   } catch (err) {
-    return c.json(
-      {
-        error: "Failed to build transparency report",
-        detail: err instanceof Error ? err.message : String(err),
-      },
-      500,
+    // US-580: this is an unauthenticated surface — never echo raw error detail
+    // (DB/PostgREST internals) to the caller. Log it server-side and return a
+    // generic body, mirroring the global app.onError in main.ts.
+    console.error(
+      "public-grading /transparency:",
+      err instanceof Error ? err.message : String(err),
     );
+    return c.json({ error: "Internal error" }, 500);
   }
 });
 

@@ -487,6 +487,16 @@ interface CreditPackPurchasedData {
   newBalance: number;
 }
 
+// US-222: per-renewal subscription receipt (recurring charge).
+interface SubscriptionRenewalReceiptData {
+  userName: string;
+  plan: string;
+  interval: "monthly" | "yearly";
+  amountCents: number;
+  periodEnd: string;
+  invoiceNumber: string | null;
+}
+
 interface PaymentFailedData {
   userName: string;
   plan: string;
@@ -543,6 +553,45 @@ export async function sendSubscriptionStartedEmail(
     subject: `FlipDesk ${data.plan} active — welcome aboard`,
     html: emailLayout(content),
     category: "subscription_started", // US-801: durable retry on transient failure
+  });
+}
+
+// US-222: receipt for a recurring subscription renewal (billing_reason
+// "subscription_cycle"). The first charge is covered by
+// sendSubscriptionStartedEmail; this closes the gap so every recurring charge
+// produces a receipt, mirroring the credit-pack receipt.
+export async function sendSubscriptionRenewalReceiptEmail(
+  to: string,
+  data: SubscriptionRenewalReceiptData,
+): Promise<boolean> {
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      Payment received — FlipDesk ${escapeHtml(data.plan)}
+    </h2>
+    <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, thanks — your FlipDesk ${escapeHtml(data.plan)} subscription renewed.
+    </p>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Plan</span><br><strong>FlipDesk ${escapeHtml(data.plan)}</strong></td>
+        <td style="padding: 12px; border-left: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Charged</span><br><strong>${dollars(data.amountCents)} / ${data.interval === "yearly" ? "year" : "month"}</strong></td>
+      </tr>
+      <tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Renews</span><br><strong>${formatDate(data.periodEnd)}</strong></td></tr>
+      ${
+    data.invoiceNumber
+      ? `<tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Invoice</span><br><strong>${escapeHtml(data.invoiceNumber)}</strong></td></tr>`
+      : ""
+  }
+    </table>
+
+    ${ctaButton("View Billing", `${SITE_URL}/dashboard/billing`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Receipt: FlipDesk ${data.plan} — ${dollars(data.amountCents)}`,
+    html: emailLayout(content),
+    category: "subscription_renewal_receipt", // US-801: durable retry on transient failure
   });
 }
 

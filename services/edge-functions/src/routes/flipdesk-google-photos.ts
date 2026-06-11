@@ -335,9 +335,28 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
 
   async function importOne(m: PickerMediaItem): Promise<void> {
     try {
+      // US-579: the baseUrl comes from the Picker response, not a hardcoded
+      // googleapis host. We attach the user's Google bearer token to the
+      // download, so a poisoned/spoofed baseUrl pointing at an attacker host
+      // would exfiltrate that token. Validate the host is a real Google photo
+      // host BEFORE fetching; reject anything else.
+      const baseUrl = m.mediaFile!.baseUrl;
+      let host: string;
+      try {
+        host = new URL(baseUrl).hostname.toLowerCase();
+      } catch {
+        throw new Error("invalid baseUrl");
+      }
+      const allowedHost = host === "googleusercontent.com" ||
+        host === "google.com" ||
+        host.endsWith(".googleusercontent.com") ||
+        host.endsWith(".google.com");
+      if (!allowedHost) {
+        throw new Error(`refused non-Google baseUrl host: ${host}`);
+      }
       // Sized download returns a JPEG (Google transcodes sized variants), so we
       // never have to decode HEIC server-side.
-      const res = await fetch(`${m.mediaFile!.baseUrl}=w2400-h2400`, {
+      const res = await fetch(`${baseUrl}=w2400-h2400`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`download ${res.status}`);

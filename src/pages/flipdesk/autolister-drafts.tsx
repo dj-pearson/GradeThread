@@ -9,6 +9,8 @@ import {
   Sparkles,
   Loader2,
   Layers,
+  Rocket,
+  ExternalLink,
 } from "lucide-react";
 import {
   Card,
@@ -21,6 +23,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Table,
   TableBody,
   TableCell,
@@ -28,6 +37,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { toast } from "sonner";
+import { useBulkPublish } from "@/hooks/use-autolister";
+import { useEbayConnection } from "@/hooks/use-ebay";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -48,7 +60,11 @@ interface DraftRow {
   scheduled_publish_at: string | null;
   price_is_estimated: boolean | null;
   platform_category_id: string | null;
+  needs_review: boolean | null;
 }
+
+// US-548: sort options for the cockpit.
+type SortKey = "created_desc" | "created_asc" | "price_desc" | "price_asc" | "title_asc";
 
 function fmtRelative(iso: string): string {
   const t = new Date(iso).getTime();
@@ -71,6 +87,9 @@ function fmtMoney(n: number | null | undefined): string {
 export function FlipdeskAutolisterDraftsPage() {
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("created_desc");
+  const bulkPublish = useBulkPublish();
+  const { data: ebayConnection } = useEbayConnection();
 
   const { data: drafts = [], isLoading } = useQuery({
     queryKey: ["autolister_drafts", user?.id],
@@ -80,7 +99,7 @@ export function FlipdeskAutolisterDraftsPage() {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, platform_category_id",
+          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, platform_category_id, needs_review",
         )
         .eq("listing_status", "draft")
         .not("batch_id", "is", null)
@@ -132,6 +151,50 @@ export function FlipdeskAutolisterDraftsPage() {
     });
   }, [drafts, search, titles]);
 
+  // US-548: apply the chosen sort to the filtered set.
+  const sorted = useMemo(() => {
+    const rows = [...filtered];
+    rows.sort((a, b) => {
+      switch (sortKey) {
+        case "created_asc":
+          return a.created_at.localeCompare(b.created_at);
+        case "price_desc":
+          return (b.listing_price ?? 0) - (a.listing_price ?? 0);
+        case "price_asc":
+          return (a.listing_price ?? 0) - (b.listing_price ?? 0);
+        case "title_asc":
+          return titleFor(a).localeCompare(titleFor(b));
+        case "created_desc":
+        default:
+          return b.created_at.localeCompare(a.created_at);
+      }
+    });
+    return rows;
+  }, [filtered, sortKey, titles]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // US-548: a draft is "ready" to publish when it isn't flagged for review,
+  // carries a real price + category, and isn't already on a schedule. Bulk
+  // publish-all only touches these (the per-item pre-flight is still the gate).
+  const readyDrafts = useMemo(
+    () =>
+      sorted.filter(
+        (d) =>
+          !d.needs_review &&
+          (d.listing_price ?? 0) > 0 &&
+          !!d.platform_category_id &&
+          !d.scheduled_publish_at,
+      ),
+    [sorted],
+  );
+
+  async function publishReady() {
+    if (readyDrafts.length === 0) return;
+    await bulkPublish.run(
+      readyDrafts.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
+    );
+    toast.success("Publish finished — see per-row status.");
+  }
+
   const totalValue = useMemo(
     () => drafts.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
     [drafts],
@@ -176,14 +239,48 @@ export function FlipdeskAutolisterDraftsPage() {
                 {fmtMoney(totalValue)} total list value
               </CardDescription>
             </div>
-            <div className="relative w-full max-w-xs">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search drafts by title…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search drafts by title…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
+              <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+                <SelectTrigger className="w-[150px]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="created_desc">Newest first</SelectItem>
+                  <SelectItem value="created_asc">Oldest first</SelectItem>
+                  <SelectItem value="price_desc">Price: high → low</SelectItem>
+                  <SelectItem value="price_asc">Price: low → high</SelectItem>
+                  <SelectItem value="title_asc">Title: A → Z</SelectItem>
+                </SelectContent>
+              </Select>
+              {/* US-548: publish-all from the cockpit (ready drafts only). */}
+              {readyDrafts.length > 0 && (
+                <Button
+                  onClick={() => void publishReady()}
+                  disabled={bulkPublish.running || !ebayConnection}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  title={
+                    !ebayConnection
+                      ? "Connect eBay first on the Marketplaces page."
+                      : "Validate and publish every ready draft (not flagged, priced, categorized, unscheduled)."
+                  }
+                >
+                  {bulkPublish.running ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Rocket className="mr-2 h-4 w-4" />
+                  )}
+                  Publish {readyDrafts.length} ready
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -215,6 +312,7 @@ export function FlipdeskAutolisterDraftsPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Title</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead className="text-right">Price</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Scheduled</TableHead>
@@ -224,10 +322,55 @@ export function FlipdeskAutolisterDraftsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map((d) => (
+                  {sorted.map((d) => {
+                    const pub = bulkPublish.results[d.inventory_item_id];
+                    return (
                     <TableRow key={d.id}>
                       <TableCell className="max-w-xs truncate font-medium">
                         {titleFor(d)}
+                      </TableCell>
+                      <TableCell>
+                        {pub?.status === "publishing" ? (
+                          <Badge variant="secondary" className="gap-1 text-[10px]">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Publishing
+                          </Badge>
+                        ) : pub?.status === "success" ? (
+                          pub.listingUrl ? (
+                            <a
+                              href={pub.listingUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline"
+                            >
+                              Live <ExternalLink className="h-3 w-3" />
+                            </a>
+                          ) : (
+                            <Badge className="text-[10px]">Live</Badge>
+                          )
+                        ) : pub?.status === "failed" ? (
+                          <Link
+                            to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+                            className="text-[11px] text-destructive underline-offset-2 hover:underline"
+                            title={`${pub.error} — click to fix`}
+                          >
+                            Failed
+                          </Link>
+                        ) : d.needs_review ? (
+                          <Badge
+                            variant="outline"
+                            className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700"
+                          >
+                            Needs review
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-700"
+                          >
+                            Ready
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         {fmtMoney(d.listing_price)}
@@ -297,7 +440,8 @@ export function FlipdeskAutolisterDraftsPage() {
                         </Button>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

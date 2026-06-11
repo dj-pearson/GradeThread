@@ -154,14 +154,17 @@ export function SettingsPage() {
         const ext = avatarFile.name.split(".").pop() ?? "jpg";
         const path = `${user.id}/avatar_${Date.now()}.${ext}`;
 
+        // Avatars live in the dedicated PUBLIC `avatars` bucket (US-572).
+        // The private `submission-images` bucket is signed-URL-only per the
+        // CLAUDE.md storage contract and must never be served via getPublicUrl.
         const { error: uploadError } = await supabase.storage
-          .from("submission-images")
+          .from("avatars")
           .upload(path, avatarFile, { upsert: true });
 
         if (uploadError) throw uploadError;
 
         const { data: urlData } = supabase.storage
-          .from("submission-images")
+          .from("avatars")
           .getPublicUrl(path);
 
         avatarUrl = urlData.publicUrl;

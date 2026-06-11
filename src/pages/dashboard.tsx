@@ -137,18 +137,33 @@ export function DashboardPage() {
   const { data: inventoryData } = useQuery({
     queryKey: ["dashboard-listing-suggestions"],
     queryFn: async () => {
+      // US-411: the listing-suggestions widget only acts on ACTIVE inventory
+      // (it skips sold/shipped/completed/returned) and reads a handful of
+      // columns. Push the status filter + a candidate cap to the server and
+      // select just the rendered columns so this query stays fast regardless of
+      // total inventory size (was select('*') over ALL inventory_items).
+      const SUGGESTION_CANDIDATE_CAP = 200;
+      // Cheap index-only count (head: no rows transferred) preserves the
+      // FlipdeskPromoCard's "do they have ANY inventory yet?" gate, independent
+      // of the active-only candidate query below.
+      const { count: totalItemCount } = await supabase
+        .from("inventory_items")
+        .select("id", { count: "exact", head: true });
       const { data: itemsRaw } = await supabase
         .from("inventory_items")
-        .select("*");
-      const items = (itemsRaw ?? []) as InventoryItemRow[];
+        .select("id, status, title, submission_id")
+        .not("status", "in", "(sold,shipped,completed,returned)")
+        .order("created_at", { ascending: false })
+        .limit(SUGGESTION_CANDIDATE_CAP);
+      const items = (itemsRaw ?? []) as unknown as InventoryItemRow[];
 
       const itemIds = items.map((i) => i.id);
       const allListings = await fetchInChunks<ListingRow>(itemIds, async (chunk) => {
         const { data, error } = await supabase
           .from("listings")
-          .select("*")
+          .select("inventory_item_id, is_active, listed_at, platform")
           .in("inventory_item_id", chunk);
-        return { data, error };
+        return { data: data as unknown as ListingRow[] | null, error };
       });
 
       const submissionIds = items
@@ -157,12 +172,17 @@ export function DashboardPage() {
       const allReports = await fetchInChunks<GradeReportRow>(submissionIds, async (chunk) => {
         const { data, error } = await supabase
           .from("grade_reports")
-          .select("*")
+          .select("submission_id, confidence_score")
           .in("submission_id", chunk);
-        return { data, error };
+        return { data: data as unknown as GradeReportRow[] | null, error };
       });
 
-      return { items, listings: allListings, gradeReports: allReports };
+      return {
+        items,
+        listings: allListings,
+        gradeReports: allReports,
+        totalItemCount: totalItemCount ?? 0,
+      };
     },
     staleTime: 5 * 60 * 1000,
   });
@@ -237,7 +257,7 @@ export function DashboardPage() {
       </div>
 
       {/* FlipDesk cross-promotion (zero-inventory users only) */}
-      <FlipdeskPromoCard itemCount={inventoryData?.items.length} />
+      <FlipdeskPromoCard itemCount={inventoryData?.totalItemCount} />
 
       {/* Use-case tailored quick start */}
       {profile?.use_case === "developer" && (

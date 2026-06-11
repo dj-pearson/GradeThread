@@ -1681,15 +1681,44 @@ export interface RemoteInventoryItem {
   aspects: Record<string, string[]> | null;
 }
 
+// US-466: pagination safety ceilings (pages). These exist ONLY to stop a
+// runaway loop if eBay never returns a short page; they are NOT a silent data
+// cap. They're sized well above any realistic catalog/history, and when one IS
+// hit while eBay's `total` says more remains, the loop records an explicit
+// truncation warning into the caller's sync-run errors (instead of quietly
+// returning a partial set as the old fixed `i < 50` loops did).
+const INVENTORY_PAGE_CEILING = 500; // 100/page → 50,000 items
+const ORDERS_PAGE_CEILING = 200; // 200/page → 40,000 orders
+const TRANSACTIONS_PAGE_CEILING = 500; // 200/page → 100,000 transactions
+
+// US-466: uniform truncation message recorded into a sync run's error list when
+// a pagination safety ceiling is reached before eBay returned a short page.
+function truncationWarning(
+  resource: string,
+  fetched: number,
+  total: number | null,
+  ceiling: number,
+): string {
+  const totalStr = total != null ? ` of ~${total}` : "";
+  return (
+    `Truncated ${resource}: synced ${fetched}${totalStr} (hit the ${ceiling}-row ` +
+    `safety ceiling). Remaining rows were NOT synced — narrow the date window or contact support.`
+  );
+}
+
 // Lists every inventory_item registered against the seller's account.
-// Paginated 100/page; eBay's max for this endpoint.
+// Paginated 100/page; eBay's max for this endpoint. `warnings` (when provided)
+// collects a truncation note if the safety ceiling is reached (US-466).
 export async function listAllInventoryItems(
-  userId: string
+  userId: string,
+  warnings?: string[],
 ): Promise<RemoteInventoryItem[]> {
   const all: RemoteInventoryItem[] = [];
   const limit = 100;
   let offset = 0;
-  for (let i = 0; i < 50; i++) {
+  let completed = false;
+  let total: number | null = null;
+  for (let i = 0; i < INVENTORY_PAGE_CEILING; i++) {
     const payload = await fetchAuthed<{
       inventoryItems?: Array<{
         sku?: string;
@@ -1700,6 +1729,7 @@ export async function listAllInventoryItems(
       userId,
       `/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`
     );
+    if (typeof payload.total === "number") total = payload.total;
     const batch = payload.inventoryItems ?? [];
     for (const it of batch) {
       if (typeof it.sku === "string" && it.sku) {
@@ -1710,8 +1740,16 @@ export async function listAllInventoryItems(
         });
       }
     }
-    if (batch.length < limit) break;
+    if (batch.length < limit) {
+      completed = true;
+      break;
+    }
     offset += limit;
+  }
+  if (!completed) {
+    warnings?.push(
+      truncationWarning("inventory items", all.length, total, INVENTORY_PAGE_CEILING * limit),
+    );
   }
   return all;
 }
@@ -1720,8 +1758,11 @@ export async function listAllInventoryItems(
 // endpoint — you must walk inventory_item, then for each SKU fetch offers.
 // Bounded concurrency keeps us under the Sell API rate limits without
 // dragging too much on accounts with hundreds of items.
-export async function listAllOffers(userId: string): Promise<RemoteOffer[]> {
-  const items = await listAllInventoryItems(userId);
+export async function listAllOffers(
+  userId: string,
+  warnings?: string[],
+): Promise<RemoteOffer[]> {
+  const items = await listAllInventoryItems(userId, warnings);
   if (items.length === 0) return [];
 
   const all: RemoteOffer[] = [];
@@ -1799,11 +1840,14 @@ export interface RemoteOrder {
 // on first sync.
 export async function listRecentOrders(
   userId: string,
-  sinceISO?: string | null
+  sinceISO?: string | null,
+  warnings?: string[],
 ): Promise<RemoteOrder[]> {
   const all: RemoteOrder[] = [];
   const limit = 200;
   let offset = 0;
+  let completed = false;
+  let total: number | null = null;
   const filterParts: string[] = [];
   if (sinceISO) {
     // eBay wants ISO 8601 with milliseconds. Trim sub-second precision noise.
@@ -1814,7 +1858,7 @@ export async function listRecentOrders(
     ? `&filter=${encodeURIComponent(filterParts.join(","))}`
     : "";
 
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < ORDERS_PAGE_CEILING; i++) {
     const payload = await fetchAuthed<{
       orders?: Array<{
         orderId?: string;
@@ -1846,6 +1890,7 @@ export async function listRecentOrders(
       userId,
       `/sell/fulfillment/v1/order?limit=${limit}&offset=${offset}${filter}`
     );
+    if (typeof payload.total === "number") total = payload.total;
 
     const batch = payload.orders ?? [];
     for (const o of batch) {
@@ -1906,8 +1951,16 @@ export async function listRecentOrders(
         lineItems,
       });
     }
-    if (batch.length < limit) break;
+    if (batch.length < limit) {
+      completed = true;
+      break;
+    }
     offset += limit;
+  }
+  if (!completed) {
+    warnings?.push(
+      truncationWarning("eBay orders", all.length, total, ORDERS_PAGE_CEILING * limit),
+    );
   }
   return all;
 }
@@ -1940,11 +1993,14 @@ export interface RemoteTransaction {
 // Managed Payments. Treat as empty rather than failing the whole sync.
 export async function listRecentTransactions(
   userId: string,
-  sinceISO?: string | null
+  sinceISO?: string | null,
+  warnings?: string[],
 ): Promise<RemoteTransaction[]> {
   const all: RemoteTransaction[] = [];
   const limit = 200;
   let offset = 0;
+  let completed = false;
+  let total: number | null = null;
   const filterParts: string[] = [];
   if (sinceISO) {
     const iso = new Date(sinceISO).toISOString();
@@ -1958,7 +2014,7 @@ export async function listRecentTransactions(
   const locale = localeForMarketplace();
   const baseHost = apizHost();
 
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < TRANSACTIONS_PAGE_CEILING; i++) {
     const url =
       `${baseHost}/sell/finances/v1/transaction?limit=${limit}&offset=${offset}${filter}`;
     const res = await ebayFetch(url, {
@@ -1974,7 +2030,10 @@ export async function listRecentTransactions(
     // 204/empty-body 200 are the same semantic — eBay sometimes returns those
     // when the window has zero transactions instead of an empty JSON object.
     // All three are recoverable: stop paginating and return what we have.
-    if (res.status === 404 || res.status === 204) break;
+    if (res.status === 404 || res.status === 204) {
+      completed = true;
+      break;
+    }
     if (!res.ok) {
       const text = await res.text();
       throw new Error(
@@ -1983,7 +2042,10 @@ export async function listRecentTransactions(
     }
 
     const rawBody = await res.text();
-    if (!rawBody.trim()) break;
+    if (!rawBody.trim()) {
+      completed = true;
+      break;
+    }
 
     let payload: {
       transactions?: Array<{
@@ -2004,8 +2066,10 @@ export async function listRecentTransactions(
       console.warn(
         `[ebay-client] non-JSON body from Finances API (${res.status}); treating as empty. Body: ${rawBody.slice(0, 200)}`,
       );
+      completed = true;
       break;
     }
+    if (typeof payload.total === "number") total = payload.total;
 
     const batch = payload.transactions ?? [];
     for (const t of batch) {
@@ -2031,8 +2095,21 @@ export async function listRecentTransactions(
         bookingEntry: t.bookingEntry ?? null,
       });
     }
-    if (batch.length < limit) break;
+    if (batch.length < limit) {
+      completed = true;
+      break;
+    }
     offset += limit;
+  }
+  if (!completed) {
+    warnings?.push(
+      truncationWarning(
+        "eBay transactions",
+        all.length,
+        total,
+        TRANSACTIONS_PAGE_CEILING * limit,
+      ),
+    );
   }
   return all;
 }

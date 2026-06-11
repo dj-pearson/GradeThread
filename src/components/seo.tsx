@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Helmet } from "react-helmet-async";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL, normalizePath } from "@/lib/seo/public-routes";
 
 type JsonLdValue = Record<string, unknown>;
 
@@ -46,10 +46,15 @@ export function SEO({
 
   // Default the canonical to the current pathname under the production origin
   // so every page is self-canonical even when the caller forgets to pass one.
+  // US-426: normalize the pathname (strip any trailing slash) so a visit to
+  // "/pricing/" still emits the canonical "/pricing" — matching the prerendered
+  // canonical (head-builder uses absoluteUrl → normalizePath) and the
+  // no-trailing-slash policy enforced by the 301s in dist/_redirects. Without
+  // this the SPA canonical would drift from the prerendered one on slash URLs.
   const resolvedCanonical =
     canonicalUrl ??
     (typeof window !== "undefined"
-      ? `${SITE_URL}${window.location.pathname}`
+      ? `${SITE_URL}${normalizePath(window.location.pathname)}`
       : undefined);
 
   // Normalize jsonLd to an array and JSON-encode. `<` is escaped so a value
@@ -67,8 +72,18 @@ export function SEO({
 
   // react-helmet-async (v3 fork) does not inject <script> tags into the DOM
   // head on the client, so manage JSON-LD ourselves. Appending real <script
-  // type="application/ld+json"> nodes works at runtime and is captured by the
-  // headless-browser prerender (US-292), which executes JS before snapshotting.
+  // type="application/ld+json"> nodes works at runtime for the live SPA.
+  //
+  // IMPORTANT (US-423): the build-time prerender is STRING-BASED
+  // (scripts/prerender.mjs) — there is NO headless browser, so it never runs
+  // this useEffect. Crawlable JSON-LD for prerendered routes is emitted
+  // separately and deterministically by src/prerender/head-builder.ts
+  // (jsonLdForRoute), which MUST mirror whatever a page passes here. Any
+  // indexable page that ships <SEO jsonLd> must therefore be a prerendered
+  // route with a matching jsonLdForRoute entry (or be edge-SSR'd with the LD
+  // inlined) — relying on this client-only injection alone would leave the LD
+  // invisible to crawlers. The mirror is enforced by
+  // src/prerender/__tests__/jsonld-parity.test.tsx.
   useEffect(() => {
     if (serialized.length === 0) return;
     const nodes = serialized.map((json) => {

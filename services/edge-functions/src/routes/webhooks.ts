@@ -15,6 +15,7 @@ import {
   sendSubscriptionPausedEmail,
   sendSubscriptionResumedEmail,
   sendSubscriptionStartedEmail,
+  sendSubscriptionRenewalReceiptEmail,
 } from "../lib/email.ts";
 import { captureServer } from "../lib/posthog.ts";
 import { recordMetric } from "../lib/observability.ts";
@@ -636,6 +637,27 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
     // US-397: a missed cycle reset would over/under-charge entitlement — retry.
     failIfDbError(error, `cycle reset for user ${user.id}`);
     console.log(`[Webhook] User ${user.id} cycle reset (${billingReason})`);
+
+    // US-222: send a receipt for each RECURRING renewal charge (the first charge
+    // is covered by sendSubscriptionStartedEmail on subscription.created).
+    // Best-effort — the email retry outbox (US-498/801) covers transient failures.
+    if (billingReason === "subscription_cycle" && user.email) {
+      const periodEndIso = invoice.period_end
+        ? new Date(invoice.period_end * 1000).toISOString()
+        : nextReset.toISOString();
+      const interval =
+        invoice.lines?.data?.[0]?.price?.recurring?.interval === "year"
+          ? "yearly"
+          : "monthly";
+      void sendSubscriptionRenewalReceiptEmail(user.email, {
+        userName: user.full_name?.trim() || "there",
+        plan: user.flipdesk_plan ?? "Pro",
+        interval,
+        amountCents: invoice.amount_paid ?? 0,
+        periodEnd: periodEndIso,
+        invoiceNumber: invoice.number ?? null,
+      });
+    }
   } else {
     // Any successful payment clears past_due → active (and the US-395 dunning
     // grace clock).

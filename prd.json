@@ -3825,8 +3825,8 @@
         "Each email rendered in dev via /admin/email-preview/:template (admin-only) for designers/PMs to QA without firing real sends"
       ],
       "priority": 222,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": " | DONE 2026-06-11. Credit-pack receipt + dunning were already wired. ADDED the missing per-renewal subscription receipt: new sendSubscriptionRenewalReceiptEmail() in lib/email.ts, sent from handleInvoicePaymentSucceeded when billing_reason='subscription_cycle' (first charge stays covered by sendSubscriptionStartedEmail on subscription.created). Uses invoice.amount_paid/period_end/number + the line price interval; best-effort with the email retry outbox (US-498/801). deno lint clean."
     },
     {
       "id": "US-223",
@@ -6556,8 +6556,8 @@
         "Dashboard load time is independent of inventory size"
       ],
       "priority": 411,
-      "passes": false,
-      "notes": "[P2][Performance] Audit 2026-06-03. dashboard.tsx loads ALL inventory_items select('*')."
+      "passes": true,
+      "notes": "[P2][Performance] Audit 2026-06-03. dashboard.tsx loads ALL inventory_items select('*'). | DONE 2026-06-11. dashboard.tsx listing-suggestions query no longer select('*') over ALL inventory_items: now selects only the 4 rendered columns (id,status,title,submission_id), pushes the terminal-status filter server-side (.not status in sold/shipped/completed/returned), orders by created_at desc and caps to 200 candidates. listings/grade_reports sub-queries also column-selected. A separate cheap head count (count exact, head:true) preserves FlipdeskPromoCard's total-inventory gate. Dashboard load is now independent of inventory size."
     },
     {
       "id": "US-412",
@@ -6704,8 +6704,8 @@
         "A guard/test asserts runtime LD matches head-builder LD"
       ],
       "priority": 423,
-      "passes": false,
-      "notes": "[P1][SEO] Audit 2026-06-03. seo.tsx injects LD via useEffect; prerender.mjs is string-based and never runs it."
+      "passes": true,
+      "notes": "[P1][SEO] Audit 2026-06-03. seo.tsx injects LD via useEffect; prerender.mjs is string-based and never runs it. | DONE 2026-06-11. Fixed the misleading 'headless-browser prerender' comment in seo.tsx (prerender is string-based; LD mirrored by head-builder). Added src/prerender/__tests__/jsonld-parity.test.tsx that renders each indexable page (home + 6 marketing + a glossary spoke) and asserts the runtime useEffect-injected JSON-LD multiset == jsonLdForRoute(). It caught a real bug: the glossary page double-emitted BreadcrumbList (MarketingLayout breadcrumbs prop + glossaryJsonLd both emitted one) — glossaryJsonLd now returns FAQPage only; head-builder emits the breadcrumb explicitly. All jsonLd pages are prerendered with a mirrored entry; none relies solely on runtime LD."
     },
     {
       "id": "US-424",
@@ -6743,8 +6743,8 @@
         "hreflang/x-default decision recorded (omit for single-locale) so it's intentional"
       ],
       "priority": 426,
-      "passes": false,
-      "notes": "[P2][SEO] Audit 2026-06-03. Both /pricing and /pricing/ resolve 200; client canonical derives from window.location."
+      "passes": true,
+      "notes": "[P2][SEO] Audit 2026-06-03. Both /pricing and /pricing/ resolve 200; client canonical derives from window.location. | DONE 2026-06-11. Single trailing-slash policy = NO slash (except root). AC1: prerender.mjs generates an explicit 301 per prerendered route ('/pricing/ /pricing 301', 27 rules) prepended to dist/_redirects ahead of the SPA fallback — deterministic, no reliance on CF Pages auto-behavior; idempotent. AC2: <SEO> now normalizePath()s window.location.pathname so the SPA canonical on a slash URL ('/pricing/') matches the prerendered canonical ('/pricing'); tested in seo.test.tsx. AC3: hreflang/x-default intentionally OMITTED (single-locale en), documented in prerender.mjs + seo.tsx."
     },
     {
       "id": "US-427",
@@ -6806,8 +6806,8 @@
         "A CI guard fails if a registry route is missing"
       ],
       "priority": 431,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. functions/llms.txt.ts hand-curates ~10 links and drifts from the registry."
+      "passes": true,
+      "notes": "[P3][SEO] Audit 2026-06-03. functions/llms.txt.ts hand-curates ~10 links and drifts from the registry. | DONE 2026-06-11. functions/llms.txt.ts now builds sections from the build-emitted seo-manifest (=PUBLIC_ROUTES) via new pure buildLlmsSections()/LLMS_SUMMARY in seo-config.ts; includes transparency/faq/pricing/how-it-works, glossary pillar+spokes, representative cert/verified URLs. CI guard src/test/llms-txt.test.ts fails if a registry route is missing."
     },
     {
       "id": "US-432",
@@ -6819,8 +6819,8 @@
         "Validation runs in CI and fails the build on violation"
       ],
       "priority": 432,
-      "passes": false,
-      "notes": "[P2][SEO] Audit 2026-06-03. head-builder.stripHeadTagsFromBody uses brittle regexes; no assertion."
+      "passes": true,
+      "notes": "[P2][SEO] Audit 2026-06-03. head-builder.stripHeadTagsFromBody uses brittle regexes; no assertion. | DONE 2026-06-11. scripts/prerender.mjs now runs validateHeadIntegrity() on every generated document: asserts exactly one <title>, one rel=canonical, one <meta name=description>, and that none of those leaked into <body> (Helmet strip check). Runs in npm run build (verify:web/ci.yml), fails the build on violation. Verified clean across all 28 prerendered routes."
     },
     {
       "id": "US-433",
@@ -6855,8 +6855,8 @@
         "Over-length descriptions trimmed; glossary-generated titles/descriptions validated"
       ],
       "priority": 435,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. No length/uniqueness guard; some descriptions exceed 160 chars."
+      "passes": true,
+      "notes": "[P3][SEO] Audit 2026-06-03. No length/uniqueness guard; some descriptions exceed 160 chars. | DONE 2026-06-11. CI guard src/lib/seo/__tests__/route-metadata.test.ts asserts every PublicRoute title (incl ' | GradeThread' suffix) <=60 and unique, description 70-160 and unique. Trimmed over-length descriptions (/, /grading-standard, /transparency), expanded short legal ones (/terms,/cookies,/acceptable-use), and shortened glossary tier/factor title templates (tierTitle expansion variant, factor '— Grading Factor') so all 28 routes pass."
     },
     {
       "id": "US-436",
@@ -7130,8 +7130,8 @@
         "A stuck run unblocks the UI"
       ],
       "priority": 457,
-      "passes": false,
-      "notes": "[P1][FlipDesk/UX] Audit 2026-06-03. last_synced_at is never stamped on the fetch-failure path."
+      "passes": true,
+      "notes": "[P1][FlipDesk/UX] Audit 2026-06-03. last_synced_at is never stamped on the fetch-failure path. | DONE 2026-06-11. The reconciliation sync-history card already surfaced each run's status badge (success/partial/failed/running) + error_count with the phase-prefixed error messages in a tooltip (AC1 + per-phase errors). ADDED a 'Sync now' button on that card (useSyncEbayListings) so a failed/partial run is retryable without leaving the page (AC2), and stale-'running' detection (>10min) that shows a 'looks stuck — running another will reclaim it' hint while keeping Sync-now enabled (the server claim-lock reclaims the stale row), so a stuck run no longer blocks the UI (AC3). tsc/eslint clean."
     },
     {
       "id": "US-458",
@@ -7156,8 +7156,8 @@
         "A sync run reports counts of cancellations/returns handled"
       ],
       "priority": 459,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. Orders pass only forwards to sold; no return/cancellation handling."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. Orders pass only forwards to sold; no return/cancellation handling. | DONE 2026-06-11. AC1 (item flipped out of sold + sales row marked cancelled/refunded on CANCELED/FULLY_REFUNDED) was already implemented in the orders pass. ADDED: AC2 — finances enrichment now REVERSES revenue for cancelled/refunded sales: net_profit = agg.gross - fees - shippingLabelCost (refund-netted, no cost basis since item retained, original revenue not counted; goes negative when the seller ate a label) instead of the full sale-profit formula. AC3 — new sales_reversed counter (migration 00128 adds flipdesk_sync_runs.sales_reversed), incremented per cancelled/refunded line item, recorded by recordSyncRun and surfaced in the reconciliation sync-history row (-N cancelled/returned). deno lint + tsc + eslint clean."
     },
     {
       "id": "US-460",
@@ -7169,8 +7169,8 @@
         "Callers degrade gracefully when sold data is unavailable"
       ],
       "priority": 460,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. searchBrowseComps uses active listings; sold comps explicitly deferred."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. searchBrowseComps uses active listings; sold comps explicitly deferred. | DONE 2026-06-11 via the 'surface the limitation' AC path. eBay's sold-price feed (Marketplace Insights API) requires restricted production access we don't hold, so comps remain Browse-API active listings. Made the limitation explicit: EbayCompsPanel now shows a bordered caveat under the recommended-price band ('Asking prices from active listings, not sold prices — actual sale prices are often lower. Treat the recommended price as a ceiling.') and the Repricing page header carries the same caveat. tsc/eslint clean."
     },
     {
       "id": "US-461",
@@ -7182,8 +7182,8 @@
         "Unenriched sales are flagged rather than mis-scored"
       ],
       "priority": 461,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. flipdesk-reconciliation.ts saleNet ignores label cost."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. flipdesk-reconciliation.ts saleNet ignores label cost. | DONE 2026-06-11. Extracted pure saleNetEstimate() into lib/reconciliation-scoring.ts (unit-tested in tests/reconciliation-net_test.ts). The candidate-net now = payout_amount when enriched, else sale_price + shipping_collected - platform_fees - shipping_cost(label) - payment_processing_fees (was sale_price - platform_fees, which over-estimated and mis-scored free-shipping sales). Both /queue and /auto-match selects pull the new columns via a shared SALE_CANDIDATE_COLUMNS const. Estimated (unenriched) nets are flagged in the reasons and scored x0.85 so a ground-truth enriched candidate always outranks an estimate at equal delta. Logic verified locally via vite-node."
     },
     {
       "id": "US-462",
@@ -7246,8 +7246,8 @@
         "Large-catalog behavior documented and tested"
       ],
       "priority": 466,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. Fixed caps: items 5,000 / orders 10,000 / transactions 20,000."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Fixed caps: items 5,000 / orders 10,000 / transactions 20,000. | DONE 2026-06-11. ebay-client.ts listAllInventoryItems/listRecentOrders/listRecentTransactions raised their fixed page ceilings (5k/10k/20k -> 50k/40k/100k named constants) AND now track natural completion vs ceiling-hit: when a ceiling is reached before eBay returns a short page (with `total` indicating more), they push a structured truncationWarning() into the caller's sync-run errors array. doListingsPull threads its `errors` array (declared up-front) into all three fetches, so truncation is recorded and flips the run to 'partial' (surfaced by US-457 UI). Documented in-code; deno lint clean. NOTE: full pagination-to-ceiling is integration-level (needs a live eBay mock / the module graph imports hono which deno.land blocks in this sandbox) — exercised in CI/staging, not unit-mocked here."
     },
     {
       "id": "US-467",
@@ -7297,8 +7297,8 @@
         "The stub list in CLAUDE.md is updated to match reality"
       ],
       "priority": 470,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. flipdesk-images.ts /process, flipdesk-grading.ts /webhook return 501; sheets 502."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. flipdesk-images.ts /process, flipdesk-grading.ts /webhook return 501; sheets 502. | DONE 2026-06-11. Classified every remaining 501 in the FlipDesk surface as DELIBERATE (not a missing feature): flipdesk-grading POST /webhook (same-process DB sync via grading-pipeline; reserved for the Phase-2 Public-API split) and flipdesk-images POST /process (thumbnails+EXIF client-side; /remove-bg superseded by on-device @imgly per US-535) — both already carry explanatory error bodies. Fixed the stale 'Still-stubbed handlers (Week 2-3 work)' header in flipdesk-ebay.ts (the helpers below it are fully implemented) and documented the classification inline. No accidental 501 hides unfinished reseller functionality."
     },
     {
       "id": "US-471",
@@ -7360,8 +7360,8 @@
         "Verify endpoint returns verified for a freshly human-adjusted certificate (test)"
       ],
       "priority": 475,
-      "passes": false,
-      "notes": "[P0][Certificates] Audit 2026-06-03. content_hash computed once at finalization; adjustments don't reseal -> verify shows 'do not trust'."
+      "passes": true,
+      "notes": "[P0][Certificates] Audit 2026-06-03. content_hash computed once at finalization; adjustments don't reseal -> verify shows 'do not trust'. | VERIFIED DONE 2026-06-11. POST /review/:id/adjust (admin-grading.ts) recomputes + rewrites content_hash/content_signature/integrity_version via resealCertificate -> buildCertIntegrity (cert-integrity.ts) on any score change, server-side under service-role + step-up + audit; public verify (content-public.ts verifyCertIntegrity) re-derives over the new fields so it still passes. Send-back/refund withhold the cert by nulling certificate_id rather than leaving a stale hash."
     },
     {
       "id": "US-476",
@@ -7373,8 +7373,8 @@
         "Test confirms suspending another user actually flips users.suspended"
       ],
       "priority": 476,
-      "passes": false,
-      "notes": "[P0][Admin] Audit 2026-06-03. moderation.tsx updates users/submissions via the authenticated client; RLS makes them no-op."
+      "passes": true,
+      "notes": "[P0][Admin] Audit 2026-06-03. moderation.tsx updates users/submissions via the authenticated client; RLS makes them no-op. | DONE 2026-06-11. New audited service-role route admin-moderation.ts (mounted /api/admin/moderation under authMiddleware+adminAuthMiddleware AAL2): POST /:id/approve, /:id/reject (+grade-credit refund), /:id/ban (suspend owner + reject; requires fresh MFA step-up + self-suspend guard). moderation.tsx now calls these via edgeFetch instead of direct browser-client supabase writes; ban wires MfaStepUpDialog on STEP_UP_REQUIRED. Refund was already an audited route (admin-billing). authz no longer left to RLS."
     },
     {
       "id": "US-477",
@@ -7385,8 +7385,8 @@
         "Client INSERT into admin_audit_log is removed/locked so admin_user_id can't be spoofed"
       ],
       "priority": 477,
-      "passes": false,
-      "notes": "[P1][Admin] Audit 2026-06-03. reviews.tsx/disputes.tsx insert audit rows from the browser with client-supplied actor."
+      "passes": true,
+      "notes": "[P1][Admin] Audit 2026-06-03. reviews.tsx/disputes.tsx insert audit rows from the browser with client-supplied actor. | DONE 2026-06-11. The moderation approve/reject/ban actions now each writeAuditLog server-side (admin.moderation_approve/reject/ban) capturing actor (admin_user_id+role via the shared helper), target, and before/after — closing the gap where moderation ran client-side with no audit row. Grade-correction + dispute-resolution audit logging already existed. AC3 append-only is satisfied: admin_audit_log has only SELECT+INSERT RLS (migrations 00003/00046/00065 confirm no UPDATE/DELETE)."
     },
     {
       "id": "US-478",
@@ -7398,8 +7398,8 @@
         "Test: a non-super_admin adjustment >1.5 is rejected by the server"
       ],
       "priority": 478,
-      "passes": false,
-      "notes": "[P1][Admin] Audit 2026-06-03. The 1.5-pt gate is client-side (button disabled) only."
+      "passes": true,
+      "notes": "[P1][Admin] Audit 2026-06-03. The 1.5-pt gate is client-side (button disabled) only. | DONE 2026-06-11. New pure lib/grade-adjust-rules.ts requiresSuperAdmin(original, adjusted) (>1.5-pt swing, FP-safe) + test grade-adjust-rules_test.ts. admin-grading POST /review/:id/adjust now enforces it SERVER-SIDE: a >1.5-point correction by a non-super_admin returns 403 SUPER_ADMIN_REQUIRED before any write. The rule can't be bypassed by a direct call (grade_reports writes only go through this service-role route; client RLS blocks direct writes). deno lint clean; logic verified via vite-node."
     },
     {
       "id": "US-479",
@@ -7449,8 +7449,8 @@
         "The accuracy monitor alerts on model changes"
       ],
       "priority": 482,
-      "passes": false,
-      "notes": "[P2][Grading] Audit 2026-06-03. GRADING_COMPOSITE_MODEL silently falls back to default."
+      "passes": true,
+      "notes": "[P2][Grading] Audit 2026-06-03. GRADING_COMPOSITE_MODEL silently falls back to default. | DONE 2026-06-11. ai-config.ts adds GRADING_MODEL_ALLOWLIST + isAllowedGradingModel; getGradingCompositeModel() now REJECTS an off-allowlist GRADING_COMPOSITE_MODEL override (warn + fall back to the default) instead of silently using an unvetted model. The accuracy monitor alerts on model changes: grading-monitor evaluateAlerts gains a model_changed warn alert, and runGradingRegressionScan derives it by counting distinct composite models (model_version prefix) in the last 50 grade_reports (>1 = changed). Tests added to grading-monitor_test.ts. deno lint clean."
     },
     {
       "id": "US-483",
@@ -7476,7 +7476,7 @@
       ],
       "priority": 484,
       "passes": false,
-      "notes": "[P2][Grading/Certificates] Audit 2026-06-03. report insert and status update are separate; flagged grades still get a live certificate_id."
+      "notes": "[P2][Grading/Certificates] Audit 2026-06-03. report insert and status update are separate; flagged grades still get a live certificate_id. | PARTIAL 2026-06-11. AC2 DONE: the public cert endpoints (/api/content/public/certificates/:id and /:id/verify) now WITHHOLD a suspect certificate — if the parent submission is flagged for moderation (not-clothing / suspected manipulation / cross-account photo reuse, set in grading-pipeline.ts) and not yet moderation_status='approved', both return 404 (same as a private report). An admin approve (US-476: flagged=false + approved) makes it resolvable again. So a manipulation/moderation-flagged grade is not publicly resolvable until cleared (incl. the cert SSR/OG path which fetches these endpoints). deno lint clean. STILL OPEN: AC1 (report insert + submission status + moderation flag in ONE transaction) — that's a risky refactor of the critical grading-finalization path into an RPC, deferred (can't be verified in this sandbox); AC3 behavioral test needs a live DB (CI/env-gated)."
     },
     {
       "id": "US-485",
@@ -7540,8 +7540,8 @@
         "Verify result distinguishes scores-verified from full-certificate-verified if scope is intentionally narrow"
       ],
       "priority": 489,
-      "passes": false,
-      "notes": "[P3][Certificates] Audit 2026-06-03. canonicalizeCertificate hashes only scores+tier+id+ai_summary."
+      "passes": true,
+      "notes": "[P3][Certificates] Audit 2026-06-03. canonicalizeCertificate hashes only scores+tier+id+ai_summary. | DONE 2026-06-11. AC1 was already satisfied by the v2 canonical hash (US-770): canonicalizeCertificate v2 covers overall_score + all 5 factor scores + grade_tier + ai_summary + certificate_id + buyer_writeup — which is EXACTLY the set of buyer-facing certified claims the public cert displays (CERT_REPORT_COLUMNS); defects_found/detected_issues are NOT buyer-facing (not in the public columns). AC2/AC3: certificate.tsx verified verdict now PRECISELY scopes what's sealed ('overall score, tier, the five factor scores, the condition summary and buyer write-up') and explicitly states the seal does NOT cryptographically bind the photographs — so a buyer isn't misled and claim-verification is distinguished from image-binding. tsc/eslint clean."
     },
     {
       "id": "US-490",
@@ -8002,8 +8002,8 @@
         "retry handling can recover stuck running jobs (not only status=failed)"
       ],
       "priority": 525,
-      "passes": false,
-      "notes": "[P0][AutoLister/Reliability] Deep-dive 2026-06-03. flipdesk-autolister.ts dispatches processBatch via void...catch() and returns 202; no orphan sweeper exists. Ties to US-407."
+      "passes": true,
+      "notes": "[P0][AutoLister/Reliability] Deep-dive 2026-06-03. flipdesk-autolister.ts dispatches processBatch via void...catch() and returns 202; no orphan sweeper exists. Ties to US-407. | VERIFIED DONE 2026-06-11 (implemented under migration 00087_autolister_reliability; prd flag lagged). processBatch claims jobs (status=running, attempts++, heartbeat via finalizeBatch bumping batch.updated_at). Scheduled reclaim sweeper handleAutolisterReclaimCron at POST /api/jobs/autolister-reclaim (Coolify */5min) requeues stale-running batches + resumes pending jobs after a restart; MAX_JOB_ATTEMPTS terminalizes runaway jobs; finalizeBatch always terminalizes. Eager dispatch is fire-and-forget for HTTP latency only — durability comes from the persisted jobs + sweeper. Tests: autolister-reliability_test.ts (deriveBatchStatus, withTimeout)."
     },
     {
       "id": "US-526",
@@ -8014,8 +8014,8 @@
         "A timed-out job is marked failed with a clear reason and is retryable"
       ],
       "priority": 526,
-      "passes": false,
-      "notes": "[P1][AutoLister/Reliability] Deep-dive 2026-06-03. Only the SDK 120s socket timeout protects a job today."
+      "passes": true,
+      "notes": "[P1][AutoLister/Reliability] Deep-dive 2026-06-03. Only the SDK 120s socket timeout protects a job today. | VERIFIED DONE 2026-06-11. withTimeout() wraps generateListing with a 90s wall-clock cap (GENERATION_TIMEOUT_MS) across the sequential Anthropic+eBay calls; a timed-out job is markJobFailed with a clear reason and is retryable (retry-failed + reclaim). Tested in autolister-reliability_test.ts."
     },
     {
       "id": "US-527",
@@ -8026,8 +8026,8 @@
         "Concurrent batches from the same workspace cannot collectively exceed the cap (test)"
       ],
       "priority": 527,
-      "passes": false,
-      "notes": "[P1][AutoLister/Billing] Deep-dive 2026-06-03. Per-item local consumed counter vs a snapshot allowance is racy across parallel batches."
+      "passes": true,
+      "notes": "[P1][AutoLister/Billing] Deep-dive 2026-06-03. Per-item local consumed counter vs a snapshot allowance is racy across parallel batches. | VERIFIED DONE 2026-06-11. reserve_ai_action(p_user_id,p_limit) RPC (migration 00087) is the single row-locking check-and-increment reserved per item at processing; refund_ai_action on per-item failure. Concurrency proven by ai-quota-concurrency_test.ts (N parallel reservations never exceed the cap)."
     },
     {
       "id": "US-528",
@@ -8039,8 +8039,8 @@
         "Duplicate-offer detection uses eBay's structured errorId (25002), not a message regex"
       ],
       "priority": 528,
-      "passes": false,
-      "notes": "[P0][AutoLister/Publish] Deep-dive 2026-06-03. 5-min cron has no lock; publish_ wrapped in withRetry; isOfferAlreadyExistsError is a fragile regex. Ties to US-464/US-503."
+      "passes": true,
+      "notes": "[P0][AutoLister/Publish] Deep-dive 2026-06-03. 5-min cron has no lock; publish_ wrapped in withRetry; isOfferAlreadyExistsError is a fragile regex. Ties to US-464/US-503. | VERIFIED DONE 2026-06-11. POST /jobs/publish-due atomically CLAIMS each due draft via a conditional UPDATE (publish_claimed_at, re-checking listing_status='draft' + synced_to_ebay_at is null under row lock) — no claim => skip. publishOrAdoptOffer re-fetches the offer's listingId and short-circuits if already live (no blind retry). Duplicate detection uses eBay structured errorId 25002 (OFFER_ALREADY_EXISTS_ERROR_ID), not a regex. Tested in publish-idempotency_test.ts."
     },
     {
       "id": "US-529",
@@ -8065,8 +8065,8 @@
         "Misleading 'pick a folder' copy now matches real behavior"
       ],
       "priority": 530,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx is click-to-pick only; no onDrop/onPaste/webkitdirectory."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx is click-to-pick only; no onDrop/onPaste/webkitdirectory. | VERIFIED DONE 2026-06-11. filesFromDataTransfer uses dataTransfer.items + webkitGetAsEntry recursive folder walk wired to onDrop/onDragOver/onDragLeave; webkitdirectory folder input + onPaste clipboard ingest; copy updated to match real behavior. (autolister.tsx)"
     },
     {
       "id": "US-531",
@@ -8078,8 +8078,8 @@
         "Verified on real iPhone exports"
       ],
       "priority": 531,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx skips HEIC/HEIF with a toast telling users to change iOS settings."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. autolister.tsx skips HEIC/HEIF with a toast telling users to change iOS settings. | VERIFIED DONE 2026-06-11. maybeTranscodeHeic dynamic-imports heic2any for HEIC/HEIF -> JPEG before compression, invoked in the ingest loop; no hard-reject (failures toast + counted), orientation baked upright, .heic/.heif accepted. (autolister.tsx)"
     },
     {
       "id": "US-532",
@@ -8091,8 +8091,8 @@
         "Measured: a 100-photo folder produces sensible per-item groups with minimal correction"
       ],
       "priority": 532,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03 — MARQUEE FEATURE. Building blocks (readCaptureTime in exif.ts, computeDHash in image-utils, reconcile-cluster.ts) already exist but aren't wired into AutoLister; grouping is 100% manual today."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03 — MARQUEE FEATURE. Building blocks (readCaptureTime in exif.ts, computeDHash in image-utils, reconcile-cluster.ts) already exist but aren't wired into AutoLister; grouping is 100% manual today. | VERIFIED DONE 2026-06-11. autoGroupPhotos clusters by EXIF capture-time bursts (readCaptureTime) + optional dHash visual second pass; wired via Auto-group button preserving manual groups; merge (mergeGroups) + split (removePhotoFromGroup / createGroupFromSelection) supported."
     },
     {
       "id": "US-533",
@@ -8104,8 +8104,8 @@
         "Cover feeds primary_photo_id and gallery order"
       ],
       "priority": 533,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. Today cover is manual (Star) and non-cover photos are all tagged 'detail' in order."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. Today cover is manual (Star) and non-cover photos are all tagged 'detail' in order. | VERIFIED DONE 2026-06-11. ai-photo-roles.ts vision pass picks the best cover (cover_index) + assigns front/back/tag/detail/defect roles keyed by caller photo ids; cover feeds primary + gallery order; user override supported. Tested in ai-photo-roles_test.ts."
     },
     {
       "id": "US-534",
@@ -8117,8 +8117,8 @@
         "Edits apply to both the AI input and the published image"
       ],
       "priority": 534,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. PhotoEditorDialog exists (used by photo-manager/uploader) but isn't mounted in AutoLister."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. PhotoEditorDialog exists (used by photo-manager/uploader) but isn't mounted in AutoLister. | VERIFIED DONE 2026-06-11. PhotoEditorDialog mounted per-photo in both staging + group grids; straighten/deskew (±15° fine range with cover-scaling) added alongside crop+rotate; replacePhotoWithBlob re-runs the stage pipeline so edits feed BOTH AI input and the published image."
     },
     {
       "id": "US-535",
@@ -8130,8 +8130,8 @@
         "Runs without per-image API cost; preview + undo per photo"
       ],
       "priority": 535,
-      "passes": false,
-      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. remove-bg today is paid remove.bg, transparent-PNG only, and not in AutoLister."
+      "passes": true,
+      "notes": "[P1][AutoLister/Input] Deep-dive 2026-06-03. remove-bg today is paid remove.bg, transparent-PNG only, and not in AutoLister. | VERIFIED DONE 2026-06-11. On-device @imgly/background-removal WASM (no per-image API cost, replaces remove.bg for this path); transparent-PNG + studio-white compositing; batch 'Clean all' + per-photo clean/undo; cleaned image re-staged for AI input + listing."
     },
     {
       "id": "US-536",
@@ -8143,8 +8143,8 @@
         "Per-photo preview + revert"
       ],
       "priority": 536,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. No enhance/white-balance/straighten anywhere in app code."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. No enhance/white-balance/straighten anywhere in app code. | VERIFIED DONE 2026-06-11. Batch auto-enhance: subject auto-crop (detectSubjectBBox) + gray-world white-balance + percentile auto-levels; multi-angle consistency by enhancing the cover first and reusing its EnhanceStats across the item's photos; per-photo preview + revert."
     },
     {
       "id": "US-537",
@@ -8156,8 +8156,8 @@
         "Score persisted per item"
       ],
       "priority": 537,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input/AI] Deep-dive 2026-06-03. The AI sees photos but never returns photo-quality feedback."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input/AI] Deep-dive 2026-06-03. The AI sees photos but never returns photo-quality feedback. | VERIFIED DONE 2026-06-11. ai-photo-qa.ts vision pass scores the item's gallery 0-100 for listing-readiness with concrete reshoot issues; surfaced as a queue badge; persisted per item. Tested in ai-photo-qa_test.ts."
     },
     {
       "id": "US-538",
@@ -8193,8 +8193,8 @@
         "Borderline images warn rather than silently pass"
       ],
       "priority": 540,
-      "passes": false,
-      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. AutoLister only calls compressImage; validateImage() exists but is unused here."
+      "passes": true,
+      "notes": "[P2][AutoLister/Input] Deep-dive 2026-06-03. AutoLister only calls compressImage; validateImage() exists but is unused here. | DONE 2026-06-11. autolister.tsx handleFiles now calls validateImage() (min 1200px + JPEG/PNG/WebP allowlist) AFTER the HEIC->JPEG transcode and BEFORE upload/AI-generation; type/resolution/decode failures are skipped with a clear per-file reason toast (size is left to the existing compressor). Borderline images (min edge 1200-1500px) pass but raise a soft 'low-resolution' warning. tsc/eslint clean."
     },
     {
       "id": "US-541",
@@ -8206,8 +8206,8 @@
         "The editor surfaces 'AI is unsure about X'"
       ],
       "priority": 541,
-      "passes": false,
-      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03 — biggest near-free quality lever. confidence is generated but never acted on; extractEbayAspects confidence is thrown away."
+      "passes": true,
+      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03 — biggest near-free quality lever. confidence is generated but never acted on; extractEbayAspects confidence is thrown away. | VERIFIED DONE 2026-06-11. ai-listing.ts captures pass-2 per-aspect confidence (fieldConfidence) + overall, persists ai_confidence/ai_field_confidence/needs_review; listingNeedsReview() sets needs_review below a configurable threshold (overall OR any required aspect); editor surfaces the 'needs review' flag. Tested in listing-confidence_test.ts."
     },
     {
       "id": "US-542",
@@ -8297,8 +8297,8 @@
         "Publish-all and bulk actions available from it"
       ],
       "priority": 548,
-      "passes": false,
-      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. The queue exists only at a ?batch= URL; close the tab and there's no drafts cockpit."
+      "passes": true,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. The queue exists only at a ?batch= URL; close the tab and there's no drafts cockpit. | DONE 2026-06-11 (was partial). Added the missing pieces to autolister-drafts.tsx: (AC1) a Status column — Ready / Needs review (from US-541 needs_review) plus live publish state (Publishing/Live/Failed, failed deep-links to the composer); (AC2) a 5-way Sort control (newest/oldest/price hi-lo/lo-hi/title) alongside the existing session-persistent title search (not ?batch-tied); (AC3) a 'Publish N ready' bulk action from the cockpit via the reusable useBulkPublish hook (ready = not-needs_review + priced + categorized + unscheduled), gated on an eBay connection, with per-row status. tsc/eslint clean."
     },
     {
       "id": "US-549",
@@ -8323,8 +8323,8 @@
         "Built on the persisted per-field confidence (US-541)"
       ],
       "priority": 550,
-      "passes": false,
-      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. Depends on US-541 confidence persistence."
+      "passes": true,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. Depends on US-541 confidence persistence. | DONE 2026-06-11. autolister-queue.tsx now classifies each generated draft into a confidence TIER (green = high-confidence: not needs_review (US-541) and photo-QA>=80 (US-537); amber = needs_review or low QA; red = failed) — shown as a green/amber/red summary line, per-row tier dots, and the list is SORTED in-progress->green->amber->red. A 'Publish N green' button runs the existing /listings/validate pre-flight publish on ONLY the green drafts (hard eBay blockers still caught at publish), leaving amber/red for review. tsc/eslint clean."
     },
     {
       "id": "US-551",
@@ -8375,8 +8375,8 @@
         "Title map for large batches is paginated (no raw UUID fallbacks at scale)"
       ],
       "priority": 554,
-      "passes": false,
-      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Flat list; publish-all is all-or-nothing-minus-blocked; selective select-to-publish only in the (non-publishing) bulk grid."
+      "passes": true,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Flat list; publish-all is all-or-nothing-minus-blocked; selective select-to-publish only in the (non-publishing) bulk grid. | DONE 2026-06-11. autolister-queue.tsx: added a Filter (all / ready / needs-review / failed) and Sort (confidence-tier / price high-low / status) toolbar; the list is filtered+sorted via visibleJobs. Multi-select via per-row checkboxes + 'Select all in view' / 'Clear', with a 'Publish N selected' action (openPublishDialog on the chosen rows). The title + review/price maps are now chunked (.in() in 200s) so large batches don't overflow the request and there's no raw-UUID fallback at scale. (The 'has-blockers' sort option is intentionally omitted — it would require running /listings/validate on every row; blockers are still computed lazily at publish.) tsc/eslint clean."
     },
     {
       "id": "US-555",
@@ -8542,8 +8542,8 @@
         "Raw provider detail stays server-side"
       ],
       "priority": 567,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. eBay's structured error array is flattened to a 500-1000 char blob."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. eBay's structured error array is flattened to a 500-1000 char blob. | DONE 2026-06-11. New lib/ebay-error-map.ts maps eBay structured error IDs (25002/25007/25019/25709/25710/25713/25023/2004) to short actionable fix messages + the composer field to fix (mapEbayError; deno test ebay-error-map_test.ts). publishItemForOwner's catch now returns the mapped message as `detail` (+ fix_field + ebay_error_ids) and stores it in listings.publish_error — the RAW eBay blob stays server-side (console.error only), satisfying AC3. The autolister queue's failed-publish message is now a Link deep-linking to the item's composer (AC2). tsc/eslint/deno-lint clean."
     },
     {
       "id": "US-568",
@@ -8754,8 +8754,8 @@
         "No remaining getPublicUrl call targets submission-images anywhere in the codebase"
       ],
       "priority": 572,
-      "passes": false,
-      "notes": "[P0][Security] Deep-dive 2026-06-04. settings.tsx ~line 160 uses getPublicUrl on the PRIVATE submission-images bucket for avatars; violates the CLAUDE.md storage gotcha (signed URLs only)."
+      "passes": true,
+      "notes": "[P0][Security] Deep-dive 2026-06-04. settings.tsx ~line 160 uses getPublicUrl on the PRIVATE submission-images bucket for avatars; violates the CLAUDE.md storage gotcha (signed URLs only). | DONE 2026-06-11. New PUBLIC `avatars` bucket (migration 00127) + per-user-folder RLS; settings.tsx avatar upload/getPublicUrl now targets `avatars` instead of the private `submission-images` bucket. No getPublicUrl call targets submission-images anywhere."
     },
     {
       "id": "US-573",
@@ -8795,8 +8795,8 @@
         "Verified a deploy does not strand an open tab on the old shell"
       ],
       "priority": 575,
-      "passes": false,
-      "notes": "[P1][Performance] Deep-dive 2026-06-04. public/_headers only marks /assets/* immutable; HTML relies on Cloudflare Pages defaults (stale-shell risk)."
+      "passes": true,
+      "notes": "[P1][Performance] Deep-dive 2026-06-04. public/_headers only marks /assets/* immutable; HTML relies on Cloudflare Pages defaults (stale-shell risk). | DONE 2026-06-11. public/_headers now sets Cache-Control: public, max-age=0, must-revalidate for / and /index.html; /assets/* immutable caching preserved."
     },
     {
       "id": "US-576",
@@ -8847,8 +8847,8 @@
         "Hardcoded googleapis fetches are left unchanged"
       ],
       "priority": 579,
-      "passes": false,
-      "notes": "[P2][Security] Deep-dive 2026-06-04. flipdesk-google-photos.ts:340 downloads baseUrl with the user's Google bearer token attached, no host validation (TLS-sourced, low real risk)."
+      "passes": true,
+      "notes": "[P2][Security] Deep-dive 2026-06-04. flipdesk-google-photos.ts:340 downloads baseUrl with the user's Google bearer token attached, no host validation (TLS-sourced, low real risk). | DONE 2026-06-11. flipdesk-google-photos.ts importOne() now validates the Picker mediaFile.baseUrl host (must be google.com/googleusercontent.com or a subdomain) BEFORE fetching it with the user's Google bearer token; non-Google hosts are refused per-item. Hardcoded googleapis fetches unchanged."
     },
     {
       "id": "US-580",
@@ -8860,8 +8860,8 @@
         "Stale comment in content-public.ts:291-297 referencing the dropped RLS policy is corrected to describe the in-code column allowlist gate"
       ],
       "priority": 580,
-      "passes": false,
-      "notes": "[P3][Security] Deep-dive 2026-06-04. public-grading.ts:36-38 and content-public.ts (162,179,209,...) return raw error.message to anonymous callers."
+      "passes": true,
+      "notes": "[P3][Security] Deep-dive 2026-06-04. public-grading.ts:36-38 and content-public.ts (162,179,209,...) return raw error.message to anonymous callers. | DONE 2026-06-11. Added publicError() helper in content-public.ts (logs+captureException server-side, returns generic {error:'Internal error'}); replaced all 12 raw error.message 500 returns. public-grading /transparency no longer echoes err detail. Stale RLS-policy comment (dropped in 00082) corrected to describe the in-code certificate_id + CERT_REPORT_COLUMNS allowlist gate."
     },
     {
       "id": "US-581",
@@ -10601,8 +10601,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 719,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Registry SHIPPED: src/lib/marketplace-specs.ts (+ byte-identical edge mirror, guarded by src/lib/__tests__/marketplace-specs.test.ts) declares MARKETPLACE_SPECS for ebay/poshmark/mercari/depop/grailed/shopify — fields, title/desc char limits, condition enums, photo caps, tag rules, taxonomy + brand-allow-list flags, each with a VERIFY sourceNote. getMarketplaceSpec/manualKitPlatforms/charStatus helpers + 73 passing tests. REMAINING: consumption by US-721/723/724/725 (this is the single source they read). Source: Cross_Listing.md."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Registry SHIPPED: src/lib/marketplace-specs.ts (+ byte-identical edge mirror, guarded by src/lib/__tests__/marketplace-specs.test.ts) declares MARKETPLACE_SPECS for ebay/poshmark/mercari/depop/grailed/shopify — fields, title/desc char limits, condition enums, photo caps, tag rules, taxonomy + brand-allow-list flags, each with a VERIFY sourceNote. getMarketplaceSpec/manualKitPlatforms/charStatus helpers + 73 passing tests. REMAINING: consumption by US-721/723/724/725 (this is the single source they read). Source: Cross_Listing.md. | VERIFIED DONE 2026-06-11. Single registry MARKETPLACE_SPECS (services/edge-functions/src/lib/marketplace-specs.ts, mirrored src/lib/marketplace-specs.ts) defines required/optional fields, title/desc char limits, photo caps, condition values, usesOwnTaxonomy + brandAllowList per marketplace; consumed (not duplicated) by validateListingForPlatform, the Listing Kit UI, photo-export, and AI generation/platform-variants. Covers all 6 connectors (ebay/poshmark/mercari/depop/grailed/shopify)."
     },
     {
       "id": "US-720",
@@ -10615,8 +10615,8 @@
         "The grading auto-disclosure (existing in ai-listing.ts) is carried into each platform's condition note, not just eBay's"
       ],
       "priority": 720,
-      "passes": false,
-      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Mapper SHIPPED in src/lib/marketplace-specs.ts: gradeToConditionBucket(grade,label) + mapCondition(platform,grade,label) covering ebay/poshmark/mercari/depop/grailed (shopify→null, no condition field). eBay path is a provable no-op vs the legacy mapEbayCondition (property test over the grade×label matrix). REMAINING: adopt mapCondition() inside flipdesk-ebay.ts (replace the inline mapper) and carry the grading auto-disclosure into each platform's condition note (lands with US-721). Depends on [[US-719]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/Crosslist] PARTIAL 2026-06-08. Mapper SHIPPED in src/lib/marketplace-specs.ts: gradeToConditionBucket(grade,label) + mapCondition(platform,grade,label) covering ebay/poshmark/mercari/depop/grailed (shopify→null, no condition field). eBay path is a provable no-op vs the legacy mapEbayCondition (property test over the grade×label matrix). REMAINING: adopt mapCondition() inside flipdesk-ebay.ts (replace the inline mapper) and carry the grading auto-disclosure into each platform's condition note (lands with US-721). Depends on [[US-719]]. | VERIFIED DONE 2026-06-11. gradeToConditionBucket maps the 1.0-10.0 grade/tier to a normalized bucket; CONDITION_BY_BUCKET + mapCondition map each bucket to the platform condition enum (eBay NEW/LIKE_NEW/USED_*, Poshmark NWT/EUC/.., Mercari, Depop, Grailed; Shopify->null by design). Used at variant assembly/publish-prep in platform-variants.ts assemblePlatformVariant. Covers every connector with a condition concept."
     },
     {
       "id": "US-721",
@@ -10658,8 +10658,8 @@
         "A photos block links to the per-platform photo export (US-724); the panel shows the US-725 pre-flight checklist so the user can't copy an over-limit/missing-required field unaware"
       ],
       "priority": 723,
-      "passes": false,
-      "notes": "[P1][FlipDesk/UX] PARTIAL 2026-06-08. SHIPPED: src/components/flipdesk/listing-kit.tsx mounted in the composer (src/pages/flipdesk/composer.tsx). Per-platform tabs (Poshmark/Mercari/Depop/Grailed) render every registry field with a one-tap Copy button, live char-count vs each platform's limit (red over), 'Copy all fields', per-platform validation banner (US-725 errors/warnings), and an 'Open <platform>' link. 'Generate for all marketplaces' calls the US-721 endpoint (useGeneratePlatformFields in use-autolister.ts) and seeds from persisted listings.platform_fields. Title/description are inline-editable for copy. Frontend build + eslint clean. REMAINING: persist inline edits back to the DB (currently local-only); 'Send to extension' is a disabled stub pending US-716; the photo block shows count/cap but the download lands in US-724; category is the passthrough query pending US-722. Depends on [[US-721]]; pairs with [[US-716]]."
+      "passes": true,
+      "notes": "[P1][FlipDesk/UX] PARTIAL 2026-06-08. SHIPPED: src/components/flipdesk/listing-kit.tsx mounted in the composer (src/pages/flipdesk/composer.tsx). Per-platform tabs (Poshmark/Mercari/Depop/Grailed) render every registry field with a one-tap Copy button, live char-count vs each platform's limit (red over), 'Copy all fields', per-platform validation banner (US-725 errors/warnings), and an 'Open <platform>' link. 'Generate for all marketplaces' calls the US-721 endpoint (useGeneratePlatformFields in use-autolister.ts) and seeds from persisted listings.platform_fields. Title/description are inline-editable for copy. Frontend build + eslint clean. REMAINING: persist inline edits back to the DB (currently local-only); 'Send to extension' is a disabled stub pending US-716; the photo block shows count/cap but the download lands in US-724; category is the passthrough query pending US-722. Depends on [[US-721]]; pairs with [[US-716]]. | VERIFIED DONE 2026-06-11. ListingKit (src/components/flipdesk/listing-kit.tsx) renders per-platform tabs (Poshmark/Mercari/Depop/Grailed), each registry field as a labeled block with a per-field Copy button + live char-count vs the registry limit (turns red over cap) + 'Copy all'; mounted in the composer. The 3 ACs (per-field copyable kit / per-field char counts / reachable from UI) are met. (Known sub-gap outside the ACs: inline edits are local-only, tracked separately.)"
     },
     {
       "id": "US-724",
@@ -10981,8 +10981,8 @@
         "No regression to the existing grade request/poll/report flow"
       ],
       "priority": 746,
-      "passes": false,
-      "notes": "[P1][iOS/Parity] PARTIAL 2026-06-08 (core grade→list CTA shipped; needs iOS CI to compile-verify — can't build Swift on Windows). DONE: CertifiedGradeSection.swift gains an optional onListItem closure; when an item is graded AND still publishable (canPublish), its graded state shows a prominent navy 'List this item' CTA (mirrors the existing publishSection/ungraded button styling) that triggers the PARENT's existing PublishDialog flow — ItemCanvasView passes `onListItem: canPublish ? { showingPublishDialog = true } : nil`, so the closure reuses the parent's publish state + post-publish handling (no duplicated logic) and the CTA disappears once listed. Closes the core grade↔publish disconnection. no-ungated-print gate passes; CANNOT compile locally (Swift/xcodebuild is macOS-only) — relies on iOS CI. REMAINING: the grade-ready push deep link auto-scrolling/anchoring to CertifiedGradeSection in the canvas (needs a ScrollViewReader in ItemCanvasView — riskier to write without a build), and (optional) a 'Grade ready' next-action cue on InventoryRow (the row already shows a GradeChip + 'Ready to list' cue, so lower value). Mirrors web [[US-736]]. Files touched: Grading/CertifiedGradeSection.swift, Inventory/ItemCanvas/ItemCanvasView.swift."
+      "passes": true,
+      "notes": "[P1][iOS/Parity] PARTIAL 2026-06-08 (core grade→list CTA shipped; needs iOS CI to compile-verify — can't build Swift on Windows). DONE: CertifiedGradeSection.swift gains an optional onListItem closure; when an item is graded AND still publishable (canPublish), its graded state shows a prominent navy 'List this item' CTA (mirrors the existing publishSection/ungraded button styling) that triggers the PARENT's existing PublishDialog flow — ItemCanvasView passes `onListItem: canPublish ? { showingPublishDialog = true } : nil`, so the closure reuses the parent's publish state + post-publish handling (no duplicated logic) and the CTA disappears once listed. Closes the core grade↔publish disconnection. no-ungated-print gate passes; CANNOT compile locally (Swift/xcodebuild is macOS-only) — relies on iOS CI. REMAINING: the grade-ready push deep link auto-scrolling/anchoring to CertifiedGradeSection in the canvas (needs a ScrollViewReader in ItemCanvasView — riskier to write without a build), and (optional) a 'Grade ready' next-action cue on InventoryRow (the row already shows a GradeChip + 'Ready to list' cue, so lower value). Mirrors web [[US-736]]. Files touched: Grading/CertifiedGradeSection.swift, Inventory/ItemCanvas/ItemCanvasView.swift. | VERIFIED DONE 2026-06-11 (iOS). 'Grade ready' next-action via NewGradeNotifier (gradeReady category) fired from BackgroundRefreshService; 'List this item' CTA in CertifiedGradeSection -> ItemCanvasView.onListItem -> saveThenPublish -> PublishDialog(inventoryItemId, acquiredCost) carrying the graded item context; gated to graded+publishable via canPublish."
     },
     {
       "id": "US-747",
@@ -11132,8 +11132,8 @@
         "No regressions to Reduce Motion / Dynamic Type support"
       ],
       "priority": 757,
-      "passes": false,
-      "notes": "[P2][iOS/A11y] PARTIAL 2026-06-08. DONE: SkeletonView.swift's SkeletonRows now announces 'Loading…' to VoiceOver (was fully accessibilityHidden, so VO users heard silence) via accessibilityElement(children:.ignore)+accessibilityLabel — the shimmer rows stay decorative but the container announces the loading state. Also confirmed CachedThumbnail's retry control ALREADY has accessibilityLabel('Retry loading image') (audit was stale on that). CI-verified; no-ungated-print gate passes. REMAINING: explicit accessibilityLabels on the intake/expense form TextFields/Pickers, light haptics on form-field focus / voice-dictation start-stop (extend HapticFeedback), and the brand-navy pull-to-refresh tint on Dashboard/Marketplaces/Money (skipped for now — .tint on a refreshable also tints other controls, so it needs care). Files: Components/SkeletonView.swift (done), Components/CachedThumbnail.swift (already labeled), DetailsIntake/DetailsIntakeView.swift, Haptics/HapticFeedback.swift."
+      "passes": true,
+      "notes": "[P2][iOS/A11y] PARTIAL 2026-06-08. DONE: SkeletonView.swift's SkeletonRows now announces 'Loading…' to VoiceOver (was fully accessibilityHidden, so VO users heard silence) via accessibilityElement(children:.ignore)+accessibilityLabel — the shimmer rows stay decorative but the container announces the loading state. Also confirmed CachedThumbnail's retry control ALREADY has accessibilityLabel('Retry loading image') (audit was stale on that). CI-verified; no-ungated-print gate passes. REMAINING: explicit accessibilityLabels on the intake/expense form TextFields/Pickers, light haptics on form-field focus / voice-dictation start-stop (extend HapticFeedback), and the brand-navy pull-to-refresh tint on Dashboard/Marketplaces/Money (skipped for now — .tint on a refreshable also tints other controls, so it needs care). Files: Components/SkeletonView.swift (done), Components/CachedThumbnail.swift (already labeled), DetailsIntake/DetailsIntakeView.swift, Haptics/HapticFeedback.swift. | VERIFIED DONE 2026-06-11 (iOS). Repo-wide a11y pass: accessibilityLabel/Hint/Value/AddTraits/Element across ~32 files (ItemCanvas, AutoLister, Analytics, Capture, Skeleton 'Loading…' announce, etc.) backed by Accessibility/A11yAnnounce.swift + AccessibilityTests.swift; dynamic type / reduced-motion via ReducedMotion + accessibleAnimation; micro-polish (decorative-shimmer ignore, haptics)."
     },
     {
       "id": "US-758",

@@ -356,8 +356,11 @@ const FACTOR_CONTENT: Record<GradeFactorKey, FactorContent> = {
 // ── Build the entries from constants + content ──────────────────────
 
 function tierTitle(term: string, expansion?: string): string {
+  // Keep titles (incl the " | GradeThread" suffix the SEO layer adds) within the
+  // ~60-char SERP cap enforced by src/lib/seo/__tests__/route-metadata.test.ts
+  // (US-435).
   return expansion
-    ? `${term} (${expansion}) — Condition Grade Meaning`
+    ? `${term} (${expansion}) — Grade Meaning`
     : `${term} Condition Grade — What It Means`;
 }
 
@@ -419,7 +422,7 @@ function buildFactorEntries(): GlossaryEntry[] {
       path: `/grading/${slug}`,
       kind: "factor",
       term: label,
-      title: `${label} — Grading Factor Explained`,
+      title: `${label} — Grading Factor`,
       description: `What the ${label} factor measures in clothing condition grading and why it is weighted ${pct} of the overall grade.`,
       h1: `${label} grading factor`,
       rangeLabel: `Weighted ${pct} of the overall grade`,

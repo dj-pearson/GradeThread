@@ -1,7 +1,33 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
+import { captureException, readCtxVar } from "../lib/observability.ts";
+
+// US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
+// NEVER carry raw error.message — that leaks DB/PostgREST internals (table
+// names, column names, constraint text) to the public. Log the detail
+// server-side (redacted + reported to the tracker, correlated to the access-log
+// line by request id, mirroring the global app.onError in main.ts) and return a
+// generic body to the caller.
+function publicError(c: Context, err: unknown, label: string): Response {
+  let path = c.req.path;
+  try {
+    path = new URL(c.req.url).pathname;
+  } catch { /* keep c.req.path */ }
+  captureException(err, {
+    route: `${c.req.method} ${path}`,
+    method: c.req.method,
+    url: `${path} (${label})`,
+    correlationId: readCtxVar(c, "correlationId"),
+  });
+  console.error(
+    `content-public ${label}:`,
+    err instanceof Error ? err.message : String(err),
+  );
+  return c.json({ error: "Internal error" }, 500);
+}
 
 // Anonymous read endpoints powering the public blog SSR worker. No
 // auth middleware: every query is constrained server-side to
@@ -160,7 +186,7 @@ contentPublicRoutes.get("/posts", async (c) => {
   if (productFocus) q = q.eq("product_focus", productFocus);
 
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
 
   const rows = (data ?? []) as unknown as BlogListRow[];
   const nextCursor =
@@ -177,7 +203,7 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
     .eq("status", "published")
     .eq("slug", slug)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
   if (!post) return c.json({ error: "Not found" }, 404);
   const row = post as unknown as BlogFullRow;
 
@@ -207,7 +233,7 @@ contentPublicRoutes.get("/tags/:tag", async (c) => {
     .from("blog_post_tags")
     .select("post_id")
     .eq("tag", tag);
-  if (tagErr) return c.json({ error: tagErr.message }, 500);
+  if (tagErr) return publicError(c, tagErr, "tags");
   const ids = (tagRows ?? []).map((r) => r.post_id as string);
   if (ids.length === 0) return c.json({ posts: [] });
 
@@ -218,7 +244,7 @@ contentPublicRoutes.get("/tags/:tag", async (c) => {
     .in("id", ids)
     .order("published_at", { ascending: false })
     .limit(MAX_LIMIT);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
   return c.json({ posts: data ?? [], tag });
 });
 
@@ -239,7 +265,7 @@ contentPublicRoutes.get("/posts/preview/:token", async (c) => {
     .select(POST_COLUMNS)
     .eq("id", verified.postId)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
   if (!post) return c.json({ error: "Not found" }, 404);
   const row = post as unknown as BlogFullRow;
 
@@ -271,7 +297,7 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
     .eq("status", "published")
     .order("published_at", { ascending: false })
     .limit(1000);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
 
   // Collect distinct tags for /blog/tag/<tag> entries.
   const { data: tagRows } = await supabaseAdmin
@@ -290,15 +316,19 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
 });
 
 // ── Certificates (public grade certificates) ──────────────────────
-// A grade report is PUBLIC iff it has a non-null certificate_id — this is
-// exactly the signal the RLS policy "Public can view grade reports with
-// certificates" uses (00001_initial_schema.sql). The service-role client
-// bypasses RLS, so EVERY query here MUST carry .not("certificate_id","is",null)
-// (and look up BY certificate_id, never by the internal report id). A private,
-// uncertified report must be unreachable through these endpoints (US-268).
+// A grade report is PUBLIC iff it has a non-null certificate_id. NOTE: the old
+// "Public can view grade reports with certificates" RLS policy that once
+// encoded this signal was DROPPED in 00082_public_certificate_view.sql — so the
+// public-ness gate now lives ENTIRELY in this code, not in the database. The
+// service-role client bypasses RLS, so EVERY query here MUST carry
+// .not("certificate_id","is",null) (and look up BY certificate_id, never by the
+// internal report id) AND select only the CERT_REPORT_COLUMNS allowlist below —
+// those two in-code gates are the sole defense. A private, uncertified report
+// must be unreachable through these endpoints (US-268).
 
-// Columns safe to expose publicly. We deliberately omit confidence_score,
-// detailed_notes, model_version internals, and the owner user_id.
+// Columns safe to expose publicly (the in-code allowlist gate). We deliberately
+// omit confidence_score, detailed_notes, model_version internals, and the
+// owner user_id.
 const CERT_REPORT_COLUMNS =
   "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
@@ -324,7 +354,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
     .eq("certificate_id", certId)
     .not("certificate_id", "is", null)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
   if (!report) return c.json({ error: "Not found" }, 404);
   const rep = report as unknown as CertReportRow;
 
@@ -332,9 +362,24 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   // the seller's buyer-facing description, US-760).
   const { data: submission } = await supabaseAdmin
     .from("submissions")
-    .select("title, brand, garment_type, garment_category, description")
+    .select(
+      "title, brand, garment_type, garment_category, description, flagged, moderation_status",
+    )
     .eq("id", rep.submission_id)
     .maybeSingle();
+
+  // US-484: WITHHOLD a suspect certificate. A grade whose submission was flagged
+  // for moderation (not-clothing / suspected image manipulation / cross-account
+  // photo reuse — set in grading-pipeline.ts) must NOT be publicly resolvable
+  // until a human clears it (admin approve sets flagged=false +
+  // moderation_status='approved', US-476). 404 exactly like a private report so
+  // a forged/altered grade can't be trusted via the public cert/SSR/OG path.
+  const sub = submission as
+    | { flagged?: boolean | null; moderation_status?: string | null }
+    | null;
+  if (sub?.flagged === true && sub.moderation_status !== "approved") {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   // A representative image (front, else lowest display_order) → signed URL so
   // the SSR/OG card can show it without exposing the private bucket wholesale.
@@ -386,7 +431,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
   const { data: report, error } = await supabaseAdmin
     .from("grade_reports")
     .select(
-      "certificate_id, overall_score, grade_tier, fabric_condition_score, " +
+      "certificate_id, submission_id, overall_score, grade_tier, fabric_condition_score, " +
         "structural_integrity_score, cosmetic_appearance_score, " +
         "functional_elements_score, odor_cleanliness_score, ai_summary, " +
         "buyer_writeup, content_hash, content_signature, integrity_version, created_at",
@@ -394,11 +439,12 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     .eq("certificate_id", certId)
     .not("certificate_id", "is", null)
     .maybeSingle();
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
   if (!report) return c.json({ error: "Not found" }, 404);
 
   const r = report as unknown as {
     certificate_id: string;
+    submission_id: string;
     overall_score: number | string;
     grade_tier: string;
     fabric_condition_score: number | string;
@@ -413,6 +459,19 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     integrity_version: number | null;
     created_at: string;
   };
+
+  // US-484: withhold verification for a flagged (suspect) certificate until a
+  // human clears it — same gate as the cert endpoint, so a forged grade can't
+  // be "verified" as authentic via the public path.
+  const { data: vSub } = await supabaseAdmin
+    .from("submissions")
+    .select("flagged, moderation_status")
+    .eq("id", r.submission_id)
+    .maybeSingle();
+  const vs = vSub as { flagged?: boolean | null; moderation_status?: string | null } | null;
+  if (vs?.flagged === true && vs.moderation_status !== "approved") {
+    return c.json({ error: "Not found" }, 404);
+  }
 
   const result = await verifyCertIntegrity(
     {
@@ -481,7 +540,7 @@ contentPublicRoutes.get("/certificates.json", async (c) => {
   if (cursor) q = q.lt("created_at", cursor);
 
   const { data, error } = await q;
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
 
   const rows = data ?? [];
   const nextCursor =
@@ -673,7 +732,7 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     .ilike("verified_handle", handle)
     .eq("verified_enabled", true)
     .maybeSingle();
-  if (sellerErr) return c.json({ error: sellerErr.message }, 500);
+  if (sellerErr) return publicError(c, sellerErr, "seller");
   if (!seller) return c.json({ error: "Not found" }, 404);
 
   // Certified grades for this seller, newest first. The inner join + the
@@ -688,7 +747,7 @@ contentPublicRoutes.get("/sellers/:handle", async (c) => {
     .not("certificate_id", "is", null)
     .order("created_at", { ascending: false })
     .limit(SELLER_STATS_SAMPLE);
-  if (certErr) return c.json({ error: certErr.message }, 500);
+  if (certErr) return publicError(c, certErr, "seller-certs");
 
   const rows = (certRows ?? []) as unknown as SellerCertRow[];
   const total = rows.length;
@@ -752,7 +811,7 @@ contentPublicRoutes.get("/sellers.json", async (c) => {
     .not("verified_handle", "is", null)
     .order("updated_at", { ascending: false })
     .limit(5000);
-  if (error) return c.json({ error: error.message }, 500);
+  if (error) return publicError(c, error, "query");
   return c.json({
     sellers: (data ?? []).map((r) => ({
       handle: r.verified_handle,

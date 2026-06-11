@@ -171,6 +171,20 @@ export function EbayCompsPanel({
                 Use as target price
               </Button>
             </div>
+            {/* US-460: be explicit about the limitation. These are CURRENT
+                ASKING prices from active listings, not final SOLD prices —
+                sellers routinely list above what items actually sell for. eBay's
+                sold-price feed (Marketplace Insights API) requires restricted
+                production access we don't currently hold, so we surface the
+                caveat rather than imply these are realized sale prices. */}
+            <div className="mt-2 flex items-start gap-1.5 border-t pt-2 text-[11px] text-muted-foreground">
+              <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+              <span>
+                Asking prices from <strong>active</strong> listings, not sold
+                prices — actual sale prices are often lower. Treat the
+                recommended price as a ceiling.
+              </span>
+            </div>
           </div>
         ) : query.isLoading ? (
           <div className="flex items-center gap-2 py-3 text-sm text-muted-foreground">

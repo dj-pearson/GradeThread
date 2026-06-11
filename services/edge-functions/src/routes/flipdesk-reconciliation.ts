@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { saleNetEstimate } from "../lib/reconciliation-scoring.ts";
 
 // Payout reconciliation: matches payout_imports rows to sales rows by listing ID
 // and timestamp window. Never silently mis-matches — unmatched rows stay queued.
@@ -62,7 +63,19 @@ interface SaleCandidateRow {
   payout_reference: string | null;
   platform_fees: number | null;
   shipping_collected: number | null;
+  // US-461: needed to estimate the eBay payout net for UNENRICHED sales (those
+  // without payout_amount). eBay's managed-payments payout deducts the shipping
+  // label the seller buys through eBay and adds the shipping the buyer paid.
+  shipping_cost: number | null;
+  payment_processing_fees: number | null;
 }
+
+// US-461: columns the candidate-net estimate needs. Shared by both the /queue
+// and /auto-match sale queries (minus their per-query join columns) so the two
+// can never drift out of sync.
+const SALE_CANDIDATE_COLUMNS =
+  "id, inventory_item_id, sale_price, sale_date, payout_amount, payout_reference, " +
+  "platform_fees, shipping_collected, shipping_cost, payment_processing_fees";
 
 interface Candidate {
   sale_id: string;
@@ -106,26 +119,31 @@ function scoreCandidate(
     return { score: 1.0, reasons: ["payout id matches"] };
   }
 
-  // Amount proximity. Prefer net payout_amount (already accounts for fees);
-  // fall back to sale_price - platform_fees for sales that haven't been
-  // enriched yet.
+  // Amount proximity. Prefer the enriched net payout_amount; otherwise estimate
+  // the net from the sale's fields INCLUDING the shipping label cost + buyer-paid
+  // shipping (US-461). An estimate is flagged and scored slightly lower so an
+  // enriched (ground-truth) candidate always outranks an estimated one at the
+  // same delta, rather than the estimate silently winning on a wrong number.
   const payoutAmt = payout.amount ?? 0;
-  const saleNet =
-    sale.payout_amount ??
-    (sale.sale_price != null
-      ? sale.sale_price - (sale.platform_fees ?? 0)
-      : null);
+  const { net: saleNet, estimated } = saleNetEstimate(sale);
+  // Estimated nets carry more error, so widen the exact-window a touch and
+  // discount the score.
+  const estimatePenalty = estimated ? 0.85 : 1;
 
   let amountScore = 0;
   if (payoutAmt > 0 && saleNet != null) {
     const delta = Math.abs(saleNet - payoutAmt);
     if (delta <= AMOUNT_EXACT_DELTA) {
-      amountScore = 0.6;
-      reasons.push(`amount within $${delta.toFixed(2)}`);
-    } else if (delta <= payoutAmt * AMOUNT_FUZZY_PCT) {
-      amountScore = 0.35;
+      amountScore = 0.6 * estimatePenalty;
       reasons.push(
-        `amount within ${((delta / payoutAmt) * 100).toFixed(0)}%`,
+        `amount within $${delta.toFixed(2)}${estimated ? " (estimated net)" : ""}`,
+      );
+    } else if (delta <= payoutAmt * AMOUNT_FUZZY_PCT) {
+      amountScore = 0.35 * estimatePenalty;
+      reasons.push(
+        `amount within ${((delta / payoutAmt) * 100).toFixed(0)}%${
+          estimated ? " (estimated net)" : ""
+        }`,
       );
     }
   }
@@ -225,7 +243,7 @@ flipdeskReconciliationRoutes.get("/queue", async (c) => {
   let saleQuery = supabaseAdmin
     .from("sales")
     .select(
-      "id, inventory_item_id, sale_price, sale_date, payout_amount, payout_reference, platform_fees, shipping_collected, inventory_items!inner(user_id, title)",
+      SALE_CANDIDATE_COLUMNS + ", inventory_items!inner(user_id, title)",
     )
     .eq("inventory_items.user_id", userId);
   if (lowerIso) saleQuery = saleQuery.gte("sale_date", lowerIso);
@@ -333,7 +351,7 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
   let saleQuery = supabaseAdmin
     .from("sales")
     .select(
-      "id, inventory_item_id, sale_price, sale_date, payout_amount, payout_reference, platform_fees, shipping_collected, inventory_items!inner(user_id)",
+      SALE_CANDIDATE_COLUMNS + ", inventory_items!inner(user_id)",
     )
     .eq("inventory_items.user_id", userId);
   if (lowerIso) saleQuery = saleQuery.gte("sale_date", lowerIso);

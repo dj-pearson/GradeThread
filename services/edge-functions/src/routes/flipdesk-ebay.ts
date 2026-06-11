@@ -63,6 +63,7 @@ import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
+import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
@@ -573,7 +574,19 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
   }
 });
 
-// ── Still-stubbed handlers (Week 2-3 work) ─────────────────────────
+// US-470: 501-stub classification. The eBay module is fully wired (OAuth, sync,
+// publish, policies, comps, reconciliation) — the old "Still-stubbed (Week 2-3)"
+// header here was stale; the helpers below ARE implemented. The only remaining
+// 501s in the FlipDesk surface are DELIBERATE, not missing features:
+//   • flipdesk-grading.ts POST /webhook → 501: same-process DB sync is used
+//     instead (grading-pipeline.ts); the webhook receiver is reserved for the
+//     Phase-2 split when FlipDesk consumes the GradeThread Public API.
+//   • flipdesk-images.ts POST /process → 501: thumbnails + EXIF strip happen
+//     client-side (PhotoUploader); /remove-bg is replaced by on-device @imgly
+//     segmentation (US-535). Both carry explanatory error bodies.
+// No accidental 501 hides unfinished reseller functionality.
+
+// ── eBay sync helpers ──────────────────────────────────────────────
 
 // Pulls every offer for the connected seller from the Sell Inventory API.
 // Each offer's SKU is matched to inventory_items.sku for THIS user:
@@ -599,6 +612,8 @@ interface SyncRunStats {
   salesUpdated: number;
   salesSkipped: number;
   salesEnriched: number;
+  // US-459: cancelled/refunded sale line items handled this run.
+  salesReversed: number;
   errors: string[];
 }
 
@@ -622,6 +637,7 @@ async function recordSyncRun(
     sales_updated: s.salesUpdated,
     sales_skipped: s.salesSkipped,
     sales_enriched: s.salesEnriched,
+    sales_reversed: s.salesReversed,
     error_count: s.errors.length,
     errors: s.errors.slice(0, 50),
     since: s.since,
@@ -699,9 +715,13 @@ async function doListingsPull(
   runId: string | null = null,
 ): Promise<void> {
   const startedAt = new Date().toISOString();
+  // US-466: collects truncation warnings from the paginated eBay fetches (and,
+  // below, per-item errors). Declared up here so the offers/inventory fetch can
+  // record a ceiling hit; a non-empty list flips the run to "partial".
+  const errors: string[] = [];
   let offers: RemoteOffer[];
   try {
-    offers = await listAllOffers(userId);
+    offers = await listAllOffers(userId, errors);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
@@ -723,6 +743,7 @@ async function doListingsPull(
       salesUpdated: 0,
       salesSkipped: 0,
       salesEnriched: 0,
+      salesReversed: 0,
       errors: [`fetch offers: ${msg.slice(0, 200)}`],
     }, runId);
     return;
@@ -782,7 +803,6 @@ async function doListingsPull(
   // by the legacy Trading API pass below to skip listings already covered
   // by the modern Sell Inventory loop.
   const processedListingIds = new Set<string>();
-  const errors: string[] = [];
   // Items whose eBay listing came back ended/inactive this sync. After the
   // orders pass marks genuine sales as 'sold', anything left here that's still
   // 'listed' ended WITHOUT a sale → auto-move it back to Drafts so the seller
@@ -1132,8 +1152,9 @@ async function doListingsPull(
   let salesNew = 0;
   let salesUpdated = 0;
   let salesSkipped = 0;
+  let salesReversed = 0; // US-459: cancelled/refunded line items handled.
   try {
-    const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO);
+    const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO, errors);
     for (const order of orders) {
       // Failed-payment orders shouldn't flip an item to sold.
       const paid =
@@ -1313,6 +1334,8 @@ async function doListingsPull(
               .update({ status: "listed" })
               .eq("id", itemId)
               .eq("status", "sold");
+            // US-459: report how many cancellations/returns this run handled.
+            salesReversed += 1;
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -1338,7 +1361,8 @@ async function doListingsPull(
   try {
     const txns: RemoteTransaction[] = await listRecentTransactions(
       userId,
-      sinceISO
+      sinceISO,
+      errors,
     );
     // Build a quick orderId → aggregate map. SALE transactions carry gross
     // + fees; SHIPPING_LABEL transactions carry what the SELLER paid for
@@ -1401,7 +1425,7 @@ async function doListingsPull(
       const { data: salesRows } = await supabaseAdmin
         .from("sales")
         .select(
-          "id, inventory_item_id, sale_price, shipping_collected, shipping_cost, grading_cost, other_costs, platform_order_id, inventory_items!inner(user_id, acquired_price)"
+          "id, inventory_item_id, sale_price, shipping_collected, shipping_cost, grading_cost, other_costs, status, platform_order_id, inventory_items!inner(user_id, acquired_price)"
         )
         .in("platform_order_id", orderIds);
 
@@ -1413,6 +1437,7 @@ async function doListingsPull(
         shipping_cost: number | null;
         grading_cost: number | null;
         other_costs: number | null;
+        status: string | null;
         platform_order_id: string | null;
         inventory_items: { user_id: string; acquired_price: number | null };
       }>) {
@@ -1440,20 +1465,28 @@ async function doListingsPull(
         const gradingCost = row.grading_cost ?? 0;
         const otherCosts = row.other_costs ?? 0;
         const costBasis = row.inventory_items.acquired_price ?? 0;
-        // Net profit = revenue - fees - your costs.
-        // Revenue: sale_price + shipping_collected (tax flows through to
-        //   government, not seller).
-        // Fees: platform_fees (already in `fees`).
-        // Your costs: cost basis, your shipping cost to send the item,
-        //   grading, other.
-        const netProfit =
-          salePrice +
-          shippingCollected -
-          fees -
-          shippingCost -
-          gradingCost -
-          otherCosts -
-          costBasis;
+        // US-459: net_profit must REVERSE revenue on a cancelled/refunded sale,
+        // not just fee-adjust it. For those, the buyer got their money back and
+        // (for a return) the item came back into inventory — so the only thing
+        // left on the books is the cash the seller actually ate: the
+        // refund-netted gross minus fees minus the shipping label they paid
+        // (`agg.gross` already subtracts REFUND transactions). Cost basis is NOT
+        // subtracted (the item is retained), and the original sale revenue is
+        // NOT counted (it was refunded). This goes negative when the seller ate
+        // a label/fee, which is correct.
+        const reversed = row.status === "cancelled" || row.status === "refunded";
+        const netProfit = reversed
+          ? agg.gross - fees - agg.shippingLabelCost
+          : // Completed sale: revenue - fees - your costs. Revenue is
+            // sale_price + shipping_collected (tax flows to government, not the
+            // seller); your costs are cost basis, shipping, grading, other.
+            salePrice +
+            shippingCollected -
+            fees -
+            shippingCost -
+            gradingCost -
+            otherCosts -
+            costBasis;
 
         await supabaseAdmin
           .from("sales")
@@ -1565,6 +1598,7 @@ async function doListingsPull(
     salesUpdated,
     salesSkipped,
     salesEnriched,
+    salesReversed,
     errors,
   }, runId);
 }
@@ -2351,15 +2385,21 @@ export async function publishItemForOwner(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // US-567: keep the raw eBay detail SERVER-SIDE (logs only) and surface a
+    // short, actionable message mapped from eBay's structured error IDs.
     console.error("[flipdesk-ebay] publish failed:", msg);
+    const ebayErrorIds = (err as { ebayErrorIds?: number[] }).ebayErrorIds;
+    const fix = mapEbayError(ebayErrorIds);
+    const userMessage = fix?.message ?? EBAY_PUBLISH_GENERIC_FIX;
     // US-321: persist the failure on the draft listing so the queue/UI can
-    // surface "last failed: X" on reload, and US-325 retry can target it.
+    // surface "last failed: X" on reload, and US-325 retry can target it. Store
+    // the user-facing message (not the raw eBay blob).
     if (listing?.id) {
       try {
         await supabaseAdmin
           .from("listings")
           .update({
-            publish_error: msg.slice(0, 1000),
+            publish_error: userMessage.slice(0, 1000),
             publish_failed_at: new Date().toISOString(),
           })
           .eq("id", listing.id);
@@ -2376,7 +2416,16 @@ export async function publishItemForOwner(
       // dialog can surface `detail` to the seller.
       ok: false,
       status: 422,
-      body: { ok: false, error: "Publish failed", detail: msg.slice(0, 1000) },
+      body: {
+        ok: false,
+        error: "Publish failed",
+        // US-567: actionable mapped message (raw eBay detail stays in logs).
+        detail: userMessage,
+        ...(fix?.field ? { fix_field: fix.field } : {}),
+        ...(ebayErrorIds && ebayErrorIds.length > 0
+          ? { ebay_error_ids: ebayErrorIds }
+          : {}),
+      },
     };
   }
 }

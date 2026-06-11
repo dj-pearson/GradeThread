@@ -19,6 +19,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useQueryClient } from "@tanstack/react-query";
@@ -83,6 +90,10 @@ export function FlipdeskAutolisterQueuePage() {
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [preflight, setPreflight] = useState<PreflightItem[]>([]);
   const [preflightLoading, setPreflightLoading] = useState(false);
+  // US-554: queue filter/sort + multi-select.
+  const [queueFilter, setQueueFilter] = useState<"all" | "ready" | "review" | "failed">("all");
+  const [queueSort, setQueueSort] = useState<"confidence" | "price" | "status">("confidence");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const runPhotoQa = useRunPhotoQa();
 
@@ -99,24 +110,28 @@ export function FlipdeskAutolisterQueuePage() {
     queryKey: ["autolister_item_meta", batchId, itemIds.length],
     enabled: itemIds.length > 0,
     queryFn: async () => {
-      const { data: rows } = await supabase
-        .from("inventory_items")
-        .select("id, title, photo_qa_score, photo_qa_issues")
-        .in("id", itemIds);
+      // US-554: chunk so large batches don't overflow the `in` list.
+      const CHUNK = 200;
       const map: Record<string, ItemMeta> = {};
-      for (
-        const r of (rows ?? []) as Array<{
-          id: string;
-          title: string;
-          photo_qa_score: number | null;
-          photo_qa_issues: PhotoQaIssue[] | null;
-        }>
-      ) {
-        map[r.id] = {
-          title: r.title,
-          qaScore: r.photo_qa_score,
-          qaIssues: r.photo_qa_issues ?? [],
-        };
+      for (let i = 0; i < itemIds.length; i += CHUNK) {
+        const { data: rows } = await supabase
+          .from("inventory_items")
+          .select("id, title, photo_qa_score, photo_qa_issues")
+          .in("id", itemIds.slice(i, i + CHUNK));
+        for (
+          const r of (rows ?? []) as Array<{
+            id: string;
+            title: string;
+            photo_qa_score: number | null;
+            photo_qa_issues: PhotoQaIssue[] | null;
+          }>
+        ) {
+          map[r.id] = {
+            title: r.title,
+            qaScore: r.photo_qa_score,
+            qaIssues: r.photo_qa_issues ?? [],
+          };
+        }
       }
       return map;
     },
@@ -131,29 +146,42 @@ export function FlipdeskAutolisterQueuePage() {
     [jobs],
   );
   const { data: reviewByListing = {} } = useQuery<
-    Record<string, { needsReview: boolean; fields: string[] }>
+    Record<string, { needsReview: boolean; fields: string[]; price: number | null }>
   >({
     queryKey: ["autolister_listing_review", batchId, listingIds.length],
     enabled: listingIds.length > 0,
     queryFn: async () => {
-      const { data: rows } = await supabase
-        .from("listings")
-        .select("id, needs_review, ai_field_confidence")
-        .in("id", listingIds);
-      const map: Record<string, { needsReview: boolean; fields: string[] }> = {};
-      for (
-        const r of (rows ?? []) as Array<{
-          id: string;
-          needs_review: boolean | null;
-          ai_field_confidence: Record<string, number> | null;
-        }>
-      ) {
-        const low = r.ai_field_confidence
-          ? Object.entries(r.ai_field_confidence)
-            .filter(([, c]) => c < 0.7)
-            .map(([name]) => name)
-          : [];
-        map[r.id] = { needsReview: !!r.needs_review, fields: low };
+      // US-554: chunk the id list so a very large batch can't blow the URL/`in`
+      // length limit (was a single unbounded .in()).
+      const CHUNK = 200;
+      const map: Record<
+        string,
+        { needsReview: boolean; fields: string[]; price: number | null }
+      > = {};
+      for (let i = 0; i < listingIds.length; i += CHUNK) {
+        const { data: rows } = await supabase
+          .from("listings")
+          .select("id, needs_review, ai_field_confidence, listing_price")
+          .in("id", listingIds.slice(i, i + CHUNK));
+        for (
+          const r of (rows ?? []) as Array<{
+            id: string;
+            needs_review: boolean | null;
+            ai_field_confidence: Record<string, number> | null;
+            listing_price: number | null;
+          }>
+        ) {
+          const low = r.ai_field_confidence
+            ? Object.entries(r.ai_field_confidence)
+              .filter(([, c]) => c < 0.7)
+              .map(([name]) => name)
+            : [];
+          map[r.id] = {
+            needsReview: !!r.needs_review,
+            fields: low,
+            price: r.listing_price,
+          };
+        }
       }
       return map;
     },
@@ -221,12 +249,82 @@ export function FlipdeskAutolisterQueuePage() {
     (j) => j.status === "pending" || j.status === "running",
   ).length;
 
+  // US-550: confidence-based triage. Classify each draft green/amber/red from
+  // the per-field AI confidence (US-541 needs_review) + the photo-QA score
+  // (US-537), so a seller can accept the high-confidence ones in one click and
+  // focus review on the rest. (Hard eBay blockers are still caught by the
+  // /listings/validate pre-flight at publish time, so "green" = AI-confident.)
+  type Tier = "green" | "amber" | "red";
+  function tierOf(job: AutolisterJob): Tier {
+    if (job.status === "failed") return "red";
+    const review = job.listing_id ? reviewByListing[job.listing_id] : undefined;
+    const qa = itemMeta[job.inventory_item_id]?.qaScore ?? null;
+    const lowQa = qa != null && qa < 80;
+    if (review?.needsReview || lowQa) return "amber";
+    return "green";
+  }
+  const greenJobs = succeededJobs.filter((j) => tierOf(j) === "green");
+  const amberCount = succeededJobs.length - greenJobs.length;
+  const redCount = jobs.filter((j) => j.status === "failed").length;
+
+  // US-554: filter + sort + multi-select for large batches.
+  function priceOf(job: AutolisterJob): number | null {
+    return job.listing_id ? reviewByListing[job.listing_id]?.price ?? null : null;
+  }
+  const matchesFilter = (job: AutolisterJob): boolean => {
+    switch (queueFilter) {
+      case "ready":
+        return job.status === "success" && tierOf(job) === "green";
+      case "review":
+        return job.status === "success" && tierOf(job) === "amber";
+      case "failed":
+        return job.status === "failed";
+      case "all":
+      default:
+        return true;
+    }
+  };
+  // Sort for triage: in-progress first (still working), then green, amber, red.
+  const TIER_RANK: Record<string, number> = {
+    running: 0,
+    pending: 0,
+    green: 1,
+    amber: 2,
+    red: 3,
+  };
+  const confidenceRank = (j: AutolisterJob): number =>
+    j.status === "pending" || j.status === "running"
+      ? 0
+      : TIER_RANK[tierOf(j)] ?? 9;
+  const visibleJobs = [...jobs].filter(matchesFilter).sort((a, b) => {
+    if (queueSort === "price") {
+      return (priceOf(b) ?? -1) - (priceOf(a) ?? -1);
+    }
+    if (queueSort === "status") {
+      return a.status.localeCompare(b.status);
+    }
+    // Default: confidence/tier triage order.
+    return confidenceRank(a) - confidenceRank(b);
+  });
+  // Currently-selected, still-publishable (succeeded) jobs.
+  const selectedPublishable = succeededJobs.filter((j) =>
+    selectedIds.has(j.inventory_item_id)
+  );
+  function toggleSelected(itemId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }
+
   // Open the confirmation dialog (US-321) and run pre-flight /listings/validate
   // on each succeeded item in parallel. Blockers render per-row and gate the
   // "Publish N clean" button — items with unresolved blockers are refused.
-  async function openPublishDialog() {
-    if (succeededJobs.length === 0) return;
-    const initial: PreflightItem[] = succeededJobs.map((j) => ({
+  async function openPublishDialog(subset: AutolisterJob[] = succeededJobs) {
+    if (subset.length === 0) return;
+    const initial: PreflightItem[] = subset.map((j) => ({
       itemId: j.inventory_item_id,
       listingId: j.listing_id,
       title: titleOf(j.inventory_item_id),
@@ -357,8 +455,78 @@ export function FlipdeskAutolisterQueuePage() {
               ? "AI is generating your listings — this page updates automatically."
               : "Batch complete."}
           </p>
+          {/* US-550: confidence-tier summary. */}
+          {!isRunning && succeededJobs.length > 0 && (
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                {greenJobs.length} ready
+              </span>
+              {amberCount > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-amber-500" />
+                  {amberCount} needs review
+                </span>
+              )}
+              {redCount > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-rose-500" />
+                  {redCount} failed
+                </span>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* US-554: filter + sort the queue. */}
+          {!isRunning && jobs.length > 0 && (
+            <>
+              <Select
+                value={queueFilter}
+                onValueChange={(v) =>
+                  setQueueFilter(v as "all" | "ready" | "review" | "failed")}
+              >
+                <SelectTrigger className="h-9 w-[140px]">
+                  <SelectValue placeholder="Filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All drafts</SelectItem>
+                  <SelectItem value="ready">Ready only</SelectItem>
+                  <SelectItem value="review">Needs review</SelectItem>
+                  <SelectItem value="failed">Failed</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={queueSort}
+                onValueChange={(v) =>
+                  setQueueSort(v as "confidence" | "price" | "status")}
+              >
+                <SelectTrigger className="h-9 w-[150px]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="confidence">Confidence</SelectItem>
+                  <SelectItem value="price">Price: high → low</SelectItem>
+                  <SelectItem value="status">Status</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
+          {/* US-554: publish only the multi-selected rows. */}
+          {selectedPublishable.length > 0 && !isRunning && (
+            <Button
+              onClick={() => void openPublishDialog(selectedPublishable)}
+              disabled={bulkPublish.running || !ebayConnection}
+              title="Validate and publish the selected drafts."
+            >
+              {bulkPublish.running ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              Publish {selectedPublishable.length} selected
+            </Button>
+          )}
           {pendingCount > 0 && (
             <Button
               variant="secondary"
@@ -399,8 +567,29 @@ export function FlipdeskAutolisterQueuePage() {
               Check photos ({succeededJobs.length})
             </Button>
           )}
+          {/* US-550: one-click accept of the high-confidence (green) drafts. */}
+          {greenJobs.length > 0 && !isRunning && (
+            <Button
+              onClick={() => void openPublishDialog(greenJobs)}
+              disabled={bulkPublish.running || !ebayConnection}
+              className="bg-emerald-600 hover:bg-emerald-700"
+              title={
+                !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : "Validate and publish only the high-confidence (green) drafts."
+              }
+            >
+              {bulkPublish.running ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Rocket className="mr-2 h-4 w-4" />
+              )}
+              Publish {greenJobs.length} green
+            </Button>
+          )}
           {succeededJobs.length > 0 && !isRunning && (
             <Button
+              variant={greenJobs.length > 0 ? "outline" : "default"}
               onClick={() => void openPublishDialog()}
               disabled={bulkPublish.running || !ebayConnection}
               title={
@@ -468,15 +657,77 @@ export function FlipdeskAutolisterQueuePage() {
         )}
       </Card>
 
+      {/* US-554: select-all / clear for the publishable rows in view. */}
+      {!isRunning && succeededJobs.length > 0 && (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <button
+            type="button"
+            className="underline-offset-2 hover:underline"
+            onClick={() => {
+              const ids = visibleJobs
+                .filter((j) => j.status === "success")
+                .map((j) => j.inventory_item_id);
+              setSelectedIds(new Set(ids));
+            }}
+          >
+            Select all in view
+          </button>
+          {selectedIds.size > 0 && (
+            <button
+              type="button"
+              className="underline-offset-2 hover:underline"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear ({selectedIds.size})
+            </button>
+          )}
+          <span className="ml-auto">
+            Showing {visibleJobs.length} of {jobs.length}
+          </span>
+        </div>
+      )}
+
       {/* Per-item rows */}
       <div className="space-y-2">
-        {jobs.map((job) => {
+        {!isRunning && visibleJobs.length === 0 && jobs.length > 0 && (
+          <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
+            No drafts match this filter.
+          </p>
+        )}
+        {visibleJobs.map((job) => {
           const pub = bulkPublish.results[job.inventory_item_id];
+          // US-550: tier dot (only meaningful once a draft is generated).
+          const tier = job.status === "success" ? tierOf(job) : null;
+          const tierColor =
+            tier === "green"
+              ? "bg-emerald-500"
+              : tier === "amber"
+                ? "bg-amber-500"
+                : null;
+          const selectable = job.status === "success";
           return (
             <div key={job.id} className="space-y-1.5">
             <div
               className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
             >
+              {/* US-554: multi-select a publishable (succeeded) draft. */}
+              {selectable && !isRunning ? (
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 shrink-0 accent-emerald-600"
+                  checked={selectedIds.has(job.inventory_item_id)}
+                  onChange={() => toggleSelected(job.inventory_item_id)}
+                  aria-label={`Select ${titleOf(job.inventory_item_id)}`}
+                />
+              ) : (
+                <span className="w-4 shrink-0" aria-hidden="true" />
+              )}
+              {tierColor && (
+                <span
+                  className={cn("h-2 w-2 shrink-0 rounded-full", tierColor)}
+                  aria-hidden="true"
+                />
+              )}
               <StatusIcon status={job.status} />
               <span className="flex-1 truncate">
                 {titleOf(job.inventory_item_id)}
@@ -519,9 +770,15 @@ export function FlipdeskAutolisterQueuePage() {
                 </Badge>
               )}
               {pub?.status === "failed" && (
-                <span className="max-w-xs truncate text-xs text-destructive" title={pub.error}>
+                // US-567: the mapped, actionable eBay message deep-links to the
+                // composer so the seller can fix the offending field.
+                <Link
+                  to={`/dashboard/flipdesk/items/${job.inventory_item_id}/draft`}
+                  className="max-w-xs truncate text-xs text-destructive underline-offset-2 hover:underline"
+                  title={`${pub.error} — click to fix in the composer`}
+                >
                   {pub.error}
-                </span>
+                </Link>
               )}
               {pub?.status === "success" ? (
                 pub.listingUrl ? (

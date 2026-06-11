@@ -30,6 +30,7 @@ import {
   gradingStandardJsonLd,
   transparencyJsonLd,
   glossaryJsonLd,
+  glossaryBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
 
@@ -84,7 +85,15 @@ export function jsonLdForRoute(path: string): JsonLd[] {
   // so prerendered and runtime structured data stay identical.
   const glossary = getGlossaryEntryByPath(path);
   if (glossary) {
-    return [organizationLd(), ...glossaryJsonLd(glossary)];
+    // Mirror the live glossary page exactly (US-423): MarketingLayout emits
+    // Organization + the 3-level BreadcrumbList (via its `breadcrumbs` prop),
+    // and glossaryJsonLd adds the FAQPage. Emit the breadcrumb here too so the
+    // prerendered head matches — and so it appears exactly once.
+    return [
+      organizationLd(),
+      breadcrumbLd(glossaryBreadcrumbItems(glossary)),
+      ...glossaryJsonLd(glossary),
+    ];
   }
   // Every other non-home page (legal + marketing) renders Organization + a
   // 2-level breadcrumb via its layout; marketing pages add page-type schema.

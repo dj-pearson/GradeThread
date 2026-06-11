@@ -5555,3 +5555,361 @@ test to extend — the right kind of work to land cleanly here.
           Complements US-528 (publishOffer's intra-call reconciliation across its
           own retries). Verified: deno lint src/ clean (233 files) + Node harness
           of the 3 scenarios; deno check/test run in CI.
+
+================================================================================
+## 2026-06-11 — Pre-launch false-story sweep (security + SEO hygiene)
+
+- US-572  Stop serving avatars from the private submission-images bucket.
+          COMPLETE (passes:true). Files: new supabase/migrations/00127_avatars_bucket.sql,
+          src/pages/settings.tsx.
+          P0: settings.tsx uploaded avatars to the PRIVATE submission-images
+          bucket and served them via getPublicUrl — an unfetchable/leaky link
+          that violated the CLAUDE.md signed-URL-only contract. Added a dedicated
+          PUBLIC `avatars` bucket (2MB cap, image mimes) with the standard
+          per-user-folder RLS (insert/update/delete gated on
+          (storage.foldername(name))[1] = auth.uid()::text; public read). Avatar
+          upload + URL now target `avatars`. Verified: no getPublicUrl call
+          targets submission-images anywhere in the tree.
+
+- US-575  No-cache headers for the SPA shell. COMPLETE (passes:true). File:
+          public/_headers. Added Cache-Control: public, max-age=0, must-revalidate
+          for / and /index.html so an open tab is never stranded on a stale asset
+          manifest after a deploy; /assets/* immutable caching preserved.
+
+- US-580  Stop leaking raw error.message on public/unauthenticated endpoints.
+          COMPLETE (passes:true). Files: services/edge-functions/src/routes/
+          content-public.ts, public-grading.ts.
+          Added publicError(c, err, label) in content-public.ts — logs the detail
+          server-side (console.error + captureException with route/correlation
+          context, mirroring the global app.onError) and returns a generic
+          {error:"Internal error"} 500. Replaced all 12 `error.message` 500
+          returns; public-grading /transparency no longer echoes err detail. Also
+          corrected the stale comment that referenced the
+          "Public can view grade reports with certificates" RLS policy (DROPPED in
+          00082) — it now documents that the public-ness gate lives entirely in
+          code (the certificate_id-not-null filter + CERT_REPORT_COLUMNS
+          allowlist). (deno check/test run in CI; deno not available in sandbox.)
+
+- US-431  Generate llms.txt from the route registry. COMPLETE (passes:true).
+          Files: functions/_shared/seo-config.ts (new buildLlmsSections() +
+          LLMS_SUMMARY + LlmsRoute), functions/llms.txt.ts (rewritten),
+          new src/test/llms-txt.test.ts.
+          /llms.txt was hand-curated (~10 links) and drifted from PUBLIC_ROUTES.
+          It now fetches the build-emitted dist/seo-manifest.json (= PUBLIC_ROUTES)
+          and builds Product/Glossary/Content/Verified/Reference/Legal sections
+          via the pure buildLlmsSections() (graceful static fallback if the
+          manifest is missing). Representative cert + verified-seller URLs are
+          pulled best-effort from the edge certificates.json/sellers.json. The CI
+          guard src/test/llms-txt.test.ts builds the body from PUBLIC_ROUTES and
+          fails if any registry route (incl. glossary spokes) is missing.
+          Verified: vitest 5/5 green; tsc -b + eslint clean; sitemap/seo suites
+          still 40/40.
+
+- US-435  CI guard for title/description length + uniqueness. COMPLETE
+          (passes:true). Files: new src/lib/seo/__tests__/route-metadata.test.ts,
+          src/lib/seo/public-routes.ts, src/lib/seo/glossary.ts.
+          Policy: title incl " | GradeThread" suffix <=60 & unique; description
+          70–160 & unique. Trimmed over-length descriptions (/, /grading-standard,
+          /transparency were 191/179/250), expanded too-short legal descriptions
+          (/terms 44, /cookies 54, /acceptable-use 49), and shortened the
+          glossary tier/factor title templates (NWOT/structural-integrity were
+          61–63 incl suffix). All 28 routes (incl generated glossary spokes) pass;
+          vitest green, tsc -b + eslint clean.
+
+- US-579  Host-allowlist Google Photos baseUrl fetch. COMPLETE (passes:true).
+          File: services/edge-functions/src/routes/flipdesk-google-photos.ts.
+          importOne() validated the Picker mediaFile.baseUrl host (google.com /
+          googleusercontent.com or subdomain) BEFORE attaching the user's Google
+          bearer token and fetching — a poisoned/spoofed baseUrl can no longer
+          exfiltrate the token. Invalid-URL and non-Google hosts throw per-item
+          (caught into the per-item errors array). Hardcoded googleapis fetches
+          unchanged.
+
+- US-423  Fix SEO JSON-LD prerender coverage + misleading comment. COMPLETE
+          (passes:true). Files: src/components/seo.tsx (comment), new
+          src/prerender/__tests__/jsonld-parity.test.tsx,
+          src/pages/marketing/marketing-jsonld.ts, src/prerender/head-builder.ts.
+          Corrected the false "headless-browser prerender" comment (the prerender
+          is STRING-BASED; head-builder.jsonLdForRoute mirrors page LD). The new
+          parity test renders each indexable page (home + 6 marketing + a glossary
+          spoke) the way the SPA does and asserts the runtime useEffect-injected
+          LD multiset EQUALS jsonLdForRoute(). It caught a real bug: glossary
+          pages double-emitted BreadcrumbList (MarketingLayout's breadcrumbs prop
+          AND glossaryJsonLd both emitted one). Fix: glossaryJsonLd now returns
+          the FAQPage only; head-builder emits the 3-level breadcrumb explicitly
+          via glossaryBreadcrumbItems, so it appears exactly once in both surfaces.
+
+- US-432  Validate prerendered head integrity in CI. COMPLETE (passes:true).
+          File: scripts/prerender.mjs. Added validateHeadIntegrity(html, body,
+          route) run per route in the write loop: asserts exactly one <title>,
+          one rel=canonical, one <meta name=description>, and that none of those
+          leaked into <body> (the Helmet-strip correctness check). It runs inside
+          npm run build (the ci.yml build job / verify:web), failing the build on
+          any violation. Verified clean across all 28 prerendered routes.
+
+- US-426  Define a trailing-slash canonical policy. COMPLETE (passes:true).
+          Files: scripts/prerender.mjs, src/components/seo.tsx, seo.test.tsx.
+          Policy: NO trailing slash (except root "/"). (AC1) prerender.mjs emits
+          an explicit 301 per prerendered route ("/pricing/ /pricing 301", 27
+          rules) prepended to dist/_redirects BEFORE the "/* /index.html 200"
+          fallback — deterministic (no reliance on Cloudflare Pages auto
+          behavior), idempotent. (AC2) <SEO> normalizePath()s
+          window.location.pathname so a visit to "/pricing/" still emits canonical
+          "/pricing", matching the prerendered/head-builder canonical; covered by
+          two new seo.test.tsx cases. (AC3) hreflang/x-default OMITTED on purpose
+          (single-locale en) — recorded in code comments. Full suite 392 green.
+
+- US-411  Cap and column-select the dashboard inventory query. COMPLETE
+          (passes:true). File: src/pages/dashboard.tsx.
+          The "listing suggestions" widget query loaded select('*') over ALL
+          inventory_items (then all their listings + grade_reports). It now (a)
+          selects only the 4 columns the widget reads (id, status, title,
+          submission_id), (b) pushes the terminal-status skip to the server
+          (.not("status","in","(sold,shipped,completed,returned)")), (c) orders
+          by created_at desc and caps to 200 candidates, and (d) column-selects
+          the listings/grade_reports sub-queries. A separate index-only head
+          count (no rows) preserves FlipdeskPromoCard's "any inventory yet?" gate.
+          Dashboard load is now independent of inventory size. tsc/eslint clean.
+
+================================================================================
+## 2026-06-11 — eBay/reconciliation batch (US-461, US-466)
+
+- US-461  Include shipping-label cost in reconciliation matching. COMPLETE.
+          Files: new services/edge-functions/src/lib/reconciliation-scoring.ts,
+          new src/tests/reconciliation-net_test.ts, flipdesk-reconciliation.ts.
+          The candidate-net used sale_price - platform_fees, ignoring the eBay
+          shipping LABEL the seller buys (deducted from the payout) and the
+          buyer-paid shipping (added) — it over-estimated free-shipping nets and
+          mis-scored them. New pure saleNetEstimate(): payout_amount when enriched,
+          else sale_price + shipping_collected - platform_fees - shipping_cost -
+          payment_processing_fees, returning { net, estimated }. Estimated nets
+          are flagged in the candidate reasons ("estimated net") and scored x0.85
+          so a ground-truth enriched candidate outranks an estimate at equal
+          delta. Both /queue + /auto-match selects share SALE_CANDIDATE_COLUMNS.
+          6 deno unit cases (CI) + local vite-node sanity of the calc.
+
+- US-466  Stop silent truncation of large eBay catalogs/histories. COMPLETE.
+          File: services/edge-functions/src/lib/ebay-client.ts, flipdesk-ebay.ts.
+          The three paginated fetches (inventory/orders/transactions) had fixed
+          `i < 50/50/100` page loops that SILENTLY returned a partial set at the
+          cap. Now: named ceilings raised to 50k/40k/100k rows, each loop tracks
+          natural-completion vs ceiling-hit, and on a ceiling hit (with eBay's
+          `total` saying more remains) pushes a structured truncationWarning()
+          into the caller's sync-run errors. doListingsPull declares `errors`
+          up-front and threads it into listAllOffers/listRecentOrders/
+          listRecentTransactions, so a truncated sync is recorded + flips the run
+          to "partial" (surfaced by the US-457 UI). deno lint clean (259 files).
+          Pagination-to-ceiling itself is integration-level (CI/staging) — the
+          module graph imports hono which deno.land blocks in this sandbox.
+
+- US-459  Handle eBay returns and cancellations. COMPLETE (passes:true). Files:
+          new supabase/migrations/00128_sync_run_reversals.sql,
+          services/edge-functions/src/routes/flipdesk-ebay.ts, src/hooks/use-ebay.ts,
+          src/pages/flipdesk/reconciliation.tsx.
+          AC1 was already done (CANCELED/FULLY_REFUNDED orders mark the sales row
+          cancelled/refunded and revert the item from 'sold' to 'listed'). ADDED:
+          AC2 — net_profit now REVERSES revenue for cancelled/refunded sales
+          (net = agg.gross - fees - shippingLabelCost, refund-netted; cost basis
+          NOT subtracted since the item is retained, original revenue NOT counted;
+          negative when the seller ate a label) rather than the full completed-sale
+          formula. AC3 — new sales_reversed count (migration 00128) incremented per
+          reversed line item, recorded by recordSyncRun and shown as a red "-N"
+          (cancelled/returned) in the reconciliation sync-history. lint/tsc/eslint clean.
+
+================================================================================
+## 2026-06-11 — AutoLister reconciliation (verified already-implemented; flags flipped)
+
+Reconciled the prd.json flags with reality: a large block of AutoLister stories
+were fully built in prior sessions (migrations 00087 autolister_reliability,
+00088 listings_ai_confidence; the US-310..US-325 AutoLister work and beyond) but
+their `passes` flags were never flipped. Verified each against its acceptance
+criteria (code + dedicated deno/web tests + UI wiring) and marked the
+fully-satisfied ones true. NO code changes — pure reconciliation.
+
+  DONE (verified): US-525 (durable queue + reclaim cron */5min + claim/heartbeat),
+  US-526 (90s per-item withTimeout), US-527 (atomic reserve_ai_action RPC +
+  concurrency test), US-528 (publish-due claim-lock + 25002 errorId + adopt-on-
+  retry), US-530 (real drag/drop + folder + paste ingest), US-531 (in-browser
+  HEIC transcode), US-532 (EXIF-burst + dHash auto-grouping w/ merge/split),
+  US-533 (AI cover + role auto-tag), US-534 (PhotoEditorDialog + straighten in
+  staging grid), US-535 (on-device @imgly background removal + white compositing),
+  US-536 (batch auto-enhance w/ multi-angle consistency), US-537 (AI photo-QA
+  readiness score), US-541 (per-field confidence persisted + needs_review).
+
+  Tests backing these: autolister-reliability_test.ts, ai-quota-concurrency_test.ts,
+  publish-idempotency_test.ts, ai-photo-roles_test.ts, ai-photo-qa_test.ts,
+  listing-confidence_test.ts.
+
+  STILL OPEN (verified NOT fully done — left false):
+  - US-548 drafts cockpit: view exists but no margin/status column, no sort, no
+    publish-all/bulk action FROM the page.
+  - US-550 confidence triage: NOT built — no green/amber/red batch sort, no
+    accept-all-green action (only the per-row needs_review/PhotoQA badges exist).
+  - US-553 profit calc: done in the composer (estimateListingProfit live), but the
+    bulk grid lacks a margin column and the advanced price rules (median comp -X%,
+    floor at X% margin, match recommended) — only markup%/round-.99 exist.
+
+================================================================================
+## 2026-06-11 — Marketplace registry reconciliation (US-719/720/723)
+
+Verified already-implemented (subagent AC-by-AC audit), flags flipped, no code
+changes:
+- US-719  marketplace-specs.ts MARKETPLACE_SPECS single registry (fields, char
+          limits, photo caps, condition values, taxonomy flag) consumed by
+          validation/kit/photo-export/AI-gen across all 6 connectors.
+- US-720  gradeToConditionBucket + CONDITION_BY_BUCKET + mapCondition map the
+          1.0-10.0 grade to each platform's condition enum, used at publish-prep.
+- US-723  ListingKit per-platform copyable fields + live char counts, mounted in
+          the composer.
+
+STILL OPEN (verified partial — left false):
+- US-722  per-platform category mapping: deterministic seeded map exists, but AC2
+          (AI-assisted suggestion for the no-API platforms) + AC3 (cache for that
+          map) are not built.
+- US-725  cross-list pre-flight: validateListingForPlatform exists w/ actionable
+          messages, but it does NOT block copy on errors (kit only displays them)
+          and is NOT wired into the API publish path. (AC4 wiring carries
+          publish-path risk + is partly redundant with eBay's own pre-flight —
+          deferred rather than half-done.)
+
+================================================================================
+## 2026-06-11 — Admin/grading/email cluster (US-475 verified, US-222 finished)
+
+- US-475  Reseal certificate on score change. VERIFIED already-done. /review/:id/
+          adjust reseals via resealCertificate->buildCertIntegrity server-side;
+          public verifyCertIntegrity re-derives so it still passes. Flag flipped.
+- US-222  Transactional receipts + dunning. FINISHED. Credit-pack receipt +
+          payment-failed dunning were already wired; ADDED the missing per-renewal
+          subscription receipt (sendSubscriptionRenewalReceiptEmail, fired on
+          billing_reason='subscription_cycle' in handleInvoicePaymentSucceeded).
+
+VERIFIED STILL OPEN (left false):
+- US-476  refund IS an audited service-role route, but admin moderation/suspend
+          still run as direct browser-client writes (src/pages/admin/moderation.tsx)
+          with no edge route + no audit row.
+- US-477  grade-correction + review audit logs exist server-side, but moderation
+          (approve/reject/suspend/ban) writes NO audit row (client-side).
+- US-569  AI grading is still fire-and-forget (processSubmission un-awaited), not a
+          durable claimed job — large infra story, deferred.
+
+================================================================================
+## 2026-06-11 — Admin moderation audit (US-476/477) + iOS verification (746/757)
+
+- US-476/477  Move admin moderation to audited service-role routes. COMPLETE.
+          New services/edge-functions/src/routes/admin-moderation.ts (mounted
+          /api/admin/moderation, admin JWT + AAL2): POST /:id/approve, /:id/reject
+          (+ grade-credit refund), /:id/ban (suspend owner + reject; fresh MFA
+          step-up + self-suspend guard). Each writes a writeAuditLog row
+          (admin.moderation_*) attributing the acting admin + before/after.
+          src/pages/admin/moderation.tsx now calls these via edgeFetch instead of
+          direct browser supabase writes; ban wires MfaStepUpDialog on
+          STEP_UP_REQUIRED. admin_audit_log is append-only (00003 SELECT+INSERT
+          RLS only). tsc/eslint/deno-lint clean.
+- US-746  iOS grade->publish bridge. VERIFIED already-done (gradeReady notif +
+          List-this-item CTA + context carried into PublishDialog). Flag flipped.
+- US-757  iOS accessibility pass. VERIFIED genuine repo-wide a11y pass. Flag flipped.
+
+iOS still open (verified partial): US-750 (Sales migrated but Expenses still on
+Remote* shims; shims not removed), US-753 (only StatusBadge exists; InfoCard +
+DataRow missing). App Store US-786/788 scaffolded+documented; remaining steps are
+inherently external operator actions (fill demo creds, register ASC webhook, run
+sandbox round-trip) — left false per the scaffold+document decision.
+
+- US-457  Surface sync failures in the UI with retry. COMPLETE. File:
+          src/pages/flipdesk/reconciliation.tsx. The sync-history card already
+          showed status badges + error_count with phase-prefixed errors in a
+          tooltip (AC1). Added a "Sync now" button (useSyncEbayListings) so a
+          failed/partial run is retryable in-place (AC2), plus stale-'running'
+          detection (>10min) with a recoverable hint while keeping Sync-now
+          enabled — the server claim-lock reclaims the stale row so a stuck run
+          no longer blocks the UI (AC3).
+
+- US-460  Sold-price comps (or surface the limitation). COMPLETE via the
+          surface-the-limitation path. Comps are Browse-API ACTIVE asking prices
+          (eBay Marketplace Insights sold-price API needs restricted access we
+          don't hold). Added an explicit caveat under the recommended-price band
+          in EbayCompsPanel + the Repricing header so sellers treat the
+          recommendation as a ceiling, not a realized sale price.
+- US-470  Classify and resolve 501-stub FlipDesk handlers. COMPLETE. The only
+          remaining 501s (grading /webhook, images /process) are deliberate
+          design choices (same-process sync; client-side image processing) with
+          explanatory bodies. Fixed the stale "Still-stubbed (Week 2-3)" header in
+          flipdesk-ebay.ts and documented the classification inline.
+
+- US-550  Confidence-based triage view with accept-all-green. COMPLETE. File:
+          src/pages/flipdesk/autolister-queue.tsx. Classifies each draft into a
+          green/amber/red tier from the persisted per-field confidence (US-541
+          needs_review) + photo-QA score (US-537): summary line + per-row tier
+          dots + the queue is sorted in-progress->green->amber->red. New
+          "Publish N green" button publishes ONLY the high-confidence drafts via
+          the existing pre-flight publish flow (hard eBay blockers still gate at
+          publish), leaving amber/red queued for review.
+
+- US-540  Gate AutoLister photos on minimum quality/resolution. COMPLETE. File:
+          src/pages/flipdesk/autolister.tsx. handleFiles now runs validateImage()
+          (min 1200px + JPEG/PNG/WebP allowlist) after the HEIC transcode, before
+          upload — type/resolution/decode failures are skipped with a clear
+          per-file reason toast; borderline (1200-1500px min edge) images pass but
+          raise a soft low-resolution warning. Size stays handled by the compressor.
+
+- US-567  Map eBay error IDs to actionable fix messages. COMPLETE. Files: new
+          services/edge-functions/src/lib/ebay-error-map.ts + tests/ebay-error-map_test.ts,
+          flipdesk-ebay.ts, src/pages/flipdesk/autolister-queue.tsx.
+          mapEbayError() maps structured eBay error IDs (25002/25007/25019/25709/
+          25710/25713/25023/2004) -> short fix messages + the composer field.
+          publishItemForOwner returns the mapped message (+ fix_field +
+          ebay_error_ids) and stores it in listings.publish_error; the RAW eBay
+          detail stays server-side (logs only) per AC3. The queue's failed-publish
+          message now deep-links to the item composer (AC2).
+
+- US-548  Persistent AutoLister drafts cockpit. COMPLETE (was partial). File:
+          src/pages/flipdesk/autolister-drafts.tsx. Added the three missing ACs:
+          a Status column (Ready / Needs review from US-541 + live publish state
+          Publishing/Live/Failed, failed deep-links to the composer); a 5-way Sort
+          control beside the session-persistent search (not ?batch-tied); and a
+          "Publish N ready" bulk action from the cockpit via the reusable
+          useBulkPublish hook (ready = not-needs_review + priced + categorized +
+          unscheduled), eBay-gated, with per-row status.
+
+- US-554  Queue filtering/sorting + selective bulk-publish. COMPLETE. File:
+          src/pages/flipdesk/autolister-queue.tsx. Added a Filter (all/ready/
+          needs-review/failed) + Sort (confidence-tier/price/status) toolbar,
+          per-row multi-select checkboxes with select-all-in-view/clear and a
+          "Publish N selected" action, and chunked the title + review/price `.in()`
+          maps (200/page) so large batches don't overflow or fall back to raw
+          UUIDs. (has-blockers sort omitted — it needs a per-row validate call;
+          blockers stay lazy at publish.)
+
+================================================================================
+## 2026-06-11 — Grading integrity (US-478, US-482)
+
+- US-478  Enforce the >1.5-point super_admin grade rule server-side. COMPLETE.
+          New pure lib/grade-adjust-rules.ts requiresSuperAdmin() (+test).
+          admin-grading /review/:id/adjust returns 403 SUPER_ADMIN_REQUIRED when a
+          non-super_admin tries a >1.5-pt correction — before any write, so the
+          client-only gate can no longer be bypassed by a direct API call.
+- US-482  Validate the grading composite model against an allowlist. COMPLETE.
+          ai-config GRADING_MODEL_ALLOWLIST + isAllowedGradingModel; an
+          off-allowlist GRADING_COMPOSITE_MODEL override is refused (warn +
+          fall back to default) instead of silently grading traffic. The grading
+          monitor now raises a `model_changed` warn alert (evaluateAlerts +
+          runGradingRegressionScan counting distinct composite models in the last
+          50 grade_reports). Tests added.
+
+- US-489  Extend the certificate hash to all certified claims. COMPLETE. AC1 was
+          already met by the v2 canonical hash (US-770) — it covers overall +
+          5 factor scores + tier + ai_summary + certificate_id + buyer_writeup,
+          which IS the full set of buyer-facing certified claims (the public cert
+          columns); defects_found/detected_issues are not buyer-facing. AC2/AC3:
+          certificate.tsx now states PRECISELY what the seal covers (the grade
+          claims) and that it does NOT bind the photographs — distinguishing
+          claim-verification from image-binding so buyers aren't misled.
+
+- US-484  Atomic report+status+moderation; withhold suspect certificates.
+          PARTIAL (left false). AC2 DONE: content-public.ts /certificates/:id and
+          /:id/verify now 404 a certificate whose parent submission is flagged
+          for moderation and not yet approved — so a manipulation/moderation-
+          flagged grade is not publicly resolvable (or "verifiable") until an
+          admin clears it (US-476 approve). STILL OPEN: AC1 (one-transaction
+          finalize via RPC) is a high-risk change to the critical grading path,
+          deferred + unverifiable here; AC3 behavioral test needs a live DB.

@@ -740,6 +740,8 @@ export interface EbaySyncRun {
   sales_updated: number;
   sales_skipped: number;
   sales_enriched: number;
+  // US-459: cancelled/refunded line items handled this run.
+  sales_reversed?: number;
   error_count: number;
   errors: string[];
   since: string | null;

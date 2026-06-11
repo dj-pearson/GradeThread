@@ -45,11 +45,40 @@ export function getLightweightModel(): string {
   return Deno.env.get("LIGHTWEIGHT_AI_MODEL")?.trim() || DEFAULTS.lightweightModel;
 }
 
+// US-482: models vetted for grading. An operator override
+// (GRADING_COMPOSITE_MODEL) that is NOT on this list would silently change
+// grading behavior + reproducibility, so it's rejected (with a loud warning) in
+// favor of the built-in default rather than trusted blindly. Extend deliberately
+// when a new model is qualified against the eval gate.
+export const GRADING_MODEL_ALLOWLIST: ReadonlySet<string> = new Set([
+  "claude-opus-4-8",
+  "claude-sonnet-4-6",
+  "claude-haiku-4-5-20251001",
+  DEFAULTS.model,
+  DEFAULTS.lightweightModel,
+]);
+
+export function isAllowedGradingModel(model: string): boolean {
+  return GRADING_MODEL_ALLOWLIST.has(model.trim());
+}
+
 // Model for the grading composite step — a text-only synthesis of the
 // per-image vision results. Defaults to the vision model so behavior is
 // unchanged unless an operator deliberately routes it to a cheaper model.
+// US-482: the override is validated against the allowlist; an unknown value is
+// refused (warn + fall back to the default) so an unvetted model can't quietly
+// grade traffic.
 export function getGradingCompositeModel(): string {
-  return Deno.env.get("GRADING_COMPOSITE_MODEL")?.trim() || getDefaultModel();
+  const override = Deno.env.get("GRADING_COMPOSITE_MODEL")?.trim();
+  if (override) {
+    if (isAllowedGradingModel(override)) return override;
+    console.warn(
+      `[ai-config] GRADING_COMPOSITE_MODEL="${override}" is NOT on the grading ` +
+        `allowlist — falling back to the default grading model. Add it to ` +
+        `GRADING_MODEL_ALLOWLIST once qualified against the eval gate.`,
+    );
+  }
+  return getDefaultModel();
 }
 
 export function getAiTimeoutMs(): number {
