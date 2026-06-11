@@ -73,8 +73,9 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | Stripe products + prices created (subs, per-grade, credit packs) | Stripe Dashboard | `STRIPE_PRICE_*` ids match live prices | ☐ |
 | Stripe webhook endpoint → `https://functions.gradethread.com/api/webhooks/stripe` | Stripe → Webhooks | `stripe trigger` delivers 200 | ☐ |
 | Stripe **live mode** keys in use (not test) | Stripe | keys start `sk_live`/`pk_live` | ☐ |
-| Supabase Auth: Site URL + redirect allow-list = gradethread.com | Supabase → Auth → URL config | Google OAuth round-trips | ☐ |
-| Supabase Auth: Google OAuth creds | Supabase → Auth → Providers | "Continue with Google" works | ☐ |
+| Supabase Auth: `GOTRUE_SITE_URL=https://gradethread.com` (NOT api.*) + `GOTRUE_URI_ALLOW_LIST` with all 5 callbacks (web ×3, iOS Universal Link, iOS custom scheme — see ENVIRONMENT.md) | self-hosted auth container env | web Google lands on /auth/callback; `state` JWT `site_url` = gradethread.com | ☐ |
+| Supabase Auth: Google OAuth creds (`GOTRUE_EXTERNAL_GOOGLE_*`) | self-hosted auth container env | "Continue with Google" works on web + iOS | ☐ |
+| Supabase Auth: Apple provider (`GOTRUE_EXTERNAL_APPLE_ENABLED=true`, `CLIENT_ID=com.gradethread.app`) | self-hosted auth container env | `/auth/v1/settings` shows `"apple": true`; iOS Apple sign-in completes | ☐ |
 | eBay app keys promoted to production + Marketplace Account Deletion endpoint registered | eBay Developer | OAuth connect + a test notification verify | ☐ |
 | DNS: `functions.gradethread.com` → Coolify; `api.gradethread.com` → Supabase Kong; apex → Pages | Cloudflare DNS | `/health` on functions.*, REST on api.* | ☐ |
 | IndexNow key file hosted at `/<INDEXNOW_KEY>.txt` | `public/` + Pages | the file resolves 200 | ☐ |

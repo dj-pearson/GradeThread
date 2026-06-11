@@ -190,14 +190,26 @@ official self-hosting auth reference before applying.
 | Refresh-token reuse detection | `GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL` | `10` (sec) | Detect + revoke a stolen refresh token replayed after the grace window |
 | Access-token lifetime | `GOTRUE_JWT_EXP` | `3600` | Already 3600 in config.toml; keep short |
 | Sign-in brute-force / OTP limits | `GOTRUE_RATE_LIMIT_VERIFY`, `GOTRUE_RATE_LIMIT_OTP`, `GOTRUE_RATE_LIMIT_TOKEN_REFRESH`, `GOTRUE_RATE_LIMIT_EMAIL_SENT` | sane caps | Throttle credential stuffing + OTP/email abuse |
-| Redirect allow-list | `GOTRUE_URI_ALLOW_LIST` | exact callback URLs only | **No wildcards** — only `https://gradethread.com/auth/callback` (+ localhost in dev) |
+| **Site URL (OAuth fallback target)** | `GOTRUE_SITE_URL` | `https://gradethread.com` | Where GoTrue sends users when no (allowed) `redirect_to` is given. **Must be the frontend, never `api.gradethread.com`** — a wrong value here is exactly the "Google sign-in lands on the Supabase host" bug (diagnosed 2026-06-11: the `state` JWT showed `site_url: https://api.gradethread.com`). |
+| Redirect allow-list | `GOTRUE_URI_ALLOW_LIST` | exact callback URLs only | **No wildcards.** Must contain ALL of: `https://gradethread.com/auth/callback`, `https://gradethread.com/auth/reset-password`, `https://gradethread.com/accept-invite`, `https://gradethread.com/app/auth-callback` (iOS 17.4+ Universal Link), `com.gradethread.app://auth-callback` (iOS <17.4 fallback scheme). A missing entry makes GoTrue silently fall back to `GOTRUE_SITE_URL` — on iOS the web-auth session then never sees its callback and reports "sign-in cancelled". |
+
+### OAuth providers (production GoTrue env)
+
+| Provider | Env vars | Notes |
+|---|---|---|
+| Google | `GOTRUE_EXTERNAL_GOOGLE_ENABLED=true`, `GOTRUE_EXTERNAL_GOOGLE_CLIENT_ID`, `GOTRUE_EXTERNAL_GOOGLE_SECRET`, `GOTRUE_EXTERNAL_GOOGLE_REDIRECT_URI=https://api.gradethread.com/auth/v1/callback` | The redirect URI must also be listed as an Authorized redirect URI on the Google Cloud OAuth client. |
+| Apple | `GOTRUE_EXTERNAL_APPLE_ENABLED=true`, `GOTRUE_EXTERNAL_APPLE_CLIENT_ID=com.gradethread.app`, `GOTRUE_EXTERNAL_APPLE_SECRET=<ES256 client-secret JWT>` | iOS uses the **native** Sign in with Apple flow (`signInWithIdToken`), so `CLIENT_ID` must be (or include, comma-separated) the app **bundle ID** — GoTrue validates the identity token's `aud` against it. The secret JWT is generated from the Apple `.p8` Sign in with Apple key (Team ID + Key ID); it's only exercised by the web code-exchange flow but the auth image requires it to be set when the provider is enabled. As of 2026-06-11 `/auth/v1/settings` showed `"apple": false` — the provider was never enabled in prod. |
 
 MFA enforcement for admin/super_admin accounts is tracked separately in
 **US-270** (`GOTRUE_MFA_*` + server-side AAL2 checks).
 
 **Checklist after applying:** sign-up requires confirmation · a known-breached
 password is rejected · old refresh token is rejected after rotation · an OAuth
-redirect to an unlisted URL is refused.
+redirect to an unlisted URL is refused · `https://api.gradethread.com/auth/v1/settings`
+shows `"google": true` and `"apple": true` · the `state` JWT on
+`/auth/v1/authorize?provider=google&redirect_to=https://gradethread.com/auth/callback`
+carries `site_url`/`referrer` = `https://gradethread.com...` (decode the
+`state` param's middle segment from the 302 Location header).
 
 ## Admin MFA + step-up — US-270
 

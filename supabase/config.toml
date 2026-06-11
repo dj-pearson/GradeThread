@@ -25,6 +25,11 @@ additional_redirect_urls = [
   # owns instead of the claimable com.gradethread.app:// custom scheme. The
   # production GoTrue's GOTRUE_URI_ALLOW_LIST must include this exact URL too.
   "https://gradethread.com/app/auth-callback",
+  # iOS < 17.4 fallback: those builds can't use the Universal Link callback, so
+  # the Supabase Swift SDK redirects to the app's custom scheme instead
+  # (SupabaseShared.customSchemeRedirectURL). Production GOTRUE_URI_ALLOW_LIST
+  # needs this exact entry too or Google sign-in breaks on older iOS.
+  "com.gradethread.app://auth-callback",
 ]
 jwt_expiry = 3600
 # US-375: rotate refresh tokens on every use and detect reuse of a revoked token
@@ -71,3 +76,12 @@ enabled = true
 client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
 secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
 redirect_uri = ""
+
+# Apple Sign In is iOS-NATIVE ONLY (AuthStore.signInWithApple →
+# signInWithIdToken); the local throwaway stack never exercises it, so it stays
+# disabled here to avoid forcing two more env vars on every `verify:db` run.
+# PRODUCTION must enable it on the self-hosted GoTrue (see ENVIRONMENT.md
+# "OAuth providers"): GOTRUE_EXTERNAL_APPLE_ENABLED=true,
+# GOTRUE_EXTERNAL_APPLE_CLIENT_ID=com.gradethread.app (the BUNDLE ID — GoTrue
+# validates the native identity token's `aud` against it), and
+# GOTRUE_EXTERNAL_APPLE_SECRET=<ES256 JWT from the .p8 key>.
