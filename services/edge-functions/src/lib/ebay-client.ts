@@ -736,6 +736,84 @@ export async function getCategoryAspects(
   return { aspects: payload, categoryName: null, cached: false };
 }
 
+// US-566: per-category allowed conditions. Taxonomy
+// `get_item_condition_policies` returns the numeric conditionId allow-list for a
+// leaf category — some leaves (vintage, designer, collectibles) reject anything
+// but a restricted set, so we validate the chosen condition before publishing
+// instead of eating a raw eBay 25002/25019. Read-through cached in
+// public.ebay_category_condition_policies (same TTL/sharing model as aspects).
+export interface ConditionPolicy {
+  /** Allowed eBay conditionIds for the category, e.g. ["1000","1500","3000"]. */
+  conditionIds: string[];
+  cached: boolean;
+}
+
+export async function getItemConditionPolicies(
+  categoryId: string,
+): Promise<ConditionPolicy> {
+  const marketplaceId = getMarketplaceId();
+  const treeId = getCategoryTreeId();
+
+  const { data: cached } = await supabaseAdmin
+    .from("ebay_category_condition_policies")
+    .select("condition_ids, fetched_at")
+    .eq("marketplace_id", marketplaceId)
+    .eq("category_tree_id", treeId)
+    .eq("category_id", categoryId)
+    .maybeSingle();
+
+  if (
+    cached &&
+    Date.now() - new Date(cached.fetched_at as string).getTime() < ASPECT_TTL_MS
+  ) {
+    return {
+      conditionIds: (cached.condition_ids as string[] | null) ?? [],
+      cached: true,
+    };
+  }
+
+  const token = await getAppAccessToken();
+  const url =
+    `${apiHost()}/commerce/taxonomy/v1/category_tree/${treeId}` +
+    `/get_item_condition_policies?filter=categoryIds:${encodeURIComponent(
+      `{${categoryId}}`,
+    )}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": marketplaceId,
+      "Accept-Language": "en-US",
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `eBay condition policies failed (${res.status}): ${text.slice(0, 300)}`,
+    );
+  }
+  const payload = (await res.json()) as {
+    itemConditionPolicies?: Array<{
+      itemConditions?: Array<{ conditionId?: string | number }>;
+    }>;
+  };
+  const conditionIds = (payload.itemConditionPolicies?.[0]?.itemConditions ?? [])
+    .map((c) => (c.conditionId == null ? "" : String(c.conditionId)))
+    .filter((id) => id.length > 0);
+
+  await supabaseAdmin.from("ebay_category_condition_policies").upsert(
+    {
+      marketplace_id: marketplaceId,
+      category_tree_id: treeId,
+      category_id: categoryId,
+      condition_ids: conditionIds,
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: "marketplace_id,category_tree_id,category_id" },
+  );
+
+  return { conditionIds, cached: false };
+}
+
 // ── Sell API: business policies + listings (Week 3) ────────────────
 //
 // Publishing a listing requires three business policies (fulfillment,

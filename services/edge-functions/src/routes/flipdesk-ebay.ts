@@ -12,6 +12,7 @@ import {
   exchangeCodeForTokens,
   getCategoryAspects,
   getCategoryName,
+  getItemConditionPolicies,
   getMarketplaceId,
   getUserAccessToken,
   getUserIdentityFromToken,
@@ -41,6 +42,20 @@ import {
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
+import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
+import {
+  type ExistingSaleRow,
+  normalizeUnitCount,
+  pickSaleRowForLine,
+} from "../lib/ebay-order-lines.ts";
+import {
+  checkImageReachability,
+  dedupeAndCapImages,
+  EBAY_MAX_IMAGES as PREFLIGHT_MAX_IMAGES,
+  imageCapBlocker,
+  reachabilityBlocker,
+  validateConditionForCategory,
+} from "../lib/publish-preflight.ts";
 import {
   getAllActiveEbaySelling,
   getItemSpecifics,
@@ -679,6 +694,9 @@ async function snapshotOrphanSale(
         ebay_item_id: li.legacyItemId,
         sku: li.sku,
         title: li.title,
+        quantity: normalizeUnitCount(li.quantity),
+        // li.itemCost is the EXTENDED line total (unit price × quantity); store
+        // it as-is — it is already the line revenue, not a per-unit figure.
         sale_price: li.itemCost ? Number(li.itemCost.value) : null,
         shipping_collected: li.shippingCost
           ? Number(li.shippingCost.value)
@@ -939,7 +957,11 @@ async function doListingsPull(
                 categoryId: o.categoryId,
                 price: o.price,
               },
-              match_status: "unmatched",
+              // US-465 AC2: do NOT write match_status here. Omitting it means a
+              // brand-new orphan gets the column default ('unmatched') on INSERT,
+              // while an existing row's match_status (and matched_item_id, also
+              // omitted) is PRESERVED on conflict — so a manually-linked orphan
+              // is never resurrected as unmatched by a later re-sync.
               imported_at: new Date().toISOString(),
             },
             { onConflict: "user_id,ebay_item_id" }
@@ -1070,7 +1092,9 @@ async function doListingsPull(
                   watchCount: l.watchCount,
                   endTime: l.endTime,
                 },
-                match_status: "unmatched",
+                // US-465 AC2: omit match_status so a manual link survives re-sync
+                // (default 'unmatched' applies only to brand-new rows; existing
+                // match_status + matched_item_id are preserved on conflict).
                 imported_at: new Date().toISOString(),
               },
               { onConflict: "user_id,ebay_item_id" }
@@ -1210,7 +1234,11 @@ async function doListingsPull(
           let listingId = lstRow?.id ?? null;
           const existingUrl = lstRow?.listing_url ?? null;
 
+          // li.itemCost is eBay's lineItemCost — the EXTENDED line total (unit
+          // price × quantity), NOT a per-unit price (verified vs the Fulfillment
+          // API docs). So this IS the line revenue; never multiply by quantity.
           const itemCost = li.itemCost ? Number(li.itemCost.value) : 0;
+          const quantity = normalizeUnitCount(li.quantity);
           const shippingCollected = li.shippingCost
             ? Number(li.shippingCost.value)
             : 0;
@@ -1264,20 +1292,28 @@ async function doListingsPull(
             }
           }
 
-          // Dedupe key is (inventory_item_id, platform_order_id). Migration
-          // 00032 adds the unique index that makes this safe under retries.
-          const { data: existing } = await supabaseAdmin
+          // US-468: dedupe key is (inventory_item_id, platform_order_id,
+          // line_item_id) — migration 00130 adds line_item_id to the unique
+          // index so two line items of the SAME item in one order don't collapse
+          // onto one row. Fetch every existing row for this item+order and let
+          // pickSaleRowForLine choose the right one (adopting a legacy null-id
+          // row once on the first post-migration re-sync).
+          const { data: existingRows } = await supabaseAdmin
             .from("sales")
-            .select("id")
+            .select("id, line_item_id")
             .eq("inventory_item_id", itemId)
-            .eq("platform_order_id", order.orderId)
-            .limit(1)
-            .maybeSingle();
+            .eq("platform_order_id", order.orderId);
+          const existing = pickSaleRowForLine(
+            (existingRows ?? []) as ExistingSaleRow[],
+            li.lineItemId,
+          );
 
           const salePayload = {
             inventory_item_id: itemId,
             listing_id: listingId,
             platform_order_id: order.orderId,
+            line_item_id: li.lineItemId ?? "",
+            quantity,
             sale_price: itemCost,
             sale_date: order.creationDate?.slice(0, 10) ?? null,
             sold_at: order.creationDate ?? null,
@@ -2118,12 +2154,19 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
 // eBay allows at most 24 pictures per listing (Inventory API product.imageUrls).
 // Sending more returns error 25601 ("The size for ImageLinks cannot exceed …").
 // Photos arrive sorted by sort_order, so capping keeps the cover + best shots.
-const EBAY_MAX_IMAGES = 24;
-
-// Drop empties, dedupe (re-uploads can share a URL), and cap to eBay's limit.
+// De-dup/cap logic lives in lib/publish-preflight.ts (US-473) so it's shared
+// with the pre-flight blocker check and unit-tested in isolation.
 function toEbayImageUrls(urls: Array<string | null | undefined>): string[] {
-  return [...new Set(urls.filter((u): u is string => !!u && u.trim() !== ""))]
-    .slice(0, EBAY_MAX_IMAGES);
+  return dedupeAndCapImages(urls).urls;
+}
+
+// US-473: HEAD-probe an image URL for the pre-publish reachability check. Short
+// deadline; a thrown error (network/timeout) propagates so checkImageReachability
+// can treat it as "reachable" (best-effort). Some CDNs reject HEAD with 405 —
+// that's not a 404/410/403, so it's correctly treated as reachable.
+async function headProbe(url: string): Promise<{ ok: boolean; status: number }> {
+  const res = await fetchWithTimeout(url, { method: "HEAD" }, 5_000);
+  return { ok: res.ok, status: res.status };
 }
 
 export type PublishItemResult =
@@ -2165,6 +2208,22 @@ export async function publishItemForOwner(
   }
 
   const { item, listing, photos, policies, sku } = ctx;
+
+  // US-473: pre-publish image reachability. eBay fetches imageUrls server-side
+  // at publish; an unreachable URL fails the whole publish with an opaque error
+  // (and our proxy can surface a 502). HEAD-probe the URLs first and turn a
+  // definitive 404/410/403 into a fixable blocker. Best-effort — transient
+  // errors/timeouts are treated as reachable so a flaky CDN moment never blocks
+  // a legitimate publish. Kept out of assemblePublishContext (called on every
+  // composer load) so it only costs the actual publish path.
+  const reach = await checkImageReachability(
+    photos.map((p) => p.public_url),
+    headProbe,
+  );
+  const reachBlocker = reachabilityBlocker(reach);
+  if (reachBlocker) {
+    return { ok: false, status: 422, body: { ok: false, blockers: [reachBlocker] } };
+  }
 
   // Relist (end-old-then-relist): when the caller asks to relist and this item
   // still has a LIVE eBay listing, withdraw it first so the publish below mints
@@ -3361,6 +3420,18 @@ async function assemblePublishContext(
   const photosWithUrl = photos.filter((p) => !!p.public_url);
   if (photosWithUrl.length === 0) {
     blockers.push("Add at least one photo.");
+  } else {
+    // US-473/US-566: enforce eBay's 24-image cap as a fixable pre-flight blocker
+    // (with de-dup + sort_order preserved) so an over-cap set surfaces here
+    // instead of a raw eBay 25601 mid-publish. Duplicates are silently de-duped;
+    // only a genuine over-cap (after de-dup) blocks so the seller consciously
+    // picks which shots to keep rather than losing a defect photo silently.
+    const capResult = dedupeAndCapImages(
+      photosWithUrl.map((p) => p.public_url),
+      PREFLIGHT_MAX_IMAGES,
+    );
+    const capBlocker = imageCapBlocker(capResult, PREFLIGHT_MAX_IMAGES);
+    if (capBlocker) blockers.push(capBlocker);
   }
 
   // Price priority: explicit listing edits beat inventory defaults so a user
@@ -3440,6 +3511,24 @@ async function assemblePublishContext(
     : mapEbayCondition(item.grade_value, item.grade_label);
   const conditionDescription =
     (listing?.ebay_condition_description ?? item.condition_notes ?? "").trim();
+
+  // US-566: validate the resolved condition against the leaf category's allowed
+  // conditions (Taxonomy get_item_condition_policies, cached). Best-effort: a
+  // policy-fetch failure or an unrestricted category never blocks publish — we
+  // only block when eBay definitively says this category rejects the condition,
+  // turning a raw 25002/25019 into a fixable "change the condition" blocker.
+  if (categoryId) {
+    try {
+      const { conditionIds } = await getItemConditionPolicies(categoryId);
+      const condBlocker = validateConditionForCategory(condition, conditionIds);
+      if (condBlocker) blockers.push(condBlocker);
+    } catch (err) {
+      console.warn(
+        "[flipdesk-ebay] condition-policy validate (non-blocking):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
 
   // Quantity: default 1 for single-item resellers; respect the column when set.
   const quantity = listing?.quantity && listing.quantity > 0 ? listing.quantity : 1;

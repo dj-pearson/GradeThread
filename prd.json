@@ -7233,8 +7233,8 @@
         "The UI exposes the link action"
       ],
       "priority": 465,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orphans are snapshotted but no link path exists; SKU-less listings are unlinkable."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orphans are snapshotted but no link path exists; SKU-less listings are unlinkable. | DONE 2026-06-11. AC2 (re-sync no longer resurrects a manual link): the two orphan-listing upserts in doListingsPull (REST + Trading-API legacy) NO LONGER write match_status — omitting it lets the column default ('unmatched') apply only to brand-new rows while PostgREST preserves an existing row's match_status + matched_item_id on conflict, so a manually-linked/ignored orphan survives every sync. AC1 (link creates/updates the listings row): linking an orphan to an EXISTING item (quickLink + LinkItemDialog) previously only flipped match_status; new shared upsertEbayListingRowForItem() in components/flipdesk/ebay-sku-match.tsx now also creates/updates the listings row mirroring the live eBay listing (platform_listing_id, listing_url, price, status active) — matching what the create-new-item path already did. AC3 (UI link action) already shipped (Create / Link / quick 'Link to this' buttons on the Reconciliation SKU-match surface). NOTE: frontend couldn't be compile-verified in this container (node_modules not installed, network blocked); all types hand-checked against src/types/database.ts (ListingRow columns, ListingPlatform includes 'ebay'). Run npm run verify:web before deploy."
     },
     {
       "id": "US-466",
@@ -7271,8 +7271,8 @@
         "sale_price reflects line quantity; dedupe key disambiguates multiple line items in one order"
       ],
       "priority": 468,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orders pass dedupes on (item, order) and assumes single-unit items."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Orders pass dedupes on (item, order) and assumes single-unit items. | DONE 2026-06-11: migration 00130 adds sales.quantity (unit count, CHECK >=1) + sales.line_item_id, and REPLACES the (inventory_item_id, platform_order_id) unique index with (inventory_item_id, platform_order_id, COALESCE(line_item_id,'')) so two line items resolving to the SAME inventory item in one order no longer collapse onto one row (legacy null-id rows still dedupe as before). New pure lib/ebay-order-lines.ts (normalizeUnitCount / pickSaleRowForLine / perUnitPrice, unit-tested in tests/ebay-order-lines_test.ts, 18 assertions) drives the matched sale-row selection with one-time legacy adoption. doListingsPull now fetches all rows for item+order, picks the right one per line, and writes quantity + line_item_id; snapshotOrphanSale records quantity too (orphan table gains a quantity column). VERIFIED vs the eBay Fulfillment API docs that lineItemCost is the EXTENDED line total (unit price × quantity), so sale_price stays as-is and is NEVER multiplied by quantity (that would double-count) — documented inline."
     },
     {
       "id": "US-469",
@@ -7335,8 +7335,8 @@
         "Image-count/URL issues appear as blockers, not raw 502s"
       ],
       "priority": 473,
-      "passes": false,
-      "notes": "[P3][FlipDesk] Audit 2026-06-03. Publish sends item-photos public URLs with no count/reachability validation."
+      "passes": true,
+      "notes": "[P3][FlipDesk] Audit 2026-06-03. Publish sends item-photos public URLs with no count/reachability validation. | DONE 2026-06-11: new lib/publish-preflight.ts (dedupeAndCapImages + imageCapBlocker + checkImageReachability/reachabilityBlocker, unit-tested in tests/publish-preflight_test.ts). assemblePublishContext now de-dups + caps to eBay's real 24-image limit (the 12-cap was Trading-API-era) and pushes a fixable blocker when the set exceeds the cap (lowest-priority shots, never silently dropped). publishItemForOwner HEAD-probes image URLs pre-publish (headProbe + fetchWithTimeout) and turns a definitive 404/410/403 into a 422 blocker; transient errors are treated as reachable so a flaky CDN never blocks a real publish. Image-count/URL issues now surface as blockers, not raw 502s (AC3)."
     },
     {
       "id": "US-474",
@@ -8272,7 +8272,7 @@
       ],
       "priority": 546,
       "passes": false,
-      "notes": "[P2][AutoLister/AI/SEO] Deep-dive 2026-06-03. Title is hard .slice(0,80); no search-demand input."
+      "notes": "[P2][AutoLister/AI/SEO] Deep-dive 2026-06-03. Title is hard .slice(0,80); no search-demand input. | AC1 DONE 2026-06-11 (split to US-803): keyword-priority title trim shipped in lib/title-trim.ts (trimTitleToLimit/trimTitleWithReport) and wired into ai-listing.ts (replaced the blind .slice(0,80)) — word-boundary trim, never mid-word, no dangling separator, leading keywords preserved. STILL OPEN: AC2 (feed eBay search/autosuggest demand terms into the title/description prompt) and AC3 (A/B title variants tracked to sell-through)."
     },
     {
       "id": "US-547",
@@ -8529,8 +8529,8 @@
         "Both surface as fixable blockers, not raw errors"
       ],
       "priority": 566,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Condition mapping is lossy and not category-validated; image cap not pre-checked."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Condition mapping is lossy and not category-validated; image cap not pre-checked. | DONE 2026-06-11: assemblePublishContext validates the resolved condition against the leaf category's allowed conditionIds via the new Taxonomy helper getItemConditionPolicies (get_item_condition_policies, read-through cached in ebay_category_condition_policies, migration 00129). validateConditionForCategory (lib/publish-preflight.ts, CONDITION_ENUM_TO_ID enum->id map) returns a fixable blocker naming the conditions the category DOES accept; unrestricted/unknown categories and policy-fetch failures never block (best-effort). eBay's 24-image cap is enforced as a pre-flight blocker with de-dup/ordering (shared with US-473). Both surface as fixable blockers instead of raw eBay 25002/25019/25601."
     },
     {
       "id": "US-567",
@@ -11804,6 +11804,21 @@
       "priority": 802,
       "passes": true,
       "notes": "[EPIC: Module Quality 2026-06-10] From supporting-modules audit 2026-06-10, line-verified. [MEDIUM][Growth] Qualification automation (auto-promote pending→qualified) is deliberately out of scope — keep admin-manual for launch. DONE 2026-06-10: admin-growth referral grant now notifies BOTH parties — in-app (notifyUser type 'billing' → /dashboard/billing) + email (sendReferralRewardEmail, category referral_reward → durable retry per US-801) — best-effort so a notify failure can't 500 the grant; double-grant stays idempotent (existing 409 on reward_status='granted'). referrals.ts /redeem now rejects suspended (403) and non-existent (404) accounts before creating attribution. Referrals page copy updated to say credits are added automatically + you're notified. Verified: deno check + lint clean, 522 edge tests pass; reward email categorization covered by email-category_test. NOTE: handler-level behavior (suspended-redeem reject, dual-notify, idempotency) is the domain of the env-gated integration suite — not unit-tested here to avoid a fragile supabaseAdmin mock. Qualification automation (auto pending→qualified) remains deliberately admin-manual for launch."
+    },
+    {
+      "id": "US-803",
+      "title": "Keyword-priority eBay title trim (no mid-word slice)",
+      "description": "As a reseller, generated/edited listing titles must fit eBay's 80-char limit by dropping whole lowest-priority (trailing) keywords on a word boundary — never slicing a word in half or leaving a dangling separator — so titles read well and the high-value leading keywords (brand -> item type -> modifiers) always survive. Carved out of US-546 as the concretely shippable piece (US-546's demand-SEO + A/B-variant ACs remain open).",
+      "acceptanceCriteria": [
+        "Pure lib/title-trim.ts trims to a configurable limit (default 80) on word boundaries, never mid-word, and strips any trailing separator",
+        "A single token longer than the limit is hard-sliced as a last resort (never returns empty)",
+        "trimTitleWithReport surfaces the dropped trailing words so callers can warn or reuse them in the description",
+        "Wired into ai-listing.ts, replacing the blind .slice(0,80); EBAY_TITLE_MAX = 80",
+        "Unit tests cover whitespace normalization, boundary trim, dangling-separator strip, leading-keyword preservation, hard-slice, and the dropped-words report"
+      ],
+      "priority": 803,
+      "passes": true,
+      "notes": "DONE 2026-06-11. lib/title-trim.ts + tests/title-trim_test.ts (14 assertions, validated). Wired in ai-listing.ts. eBay title best-practice puts highest-value keywords first, so dropping trailing words keeps the terms that rank."
     }
   ]
 }

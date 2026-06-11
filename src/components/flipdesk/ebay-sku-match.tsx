@@ -47,6 +47,48 @@ import type {
 
 const UPSERT_CHUNK = 200;
 
+// US-465 AC1: when an orphan eBay listing is linked to an EXISTING FlipDesk
+// item, mirror the live listing into the `listings` table so the item carries
+// its eBay URL + platform_listing_id — not just a match_status flag on the
+// orphan. Idempotent: updates the item's existing ebay listings row for this
+// listing id if present, otherwise inserts one. (createItemFromListing already
+// does this for the new-item path.)
+async function upsertEbayListingRowForItem(
+  itemId: string,
+  listing: EbayListingRow,
+): Promise<void> {
+  const row: Record<string, unknown> = {
+    inventory_item_id: itemId,
+    platform: "ebay",
+    platform_listing_id: listing.ebay_item_id,
+    listing_url: listing.listing_url,
+    listing_price: listing.current_price ?? 0,
+    listing_title: listing.title,
+    listing_status: "active",
+    is_active: true,
+  };
+  const { data: existing, error: selErr } = await supabase
+    .from("listings")
+    .select("id")
+    .eq("inventory_item_id", itemId)
+    .eq("platform", "ebay")
+    .eq("platform_listing_id", listing.ebay_item_id)
+    .maybeSingle();
+  if (selErr) throw new Error(selErr.message);
+  if (existing) {
+    const { error } = await supabase
+      .from("listings")
+      .update(row as never)
+      .eq("id", (existing as { id: string }).id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase
+      .from("listings")
+      .insert({ ...row, listed_at: new Date().toISOString() } as never);
+    if (error) throw new Error(error.message);
+  }
+}
+
 function useEbayListings() {
   const user = useAuthStore((s) => s.user);
   return useQuery({
@@ -384,6 +426,9 @@ export function EbaySkuMatch() {
     if (quickLinkBusyId) return;
     setQuickLinkBusyId(listing.id);
     try {
+      // US-465 AC1: mirror the live eBay listing into the listings table so the
+      // linked item carries its eBay URL/id, then flip the orphan to matched.
+      await upsertEbayListingRowForItem(suggestionId, listing);
       const { error } = await supabase
         .from("flipdesk_ebay_listings")
         .update({
@@ -965,6 +1010,9 @@ function LinkItemDialog({
           );
         }
       }
+      // US-465 AC1: create/update the listings row mirroring the live eBay
+      // listing so the linked item carries its eBay URL + platform id.
+      await upsertEbayListingRowForItem(selected.id, listing);
       const { error } = await supabase
         .from("flipdesk_ebay_listings")
         .update({
