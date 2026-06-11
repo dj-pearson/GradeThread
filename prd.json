@@ -5954,8 +5954,8 @@
         "Deletion matches a verified eBay payload, not a free-text handle"
       ],
       "priority": 364,
-      "passes": false,
-      "notes": "[P2][Security] Audit 2026-06-03. Deletion currently only clears stored tokens, matched on guessable account_handle."
+      "passes": true,
+      "notes": "[P2][Security] Audit 2026-06-03. Deletion currently only clears stored tokens, matched on guessable account_handle. | DONE: added marketplace_connections.external_account_id (migration 00140) capturing eBay /commerce/identity userId at connect + refresh-backfill. Account-deletion webhook now matches on the STABLE, signature-verified userId (external_account_id), falling back to account_handle ONLY for legacy rows where it is null. New best-effort revokeEbayUserToken() (gated on EBAY_TOKEN_REVOKE_URL, never throws) invoked from a new POST /api/flipdesk/ebay/disconnect endpoint (auth+workspace scoped) and wired to a Disconnect button on the Marketplaces page. Tests: src/tests/ebay-token-revoke_test.ts (4 passing)."
     },
     {
       "id": "US-365",

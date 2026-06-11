@@ -278,6 +278,30 @@ export function useStartEbayOauth() {
   });
 }
 
+// US-364: revoke the grant upstream at eBay (where supported) and deactivate the
+// connection locally, so a long-lived refresh token isn't left valid after the
+// seller disconnects.
+export function useDisconnectEbay() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true; revoked: boolean }, Error, void>({
+    mutationFn: async () => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/disconnect`,
+        { method: "POST", headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not disconnect eBay.");
+      return json as { ok: true; revoked: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ebay_connection"] });
+      qc.invalidateQueries({ queryKey: ["ebay_connection_issue"] });
+      toast.success("Disconnected eBay.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
 // ── Taxonomy ────────────────────────────────────────────────────────
 
 export interface EbayCategorySuggestion {

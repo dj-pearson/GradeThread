@@ -184,6 +184,7 @@ app.use("/api/verified/*", authMiddleware);
 // /oauth/refresh job (gated by FLIPDESK_INTERNAL_JOB_SECRET header).
 app.use("/api/flipdesk/ebay/oauth/start", authMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", authMiddleware);
+app.use("/api/flipdesk/ebay/disconnect", authMiddleware);
 app.use("/api/flipdesk/ebay/category/*", authMiddleware);
 app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
@@ -239,6 +240,7 @@ app.use("/api/workspace/*", workspaceMiddleware);
 app.use("/api/grade/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", workspaceMiddleware);
+app.use("/api/flipdesk/ebay/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/category/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/payouts/*", workspaceMiddleware);

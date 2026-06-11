@@ -415,30 +415,57 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
     }
   }
 
-  // Deactivate any connection whose handle matches the deleted eBay account.
-  // The username is stored as account_handle when we hydrate it.
+  // Deactivate the connection(s) for the deleted eBay account. US-364: match on
+  // eBay's STABLE, signature-verified `userId` (stored as external_account_id at
+  // connect/refresh) — NOT the free-text `username`, which is guessable and can
+  // change. The handle match is kept ONLY as a fallback for legacy rows that
+  // pre-date the external_account_id backfill. The whole payload was already
+  // signature-verified above, so either match is acting on a trusted id.
   let connectionsDeactivated = 0;
-  if (username) {
+  const deactivatePatch = {
+    is_active: false,
+    access_token_encrypted: null,
+    refresh_token_encrypted: null,
+    refresh_error: "account_deleted",
+  };
+  const matchedIds = new Set<string>();
+  if (ebayUserId) {
     const { data: updated, error } = await supabaseAdmin
       .from("marketplace_connections")
-      .update({
-        is_active: false,
-        access_token_encrypted: null,
-        refresh_token_encrypted: null,
-        refresh_error: "account_deleted",
-      })
+      .update(deactivatePatch)
       .eq("marketplace", "ebay")
-      .eq("account_handle", username)
+      .eq("external_account_id", ebayUserId)
       .select("id");
     if (error) {
       console.error(
-        "[flipdesk-webhooks] failed to deactivate eBay connection on deletion:",
-        error
+        "[flipdesk-webhooks] failed to deactivate eBay connection by id on deletion:",
+        error,
       );
     } else {
-      connectionsDeactivated = updated?.length ?? 0;
+      for (const r of updated ?? []) matchedIds.add(r.id as string);
     }
   }
+  // Legacy fallback: rows without a stored external_account_id, matched by the
+  // verified handle. Scoped to `external_account_id IS NULL` so we never use the
+  // weaker handle match on a row that already has the stable id.
+  if (username) {
+    const { data: updated, error } = await supabaseAdmin
+      .from("marketplace_connections")
+      .update(deactivatePatch)
+      .eq("marketplace", "ebay")
+      .eq("account_handle", username)
+      .is("external_account_id", null)
+      .select("id");
+    if (error) {
+      console.error(
+        "[flipdesk-webhooks] failed to deactivate eBay connection by handle on deletion:",
+        error,
+      );
+    } else {
+      for (const r of updated ?? []) matchedIds.add(r.id as string);
+    }
+  }
+  connectionsDeactivated = matchedIds.size;
 
   // Compliance record (US-349): proof we received + acted on the deletion. Its
   // own purpose-built table — NOT account_deletion_log, which is GradeThread

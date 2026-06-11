@@ -26,6 +26,7 @@ import {
   listRecentTransactions,
   publishOrAdoptOffer,
   resolveCachedDefaults,
+  revokeEbayUserToken,
   searchBrowseComps,
   setDefaultPolicies,
   suggestCategories,
@@ -43,6 +44,7 @@ import {
   type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
+import { decryptToken } from "../lib/crypto-aes.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import {
@@ -276,6 +278,8 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
       refreshToken: tokens.refresh_token,
       accessExpiresInSeconds: tokens.expires_in,
       accountHandle: identity?.username ?? null,
+      // US-364: stable id powers verified account-deletion matching.
+      externalAccountId: identity?.externalAccountId ?? null,
     });
   } catch (err) {
     console.error("[flipdesk-ebay] OAuth exchange failed:", err);
@@ -283,6 +287,77 @@ flipdeskEbayRoutes.get("/oauth/callback", async (c) => {
   }
 
   return finish("connected");
+});
+
+// ── Disconnect ─────────────────────────────────────────────────────
+// User-initiated removal of an eBay connection. US-364: before we drop the
+// stored tokens we attempt to REVOKE the grant upstream at eBay (where the
+// keyset supports it) so the long-lived refresh token isn't left valid after
+// the seller disconnects. Revocation is best-effort — we always deactivate +
+// null the local tokens regardless of the upstream result.
+//
+// Tenant-scoped: only the workspace owner's (or the user's own) ebay rows are
+// touched — never an id from the request body.
+flipdeskEbayRoutes.post("/disconnect", async (c) => {
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
+    | string
+    | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const { data: rows, error: loadErr } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id, refresh_token_encrypted, access_token_encrypted")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+  if (loadErr) {
+    return c.json({ error: "Could not load eBay connection." }, 500);
+  }
+  if (!rows || rows.length === 0) {
+    // Already disconnected — idempotent success.
+    return c.json({ ok: true, revoked: false });
+  }
+
+  // Best-effort upstream revoke per connection. Revoking the refresh token
+  // invalidates the whole grant; fall back to the access token if that's all
+  // we have. Decryption uses the owning user_id as AAD (US-352).
+  let revoked = false;
+  for (const row of rows) {
+    const enc = (row.refresh_token_encrypted ?? row.access_token_encrypted) as
+      | string
+      | null;
+    if (!enc) continue;
+    try {
+      const token = await decryptToken(enc, { aad: userId });
+      const result = await revokeEbayUserToken(
+        token,
+        row.refresh_token_encrypted ? "refresh_token" : "access_token",
+      );
+      if (result === "revoked") revoked = true;
+    } catch (err) {
+      // Never block local deactivation on a decrypt/revoke failure.
+      console.warn(
+        "[flipdesk-ebay] disconnect revoke failed (continuing):",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  const { error: deactErr } = await supabaseAdmin
+    .from("marketplace_connections")
+    .update({
+      is_active: false,
+      access_token_encrypted: null,
+      refresh_token_encrypted: null,
+      token_expires_at: null,
+      refresh_error: "disconnected",
+    })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay");
+  if (deactErr) {
+    return c.json({ error: "Could not disconnect eBay." }, 500);
+  }
+  return c.json({ ok: true, revoked });
 });
 
 // ── OAuth: refresh ─────────────────────────────────────────────────

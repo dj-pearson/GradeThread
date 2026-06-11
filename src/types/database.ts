@@ -837,6 +837,9 @@ export interface MarketplaceConnectionRow {
   refresh_token_encrypted: string | null;
   token_expires_at: string | null;
   account_handle: string | null;
+  // 00140: marketplace-stable account id (eBay /commerce/identity userId), used
+  // to match account-deletion webhooks on a verified id, not the handle (US-364).
+  external_account_id: string | null;
   scopes: string[];
   is_active: boolean;
   last_synced_at: string | null;

@@ -247,7 +247,7 @@ export interface EbayUserTokenResponse {
 // as non-fatal so identity outages don't break connect or refresh.
 export async function getUserIdentityFromToken(
   accessToken: string,
-): Promise<{ username: string | null } | null> {
+): Promise<{ username: string | null; externalAccountId: string | null } | null> {
   try {
     const res = await ebayFetch(`${apiHost()}/commerce/identity/v1/user`, {
       headers: {
@@ -266,10 +266,53 @@ export async function getUserIdentityFromToken(
       username?: string;
       userId?: string;
     };
-    return { username: body.username ?? body.userId ?? null };
+    // US-364: capture eBay's stable `userId` (the same id the account-deletion
+    // webhook sends) so deletion can match on it instead of the free-text handle.
+    return {
+      username: body.username ?? body.userId ?? null,
+      externalAccountId: body.userId ?? null,
+    };
   } catch (err) {
     console.warn("[ebay-client] identity lookup threw:", err);
     return null;
+  }
+}
+
+// US-364: best-effort upstream revocation of a user's eBay grant on disconnect /
+// account deletion, so a long-lived refresh token isn't left valid at eBay after
+// the connection is removed locally.
+//
+// eBay does not publish an RFC-7009 revocation endpoint on every keyset, so this
+// is gated on `EBAY_TOKEN_REVOKE_URL` ("where supported"). When the env var is
+// unset we skip the network call and report "unsupported" — the caller still
+// deactivates + nulls the stored tokens regardless. The function NEVER throws;
+// revocation is strictly advisory hardening on top of local deactivation.
+export async function revokeEbayUserToken(
+  token: string,
+  tokenType: "refresh_token" | "access_token" = "refresh_token",
+): Promise<"revoked" | "unsupported" | "failed"> {
+  const revokeUrl = readEnv("EBAY_TOKEN_REVOKE_URL");
+  if (!revokeUrl) return "unsupported";
+  try {
+    const res = await ebayFetch(revokeUrl, {
+      method: "POST",
+      headers: {
+        Authorization: basicAuthHeader(),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ token, token_type_hint: tokenType }),
+    });
+    // RFC 7009 returns 200 on success AND for an already-invalid token. Treat any
+    // 2xx as revoked; a 404/501 means the keyset doesn't expose the endpoint.
+    if (res.ok) return "revoked";
+    if (res.status === 404 || res.status === 501) return "unsupported";
+    console.warn(
+      `[ebay-client] token revocation returned ${res.status}; continuing with local deactivation`,
+    );
+    return "failed";
+  } catch (err) {
+    console.warn("[ebay-client] token revocation threw (continuing):", err);
+    return "failed";
   }
 }
 
@@ -485,6 +528,7 @@ export async function upsertConnection(args: {
   refreshToken: string;
   accessExpiresInSeconds: number;
   accountHandle?: string | null;
+  externalAccountId?: string | null;
 }): Promise<void> {
   // US-352: bind the ciphertext to the owning user_id (AES-GCM AAD) so a token
   // blob can't be replayed onto another tenant's connection row.
@@ -512,7 +556,7 @@ export async function upsertConnection(args: {
   // orders pass falls back to the 90-day window. Otherwise reconnecting
   // after a scope upgrade would still miss historical orders because the
   // filter floor is "now".
-  const patch = {
+  const patch: Record<string, unknown> = {
     access_token_encrypted: access,
     refresh_token_encrypted: refresh,
     token_expires_at: expiresAt,
@@ -521,6 +565,12 @@ export async function upsertConnection(args: {
     last_synced_at: null,
     refresh_error: null,
   };
+  // US-364: persist eBay's stable user id so account-deletion can match on it.
+  // Only write when we actually have one — never clobber a stored id with null
+  // (identity lookup is best-effort and may fail on a reconnect).
+  if (args.externalAccountId) {
+    patch.external_account_id = args.externalAccountId;
+  }
 
   if (existing) {
     const { error } = await supabaseAdmin
@@ -552,7 +602,7 @@ export async function getUserAccessToken(userId: string): Promise<string> {
   const { data: row, error } = await supabaseAdmin
     .from("marketplace_connections")
     .select(
-      "id, access_token_encrypted, refresh_token_encrypted, token_expires_at, account_handle"
+      "id, access_token_encrypted, refresh_token_encrypted, token_expires_at, account_handle, external_account_id"
     )
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
@@ -596,11 +646,19 @@ export async function getUserAccessToken(userId: string): Promise<string> {
     // US-315: opportunistically backfill account_handle for connections that
     // pre-date the commerce.identity scope or for which identity lookup
     // previously failed. Non-fatal — keeps the refresh path simple.
-    let accountHandlePatch: Record<string, unknown> = {};
-    if ((row as { account_handle: string | null }).account_handle == null) {
+    const accountHandlePatch: Record<string, unknown> = {};
+    const needsHandle =
+      (row as { account_handle: string | null }).account_handle == null;
+    const needsExternalId =
+      (row as { external_account_id?: string | null }).external_account_id == null;
+    if (needsHandle || needsExternalId) {
       const identity = await getUserIdentityFromToken(fresh.access_token);
-      if (identity?.username) {
-        accountHandlePatch = { account_handle: identity.username };
+      if (needsHandle && identity?.username) {
+        accountHandlePatch.account_handle = identity.username;
+      }
+      // US-364: backfill the stable id on rows that pre-date the column.
+      if (needsExternalId && identity?.externalAccountId) {
+        accountHandlePatch.external_account_id = identity.externalAccountId;
       }
     }
     await supabaseAdmin

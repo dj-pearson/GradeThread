@@ -41,6 +41,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import {
   useCreateEbayLocation,
+  useDisconnectEbay,
   useEbayConnection,
   useEbayConnectionIssue,
   useEbayPolicies,
@@ -399,6 +400,7 @@ function EbaySetup({
   oauthPending: boolean;
 }) {
   const connected = !!connection;
+  const disconnect = useDisconnectEbay();
   const { data: policyData, isLoading: polLoading } = useEbayPolicies(connected);
   const defaults = policyData?.defaults;
   const hasLocation = !!defaults?.merchant_location_key;
@@ -485,14 +487,28 @@ function EbaySetup({
                 }
                 action={
                   connected ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={onConnect}
-                      disabled={oauthPending}
-                    >
-                      Reconnect
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={onConnect}
+                        disabled={oauthPending}
+                      >
+                        Reconnect
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        onClick={() => disconnect.mutate()}
+                        disabled={disconnect.isPending}
+                      >
+                        {disconnect.isPending && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        Disconnect
+                      </Button>
+                    </div>
                   ) : (
                     <Button size="sm" onClick={onConnect} disabled={oauthPending}>
                       {oauthPending && (
