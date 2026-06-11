@@ -82,7 +82,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/",
     title: "The Standard for Clothing Condition Grading",
     description:
-      "The trusted standard for pre-owned clothing condition grading. Get an objective 1.0–10.0 grade and a shareable certificate buyers trust — then run your whole reselling workflow with FlipDesk.",
+      "The trusted standard for pre-owned clothing condition grading: get an objective 1.0–10.0 grade and a shareable certificate buyers trust, then sell faster.",
     changefreq: "weekly",
     priority: 1.0,
     jsonLdType: "WebSite",
@@ -134,7 +134,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/grading-standard",
     title: "The GradeThread Grading Standard",
     description:
-      "The objective methodology behind every GradeThread condition grade: a published 1.0–10.0 rubric, five weighted factors, half-point precision, confidence scoring, and human review.",
+      "The objective methodology behind every GradeThread grade: a published 1.0–10.0 rubric, five weighted factors, half-point precision, and confidence scoring.",
     changefreq: "monthly",
     priority: 0.8,
     jsonLdType: "FAQPage",
@@ -143,7 +143,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/transparency",
     title: "Grading Accuracy & Transparency Report",
     description:
-      "GradeThread's published grading accuracy: AI-vs-human agreement, mean error against expert reviewers, intentional-design misread rate, model confidence, and buyer dispute rate — plus the eval gate and model changelog behind a self-improving standard.",
+      "GradeThread's published grading accuracy versus expert reviewers: AI-vs-human agreement, mean error, model confidence, and buyer dispute rate.",
     changefreq: "weekly",
     priority: 0.8,
     jsonLdType: "Dataset",
@@ -159,21 +159,24 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   {
     path: "/terms",
     title: "Terms of Service",
-    description: "The terms governing your use of GradeThread.",
+    description:
+      "The terms governing your use of GradeThread's AI clothing-grading and FlipDesk reseller services.",
     changefreq: "yearly",
     priority: 0.3,
   },
   {
     path: "/cookies",
     title: "Cookie Policy",
-    description: "How GradeThread uses cookies and similar technologies.",
+    description:
+      "How GradeThread uses cookies and similar technologies, and how to manage your cookie preferences.",
     changefreq: "yearly",
     priority: 0.3,
   },
   {
     path: "/acceptable-use",
     title: "Acceptable Use Policy",
-    description: "What is and isn't allowed when using GradeThread.",
+    description:
+      "What is and isn't allowed when using GradeThread's clothing-grading and reseller platform.",
     changefreq: "yearly",
     priority: 0.3,
   },

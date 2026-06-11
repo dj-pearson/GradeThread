@@ -5604,3 +5604,14 @@ test to extend — the right kind of work to land cleanly here.
           fails if any registry route (incl. glossary spokes) is missing.
           Verified: vitest 5/5 green; tsc -b + eslint clean; sitemap/seo suites
           still 40/40.
+
+- US-435  CI guard for title/description length + uniqueness. COMPLETE
+          (passes:true). Files: new src/lib/seo/__tests__/route-metadata.test.ts,
+          src/lib/seo/public-routes.ts, src/lib/seo/glossary.ts.
+          Policy: title incl " | GradeThread" suffix <=60 & unique; description
+          70–160 & unique. Trimmed over-length descriptions (/, /grading-standard,
+          /transparency were 191/179/250), expanded too-short legal descriptions
+          (/terms 44, /cookies 54, /acceptable-use 49), and shortened the
+          glossary tier/factor title templates (NWOT/structural-integrity were
+          61–63 incl suffix). All 28 routes (incl generated glossary spokes) pass;
+          vitest green, tsc -b + eslint clean.

@@ -6855,8 +6855,8 @@
         "Over-length descriptions trimmed; glossary-generated titles/descriptions validated"
       ],
       "priority": 435,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. No length/uniqueness guard; some descriptions exceed 160 chars."
+      "passes": true,
+      "notes": "[P3][SEO] Audit 2026-06-03. No length/uniqueness guard; some descriptions exceed 160 chars. | DONE 2026-06-11. CI guard src/lib/seo/__tests__/route-metadata.test.ts asserts every PublicRoute title (incl ' | GradeThread' suffix) <=60 and unique, description 70-160 and unique. Trimmed over-length descriptions (/, /grading-standard, /transparency), expanded short legal ones (/terms,/cookies,/acceptable-use), and shortened glossary tier/factor title templates (tierTitle expansion variant, factor '— Grading Factor') so all 28 routes pass."
     },
     {
       "id": "US-436",
