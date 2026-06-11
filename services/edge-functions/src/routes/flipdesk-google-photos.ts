@@ -340,7 +340,8 @@ flipdeskGooglePhotosRoutes.post("/import", async (c) => {
       // download, so a poisoned/spoofed baseUrl pointing at an attacker host
       // would exfiltrate that token. Validate the host is a real Google photo
       // host BEFORE fetching; reject anything else.
-      const baseUrl = m.mediaFile!.baseUrl;
+      const baseUrl = m.mediaFile?.baseUrl;
+      if (!baseUrl) throw new Error("invalid baseUrl");
       let host: string;
       try {
         host = new URL(baseUrl).hostname.toLowerCase();
