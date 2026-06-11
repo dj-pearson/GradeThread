@@ -6494,8 +6494,8 @@
         "A run that hit limits is marked partial with a rate-limit-specific error, not a silently truncated catalog"
       ],
       "priority": 406,
-      "passes": false,
-      "notes": "[P1][Performance] Audit 2026-06-03. listAllOffers fans out one listOffersForSku per SKU up to 5,000 with no cap/backoff."
+      "passes": true,
+      "notes": "[P1][Performance] Audit 2026-06-03. listAllOffers fans out one listOffersForSku per SKU up to 5,000 with no cap/backoff. | DONE 2026-06-11. AC2 (Retry-After + rate-limit headers honored): retry.ts gains parseRetryAfter (delta-seconds AND HTTP-date forms), retryAfterMsFromError, and isRateLimitError; withRetry now waits the SERVER-sent Retry-After when present (bounded by maxRetryAfterMs=60s + small jitter to desync parallel jobs) instead of pure backoff. fetchAuthedOnce captures eBay's Retry-After header onto the thrown 429/503 error. Concurrency (5) documented as well under the Sell getOffers limit. AC3 (rate-limited run marked partial, not silently truncated): listAllOffers detects a 429 after retries (isRateLimitError), STOPS the fan-out instead of hammering, and pushes a rate-limit-SPECIFIC partial-run warning into the sync errors list. AC1 (bounded per-sync fan-out + bulk-where-available): documented that eBay has NO bulk get-offers endpoint (the inventory list endpoint IS already the bulk variant), and the per-run bound is the ADAPTIVE 429 early-stop + a large-catalog advisory above OFFER_FANOUT_LARGE=2000. NOTE: deliberately did NOT add a hard slice(0,N) truncating ceiling — without a persisted cursor that would re-sync the same head every run and never reach the tail (silent data loss); the rate-limit early-stop + next-scheduled-sync resume is the honest continuation. Pure helpers unit-tested in tests/retry_test.ts (Node-validated 17/17)."
     },
     {
       "id": "US-407",

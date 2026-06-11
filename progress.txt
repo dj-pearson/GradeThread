@@ -6029,3 +6029,36 @@ libs + one Taxonomy cache table; no live-API or frontend changes required.
           includes 'ebay'). Run `npm run verify:web` before deploy. The edge AC2
           change is pure omission of a field from an existing upsert — no schema
           change, no migration.
+
+================================================================================
+## 2026-06-11 — Bound eBay sync fan-out + honor rate limits (US-406)
+
+- US-406  Bound eBay API fan-out + honor rate limits. COMPLETE.
+          AC2 (Retry-After + rate-limit headers honored): retry.ts gains
+          parseRetryAfter (handles BOTH delta-seconds and HTTP-date forms),
+          retryAfterMsFromError, and isRateLimitError. withRetry now waits the
+          SERVER-sent Retry-After when the error carries one (bounded by
+          maxRetryAfterMs=60s, plus small jitter so parallel jobs desync) instead
+          of guessing with pure exponential backoff. fetchAuthedOnce reads eBay's
+          Retry-After response header onto the thrown 429/503 error. Concurrency
+          (5) documented as comfortably under the Sell getOffers limit.
+
+          AC3 (rate-limited run is partial, not silently truncated): listAllOffers
+          detects a 429 that survived withRetry (isRateLimitError), STOPS the
+          fan-out instead of continuing to hammer a throttled account, and pushes
+          a rate-limit-SPECIFIC partial-run warning into the sync errors list
+          (surfaced via listAllOffers(userId, errors)).
+
+          AC1 (bounded fan-out + bulk where available): documented that eBay has
+          NO bulk "list all offers" endpoint — the inventory_item list endpoint is
+          already the bulk variant. The per-run bound is the ADAPTIVE 429
+          early-stop plus a large-catalog advisory above OFFER_FANOUT_LARGE=2000.
+          DELIBERATELY avoided a hard slice(0,N) truncating ceiling: without a
+          persisted cursor it would re-sync the same head every run and never
+          reach the tail (silent data loss). The early-stop + next-scheduled-sync
+          resume is the honest continuation story.
+
+          Pure helpers unit-tested in tests/retry_test.ts (8 new cases;
+          Node-validated 17/17 assertions). Edge wiring (fetchAuthedOnce header
+          capture, listAllOffers early-stop) not runnable here (no Deno/network) —
+          run `npm run verify:edge` before deploy.

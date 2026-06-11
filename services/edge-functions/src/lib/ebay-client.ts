@@ -11,7 +11,12 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
-import { withRetry, isRetryableError } from "./retry.ts";
+import {
+  withRetry,
+  isRetryableError,
+  isRateLimitError,
+  parseRetryAfter,
+} from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
@@ -902,8 +907,16 @@ async function fetchAuthedOnce<T>(
     // matches on the numeric status (not just the message regex).
     const err = new Error(
       `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`,
-    ) as Error & { status: number; ebayErrorIds?: number[] };
+    ) as Error & {
+      status: number;
+      ebayErrorIds?: number[];
+      retryAfterMs?: number;
+    };
     err.status = res.status;
+    // US-406: surface eBay's Retry-After so withRetry waits exactly as long as
+    // eBay asks on a 429/503 instead of guessing with pure backoff.
+    const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
+    if (retryAfterMs != null) err.retryAfterMs = retryAfterMs;
     // US-528: parse eBay's structured error array so callers can match on a
     // stable errorId (e.g. 25002 = offer already exists) instead of brittle
     // message regexes that break when eBay rewords or localizes a message.
@@ -1832,10 +1845,22 @@ export async function listAllInventoryItems(
   return all;
 }
 
-// Pulls every offer for the connected seller. eBay has no "list all offers"
-// endpoint — you must walk inventory_item, then for each SKU fetch offers.
-// Bounded concurrency keeps us under the Sell API rate limits without
-// dragging too much on accounts with hundreds of items.
+// US-406: advisory threshold for a "large catalog" offer fan-out. eBay has no
+// "list all offers" endpoint, so we walk inventory_item then fetch offers per
+// SKU — one getOffers call each. Above this many SKUs we note the run is large
+// and rate-limit-bounded. We deliberately do NOT hard-truncate at a fixed count:
+// without a persisted cursor, slicing the first N every run would re-sync the
+// same head forever and never reach the tail (silent data loss). Instead the
+// adaptive 429 early-stop below is the real per-run bound, and the next
+// scheduled sync resumes — so a throttled account eventually syncs in full.
+const OFFER_FANOUT_LARGE = 2000;
+
+// Pulls offers for the connected seller. eBay has no "list all offers"
+// endpoint — you must walk inventory_item, then for each SKU fetch offers (no
+// bulk variant exists). Bounded concurrency (5) keeps us comfortably under the
+// Sell Inventory getOffers rate limit; Retry-After is honored per call (see
+// fetchAuthedOnce + withRetry); and a 429 mid-run stops the fan-out and marks
+// the run partial rather than continuing to hammer a throttled account.
 export async function listAllOffers(
   userId: string,
   warnings?: string[],
@@ -1843,9 +1868,19 @@ export async function listAllOffers(
   const items = await listAllInventoryItems(userId, warnings);
   if (items.length === 0) return [];
 
+  // AC1: surface a large fan-out (no truncation — see OFFER_FANOUT_LARGE).
+  if (items.length > OFFER_FANOUT_LARGE) {
+    warnings?.push(
+      `Large eBay catalog: syncing offers for ${items.length} SKUs. The fan-out ` +
+        `is bounded by eBay's rate limits — if throttled it stops mid-run and ` +
+        `resumes on the next scheduled sync.`,
+    );
+  }
+
   const all: RemoteOffer[] = [];
   const CONCURRENCY = 5;
-  for (let i = 0; i < items.length; i += CONCURRENCY) {
+  let rateLimited = false;
+  for (let i = 0; i < items.length && !rateLimited; i += CONCURRENCY) {
     const slice = items.slice(i, i + CONCURRENCY);
     const results = await Promise.all(
       slice.map((it) =>
@@ -1856,7 +1891,11 @@ export async function listAllOffers(
             offers.map((o) => ({ ...o, title: it.title, aspects: it.aspects }))
           )
           .catch((err) => {
-            // One SKU failing shouldn't kill the whole sync. Log + carry on.
+            // AC3: a 429 (after withRetry already backed off and retried) means
+            // eBay is actively throttling — stop fanning out so we don't make it
+            // worse, and flag the run partial below. Any other single-SKU error
+            // shouldn't kill the whole sync: log + carry on with an empty set.
+            if (isRateLimitError(err)) rateLimited = true;
             console.error(
               `[ebay-client] listOffersForSku(${it.sku}) failed:`,
               err instanceof Error ? err.message : String(err)
@@ -1866,6 +1905,16 @@ export async function listAllOffers(
       )
     );
     for (const offers of results) all.push(...offers);
+  }
+
+  // AC3: a rate-limited run is explicitly PARTIAL with a rate-limit reason — not
+  // a silently truncated catalog the caller mistakes for "no more listings".
+  if (rateLimited) {
+    warnings?.push(
+      `Partial eBay offer sync: stopped early after eBay rate-limited the ` +
+        `account (HTTP 429); synced ${all.length} offer(s) before backing off. ` +
+        `This is NOT a complete catalog — it resumes on the next scheduled sync.`,
+    );
   }
   return all;
 }
