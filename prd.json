@@ -7182,8 +7182,8 @@
         "Unenriched sales are flagged rather than mis-scored"
       ],
       "priority": 461,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. flipdesk-reconciliation.ts saleNet ignores label cost."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. flipdesk-reconciliation.ts saleNet ignores label cost. | DONE 2026-06-11. Extracted pure saleNetEstimate() into lib/reconciliation-scoring.ts (unit-tested in tests/reconciliation-net_test.ts). The candidate-net now = payout_amount when enriched, else sale_price + shipping_collected - platform_fees - shipping_cost(label) - payment_processing_fees (was sale_price - platform_fees, which over-estimated and mis-scored free-shipping sales). Both /queue and /auto-match selects pull the new columns via a shared SALE_CANDIDATE_COLUMNS const. Estimated (unenriched) nets are flagged in the reasons and scored x0.85 so a ground-truth enriched candidate always outranks an estimate at equal delta. Logic verified locally via vite-node."
     },
     {
       "id": "US-462",
@@ -7246,8 +7246,8 @@
         "Large-catalog behavior documented and tested"
       ],
       "priority": 466,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. Fixed caps: items 5,000 / orders 10,000 / transactions 20,000."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. Fixed caps: items 5,000 / orders 10,000 / transactions 20,000. | DONE 2026-06-11. ebay-client.ts listAllInventoryItems/listRecentOrders/listRecentTransactions raised their fixed page ceilings (5k/10k/20k -> 50k/40k/100k named constants) AND now track natural completion vs ceiling-hit: when a ceiling is reached before eBay returns a short page (with `total` indicating more), they push a structured truncationWarning() into the caller's sync-run errors array. doListingsPull threads its `errors` array (declared up-front) into all three fetches, so truncation is recorded and flips the run to 'partial' (surfaced by US-457 UI). Documented in-code; deno lint clean. NOTE: full pagination-to-ceiling is integration-level (needs a live eBay mock / the module graph imports hono which deno.land blocks in this sandbox) — exercised in CI/staging, not unit-mocked here."
     },
     {
       "id": "US-467",

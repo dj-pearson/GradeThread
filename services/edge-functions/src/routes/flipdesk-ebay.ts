@@ -699,9 +699,13 @@ async function doListingsPull(
   runId: string | null = null,
 ): Promise<void> {
   const startedAt = new Date().toISOString();
+  // US-466: collects truncation warnings from the paginated eBay fetches (and,
+  // below, per-item errors). Declared up here so the offers/inventory fetch can
+  // record a ceiling hit; a non-empty list flips the run to "partial".
+  const errors: string[] = [];
   let offers: RemoteOffer[];
   try {
-    offers = await listAllOffers(userId);
+    offers = await listAllOffers(userId, errors);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
@@ -782,7 +786,6 @@ async function doListingsPull(
   // by the legacy Trading API pass below to skip listings already covered
   // by the modern Sell Inventory loop.
   const processedListingIds = new Set<string>();
-  const errors: string[] = [];
   // Items whose eBay listing came back ended/inactive this sync. After the
   // orders pass marks genuine sales as 'sold', anything left here that's still
   // 'listed' ended WITHOUT a sale → auto-move it back to Drafts so the seller
@@ -1133,7 +1136,7 @@ async function doListingsPull(
   let salesUpdated = 0;
   let salesSkipped = 0;
   try {
-    const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO);
+    const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO, errors);
     for (const order of orders) {
       // Failed-payment orders shouldn't flip an item to sold.
       const paid =
@@ -1338,7 +1341,8 @@ async function doListingsPull(
   try {
     const txns: RemoteTransaction[] = await listRecentTransactions(
       userId,
-      sinceISO
+      sinceISO,
+      errors,
     );
     // Build a quick orderId → aggregate map. SALE transactions carry gross
     // + fees; SHIPPING_LABEL transactions carry what the SELLER paid for

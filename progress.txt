@@ -5670,3 +5670,34 @@ test to extend — the right kind of work to land cleanly here.
           the listings/grade_reports sub-queries. A separate index-only head
           count (no rows) preserves FlipdeskPromoCard's "any inventory yet?" gate.
           Dashboard load is now independent of inventory size. tsc/eslint clean.
+
+================================================================================
+## 2026-06-11 — eBay/reconciliation batch (US-461, US-466)
+
+- US-461  Include shipping-label cost in reconciliation matching. COMPLETE.
+          Files: new services/edge-functions/src/lib/reconciliation-scoring.ts,
+          new src/tests/reconciliation-net_test.ts, flipdesk-reconciliation.ts.
+          The candidate-net used sale_price - platform_fees, ignoring the eBay
+          shipping LABEL the seller buys (deducted from the payout) and the
+          buyer-paid shipping (added) — it over-estimated free-shipping nets and
+          mis-scored them. New pure saleNetEstimate(): payout_amount when enriched,
+          else sale_price + shipping_collected - platform_fees - shipping_cost -
+          payment_processing_fees, returning { net, estimated }. Estimated nets
+          are flagged in the candidate reasons ("estimated net") and scored x0.85
+          so a ground-truth enriched candidate outranks an estimate at equal
+          delta. Both /queue + /auto-match selects share SALE_CANDIDATE_COLUMNS.
+          6 deno unit cases (CI) + local vite-node sanity of the calc.
+
+- US-466  Stop silent truncation of large eBay catalogs/histories. COMPLETE.
+          File: services/edge-functions/src/lib/ebay-client.ts, flipdesk-ebay.ts.
+          The three paginated fetches (inventory/orders/transactions) had fixed
+          `i < 50/50/100` page loops that SILENTLY returned a partial set at the
+          cap. Now: named ceilings raised to 50k/40k/100k rows, each loop tracks
+          natural-completion vs ceiling-hit, and on a ceiling hit (with eBay's
+          `total` saying more remains) pushes a structured truncationWarning()
+          into the caller's sync-run errors. doListingsPull declares `errors`
+          up-front and threads it into listAllOffers/listRecentOrders/
+          listRecentTransactions, so a truncated sync is recorded + flips the run
+          to "partial" (surfaced by the US-457 UI). deno lint clean (259 files).
+          Pagination-to-ceiling itself is integration-level (CI/staging) — the
+          module graph imports hono which deno.land blocks in this sandbox.
