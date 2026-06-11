@@ -8542,8 +8542,8 @@
         "Raw provider detail stays server-side"
       ],
       "priority": 567,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. eBay's structured error array is flattened to a 500-1000 char blob."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. eBay's structured error array is flattened to a 500-1000 char blob. | DONE 2026-06-11. New lib/ebay-error-map.ts maps eBay structured error IDs (25002/25007/25019/25709/25710/25713/25023/2004) to short actionable fix messages + the composer field to fix (mapEbayError; deno test ebay-error-map_test.ts). publishItemForOwner's catch now returns the mapped message as `detail` (+ fix_field + ebay_error_ids) and stores it in listings.publish_error — the RAW eBay blob stays server-side (console.error only), satisfying AC3. The autolister queue's failed-publish message is now a Link deep-linking to the item's composer (AC2). tsc/eslint/deno-lint clean."
     },
     {
       "id": "US-568",

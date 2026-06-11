@@ -5851,3 +5851,13 @@ sandbox round-trip) — left false per the scaffold+document decision.
           upload — type/resolution/decode failures are skipped with a clear
           per-file reason toast; borderline (1200-1500px min edge) images pass but
           raise a soft low-resolution warning. Size stays handled by the compressor.
+
+- US-567  Map eBay error IDs to actionable fix messages. COMPLETE. Files: new
+          services/edge-functions/src/lib/ebay-error-map.ts + tests/ebay-error-map_test.ts,
+          flipdesk-ebay.ts, src/pages/flipdesk/autolister-queue.tsx.
+          mapEbayError() maps structured eBay error IDs (25002/25007/25019/25709/
+          25710/25713/25023/2004) -> short fix messages + the composer field.
+          publishItemForOwner returns the mapped message (+ fix_field +
+          ebay_error_ids) and stores it in listings.publish_error; the RAW eBay
+          detail stays server-side (logs only) per AC3. The queue's failed-publish
+          message now deep-links to the item composer (AC2).

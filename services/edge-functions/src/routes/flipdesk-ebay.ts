@@ -63,6 +63,7 @@ import { ingestPayoutsForUser } from "../lib/ebay-payout-dedup.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { claimSyncRun, failSyncRun } from "../lib/sync-run-lock.ts";
+import { EBAY_PUBLISH_GENERIC_FIX, mapEbayError } from "../lib/ebay-error-map.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
@@ -2384,15 +2385,21 @@ export async function publishItemForOwner(
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // US-567: keep the raw eBay detail SERVER-SIDE (logs only) and surface a
+    // short, actionable message mapped from eBay's structured error IDs.
     console.error("[flipdesk-ebay] publish failed:", msg);
+    const ebayErrorIds = (err as { ebayErrorIds?: number[] }).ebayErrorIds;
+    const fix = mapEbayError(ebayErrorIds);
+    const userMessage = fix?.message ?? EBAY_PUBLISH_GENERIC_FIX;
     // US-321: persist the failure on the draft listing so the queue/UI can
-    // surface "last failed: X" on reload, and US-325 retry can target it.
+    // surface "last failed: X" on reload, and US-325 retry can target it. Store
+    // the user-facing message (not the raw eBay blob).
     if (listing?.id) {
       try {
         await supabaseAdmin
           .from("listings")
           .update({
-            publish_error: msg.slice(0, 1000),
+            publish_error: userMessage.slice(0, 1000),
             publish_failed_at: new Date().toISOString(),
           })
           .eq("id", listing.id);
@@ -2409,7 +2416,16 @@ export async function publishItemForOwner(
       // dialog can surface `detail` to the seller.
       ok: false,
       status: 422,
-      body: { ok: false, error: "Publish failed", detail: msg.slice(0, 1000) },
+      body: {
+        ok: false,
+        error: "Publish failed",
+        // US-567: actionable mapped message (raw eBay detail stays in logs).
+        detail: userMessage,
+        ...(fix?.field ? { fix_field: fix.field } : {}),
+        ...(ebayErrorIds && ebayErrorIds.length > 0
+          ? { ebay_error_ids: ebayErrorIds }
+          : {}),
+      },
     };
   }
 }

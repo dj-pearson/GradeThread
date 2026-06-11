@@ -610,9 +610,15 @@ export function FlipdeskAutolisterQueuePage() {
                 </Badge>
               )}
               {pub?.status === "failed" && (
-                <span className="max-w-xs truncate text-xs text-destructive" title={pub.error}>
+                // US-567: the mapped, actionable eBay message deep-links to the
+                // composer so the seller can fix the offending field.
+                <Link
+                  to={`/dashboard/flipdesk/items/${job.inventory_item_id}/draft`}
+                  className="max-w-xs truncate text-xs text-destructive underline-offset-2 hover:underline"
+                  title={`${pub.error} — click to fix in the composer`}
+                >
                   {pub.error}
-                </span>
+                </Link>
               )}
               {pub?.status === "success" ? (
                 pub.listingUrl ? (
