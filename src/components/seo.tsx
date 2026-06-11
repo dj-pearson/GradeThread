@@ -67,8 +67,18 @@ export function SEO({
 
   // react-helmet-async (v3 fork) does not inject <script> tags into the DOM
   // head on the client, so manage JSON-LD ourselves. Appending real <script
-  // type="application/ld+json"> nodes works at runtime and is captured by the
-  // headless-browser prerender (US-292), which executes JS before snapshotting.
+  // type="application/ld+json"> nodes works at runtime for the live SPA.
+  //
+  // IMPORTANT (US-423): the build-time prerender is STRING-BASED
+  // (scripts/prerender.mjs) — there is NO headless browser, so it never runs
+  // this useEffect. Crawlable JSON-LD for prerendered routes is emitted
+  // separately and deterministically by src/prerender/head-builder.ts
+  // (jsonLdForRoute), which MUST mirror whatever a page passes here. Any
+  // indexable page that ships <SEO jsonLd> must therefore be a prerendered
+  // route with a matching jsonLdForRoute entry (or be edge-SSR'd with the LD
+  // inlined) — relying on this client-only injection alone would leave the LD
+  // invisible to crawlers. The mirror is enforced by
+  // src/prerender/__tests__/jsonld-parity.test.tsx.
   useEffect(() => {
     if (serialized.length === 0) return;
     const nodes = serialized.map((json) => {

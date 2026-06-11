@@ -34,6 +34,39 @@ function fail(msg) {
   process.exit(1);
 }
 
+// US-432: post-prerender head-integrity guard. Asserts each generated document
+// has exactly one <title> and one rel=canonical, and that no <title>,
+// rel=canonical, or <meta name="description"> leaked into the SSR <body> (i.e.
+// the Helmet strip worked). Called per route in the write loop; fails the build.
+function countMatches(s, re) {
+  return (s.match(re) ?? []).length;
+}
+function validateHeadIntegrity(html, body, routePath) {
+  const titles = countMatches(html, /<title[\s>]/gi);
+  if (titles !== 1) {
+    fail(`${routePath}: expected exactly 1 <title>, found ${titles}.`);
+  }
+  const canon = countMatches(html, /<link[^>]+rel=["']?canonical["']?/gi);
+  if (canon !== 1) {
+    fail(`${routePath}: expected exactly 1 rel=canonical, found ${canon}.`);
+  }
+  const desc = countMatches(html, /<meta[^>]+name=["']?description["']?/gi);
+  if (desc !== 1) {
+    fail(`${routePath}: expected exactly 1 <meta name=description>, found ${desc}.`);
+  }
+  // Nothing head-only may survive inside the rendered body (Helmet leak check).
+  const leaks = [
+    [/<title[\s>]/i, "<title>"],
+    [/<link[^>]+rel=["']?canonical["']?/i, "rel=canonical"],
+    [/<meta[^>]+name=["']?description["']?/i, "<meta name=description>"],
+  ];
+  for (const [re, label] of leaks) {
+    if (re.test(body)) {
+      fail(`${routePath}: ${label} leaked into <body> — Helmet strip failed.`);
+    }
+  }
+}
+
 if (!existsSync(templatePath)) {
   fail(`dist/index.html not found — run \`vite build\` before prerendering.`);
 }
@@ -88,6 +121,13 @@ try {
 
     let html = beforeHead + head + afterHead;
     html = html.replace(BODY_MARKER, body);
+
+    // US-432: assert head integrity on the FINAL document before writing it.
+    // react-helmet-async (v3 fork) leaks <title>/<meta>/<link> into the SSR body;
+    // stripHeadTagsFromBody removes them, but a brittle regex could silently
+    // miss one — yielding duplicate <title>s or a <meta name=description> inside
+    // <body> (both hurt indexing). Fail the build (CI) on any violation.
+    validateHeadIntegrity(html, body, route.path);
 
     // "/" → dist/index.html; "/privacy" → dist/privacy/index.html
     const outPath =

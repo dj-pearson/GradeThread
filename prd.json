@@ -6704,8 +6704,8 @@
         "A guard/test asserts runtime LD matches head-builder LD"
       ],
       "priority": 423,
-      "passes": false,
-      "notes": "[P1][SEO] Audit 2026-06-03. seo.tsx injects LD via useEffect; prerender.mjs is string-based and never runs it."
+      "passes": true,
+      "notes": "[P1][SEO] Audit 2026-06-03. seo.tsx injects LD via useEffect; prerender.mjs is string-based and never runs it. | DONE 2026-06-11. Fixed the misleading 'headless-browser prerender' comment in seo.tsx (prerender is string-based; LD mirrored by head-builder). Added src/prerender/__tests__/jsonld-parity.test.tsx that renders each indexable page (home + 6 marketing + a glossary spoke) and asserts the runtime useEffect-injected JSON-LD multiset == jsonLdForRoute(). It caught a real bug: the glossary page double-emitted BreadcrumbList (MarketingLayout breadcrumbs prop + glossaryJsonLd both emitted one) — glossaryJsonLd now returns FAQPage only; head-builder emits the breadcrumb explicitly. All jsonLd pages are prerendered with a mirrored entry; none relies solely on runtime LD."
     },
     {
       "id": "US-424",
@@ -6819,8 +6819,8 @@
         "Validation runs in CI and fails the build on violation"
       ],
       "priority": 432,
-      "passes": false,
-      "notes": "[P2][SEO] Audit 2026-06-03. head-builder.stripHeadTagsFromBody uses brittle regexes; no assertion."
+      "passes": true,
+      "notes": "[P2][SEO] Audit 2026-06-03. head-builder.stripHeadTagsFromBody uses brittle regexes; no assertion. | DONE 2026-06-11. scripts/prerender.mjs now runs validateHeadIntegrity() on every generated document: asserts exactly one <title>, one rel=canonical, one <meta name=description>, and that none of those leaked into <body> (Helmet strip check). Runs in npm run build (verify:web/ci.yml), fails the build on violation. Verified clean across all 28 prerendered routes."
     },
     {
       "id": "US-433",
@@ -8847,8 +8847,8 @@
         "Hardcoded googleapis fetches are left unchanged"
       ],
       "priority": 579,
-      "passes": false,
-      "notes": "[P2][Security] Deep-dive 2026-06-04. flipdesk-google-photos.ts:340 downloads baseUrl with the user's Google bearer token attached, no host validation (TLS-sourced, low real risk)."
+      "passes": true,
+      "notes": "[P2][Security] Deep-dive 2026-06-04. flipdesk-google-photos.ts:340 downloads baseUrl with the user's Google bearer token attached, no host validation (TLS-sourced, low real risk). | DONE 2026-06-11. flipdesk-google-photos.ts importOne() now validates the Picker mediaFile.baseUrl host (must be google.com/googleusercontent.com or a subdomain) BEFORE fetching it with the user's Google bearer token; non-Google hosts are refused per-item. Hardcoded googleapis fetches unchanged."
     },
     {
       "id": "US-580",

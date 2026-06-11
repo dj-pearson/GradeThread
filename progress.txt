@@ -5615,3 +5615,34 @@ test to extend — the right kind of work to land cleanly here.
           glossary tier/factor title templates (NWOT/structural-integrity were
           61–63 incl suffix). All 28 routes (incl generated glossary spokes) pass;
           vitest green, tsc -b + eslint clean.
+
+- US-579  Host-allowlist Google Photos baseUrl fetch. COMPLETE (passes:true).
+          File: services/edge-functions/src/routes/flipdesk-google-photos.ts.
+          importOne() validated the Picker mediaFile.baseUrl host (google.com /
+          googleusercontent.com or subdomain) BEFORE attaching the user's Google
+          bearer token and fetching — a poisoned/spoofed baseUrl can no longer
+          exfiltrate the token. Invalid-URL and non-Google hosts throw per-item
+          (caught into the per-item errors array). Hardcoded googleapis fetches
+          unchanged.
+
+- US-423  Fix SEO JSON-LD prerender coverage + misleading comment. COMPLETE
+          (passes:true). Files: src/components/seo.tsx (comment), new
+          src/prerender/__tests__/jsonld-parity.test.tsx,
+          src/pages/marketing/marketing-jsonld.ts, src/prerender/head-builder.ts.
+          Corrected the false "headless-browser prerender" comment (the prerender
+          is STRING-BASED; head-builder.jsonLdForRoute mirrors page LD). The new
+          parity test renders each indexable page (home + 6 marketing + a glossary
+          spoke) the way the SPA does and asserts the runtime useEffect-injected
+          LD multiset EQUALS jsonLdForRoute(). It caught a real bug: glossary
+          pages double-emitted BreadcrumbList (MarketingLayout's breadcrumbs prop
+          AND glossaryJsonLd both emitted one). Fix: glossaryJsonLd now returns
+          the FAQPage only; head-builder emits the 3-level breadcrumb explicitly
+          via glossaryBreadcrumbItems, so it appears exactly once in both surfaces.
+
+- US-432  Validate prerendered head integrity in CI. COMPLETE (passes:true).
+          File: scripts/prerender.mjs. Added validateHeadIntegrity(html, body,
+          route) run per route in the write loop: asserts exactly one <title>,
+          one rel=canonical, one <meta name=description>, and that none of those
+          leaked into <body> (the Helmet-strip correctness check). It runs inside
+          npm run build (the ci.yml build job / verify:web), failing the build on
+          any violation. Verified clean across all 28 prerendered routes.
