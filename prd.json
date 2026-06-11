@@ -5655,8 +5655,8 @@
         "Pure scoring/fusion logic is unit-tested"
       ],
       "priority": 341,
-      "passes": false,
-      "notes": "BUILD-NEW. Heaviest item; depends on US-339 (originals) and complements US-336. Forensics are unreliable on our compressed images, so this is explicitly originals-only. Watch FP rate + storage/compute cost."
+      "passes": true,
+      "notes": "BUILD-NEW. Heaviest item; depends on US-339 (originals) and complements US-336. Forensics are unreliable on our compressed images, so this is explicitly originals-only. Watch FP rate + storage/compute cost. DONE: lib/forensics.ts — decoder-free structural forensic pass (JPEG quant-table/quality estimate, Adobe/editor/progressive tells, EXIF provenance) over RETAINED ORIGINALS only (US-339); pure scoreImageForensics/aggregateForensics + noisy-OR fuseTamperSignals with the US-336 vision signal -> single tamper assessment that lowers confidence + routes to human review. FP-guarded (no single benign edit crosses 0.6). Bounded by FORENSIC_MAX_IMAGES + FORENSIC_ANALYSIS kill-switch; skips compressed-only cleanly. Stored on grade_reports.forensic_analysis (migration 00139, never public). 21 unit tests in forensics_test.ts. Pixel-domain ELA/PRNU/copy-move deferred to a future decoder/worker tier feeding the same ForensicFeatures+scoring core."
     },
     {
       "id": "US-342",

@@ -433,6 +433,24 @@ export interface VerifiedCaptureResult {
   checked_at: string;
 }
 
+// US-341: server-side forensic manipulation pass fused with the US-336 vision
+// signal, persisted on grade_reports.forensic_analysis. Internal anti-fraud
+// data — never exposed on the public certificate. Null unless an uncompressed
+// original was retained (US-339) so the pass actually ran.
+export interface ForensicTamperAssessment {
+  tamper_likelihood: number;
+  manipulation_suspected: boolean;
+  needs_review: boolean;
+  confidence_penalty: number;
+  forensic_ran: boolean;
+  forensic_suspected: boolean;
+  vision_suspected: boolean;
+  tells: string[];
+  summary: string;
+  // Raw per-image forensic detail (structural scores + features).
+  forensic?: unknown;
+}
+
 export interface SubmissionImageRow {
   id: string;
   submission_id: string;
@@ -485,6 +503,10 @@ export interface GradeReportRow {
   // US-340: Verified Capture provenance result. Null for grades produced before
   // the check / when the seller did not opt in.
   verified_capture: VerifiedCaptureResult | null;
+  // US-341: forensic manipulation pass fused with the vision signal. Null unless
+  // a retained original made the pass run (migration 00139). Internal — never
+  // exposed on the public certificate view.
+  forensic_analysis: ForensicTamperAssessment | null;
   // True once a human reviewer has checked this grade (migration 00061).
   human_reviewed: boolean;
   model_version: string;
@@ -1390,6 +1412,7 @@ export interface GradeReportInsert {
   confidence_score: number;
   needs_human_review?: boolean;
   verified_capture?: VerifiedCaptureResult | null;
+  forensic_analysis?: ForensicTamperAssessment | null;
   model_version: string;
   prompt_version?: string | null;
   certificate_id?: string | null;

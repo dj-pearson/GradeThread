@@ -20,6 +20,11 @@ import {
   verifiedCaptureBoost,
 } from "./verified-capture.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
+import {
+  fuseTamperSignals,
+  runForensicPass,
+  type ForensicInputImage,
+} from "./forensics.ts";
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { captureServer } from "./posthog.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
@@ -163,7 +168,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order, phash, exif")
+      .select("id, image_type, storage_path, display_order, phash, exif, original_storage_path")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -439,6 +444,65 @@ export async function processSubmission(submissionId: string) {
         `Verified Capture not earned — ${verifiedCapture.reasons.join("; ")}.`;
     }
 
+    // US-341: server-side forensic / manipulation pass on RETAINED ORIGINALS.
+    // A second, byte/structure-level line of manipulation evidence that runs
+    // only where an uncompressed original was kept (US-339) and is fused with
+    // the US-336 vision authenticity signal into one tamper assessment. The
+    // fusion adjusts confidence + review routing; on a compressed-only
+    // submission the pass is skipped cleanly and the result equals the vision
+    // signal (no behavior change). Never throws — best-effort.
+    const forensicInputs: ForensicInputImage[] = images.map((img) => ({
+      image_type: img.image_type,
+      original_storage_path:
+        (img as { original_storage_path?: string | null })
+          .original_storage_path ?? null,
+      exif: ((img as { exif?: Record<string, unknown> | null }).exif) ?? null,
+    }));
+    const forensic = await runForensicPass(
+      forensicInputs,
+      async (storagePath) => {
+        const { data, error } = await supabaseAdmin.storage
+          .from("submission-images")
+          .download(storagePath);
+        if (error || !data) return null;
+        return new Uint8Array(await data.arrayBuffer());
+      },
+    ).catch((err) => {
+      console.error(
+        `[Pipeline] Forensic pass error for submission ${submissionId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      // Fall back to a not-run assessment so fusion is just the vision signal.
+      return {
+        ran: false,
+        analyzed_count: 0,
+        tamper_likelihood: 0,
+        suspected: false,
+        per_image: [],
+        tells: [],
+        flagged_image_types: [],
+        summary: "Forensic pass failed; vision signal only.",
+      };
+    });
+
+    const fusedTamper = fuseTamperSignals(forensic, authenticity);
+    if (fusedTamper.forensic_ran) {
+      // Forensic evidence (pixel-level provenance) corroborates or contradicts
+      // the vision check. Route to a human and shave confidence by the fused
+      // penalty (floored at 0). The penalty can override an earlier
+      // verified-capture boost — manipulation evidence must win over provenance.
+      if (fusedTamper.needs_review) {
+        compositeResult.needs_human_review = true;
+        compositeResult.confidence_score = Math.max(
+          0,
+          compositeResult.confidence_score - fusedTamper.confidence_penalty,
+        );
+      }
+      detailedNotes["forensic_analysis"] = fusedTamper.tells.length > 0
+        ? `${fusedTamper.summary} Tells: ${fusedTamper.tells.join("; ")}.`
+        : fusedTamper.summary;
+    }
+
     // US-333: tamper-evident integrity. Hash the canonical (already-public)
     // grade fields and sign the hash if CERT_SIGNING_KEY is set. The public
     // /cert/:id/verify endpoint re-derives this from the stored row to confirm
@@ -493,6 +557,12 @@ export async function processSubmission(submissionId: string) {
         // US-340: Verified Capture provenance result. Structured detail kept for
         // admin review; the public view exposes only the pass/fail boolean.
         verified_capture: verifiedCapture,
+        // US-341: forensic manipulation pass fused with the vision signal.
+        // Stored only when an original was retained (else the pass didn't run);
+        // internal anti-fraud data, never exposed on the public certificate.
+        forensic_analysis: forensic.ran
+          ? { ...fusedTamper, forensic }
+          : null,
         // Record the real model + prompt version (e.g.
         // "claude-sonnet-4-6|composite_v2") so accuracy-tracking can
         // distinguish model changes, not just prompt revisions. prompt_version
@@ -545,6 +615,16 @@ export async function processSubmission(submissionId: string) {
     // the moderation queue too (in addition to needs_human_review on the grade).
     if (authenticity.manipulation_suspected || authenticity.screenshot_or_watermark_detected) {
       flagReasons.push(authenticity.summary);
+    }
+    // US-341: the fused forensic+vision tamper signal can flag manipulation the
+    // vision pass alone missed (forensic-only or corroborated). Route those to
+    // moderation too. Avoid duplicating the vision-only summary already pushed.
+    if (
+      fusedTamper.forensic_ran &&
+      fusedTamper.manipulation_suspected &&
+      fusedTamper.forensic_suspected
+    ) {
+      flagReasons.push(fusedTamper.summary);
     }
     // US-337: a cross-account photo match is a moderation concern (possible
     // stolen/recycled listing). Same-account relists are not flagged.
