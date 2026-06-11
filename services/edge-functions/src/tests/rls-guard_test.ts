@@ -48,6 +48,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // (migration 00131 documents "all access via the service-role edge client").
   // Single-use + self-expiring; the SPA never reads it.
   "google_oauth_states",
+  // US-147 Sheets-sync per-field snapshots: RLS enabled, zero policies by
+  // design (migration 00132 documents "read/written only by the service-role
+  // edge client"). Sync bookkeeping, never read by the SPA.
+  "google_sheet_sync_state",
   // RLS enabled, zero policies by design — the OAuth import session is written
   // and read ONLY by the service-role edge client; the SPA never touches it
   // (migration 00089 documents "all access via the service-role edge client").

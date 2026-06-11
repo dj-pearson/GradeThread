@@ -454,3 +454,17 @@ Branch: ralph/gradethread-build
     (use-remove-bg, which exists and was unmodified); a clean re-run exits 0.
 - Timestamp: 2026-06-11
 ---
+
+## US-147: Google Sheets 2-way live sync (push + pull + conflict resolution)
+- Status: COMPLETE
+- Files changed: supabase/migrations/00132_google_sheet_sync.sql, services/edge-functions/src/lib/sheet-sync.ts (new), services/edge-functions/src/lib/google-sheets-api.ts (new), services/edge-functions/src/routes/flipdesk-google-sync.ts (new), services/edge-functions/src/routes/flipdesk-google.ts, services/edge-functions/src/main.ts, services/edge-functions/src/lib/schema-version.ts, services/edge-functions/src/tests/rls-guard_test.ts, services/edge-functions/src/tests/google-sheet-sync_test.ts (new), src/hooks/use-google-sheets.ts, src/pages/flipdesk/marketplaces-google.tsx, LAUNCH_CHECKLIST.md
+- Notes:
+  * Conflict detection needs a 3rd copy of the data: google_sheet_sync_state stores per-field values as of the last sync ("base"). sheet!=base & db==base -> pull; db!=base & sheet==base -> push; both changed -> conflict (FlipDesk wins, row flagged in Conflicts tab with Accept Sheet dropdown applied on next run).
+  * KEY DESIGN DECISION: /sync/push and /sync/pull both run the SAME full bidirectional merge. A push-only pass that rewrites whole rows would clobber un-pulled sheet edits; since push needs to read the sheet anyway (row mapping by hidden flipdesk_id), the merge is free.
+  * Field allow-list enforced structurally: only ColumnDef.writable columns can ever produce pulls (title, brand, size, sku, status, acquired_price=cost_basis, target_price, condition_notes=notes). Invalid values (bad enum, negative price, blanked title) are reverted in the sheet + logged to Sync Log.
+  * Values compared after normalization ("$12.50" in sheet == numeric 12.5 from PostgREST); writes use RAW + reads use UNFORMATTED_VALUE to keep round-trips stable.
+  * Two CI guards fired on the new migration (good!): schema-version_test wants EXPECTED_SCHEMA_VERSION bumped in the same commit, and rls-guard_test requires classifying any zero-policy table in SERVICE_ROLE_ONLY.
+  * Listings/Sales tenant-scoping goes through inventory_items!inner(user_id) since those tables carry no user_id (US-268 pattern).
+  * Docker was down so the local supabase db reset lane was skipped (simple CREATE TABLE migration; CI db-migrations.yml will verify).
+- Timestamp: 2026-06-11 09:35
+---

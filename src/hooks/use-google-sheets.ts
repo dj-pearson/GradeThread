@@ -13,6 +13,19 @@ export interface GoogleConnection {
   sheet_id?: string | null;
   sheet_url?: string | null;
   has_sheet?: boolean;
+  last_sync_at?: string | null;
+  sync_status?: "never" | "idle" | "syncing" | "error";
+  sync_error?: string | null;
+}
+
+export interface SyncNowResult {
+  ok: true;
+  skipped?: boolean;
+  reason?: string;
+  pushed?: number;
+  pulled?: number;
+  conflicts?: number;
+  errors?: string[];
 }
 
 // Whether the server has Google OAuth credentials configured. Lets the UI show
@@ -100,6 +113,34 @@ export function useUseExistingSheet() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
       toast.success("Linked your existing sheet.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+}
+
+// US-147: manual "Sync now" — runs the full 2-way merge for this workspace.
+export function useSyncNow() {
+  const qc = useQueryClient();
+  return useMutation<SyncNowResult, Error, void>({
+    mutationFn: async () => {
+      const res = await edgeFetch("/api/flipdesk/google/sync/now", { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Sync failed.");
+      return json as SyncNowResult;
+    },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["google_connection"] });
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+      if (result.skipped) {
+        toast.info("A sync is already running — try again in a moment.");
+        return;
+      }
+      const conflictNote = result.conflicts
+        ? ` ${result.conflicts} conflict${result.conflicts === 1 ? "" : "s"} flagged in the Conflicts tab.`
+        : "";
+      toast.success(
+        `Synced: ${result.pushed ?? 0} pushed, ${result.pulled ?? 0} pulled.${conflictNote}`,
+      );
     },
     onError: (err) => toast.error(err.message),
   });

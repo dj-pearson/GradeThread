@@ -262,6 +262,9 @@ interface GoogleConnectionRow {
   token_expires_at: string | null;
   sheet_id: string | null;
   sheet_url: string | null;
+  last_sync_at: string | null;
+  sync_status: string;
+  sync_error: string | null;
   is_active: boolean;
 }
 
@@ -269,7 +272,7 @@ async function loadConnection(userId: string): Promise<GoogleConnectionRow | nul
   const { data } = await supabaseAdmin
     .from("google_connections")
     .select(
-      "id, user_id, google_email, access_token_enc, refresh_token_enc, token_expires_at, sheet_id, sheet_url, is_active",
+      "id, user_id, google_email, access_token_enc, refresh_token_enc, token_expires_at, sheet_id, sheet_url, last_sync_at, sync_status, sync_error, is_active",
     )
     .eq("user_id", userId)
     .maybeSingle();
@@ -345,6 +348,9 @@ flipdeskGoogleRoutes.get("/connection", async (c) => {
     sheet_id: conn.sheet_id,
     sheet_url: conn.sheet_url,
     has_sheet: !!conn.sheet_id,
+    last_sync_at: conn.last_sync_at,
+    sync_status: conn.sync_status,
+    sync_error: conn.sync_error,
   });
 });
 

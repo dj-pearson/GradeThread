@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   ExternalLink,
   FileSpreadsheet,
   Loader2,
   Plus,
+  RefreshCw,
   Unplug,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,6 +29,7 @@ import {
   useGoogleConfig,
   useGoogleConnection,
   useStartGoogleOauth,
+  useSyncNow,
   useUseExistingSheet,
 } from "@/hooks/use-google-sheets";
 
@@ -76,6 +79,7 @@ export function FlipdeskMarketplacesGooglePage() {
   const createSheet = useCreateSyncSheet();
   const useExisting = useUseExistingSheet();
   const disconnect = useDisconnectGoogle();
+  const syncNow = useSyncNow();
 
   const [existing, setExisting] = useState("");
 
@@ -310,6 +314,64 @@ export function FlipdeskMarketplacesGooglePage() {
                   </Button>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Step 3 — live sync */}
+          <Card className={connected && hasSheet ? "" : "opacity-60"}>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-semibold">
+                    3
+                  </span>
+                  Live sync
+                </CardTitle>
+                {connection?.sync_status === "error" ? (
+                  <Badge variant="destructive">
+                    <AlertTriangle className="mr-1 h-3 w-3" />
+                    Error
+                  </Badge>
+                ) : connection?.last_sync_at ? (
+                  <Badge className="bg-emerald-600 hover:bg-emerald-600">
+                    <Check className="mr-1 h-3 w-3" />
+                    Syncing
+                  </Badge>
+                ) : null}
+              </div>
+              <CardDescription>
+                Your sheet syncs both ways every 5 minutes. Edits to Title,
+                Brand, Size, Status, Cost Basis, Target Price, SKU, and Notes
+                flow back into FlipDesk; gray columns are read-only. When both
+                sides change the same field, FlipDesk wins and the row is
+                flagged in the Conflicts tab where you can choose Accept Sheet.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {connection?.last_sync_at && (
+                <p className="text-sm text-muted-foreground">
+                  Last synced{" "}
+                  <span className="font-medium text-foreground">
+                    {new Date(connection.last_sync_at).toLocaleString()}
+                  </span>
+                </p>
+              )}
+              {connection?.sync_status === "error" && connection.sync_error && (
+                <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {connection.sync_error}
+                </p>
+              )}
+              <Button
+                onClick={() => syncNow.mutate()}
+                disabled={!connected || !hasSheet || syncNow.isPending}
+              >
+                {syncNow.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Sync now
+              </Button>
             </CardContent>
           </Card>
         </>

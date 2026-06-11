@@ -24,6 +24,7 @@ import {
 } from "./routes/flipdesk-autolister.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
+import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import {
   flipdeskPricingRoutes,
@@ -216,6 +217,9 @@ app.use("/api/flipdesk/google/connection", authMiddleware);
 app.use("/api/flipdesk/google/config", authMiddleware);
 app.use("/api/flipdesk/google/sheet/*", authMiddleware);
 app.use("/api/flipdesk/google/disconnect", authMiddleware);
+// US-147: manual "Sync now" is user-authed; /sync/push + /sync/pull are
+// scheduled jobs gated inside the handler by the internal job secret.
+app.use("/api/flipdesk/google/sync/now", authMiddleware);
 // Workspace (team) management: auth + workspace context. The route handlers
 // enforce per-action role checks (owner/admin required to invite, etc.).
 app.use("/api/workspace/*", authMiddleware);
@@ -256,6 +260,7 @@ app.use("/api/flipdesk/google/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/google/connection", workspaceMiddleware);
 app.use("/api/flipdesk/google/sheet/*", workspaceMiddleware);
 app.use("/api/flipdesk/google/disconnect", workspaceMiddleware);
+app.use("/api/flipdesk/google/sync/now", workspaceMiddleware);
 app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/keys/*", workspaceMiddleware);
@@ -425,6 +430,7 @@ app.route("/api/flipdesk/templates", flipdeskTemplatesRoutes);
 app.route("/api/flipdesk/autolister", flipdeskAutolisterRoutes);
 app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
+app.route("/api/flipdesk/google", flipdeskGoogleSyncRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 // Condition-aware repricing cron. OUTSIDE /api/flipdesk so the user-JWT

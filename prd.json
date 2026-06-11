@@ -2564,8 +2564,8 @@
         "Typecheck + lint pass"
       ],
       "priority": 147,
-      "passes": false,
-      "notes": "BLOCKER: depends on US-146. Will sit out until Google OAuth scaffolding lands."
+      "passes": true,
+      "notes": "Full 2-way merge implemented. Migration 00132 adds google_sheet_sync_state (per-field snapshots = base values for 3-way merge; service-role only). Pure merge engine in lib/sheet-sync.ts (decideField/mergeRow: sheet-only change pulls, db-only pushes, both = conflict with FlipDesk winning); throttled Sheets client (200 req/min self-cap, chunked writes) in lib/google-sheets-api.ts; orchestration in routes/flipdesk-google-sync.ts. Tabs auto-created with frozen+bold header, hidden flipdesk_id col A, enum dropdown validation (Status/Category/Type), gray read-only fill. Conflicts tab has Keep FlipDesk / Accept Sheet dropdown; Accept Sheet rows are applied on the next run and marked Applied. Sync Log tab gets one row per run. /sync/push + /sync/pull are job-secret gated and BOTH run the full merge (a directional run could otherwise clobber un-pulled sheet edits); /sync/now is the user-authed Sync now button (workspace-scoped, viewers blocked). Scheduled every 5 min (LAUNCH_CHECKLIST google-sheet-sync task). Per-user + global job locks prevent overlap. Allow-list enforced via column defs (only writable cols can pull) + parsePulledValue validation; invalid sheet edits are reverted and logged. 12 new deno tests; EXPECTED_SCHEMA_VERSION bumped to 00132."
     },
     {
       "id": "US-148",

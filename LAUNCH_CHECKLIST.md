@@ -88,9 +88,10 @@ and confirm the expected output. All hit `http://localhost:8787` (in-container,
 skips Traefik/WAF) with header `X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET`.
 A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COOLIFY.md`.
 
-> **COOLIFY.md drift (fix at launch):** its table predates three jobs —
-> `growth-dispatch`, `reprice-rules`, `sync-reaper` are registered in `main.ts`
-> but missing from that table. This checklist is the authoritative set (17 tasks).
+> **COOLIFY.md drift (fix at launch):** its table predates four jobs —
+> `growth-dispatch`, `reprice-rules`, `sync-reaper`, `google-sheet-sync` are
+> registered in `main.ts` but missing from that table. This checklist is the
+> authoritative set (18 tasks).
 
 | Task | Schedule | Endpoint (POST) | Run Now ✓ | By / Date |
 |---|---|---|---|---|
@@ -111,6 +112,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | ☐ | |
 | growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | ☐ | |
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | ☐ | |
+| google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | ☐ | full 2-way merge (push **and** pull); `/sync/pull` is an alias |
 
 ---
 
@@ -118,7 +120,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 
 | Item | Verify | By / Date |
 |---|---|---|
-| All migrations applied (latest = `00126`) | `select version from supabase_migrations.schema_migrations order by version desc limit 1;` → `00126` | ☐ |
+| All migrations applied (latest = `00132`) | `select version from supabase_migrations.schema_migrations order by version desc limit 1;` → `00132` | ☐ |
 | Edge boots clean against prod schema (US-778) | edge logs show `[schema-version] OK` (not `STALE`) | ☐ |
 | RLS enabled on every multi-tenant table | spot-check `select relrowsecurity from pg_class where relname='submissions';` → t | ☐ |
 
