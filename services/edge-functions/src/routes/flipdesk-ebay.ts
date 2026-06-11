@@ -599,6 +599,8 @@ interface SyncRunStats {
   salesUpdated: number;
   salesSkipped: number;
   salesEnriched: number;
+  // US-459: cancelled/refunded sale line items handled this run.
+  salesReversed: number;
   errors: string[];
 }
 
@@ -622,6 +624,7 @@ async function recordSyncRun(
     sales_updated: s.salesUpdated,
     sales_skipped: s.salesSkipped,
     sales_enriched: s.salesEnriched,
+    sales_reversed: s.salesReversed,
     error_count: s.errors.length,
     errors: s.errors.slice(0, 50),
     since: s.since,
@@ -727,6 +730,7 @@ async function doListingsPull(
       salesUpdated: 0,
       salesSkipped: 0,
       salesEnriched: 0,
+      salesReversed: 0,
       errors: [`fetch offers: ${msg.slice(0, 200)}`],
     }, runId);
     return;
@@ -1135,6 +1139,7 @@ async function doListingsPull(
   let salesNew = 0;
   let salesUpdated = 0;
   let salesSkipped = 0;
+  let salesReversed = 0; // US-459: cancelled/refunded line items handled.
   try {
     const orders: RemoteOrder[] = await listRecentOrders(userId, sinceISO, errors);
     for (const order of orders) {
@@ -1316,6 +1321,8 @@ async function doListingsPull(
               .update({ status: "listed" })
               .eq("id", itemId)
               .eq("status", "sold");
+            // US-459: report how many cancellations/returns this run handled.
+            salesReversed += 1;
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -1405,7 +1412,7 @@ async function doListingsPull(
       const { data: salesRows } = await supabaseAdmin
         .from("sales")
         .select(
-          "id, inventory_item_id, sale_price, shipping_collected, shipping_cost, grading_cost, other_costs, platform_order_id, inventory_items!inner(user_id, acquired_price)"
+          "id, inventory_item_id, sale_price, shipping_collected, shipping_cost, grading_cost, other_costs, status, platform_order_id, inventory_items!inner(user_id, acquired_price)"
         )
         .in("platform_order_id", orderIds);
 
@@ -1417,6 +1424,7 @@ async function doListingsPull(
         shipping_cost: number | null;
         grading_cost: number | null;
         other_costs: number | null;
+        status: string | null;
         platform_order_id: string | null;
         inventory_items: { user_id: string; acquired_price: number | null };
       }>) {
@@ -1444,20 +1452,28 @@ async function doListingsPull(
         const gradingCost = row.grading_cost ?? 0;
         const otherCosts = row.other_costs ?? 0;
         const costBasis = row.inventory_items.acquired_price ?? 0;
-        // Net profit = revenue - fees - your costs.
-        // Revenue: sale_price + shipping_collected (tax flows through to
-        //   government, not seller).
-        // Fees: platform_fees (already in `fees`).
-        // Your costs: cost basis, your shipping cost to send the item,
-        //   grading, other.
-        const netProfit =
-          salePrice +
-          shippingCollected -
-          fees -
-          shippingCost -
-          gradingCost -
-          otherCosts -
-          costBasis;
+        // US-459: net_profit must REVERSE revenue on a cancelled/refunded sale,
+        // not just fee-adjust it. For those, the buyer got their money back and
+        // (for a return) the item came back into inventory — so the only thing
+        // left on the books is the cash the seller actually ate: the
+        // refund-netted gross minus fees minus the shipping label they paid
+        // (`agg.gross` already subtracts REFUND transactions). Cost basis is NOT
+        // subtracted (the item is retained), and the original sale revenue is
+        // NOT counted (it was refunded). This goes negative when the seller ate
+        // a label/fee, which is correct.
+        const reversed = row.status === "cancelled" || row.status === "refunded";
+        const netProfit = reversed
+          ? agg.gross - fees - agg.shippingLabelCost
+          : // Completed sale: revenue - fees - your costs. Revenue is
+            // sale_price + shipping_collected (tax flows to government, not the
+            // seller); your costs are cost basis, shipping, grading, other.
+            salePrice +
+            shippingCollected -
+            fees -
+            shippingCost -
+            gradingCost -
+            otherCosts -
+            costBasis;
 
         await supabaseAdmin
           .from("sales")
@@ -1569,6 +1585,7 @@ async function doListingsPull(
     salesUpdated,
     salesSkipped,
     salesEnriched,
+    salesReversed,
     errors,
   }, runId);
 }

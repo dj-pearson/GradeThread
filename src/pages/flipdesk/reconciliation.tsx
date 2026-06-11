@@ -556,8 +556,14 @@ function SyncHistoryCard() {
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {salesTouched > 0 ? (
-                        <span title={`${run.sales_new} new · ${run.sales_updated} updated`}>
+                      {salesTouched > 0 || (run.sales_reversed ?? 0) > 0 ? (
+                        <span
+                          title={`${run.sales_new} new · ${run.sales_updated} updated${
+                            (run.sales_reversed ?? 0) > 0
+                              ? ` · ${run.sales_reversed} cancelled/returned`
+                              : ""
+                          }`}
+                        >
                           {run.sales_new > 0 && (
                             <span className="text-emerald-700">
                               +{run.sales_new}
@@ -568,6 +574,14 @@ function SyncHistoryCard() {
                             <span className="text-muted-foreground">
                               ~{run.sales_updated}
                             </span>
+                          )}
+                          {(run.sales_reversed ?? 0) > 0 && (
+                            <>
+                              {(run.sales_new > 0 || run.sales_updated > 0) && " "}
+                              <span className="text-rose-700">
+                                -{run.sales_reversed}
+                              </span>
+                            </>
                           )}
                         </span>
                       ) : (

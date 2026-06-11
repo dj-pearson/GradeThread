@@ -5701,3 +5701,17 @@ test to extend — the right kind of work to land cleanly here.
           to "partial" (surfaced by the US-457 UI). deno lint clean (259 files).
           Pagination-to-ceiling itself is integration-level (CI/staging) — the
           module graph imports hono which deno.land blocks in this sandbox.
+
+- US-459  Handle eBay returns and cancellations. COMPLETE (passes:true). Files:
+          new supabase/migrations/00128_sync_run_reversals.sql,
+          services/edge-functions/src/routes/flipdesk-ebay.ts, src/hooks/use-ebay.ts,
+          src/pages/flipdesk/reconciliation.tsx.
+          AC1 was already done (CANCELED/FULLY_REFUNDED orders mark the sales row
+          cancelled/refunded and revert the item from 'sold' to 'listed'). ADDED:
+          AC2 — net_profit now REVERSES revenue for cancelled/refunded sales
+          (net = agg.gross - fees - shippingLabelCost, refund-netted; cost basis
+          NOT subtracted since the item is retained, original revenue NOT counted;
+          negative when the seller ate a label) rather than the full completed-sale
+          formula. AC3 — new sales_reversed count (migration 00128) incremented per
+          reversed line item, recorded by recordSyncRun and shown as a red "-N"
+          (cancelled/returned) in the reconciliation sync-history. lint/tsc/eslint clean.

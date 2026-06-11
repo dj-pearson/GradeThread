@@ -7156,8 +7156,8 @@
         "A sync run reports counts of cancellations/returns handled"
       ],
       "priority": 459,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. Orders pass only forwards to sold; no return/cancellation handling."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. Orders pass only forwards to sold; no return/cancellation handling. | DONE 2026-06-11. AC1 (item flipped out of sold + sales row marked cancelled/refunded on CANCELED/FULLY_REFUNDED) was already implemented in the orders pass. ADDED: AC2 — finances enrichment now REVERSES revenue for cancelled/refunded sales: net_profit = agg.gross - fees - shippingLabelCost (refund-netted, no cost basis since item retained, original revenue not counted; goes negative when the seller ate a label) instead of the full sale-profit formula. AC3 — new sales_reversed counter (migration 00128 adds flipdesk_sync_runs.sales_reversed), incremented per cancelled/refunded line item, recorded by recordSyncRun and surfaced in the reconciliation sync-history row (-N cancelled/returned). deno lint + tsc + eslint clean."
     },
     {
       "id": "US-460",
