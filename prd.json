@@ -5640,8 +5640,8 @@
         "Privacy disclosure covers what provenance data is captured and how it's used"
       ],
       "priority": 340,
-      "passes": false,
-      "notes": "BUILD-NEW. The PSA-style 'control the intake' analog: provenance as a booster + badge, not a fraud gate. Depends on US-339. Ties to certificate (US-328) + Verified Seller profile (US-057)."
+      "passes": true,
+      "notes": "BUILD-NEW. The PSA-style 'control the intake' analog: provenance as a booster + badge, not a fraud gate. Depends on US-339. Ties to certificate (US-328) + Verified Seller profile (US-057). IMPLEMENTED. Migration 00138 adds submissions.verified_capture_opt_in + grade_reports.verified_capture jsonb and appends verified_capture_passed to public_grade_reports view. New edge lib verified-capture.ts evaluates opt-in provenance (consistent recent unedited single device, no cross-account reuse from US-337) server-side; grading-pipeline applies a small confidence BOOST + persists the result (never lowers a grade, missing EXIF never penalized). grade.ts /submit reads verified_capture_opt_in. Certificate page + cert SSR + public cert endpoint show a Verified Capture badge (pass/fail only; raw device/recency stays server-side). new-submission.tsx opt-in toggle (gated on photos having EXIF). Privacy page discloses capture+use. Unit tests in verified-capture_test.ts."
     },
     {
       "id": "US-341",

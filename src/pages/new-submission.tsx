@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { BadgeCheck, Check, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -145,6 +145,10 @@ export function NewSubmissionPage() {
   // US-207: chosen grade tier + the post-submit payment state when a one-time
   // charge is required (included grades + credits both exhausted).
   const [tier, setTier] = useState<GradeTierKey>("standard");
+  // US-340: opt-in for the Verified Capture provenance booster + badge. Off by
+  // default; only meaningful when every photo carries device + timestamp EXIF
+  // (the server re-verifies recency/consistency/no-reuse before awarding it).
+  const [verifiedCaptureOptIn, setVerifiedCaptureOptIn] = useState(false);
   const [checkoutState, setCheckoutState] = useState<CheckoutRequiredState | null>(
     null
   );
@@ -170,6 +174,19 @@ export function NewSubmissionPage() {
     linkedItemId === "none"
       ? null
       : inventoryItems.find((i) => i.id === linkedItemId) ?? null;
+
+  // US-340: Verified Capture is only offerable when EVERY photo carries device
+  // + capture-time provenance (read from the original before compression). The
+  // server independently re-verifies recency/consistency/no-reuse, so this is
+  // just a client-side availability gate for the opt-in control.
+  const provenanceAvailable =
+    photos.length > 0 &&
+    photos.every(
+      (p) =>
+        p.exif?.make &&
+        p.exif?.model &&
+        (p.exif?.dateTimeOriginal || p.exif?.dateTime)
+    );
 
   const garmentDefaults: Partial<GarmentInfo> | undefined =
     garmentInfo ??
@@ -279,6 +296,13 @@ export function NewSubmissionPage() {
       formData.append("tier", tier);
       if (garmentInfo.brand) formData.append("brand", garmentInfo.brand);
       if (garmentInfo.description) formData.append("description", garmentInfo.description);
+      // US-340: Verified Capture opt-in. Only sent as true when the seller
+      // requested it AND every photo carries provenance EXIF; the server still
+      // re-verifies recency/consistency/no-reuse before awarding the badge.
+      formData.append(
+        "verified_capture_opt_in",
+        verifiedCaptureOptIn && provenanceAvailable ? "true" : "false"
+      );
 
       // Append images, their types, perceptual hashes, and provenance EXIF as
       // parallel arrays. phashes power server-side photo-reuse detection
@@ -568,6 +592,44 @@ export function NewSubmissionPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              <Separator />
+
+              {/* Verified Capture opt-in (US-340) — a positive provenance
+                  booster. Only offered when every photo carries device +
+                  timestamp metadata; otherwise we explain it isn't available
+                  (never a penalty). */}
+              <div className="space-y-2">
+                <label
+                  className={cn(
+                    "flex items-start gap-3 rounded-lg border p-3",
+                    provenanceAvailable
+                      ? "cursor-pointer hover:border-primary/40"
+                      : "opacity-60"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 accent-primary"
+                    checked={verifiedCaptureOptIn && provenanceAvailable}
+                    disabled={!provenanceAvailable}
+                    onChange={(e) =>
+                      setVerifiedCaptureOptIn(e.target.checked)
+                    }
+                  />
+                  <div className="space-y-0.5">
+                    <p className="flex items-center gap-1.5 text-sm font-medium">
+                      <BadgeCheck className="h-4 w-4 text-brand-navy" />
+                      Earn a Verified Capture badge
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {provenanceAvailable
+                        ? "Your photos include intact device + capture-time metadata. Opt in and we'll verify their provenance (recent, consistent, unedited, not reused) to add a Verified Capture badge to your certificate and boost grade confidence. This is optional and never lowers your grade."
+                        : "Available when photos are taken in-app or uploaded as originals with intact metadata. Its absence never lowers your grade — it's a bonus trust signal only."}
+                    </p>
+                  </div>
+                </label>
               </div>
 
               <Separator />

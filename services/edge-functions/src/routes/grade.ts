@@ -212,6 +212,11 @@ gradeRoutes.post("/submit", async (c) => {
   const brand = formData.get("brand") as string | null;
   const description = formData.get("description") as string | null;
   const styleAttributes = parseStyleAttributes(formData);
+  // US-340: the seller opted into the Verified Capture provenance path. This
+  // flag alone earns nothing — the badge is only awarded if the server-side
+  // checks in verified-capture.ts pass at grading time. Never lowers a grade.
+  const verifiedCaptureOptIn =
+    (formData.get("verified_capture_opt_in") as string | null) === "true";
   const tierRaw = (formData.get("tier") as string | null) ?? "standard";
   const tier: GradeTier = GRADE_TIERS.includes(tierRaw as GradeTier)
     ? (tierRaw as GradeTier)
@@ -309,6 +314,7 @@ gradeRoutes.post("/submit", async (c) => {
       brand: brand?.trim() || null,
       description: description?.trim() || null,
       style_attributes: styleAttributes,
+      verified_capture_opt_in: verifiedCaptureOptIn,
       status: "pending",
       payment_status: "unpaid",
     })

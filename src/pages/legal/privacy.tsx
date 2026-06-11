@@ -62,6 +62,20 @@ export function PrivacyPage() {
           removed when the underlying submission is deleted.
         </li>
         <li>
+          <strong>Verified Capture (opt-in provenance).</strong> If you choose
+          the optional Verified Capture path for a submission, we check the
+          provenance metadata described above — the device make/model and the
+          capture timestamp of each photo — to confirm the photos were taken
+          recently, on a single consistent device, were not edited, and are not
+          reused from another account. When those checks pass, we award a{" "}
+          <strong>Verified Capture</strong> badge on the public certificate and
+          modestly raise the grade’s confidence. Only the pass/fail result and
+          the badge are ever shown publicly — the underlying device and
+          timestamp details stay private and access-controlled. Verified Capture
+          is entirely optional, you control it per submission, and choosing not
+          to use it (or not qualifying) never lowers your grade.
+        </li>
+        <li>
           <strong>Reseller workflow data (FlipDesk).</strong> Sources, intake
           batches, drafts, listings, sales, payouts, expenses, and notes you
           enter into FlipDesk.

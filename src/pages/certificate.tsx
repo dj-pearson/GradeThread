@@ -799,6 +799,23 @@ export function CertificatePage() {
                   </div>
                 </div>
               ))}
+
+            {/* US-340: Verified Capture badge — shown only when the seller's
+                opt-in provenance checks passed (consistent, recent, unedited
+                device capture; no reused photos). A positive trust signal; its
+                absence is never a negative. */}
+            {gradeReport.verified_capture_passed && (
+              <div className="flex items-start gap-3">
+                <BadgeCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                <div>
+                  <p className="text-sm font-medium">Verified Capture</p>
+                  <p className="text-xs text-muted-foreground">
+                    These photos were captured with verified provenance —
+                    consistent, recent device metadata and no reused images.
+                  </p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

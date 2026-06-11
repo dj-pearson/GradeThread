@@ -38,6 +38,8 @@ interface PublicCertificate {
   buyer_writeup: string | null;
   created_at: string;
   hero_image_url: string | null;
+  // US-340: true when the seller's opt-in provenance checks passed.
+  verified_capture_passed?: boolean;
 }
 
 interface CertResponse {
@@ -118,6 +120,11 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     <div style="font-size:3rem;font-weight:700;color:var(--accent)">${escape(score)}</div>
     <div><div style="font-weight:600">${escape(cert.grade_tier)}</div><div style="color:var(--muted);font-size:0.9rem">Overall Condition Grade · out of 10</div></div>
   </div>
+  ${
+    cert.verified_capture_passed
+      ? `<p style="display:inline-block;margin:0 0 16px;padding:4px 12px;border-radius:9999px;background:#dcfce7;color:#166534;font-size:0.85rem;font-weight:600">&#10003; Verified Capture</p>`
+      : ""
+  }
   ${heroHtml}
   ${aboutHtml}
   <h2>Factor Breakdown</h2>

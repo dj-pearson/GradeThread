@@ -97,6 +97,9 @@ interface CertReportRow {
   certificate_id: string;
   created_at: string;
   submission_id: string;
+  // US-340: structured Verified Capture result; only the pass/fail boolean is
+  // exposed publicly (raw device/recency reasons stay server-side).
+  verified_capture: { verified?: boolean } | null;
 }
 
 /**
@@ -332,7 +335,7 @@ contentPublicRoutes.get("/sitemap.json", async (c) => {
 const CERT_REPORT_COLUMNS =
   "overall_score, grade_tier, fabric_condition_score, structural_integrity_score, " +
   "cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, " +
-  "ai_summary, buyer_writeup, certificate_id, created_at, submission_id";
+  "ai_summary, buyer_writeup, certificate_id, created_at, submission_id, verified_capture";
 
 // Signed-URL TTL for certificate images (seconds). Long enough for an edge
 // cache window; the cert SSR caches the HTML, not the URL, so this just needs
@@ -398,13 +401,17 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
     heroImageUrl = signed?.signedUrl ?? null;
   }
 
-  // Strip the internal submission_id from the public payload.
+  // Strip the internal submission_id from the public payload, and reduce the
+  // Verified Capture result (US-340) to its public pass/fail boolean — the raw
+  // device/recency reasons stay server-side, like the authenticity tells.
   const publicReport: Record<string, unknown> = { ...rep };
   delete publicReport.submission_id;
+  delete publicReport.verified_capture;
 
   return c.json({
     certificate: {
       ...publicReport,
+      verified_capture_passed: rep.verified_capture?.verified === true,
       id: rep.certificate_id,
       title: submission?.title ?? "Graded garment",
       brand: submission?.brand ?? null,

@@ -366,6 +366,10 @@ export interface SubmissionRow {
   // US-385: set when a per-grade charge was refunded/disputed — the grade's
   // public certificate is withheld and the submission is flagged for review.
   refunded_at: string | null;
+  // US-340: the seller opted into the Verified Capture provenance path. The
+  // badge is only AWARDED if the server-side checks also pass; opting in never
+  // lowers a grade.
+  verified_capture_opt_in: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -413,6 +417,20 @@ export interface ImageExifMetadata {
   dateTime?: string;
   dateTimeOriginal?: string;
   gps?: { latitude: number; longitude: number };
+}
+
+// US-340: server-side Verified Capture provenance evaluation, persisted on
+// grade_reports.verified_capture. A POSITIVE signal only — `verified: true`
+// earned the certificate badge + a small confidence boost; it never lowers a
+// grade and missing provenance is never penalized.
+export interface VerifiedCaptureResult {
+  verified: boolean;
+  reasons: string[];
+  device: string | null;
+  with_exif: number;
+  total: number;
+  max_age_days: number;
+  checked_at: string;
 }
 
 export interface SubmissionImageRow {
@@ -464,6 +482,9 @@ export interface GradeReportRow {
   // Aggregated photo-authenticity assessment (US-336/US-338). Null for grades
   // created before migration 00061.
   image_authenticity: ImageAuthenticity | null;
+  // US-340: Verified Capture provenance result. Null for grades produced before
+  // the check / when the seller did not opt in.
+  verified_capture: VerifiedCaptureResult | null;
   // True once a human reviewer has checked this grade (migration 00061).
   human_reviewed: boolean;
   model_version: string;
@@ -514,6 +535,10 @@ export interface PublicGradeReportRow {
   authenticity_screenshot_or_watermark_detected: boolean;
   // Coarse confidence bucket — the precise confidence_score is not exposed.
   confidence_label: PublicConfidenceLabel;
+  // US-340: true when the opt-in provenance checks passed (the certificate
+  // "Verified Capture" badge). Only the pass/fail boolean is public — the raw
+  // device/recency reasons stay server-side.
+  verified_capture_passed: boolean;
 }
 
 export interface DisputeRow {
@@ -1336,6 +1361,7 @@ export interface SubmissionInsert {
   title: string;
   description?: string | null;
   style_attributes?: string[];
+  verified_capture_opt_in?: boolean;
 }
 
 export interface SubmissionImageInsert {
@@ -1363,6 +1389,7 @@ export interface GradeReportInsert {
   per_image_analysis?: unknown[] | null;
   confidence_score: number;
   needs_human_review?: boolean;
+  verified_capture?: VerifiedCaptureResult | null;
   model_version: string;
   prompt_version?: string | null;
   certificate_id?: string | null;

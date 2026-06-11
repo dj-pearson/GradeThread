@@ -15,6 +15,10 @@ import { sendGradeCompleteEmail } from "./email.ts";
 import { notifyUser } from "./notify.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
 import { detectPhotoReuse } from "./photo-reuse.ts";
+import {
+  evaluateVerifiedCapture,
+  verifiedCaptureBoost,
+} from "./verified-capture.ts";
 import { buildCertIntegrity } from "./cert-integrity.ts";
 import { evaluateImageQuality, REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
 import { captureServer } from "./posthog.ts";
@@ -148,7 +152,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 1: Fetch submission record ---
     const { data: submission, error: submissionError } = await supabaseAdmin
       .from("submissions")
-      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes")
+      .select("id, user_id, garment_type, garment_category, brand, title, description, status, style_attributes, verified_capture_opt_in, created_at")
       .eq("id", submissionId)
       .single();
 
@@ -159,7 +163,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order, phash")
+      .select("id, image_type, storage_path, display_order, phash, exif")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -394,6 +398,47 @@ export async function processSubmission(submissionId: string) {
         `${reuse.summary} (${reuse.matches.length} image(s), closest ${closest} bits).`;
     }
 
+    // US-340: Verified Capture — opt-in provenance booster + badge. A POSITIVE
+    // signal only: it can earn a badge + a small confidence boost but NEVER
+    // lowers a grade, and missing EXIF is never penalized. Anti-gaming checks
+    // (consistent recent unedited device, no cross-account reuse) run here,
+    // server-side, so the opt-in flag alone grants nothing.
+    const verifiedCapture = evaluateVerifiedCapture({
+      optedIn: (submission as { verified_capture_opt_in?: boolean })
+        .verified_capture_opt_in === true,
+      submittedAtMs: Date.parse(
+        (submission as { created_at?: string }).created_at ?? "",
+      ) || Date.now(),
+      images: images.map((img) => ({
+        image_type: img.image_type,
+        exif: ((img as { exif?: Record<string, unknown> | null }).exif) ?? null,
+      })),
+      crossUserReuse: reuse.cross_user,
+      nowMs: Date.now(),
+    });
+    if (verifiedCapture.verified) {
+      // Bump confidence (never down), respecting the partial-image ceiling so an
+      // incomplete image set can't be boosted past its review cap.
+      const ceiling = partialSuccess ? PARTIAL_IMAGE_CONFIDENCE_CAP : 1;
+      compositeResult.confidence_score = Math.min(
+        ceiling,
+        Math.max(
+          compositeResult.confidence_score,
+          compositeResult.confidence_score + verifiedCaptureBoost(),
+        ),
+      );
+      detailedNotes["verified_capture"] =
+        `Verified Capture earned — ${verifiedCapture.reasons.join("; ")}.`;
+    } else if (
+      (submission as { verified_capture_opt_in?: boolean })
+        .verified_capture_opt_in === true
+    ) {
+      // Opted in but didn't qualify — record why for admin review. Not a flag,
+      // not a penalty; the grade is unaffected.
+      detailedNotes["verified_capture"] =
+        `Verified Capture not earned — ${verifiedCapture.reasons.join("; ")}.`;
+    }
+
     // US-333: tamper-evident integrity. Hash the canonical (already-public)
     // grade fields and sign the hash if CERT_SIGNING_KEY is set. The public
     // /cert/:id/verify endpoint re-derives this from the stored row to confirm
@@ -445,6 +490,9 @@ export async function processSubmission(submissionId: string) {
         // US-336/US-338: aggregated photo-authenticity assessment (manipulation /
         // screenshot / watermark). Surfaced on the certificate + admin review.
         image_authenticity: compositeResult.image_authenticity,
+        // US-340: Verified Capture provenance result. Structured detail kept for
+        // admin review; the public view exposes only the pass/fail boolean.
+        verified_capture: verifiedCapture,
         // Record the real model + prompt version (e.g.
         // "claude-sonnet-4-6|composite_v2") so accuracy-tracking can
         // distinguish model changes, not just prompt revisions. prompt_version
