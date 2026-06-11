@@ -7130,8 +7130,8 @@
         "A stuck run unblocks the UI"
       ],
       "priority": 457,
-      "passes": false,
-      "notes": "[P1][FlipDesk/UX] Audit 2026-06-03. last_synced_at is never stamped on the fetch-failure path."
+      "passes": true,
+      "notes": "[P1][FlipDesk/UX] Audit 2026-06-03. last_synced_at is never stamped on the fetch-failure path. | DONE 2026-06-11. The reconciliation sync-history card already surfaced each run's status badge (success/partial/failed/running) + error_count with the phase-prefixed error messages in a tooltip (AC1 + per-phase errors). ADDED a 'Sync now' button on that card (useSyncEbayListings) so a failed/partial run is retryable without leaving the page (AC2), and stale-'running' detection (>10min) that shows a 'looks stuck — running another will reclaim it' hint while keeping Sync-now enabled (the server claim-lock reclaims the stale row), so a stuck run no longer blocks the UI (AC3). tsc/eslint clean."
     },
     {
       "id": "US-458",

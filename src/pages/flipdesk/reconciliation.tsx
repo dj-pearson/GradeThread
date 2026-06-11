@@ -45,7 +45,11 @@ import {
   type QueueEntry,
 } from "@/hooks/use-payouts";
 import { downloadSalesCsv } from "@/lib/csv-export";
-import { useEbaySyncRuns, type EbaySyncRun } from "@/hooks/use-ebay";
+import {
+  useEbaySyncRuns,
+  useSyncEbayListings,
+  type EbaySyncRun,
+} from "@/hooks/use-ebay";
 import type { SaleRow, ItemFullRow } from "@/types/database";
 
 const STEPS = [
@@ -465,6 +469,28 @@ function runStatusBadge(status: EbaySyncRun["status"]) {
 // fee enrichment, errors) which were previously only in the container logs.
 function SyncHistoryCard() {
   const { data: runs = [], isLoading, isFetching, refetch } = useEbaySyncRuns();
+  const sync = useSyncEbayListings();
+
+  // US-457: a run stuck in 'running' (e.g. a crashed worker) shouldn't block the
+  // UI. The server's claim-lock reclaims a stale 'running' row, so "Sync now"
+  // stays enabled; we just flag the stale run so the user knows it's recoverable.
+  const latest = runs[0];
+  const STUCK_MS = 10 * 60_000;
+  const latestStuck =
+    latest?.status === "running" &&
+    Date.now() - new Date(latest.started_at).getTime() > STUCK_MS;
+
+  async function handleSyncNow() {
+    try {
+      await sync.mutateAsync();
+      // The pull runs in the background (202); give it a moment, then refresh
+      // the history so the new 'running' row appears.
+      window.setTimeout(() => void refetch(), 1500);
+      toast.success("Sync started — results land here in ~1–2 minutes.");
+    } catch {
+      /* surfaced by the hook's onError toast */
+    }
+  }
 
   return (
     <Card>
@@ -476,22 +502,39 @@ function SyncHistoryCard() {
               eBay sync history
             </CardTitle>
             <CardDescription>
-              Stats from each background sync. Start one from the{" "}
-              <strong>Marketplaces</strong> page — results land here when it
-              finishes (a sync takes ~1–2 minutes).
+              Stats from each background sync. Start one here or from the{" "}
+              <strong>Marketplaces</strong> page — results land when it finishes
+              (a sync takes ~1–2 minutes).
+              {latestStuck && (
+                <span className="mt-1 block text-amber-600">
+                  The last sync looks stuck — running another will reclaim it.
+                </span>
+              )}
             </CardDescription>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-          >
-            <RefreshCw
-              className={`mr-2 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => void handleSyncNow()}
+              disabled={sync.isPending}
+            >
+              <RefreshCw
+                className={`mr-2 h-3.5 w-3.5 ${sync.isPending ? "animate-spin" : ""}`}
+              />
+              Sync now
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCw
+                className={`mr-2 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="px-0">

@@ -5814,3 +5814,12 @@ Remote* shims; shims not removed), US-753 (only StatusBadge exists; InfoCard +
 DataRow missing). App Store US-786/788 scaffolded+documented; remaining steps are
 inherently external operator actions (fill demo creds, register ASC webhook, run
 sandbox round-trip) — left false per the scaffold+document decision.
+
+- US-457  Surface sync failures in the UI with retry. COMPLETE. File:
+          src/pages/flipdesk/reconciliation.tsx. The sync-history card already
+          showed status badges + error_count with phase-prefixed errors in a
+          tooltip (AC1). Added a "Sync now" button (useSyncEbayListings) so a
+          failed/partial run is retryable in-place (AC2), plus stale-'running'
+          detection (>10min) with a recoverable hint while keeping Sync-now
+          enabled — the server claim-lock reclaims the stale row so a stuck run
+          no longer blocks the UI (AC3).
