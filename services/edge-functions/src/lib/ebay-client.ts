@@ -1653,6 +1653,17 @@ export async function createOrReplaceInventoryItem(
   );
 }
 
+// US-321/US-562: Best Offer is set per-offer via listingPolicies.bestOfferTerms.
+// autoAcceptPrice/autoDeclinePrice are optional auto-clear thresholds (an offer
+// >= autoAcceptPrice auto-accepts; <= autoDeclinePrice auto-declines). eBay
+// requires autoDeclinePrice < autoAcceptPrice < listing price — the caller
+// (resolveBestOfferThresholds) clamps to those constraints before we send them.
+export interface BestOfferTerms {
+  bestOfferEnabled: boolean;
+  autoAcceptPrice?: { value: string; currency: string };
+  autoDeclinePrice?: { value: string; currency: string };
+}
+
 export interface OfferPayload {
   sku: string;
   marketplaceId: string;
@@ -1664,9 +1675,8 @@ export interface OfferPayload {
     fulfillmentPolicyId: string;
     paymentPolicyId: string;
     returnPolicyId: string;
-    // US-321: Best Offer is set per-offer via listingPolicies.bestOfferTerms.
     // Only present when the seller has best-offer enabled on the draft.
-    bestOfferTerms?: { bestOfferEnabled: boolean };
+    bestOfferTerms?: BestOfferTerms;
   };
   pricingSummary: {
     price: { value: string; currency: string };
@@ -1926,7 +1936,7 @@ export async function syncExistingOffer(
       fulfillmentPolicyId: string;
       paymentPolicyId: string;
       returnPolicyId: string;
-      bestOfferTerms?: { bestOfferEnabled: boolean };
+      bestOfferTerms?: BestOfferTerms;
     };
     pricingSummary: { price: { value: string; currency: string } };
     merchantLocationKey: string;

@@ -68,6 +68,10 @@ interface DraftRow {
   ebay_condition: string | null;
   quantity: number | null;
   best_offer_enabled: boolean | null;
+  // US-562: per-listing best-offer auto-clear thresholds (cents). Null → the
+  // comp-derived default is used at publish.
+  best_offer_auto_accept_cents: number | null;
+  best_offer_auto_decline_cents: number | null;
   scheduled_publish_at: string | null;
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
@@ -108,6 +112,11 @@ interface EditRow {
   condition: string;
   quantity: string;
   bestOffer: boolean;
+  // US-562: per-item best-offer threshold overrides (dollars, as typed). Empty
+  // string → fall back to the comp-derived default (p75 accept / p25 decline)
+  // computed server-side at publish.
+  bestOfferAccept: string;
+  bestOfferDecline: string;
   scheduledAt: string;
   categoryId: string;
   // Human-readable category path for display (e.g. "…> Women > Women's Clothing").
@@ -145,6 +154,14 @@ function roundTo99(p: number): number {
   return Math.floor(p) + 0.99;
 }
 
+// US-562: parse a dollar-string best-offer threshold into whole cents. Blank or
+// non-positive input → null (clears the override; comp default applies).
+function dollarsToCentsOrNull(value: string): number | null {
+  const n = Number.parseFloat(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 100);
+}
+
 export function FlipdeskAutolisterBulkEditPage() {
   const [params] = useSearchParams();
   const batchId = params.get("batch");
@@ -157,7 +174,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id",
+          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -305,6 +322,14 @@ export function FlipdeskAutolisterBulkEditPage() {
           condition: r.ebay_condition ?? "",
           quantity: r.quantity != null ? String(r.quantity) : "1",
           bestOffer: r.best_offer_enabled ?? false,
+          bestOfferAccept:
+            r.best_offer_auto_accept_cents != null
+              ? (r.best_offer_auto_accept_cents / 100).toFixed(2)
+              : "",
+          bestOfferDecline:
+            r.best_offer_auto_decline_cents != null
+              ? (r.best_offer_auto_decline_cents / 100).toFixed(2)
+              : "",
           scheduledAt: isoToLocalInput(r.scheduled_publish_at),
           categoryId: r.platform_category_id ?? "",
           categoryPath: "",
@@ -743,6 +768,10 @@ export function FlipdeskAutolisterBulkEditPage() {
         ebay_condition: r.condition || null,
         quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
         best_offer_enabled: r.bestOffer,
+        // US-562: persist threshold overrides as cents; a blank field clears the
+        // override (null) so the comp-derived default applies at publish.
+        best_offer_auto_accept_cents: dollarsToCentsOrNull(r.bestOfferAccept),
+        best_offer_auto_decline_cents: dollarsToCentsOrNull(r.bestOfferDecline),
         scheduled_publish_at: localInputToIso(r.scheduledAt),
         platform_category_id: r.categoryId.trim() || null,
         item_specifics_override:
@@ -1704,13 +1733,46 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                     />
                   </td>
-                  <td className="p-2 text-center">
+                  {/* US-562: Best Offer toggle + per-item auto-accept/decline
+                      overrides. Blank fields fall back to the comp-derived
+                      default (p75 accept / p25 decline) at publish. */}
+                  <td className="p-2 text-center align-top">
                     <input
                       type="checkbox"
                       checked={r.bestOffer}
                       onChange={(e) => patchRow(r.id, { bestOffer: e.target.checked })}
                       aria-label="Best offer"
                     />
+                    {r.bestOffer && (
+                      <div className="mt-1 flex flex-col gap-1">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={r.bestOfferAccept}
+                          onChange={(e) =>
+                            patchRow(r.id, { bestOfferAccept: e.target.value })
+                          }
+                          placeholder="Auto-accept ≥"
+                          title="Auto-accept offers at or above this price. Blank = comp p75."
+                          aria-label="Best offer auto-accept price"
+                          className="h-7 w-24 text-xs"
+                        />
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={r.bestOfferDecline}
+                          onChange={(e) =>
+                            patchRow(r.id, { bestOfferDecline: e.target.value })
+                          }
+                          placeholder="Auto-decline ≤"
+                          title="Auto-decline offers at or below this price. Blank = comp p25."
+                          aria-label="Best offer auto-decline price"
+                          className="h-7 w-24 text-xs"
+                        />
+                      </div>
+                    )}
                   </td>
                   <td className="p-2">
                     <Input

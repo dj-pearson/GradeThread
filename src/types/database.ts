@@ -743,6 +743,10 @@ export interface ListingRow {
   payment_policy_id: string | null;
   quantity: number;
   best_offer_enabled: boolean;
+  // US-562: per-listing best-offer auto-clear thresholds (cents). NULL → derive
+  // from the comp range (p75 → accept, p25 → decline) at publish.
+  best_offer_auto_accept_cents: number | null;
+  best_offer_auto_decline_cents: number | null;
   synced_to_ebay_at: string | null;
   price_is_estimated: boolean;
   // US-542: comp-derived price range + confidence + source. price_comp_source
@@ -1600,6 +1604,8 @@ export interface ListingInsert {
   payment_policy_id?: string | null;
   quantity?: number;
   best_offer_enabled?: boolean;
+  best_offer_auto_accept_cents?: number | null;
+  best_offer_auto_decline_cents?: number | null;
   synced_to_ebay_at?: string | null;
   price_is_estimated?: boolean;
   // US-542: comp-derived price range + confidence + source.

@@ -1150,3 +1150,10 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit OK; npm run build OK; deno check src/main.ts OK; deno lint OK; deno test ebay-marketing_test.ts 5/5 OK.
 - Timestamp: 2026-06-12
 ---
+
+## US-562: Send best-offer auto-accept/decline thresholds
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/lib/best-offer.ts (new), services/edge-functions/src/tests/best-offer_test.ts (new), supabase/migrations/00158_best_offer_thresholds.sql (new), services/edge-functions/src/lib/ebay-client.ts, services/edge-functions/src/routes/flipdesk-ebay.ts, src/types/database.ts, src/pages/flipdesk/autolister-bulk-edit.tsx, prd.json
+- Notes: bestOfferEnabled was a bare boolean; no thresholds reached eBay. Added resolveBestOfferThresholds() which derives autoAccept from comp p75 (price_range_high_cents) and autoDecline from comp p25 (price_range_low_cents), with per-item overrides winning, then clamps to eBay's constraints (decline < accept < listing price; invalid candidates dropped, never failing publish). New listings columns best_offer_auto_{accept,decline}_cents (migration 00158) are editable per-item in the AutoLister bulk grid (override inputs shown when Best Offer is toggled on; blank = comp default). bestOfferTerms (extended BestOfferTerms type in ebay-client.ts) now sent in both createOffer and syncExistingOffer. 8 unit tests cover derivation + clamping. tsc -b, npm run build, deno check/lint/test all pass.
+- Timestamp: 2026-06-12
+---

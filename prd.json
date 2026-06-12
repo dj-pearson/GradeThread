@@ -8477,8 +8477,8 @@
         "Validated against eBay's best-offer constraints"
       ],
       "priority": 562,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. bestOfferEnabled is a bare boolean; thresholds aren't sent."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. bestOfferEnabled is a bare boolean; thresholds aren't sent. Implemented 2026-06-12: bestOfferTerms now carries autoAcceptPrice/autoDeclinePrice, derived from comp p75/p25 (price_range_high/low_cents) via resolveBestOfferThresholds (lib/best-offer.ts), clamped to eBay constraints (decline<accept<price). Per-item override columns best_offer_auto_{accept,decline}_cents (migration 00158) editable in the AutoLister bulk grid. Sent in both createOffer and syncExistingOffer."
     },
     {
       "id": "US-563",

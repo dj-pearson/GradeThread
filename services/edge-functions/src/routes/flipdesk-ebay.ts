@@ -38,12 +38,17 @@ import {
   withdrawOffer,
   findEligibleNegotiationItems,
   sendOfferToInterestedBuyers,
+  type BestOfferTerms,
   type PolicySet,
   type RemoteOffer,
   type RemoteOrder,
   type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
+import {
+  centsToMoneyString,
+  resolveBestOfferThresholds,
+} from "../lib/best-offer.ts";
 import { decryptToken } from "../lib/crypto-aes.ts";
 import { finalizePublishedListing } from "../lib/ebay-publish-finalize.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
@@ -2925,6 +2930,32 @@ export async function publishItemForOwner(
       },
     });
 
+    // US-562: build the shared bestOfferTerms once so the create and re-sync
+    // paths send identical auto-accept/decline thresholds. Omitted entirely
+    // when Best Offer is off.
+    const bestOfferTerms: BestOfferTerms | undefined = ctx.summary
+      .bestOfferEnabled
+      ? {
+          bestOfferEnabled: true,
+          ...(ctx.summary.bestOfferAutoAccept
+            ? {
+                autoAcceptPrice: {
+                  value: ctx.summary.bestOfferAutoAccept,
+                  currency: ctx.summary.currency,
+                },
+              }
+            : {}),
+          ...(ctx.summary.bestOfferAutoDecline
+            ? {
+                autoDeclinePrice: {
+                  value: ctx.summary.bestOfferAutoDecline,
+                  currency: ctx.summary.currency,
+                },
+              }
+            : {}),
+        }
+      : undefined;
+
     // 3. Create or reuse an offer for this SKU.
     let offerId: string;
     try {
@@ -2939,9 +2970,7 @@ export async function publishItemForOwner(
           fulfillmentPolicyId: policies.fulfillmentPolicyId,
           paymentPolicyId: policies.paymentPolicyId,
           returnPolicyId: policies.returnPolicyId,
-          ...(ctx.summary.bestOfferEnabled
-            ? { bestOfferTerms: { bestOfferEnabled: true } }
-            : {}),
+          ...(bestOfferTerms ? { bestOfferTerms } : {}),
         },
         pricingSummary: {
           price: {
@@ -2970,9 +2999,7 @@ export async function publishItemForOwner(
           fulfillmentPolicyId: policies.fulfillmentPolicyId,
           paymentPolicyId: policies.paymentPolicyId,
           returnPolicyId: policies.returnPolicyId,
-          ...(ctx.summary.bestOfferEnabled
-            ? { bestOfferTerms: { bestOfferEnabled: true } }
-            : {}),
+          ...(bestOfferTerms ? { bestOfferTerms } : {}),
         },
         pricingSummary: {
           price: {
@@ -3855,6 +3882,13 @@ interface PublishListing {
   ebay_condition_description: string | null;
   quantity: number | null;
   best_offer_enabled: boolean | null;
+  // US-562: per-listing best-offer auto-clear thresholds (cents). Null falls
+  // back to the comp-derived default (p75 → accept, p25 → decline).
+  best_offer_auto_accept_cents: number | null;
+  best_offer_auto_decline_cents: number | null;
+  // US-542 comp range used to derive best-offer thresholds when no override.
+  price_range_low_cents: number | null;
+  price_range_high_cents: number | null;
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
   scheduled_publish_at: string | null;
@@ -3894,6 +3928,11 @@ interface PublishContextOk {
     aspects: Record<string, string[]>;
     quantity: number;
     bestOfferEnabled: boolean;
+    // US-562: best-offer auto-clear thresholds as eBay money strings, already
+    // clamped to eBay's constraints (decline < accept < price). Null when no
+    // valid threshold applies — Best Offer is still enabled, just unbounded.
+    bestOfferAutoAccept: string | null;
+    bestOfferAutoDecline: string | null;
     // US-561: effective Promoted Listings ad rate (%) to attach at publish, or
     // null when the seller opted out. Defaults to the category suggestion.
     promotedAdRate: number | null;
@@ -4192,7 +4231,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -4475,6 +4514,31 @@ async function assemblePublishContext(
   const quantity = listing?.quantity && listing.quantity > 0 ? listing.quantity : 1;
   const bestOfferEnabled = listing?.best_offer_enabled === true;
 
+  // US-562: derive best-offer auto-accept/decline thresholds from the comp
+  // range (p25 floor → decline, p75 → accept), letting any per-item override
+  // win. Only computed when Best Offer is on; the helper clamps to eBay's
+  // constraints (decline < accept < price) and nulls anything invalid.
+  let bestOfferAutoAccept: string | null = null;
+  let bestOfferAutoDecline: string | null = null;
+  if (bestOfferEnabled) {
+    const priceCents = priceNumber ? Math.round(priceNumber * 100) : 0;
+    const thresholds = resolveBestOfferThresholds({
+      priceCents,
+      p25Cents: listing?.price_range_low_cents ?? null,
+      p75Cents: listing?.price_range_high_cents ?? null,
+      acceptOverrideCents: listing?.best_offer_auto_accept_cents ?? null,
+      declineOverrideCents: listing?.best_offer_auto_decline_cents ?? null,
+    });
+    bestOfferAutoAccept =
+      thresholds.autoAcceptCents != null
+        ? centsToMoneyString(thresholds.autoAcceptCents)
+        : null;
+    bestOfferAutoDecline =
+      thresholds.autoDeclineCents != null
+        ? centsToMoneyString(thresholds.autoDeclineCents)
+        : null;
+  }
+
   const summary: PublishContextOk["summary"] = {
     title,
     description,
@@ -4486,6 +4550,8 @@ async function assemblePublishContext(
     aspects: aspectMap,
     quantity,
     bestOfferEnabled,
+    bestOfferAutoAccept,
+    bestOfferAutoDecline,
     // US-561: resolve the ad rate to attach — opt-out wins, then the seller's
     // chosen rate, else the category suggestion. The composer surfaces the same
     // suggestion so "promote by default" stays transparent + adjustable.
