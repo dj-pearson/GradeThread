@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
+import { isCertificateWithheld } from "../lib/certificate-visibility.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
 
 // US-580: these endpoints are anonymous/unauthenticated, so a 500 body must
@@ -380,7 +381,7 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
   const sub = submission as
     | { flagged?: boolean | null; moderation_status?: string | null }
     | null;
-  if (sub?.flagged === true && sub.moderation_status !== "approved") {
+  if (isCertificateWithheld(sub)) {
     return c.json({ error: "Not found" }, 404);
   }
 
@@ -476,7 +477,7 @@ contentPublicRoutes.get("/certificates/:id/verify", async (c) => {
     .eq("id", r.submission_id)
     .maybeSingle();
   const vs = vSub as { flagged?: boolean | null; moderation_status?: string | null } | null;
-  if (vs?.flagged === true && vs.moderation_status !== "approved") {
+  if (isCertificateWithheld(vs)) {
     return c.json({ error: "Not found" }, 404);
   }
 

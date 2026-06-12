@@ -642,6 +642,53 @@ export async function processSubmission(submissionId: string) {
       buyer_writeup: compositeResult.buyer_writeup,
     });
 
+    // US-484: evaluate moderation flags BEFORE the certificate becomes public.
+    // The grade_reports insert below carries a non-null certificate_id, which is
+    // what makes /api/content/public/certificates/:id resolvable. If we only
+    // flagged the submission AFTER that insert (the old order), there was a
+    // window — and, if that later update failed, a PERMANENT leak — where a
+    // suspect certificate was live and un-withheld. So decide the flag now and
+    // write the withhold state first; the cert is born already-withheld and the
+    // public endpoint 404s it (see isCertificateWithheld) until a human clears
+    // it. The terminal status="completed" write still happens after the report
+    // exists (Step 7), so a "completed" submission always has a report row.
+    const flagReasons: string[] = [];
+    if (!compositeResult.image_validity.is_clothing) {
+      flagReasons.push(
+        compositeResult.image_validity.reason ||
+          "Submitted images may not depict an item of clothing."
+      );
+    }
+    // US-336/US-338: route suspected-manipulation / screenshot submissions into
+    // the moderation queue (in addition to needs_human_review on the grade).
+    if (authenticity.manipulation_suspected || authenticity.screenshot_or_watermark_detected) {
+      flagReasons.push(authenticity.summary);
+    }
+    // US-341: the fused forensic+vision tamper signal can flag manipulation the
+    // vision pass alone missed (forensic-only or corroborated).
+    if (
+      fusedTamper.forensic_ran &&
+      fusedTamper.manipulation_suspected &&
+      fusedTamper.forensic_suspected
+    ) {
+      flagReasons.push(fusedTamper.summary);
+    }
+    // US-337: a cross-account photo match is a moderation concern (possible
+    // stolen/recycled listing). Same-account relists are not flagged.
+    if (reuse.cross_user) {
+      flagReasons.push(reuse.summary);
+    }
+    const flagReason = flagReasons.length > 0 ? flagReasons.join(" ") : null;
+    if (flagReason) {
+      console.warn(
+        `[Pipeline] Submission ${submissionId} FLAGGED for moderation: ${flagReason}`
+      );
+      await supabaseAdmin
+        .from("submissions")
+        .update({ flagged: true, flag_reason: flagReason })
+        .eq("id", submissionId);
+    }
+
     const { data: gradeReport, error: reportError } = await supabaseAdmin
       .from("grade_reports")
       .insert({
@@ -714,46 +761,14 @@ export async function processSubmission(submissionId: string) {
     );
 
     // --- Step 7: Update submission status to 'completed' ---
-    // Flag for moderation if the AI judged the images not to be clothing.
+    // Moderation flags were already evaluated and written ABOVE (US-484), before
+    // the certificate became public — so this terminal write only advances the
+    // status and clears any prior abstention feedback. It deliberately does NOT
+    // touch flagged/flag_reason, leaving a withheld cert withheld.
     const submissionUpdate: Record<string, unknown> = {
       status: "completed",
-      // Clear any prior abstention feedback now that a grade was produced.
       quality_feedback: null,
     };
-    const flagReasons: string[] = [];
-    if (!compositeResult.image_validity.is_clothing) {
-      flagReasons.push(
-        compositeResult.image_validity.reason ||
-          "Submitted images may not depict an item of clothing."
-      );
-    }
-    // US-336/US-338: route suspected-manipulation / screenshot submissions into
-    // the moderation queue too (in addition to needs_human_review on the grade).
-    if (authenticity.manipulation_suspected || authenticity.screenshot_or_watermark_detected) {
-      flagReasons.push(authenticity.summary);
-    }
-    // US-341: the fused forensic+vision tamper signal can flag manipulation the
-    // vision pass alone missed (forensic-only or corroborated). Route those to
-    // moderation too. Avoid duplicating the vision-only summary already pushed.
-    if (
-      fusedTamper.forensic_ran &&
-      fusedTamper.manipulation_suspected &&
-      fusedTamper.forensic_suspected
-    ) {
-      flagReasons.push(fusedTamper.summary);
-    }
-    // US-337: a cross-account photo match is a moderation concern (possible
-    // stolen/recycled listing). Same-account relists are not flagged.
-    if (reuse.cross_user) {
-      flagReasons.push(reuse.summary);
-    }
-    if (flagReasons.length > 0) {
-      submissionUpdate.flagged = true;
-      submissionUpdate.flag_reason = flagReasons.join(" ");
-      console.warn(
-        `[Pipeline] Submission ${submissionId} FLAGGED for moderation: ${submissionUpdate.flag_reason}`
-      );
-    }
     await supabaseAdmin
       .from("submissions")
       .update(submissionUpdate)

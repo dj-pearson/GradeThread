@@ -942,3 +942,10 @@ Branch: ralph/gradethread-build
 - Verification: deno test perceptual-hash_test.ts 7 passed/0 failed; deno check (grade, api-v1, perceptual-hash, test, main.ts) clean; deno lint 4 files clean; deno cache --frozen clean; frontend npx tsc --noEmit clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-484: Atomic report+status+moderation; withhold suspect certificates
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/lib/certificate-visibility.ts (new pure helper), services/edge-functions/src/lib/grading-pipeline.ts (evaluate+write moderation flag BEFORE the cert-publishing report insert), services/edge-functions/src/routes/content-public.ts (use shared isCertificateWithheld in both public cert endpoints), services/edge-functions/src/tests/certificate-visibility_test.ts (new), prd.json
+- Notes: AC1 satisfied via the OR-branch ("cert made public only after flags evaluated") rather than a risky RPC transaction refactor. The grade_reports insert carries the certificate_id that makes the public cert resolvable, so the moderation flag is now written first — closing both the timing window and the permanent-leak-on-failed-update case. Extracted the withhold predicate into a pure isCertificateWithheld() so both endpoints share one gate and AC3 is unit-testable without a DB. deno lint/check clean; full edge suite 752 passed / 0 failed.
+- Timestamp: 2026-06-12
+---
