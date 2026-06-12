@@ -8245,8 +8245,8 @@
         "Comp search keys on the normalized brand"
       ],
       "priority": 544,
-      "passes": false,
-      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03. Brand is free text; comp search keys on raw item.brand."
+      "passes": true,
+      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03. Brand is free text; comp search keys on raw item.brand. | DONE 2026-06-12: new lib/brand-normalize.ts (canonicalizeBrand alias table Levis->Levi's; resolveStyleCode curated+format-inferred for sneakers->exact comp query + auto-filled specifics; applyCanonicalBrandAndStyle). Wired into ai-listing.generateListing: normalized brand used in refine text, comp search (brand filter + style-code query), forced canonical Brand specific, persisted back to inventory_items.brand. 16 unit tests in brand-normalize_test.ts."
     },
     {
       "id": "US-545",

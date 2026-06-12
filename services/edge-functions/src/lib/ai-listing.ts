@@ -49,6 +49,12 @@ import {
   mergeTagGroundTruth,
   TAG_PHOTO_TYPES,
 } from "./ai-tag-ocr.ts";
+import {
+  applyCanonicalBrandAndStyle,
+  canonicalizeBrand,
+  resolveStyleCode,
+  type StyleResolution,
+} from "./brand-normalize.ts";
 
 // US-542: where a draft's suggested price came from. Only the sold-backed
 // sources (private_sales, ebay_sold) justify price_is_estimated=false.
@@ -707,6 +713,28 @@ export async function generateListing(
     }
   }
 
+  // 2c. US-544: canonicalize the brand and resolve a style code. The model/tag
+  // brand is free text ("Levis"), but the eBay Browse/Insights comp filter is an
+  // EXACT-match `Brand:{...}` aspect — a non-canonical value drops the filter and
+  // prices off the unfiltered category. canonicalizeBrand maps it to eBay's
+  // spelling; resolveStyleCode turns a sneaker/streetwear style code into the
+  // authoritative brand + an EXACT comp query (the code returns the same shoe)
+  // + auto-fillable specifics. The tag read (knownFields) wins over the prior
+  // item column. styleResolution.brand (resolved from the code) outranks the
+  // text brand when present.
+  const rawBrand = typeof knownFields.brand === "string"
+    ? (knownFields.brand as string)
+    : item.brand;
+  const canonicalBrand = canonicalizeBrand(rawBrand);
+  const rawStyle = typeof knownFields.style === "string"
+    ? (knownFields.style as string)
+    : item.style;
+  const styleResolution: StyleResolution | null = resolveStyleCode(
+    rawStyle,
+    canonicalBrand,
+  );
+  const normalizedBrand = styleResolution?.brand ?? canonicalBrand;
+
   // 3. If the item already has a category, constrain item_specifics up front.
   let categoryId = item.ebay_category_id;
   let categoryPath: string | null = null;
@@ -770,7 +798,7 @@ export async function generateListing(
       if (specs.length > 0) {
         try {
           const refined = await extractEbayAspects({
-            text: [item.title, item.brand, item.size, item.color, item.material]
+            text: [item.title, normalizedBrand, item.size, item.color, item.material]
               .filter((v): v is string => !!v && v.length > 0)
               .join(" • "),
             photos: photos.map((p) => ({ url: p.url, type: p.type })),
@@ -814,6 +842,18 @@ export async function generateListing(
     }
   }
 
+  // 6b. US-544: force the canonical Brand specific (so the published Brand aspect
+  // matches what eBay indexes on, not "Levis") and fold in any style-resolved
+  // product aspects the category permits. Constrained to allowedAspects so we
+  // never push an aspect the category would reject at publish; product aspects
+  // never clobber a value the model already determined.
+  itemSpecifics = applyCanonicalBrandAndStyle(
+    itemSpecifics,
+    normalizedBrand,
+    styleResolution,
+    Object.keys(allowedAspects),
+  );
+
   // 7. Price (US-542): prefer REALIZED/sold comps; price_is_estimated=false ONLY
   // when the price is backed by sold data. Active Browse comps are ASKING prices
   // (systematically high), so when we fall back to them we set the price but
@@ -826,12 +866,17 @@ export async function generateListing(
   let priceCompSource: PriceCompSource = "ai_estimate";
   if (useComps && categoryId) {
     const conditionId = conditionIdForComps(listing.ebay_condition);
-    const compQuery = item.brand ?? (listing.suggested_category_query || undefined);
+    // US-544: comps key on the NORMALIZED brand (exact-match aspect filter) and,
+    // for sneakers/streetwear, on the style code as the query — the single most
+    // precise comp key (returns the same product, not a fuzzy category match).
+    const compBrand = normalizedBrand ?? undefined;
+    const compQuery = styleResolution?.compQuery ??
+      compBrand ?? (listing.suggested_category_query || undefined);
     try {
       const sold = await getRealizedComps({
         ownerId,
         categoryId,
-        brand: item.brand ?? undefined,
+        brand: compBrand,
         q: compQuery,
         size: item.size ?? undefined,
         conditionId,
@@ -850,7 +895,7 @@ export async function generateListing(
         const active = await searchBrowseComps({
           categoryId,
           q: compQuery,
-          brand: item.brand ?? undefined,
+          brand: compBrand,
           size: item.size ?? undefined,
           conditionId,
         });
@@ -990,13 +1035,19 @@ export async function generateListing(
   // ebay_aspects is the canonical aspect store the composer's category picker
   // and the publish path (assemblePublishContext) both read, so the generated
   // specifics must land here — not only on listings.item_specifics_override.
+  // US-544: also write the canonical brand back to the item so future comp
+  // searches and re-generations key on the normalized value, not the raw read.
+  const itemUpdate: Record<string, unknown> = {
+    ebay_category_id: categoryId,
+    ebay_aspects: itemSpecifics,
+    ai_generated_aspects_at: new Date().toISOString(),
+  };
+  if (normalizedBrand && normalizedBrand !== item.brand) {
+    itemUpdate.brand = normalizedBrand;
+  }
   await supabaseAdmin
     .from("inventory_items")
-    .update({
-      ebay_category_id: categoryId,
-      ebay_aspects: itemSpecifics,
-      ai_generated_aspects_at: new Date().toISOString(),
-    })
+    .update(itemUpdate)
     .eq("id", itemId)
     .eq("user_id", ownerId);
 
