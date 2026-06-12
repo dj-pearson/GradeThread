@@ -13780,6 +13780,246 @@
       "priority": 931,
       "passes": false,
       "notes": "[Autonomous Email Marketing Engine / Optimization & Admin] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-932",
+      "title": "Internal behavioral event stream (trigger substrate)",
+      "description": "As the platform, I want key user actions recorded to an internal events table the drip engine can query, because server-side PostHog (posthog.ts) only fires OUT to analytics and there's no internal store to trigger journeys from. This is the substrate every behavioral trigger reads.",
+      "acceptanceCriteria": [
+        "New migration adds user_events (id, user_id, event_key, properties jsonb, occurred_at, dedupe_key nullable unique) indexed on (user_id, event_key, occurred_at).",
+        "A lib/user-events.ts emitEvent() helper records events at the existing action sites alongside (not replacing) posthog.capture(): signup, first_grade, grade_completed, first_listing, listing_published, sale_recorded, checkout_started, subscription_created, trial_expired, login/app_open (for activity).",
+        "A derived last_active_at per user is maintained (cheap: updated from app_open/grade/listing events) so 'inactivity' triggers don't need expensive joins; expose it to segments.ts as a new field.",
+        "Emission is fire-and-forget and never blocks or fails the originating action; first-occurrence events (first_grade, first_listing) are idempotent via dedupe_key.",
+        "RLS: service-role only; user_events is never client-exposed.",
+        "A backfill seeds first_grade/first_listing/signup timestamps for existing users so current trialists can enroll correctly."
+      ],
+      "priority": 932,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Trigger Foundation] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-933",
+      "title": "Trigger & condition engine",
+      "description": "As the platform, I want a unified trigger engine supporting event-based triggers (first_grade), anchor-relative time triggers (trial_ends_at minus 2 days, signup plus N days), and state/condition predicates (subscription_status, feature-used, inactive N days), so drip steps fire on exactly the right signal. Generalizes the simple daily check sketched in US-929.",
+      "acceptanceCriteria": [
+        "A trigger spec supports three kinds: event (user_events key), time-anchor (anchor field +/- offset; anchors: signup/created_at, trial_ends_at, enrolled_at, last step sent), and state predicate (reuse the segments.ts field/op/value compiler for conditions like subscription_status != active, last_active_at within_days).",
+        "An evaluator resolves, for a given user/enrollment, whether a trigger is due now, combining a step's trigger with AND-conditions and skip/branch conditions.",
+        "Time anchors handle nulls (no trial_ends_at) and timezones safely; an event trigger can be 'has occurred since enrolled_at'.",
+        "The evaluator is pure/testable in isolation with a table of fixtures (trial ends in 2 days -> due; already graded -> skip the nudge; converted -> exit).",
+        "Reuses segments.ts predicate compilation rather than a parallel rule language.",
+        "No external calls in the evaluator; it operates on a loaded user/enrollment snapshot."
+      ],
+      "priority": 933,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Trigger Foundation] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-934",
+      "title": "Marketing frequency cap & cross-program send coordination",
+      "description": "As a user, I don't want to be bombarded across the trial drip, lifecycle journeys, and the weekly newsletter, so the platform must cap and coordinate all marketing email per recipient with clear precedence.",
+      "acceptanceCriteria": [
+        "A central pre-send check enforces a per-recipient marketing frequency cap (default max 1 marketing email/day, configurable in the settings registry) across ALL marketing sources (trial drip, journeys, weekly newsletter, win-back).",
+        "Precedence rules: while a user is enrolled in the trial drip, the weekly newsletter is paused for them (drip wins); transactional mail is never capped.",
+        "When the cap would be exceeded, the lower-precedence send is deferred (re-queued) rather than dropped, so content isn't silently lost.",
+        "Quiet-hours support (no marketing sends outside a configurable window in the recipient's timezone) with a safe default.",
+        "All marketing senders (US-925 outbox, journeys, drip) route through this coordinator; a test asserts two same-day marketing sends collapse to one + a deferral.",
+        "Consent (US-911) and suppression (US-914) are checked here as the single chokepoint."
+      ],
+      "priority": 934,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Trigger Foundation] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-935",
+      "title": "Branching drip campaign data model",
+      "description": "As the platform, I want drip campaigns modeled as a graph of steps with per-step triggers, delays, conditions, branch targets, and exit conditions, replacing the linear email_journey_steps from US-929 with a real branching state machine, so sequences can adapt to behavior.",
+      "acceptanceCriteria": [
+        "New migration adds drip_campaigns (key, name, goal_event, audience, is_active, settings jsonb) and drip_steps (campaign_id, step_key, trigger spec, send_template ref, conditions, on_skip_goto, on_branch rules, is_exit) — or extends US-929's email_journeys/steps with these columns; pick one and document that US-929's three series become drip_campaigns in this engine.",
+        "A step references a renderable template (reuse the US-919 email-render components + US-918 copywriter output) and carries variant slots for A/B (US-927).",
+        "Goal/exit is first-class: a campaign declares its goal_event (subscription_created) and any step can be a branch/exit; reaching the goal exits the whole campaign.",
+        "Steps validate into a DAG (no infinite loops); a loader compiles a campaign into an in-memory graph for the engine.",
+        "Seed the 'trial_conversion' campaign shell (steps filled by the sequence stories) plus migrate welcome/win-back from US-929.",
+        "RLS service-role only; admin reads via /api/admin/*."
+      ],
+      "priority": 935,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Drip Engine] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-936",
+      "title": "Enrollment & state-machine engine",
+      "description": "As the platform, I want durable per-user enrollment that advances each user through their drip based on triggers, evaluates branches, and exits on goal/unsub/suppress, idempotently and resumably, so the autonomous sequence runs reliably.",
+      "acceptanceCriteria": [
+        "New migration adds drip_enrollments (user_id, campaign_id, status enum(active,completed,exited,paused), current_step_key, enrolled_at, next_evaluation_at, context jsonb) with UNIQUE(user_id, campaign_id) so a user enrolls once per campaign.",
+        "An enrollment evaluator (lib/drip-engine.ts) loads due enrollments, evaluates the current/eligible steps via the trigger engine, sends the due step through the coordinator+outbox, advances current_step_key (honoring branches/skips), and exits on goal/unsub/suppress/end.",
+        "Enrollment is created when a user matches a campaign's entry trigger (e.g. signup -> trial_conversion); evaluation is idempotent (a step is sent at most once per enrollment, guarded by a sent-steps ledger).",
+        "Processing is a bounded, resumable server-side batch (reuse US-407/US-559 pattern) safe to re-run; a crash mid-batch never double-sends.",
+        "Exit reasons are recorded (converted/unsubscribed/suppressed/completed) for analytics.",
+        "Tests: a trialist who converts on day 8 exits and receives no further drip steps; a dormant trialist gets the inactivity branch."
+      ],
+      "priority": 936,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Drip Engine] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-937",
+      "title": "Conversion attribution & goal tracking",
+      "description": "As a marketer, I want every subscription conversion attributed to the drip step/email that drove it, so I can measure what the sequence is worth and which messages convert.",
+      "acceptanceCriteria": [
+        "On subscription_created (webhooks.ts) the engine resolves the user's active trial_conversion enrollment, marks it converted, records last-touch attribution (last drip email opened/clicked before conversion) and first-touch, plus days-to-convert and which step.",
+        "An attribution row links conversion -> campaign -> step -> email send, and rolls up to the analytics dashboard (US-946).",
+        "Conversion immediately triggers exit + a 'Welcome to Pro' confirmation email and pauses all win-back/nurture for that user.",
+        "Attribution tolerates users who converted without opening any drip email (records 'unattributed/organic').",
+        "Revenue (plan MRR) is associated with the conversion for ROI reporting.",
+        "Idempotent: a duplicate subscription webhook doesn't double-count a conversion."
+      ],
+      "priority": 937,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Drip Engine] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-938",
+      "title": "Durable per-step send with personalization & tracking",
+      "description": "As the platform, I want each drip step delivered through the durable outbox with consent, suppression, personalization, and open/click tracking, so drip emails are as reliable and measurable as the newsletter.",
+      "acceptanceCriteria": [
+        "Drip step sends route through the US-925 durable email_deliveries outbox (category='drip:<campaign>:<step>') with retry/backoff/dead-letter, the US-924 QA gate, and the US-913 open/click tracking rewriter.",
+        "Per-recipient personalization (US-921) fills dynamic blocks (their grades/listings/sales this trial, trial days left, what they haven't tried) at render time.",
+        "Every send is checked against consent (US-911 newsletter/marketing), suppression (US-914), and the frequency coordinator before dispatch; skips are recorded with reason.",
+        "Sends are idempotent per (enrollment, step) and recorded to campaign_recipients (or a drip equivalent) for analytics + A/B variant tracking.",
+        "Plaintext alternative + CAN-SPAM footer + one-click unsubscribe present on every drip email.",
+        "A test asserts a suppressed/opted-out trialist is skipped (recorded), not sent."
+      ],
+      "priority": 938,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Drip Engine] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-939",
+      "title": "Phase 1 activation sequence (days 0-6)",
+      "description": "As a new trialist, I want a helpful onboarding/activation sequence in my first days so I experience the product's value fast, increasing the odds I convert. Implements the in-trial activation steps of the trial_conversion campaign.",
+      "acceptanceCriteria": [
+        "Seed steps on the trial_conversion campaign: Day 0 welcome + 'grade your first item' (trigger signup); Day 1 first-grade nudge (trigger T+1d AND NOT first_grade, skipped if first_grade occurred); Day 2 'how grading lifts resale price' value email (trigger first_grade event); Day 3 'accurate listing management' education; Day 5 social-proof + feature highlight.",
+        "Each step's copy is generated/rendered via the US-918 copywriter + US-919 renderer from a per-step brief (goal, key points, CTA) stored on the step, grounded only in real platform capabilities (no invented claims).",
+        "Branch: an inactivity nudge fires if the user has no activity for 3 days during the trial (last_active_at), inserted without breaking the main timeline.",
+        "CTAs deep-link into the exact next action (grade an item, create a listing) with tracking.",
+        "Copy is personalized where useful (name, items graded so far) with safe fallbacks.",
+        "Steps respect the frequency cap and exit-on-conversion universally."
+      ],
+      "priority": 939,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Sequence: In-Trial] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-940",
+      "title": "Phase 2 conversion-push sequence (days 7-14)",
+      "description": "As a trialist approaching the end of my trial, I want a personalized recap and clear, urgent reasons to subscribe before I lose Pro, so I convert rather than lapse. Implements the conversion-push steps tied to trial_ends_at.",
+      "acceptanceCriteria": [
+        "Seed steps: Day 7 mid-trial personalized recap + ROI framing (their activity to date); Day 10 deep-dive on a high-value feature they haven't used (branch: skip if used); Day 12 'trial ends in 2 days' urgency (trigger trial_ends_at - 2d); Day 13 'ends tomorrow / what you'll lose' (trigger trial_ends_at - 1d); Day 14 'last chance today' (trigger trial_ends_at).",
+        "Urgency steps are anchored to the actual trial_ends_at (not a fixed offset) so an admin-adjusted trial window (admin-billing.ts) stays correct.",
+        "The recap pulls real per-user numbers (grades, listings, sales, certificates) via the personalization layer; a zero-activity trialist gets a re-activation variant instead.",
+        "Each email's primary CTA is 'add a card / subscribe' deep-linked to the Stripe checkout for their recommended plan.",
+        "Steps clearly state what Pro features are lost on downgrade (grounded in plan-gate.ts entitlements).",
+        "Convert-at-any-point exits the sequence and stops further urgency emails."
+      ],
+      "priority": 940,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Sequence: In-Trial] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-941",
+      "title": "Phase 3 post-trial win-back sequence (days 15-28)",
+      "description": "As a lapsed trialist now on Free, I want a respectful win-back sequence that reminds me what I'm missing and makes upgrading easy, so I can still convert after the trial. Implements the post-trial win-back steps.",
+      "acceptanceCriteria": [
+        "Seed steps for users whose trial expired to Free (trial_expired event / subscription_status none): Day 16 'you're on Free now - here's what you're missing'; Day 20 value/objection-handling email; Day 24 incentive offer (see US-945, config-gated); Day 28 final win-back, then exit to the general weekly newsletter.",
+        "Entry is conditioned on NOT converted and NOT suppressed/opted-out; users who converted during the trial never enter win-back.",
+        "Frequency/quiet-hours/consent all enforced; win-back is unambiguously marketing and fully honors unsubscribe.",
+        "On exit (day 28 or conversion), the user is handed back to the standard newsletter cadence (newsletter un-paused).",
+        "Copy emphasizes outcomes and the specific Pro features they used during trial (from user_events) for relevance.",
+        "A test asserts a converted user is excluded and an opted-out user receives none."
+      ],
+      "priority": 941,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Sequence: Post-Trial] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-942",
+      "title": "Conversion incentive / promo integration",
+      "description": "As a marketer, I want an optional, config-gated discount in the win-back (e.g. limited-time % off the first month) wired to the existing coupons system and tracked, so I can lift conversions without hardcoding or leaking discounts. Off by default.",
+      "acceptanceCriteria": [
+        "A per-campaign 'incentive' setting (off by default) references an existing Stripe-backed coupon/promo (reuse the admin coupons system) and an expiry window; when on, the Day-24 win-back email surfaces a unique, time-boxed upgrade offer.",
+        "Promo codes are generated/assigned per recipient (or a shared time-boxed code) with redemption tracked back to the drip step for ROI; never expose a code to a user not in the win-back.",
+        "Checkout CTA pre-applies the promo so conversion is one click; redemption attributes to the incentive in analytics.",
+        "Guardrails: incentive respects a max-discount and an eligibility check (e.g. only post-trial, never to already-paid), enforced server-side.",
+        "Turning the incentive off cleanly reverts the Day-24 email to the value-only variant.",
+        "Admin can configure/enable the incentive from the drip builder; changes audited + step-up."
+      ],
+      "priority": 942,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Sequence: Post-Trial] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-943",
+      "title": "Autonomous orchestration tick (trigger cron)",
+      "description": "As the operator, I want one scheduled trigger (Make.com/cron) that runs the whole drip engine autonomously - enroll new trialists, evaluate triggers, advance steps, send due emails, exit on goal - with zero per-message human input.",
+      "acceptanceCriteria": [
+        "New POST /api/drip/tick (auth mirrors content-scheduler.ts: X-Internal-Job-Secret OR admin JWT, constant-time) that: enrolls users matching entry triggers, evaluates active enrollments, and dispatches due steps via the bounded resumable batch.",
+        "Job-locked (no overlapping runs), idempotent, and frequent-safe (self-gates on next_evaluation_at) so the Make schedule can be simple (e.g. hourly).",
+        "Each run records to the jobs console (US-881) with counts: enrolled, advanced, sent, exited, skipped.",
+        "Time-anchor triggers (trial_ends_at - 2d) are honored within the tick granularity; a missed window (downtime) is caught up on the next run, not skipped.",
+        "Secrets via env (DRIP_INTERNAL_JOB_SECRET); no hardcoding.",
+        "A dry-run mode logs what WOULD send without sending, for safe verification."
+      ],
+      "priority": 943,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Autonomy & Admin] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-944",
+      "title": "Per-step A/B testing + conversion self-tuning",
+      "description": "As a marketer, I want drip steps to A/B test subject/content/send-timing and automatically favor what drives conversions (not just opens), so the sequence improves itself over time.",
+      "acceptanceCriteria": [
+        "Each step supports variants (subject/body/CTA/send-offset); the engine assigns variants per enrollment and records variant + outcome (open/click/convert) on the send ledger.",
+        "Winner selection optimizes for the goal (conversion, with click as a secondary signal), requires a minimum sample, and falls back to a default below threshold (no spurious winners on small cohorts).",
+        "Self-tuning reuses the US-928 closed-loop machinery: step timing/subject style weights shift toward higher-converting variants with an exploration floor.",
+        "All tuning is autonomous and data-driven, but visible and overridable in the builder.",
+        "Tests: across simulated cohorts, the higher-converting variant becomes the default and a high-unsub variant is retired.",
+        "Attribution (US-944) feeds the optimizer."
+      ],
+      "priority": 944,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Autonomy & Admin] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-945",
+      "title": "Visual drip / journey builder (admin)",
+      "description": "As an operator, I want to see and edit the drip as a visual sequence - steps, triggers, delays, branches, per-step content and variants - plus preview/test-send and a pause/kill switch, so I have full oversight of an autonomous system.",
+      "acceptanceCriteria": [
+        "New admin page src/pages/admin/drip.tsx renders each campaign as an ordered/branching step list (trigger, delay/anchor, conditions, branch targets, exit) with inline editing of per-step brief/copy and variants.",
+        "Actions: preview a step's rendered HTML, send a test to an admin address, edit/regenerate copy (via US-918), toggle the incentive, and pause/resume or kill the whole campaign (kill integrates with feature-flags); destructive changes audited + step-up.",
+        "A live view of current enrollments by step + recent exits (converted/lapsed) with drill-in to a single user's journey + send history.",
+        "Editing validates the step graph (no loops/orphans) before save.",
+        "Shows the next scheduled tick and a 'simulate for this user' that runs the dry-run evaluator against a chosen account.",
+        "Gated by /api/admin/* (admin JWT + AAL2)."
+      ],
+      "priority": 945,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Autonomy & Admin] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
+    },
+    {
+      "id": "US-946",
+      "title": "Trial-conversion analytics dashboard",
+      "description": "As an operator, I want a funnel and ROI dashboard for the trial drip - step-by-step progression, conversion rate, time-to-convert, drop-off, revenue attributed, and cohort-by-signup-week - so I can prove and improve the sequence.",
+      "acceptanceCriteria": [
+        "New RPC drip_analytics(campaign, period) computes the per-step funnel (sent -> opened -> clicked -> converted), overall trial->paid conversion rate, median days-to-convert, drop-off per step, and attributed MRR, from the enrollment/send/attribution tables.",
+        "GET /api/admin/drip/analytics returns the rollup with period + cohort (signup-week) filtering; a page/tab charts the funnel and cohort retention/conversion curves.",
+        "Compare in-trial vs post-trial-win-back conversion contribution, and incentive-on vs incentive-off lift.",
+        "Flags steps with high unsub/drop-off for attention and surfaces the A/B winners.",
+        "Read-only, server-side aggregated; reconciles conversions with Stripe (source of truth) within a documented tolerance.",
+        "Numbers tie back to the attribution ledger (US-944) with documented definitions."
+      ],
+      "priority": 946,
+      "passes": false,
+      "notes": "[Trial Conversion Drip Engine / Autonomy & Admin] Added 2026-06-12. Trial=14d, no-card (grade-pricing.ts); conversion=customer.subscription.created (webhooks.ts); drop-off=trial-expiry cron->Free. Drip runs ~28d (14 in-trial + 14 post-trial win-back), exits instantly on conversion. Builds on/supersedes the generic US-929 journey engine. Reuses: email_deliveries outbox + US-925 send, US-911 consent, US-913 open/click tracking, US-914 suppression, US-918 copywriter + US-919 renderer + US-921 personalization, US-927/928 A/B + self-tuning, segments.ts predicates, admin coupons, jobs console US-881. Conventions: /api/admin/* (admin JWT+AAL2), job-lock + bounded durable batches, CAN-SPAM + consent + frequency cap on every send, tenant-scoping US-268."
     }
   ]
 }

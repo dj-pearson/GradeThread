@@ -150,7 +150,10 @@
       "Bash(xargs grep -l \"plan.*limit\\\\|grade.*cap\\\\|free.*tier\")",
       "PowerShell(curl.exe -s https://api.gradethread.com/auth/v1/settings)",
       "Bash(sort -t'-' -k2 -n)",
-      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread\\\\supabase\\\\migrations\" -File | Sort-Object Name | Select-Object -Last 10 | ForEach-Object { $_.Name })"
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread\\\\supabase\\\\migrations\" -File | Sort-Object Name | Select-Object -Last 10 | ForEach-Object { $_.Name })",
+      "Bash(xargs grep -l \"admin\\\\|role\")",
+      "Bash(grep -rniE \"trial_ends_at|14[ -]?day|trial.{0,15}\\(length|duration|days\\)|TRIAL_DAYS|addDays\\\\\\(.*14|interval '14\" services/edge-functions/src supabase/migrations src/lib)",
+      "Bash(cd C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread *)"
     ]
   },
   "hooks": {
