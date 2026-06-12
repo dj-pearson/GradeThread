@@ -1,0 +1,472 @@
+// eBay Promoted Listings (Marketing API) — US-561.
+//
+// The sell.marketing OAuth scope has been granted since the first eBay
+// integration but went entirely unused. Promoted Listings is eBay's biggest
+// seller-side visibility lever: a Cost-Per-Sale ad campaign attaches a bid
+// percentage (the "ad rate") to a listing, and the seller is charged that
+// percentage of the sale price ONLY when the item sells through the ad. Because
+// there's no up-front cost, FlipDesk attaches a category-suggested ad rate by
+// default at publish; the seller can adjust the rate (listings.promo_rate_pct)
+// or opt out per listing (listings.promo_opt_out).
+//
+// Everything here is BEST-EFFORT: a Marketing API failure must NEVER fail the
+// publish itself (the listing is already live on eBay), so the publish-time
+// helper swallows errors and records a non-blocking 'failed' status instead.
+//
+// We reuse the user-token resolver + host helpers from ebay-client.ts but roll
+// our own thin authed fetch here (fetchAuthed is private to that module) so the
+// Marketing surface stays self-contained.
+
+import { supabaseAdmin } from "./supabase.ts";
+import { fetchWithTimeout } from "./circuit-breaker.ts";
+import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
+
+const EBAY_TIMEOUT_MS = 20_000;
+
+// Bounds on a bid percentage. eBay accepts 2%–100%; we cap the upper end far
+// lower so a fat-fingered rate can't quietly hand eBay a fifth of every sale.
+export const MIN_AD_RATE_PCT = 2;
+export const MAX_AD_RATE_PCT = 20;
+
+// One shared campaign per seller holds all of their FlipDesk-created ads.
+const CAMPAIGN_NAME = "FlipDesk Promoted Listings";
+
+// eBay top-level / well-known leaf category ids (tree 0, EBAY_US) where resale
+// competition runs hot enough that a higher-than-baseline ad rate is worth it.
+// Intentionally a small, documented heuristic — eBay exposes no synchronous
+// "suggested bid per leaf" endpoint, so this is our recommendation, not eBay's.
+const HIGHER_DEMAND_CATEGORIES: Record<string, number> = {
+  "15709": 11, // Athletic Shoes / Sneakers — very high competition
+  "169291": 11, // Women's Bags & Handbags
+  "11483": 10, // Coats, Jackets & Vests (men's)
+  "63862": 10, // Coats, Jackets & Vests (women's)
+};
+
+function clampRate(pct: number): number {
+  if (!Number.isFinite(pct)) return MIN_AD_RATE_PCT;
+  return Math.min(MAX_AD_RATE_PCT, Math.max(MIN_AD_RATE_PCT, pct));
+}
+
+/**
+ * Suggested ad rate (bid percentage) for a category. Pure + unit-testable.
+ * Falls back to the EBAY_DEFAULT_AD_RATE env baseline (or 8%) for any category
+ * not in the higher-demand set, then clamps to [MIN, MAX].
+ */
+export function suggestedAdRateForCategory(categoryId?: string | null): number {
+  const envBase = Number(Deno.env.get("EBAY_DEFAULT_AD_RATE") ?? "");
+  const base = Number.isFinite(envBase) && envBase > 0 ? envBase : 8;
+  const specific = categoryId ? HIGHER_DEMAND_CATEGORIES[categoryId] : undefined;
+  return clampRate(specific ?? base);
+}
+
+/**
+ * Resolve the effective ad rate to attach at publish given the listing's
+ * opt-out flag, its explicitly-chosen rate, and the category suggestion. Pure.
+ * Returns null when the listing opted out (no promotion).
+ */
+export function resolvePublishAdRate(args: {
+  optOut: boolean | null | undefined;
+  chosenRatePct: number | null | undefined;
+  categoryId?: string | null;
+}): number | null {
+  if (args.optOut) return null;
+  if (args.chosenRatePct != null && args.chosenRatePct > 0) {
+    return clampRate(args.chosenRatePct);
+  }
+  return suggestedAdRateForCategory(args.categoryId);
+}
+
+// eBay wants the bid percentage as a string with at most one decimal place.
+function formatBidPercentage(pct: number): string {
+  return clampRate(pct).toFixed(1);
+}
+
+interface MarketingError extends Error {
+  status: number;
+  ebayErrorIds?: number[];
+}
+
+async function marketingFetch<T>(
+  userId: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ body: T; location: string | null }> {
+  const token = await getUserAccessToken(userId);
+  const res = await fetchWithTimeout(
+    `${apiHost()}${path}`,
+    {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+        ...(init?.headers ?? {}),
+      },
+    },
+    EBAY_TIMEOUT_MS,
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    const err = new Error(
+      `eBay Marketing ${init?.method ?? "GET"} ${path} failed (${res.status}): ${
+        text.slice(0, 400)
+      }`,
+    ) as MarketingError;
+    err.status = res.status;
+    try {
+      const parsed = JSON.parse(text) as { errors?: Array<{ errorId?: number }> };
+      if (Array.isArray(parsed.errors)) {
+        err.ebayErrorIds = parsed.errors
+          .map((e) => e.errorId)
+          .filter((id): id is number => typeof id === "number");
+      }
+    } catch {
+      // Non-JSON error body — leave ebayErrorIds undefined.
+    }
+    throw err;
+  }
+  const location = res.headers.get("location");
+  const raw = await res.text();
+  return { body: (raw ? JSON.parse(raw) : {}) as T, location };
+}
+
+// ── Campaign management ─────────────────────────────────────────────
+
+interface CampaignSummary {
+  campaignId?: string;
+  campaignName?: string;
+  campaignStatus?: string;
+}
+
+/**
+ * Find-or-create the seller's single COST_PER_SALE Promoted Listings campaign,
+ * returning its campaignId. Caches the id on marketplace_connections so we
+ * don't round-trip eBay's "find by name" on every publish. Tenant-safe: the
+ * connection read/write is keyed on `userId` (the workspace owner).
+ */
+export async function ensureAdCampaign(userId: string): Promise<string> {
+  // 1. Cache hit on the connection.
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("ebay_campaign_id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const cached = (conn as { ebay_campaign_id: string | null } | null)
+    ?.ebay_campaign_id;
+  if (cached) return cached;
+
+  // 2. Look the campaign up by name (it may already exist on the eBay account
+  //    from a prior connection or a manual setup).
+  let campaignId: string | null = null;
+  try {
+    const { body } = await marketingFetch<{ campaigns?: CampaignSummary[] }>(
+      userId,
+      `/sell/marketing/v1/ad_campaign?campaign_name=${
+        encodeURIComponent(CAMPAIGN_NAME)
+      }`,
+    );
+    const match = (body.campaigns ?? []).find(
+      (cmp) =>
+        cmp.campaignName === CAMPAIGN_NAME &&
+        cmp.campaignStatus !== "ENDED" &&
+        !!cmp.campaignId,
+    );
+    if (match?.campaignId) campaignId = match.campaignId;
+  } catch (err) {
+    // A 404 means "no campaign by that name" on some marketplaces; fall through
+    // to create. Anything else is logged but still falls through to a create
+    // attempt (which surfaces the real error to the caller if it also fails).
+    console.warn(
+      "[ebay-marketing] campaign lookup failed (will try create):",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // 3. Create a new COST_PER_SALE campaign running indefinitely.
+  if (!campaignId) {
+    const { body, location } = await marketingFetch<{ campaignId?: string }>(
+      userId,
+      `/sell/marketing/v1/ad_campaign`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          campaignName: CAMPAIGN_NAME,
+          marketplaceId: getMarketplaceId(),
+          fundingStrategy: { fundingModel: "COST_PER_SALE" },
+          // eBay requires a start date; "now" makes it active immediately.
+          startDate: new Date().toISOString(),
+        }),
+      },
+    );
+    // create returns 201 with the id in the Location header (and sometimes the
+    // body). Prefer the body, fall back to parsing the trailing path segment.
+    campaignId = body.campaignId ??
+      (location ? location.split("/").filter(Boolean).pop() ?? null : null);
+    if (!campaignId) {
+      throw new Error(
+        "eBay ad_campaign create succeeded but returned no campaignId.",
+      );
+    }
+  }
+
+  // 4. Cache on the connection for next time.
+  await supabaseAdmin
+    .from("marketplace_connections")
+    .update({ ebay_campaign_id: campaignId })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true);
+
+  return campaignId;
+}
+
+// ── Ad creation ─────────────────────────────────────────────────────
+
+interface CreateAdsResponse {
+  responses?: Array<{
+    listingId?: string;
+    adId?: string;
+    statusCode?: number;
+    errors?: Array<{ errorId?: number; message?: string }>;
+  }>;
+}
+
+/**
+ * Create (or adopt an existing) Promoted Listings ad for a live listingId in
+ * the seller's campaign at the given bid percentage. Returns the adId, or null
+ * if eBay couldn't create the ad (e.g. listing ineligible). Never throws — the
+ * listing is already live, so promotion failure is non-fatal.
+ */
+export async function createAdForListing(
+  userId: string,
+  campaignId: string,
+  listingId: string,
+  bidPercentagePct: number,
+): Promise<{ adId: string } | null> {
+  try {
+    const { body } = await marketingFetch<CreateAdsResponse>(
+      userId,
+      `/sell/marketing/v1/ad_campaign/${
+        encodeURIComponent(campaignId)
+      }/create_ads_by_listing_id`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          listingIds: [listingId],
+          bidPercentage: formatBidPercentage(bidPercentagePct),
+        }),
+      },
+    );
+    const resp = (body.responses ?? []).find((r) => r.listingId === listingId) ??
+      body.responses?.[0];
+    if (resp?.adId) return { adId: resp.adId };
+
+    // An "ad already exists" response (errorId 35073 on the bulk endpoint) means
+    // the listing is already promoted — adopt the existing ad's id.
+    const existing = await getAdForListing(userId, campaignId, listingId);
+    if (existing?.adId) return { adId: existing.adId };
+
+    console.warn(
+      `[ebay-marketing] create ad for listing ${listingId} returned no adId:`,
+      JSON.stringify(resp ?? {}).slice(0, 300),
+    );
+    return null;
+  } catch (err) {
+    console.warn(
+      `[ebay-marketing] createAdForListing(${listingId}) failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    // Last-ditch: maybe the ad exists despite the error.
+    const existing = await getAdForListing(userId, campaignId, listingId).catch(
+      () => null,
+    );
+    return existing?.adId ? { adId: existing.adId } : null;
+  }
+}
+
+interface AdSummary {
+  adId?: string;
+  listingId?: string;
+  bidPercentage?: string;
+  adStatus?: string;
+}
+
+/** Read a single listing's ad (status + bid) from its campaign, or null. */
+export async function getAdForListing(
+  userId: string,
+  campaignId: string,
+  listingId: string,
+): Promise<{ adId: string; bidPercentage: number | null; status: string | null } | null> {
+  const { body } = await marketingFetch<{ ads?: AdSummary[] }>(
+    userId,
+    `/sell/marketing/v1/ad_campaign/${
+      encodeURIComponent(campaignId)
+    }/ad?listing_ids=${encodeURIComponent(listingId)}`,
+  );
+  const ad = (body.ads ?? []).find((a) => a.listingId === listingId && a.adId);
+  if (!ad?.adId) return null;
+  const bid = ad.bidPercentage != null ? Number(ad.bidPercentage) : null;
+  return {
+    adId: ad.adId,
+    bidPercentage: Number.isFinite(bid) ? bid : null,
+    status: ad.adStatus ?? null,
+  };
+}
+
+// ── Publish-time helper ─────────────────────────────────────────────
+
+export interface AttachPromotionResult {
+  campaignId: string;
+  adId: string;
+  ratePct: number;
+  status: "active";
+}
+
+/**
+ * Attach a Promoted Listings ad to a freshly-published listing and persist the
+ * eBay handles + status onto the listings row. BEST-EFFORT: returns null (and
+ * records promo_status='failed' on the row when listingRowId is known) on any
+ * failure, never throws — the listing is already live.
+ *
+ * Tenant-safe: every eBay call runs as `userId` (workspace owner) and the
+ * listings update is keyed on a row id that the caller already owner-verified.
+ */
+export async function attachPromotionAtPublish(args: {
+  userId: string;
+  listingRowId: string | null;
+  ebayListingId: string;
+  ratePct: number;
+}): Promise<AttachPromotionResult | null> {
+  const { userId, listingRowId, ebayListingId, ratePct } = args;
+  try {
+    const campaignId = await ensureAdCampaign(userId);
+    const ad = await createAdForListing(
+      userId,
+      campaignId,
+      ebayListingId,
+      ratePct,
+    );
+    if (!ad) {
+      await markPromoStatus(listingRowId, "failed", { campaignId });
+      return null;
+    }
+    if (listingRowId) {
+      await supabaseAdmin
+        .from("listings")
+        .update({
+          promo_campaign_id: campaignId,
+          promo_ad_id: ad.adId,
+          promo_rate_pct: clampRate(ratePct),
+          promo_status: "active",
+          promo_synced_at: new Date().toISOString(),
+        })
+        .eq("id", listingRowId);
+    }
+    return {
+      campaignId,
+      adId: ad.adId,
+      ratePct: clampRate(ratePct),
+      status: "active",
+    };
+  } catch (err) {
+    console.warn(
+      "[ebay-marketing] attachPromotionAtPublish failed (non-fatal):",
+      err instanceof Error ? err.message : String(err),
+    );
+    await markPromoStatus(listingRowId, "failed", {});
+    return null;
+  }
+}
+
+async function markPromoStatus(
+  listingRowId: string | null,
+  status: string,
+  extra: { campaignId?: string },
+): Promise<void> {
+  if (!listingRowId) return;
+  try {
+    await supabaseAdmin
+      .from("listings")
+      .update({
+        promo_status: status,
+        ...(extra.campaignId ? { promo_campaign_id: extra.campaignId } : {}),
+        promo_synced_at: new Date().toISOString(),
+      })
+      .eq("id", listingRowId);
+  } catch (err) {
+    console.warn(
+      "[ebay-marketing] markPromoStatus write failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+// ── Post-publish performance sync ───────────────────────────────────
+
+export interface PromotedSyncResult {
+  scanned: number;
+  updated: number;
+}
+
+/**
+ * Refresh the live ad status + bid for a single owner's promoted listings. Reads
+ * each promoted listing's ad from its campaign and writes the latest adStatus /
+ * bid percentage back, so the seller sees current Promoted Listings state after
+ * publish. Tenant-scoped to `userId`. Best-effort per row; a single failing
+ * lookup doesn't abort the rest.
+ */
+export async function syncPromotedListingsForOwner(
+  userId: string,
+  limit = 200,
+): Promise<PromotedSyncResult> {
+  const { data: rows } = await supabaseAdmin
+    .from("listings")
+    .select("id, platform_listing_id, promo_campaign_id")
+    .eq("user_id", userId)
+    .eq("platform", "ebay")
+    .not("promo_ad_id", "is", null)
+    .order("promo_synced_at", { ascending: true, nullsFirst: true })
+    .limit(limit);
+
+  const promoted = (rows ?? []) as Array<{
+    id: string;
+    platform_listing_id: string | null;
+    promo_campaign_id: string | null;
+  }>;
+  let updated = 0;
+  for (const row of promoted) {
+    if (!row.platform_listing_id || !row.promo_campaign_id) continue;
+    try {
+      const ad = await getAdForListing(
+        userId,
+        row.promo_campaign_id,
+        row.platform_listing_id,
+      );
+      const patch: Record<string, unknown> = {
+        promo_synced_at: new Date().toISOString(),
+      };
+      if (ad) {
+        // eBay's adStatus (RUNNING/PAUSED/ENDED…) is the live truth; mirror it.
+        if (ad.status) patch.promo_status = ad.status;
+        if (ad.bidPercentage != null) patch.promo_rate_pct = ad.bidPercentage;
+      } else {
+        // The ad disappeared on eBay (deleted/ended) — reflect that locally.
+        patch.promo_status = "ended";
+      }
+      await supabaseAdmin.from("listings").update(patch).eq("id", row.id);
+      updated++;
+    } catch (err) {
+      console.warn(
+        `[ebay-marketing] promoted sync for listing ${row.id} failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return { scanned: promoted.length, updated };
+}

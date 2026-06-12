@@ -97,6 +97,12 @@ import { failSafe } from "../lib/http-errors.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { pushSaleCreated, pushTokenExpiring } from "../lib/transactional-push.ts";
 import { notifyUser } from "../lib/notify.ts";
+import {
+  attachPromotionAtPublish,
+  resolvePublishAdRate,
+  suggestedAdRateForCategory,
+  syncPromotedListingsForOwner,
+} from "../lib/ebay-marketing.ts";
 
 // eBay integration endpoints. Mounted at /api/flipdesk/ebay.
 //
@@ -2739,6 +2745,27 @@ flipdeskEbayRoutes.post("/listings/validate", async (c) => {
   });
 });
 
+// US-561: lightweight category → suggested Promoted Listings ad rate. The
+// composer surfaces this as the default ad rate so "promote by default" stays
+// transparent — the seller accepts, adjusts, or opts out before publish. Pure
+// (no eBay round-trip), so it's cheap to call on every category change.
+flipdeskEbayRoutes.get("/marketing/ad-rate-suggestion", (c) => {
+  const categoryId = c.req.query("category_id") ?? null;
+  return c.json({
+    category_id: categoryId,
+    suggested_rate_pct: suggestedAdRateForCategory(categoryId),
+  });
+});
+
+// US-561: refresh the live Promoted Listings ad status + bid for the
+// workspace's promoted listings (user-triggered "Refresh" on the promotions
+// surface). Tenant-scoped to the workspace owner inside the lib helper.
+flipdeskEbayRoutes.post("/marketing/promoted/sync", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const result = await syncPromotedListingsForOwner(userId);
+  return c.json({ ok: true, ...result });
+});
+
 // eBay allows at most 24 pictures per listing (Inventory API product.imageUrls).
 // Sending more returns error 25601 ("The size for ImageLinks cannot exceed …").
 // Photos arrive sorted by sort_order, so capping keeps the cover + best shots.
@@ -3034,6 +3061,19 @@ export async function publishItemForOwner(
         );
       },
     });
+
+    // US-561: attach an eBay Promoted Listings ad at the resolved rate (the
+    // seller's accepted/adjusted rate, or the category suggestion) unless they
+    // opted out. BEST-EFFORT — the listing is already live, so a Marketing API
+    // failure records promo_status='failed' on the row but never fails publish.
+    if (ctx.summary.promotedAdRate != null && ctx.summary.promotedAdRate > 0) {
+      await attachPromotionAtPublish({
+        userId: ownerId,
+        listingRowId: listing?.id ?? null,
+        ebayListingId: listingId,
+        ratePct: ctx.summary.promotedAdRate,
+      });
+    }
 
     // US-547: capture the seller-acceptance signal — diff the AI's generated
     // snapshot against the now-published (post-edit) values, attributed to the
@@ -3362,6 +3402,54 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   }
 
   return c.json({ scanned: due.length, published, failed, skipped, more });
+  } finally {
+    await lock.release();
+  }
+});
+
+// US-561: scheduled refresh of Promoted Listings ad status + bid. Walks every
+// owner that has at least one live ad and syncs their promoted listings from the
+// Marketing API, so the seller's post-publish "Promoted" surface reflects the
+// current eBay adStatus. Job-secret gated (path is /jobs/*, not /listings/*).
+flipdeskEbayRoutes.post("/jobs/promoted-sync", async (c) => {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  const lock = await acquireJobLock("promoted-sync", 240);
+  if (!lock.acquired) {
+    return c.json({ skipped: true, reason: lock.reason, owners: 0 });
+  }
+  try {
+    // Distinct owners with at least one live ad. The partial index
+    // idx_listings_promo_active keeps this scan cheap.
+    const { data: rows, error } = await supabaseAdmin
+      .from("listings")
+      .select("user_id")
+      .eq("platform", "ebay")
+      .not("promo_ad_id", "is", null)
+      .limit(5000);
+    if (error) {
+      console.error("[flipdesk-ebay] promoted-sync owner scan failed:", error);
+      return c.json({ error: "Scan failed" }, 500);
+    }
+    const owners = Array.from(
+      new Set(((rows ?? []) as Array<{ user_id: string }>).map((r) => r.user_id)),
+    );
+    let scanned = 0;
+    let updated = 0;
+    for (const owner of owners) {
+      try {
+        const res = await syncPromotedListingsForOwner(owner);
+        scanned += res.scanned;
+        updated += res.updated;
+      } catch (err) {
+        console.warn(
+          `[flipdesk-ebay] promoted-sync for owner ${owner} failed:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    return c.json({ owners: owners.length, scanned, updated });
   } finally {
     await lock.release();
   }
@@ -3779,6 +3867,11 @@ interface PublishListing {
   shipping_policy_id: string | null;
   payment_policy_id: string | null;
   return_policy_id: string | null;
+  // US-561: Promoted Listings — promo_rate_pct is the seller's accepted/adjusted
+  // ad rate (null → use the category suggestion); promo_opt_out turns promotion
+  // off for this listing entirely.
+  promo_rate_pct: number | null;
+  promo_opt_out: boolean | null;
 }
 
 interface PublishContextOk {
@@ -3801,6 +3894,9 @@ interface PublishContextOk {
     aspects: Record<string, string[]>;
     quantity: number;
     bestOfferEnabled: boolean;
+    // US-561: effective Promoted Listings ad rate (%) to attach at publish, or
+    // null when the seller opted out. Defaults to the category suggestion.
+    promotedAdRate: number | null;
   };
 }
 
@@ -4096,7 +4192,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -4390,6 +4486,14 @@ async function assemblePublishContext(
     aspects: aspectMap,
     quantity,
     bestOfferEnabled,
+    // US-561: resolve the ad rate to attach — opt-out wins, then the seller's
+    // chosen rate, else the category suggestion. The composer surfaces the same
+    // suggestion so "promote by default" stays transparent + adjustable.
+    promotedAdRate: resolvePublishAdRate({
+      optOut: listing?.promo_opt_out,
+      chosenRatePct: listing?.promo_rate_pct,
+      categoryId,
+    }),
   };
 
   return {

@@ -49,6 +49,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useItemsFull } from "@/hooks/use-items-full";
 import {
   DESCRIPTION_TEMPLATES,
@@ -121,6 +122,13 @@ export function FlipdeskComposerPage() {
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
   const [badgeEnabled, setBadgeEnabled] = useState(false);
+  // US-561: Promoted Listings. promoteEnabled mirrors !promo_opt_out (promote by
+  // default); promoRate is the seller's accepted/adjusted ad rate (%) seeded
+  // from the category suggestion; promoSuggested holds the fetched suggestion so
+  // the seller can revert to it.
+  const [promoteEnabled, setPromoteEnabled] = useState(true);
+  const [promoRate, setPromoRate] = useState("");
+  const [promoSuggested, setPromoSuggested] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
   // Lifted from the category picker so the comps panel reacts to a pick
@@ -282,6 +290,13 @@ export function FlipdeskComposerPage() {
     setPriceCompSource(listing?.price_comp_source ?? null);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
     setBadgeEnabled(listing?.badge_enabled ?? false);
+    // US-561: promote by default unless this listing explicitly opted out. Seed
+    // the rate from the seller's saved value; the suggestion effect fills it in
+    // once the resolved category is known (when no saved rate exists yet).
+    setPromoteEnabled(!(listing?.promo_opt_out ?? false));
+    setPromoRate(
+      listing?.promo_rate_pct != null ? String(listing.promo_rate_pct) : "",
+    );
     const seededPrimary =
       listing?.primary_photo_id &&
       photos.some((p) => p.id === listing.primary_photo_id)
@@ -294,6 +309,41 @@ export function FlipdeskComposerPage() {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
+
+  // US-561: the category that publish will use, for the Promoted Listings ad-rate
+  // suggestion (mirrors the resolution order in saveDraft / assemblePublishContext).
+  const resolvedCategoryId =
+    livePickedCategoryId ??
+    listing?.platform_category_id ??
+    ebayMapping?.ebay_category_id ??
+    null;
+
+  // US-561: fetch the category-suggested ad rate and, only when the seller has
+  // no rate yet, seed the box with it — never clobbering an explicit edit.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await edgeFetch(
+          `/api/flipdesk/ebay/marketing/ad-rate-suggestion?category_id=${
+            encodeURIComponent(resolvedCategoryId ?? "")
+          }`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { suggested_rate_pct?: number };
+        if (cancelled || typeof data.suggested_rate_pct !== "number") return;
+        setPromoSuggested(data.suggested_rate_pct);
+        setPromoRate((prev) =>
+          prev.trim() === "" ? String(data.suggested_rate_pct) : prev,
+        );
+      } catch {
+        /* non-fatal — the rate box keeps its current value */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedCategoryId]);
 
   const keywords = item ? titleKeywords(item) : [];
   const group = item ? templateGroupFor(item) : "generic";
@@ -473,6 +523,16 @@ export function FlipdeskComposerPage() {
         is_active: false,
         primary_photo_id: primaryPhotoId,
         badge_enabled: badgeEnabled,
+        // US-561: persist the Promoted Listings choice. Opt-out when the toggle
+        // is off; otherwise store the accepted/adjusted rate (a blank box falls
+        // back to the category suggestion at publish, so persist null then).
+        promo_opt_out: !promoteEnabled,
+        promo_rate_pct: promoteEnabled
+          ? (() => {
+              const r = Number.parseFloat(promoRate);
+              return Number.isFinite(r) && r > 0 ? r : null;
+            })()
+          : null,
       };
 
       let listingId: string;
@@ -1025,6 +1085,78 @@ export function FlipdeskComposerPage() {
                 </p>
               </div>
             </CardContent>
+          </Card>
+
+          {/* Promoted Listings ad rate (US-561) */}
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Promote on eBay</CardTitle>
+                  <CardDescription>
+                    Attach a Promoted Listings ad rate at publish for more
+                    visibility. You’re only charged this % of the sale price
+                    when the item sells through the ad.
+                  </CardDescription>
+                </div>
+                <Switch
+                  id="promote-toggle"
+                  checked={promoteEnabled}
+                  onCheckedChange={setPromoteEnabled}
+                  aria-label="Promote this listing on eBay"
+                />
+              </div>
+            </CardHeader>
+            {promoteEnabled && (
+              <CardContent className="space-y-2">
+                <Label htmlFor="promo-rate">Ad rate (%)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="promo-rate"
+                    type="number"
+                    inputMode="decimal"
+                    min="2"
+                    max="20"
+                    step="0.5"
+                    value={promoRate}
+                    onChange={(e) => setPromoRate(e.target.value)}
+                    className="h-9 max-w-[7rem]"
+                  />
+                  {promoSuggested != null && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPromoRate(String(promoSuggested))}
+                      disabled={promoRate === String(promoSuggested)}
+                    >
+                      Use suggested ({promoSuggested}%)
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {promoSuggested != null
+                    ? `Suggested ${promoSuggested}% for this category. Adjust between 2% and 20%, or turn off to opt out.`
+                    : "Adjust between 2% and 20%, or turn off to opt out."}
+                </p>
+                {listing?.promo_status === "failed" && (
+                  <p className="text-xs text-destructive">
+                    The last publish couldn’t attach the ad on eBay. It’ll retry
+                    on your next publish.
+                  </p>
+                )}
+                {listing?.promo_ad_id && listing.promo_status &&
+                  listing.promo_status !== "failed" && (
+                    <p className="text-xs text-muted-foreground">
+                      Live ad status:{" "}
+                      <span className="font-medium">{listing.promo_status}</span>
+                      {listing.promo_rate_pct != null
+                        ? ` at ${listing.promo_rate_pct}%`
+                        : ""}
+                      .
+                    </p>
+                  )}
+              </CardContent>
+            )}
           </Card>
 
           {/* Push to marketplaces (US-149) */}

@@ -213,6 +213,9 @@ app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
 app.use("/api/flipdesk/ebay/comps", authMiddleware);
 app.use("/api/flipdesk/ebay/policies", authMiddleware);
 app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
+// US-561: Promoted Listings ad-rate suggestion + performance sync (the
+// /jobs/* promoted sync uses the job secret instead).
+app.use("/api/flipdesk/ebay/marketing/*", authMiddleware);
 // US-673: best offers + send-offer + buyer messages.
 app.use("/api/flipdesk/ebay/negotiation/*", authMiddleware);
 app.use("/api/flipdesk/ebay/messages", authMiddleware);

@@ -760,8 +760,20 @@ export interface ListingRow {
   // multi-marketplace push share the source draft's id; the source draft
   // points at itself.
   draft_id: string | null;
-  // Promoted Listings ad rate, local-first (US-150, migration 00135)
+  // Promoted Listings ad rate (US-150, migration 00135). promo_rate_pct is the
+  // seller's accepted/adjusted ad rate (%); null falls back to the category
+  // suggestion at publish. The rest (US-561, migration 00157) is the eBay-side
+  // ad state surfaced post-publish.
   promo_rate_pct: number | null;
+  // US-561: per-listing opt-out from Promoted Listings; eBay campaign/ad handles
+  // created at publish; lifecycle status ('active'|'failed'|eBay's adStatus);
+  // accrued ad spend (cents, charged only on sale); last performance sync.
+  promo_opt_out: boolean;
+  promo_campaign_id: string | null;
+  promo_ad_id: string | null;
+  promo_status: string | null;
+  promo_ad_fees_cents: number;
+  promo_synced_at: string | null;
   // Listing-performance metrics from Sell Analytics getTrafficReport
   // (US-151, migration 00136), synced every 6h. view_trend_7d is a rolling
   // per-day array of views snapshots (oldest→newest, max 7) for the sparkline.
@@ -1597,7 +1609,10 @@ export interface ListingInsert {
   price_comp_source?: string | null;
   // Cross-listing group key (US-149)
   draft_id?: string | null;
+  // Promoted Listings (US-150 / US-561). promo_rate_pct = the accepted/adjusted
+  // ad rate; promo_opt_out turns promotion off for this listing.
   promo_rate_pct?: number | null;
+  promo_opt_out?: boolean;
 }
 
 export interface SaleInsert {

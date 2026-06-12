@@ -8464,8 +8464,8 @@
         "Ad spend/performance surfaced post-publish"
       ],
       "priority": 561,
-      "passes": false,
-      "notes": "[P2][AutoLister/Revenue] Deep-dive 2026-06-03. sell.marketing scope is granted but entirely unused; zero Promoted Listings."
+      "passes": true,
+      "notes": "[P2][AutoLister/Revenue] Deep-dive 2026-06-03. sell.marketing scope is granted but entirely unused; zero Promoted Listings. | DONE 2026-06-12: new lib/ebay-marketing.ts wires the Marketing API (ensureAdCampaign find-or-create COST_PER_SALE campaign cached on marketplace_connections.ebay_campaign_id; createAdForListing via create_ads_by_listing_id; getAdForListing; syncPromotedListingsForOwner). suggestedAdRateForCategory(categoryId) gives a per-category default (baseline 8%, EBAY_DEFAULT_AD_RATE override, higher-demand cats e.g. sneakers/handbags 11%), clamped 2-20%. resolvePublishAdRate(optOut/chosen/category) drives publish: publishItemForOwner attaches an ad best-effort AFTER the listing is live (never fails publish; records promo_status). assemblePublishContext reads listings.promo_rate_pct + promo_opt_out (migration 00157) into summary.promotedAdRate — promote-by-default, charged only on sale (COST_PER_SALE). AC2: composer 'Promote on eBay' card (toggle = !opt_out, editable rate seeded from GET /marketing/ad-rate-suggestion, 'Use suggested' + opt-out); saved to promo_opt_out/promo_rate_pct. AC3: post-publish promo_status/promo_rate_pct surfaced in composer; /marketing/promoted/sync (authed) + /jobs/promoted-sync cron (added to COOLIFY.md, 6h) refresh live adStatus/bid; promo_ad_fees_cents column reserved for spend. Pure helpers unit-tested (ebay-marketing_test.ts, 5 tests). tsc/build/deno check src/main.ts/deno lint/deno test all green."
     },
     {
       "id": "US-562",
