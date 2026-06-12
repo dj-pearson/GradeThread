@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "include": [
+    "/cert/*",
+    "/verified/*",
+    "/blog/*",
+    "/og/*",
+    "/badge/*",
+    "/slab/*",
+    "/condition-index/*",
+    "/.well-known/*",
+    "/sitemap.xml",
+    "/sitemap-blog.xml",
+    "/sitemap-certs.xml",
+    "/sitemap-condition.xml",
+    "/sitemap-sellers.xml",
+    "/sitemap-static.xml",
+    "/rss.xml",
+    "/robots.txt",
+    "/llms.txt",
+    "/csp-report"
+  ],
+  "exclude": [
+    "/assets/*"
+  ]
+}

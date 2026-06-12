@@ -153,6 +153,7 @@ procedure: **`BACKUPS.md`**. Record the result here so the drill has a home.
 | Stripe webhook | `stripe trigger checkout.session.completed` → 200 in edge logs, no dead-letter | ☐ | |
 | Certificate page | open a known `/cert/<id>` → grade + AI disclosure render; verify badge `verified` | ☐ | |
 | SEO endpoints | `curl -fsS https://gradethread.com/{robots.txt,sitemap.xml,llms.txt}` → 200 | ☐ | |
+| Pages Function routing (US-424) | `npm run smoke:functions -- https://gradethread.com --cert <id>` → all required routes Function-rendered, none shadowed by SPA shell | ☐ | |
 | Critical path | run the Playwright e2e (or manual signup→submit→grade→cert) | ☐ | |
 | Admin review queue | `/admin/reviews` loads; low-confidence grades appear | ☐ | |
 

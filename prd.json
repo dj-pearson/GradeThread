@@ -6717,8 +6717,8 @@
         "Post-deploy smoke check asserts these endpoints return non-SPA content"
       ],
       "priority": 424,
-      "passes": false,
-      "notes": "[P1][SEO] Audit 2026-06-03 (2 agents). No _routes.json; SPA fallback could shadow Functions."
+      "passes": true,
+      "notes": "[P1][SEO] Audit 2026-06-03 (2 agents). No _routes.json; SPA fallback could shadow Functions. | Implemented: public/_routes.json allowlist (only dynamic/data routes invoke Functions; SPA shell + prerendered HTML + /assets/* served statically). CI guard test src/lib/seo/__tests__/routes-json.test.ts; post-deploy smoke scripts/smoke-functions.mjs (npm run smoke:functions) wired into LAUNCH_CHECKLIST §6."
     },
     {
       "id": "US-425",
