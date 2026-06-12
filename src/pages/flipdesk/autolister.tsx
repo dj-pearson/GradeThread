@@ -19,6 +19,7 @@ import {
   Eraser,
   Undo2,
   Pencil,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -27,10 +28,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { compressImage, validateImage } from "@/lib/image-utils";
+import { ImageDecodeError, processStagedImage } from "@/lib/image-worker-pool";
+import { runWithConcurrency } from "@/lib/concurrency";
 import { readCaptureTime } from "@/lib/exif";
 import { autoGroupPhotos, type GroupablePhoto } from "@/lib/autolister-grouping";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
@@ -164,6 +167,38 @@ async function uploadStagingPhoto(
   };
 }
 
+// US-539: per-file upload pipeline state. Tasks drive the per-file progress
+// bars while a batch is in flight; failed tasks keep their File so "Retry"
+// can re-run the pipeline without re-picking. `retryable: false` marks
+// permanent rejections (low-res, wrong type, corrupt) where retrying is
+// pointless — those get only a dismiss affordance.
+type UploadTaskStatus = "queued" | "processing" | "uploading" | "done" | "error";
+
+interface UploadTask {
+  id: string;
+  name: string;
+  status: UploadTaskStatus;
+  progress: number; // 0–100, stage-based
+  error?: string;
+  retryable?: boolean;
+  file: File;
+}
+
+// Pipeline concurrency: compression is bounded by the worker pool (2–4
+// workers), so lanes above that overlap network uploads with compression.
+const UPLOAD_CONCURRENCY = 5;
+
+// Aggregate per-batch accounting for the summary toasts.
+interface BatchStats {
+  ok: number;
+  failed: number;
+  heicFailed: number;
+  borderline: string[];
+}
+
+const MIN_RESOLUTION = 1200;
+const BORDERLINE_RESOLUTION = 1500;
+
 function looksHeic(file: File): boolean {
   const lc = file.name.toLowerCase();
   return (
@@ -280,7 +315,11 @@ export function FlipdeskAutolisterPage() {
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
-  const [uploading, setUploading] = useState(0);
+  // US-539: per-file pipeline tasks (progress bars + failure retry).
+  const [uploadTasks, setUploadTasks] = useState<UploadTask[]>([]);
+  const uploading = uploadTasks.filter(
+    (t) => t.status === "queued" || t.status === "processing" || t.status === "uploading",
+  ).length;
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   // Google Photos import: whether the server has it configured, and an
@@ -342,87 +381,119 @@ export function FlipdeskAutolisterPage() {
   );
   const ungrouped = staged.filter((p) => !groupedIds.has(p.id));
 
-  async function handleFiles(files: FileList | File[] | null) {
-    if (!files || !ownerId) return;
-    const list = Array.from(files);
-    setUploading((n) => n + list.length);
-    const added: StagedPhoto[] = [];
-    let heicFailed = 0;
-    // US-540: per-file gate on quality/resolution + a soft borderline warning.
-    const rejected: string[] = [];
-    const borderline: string[] = [];
-    for (const file of list) {
+  function patchTask(id: string, patch: Partial<UploadTask>) {
+    setUploadTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    );
+  }
+
+  // US-539: the per-file pipeline. Capture time → HEIC transcode → off-thread
+  // compress+thumbnail (worker pool) → quality gate → parallel upload. Never
+  // throws: every failure lands on the task (with retryability) + batch stats.
+  async function processUploadTask(task: UploadTask, stats: BatchStats): Promise<void> {
+    const { id, file } = task;
+    patchTask(id, { status: "processing", progress: 10, error: undefined });
+    try {
+      // US-532: capture EXIF time from the ORIGINAL file (incl. HEIC) before
+      // any transcode/recompression that may drop the metadata — it drives
+      // capture-time auto-grouping.
+      const capturedAt = await readCaptureTime(file).catch(() => null);
+      // US-531: iPhone HEIC/HEIF is transcoded to JPEG in the browser so it
+      // works instead of being rejected; non-HEIC files pass through.
+      let workFile: File;
       try {
-        // US-532: capture EXIF time from the ORIGINAL file (incl. HEIC) before
-        // any transcode/recompression that may drop the metadata — it drives
-        // capture-time auto-grouping.
-        const capturedAt = await readCaptureTime(file).catch(() => null);
-        // US-531: iPhone HEIC/HEIF is transcoded to JPEG in the browser so it
-        // works instead of being rejected; non-HEIC files pass through.
-        let workFile: File;
-        try {
-          workFile = await maybeTranscodeHeic(file);
-        } catch (heicErr) {
-          if (import.meta.env.DEV) console.warn("[autolister] HEIC transcode failed:", heicErr);
-          heicFailed++;
-          continue;
-        }
-        if (!workFile.type.startsWith("image/")) continue;
+        workFile = await maybeTranscodeHeic(file);
+      } catch (heicErr) {
+        if (import.meta.env.DEV) console.warn("[autolister] HEIC transcode failed:", heicErr);
+        stats.heicFailed++;
+        stats.failed++;
+        patchTask(id, {
+          status: "error",
+          retryable: false,
+          error:
+            "HEIC conversion failed. Re-export as JPEG (Photos → Share → Save as Files) and add it again.",
+        });
+        return;
+      }
+      // US-540: type gate (the compressor and server accept JPEG/PNG/WebP).
+      if (!/^image\/(jpeg|png|webp)$/.test(workFile.type)) {
+        stats.failed++;
+        patchTask(id, {
+          status: "error",
+          retryable: false,
+          error: `Unsupported type "${workFile.type || "unknown"}" — use JPEG, PNG, or WebP.`,
+        });
+        return;
+      }
+      patchTask(id, { progress: 25 });
 
-        // US-540: gate on type + minimum resolution (1200px) BEFORE we spend an
-        // upload + AI generation on an image too small/wrong-type to list well.
-        // Size is NOT gated here (the compressor below downsizes large files);
-        // we only act on the type/resolution/decode failures from validateImage,
-        // each with a clear per-file reason. Borderline (just above the floor)
-        // images warn but still pass.
-        const validation = await validateImage(workFile);
-        const blockingErr = validation.errors.find(
-          (e) => e.field === "type" || e.field === "resolution" || e.field === "file",
-        );
-        if (blockingErr) {
-          rejected.push(`"${file.name}": ${blockingErr.message}`);
-          continue;
+      let body: Blob = workFile;
+      let width: number | null = null;
+      let height: number | null = null;
+      let phash = "";
+      let thumbBlob: Blob | null = null;
+      let compressed = false;
+      try {
+        // US-539: decode + resize + thumbnail + dHash run in the worker pool
+        // (OffscreenCanvas), one decode for both renditions, off the main thread.
+        const out = await processStagedImage(workFile, {
+          maxWidth: 2400,
+          quality: 0.85,
+          thumbWidth: 320,
+          thumbQuality: 0.7,
+        });
+        // US-540: gate on minimum resolution (original dimensions) BEFORE we
+        // spend an upload + AI generation on an image too small to list well.
+        // Borderline (just above the floor) images warn but still pass.
+        if (out.srcWidth != null && out.srcHeight != null) {
+          const minDim = Math.min(out.srcWidth, out.srcHeight);
+          if (minDim < MIN_RESOLUTION) {
+            stats.failed++;
+            patchTask(id, {
+              status: "error",
+              retryable: false,
+              error: `Resolution (${out.srcWidth}x${out.srcHeight}) is too low. Minimum is ${MIN_RESOLUTION}x${MIN_RESOLUTION}px.`,
+            });
+            return;
+          }
+          if (minDim < BORDERLINE_RESOLUTION) stats.borderline.push(file.name);
         }
-        if (validation.width && validation.height) {
-          const minDim = Math.min(validation.width, validation.height);
-          if (minDim < 1500) borderline.push(file.name);
+        body = out.blob;
+        width = out.width;
+        height = out.height;
+        phash = out.phash; // US-532: dHash for the visual grouping pass
+        thumbBlob = out.thumbBlob;
+        compressed = true;
+      } catch (compErr) {
+        if (compErr instanceof ImageDecodeError) {
+          stats.failed++;
+          patchTask(id, { status: "error", retryable: false, error: compErr.message });
+          return;
         }
+        if (import.meta.env.DEV) console.warn("[autolister] compress failed, using original:", compErr);
+      }
+      // If compression failed AND the file is huge (>15MB), the AI generation
+      // will likely choke too. Skip with a clear message.
+      if (!compressed && workFile.size > 15 * 1024 * 1024) {
+        stats.failed++;
+        patchTask(id, {
+          status: "error",
+          retryable: false,
+          error: `${(workFile.size / 1024 / 1024).toFixed(1)}MB and couldn't be compressed in the browser. Convert it to a regular JPEG and try again.`,
+        });
+        return;
+      }
 
-        const id = crypto.randomUUID();
-        let body: Blob = workFile;
-        let width: number | null = null;
-        let height: number | null = null;
-        let phash = "";
-        let thumbBlob: Blob | null = null;
-        let compressed = false;
-        try {
-          const main = await compressImage(workFile, 2400, 0.85);
-          body = main.blob;
-          width = main.width;
-          height = main.height;
-          phash = main.phash; // US-532: dHash for the visual grouping pass
-          const thumb = await compressImage(workFile, 320, 0.7);
-          thumbBlob = thumb.blob;
-          compressed = true;
-        } catch (compErr) {
-          if (import.meta.env.DEV) console.warn("[autolister] compress failed, using original:", compErr);
-        }
-        // If compression failed AND the file is huge (>15MB), the AI generation
-        // will likely choke too. Skip with a clear message.
-        if (!compressed && workFile.size > 15 * 1024 * 1024) {
-          toast.error(
-            `"${workFile.name}" is ${(workFile.size / 1024 / 1024).toFixed(1)}MB and couldn't be compressed in the browser. Please convert it to a regular JPEG and try again.`,
-          );
-          continue;
-        }
+      // US-529: server-side validated upload (sniff + caps + EXIF strip). On
+      // the compress-failure fallback `body` is the raw original — the
+      // server's metadata strip guarantees no GPS EXIF lands in storage.
+      patchTask(id, { status: "uploading", progress: 65 });
+      const up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
 
-        // US-529: server-side validated upload (sniff + caps + EXIF strip). On
-        // the compress-failure fallback `body` is the raw original — the
-        // server's metadata strip guarantees no GPS EXIF lands in storage.
-        const up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
-
-        added.push({
-          id,
+      setStaged((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
           url: up.url,
           storagePath: up.storagePath,
           thumbnailUrl: up.thumbnailUrl,
@@ -432,22 +503,28 @@ export function FlipdeskAutolisterPage() {
           bytes: up.bytes,
           capturedAtMs: capturedAt ? capturedAt.getTime() : null,
           phash,
-        });
-      } catch (err) {
-        toast.error(
-          `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      } finally {
-        setUploading((n) => Math.max(0, n - 1));
-      }
+        },
+      ]);
+      stats.ok++;
+      patchTask(id, { status: "done", progress: 100 });
+    } catch (err) {
+      // Transient failures (network, server hiccup) — keep the File for retry.
+      stats.failed++;
+      patchTask(id, {
+        status: "error",
+        retryable: true,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-    if (added.length > 0) {
-      setStaged((prev) => [...prev, ...added]);
-      toast.success(`${added.length} photo${added.length === 1 ? "" : "s"} added.`);
+  }
+
+  function reportBatch(stats: BatchStats) {
+    if (stats.ok > 0) {
+      toast.success(`${stats.ok} photo${stats.ok === 1 ? "" : "s"} added.`);
     }
-    if (heicFailed > 0) {
+    if (stats.heicFailed > 0) {
       toast.warning(
-        `${heicFailed} HEIC photo${heicFailed === 1 ? "" : "s"} couldn't be converted.`,
+        `${stats.heicFailed} HEIC photo${stats.heicFailed === 1 ? "" : "s"} couldn't be converted.`,
         {
           description:
             "Re-export them as JPEG (Photos app → Share → Save as Files → JPEG) and try again.",
@@ -455,19 +532,18 @@ export function FlipdeskAutolisterPage() {
         },
       );
     }
-    // US-540: clear per-file reasons for anything rejected on quality.
-    if (rejected.length > 0) {
+    if (stats.failed > stats.heicFailed) {
       toast.error(
-        `${rejected.length} photo${rejected.length === 1 ? "" : "s"} skipped — too low quality.`,
+        `${stats.failed - stats.heicFailed} photo${stats.failed - stats.heicFailed === 1 ? "" : "s"} didn't make it.`,
         {
-          description: rejected.slice(0, 4).join(" "),
-          duration: 10_000,
+          description: "Each one is listed above with the reason — retry or dismiss.",
+          duration: 8_000,
         },
       );
     }
-    if (borderline.length > 0) {
+    if (stats.borderline.length > 0) {
       toast.warning(
-        `${borderline.length} photo${borderline.length === 1 ? "" : "s"} are low-resolution.`,
+        `${stats.borderline.length} photo${stats.borderline.length === 1 ? "" : "s"} are low-resolution.`,
         {
           description:
             "They'll list, but a sharper, larger shot (1500px+) reads better and sells faster.",
@@ -475,6 +551,45 @@ export function FlipdeskAutolisterPage() {
         },
       );
     }
+  }
+
+  // US-539: stage a batch. Each file runs the full pipeline in its own lane
+  // (UPLOAD_CONCURRENCY at a time), so compression (worker pool) and uploads
+  // overlap instead of running serially; photos appear in the grid as each
+  // finishes. Settled "done" rows are swept once the batch ends; failures stay
+  // for retry/dismiss.
+  async function handleFiles(files: FileList | File[] | null) {
+    if (!files || !ownerId) return;
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    const tasks: UploadTask[] = list.map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      status: "queued",
+      progress: 0,
+      file,
+    }));
+    setUploadTasks((prev) => [...prev.filter((t) => t.status !== "done"), ...tasks]);
+    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, borderline: [] };
+    await runWithConcurrency(tasks, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
+    reportBatch(stats);
+    setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
+  }
+
+  // US-539: re-run failed pipelines without re-picking files.
+  async function retryUploadTasks(taskIds: string[]) {
+    const targets = uploadTasks.filter(
+      (t) => taskIds.includes(t.id) && t.status === "error" && t.retryable !== false,
+    );
+    if (targets.length === 0) return;
+    const stats: BatchStats = { ok: 0, failed: 0, heicFailed: 0, borderline: [] };
+    await runWithConcurrency(targets, UPLOAD_CONCURRENCY, (t) => processUploadTask(t, stats));
+    reportBatch(stats);
+    setUploadTasks((prev) => prev.filter((t) => t.status !== "done"));
+  }
+
+  function dismissUploadTask(id: string) {
+    setUploadTasks((prev) => prev.filter((t) => t.id !== id));
   }
 
   // Google Photos import: open the Google-hosted picker in a popup, poll
@@ -793,13 +908,18 @@ export function FlipdeskAutolisterPage() {
     let phash = "";
     let thumbBlob: Blob | null = null;
     try {
-      const main = await compressImage(file, 2400, 0.85);
-      body = main.blob;
-      width = main.width;
-      height = main.height;
-      phash = main.phash;
-      const thumb = await compressImage(file, 320, 0.7);
-      thumbBlob = thumb.blob;
+      // US-539: same off-thread worker pipeline as fresh uploads.
+      const out = await processStagedImage(file, {
+        maxWidth: 2400,
+        quality: 0.85,
+        thumbWidth: 320,
+        thumbQuality: 0.7,
+      });
+      body = out.blob;
+      width = out.width;
+      height = out.height;
+      phash = out.phash;
+      thumbBlob = out.thumbBlob;
     } catch (compErr) {
       if (import.meta.env.DEV) console.warn("[autolister] edit compress failed, using edited blob:", compErr);
     }
@@ -1366,6 +1486,90 @@ export function FlipdeskAutolisterPage() {
           )}
         </div>
       </Card>
+
+      {/* US-539: per-file progress bars + per-file failure retry */}
+      {uploadTasks.length > 0 && (
+        <Card className="p-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium">
+              {uploading > 0
+                ? `Uploading ${uploadTasks.filter((t) => t.status === "done" || t.status === "error").length} of ${uploadTasks.length}…`
+                : `${uploadTasks.filter((t) => t.status === "error").length} photo${uploadTasks.filter((t) => t.status === "error").length === 1 ? "" : "s"} failed`}
+            </span>
+            {uploading === 0 && (
+              <div className="flex items-center gap-2">
+                {uploadTasks.some((t) => t.status === "error" && t.retryable !== false) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() =>
+                      void retryUploadTasks(
+                        uploadTasks
+                          .filter((t) => t.status === "error" && t.retryable !== false)
+                          .map((t) => t.id),
+                      )
+                    }
+                  >
+                    <RotateCcw className="mr-1 h-4 w-4" />
+                    Retry failed
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setUploadTasks([])}>
+                  Dismiss all
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
+            {uploadTasks.map((t) => (
+              <div key={t.id} className="flex items-center gap-2 text-xs">
+                <span className="w-36 shrink-0 truncate sm:w-48" title={t.name}>
+                  {t.name}
+                </span>
+                {t.status === "error" ? (
+                  <>
+                    <span
+                      className="min-w-0 flex-1 truncate text-destructive"
+                      title={t.error}
+                    >
+                      {t.error}
+                    </span>
+                    {t.retryable !== false && (
+                      <button
+                        type="button"
+                        title="Retry this photo"
+                        onClick={() => void retryUploadTasks([t.id])}
+                        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium text-primary hover:bg-muted"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Retry
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      title="Dismiss"
+                      onClick={() => dismissUploadTask(t.id)}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Progress value={t.progress} className="h-1.5 min-w-0 flex-1" />
+                    <span className="w-20 shrink-0 text-right text-muted-foreground">
+                      {t.status === "queued" && "Queued"}
+                      {t.status === "processing" && "Processing…"}
+                      {t.status === "uploading" && "Uploading…"}
+                      {t.status === "done" && "Done"}
+                    </span>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* US-536: one-tap auto-enhance across the whole batch */}
       {staged.length > 0 && entitled && (
