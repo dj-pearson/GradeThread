@@ -8388,8 +8388,8 @@
         "Templates / smart defaults from the seller's last N listings (auto policies, shipping, common aspects by brand/category)"
       ],
       "priority": 555,
-      "passes": false,
-      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. No find/replace; bulk category is a raw ID textbox with no cascade; no bulk policy assignment despite the table existing."
+      "passes": true,
+      "notes": "[P2][AutoLister/UX] Done 2026-06-12. Bulk grid (autolister-bulk-edit.tsx) gained: literal find/replace across titles+descriptions (scoped to selected/all rows, title results clamped to 80 chars, reports occurrence count) — descriptions are now loaded + persisted (listing_description); the category control was already the live Taxonomy-backed EbayCategoryPicker, and bulk-apply now runs an aspect cascade (fetches the category's required item specifics via useEbayCategoryAspects and rowIssues flags rows missing them); bulk business-policy assignment (shipping/payment/return) sourced from useEbayPolicies, persisted to listings.{shipping,payment,return}_policy_id, surfaced per-row as S/P/R badges; assemblePublishContext now overlays those per-listing overrides on the account-default PolicySet at publish; bulk AI aspect-fill across the batch via useAiExtractAspects (bounded concurrency, only fills empty fields above 0.5 confidence); template apply from listing_templates (US-674) + smart defaults learned from the seller's last 25 non-draft listings (most-common condition + policies, falling back to account defaults). Edge: flipdesk-ebay.ts PublishListing + select + policy overlay. No new migration needed (columns existed in 00052)."
     },
     {
       "id": "US-556",

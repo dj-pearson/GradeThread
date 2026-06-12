@@ -3689,6 +3689,13 @@ interface PublishListing {
   scheduled_publish_at: string | null;
   // Per-listing opt-in for the grade-badge + cert-link promotion (00027).
   badge_enabled: boolean | null;
+  // US-555: per-listing eBay business-policy overrides (bulk-assigned in the
+  // AutoLister grid). When set they win over the account-level defaults at
+  // publish; null falls back to the seller's default policy set. Column names
+  // mirror listings.{shipping,payment,return}_policy_id (00052).
+  shipping_policy_id: string | null;
+  payment_policy_id: string | null;
+  return_policy_id: string | null;
 }
 
 interface PublishContextOk {
@@ -4006,7 +4013,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -4227,6 +4234,20 @@ async function assemblePublishContext(
       }
     } else {
       policies = policyResult;
+      // US-555: a per-listing policy override (bulk-assigned in the AutoLister
+      // grid) wins over the account default. Each id is left to fall back when
+      // null, so a partial override (e.g. only return policy) still publishes
+      // with the account defaults for the rest.
+      if (listing) {
+        policies = {
+          ...policies,
+          fulfillmentPolicyId:
+            listing.shipping_policy_id ?? policies.fulfillmentPolicyId,
+          paymentPolicyId:
+            listing.payment_policy_id ?? policies.paymentPolicyId,
+          returnPolicyId: listing.return_policy_id ?? policies.returnPolicyId,
+        };
+      }
     }
   } catch (err) {
     // Token-refresh / scope errors land here. Surface a hint so the seller

@@ -9,6 +9,9 @@ import {
   ArrowRight,
   ShieldCheck,
   Search,
+  Replace,
+  Wand2,
+  LayoutTemplate,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -21,7 +24,12 @@ import {
 } from "@/components/ui/popover";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { useEbayCategorySuggest } from "@/hooks/use-ebay";
+import {
+  useEbayCategorySuggest,
+  useEbayCategoryAspects,
+  useEbayPolicies,
+  useAiExtractAspects,
+} from "@/hooks/use-ebay";
 import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
@@ -46,6 +54,7 @@ interface DraftRow {
   id: string;
   inventory_item_id: string;
   listing_title: string | null;
+  listing_description: string | null;
   listing_price: number | null;
   ebay_condition: string | null;
   quantity: number | null;
@@ -57,12 +66,35 @@ interface DraftRow {
   // US-553: comp-derived price range (p25/p75) for the "median comp − X%" rule.
   price_range_low_cents: number | null;
   price_range_high_cents: number | null;
+  // US-555: per-listing eBay business-policy overrides (bulk-assigned here,
+  // applied at publish over the account defaults).
+  shipping_policy_id: string | null;
+  payment_policy_id: string | null;
+  return_policy_id: string | null;
+}
+
+// US-555: a saved listing preset (listing_templates, US-674) the seller can
+// apply across a whole batch from the bulk grid.
+interface ListingTemplate {
+  id: string;
+  name: string;
+  description_template: string | null;
+  ebay_condition: string | null;
+  item_specifics: Record<string, string[] | string> | null;
+  ebay_category_id: string | null;
+  return_policy_id: string | null;
+  shipping_policy_id: string | null;
+  payment_policy_id: string | null;
+  is_default: boolean;
 }
 
 interface EditRow {
   id: string;
   itemId: string;
   title: string;
+  // US-555: listing body. Not shown as an editable cell here (that's US-556),
+  // but loaded so bulk find/replace can rewrite it and templates can seed it.
+  description: string;
   price: string;
   condition: string;
   quantity: string;
@@ -89,6 +121,10 @@ interface EditRow {
   // US-553: comp-derived price range (dollars) for the "median comp − X%" rule.
   compLow: number | null;
   compHigh: number | null;
+  // US-555: per-listing eBay business-policy overrides.
+  shippingPolicyId: string;
+  paymentPolicyId: string;
+  returnPolicyId: string;
   // Server-side validation blockers (US-320) — populated by "Validate" actions.
   validationBlockers: string[] | null;
   dirty: boolean;
@@ -111,7 +147,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot, price_range_low_cents, price_range_high_cents",
+          "id, inventory_item_id, listing_title, listing_description, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot, price_range_low_cents, price_range_high_cents, shipping_policy_id, payment_policy_id, return_policy_id",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -185,6 +221,60 @@ export function FlipdeskAutolisterBulkEditPage() {
   } | null>(null);
   const [bulkDepartment, setBulkDepartment] = useState("");
   const [bulkBrand, setBulkBrand] = useState("");
+  // US-555: find/replace across titles + descriptions.
+  const [findText, setFindText] = useState("");
+  const [replaceText, setReplaceText] = useState("");
+  const [findScope, setFindScope] = useState<"title" | "description" | "both">(
+    "title",
+  );
+  // US-555: bulk business-policy assignment (fulfillment/payment/return).
+  const [bulkPolicy, setBulkPolicy] = useState({
+    fulfillment: "",
+    payment: "",
+    return: "",
+  });
+  const [aiFilling, setAiFilling] = useState(false);
+  const [applyingDefaults, setApplyingDefaults] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  // US-555: required item-specifics per category, refreshed when a bulk category
+  // is applied (the "aspect cascade"). rowIssues flags rows missing them.
+  const [requiredAspectsByCategory, setRequiredAspectsByCategory] = useState<
+    Record<string, string[]>
+  >({});
+
+  const policiesQuery = useEbayPolicies();
+  // Aspect spec for the category staged in the bulk toolbar — drives the cascade.
+  const bulkCatAspects = useEbayCategoryAspects(bulkCategory?.id ?? null);
+  const aiExtract = useAiExtractAspects();
+
+  // Policy id → human label, so the per-row policy column reads meaningfully.
+  const policyLabel = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of policiesQuery.data?.policies ?? []) {
+      map[p.policy_id] = p.policy_name;
+    }
+    return map;
+  }, [policiesQuery.data]);
+
+  const fulfillmentPolicies =
+    policiesQuery.data?.policies.filter((p) => p.policy_type === "fulfillment") ??
+      [];
+  const paymentPolicies =
+    policiesQuery.data?.policies.filter((p) => p.policy_type === "payment") ?? [];
+  const returnPolicies =
+    policiesQuery.data?.policies.filter((p) => p.policy_type === "return") ?? [];
+
+  // US-555: the seller's saved listing templates (listing_templates / US-674).
+  const templatesQuery = useQuery({
+    queryKey: ["flipdesk_listing_templates"],
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<ListingTemplate[]> => {
+      const res = await edgeFetch("/api/flipdesk/templates");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not load templates.");
+      return (json.templates ?? []) as ListingTemplate[];
+    },
+  });
 
   // Seed editable rows once the drafts load.
   useEffect(() => {
@@ -200,6 +290,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           id: r.id,
           itemId: r.inventory_item_id,
           title: r.listing_title ?? "",
+          description: r.listing_description ?? "",
           price: r.listing_price != null ? String(r.listing_price) : "",
           condition: r.ebay_condition ?? "",
           quantity: r.quantity != null ? String(r.quantity) : "1",
@@ -219,6 +310,9 @@ export function FlipdeskAutolisterBulkEditPage() {
             r.price_range_high_cents != null
               ? r.price_range_high_cents / 100
               : null,
+          shippingPolicyId: r.shipping_policy_id ?? "",
+          paymentPolicyId: r.payment_policy_id ?? "",
+          returnPolicyId: r.return_policy_id ?? "",
           validationBlockers: null,
           dirty: false,
         };
@@ -327,6 +421,283 @@ export function FlipdeskAutolisterBulkEditPage() {
     }
   }
 
+  // US-555: literal find/replace across titles and/or descriptions of the
+  // targeted rows. Title results are clamped to the 80-char limit. Reports how
+  // many occurrences changed so a no-op is obvious.
+  function applyFindReplace() {
+    if (!findText) return;
+    const doTitle = findScope === "title" || findScope === "both";
+    const doDesc = findScope === "description" || findScope === "both";
+    let titleHits = 0;
+    let descHits = 0;
+    setRows((prev) =>
+      prev.map((r) => {
+        if (!targetIds.has(r.id)) return r;
+        const patch: Partial<EditRow> = {};
+        let changed = false;
+        if (doTitle && r.title.includes(findText)) {
+          titleHits += r.title.split(findText).length - 1;
+          patch.title = r.title.split(findText).join(replaceText).slice(0, TITLE_MAX);
+          changed = true;
+        }
+        if (doDesc && r.description.includes(findText)) {
+          descHits += r.description.split(findText).length - 1;
+          patch.description = r.description.split(findText).join(replaceText);
+          changed = true;
+        }
+        return changed ? { ...r, ...patch, dirty: true } : r;
+      }),
+    );
+    const total = titleHits + descHits;
+    if (total === 0) {
+      toast.info(`"${findText}" not found in the targeted rows.`);
+    } else {
+      toast.success(
+        `Replaced ${total} occurrence${total === 1 ? "" : "s"} — ${titleHits} in titles, ${descHits} in descriptions.`,
+      );
+    }
+  }
+
+  // US-555: required aspect names for a category's aspect spec (eBay requires
+  // these item specifics before publish).
+  function requiredAspectNames(
+    resp: typeof bulkCatAspects.data,
+  ): string[] {
+    return (resp?.aspects.aspects ?? [])
+      .filter((a) => a.aspectConstraint?.aspectRequired)
+      .map((a) => a.localizedAspectName);
+  }
+
+  // US-555: apply the staged bulk category AND refresh the required-specifics
+  // list for it (the aspect cascade). Rows then flag any required aspect they
+  // don't yet cover.
+  function applyBulkCategory() {
+    if (!bulkCategory) return;
+    const required = requiredAspectNames(bulkCatAspects.data);
+    setRequiredAspectsByCategory((prev) => ({
+      ...prev,
+      [bulkCategory.id]: required,
+    }));
+    applyToTargets(() => ({
+      categoryId: bulkCategory.id,
+      categoryPath: bulkCategory.path,
+    }));
+    if (required.length > 0) {
+      toast.info(`Required item specifics now: ${required.join(", ")}.`);
+    }
+  }
+
+  // US-555: assign the chosen business policies to the targeted rows. Any subset
+  // (e.g. only the return policy) is allowed; unset selectors are left as-is.
+  function applyPolicies() {
+    const patch: Partial<EditRow> = {};
+    if (bulkPolicy.fulfillment) patch.shippingPolicyId = bulkPolicy.fulfillment;
+    if (bulkPolicy.payment) patch.paymentPolicyId = bulkPolicy.payment;
+    if (bulkPolicy.return) patch.returnPolicyId = bulkPolicy.return;
+    if (Object.keys(patch).length === 0) {
+      toast.info("Pick at least one policy to assign.");
+      return;
+    }
+    applyToTargets(() => patch);
+  }
+
+  // The aspects already known for a row — passed to the AI so it skips them and
+  // we never clobber a seller's manual value.
+  function knownAspectsFor(r: EditRow): Record<string, string[]> {
+    const known: Record<string, string[]> = { ...r.specifics };
+    if (r.department.trim()) known.Department = [r.department.trim()];
+    if (r.brand.trim()) known.Brand = [r.brand.trim()];
+    if (r.size.trim()) known.Size = [r.size.trim()];
+    if (r.color.trim()) known.Color = [r.color.trim()];
+    return known;
+  }
+
+  // Merge AI aspect suggestions into a row, only filling EMPTY fields and only
+  // when the model is reasonably confident.
+  function mergeAiSuggestions(
+    r: EditRow,
+    suggestions: Record<string, { values: string[]; confidence: number }>,
+  ): Partial<EditRow> {
+    const patch: Partial<EditRow> = {};
+    const specifics = { ...r.specifics };
+    for (const [name, s] of Object.entries(suggestions)) {
+      const values = (s.values ?? []).filter((v) => v.trim());
+      if (values.length === 0 || s.confidence < 0.5) continue;
+      const first = values[0]!;
+      if (name === "Department") {
+        if (!r.department.trim()) patch.department = first;
+      } else if (name === "Brand") {
+        if (!r.brand.trim()) patch.brand = first;
+      } else if (name === "Size") {
+        if (!r.size.trim()) patch.size = first;
+      } else if (name === "Color") {
+        if (!r.color.trim()) patch.color = first;
+      } else if (!specifics[name]?.length) {
+        specifics[name] = values;
+      }
+    }
+    patch.specifics = specifics;
+    return patch;
+  }
+
+  // US-555: AI aspect-fill across the batch. Only rows with a category set can
+  // be filled (the spec depends on the category). Bounded concurrency so a big
+  // batch doesn't hammer the AI endpoint.
+  async function aiFillSpecifics() {
+    const targets = rows.filter((r) => targetIds.has(r.id) && r.categoryId.trim());
+    if (targets.length === 0) {
+      toast.info("Select rows with a category set first.");
+      return;
+    }
+    setAiFilling(true);
+    try {
+      const CONCURRENCY = 3;
+      let filled = 0;
+      for (let i = 0; i < targets.length; i += CONCURRENCY) {
+        const batch = targets.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (row) => {
+            try {
+              const resp = await aiExtract.mutateAsync({
+                itemId: row.itemId,
+                categoryId: row.categoryId,
+                categoryPath: row.categoryPath || undefined,
+                knownAspects: knownAspectsFor(row),
+              });
+              return { id: row.id, suggestions: resp.suggestions };
+            } catch {
+              return { id: row.id, suggestions: null };
+            }
+          }),
+        );
+        setRows((prev) =>
+          prev.map((r) => {
+            const hit = results.find((x) => x.id === r.id);
+            if (!hit || !hit.suggestions) return r;
+            return { ...r, ...mergeAiSuggestions(r, hit.suggestions), dirty: true };
+          }),
+        );
+        filled += results.filter((x) => x.suggestions).length;
+      }
+      toast.success(
+        `AI filled specifics for ${filled} of ${targets.length} row${targets.length === 1 ? "" : "s"}.`,
+      );
+    } finally {
+      setAiFilling(false);
+    }
+  }
+
+  // US-555: apply a saved template to the targeted rows. Only fills empty fields
+  // so it never overwrites edits already made; merges the template's item
+  // specifics, condition, category, policies, and description footer.
+  function applyTemplate() {
+    const t = templatesQuery.data?.find((x) => x.id === selectedTemplateId);
+    if (!t) return;
+    applyToTargets((r) => {
+      const patch: Partial<EditRow> = {};
+      if (t.ebay_condition && !r.condition) patch.condition = t.ebay_condition;
+      if (t.ebay_category_id) patch.categoryId = t.ebay_category_id;
+      if (t.shipping_policy_id) patch.shippingPolicyId = t.shipping_policy_id;
+      if (t.payment_policy_id) patch.paymentPolicyId = t.payment_policy_id;
+      if (t.return_policy_id) patch.returnPolicyId = t.return_policy_id;
+      if (t.description_template && !r.description.trim()) {
+        patch.description = t.description_template;
+      }
+      const specifics = { ...r.specifics };
+      for (const [name, raw] of Object.entries(t.item_specifics ?? {})) {
+        const values = (Array.isArray(raw) ? raw : [String(raw)]).filter((v) =>
+          v.trim()
+        );
+        if (values.length === 0) continue;
+        const first = values[0]!;
+        if (name === "Department") {
+          if (!r.department.trim()) patch.department = first;
+        } else if (name === "Brand") {
+          if (!r.brand.trim()) patch.brand = first;
+        } else if (name === "Size") {
+          if (!r.size.trim()) patch.size = first;
+        } else if (name === "Color") {
+          if (!r.color.trim()) patch.color = first;
+        } else if (!specifics[name]?.length) {
+          specifics[name] = values;
+        }
+      }
+      patch.specifics = specifics;
+      return patch;
+    });
+    toast.success(`Applied template "${t.name}".`);
+  }
+
+  // US-555: smart defaults learned from the seller's last N non-draft listings —
+  // the most common condition + business policies. Only fills empty fields. RLS
+  // scopes the query to the seller's own listings.
+  async function applySmartDefaults() {
+    setApplyingDefaults(true);
+    try {
+      const { data: recent, error: recentErr } = await supabase
+        .from("listings")
+        .select(
+          "ebay_condition, shipping_policy_id, payment_policy_id, return_policy_id",
+        )
+        .eq("platform", "ebay")
+        .neq("listing_status", "draft")
+        .order("created_at", { ascending: false })
+        .limit(25);
+      if (recentErr) throw recentErr;
+      const recentRows = (recent ?? []) as Array<{
+        ebay_condition: string | null;
+        shipping_policy_id: string | null;
+        payment_policy_id: string | null;
+        return_policy_id: string | null;
+      }>;
+      if (recentRows.length === 0) {
+        toast.info("No recent published listings to learn defaults from yet.");
+        return;
+      }
+      const mostCommon = (pick: (r: (typeof recentRows)[number]) => string | null) => {
+        const counts = new Map<string, number>();
+        for (const r of recentRows) {
+          const v = pick(r);
+          if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+        }
+        let best: string | null = null;
+        let bestN = 0;
+        for (const [v, n] of counts) {
+          if (n > bestN) {
+            best = v;
+            bestN = n;
+          }
+        }
+        return best;
+      };
+      const condition = mostCommon((r) => r.ebay_condition);
+      const ship = mostCommon((r) => r.shipping_policy_id);
+      const pay = mostCommon((r) => r.payment_policy_id);
+      const ret = mostCommon((r) => r.return_policy_id);
+      // Fall back to the account default policies when recent listings carried
+      // no per-listing override.
+      const defaults = policiesQuery.data?.defaults;
+      const shipFinal = ship ?? defaults?.fulfillment_policy_id ?? "";
+      const payFinal = pay ?? defaults?.payment_policy_id ?? "";
+      const retFinal = ret ?? defaults?.return_policy_id ?? "";
+      applyToTargets((r) => {
+        const patch: Partial<EditRow> = {};
+        if (condition && !r.condition) patch.condition = condition;
+        if (shipFinal && !r.shippingPolicyId) patch.shippingPolicyId = shipFinal;
+        if (payFinal && !r.paymentPolicyId) patch.paymentPolicyId = payFinal;
+        if (retFinal && !r.returnPolicyId) patch.returnPolicyId = retFinal;
+        return patch;
+      });
+      toast.success("Applied smart defaults from your recent listings.");
+    } catch (err) {
+      toast.error(
+        `Could not load smart defaults: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setApplyingDefaults(false);
+    }
+  }
+
   async function saveAll() {
     const dirty = rows.filter((r) => r.dirty);
     if (dirty.length === 0) {
@@ -358,6 +729,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               .from("listings")
               .update({
                 listing_title: r.title.trim() || null,
+                listing_description: r.description.trim() || null,
                 listing_price: Number.isFinite(price) ? price : 0,
                 ebay_condition: r.condition || null,
                 quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
@@ -366,6 +738,9 @@ export function FlipdeskAutolisterBulkEditPage() {
                 platform_category_id: r.categoryId.trim() || null,
                 item_specifics_override:
                   Object.keys(mergedSpecifics).length > 0 ? mergedSpecifics : null,
+                shipping_policy_id: r.shippingPolicyId || null,
+                payment_policy_id: r.paymentPolicyId || null,
+                return_policy_id: r.returnPolicyId || null,
                 price_is_estimated: false,
               } as never)
               .eq("id", r.id);
@@ -453,6 +828,21 @@ export function FlipdeskAutolisterBulkEditPage() {
     if (!Number.isFinite(price) || price <= 0) issues.push("Price not set");
     if (!r.condition) issues.push("No condition");
     if (!r.categoryId.trim()) issues.push("No category");
+    // US-555: aspect cascade — once a category's required specifics are known
+    // (refreshed on bulk-category apply), flag rows that don't cover them.
+    const required = requiredAspectsByCategory[r.categoryId];
+    if (required && required.length > 0) {
+      const covers = (name: string): boolean => {
+        if (name === "Department") return !!r.department.trim();
+        if (name === "Brand") return !!r.brand.trim();
+        if (name === "Size") return !!r.size.trim();
+        if (name === "Color") return !!r.color.trim();
+        const v = r.specifics[name];
+        return Array.isArray(v) && v.some((x) => x.trim());
+      };
+      const missing = required.filter((n) => !covers(n));
+      if (missing.length > 0) issues.push(`Missing required: ${missing.join(", ")}`);
+    }
     // Server-side blockers from /listings/validate take precedence — they
     // reflect missing required aspects, etc., that the local heuristics can't see.
     if (r.validationBlockers && r.validationBlockers.length > 0) {
@@ -726,14 +1116,12 @@ export function FlipdeskAutolisterBulkEditPage() {
           <Button
             size="sm"
             variant="secondary"
-            disabled={!bulkCategory}
-            onClick={() =>
-              applyToTargets(() => ({
-                categoryId: bulkCategory!.id,
-                categoryPath: bulkCategory!.path,
-              }))
-            }
+            disabled={!bulkCategory || bulkCatAspects.isFetching}
+            onClick={applyBulkCategory}
           >
+            {bulkCatAspects.isFetching ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
             Apply
           </Button>
         </div>
@@ -785,6 +1173,180 @@ export function FlipdeskAutolisterBulkEditPage() {
             Apply
           </Button>
         </div>
+
+        {/* US-555: find/replace across titles + descriptions. */}
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Find
+            </label>
+            <Input
+              value={findText}
+              onChange={(e) => setFindText(e.target.value)}
+              className="h-8 w-28"
+              placeholder="text"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Replace
+            </label>
+            <Input
+              value={replaceText}
+              onChange={(e) => setReplaceText(e.target.value)}
+              className="h-8 w-28"
+              placeholder="(blank to delete)"
+            />
+          </div>
+          <select
+            value={findScope}
+            onChange={(e) =>
+              setFindScope(e.target.value as "title" | "description" | "both")
+            }
+            className="h-8 w-28 rounded-md border border-input bg-transparent px-2 text-sm"
+          >
+            <option value="title">Titles</option>
+            <option value="description">Descriptions</option>
+            <option value="both">Both</option>
+          </select>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!findText}
+            onClick={applyFindReplace}
+          >
+            <Replace className="mr-1.5 h-3.5 w-3.5" />
+            Replace
+          </Button>
+        </div>
+
+        {/* US-555: bulk business-policy assignment from the seller's eBay
+            policies. Each select is optional — apply any subset. */}
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Shipping policy
+            </label>
+            <select
+              value={bulkPolicy.fulfillment}
+              onChange={(e) =>
+                setBulkPolicy((p) => ({ ...p, fulfillment: e.target.value }))
+              }
+              className="h-8 w-40 rounded-md border border-input bg-transparent px-2 text-sm"
+            >
+              <option value="">Shipping…</option>
+              {fulfillmentPolicies.map((p) => (
+                <option key={p.policy_id} value={p.policy_id}>
+                  {p.policy_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Payment policy
+            </label>
+            <select
+              value={bulkPolicy.payment}
+              onChange={(e) =>
+                setBulkPolicy((p) => ({ ...p, payment: e.target.value }))
+              }
+              className="h-8 w-40 rounded-md border border-input bg-transparent px-2 text-sm"
+            >
+              <option value="">Payment…</option>
+              {paymentPolicies.map((p) => (
+                <option key={p.policy_id} value={p.policy_id}>
+                  {p.policy_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Return policy
+            </label>
+            <select
+              value={bulkPolicy.return}
+              onChange={(e) =>
+                setBulkPolicy((p) => ({ ...p, return: e.target.value }))
+              }
+              className="h-8 w-40 rounded-md border border-input bg-transparent px-2 text-sm"
+            >
+              <option value="">Return…</option>
+              {returnPolicies.map((p) => (
+                <option key={p.policy_id} value={p.policy_id}>
+                  {p.policy_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={
+              !bulkPolicy.fulfillment && !bulkPolicy.payment && !bulkPolicy.return
+            }
+            onClick={applyPolicies}
+          >
+            Assign policies
+          </Button>
+        </div>
+
+        {/* US-555: template apply, AI aspect-fill, and smart defaults. */}
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Template
+            </label>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => setSelectedTemplateId(e.target.value)}
+              className="h-8 w-44 rounded-md border border-input bg-transparent px-2 text-sm"
+            >
+              <option value="">Select template…</option>
+              {(templatesQuery.data ?? []).map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!selectedTemplateId}
+            onClick={applyTemplate}
+          >
+            <LayoutTemplate className="mr-1.5 h-3.5 w-3.5" />
+            Apply
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={applyingDefaults}
+            onClick={() => void applySmartDefaults()}
+          >
+            {applyingDefaults ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            Smart defaults
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={aiFilling}
+            onClick={() => void aiFillSpecifics()}
+          >
+            {aiFilling ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Wand2 className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            AI fill specifics
+          </Button>
+        </div>
+
         <div className="flex items-end gap-1.5">
           <Button
             size="sm"
@@ -840,13 +1402,14 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
               <th className="w-52 p-2">Schedule</th>
+              <th className="w-24 p-2">Policies</th>
               <th className="w-10 p-2" />
             </tr>
           </thead>
           <tbody>
             {paddingTop > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={14} style={{ height: paddingTop }} />
+                <td colSpan={15} style={{ height: paddingTop }} />
               </tr>
             )}
             {virtualRows.map((vr) => {
@@ -1076,6 +1639,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                     />
                   </td>
+                  {/* US-555: per-listing policy override badges — S/P/R light up
+                      when assigned; fall back to account defaults when blank. */}
+                  <td className="p-2">
+                    <PolicyBadges
+                      shippingId={r.shippingPolicyId}
+                      paymentId={r.paymentPolicyId}
+                      returnId={r.returnPolicyId}
+                      labels={policyLabel}
+                    />
+                  </td>
                   <td className="p-2">
                     {issues.length > 0 && (
                       <span title={issues.join(" • ")}>
@@ -1088,12 +1661,12 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {paddingBottom > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={14} style={{ height: paddingBottom }} />
+                <td colSpan={15} style={{ height: paddingBottom }} />
               </tr>
             )}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={14} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={15} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>
@@ -1147,6 +1720,43 @@ function PnlCell({
           no cost
         </div>
       )}
+    </div>
+  );
+}
+
+// US-555: compact S/P/R badges showing which per-listing business policies are
+// overridden. A lit letter means an override is set (title shows the policy
+// name); a dim letter means it falls back to the account default at publish.
+function PolicyBadges({
+  shippingId,
+  paymentId,
+  returnId,
+  labels,
+}: {
+  shippingId: string;
+  paymentId: string;
+  returnId: string;
+  labels: Record<string, string>;
+}) {
+  const entries: Array<{ key: string; letter: string; id: string }> = [
+    { key: "ship", letter: "S", id: shippingId },
+    { key: "pay", letter: "P", id: paymentId },
+    { key: "ret", letter: "R", id: returnId },
+  ];
+  return (
+    <div className="flex gap-1">
+      {entries.map((e) => (
+        <span
+          key={e.key}
+          title={e.id ? labels[e.id] ?? e.id : "Uses your account default policy"}
+          className={cn(
+            "inline-flex h-5 w-5 items-center justify-center rounded text-[10px] font-semibold",
+            e.id ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground/50",
+          )}
+        >
+          {e.letter}
+        </span>
+      ))}
     </div>
   );
 }
