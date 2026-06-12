@@ -1,7 +1,6 @@
-import { useState, useMemo, lazy, Suspense } from "react";
+import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
-import type { InventoryItemRow, SaleRow, ShipmentRow, ListingRow } from "@/types/database";
+import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,7 +14,6 @@ import {
   Warehouse,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { computePnl } from "@/lib/pnl";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialExport } from "@/components/finances/financial-export";
 import { ChartSkeleton } from "@/components/ui/skeletons";
@@ -92,156 +90,19 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-interface FinancialData {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
-  shipments: ShipmentRow[];
-  listings: ListingRow[];
-}
-
 export function FinancesPage() {
   const [period, setPeriod] = useState<Period>("all_time");
+  const periodStart = getPeriodStartDate(period);
 
+  // One RPC round-trip per period: Postgres returns every summary metric and
+  // chart series pre-aggregated (US-403). No raw tables cross the wire.
   const { data, isLoading } = useQuery({
-    queryKey: ["finances-data"],
-    queryFn: async (): Promise<FinancialData> => {
-      const [itemsRes, salesRes, shipmentsRes, listingsRes] = await Promise.all([
-        supabase.from("inventory_items").select("*"),
-        supabase.from("sales").select("*"),
-        supabase.from("shipments").select("*"),
-        supabase.from("listings").select("*"),
-      ]);
-
-      if (itemsRes.error) throw itemsRes.error;
-      if (salesRes.error) throw salesRes.error;
-      if (shipmentsRes.error) throw shipmentsRes.error;
-      if (listingsRes.error) throw listingsRes.error;
-
-      return {
-        items: (itemsRes.data ?? []) as InventoryItemRow[],
-        sales: (salesRes.data ?? []) as SaleRow[],
-        shipments: (shipmentsRes.data ?? []) as ShipmentRow[],
-        listings: (listingsRes.data ?? []) as ListingRow[],
-      };
-    },
+    queryKey: ["finances-dashboard", period],
+    queryFn: () => fetchFinancesDashboard(periodStart),
     staleTime: 5 * 60 * 1000,
   });
 
-  const metrics = useMemo(() => {
-    if (!data) return null;
-
-    const { items, sales, shipments } = data;
-    const periodStart = getPeriodStartDate(period);
-
-    // Build lookup maps
-    const shipmentBySaleId = new Map<string, ShipmentRow>();
-    for (const s of shipments) {
-      shipmentBySaleId.set(s.sale_id, s);
-    }
-
-    const itemById = new Map<string, InventoryItemRow>();
-    for (const item of items) {
-      itemById.set(item.id, item);
-    }
-
-    // Filter sales by period, and EXCLUDE cancelled/refunded ones — they are
-    // not real revenue (a cancelled order was never fulfilled). Only
-    // 'completed' sales count. (00111 adds sales.status.)
-    const filteredSales = sales.filter(
-      (s) =>
-        s.status === "completed" &&
-        (periodStart ? s.sale_date >= periodStart : true),
-    );
-
-    // P&L via the single canonical helper (lib/pnl.ts) so web + iOS agree.
-    // computePnl already nets revenue (sale_price + shipping_collected) minus
-    // fees (platform + payment-processing) minus costs (shipping/grading/other/
-    // tax) minus cost basis (item acquisition).
-    let totalRevenue = 0;
-    let totalFees = 0;
-    let totalSaleCosts = 0;
-    let totalAcquisitionCost = 0;
-    let totalShipmentExtra = 0;
-    let totalDaysToSell = 0;
-    let daysToSellCount = 0;
-
-    for (const sale of filteredSales) {
-      const item = itemById.get(sale.inventory_item_id);
-      const pnl = computePnl(sale, item?.acquired_price ?? 0);
-      totalRevenue += pnl.revenue;
-      totalFees += pnl.fees;
-      totalSaleCosts += pnl.costs;
-      totalAcquisitionCost += pnl.costBasis;
-
-      // Legacy GradeThread shipments table: only fold in its label/shipping
-      // cost when the sale row itself has none, so eBay-synced rows (which
-      // carry shipping_cost) aren't double-charged.
-      const shipment = shipmentBySaleId.get(sale.id);
-      if (shipment && (sale.shipping_cost ?? 0) === 0) {
-        totalShipmentExtra += shipment.shipping_cost + shipment.label_cost;
-      }
-
-      // Days to sell: from acquired_date to sale_date
-      if (item?.acquired_date) {
-        const acquiredDate = new Date(item.acquired_date);
-        const saleDate = new Date(sale.sale_date);
-        const days = Math.floor(
-          (saleDate.getTime() - acquiredDate.getTime()) / (1000 * 60 * 60 * 24)
-        );
-        if (days >= 0) {
-          totalDaysToSell += days;
-          daysToSellCount++;
-        }
-      }
-    }
-
-    const totalCosts =
-      totalFees + totalSaleCosts + totalAcquisitionCost + totalShipmentExtra;
-    const netProfit = totalRevenue - totalCosts;
-    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
-    const itemsSold = filteredSales.length;
-    const avgProfitPerItem = itemsSold > 0 ? netProfit / itemsSold : 0;
-    const avgDaysToSell = daysToSellCount > 0 ? Math.round(totalDaysToSell / daysToSellCount) : 0;
-
-    // Inventory value = MARKET value (matches eBay): the active listing price
-    // per on-hand item, falling back to target_price when not yet listed.
-    // (Previously summed acquired_price/cost basis, which is null for imported
-    // items and bears no relation to eBay's reported value.)
-    const activeStatuses = new Set([
-      "sourced", "acquired", "cataloged", "measured", "photographed",
-      "grading", "graded", "comped", "drafted", "listed",
-    ]);
-    // Latest listing per item (mirror items_full: newest listed_at/created_at).
-    const latestListingAt = new Map<string, number>();
-    const listingPriceByItem = new Map<string, number>();
-    for (const l of data.listings) {
-      if (l.listing_price == null) continue;
-      const ts = new Date(l.listed_at ?? l.created_at).getTime();
-      const prevTs = latestListingAt.get(l.inventory_item_id);
-      if (prevTs === undefined || ts >= prevTs) {
-        latestListingAt.set(l.inventory_item_id, ts);
-        listingPriceByItem.set(l.inventory_item_id, l.listing_price);
-      }
-    }
-    const inventoryValue = items
-      .filter((item) => activeStatuses.has(item.status))
-      .reduce(
-        (sum, item) =>
-          sum + (listingPriceByItem.get(item.id) ?? item.target_price ?? 0),
-        0,
-      );
-
-    return {
-      totalRevenue,
-      totalCosts,
-      netProfit,
-      profitMargin,
-      itemsSold,
-      avgProfitPerItem,
-      avgDaysToSell,
-      inventoryValue,
-    };
-  }, [data, period]);
+  const summary = data?.summary;
 
   return (
     <div className="space-y-6">
@@ -268,13 +129,8 @@ export function FinancesPage() {
         </div>
       </div>
 
-      {/* Financial Export */}
-      <FinancialExport
-        items={data?.items ?? []}
-        sales={data?.sales ?? []}
-        shipments={data?.shipments ?? []}
-        listings={data?.listings ?? []}
-      />
+      {/* Financial Export — fetches its own row-level data on demand */}
+      <FinancialExport />
 
       {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -288,7 +144,7 @@ export function FinancesPage() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <div className="text-2xl font-bold text-green-600">
-                {formatCurrency(metrics?.totalRevenue ?? 0)}
+                {formatCurrency(summary?.total_revenue ?? 0)}
               </div>
             )}
           </CardContent>
@@ -304,7 +160,7 @@ export function FinancesPage() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <div className="text-2xl font-bold text-red-600">
-                {formatCurrency(metrics?.totalCosts ?? 0)}
+                {formatCurrency(summary?.total_costs ?? 0)}
               </div>
             )}
           </CardContent>
@@ -322,10 +178,10 @@ export function FinancesPage() {
               <div
                 className={cn(
                   "text-2xl font-bold",
-                  (metrics?.netProfit ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                  (summary?.net_profit ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                 )}
               >
-                {formatCurrency(metrics?.netProfit ?? 0)}
+                {formatCurrency(summary?.net_profit ?? 0)}
               </div>
             )}
           </CardContent>
@@ -343,10 +199,10 @@ export function FinancesPage() {
               <div
                 className={cn(
                   "text-2xl font-bold",
-                  (metrics?.profitMargin ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                  (summary?.profit_margin ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                 )}
               >
-                {(metrics?.profitMargin ?? 0).toFixed(1)}%
+                {(summary?.profit_margin ?? 0).toFixed(1)}%
               </div>
             )}
           </CardContent>
@@ -364,7 +220,7 @@ export function FinancesPage() {
             {isLoading ? (
               <Skeleton className="h-8 w-16" />
             ) : (
-              <div className="text-2xl font-bold">{metrics?.itemsSold ?? 0}</div>
+              <div className="text-2xl font-bold">{summary?.items_sold ?? 0}</div>
             )}
           </CardContent>
         </Card>
@@ -381,10 +237,10 @@ export function FinancesPage() {
               <div
                 className={cn(
                   "text-2xl font-bold",
-                  (metrics?.avgProfitPerItem ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                  (summary?.avg_profit_per_item ?? 0) >= 0 ? "text-green-600" : "text-red-600"
                 )}
               >
-                {formatCurrency(metrics?.avgProfitPerItem ?? 0)}
+                {formatCurrency(summary?.avg_profit_per_item ?? 0)}
               </div>
             )}
           </CardContent>
@@ -400,7 +256,7 @@ export function FinancesPage() {
               <Skeleton className="h-8 w-16" />
             ) : (
               <div className="text-2xl font-bold">
-                {metrics?.avgDaysToSell ?? 0}
+                {summary?.avg_days_to_sell ?? 0}
                 <span className="ml-1 text-sm font-normal text-muted-foreground">days</span>
               </div>
             )}
@@ -417,7 +273,7 @@ export function FinancesPage() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <div className="text-2xl font-bold">
-                {formatCurrency(metrics?.inventoryValue ?? 0)}
+                {formatCurrency(summary?.inventory_value ?? 0)}
               </div>
             )}
           </CardContent>
@@ -432,10 +288,10 @@ export function FinancesPage() {
         </p>
         <Suspense fallback={<ChartSkeleton />}>
           <FinancialCharts
-            items={data?.items ?? []}
-            sales={data?.sales ?? []}
-            shipments={data?.shipments ?? []}
-            periodStart={getPeriodStartDate(period)}
+            timeSeries={data?.time_series ?? []}
+            costBreakdown={data?.cost_breakdown ?? null}
+            topBrands={data?.top_brands ?? []}
+            topCategories={data?.top_categories ?? []}
             isLoading={isLoading}
           />
         </Suspense>
@@ -450,9 +306,11 @@ export function FinancesPage() {
         </p>
         <Suspense fallback={<ChartSkeleton />}>
           <RoiAnalytics
-            items={data?.items ?? []}
-            sales={data?.sales ?? []}
-            periodStart={getPeriodStartDate(period)}
+            byBrand={data?.roi_by_brand ?? []}
+            byCategory={data?.roi_by_category ?? []}
+            bySource={data?.roi_by_source ?? []}
+            bestItems={data?.roi_best_items ?? []}
+            worstItems={data?.roi_worst_items ?? []}
             isLoading={isLoading}
           />
         </Suspense>
@@ -466,7 +324,14 @@ export function FinancesPage() {
           held.
         </p>
         <Suspense fallback={<ChartSkeleton />}>
-          <InventoryAging items={data?.items ?? []} isLoading={isLoading} />
+          <InventoryAging
+            brackets={data?.inventory_aging.brackets ?? []}
+            totalCount={data?.inventory_aging.total_count ?? 0}
+            totalValue={data?.inventory_aging.total_value ?? 0}
+            staleItems={data?.stale_items ?? []}
+            staleItemsTotal={data?.stale_items_total ?? 0}
+            isLoading={isLoading}
+          />
         </Suspense>
       </div>
 
@@ -478,8 +343,10 @@ export function FinancesPage() {
         </p>
         <Suspense fallback={<ChartSkeleton />}>
           <GradePriceCorrelation
-            items={data?.items ?? []}
-            sales={data?.sales ?? []}
+            points={data?.grade_points ?? []}
+            pointsTotal={data?.grade_points_total ?? 0}
+            tierStats={data?.grade_tier_stats ?? []}
+            categoryTier={data?.grade_category_tier ?? []}
             isLoading={isLoading}
           />
         </Suspense>
@@ -493,10 +360,9 @@ export function FinancesPage() {
         </p>
         <Suspense fallback={<ChartSkeleton />}>
           <CashFlow
-            items={data?.items ?? []}
-            sales={data?.sales ?? []}
-            shipments={data?.shipments ?? []}
-            periodStart={getPeriodStartDate(period)}
+            daily={data?.cash_flow_daily ?? []}
+            recent={data?.cash_flow_recent ?? []}
+            recentTotal={data?.cash_flow_total ?? 0}
             isLoading={isLoading}
           />
         </Suspense>
@@ -510,10 +376,13 @@ export function FinancesPage() {
         </p>
         <Suspense fallback={<ChartSkeleton />}>
           <TimeOnMarket
-            items={data?.items ?? []}
-            sales={data?.sales ?? []}
-            listings={data?.listings ?? []}
-            periodStart={getPeriodStartDate(period)}
+            overallAvg={data?.tom_overall_avg ?? 0}
+            byType={data?.tom_by_type ?? []}
+            byBrand={data?.tom_by_brand ?? []}
+            distribution={data?.tom_distribution ?? []}
+            slowMoving={data?.tom_slow_moving ?? []}
+            slowMovingTotal={data?.tom_slow_moving_total ?? 0}
+            hasSoldData={data?.tom_has_sold_data ?? false}
             isLoading={isLoading}
           />
         </Suspense>
@@ -533,11 +402,8 @@ export function FinancesPage() {
           </div>
         ) : (
           <ProfitTable
-            items={data?.items ?? []}
-            sales={data?.sales ?? []}
-            shipments={data?.shipments ?? []}
-            listings={data?.listings ?? []}
-            periodStart={getPeriodStartDate(period)}
+            rows={data?.profit_rows ?? []}
+            rowsTotal={data?.profit_rows_total ?? 0}
           />
         )}
       </div>

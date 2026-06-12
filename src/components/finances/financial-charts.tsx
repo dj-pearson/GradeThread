@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import type { InventoryItemRow, SaleRow, ShipmentRow } from "@/types/database";
+import type { FinTimePoint, FinCostBreakdown, FinNameValue } from "@/lib/finances-dashboard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,6 +52,12 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+// Parse a 'YYYY-MM-DD' day key (returned by the RPC) as a local date.
+function parseDay(d: string): Date {
+  const [y, m, day] = d.split("-").map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, day ?? 1);
+}
+
 function formatDateLabel(date: Date, granularity: Granularity): string {
   switch (granularity) {
     case "daily":
@@ -68,7 +74,6 @@ function getBucketKey(date: Date, granularity: Granularity): string {
     case "daily":
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     case "weekly": {
-      // Start of week (Sunday)
       const d = new Date(date);
       d.setDate(d.getDate() - d.getDay());
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -79,10 +84,10 @@ function getBucketKey(date: Date, granularity: Granularity): string {
 }
 
 interface FinancialChartsProps {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
-  shipments: ShipmentRow[];
-  periodStart: string | null;
+  timeSeries: FinTimePoint[];
+  costBreakdown: FinCostBreakdown | null;
+  topBrands: FinNameValue[];
+  topCategories: FinNameValue[];
   isLoading: boolean;
 }
 
@@ -94,141 +99,48 @@ interface TimeSeriesPoint {
 }
 
 export function FinancialCharts({
-  items,
-  sales,
-  shipments,
-  periodStart,
+  timeSeries: dailySeries,
+  costBreakdown,
+  topBrands,
+  topCategories,
   isLoading,
 }: FinancialChartsProps) {
   const [granularity, setGranularity] = useState<Granularity>("weekly");
 
-  const { timeSeries, costBreakdown, topBrands, topCategories, hasData } = useMemo(() => {
-    if (!sales.length) {
-      return { timeSeries: [], costBreakdown: [], topBrands: [], topCategories: [], hasData: false };
-    }
-
-    // Build lookup maps
-    const shipmentBySaleId = new Map<string, ShipmentRow>();
-    for (const s of shipments) {
-      shipmentBySaleId.set(s.sale_id, s);
-    }
-
-    const itemById = new Map<string, InventoryItemRow>();
-    for (const item of items) {
-      itemById.set(item.id, item);
-    }
-
-    // Filter sales by period
-    const filteredSales = periodStart
-      ? sales.filter((s) => s.sale_date >= periodStart)
-      : sales;
-
-    if (!filteredSales.length) {
-      return { timeSeries: [], costBreakdown: [], topBrands: [], topCategories: [], hasData: false };
-    }
-
-    // ── Time series: revenue & profit over time ──
-    const buckets = new Map<string, { label: string; revenue: number; costs: number }>();
-
-    for (const sale of filteredSales) {
-      const saleDate = new Date(sale.sale_date);
-      const key = getBucketKey(saleDate, granularity);
-      const label = formatDateLabel(saleDate, granularity);
-
-      const existing = buckets.get(key) ?? { label, revenue: 0, costs: 0 };
-      existing.revenue += sale.sale_price;
-
-      const item = itemById.get(sale.inventory_item_id);
-      existing.costs += item?.acquired_price ?? 0;
-      existing.costs += sale.platform_fees;
-
-      const shipment = shipmentBySaleId.get(sale.id);
-      if (shipment) {
-        existing.costs += shipment.shipping_cost + shipment.label_cost;
-      }
-
+  // Server returns daily revenue/profit; re-bucket to weekly/monthly client-side
+  // (cheap — the daily series is already aggregated and small).
+  const timeSeries = useMemo<TimeSeriesPoint[]>(() => {
+    const buckets = new Map<string, { label: string; revenue: number; profit: number }>();
+    for (const pt of dailySeries) {
+      const date = parseDay(pt.d);
+      const key = getBucketKey(date, granularity);
+      const label = formatDateLabel(date, granularity);
+      const existing = buckets.get(key) ?? { label, revenue: 0, profit: 0 };
+      existing.revenue += pt.revenue;
+      existing.profit += pt.profit;
       buckets.set(key, existing);
     }
-
-    const timeSeries: TimeSeriesPoint[] = Array.from(buckets.entries())
+    return Array.from(buckets.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([sortKey, bucket]) => ({
-        label: bucket.label,
+      .map(([sortKey, b]) => ({
+        label: b.label,
         sortKey,
-        revenue: Math.round(bucket.revenue * 100) / 100,
-        profit: Math.round((bucket.revenue - bucket.costs) * 100) / 100,
+        revenue: Math.round(b.revenue * 100) / 100,
+        profit: Math.round(b.profit * 100) / 100,
       }));
+  }, [dailySeries, granularity]);
 
-    // ── Cost breakdown pie chart ──
-    let totalAcquisition = 0;
-    let totalShipping = 0;
-    let totalPlatformFees = 0;
-
-    for (const sale of filteredSales) {
-      const item = itemById.get(sale.inventory_item_id);
-      totalAcquisition += item?.acquired_price ?? 0;
-      totalPlatformFees += sale.platform_fees;
-
-      const shipment = shipmentBySaleId.get(sale.id);
-      if (shipment) {
-        totalShipping += shipment.shipping_cost + shipment.label_cost;
-      }
-    }
-
-    const costBreakdown = [
-      { name: "Acquisition", value: Math.round(totalAcquisition * 100) / 100 },
-      { name: "Shipping", value: Math.round(totalShipping * 100) / 100 },
-      { name: "Platform Fees", value: Math.round(totalPlatformFees * 100) / 100 },
-      { name: "Grading Fees", value: 0 },
+  const costBreakdownData = useMemo(() => {
+    if (!costBreakdown) return [];
+    return [
+      { name: "Acquisition", value: costBreakdown.acquisition },
+      { name: "Shipping", value: costBreakdown.shipping },
+      { name: "Platform Fees", value: costBreakdown.platform_fees },
+      { name: "Grading Fees", value: costBreakdown.grading },
     ].filter((c) => c.value > 0);
+  }, [costBreakdown]);
 
-    // ── Top 5 brands by profit ──
-    const brandProfit = new Map<string, number>();
-    for (const sale of filteredSales) {
-      const item = itemById.get(sale.inventory_item_id);
-      const brand = item?.brand ?? "Unknown";
-
-      let costs = (item?.acquired_price ?? 0) + sale.platform_fees;
-      const shipment = shipmentBySaleId.get(sale.id);
-      if (shipment) costs += shipment.shipping_cost + shipment.label_cost;
-
-      const profit = sale.sale_price - costs;
-      brandProfit.set(brand, (brandProfit.get(brand) ?? 0) + profit);
-    }
-
-    const topBrands = Array.from(brandProfit.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, value]) => ({
-        name,
-        value: Math.round(value * 100) / 100,
-      }));
-
-    // ── Top 5 categories by profit ──
-    const categoryProfit = new Map<string, number>();
-    for (const sale of filteredSales) {
-      const item = itemById.get(sale.inventory_item_id);
-      const category = item?.garment_category ?? "Unknown";
-      const displayCategory = category.charAt(0).toUpperCase() + category.slice(1);
-
-      let costs = (item?.acquired_price ?? 0) + sale.platform_fees;
-      const shipment = shipmentBySaleId.get(sale.id);
-      if (shipment) costs += shipment.shipping_cost + shipment.label_cost;
-
-      const profit = sale.sale_price - costs;
-      categoryProfit.set(displayCategory, (categoryProfit.get(displayCategory) ?? 0) + profit);
-    }
-
-    const topCategories = Array.from(categoryProfit.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, value]) => ({
-        name,
-        value: Math.round(value * 100) / 100,
-      }));
-
-    return { timeSeries, costBreakdown, topBrands, topCategories, hasData: true };
-  }, [items, sales, shipments, periodStart, granularity]);
+  const hasData = dailySeries.length > 0;
 
   if (isLoading) {
     return (
@@ -345,7 +257,7 @@ export function FinancialCharts({
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
               <Pie
-                data={costBreakdown}
+                data={costBreakdownData}
                 cx="50%"
                 cy="50%"
                 innerRadius={55}
@@ -358,7 +270,7 @@ export function FinancialCharts({
                 labelLine={true}
                 fontSize={11}
               >
-                {costBreakdown.map((_, index) => (
+                {costBreakdownData.map((_, index) => (
                   <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                 ))}
               </Pie>

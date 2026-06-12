@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { csvBlob, downloadBlob } from "@/lib/download";
-import type { InventoryItemRow, SaleRow, ShipmentRow, ListingRow } from "@/types/database";
+import { fetchFinancesExport, type FinExportTxn } from "@/lib/finances-dashboard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,22 +13,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Download, FileText, FileSpreadsheet, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-
-interface FinancialExportProps {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
-  shipments: ShipmentRow[];
-  listings: ListingRow[];
-}
-
-interface TransactionRecord {
-  date: string;
-  type: "income" | "expense";
-  category: "sale" | "acquisition" | "shipping" | "fee" | "grading";
-  amount: number;
-  itemTitle: string;
-  platform: string;
-}
 
 function escapeCsvField(value: string): string {
   if (value.includes(",") || value.includes('"') || value.includes("\n")) {
@@ -45,104 +29,6 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function buildTransactions(
-  items: InventoryItemRow[],
-  sales: SaleRow[],
-  shipments: ShipmentRow[],
-  listings: ListingRow[],
-  startDate: string,
-  endDate: string,
-): TransactionRecord[] {
-  const itemById = new Map<string, InventoryItemRow>();
-  for (const item of items) {
-    itemById.set(item.id, item);
-  }
-
-  const shipmentBySaleId = new Map<string, ShipmentRow>();
-  for (const s of shipments) {
-    shipmentBySaleId.set(s.sale_id, s);
-  }
-
-  const listingById = new Map<string, ListingRow>();
-  for (const l of listings) {
-    listingById.set(l.id, l);
-  }
-
-  const transactions: TransactionRecord[] = [];
-
-  // Acquisition expenses (from inventory items with acquired_date)
-  for (const item of items) {
-    if (item.acquired_date && item.acquired_price && item.acquired_price > 0) {
-      const date = item.acquired_date.slice(0, 10);
-      if (date >= startDate && date <= endDate) {
-        transactions.push({
-          date,
-          type: "expense",
-          category: "acquisition",
-          amount: item.acquired_price,
-          itemTitle: item.title,
-          platform: "",
-        });
-      }
-    }
-  }
-
-  // Sale income + platform fee expenses
-  for (const sale of sales) {
-    const saleDate = sale.sale_date.slice(0, 10);
-    if (saleDate < startDate || saleDate > endDate) continue;
-
-    const item = itemById.get(sale.inventory_item_id);
-    const listing = sale.listing_id ? listingById.get(sale.listing_id) : null;
-    const platform = listing?.platform ?? "";
-    const title = item?.title ?? "Unknown Item";
-
-    // Sale income
-    transactions.push({
-      date: saleDate,
-      type: "income",
-      category: "sale",
-      amount: sale.sale_price,
-      itemTitle: title,
-      platform,
-    });
-
-    // Platform fees
-    if (sale.platform_fees > 0) {
-      transactions.push({
-        date: saleDate,
-        type: "expense",
-        category: "fee",
-        amount: sale.platform_fees,
-        itemTitle: title,
-        platform,
-      });
-    }
-
-    // Shipping costs
-    const shipment = shipmentBySaleId.get(sale.id);
-    if (shipment) {
-      const shipDate = shipment.ship_date?.slice(0, 10) ?? saleDate;
-      const totalShipping = shipment.shipping_cost + shipment.label_cost;
-      if (totalShipping > 0 && shipDate >= startDate && shipDate <= endDate) {
-        transactions.push({
-          date: shipDate,
-          type: "expense",
-          category: "shipping",
-          amount: totalShipping,
-          itemTitle: title,
-          platform,
-        });
-      }
-    }
-  }
-
-  // Sort by date ascending
-  transactions.sort((a, b) => a.date.localeCompare(b.date));
-
-  return transactions;
-}
-
 interface SummaryTotals {
   grossRevenue: number;
   acquisitionExpenses: number;
@@ -153,7 +39,7 @@ interface SummaryTotals {
   netProfit: number;
 }
 
-function computeSummary(transactions: TransactionRecord[]): SummaryTotals {
+function computeSummary(transactions: FinExportTxn[]): SummaryTotals {
   let grossRevenue = 0;
   let acquisitionExpenses = 0;
   let shippingExpenses = 0;
@@ -195,7 +81,7 @@ function computeSummary(transactions: TransactionRecord[]): SummaryTotals {
   };
 }
 
-function generateCsv(transactions: TransactionRecord[], summary: SummaryTotals): string {
+function generateCsv(transactions: FinExportTxn[], summary: SummaryTotals): string {
   const lines: string[] = [];
 
   // Summary section
@@ -231,7 +117,7 @@ function generateCsv(transactions: TransactionRecord[], summary: SummaryTotals):
 }
 
 function generatePdfHtml(
-  transactions: TransactionRecord[],
+  transactions: FinExportTxn[],
   summary: SummaryTotals,
   startDate: string,
   endDate: string,
@@ -336,26 +222,27 @@ function getCurrentTaxYearDates(): { start: string; end: string } {
   };
 }
 
-export function FinancialExport({ items, sales, shipments, listings }: FinancialExportProps) {
+export function FinancialExport() {
   const defaults = getCurrentTaxYearDates();
   const [startDate, setStartDate] = useState(defaults.start);
   const [endDate, setEndDate] = useState(defaults.end);
   const [exporting, setExporting] = useState(false);
 
-  const transactions = useMemo(
-    () => buildTransactions(items, sales, shipments, listings, startDate, endDate),
-    [items, sales, shipments, listings, startDate, endDate]
-  );
+  // Fetch the ledger only when the user actually exports — the date range is
+  // pushed to the query, so we never download the whole account (US-403).
+  async function loadTransactions(): Promise<FinExportTxn[]> {
+    return fetchFinancesExport(startDate, endDate);
+  }
 
-  const summary = useMemo(() => computeSummary(transactions), [transactions]);
-
-  function handleExportCsv() {
+  async function handleExportCsv() {
     setExporting(true);
     try {
+      const transactions = await loadTransactions();
       if (transactions.length === 0) {
         toast.info("No transactions found for the selected date range.");
         return;
       }
+      const summary = computeSummary(transactions);
       const csv = generateCsv(transactions, summary);
       const filename = `gradethread_financial_report_${startDate}_${endDate}.csv`;
       downloadBlob(csvBlob(csv), filename);
@@ -367,13 +254,15 @@ export function FinancialExport({ items, sales, shipments, listings }: Financial
     }
   }
 
-  function handleExportPdf() {
+  async function handleExportPdf() {
     setExporting(true);
     try {
+      const transactions = await loadTransactions();
       if (transactions.length === 0) {
         toast.info("No transactions found for the selected date range.");
         return;
       }
+      const summary = computeSummary(transactions);
       const html = generatePdfHtml(transactions, summary, startDate, endDate);
       const filename = `gradethread_financial_report_${startDate}_${endDate}.pdf`;
       downloadPdf(html, filename);
@@ -436,9 +325,8 @@ export function FinancialExport({ items, sales, shipments, listings }: Financial
           </DropdownMenu>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          {transactions.length} transaction{transactions.length !== 1 ? "s" : ""} in selected period
-          {" \u00B7 "}
-          Net: {formatCurrency(summary.netProfit)}
+          Export income and expenses for the selected date range as a CSV or
+          printable PDF.
         </p>
       </CardContent>
     </Card>

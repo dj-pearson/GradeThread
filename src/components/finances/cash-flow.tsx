@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import type { InventoryItemRow, SaleRow, ShipmentRow } from "@/types/database";
+import type { FinCfDaily, FinCfTxn } from "@/lib/finances-dashboard";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -55,16 +55,8 @@ function formatDate(dateStr: string): string {
 }
 
 function formatShortDate(dateStr: string): string {
-  const d = new Date(dateStr);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-}
-
-interface Transaction {
-  date: string;
-  type: "inflow" | "outflow";
-  category: string;
-  description: string;
-  amount: number;
+  const [, m, day] = dateStr.split("-").map(Number);
+  return `${m}/${day}`;
 }
 
 interface ChartDataPoint {
@@ -76,131 +68,32 @@ interface ChartDataPoint {
 }
 
 interface CashFlowProps {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
-  shipments: ShipmentRow[];
-  periodStart: string | null;
+  daily: FinCfDaily[];
+  recent: FinCfTxn[];
+  recentTotal: number;
   isLoading: boolean;
 }
 
-export function CashFlow({
-  items,
-  sales,
-  shipments,
-  periodStart,
-  isLoading,
-}: CashFlowProps) {
+export function CashFlow({ daily, recent, recentTotal, isLoading }: CashFlowProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("chart");
 
-  const { transactions, chartData, hasData } = useMemo(() => {
-    const txns: Transaction[] = [];
-
-    // Build lookup maps
-    const itemById = new Map<string, InventoryItemRow>();
-    for (const item of items) {
-      itemById.set(item.id, item);
-    }
-
-    const shipmentBySaleId = new Map<string, ShipmentRow>();
-    for (const s of shipments) {
-      shipmentBySaleId.set(s.sale_id, s);
-    }
-
-    // Item acquisitions (outflow)
-    for (const item of items) {
-      if (item.acquired_price && item.acquired_date) {
-        txns.push({
-          date: item.acquired_date,
-          type: "outflow",
-          category: "Acquisition",
-          description: item.title,
-          amount: item.acquired_price,
-        });
-      }
-    }
-
-    // Sales revenue (inflow)
-    for (const sale of sales) {
-      const item = itemById.get(sale.inventory_item_id);
-      txns.push({
-        date: sale.sale_date,
-        type: "inflow",
-        category: "Sale",
-        description: item?.title ?? "Item sale",
-        amount: sale.sale_price,
-      });
-
-      // Platform fees (outflow) — recorded at sale date
-      if (sale.platform_fees > 0) {
-        txns.push({
-          date: sale.sale_date,
-          type: "outflow",
-          category: "Platform Fees",
-          description: `Fees for ${item?.title ?? "item sale"}`,
-          amount: sale.platform_fees,
-        });
-      }
-    }
-
-    // Shipping costs (outflow)
-    for (const shipment of shipments) {
-      const totalShipping = shipment.shipping_cost + shipment.label_cost;
-      if (totalShipping > 0 && shipment.ship_date) {
-        // Find the related item title through the sale
-        const relatedSale = sales.find((s) => s.id === shipment.sale_id);
-        const item = relatedSale ? itemById.get(relatedSale.inventory_item_id) : undefined;
-        txns.push({
-          date: shipment.ship_date,
-          type: "outflow",
-          category: "Shipping",
-          description: `Shipping for ${item?.title ?? "item"}`,
-          amount: totalShipping,
-        });
-      }
-    }
-
-    // Sort all transactions chronologically
-    txns.sort((a, b) => a.date.localeCompare(b.date));
-
-    // Filter by period
-    const filteredTxns = periodStart
-      ? txns.filter((t) => t.date >= periodStart)
-      : txns;
-
-    if (!filteredTxns.length) {
-      return { transactions: [], chartData: [], hasData: false };
-    }
-
-    // Build chart data: aggregate by date, compute running balance
-    const dailyBuckets = new Map<string, { inflow: number; outflow: number }>();
-
-    for (const txn of filteredTxns) {
-      const dateKey = txn.date.slice(0, 10); // YYYY-MM-DD
-      const existing = dailyBuckets.get(dateKey) ?? { inflow: 0, outflow: 0 };
-      if (txn.type === "inflow") {
-        existing.inflow += txn.amount;
-      } else {
-        existing.outflow += txn.amount;
-      }
-      dailyBuckets.set(dateKey, existing);
-    }
-
+  // Server returns daily inflow/outflow buckets; compute the running balance
+  // client-side (cheap — already aggregated).
+  const chartData = useMemo<ChartDataPoint[]>(() => {
     let runningBalance = 0;
-    const chartData: ChartDataPoint[] = Array.from(dailyBuckets.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([dateKey, bucket]) => {
-        runningBalance += bucket.inflow - bucket.outflow;
-        return {
-          label: formatShortDate(dateKey),
-          sortKey: dateKey,
-          inflow: Math.round(bucket.inflow * 100) / 100,
-          outflow: Math.round(bucket.outflow * 100) / 100,
-          balance: Math.round(runningBalance * 100) / 100,
-        };
-      });
+    return daily.map((b) => {
+      runningBalance += b.inflow - b.outflow;
+      return {
+        label: formatShortDate(b.d),
+        sortKey: b.d,
+        inflow: b.inflow,
+        outflow: b.outflow,
+        balance: Math.round(runningBalance * 100) / 100,
+      };
+    });
+  }, [daily]);
 
-    return { transactions: filteredTxns, chartData, hasData: true };
-  }, [items, sales, shipments, periodStart]);
+  const hasData = recentTotal > 0;
 
   if (isLoading) {
     return (
@@ -264,7 +157,7 @@ export function CashFlow({
         {viewMode === "chart" ? (
           <ChartView data={chartData} />
         ) : (
-          <TableView transactions={transactions} />
+          <TableView transactions={recent} total={recentTotal} />
         )}
       </CardContent>
     </Card>
@@ -350,7 +243,7 @@ function ChartView({ data }: { data: ChartDataPoint[] }) {
   );
 }
 
-function TableView({ transactions }: { transactions: Transaction[] }) {
+function TableView({ transactions, total }: { transactions: FinCfTxn[]; total: number }) {
   let runningBalance = 0;
 
   const rows = transactions.map((txn, index) => {
@@ -360,60 +253,69 @@ function TableView({ transactions }: { transactions: Transaction[] }) {
   });
 
   return (
-    <div className="max-h-[500px] overflow-auto rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-[100px]">Date</TableHead>
-            <TableHead className="w-[80px]">Type</TableHead>
-            <TableHead className="w-[110px]">Category</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead className="w-[110px] text-right">Amount</TableHead>
-            <TableHead className="w-[110px] text-right">Balance</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={`${row.date}-${row.category}-${row.index}`}>
-              <TableCell className="text-xs">{formatDate(row.date)}</TableCell>
-              <TableCell>
-                {row.type === "inflow" ? (
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
-                    <ArrowDownLeft className="h-3 w-3" />
-                    In
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
-                    <ArrowUpRight className="h-3 w-3" />
-                    Out
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className="text-xs">{row.category}</TableCell>
-              <TableCell className="max-w-[200px] truncate text-xs">
-                {row.description}
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "text-right text-xs font-medium",
-                  row.type === "inflow" ? "text-green-600" : "text-red-600"
-                )}
-              >
-                {row.type === "inflow" ? "+" : "-"}
-                {formatCurrency(row.amount)}
-              </TableCell>
-              <TableCell
-                className={cn(
-                  "text-right text-xs font-medium",
-                  row.runningBalance >= 0 ? "text-green-600" : "text-red-600"
-                )}
-              >
-                {formatCurrency(row.runningBalance)}
-              </TableCell>
+    <div className="space-y-2">
+      <div className="max-h-[500px] overflow-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[100px]">Date</TableHead>
+              <TableHead className="w-[80px]">Type</TableHead>
+              <TableHead className="w-[110px]">Category</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead className="w-[110px] text-right">Amount</TableHead>
+              <TableHead className="w-[110px] text-right">Balance</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={`${row.date}-${row.category}-${row.index}`}>
+                <TableCell className="text-xs">{formatDate(row.date)}</TableCell>
+                <TableCell>
+                  {row.type === "inflow" ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
+                      <ArrowDownLeft className="h-3 w-3" />
+                      In
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                      <ArrowUpRight className="h-3 w-3" />
+                      Out
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs">{row.category}</TableCell>
+                <TableCell className="max-w-[200px] truncate text-xs">
+                  {row.description}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    "text-right text-xs font-medium",
+                    row.type === "inflow" ? "text-green-600" : "text-red-600"
+                  )}
+                >
+                  {row.type === "inflow" ? "+" : "-"}
+                  {formatCurrency(row.amount)}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    "text-right text-xs font-medium",
+                    row.runningBalance >= 0 ? "text-green-600" : "text-red-600"
+                  )}
+                >
+                  {formatCurrency(row.runningBalance)}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      {total > transactions.length && (
+        <p className="text-xs text-muted-foreground">
+          Showing the {transactions.length} most recent of {total} transactions. The
+          running balance reflects only the rows shown — use Export for the full
+          ledger.
+        </p>
+      )}
     </div>
   );
 }

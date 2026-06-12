@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import type { InventoryItemRow } from "@/types/database";
+import type { FinAgingBracket, FinStaleItem } from "@/lib/finances-dashboard";
 import {
   Card,
   CardContent,
@@ -29,23 +29,13 @@ import {
   Cell,
 } from "recharts";
 
-// Items in these statuses are no longer held as inventory.
-const SOLD_STATUSES = new Set(["sold", "shipped", "completed"]);
-
-const STALE_BRACKET_LABEL = "60+ days";
-
-interface Bracket {
-  label: string;
-  maxDays: number; // Infinity for the open-ended last bracket.
-  color: string;
-}
-
-const BRACKETS: Bracket[] = [
-  { label: "0-14 days", maxDays: 14, color: "#22c55e" },
-  { label: "15-30 days", maxDays: 30, color: "#3b82f6" },
-  { label: "31-60 days", maxDays: 60, color: "#f59e0b" },
-  { label: STALE_BRACKET_LABEL, maxDays: Infinity, color: "#E94560" },
-];
+// Colours keyed by the server-provided bracket label.
+const BRACKET_COLORS: Record<string, string> = {
+  "0-14 days": "#22c55e",
+  "15-30 days": "#3b82f6",
+  "31-60 days": "#f59e0b",
+  "60+ days": "#E94560",
+};
 
 const TOOLTIP_STYLE = {
   backgroundColor: "hsl(var(--card))",
@@ -63,69 +53,34 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function ageInDays(item: InventoryItemRow): number {
-  const start = item.acquired_date ?? item.created_at;
-  const ms = Date.now() - new Date(start).getTime();
-  return Math.max(0, Math.floor(ms / (1000 * 60 * 60 * 24)));
-}
-
-interface BracketStat {
-  label: string;
-  color: string;
-  count: number;
-  value: number;
-  pctOfValue: number;
-}
-
 interface InventoryAgingProps {
-  items: InventoryItemRow[];
+  brackets: FinAgingBracket[];
+  totalCount: number;
+  totalValue: number;
+  staleItems: FinStaleItem[];
+  staleItemsTotal: number;
   isLoading: boolean;
 }
 
-export function InventoryAging({ items, isLoading }: InventoryAgingProps) {
-  const { brackets, totalValue, totalCount, staleItems } = useMemo(() => {
-    const unsold = items.filter((i) => !SOLD_STATUSES.has(i.status));
-
-    const stats: BracketStat[] = BRACKETS.map((b) => ({
-      label: b.label,
-      color: b.color,
-      count: 0,
-      value: 0,
-      pctOfValue: 0,
-    }));
-
-    const staleItems: { item: InventoryItemRow; age: number }[] = [];
-    let totalValue = 0;
-
-    for (const item of unsold) {
-      const age = ageInDays(item);
-      const value = item.acquired_price ?? 0;
-      totalValue += value;
-
-      const idx = BRACKETS.findIndex((b) => age <= b.maxDays);
-      const bracket = stats[idx];
-      if (bracket) {
-        bracket.count += 1;
-        bracket.value += value;
-      }
-      if (BRACKETS[idx]?.label === STALE_BRACKET_LABEL) {
-        staleItems.push({ item, age });
-      }
-    }
-
-    for (const s of stats) {
-      s.pctOfValue = totalValue > 0 ? (s.value / totalValue) * 100 : 0;
-    }
-
-    staleItems.sort((a, b) => b.age - a.age);
-
-    return {
-      brackets: stats,
-      totalValue,
-      totalCount: unsold.length,
-      staleItems,
-    };
-  }, [items]);
+export function InventoryAging({
+  brackets,
+  totalCount,
+  totalValue,
+  staleItems,
+  staleItemsTotal,
+  isLoading,
+}: InventoryAgingProps) {
+  const decorated = useMemo(
+    () =>
+      brackets.map((b) => ({
+        label: b.label,
+        color: BRACKET_COLORS[b.label] ?? "#0F3460",
+        count: b.count,
+        value: b.value,
+        pctOfValue: totalValue > 0 ? (b.value / totalValue) * 100 : 0,
+      })),
+    [brackets, totalValue]
+  );
 
   if (isLoading) {
     return (
@@ -155,7 +110,7 @@ export function InventoryAging({ items, isLoading }: InventoryAgingProps) {
     );
   }
 
-  const chartData = brackets.map((b) => ({
+  const chartData = decorated.map((b) => ({
     name: b.label,
     value: Math.round(b.value * 100) / 100,
     color: b.color,
@@ -220,7 +175,7 @@ export function InventoryAging({ items, isLoading }: InventoryAgingProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {brackets.map((b) => (
+                {decorated.map((b) => (
                   <TableRow key={b.label}>
                     <TableCell>
                       <span className="flex items-center gap-2 font-medium">
@@ -247,13 +202,13 @@ export function InventoryAging({ items, isLoading }: InventoryAgingProps) {
       </Card>
 
       {/* Stale inventory flag */}
-      {staleItems.length > 0 && (
+      {staleItemsTotal > 0 && (
         <Card className="lg:col-span-2 border-[#E94560]/40">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <div>
               <CardTitle className="text-base">Consider Repricing</CardTitle>
               <CardDescription>
-                {staleItems.length} item{staleItems.length === 1 ? "" : "s"}{" "}
+                {staleItemsTotal} item{staleItemsTotal === 1 ? "" : "s"}{" "}
                 held 60+ days — repricing may help them move.
               </CardDescription>
             </div>
@@ -271,7 +226,7 @@ export function InventoryAging({ items, isLoading }: InventoryAgingProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {staleItems.slice(0, 15).map(({ item, age }) => (
+                  {staleItems.slice(0, 15).map((item) => (
                     <TableRow key={item.id}>
                       <TableCell>
                         <Link
@@ -285,19 +240,19 @@ export function InventoryAging({ items, isLoading }: InventoryAgingProps) {
                         {item.status}
                       </TableCell>
                       <TableCell className="text-right font-medium text-[#E94560]">
-                        {age}
+                        {item.age}
                       </TableCell>
                       <TableCell className="text-right">
-                        {formatCurrency(item.acquired_price ?? 0)}
+                        {formatCurrency(item.acquired_price)}
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
-            {staleItems.length > 15 && (
+            {staleItemsTotal > 15 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                Showing the 15 oldest of {staleItems.length} stale items.
+                Showing the 15 oldest of {staleItemsTotal} stale items.
               </p>
             )}
           </CardContent>

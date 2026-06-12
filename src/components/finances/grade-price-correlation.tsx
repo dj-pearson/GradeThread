@@ -1,6 +1,9 @@
 import { useMemo } from "react";
-import type { InventoryItemRow, SaleRow } from "@/types/database";
-import { computePnl } from "@/lib/pnl";
+import type {
+  FinGradePoint,
+  FinTierStat,
+  FinCategoryTier,
+} from "@/lib/finances-dashboard";
 import {
   Card,
   CardContent,
@@ -36,26 +39,6 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
-// Condition tiers, ordered worst → best. A grade maps to the tier whose
-// floor it clears (grades round to the nearest tier integer).
-const GRADE_TIERS = [
-  { label: "Poor", floor: 0 },
-  { label: "Fair", floor: 4.5 },
-  { label: "Good", floor: 5.5 },
-  { label: "Very Good", floor: 6.5 },
-  { label: "Excellent", floor: 7.5 },
-  { label: "NWOT", floor: 8.5 },
-  { label: "NWT", floor: 9.5 },
-] as const;
-
-function tierFor(grade: number): string {
-  let label: string = GRADE_TIERS[0].label;
-  for (const tier of GRADE_TIERS) {
-    if (grade >= tier.floor) label = tier.label;
-  }
-  return label;
-}
-
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -65,115 +48,52 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-interface Point {
-  grade: number;
-  price: number;
-  profit: number;
-  category: string;
-}
-
-interface TierStat {
-  label: string;
-  count: number;
-  avgPrice: number;
-  avgProfit: number;
-}
-
 interface GradePriceCorrelationProps {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
+  points: FinGradePoint[];
+  pointsTotal: number;
+  tierStats: FinTierStat[];
+  categoryTier: FinCategoryTier[];
   isLoading: boolean;
 }
 
 export function GradePriceCorrelation({
-  items,
-  sales,
+  points,
+  pointsTotal,
+  tierStats,
+  categoryTier,
   isLoading,
 }: GradePriceCorrelationProps) {
-  const { points, tierStats, categoryRows, activeTiers, insight } = useMemo(() => {
-    const itemById = new Map<string, InventoryItemRow>();
-    for (const item of items) itemById.set(item.id, item);
-
-    const points: Point[] = [];
-    for (const sale of sales) {
-      const item = itemById.get(sale.inventory_item_id);
-      if (!item || item.grade_value === null || item.grade_value === undefined) {
-        continue;
-      }
-      points.push({
-        grade: item.grade_value,
-        price: sale.sale_price,
-        profit: computePnl(sale, item.acquired_price ?? 0).net,
-        category: item.garment_category
-          ? item.garment_category.charAt(0).toUpperCase() +
-            item.garment_category.slice(1)
-          : "Uncategorized",
-      });
-    }
-
-    // ── Per-tier aggregates ──
-    const tierMap = new Map<
-      string,
-      { count: number; price: number; profit: number }
-    >();
-    for (const p of points) {
-      const tier = tierFor(p.grade);
-      const acc = tierMap.get(tier) ?? { count: 0, price: 0, profit: 0 };
-      acc.count += 1;
-      acc.price += p.price;
-      acc.profit += p.profit;
-      tierMap.set(tier, acc);
-    }
-    const tierStats: TierStat[] = GRADE_TIERS.map((t) => t.label)
-      .map((label) => {
-        const acc = tierMap.get(label);
-        return {
-          label,
-          count: acc?.count ?? 0,
-          avgPrice: acc && acc.count > 0 ? acc.price / acc.count : 0,
-          avgProfit: acc && acc.count > 0 ? acc.profit / acc.count : 0,
-        };
-      })
-      .filter((t) => t.count > 0);
-
+  const { activeTiers, categoryRows, insight } = useMemo(() => {
     const activeTiers = tierStats.map((t) => t.label);
 
-    // ── Category × tier average sale price ──
-    const catMap = new Map<string, Map<string, { count: number; price: number }>>();
-    for (const p of points) {
-      const tier = tierFor(p.grade);
-      const byTier = catMap.get(p.category) ?? new Map();
-      const acc = byTier.get(tier) ?? { count: 0, price: 0 };
-      acc.count += 1;
-      acc.price += p.price;
-      byTier.set(tier, acc);
-      catMap.set(p.category, byTier);
+    // Pivot the per-(category, tier) average prices into one row per category.
+    const catMap = new Map<string, Record<string, number | null>>();
+    for (const row of categoryTier) {
+      const byTier = catMap.get(row.category) ?? {};
+      byTier[row.tier] = row.avg_price;
+      catMap.set(row.category, byTier);
     }
     const categoryRows = Array.from(catMap.entries())
       .map(([category, byTier]) => ({
         category,
         avgByTier: Object.fromEntries(
-          activeTiers.map((tier) => {
-            const acc = byTier.get(tier);
-            return [tier, acc && acc.count > 0 ? acc.price / acc.count : null];
-          })
+          activeTiers.map((tier) => [tier, byTier[tier] ?? null])
         ) as Record<string, number | null>,
       }))
       .sort((a, b) => a.category.localeCompare(b.category));
 
-    // ── Insight: Excellent vs Good ──
+    // Insight: Excellent vs Good average price.
     const excellent = tierStats.find((t) => t.label === "Excellent");
     const good = tierStats.find((t) => t.label === "Good");
     let insight: string | null = null;
-    if (excellent && good && good.avgPrice > 0) {
-      const diff =
-        ((excellent.avgPrice - good.avgPrice) / good.avgPrice) * 100;
+    if (excellent && good && good.avg_price > 0) {
+      const diff = ((excellent.avg_price - good.avg_price) / good.avg_price) * 100;
       if (diff >= 0) {
         insight = `Items graded Excellent sell for ${diff.toFixed(
           0
         )}% more on average than items graded Good (${formatCurrency(
-          excellent.avgPrice
-        )} vs ${formatCurrency(good.avgPrice)}).`;
+          excellent.avg_price
+        )} vs ${formatCurrency(good.avg_price)}).`;
       } else {
         insight = `Items graded Excellent sell for ${Math.abs(diff).toFixed(
           0
@@ -181,8 +101,8 @@ export function GradePriceCorrelation({
       }
     }
 
-    return { points, tierStats, categoryRows, activeTiers, insight };
-  }, [items, sales]);
+    return { activeTiers, categoryRows, insight };
+  }, [tierStats, categoryTier]);
 
   if (isLoading) {
     return (
@@ -197,7 +117,7 @@ export function GradePriceCorrelation({
     );
   }
 
-  if (points.length === 0) {
+  if (pointsTotal === 0) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -222,8 +142,11 @@ export function GradePriceCorrelation({
           <div>
             <CardTitle className="text-base">Grade vs Sale Price</CardTitle>
             <CardDescription>
-              Each point is a sold item ({points.length} total); the line is a
-              fitted price/grade trend.
+              Each point is a sold item ({pointsTotal} total
+              {points.length < pointsTotal
+                ? `, showing ${points.length} most recent`
+                : ""}
+              ); the line is a fitted price/grade trend.
             </CardDescription>
           </div>
           <ScatterIcon className="h-4 w-4 text-muted-foreground" />
@@ -307,16 +230,16 @@ export function GradePriceCorrelation({
                     <TableCell className="font-medium">{t.label}</TableCell>
                     <TableCell className="text-right">{t.count}</TableCell>
                     <TableCell className="text-right">
-                      {formatCurrency(t.avgPrice)}
+                      {formatCurrency(t.avg_price)}
                     </TableCell>
                     <TableCell
                       className={
-                        t.avgProfit < 0
+                        t.avg_profit < 0
                           ? "text-right text-red-600"
                           : "text-right text-green-600"
                       }
                     >
-                      {formatCurrency(t.avgProfit)}
+                      {formatCurrency(t.avg_profit)}
                     </TableCell>
                   </TableRow>
                 ))}

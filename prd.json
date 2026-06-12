@@ -6455,8 +6455,8 @@
         "Verified with a 10k-sale account: payload under a few hundred KB, interaction under 200ms"
       ],
       "priority": 403,
-      "passes": false,
-      "notes": "[P0][Performance] Audit 2026-06-03. finances.tsx fires 4 unbounded select('*') and aggregates in the browser."
+      "passes": true,
+      "notes": "[P0][Performance] Audit 2026-06-03. finances.tsx fires 4 unbounded select('*') and aggregates in the browser. IMPLEMENTED 2026-06-11: finances.tsx now makes one finances_dashboard RPC (migration 00143) per period instead of 4 unbounded select(*) — Postgres computes every summary metric and chart series (time-series, cost breakdown, ROI by brand/category/source, inventory aging, grade/price, time-on-market, cash-flow, profit rows). Period filter pushed into the query (sale_date >= p_period_start); all sales-based metrics scoped to completed sales for consistency. Row-level lists capped (scatter 2000, profit rows 1000, cash-flow txns 500, stale/slow 100) with *_total counts. Export uses a 2nd RPC finances_export(start,end) on demand. SECURITY INVOKER preserves RLS. Verified migration applies on fresh db reset and RPC output matches hand-computed numbers."
     },
     {
       "id": "US-404",
@@ -12189,6 +12189,250 @@
       "priority": 828,
       "passes": false,
       "notes": "[EPIC: Aspect Autofill 2026-06-11] From 2026-06-11 aspects audit. Existing second-pass refine (ai-listing.ts extractEbayAspects + merge L724, fallback L732-742) stays — this story closes the validation holes around it. Depends on US-823."
+    },
+    {
+      "id": "US-829",
+      "title": "Schema: support conversation + message store with escalation lifecycle",
+      "description": "As the platform, I need persistent storage for AI support conversations so every tier-1 chat is auditable, resumable, and hand-offable to a human. Migration 00144 adds support_conversations (id, user_id, workspace_owner_id, status enum [open, awaiting_user, escalated, resolved, closed], subject, escalation_reason, assigned_admin_id, last_message_at, escalated_at, resolved_at, created_at, updated_at) and support_messages (id, conversation_id FK, role enum [user, assistant, human_agent, system], content text, tool_calls jsonb null, model text null, input_tokens int, output_tokens int, flagged bool default false, flag_reason text null, created_at). Both indexed by user_id / conversation_id. RLS: a user may SELECT only their own conversations and the messages within them (own-row + workspace_owner_id match); ALL writes are service-role from the edge only — clients never insert messages directly. updated_at via the standard trigger.",
+      "acceptanceCriteria": [
+        "Migration 00144_support_assistant_schema.sql creates support_conversations + support_messages with the enums and indexes described",
+        "RLS: authenticated user can read only conversations where user_id = auth.uid() (or they are the workspace owner) and only messages whose conversation they own; no client INSERT/UPDATE/DELETE policy exists (service-role only)",
+        "system role messages are never returned to clients (the system prompt is never persisted in a client-readable row) — store system context out of band or mark non-selectable",
+        "supabase db reset applies cleanly (npm run verify:db)",
+        "Cross-tenant read is blocked — covered by a tenant-isolation test asserting user B cannot read user A's conversation or messages"
+      ],
+      "priority": 829,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Foundation story. Mirrors existing RLS own-row patterns (notifications 00007, feedback_messages 000385). Service-role-only writes keep transcript integrity. Next migration number is 00144 (00143 is current max)."
+    },
+    {
+      "id": "US-830",
+      "title": "Schema + admin-managed knowledge base (the ONLY system-side corpus the bot may speak from)",
+      "description": "As the platform, the assistant must answer product questions ONLY from a curated, versioned knowledge base — never from the model's own priors about GradeThread internals — so we control exactly what system information can ever reach a user. Migration 00145 adds support_kb_articles (id, slug unique, title, body_md, category enum [grading, pricing, plans, photos, disputes, flipdesk, billing, account, getting_started], audience enum [public, subscriber], version int, is_published bool, search_tsv tsvector generated/maintained, created_at, updated_at) and support_kb_revisions (append-only history: article_id, version, title, body_md, edited_by, created_at). RLS: published public/subscriber articles are readable by the matching audience; unpublished + revisions are admin/service-role only. A GIN index on search_tsv backs keyword retrieval (US-833).",
+      "acceptanceCriteria": [
+        "Migration 00145_support_kb.sql creates support_kb_articles + support_kb_revisions with enums, unique slug, tsvector + GIN index",
+        "RLS: subscribers read only is_published articles for their audience; drafts and revision history are not client-readable",
+        "An edit to an article bumps version and writes a support_kb_revisions row (trigger or service-role enforced)",
+        "search_tsv is populated from title + body_md and updates on write",
+        "npm run verify:db passes"
+      ],
+      "priority": 830,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] This table IS the system-information boundary: the engine (US-834) and prompt (US-835) forbid answering product questions from anything but published KB hits. Embeddings deferred — keyword/FTS first. Depends on US-829 era schema work only loosely; independent migration."
+    },
+    {
+      "id": "US-831",
+      "title": "Schema + infra: assistant usage metering, abuse events, and lockouts",
+      "description": "As the platform, I need first-class tables to meter assistant usage and record abuse so rate limits and lockouts are enforceable and auditable. Migration 00146 adds support_assistant_usage (user_id, usage_date date, message_count int, input_tokens int, output_tokens int, escalation_count int, PRIMARY KEY (user_id, usage_date)) for per-day rollups; support_abuse_events (id, user_id, conversation_id null, type enum [jailbreak_attempt, prompt_injection, flood, policy_violation, repeated_failure, scope_probe], severity enum [low, medium, high], detail text, created_at); and users.support_assistant_locked_until timestamptz null (a temporary lockout set by the abuse pipeline, cleared by an admin or expiry). RLS: usage + abuse rows are service-role/admin only (never client-readable). This story creates the storage + helper functions only; threshold logic lives in US-836.",
+      "acceptanceCriteria": [
+        "Migration 00146_support_assistant_abuse.sql creates support_assistant_usage + support_abuse_events and adds users.support_assistant_locked_until",
+        "Helper (edge lib) incrementUsage(userId, {messages, inputTokens, outputTokens, escalations}) upserts the daily rollup atomically",
+        "Helper recordAbuseEvent(userId, type, severity, detail, conversationId?) inserts a row",
+        "RLS: neither table is readable by an authenticated (non-admin) client",
+        "npm run verify:db passes"
+      ],
+      "priority": 831,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Storage + helpers only; enforcement thresholds in US-836. locked_until is read by the engine gate (US-834) before any model call."
+    },
+    {
+      "id": "US-832",
+      "title": "Read-only, tenant-scoped tool layer — the exact (small) set of things the bot may see",
+      "description": "As the security owner, the assistant must have a FIXED, read-only, minimal tool allowlist, each hard-scoped to the caller's tenant and returning only non-sensitive shaped DTOs — so the bot can help with 'my listings / my grades / my plan' without ever touching personal, financial-instrument, or security data. Implement in services/edge-functions/src/lib/support-tools.ts: getMyInventoryStatusCounts(), getMyListingsSummary({status?,limit<=20}), getSalesSummary({period}) (counts + totals only, no buyer identity), getGradeReportForMyItem(itemId) (score/tier/factors/summary for an item the caller owns), getMyOpenSubmissions(), getMyPlanAndLimits() (plan tier, caps, usage counts). EVERY query is scoped to c.get('workspaceOwnerId') ?? c.get('userId'); itemId-style args are ownership-verified before read (US-268 rule). DTOs deliberately EXCLUDE: email/name/address, payment methods, Stripe ids, API keys, auth/MFA, raw buyer usernames, other users' anything, internal config, model/prompt details. There are NO write/update/delete tools.",
+      "acceptanceCriteria": [
+        "support-tools.ts exports exactly the six read-only tools above and no mutating tool",
+        "Every tool filters by workspaceOwnerId ?? userId; itemId args call a loadOwned-style check that returns empty/refusal if the caller does not own the row",
+        "DTO shapes are explicit allowlists of fields — no select('*') passthrough; reviewer can see no PII/payment/security field is included",
+        "getSalesSummary returns only aggregates (count, gross, fees, net) — never buyer_username or per-buyer PII",
+        "Tenant-isolation tests in tenant-isolation_test.ts: user B calling each tool while impersonating ownership of user A's item/data gets nothing",
+        "deno test + npm run verify pass"
+      ],
+      "priority": 832,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] This is the read-only + nothing-personal + per-tenant-wall guarantee in code. Reuse loadListingOwned/assemblePublishContext ownership patterns from flipdesk-ebay.ts. Tables: inventory_items, listings, sales, grade_reports, submissions, users (own non-sensitive fields only)."
+    },
+    {
+      "id": "US-833",
+      "title": "Knowledge-base retrieval tool — bot product knowledge comes ONLY from here",
+      "description": "As the security owner, all product/how-to knowledge the assistant emits must come from published KB articles, never the model's training priors, so we can prove and control what system information is reachable. Implement searchKnowledgeBase({query, audience}) in support-tools.ts: full-text search over support_kb_articles.search_tsv (US-830), audience-filtered (subscriber sees subscriber+public), is_published only, returns top-K (<=5) {slug,title,snippet}. The engine is instructed that product facts must cite a returned article; if KB returns nothing relevant, the assistant says it doesn't know and offers escalation rather than inventing an answer.",
+      "acceptanceCriteria": [
+        "searchKnowledgeBase performs FTS via the GIN tsvector index, audience- and is_published-filtered, capped at 5 results",
+        "Returns concise snippets (not whole articles) sized for prompt budget",
+        "No-result path returns an explicit empty set the engine maps to 'I don't have that — want a human?' (no fabrication)",
+        "Unit/fixture tests: query hits a published subscriber article, misses an unpublished one, and respects audience",
+        "deno test passes"
+      ],
+      "priority": 833,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-830. Keyword/FTS now; an embeddings variant can be layered later behind the same function signature."
+    },
+    {
+      "id": "US-834",
+      "title": "Assistant engine: verified + gated edge route with streaming tool-use loop",
+      "description": "As a subscribed user, I can chat with the assistant from an authenticated, rate-limited, streaming endpoint. Build services/edge-functions/src/routes/support-assistant.ts mounted at /api/support/assistant, POST /message (and GET /conversations, GET /conversations/:id). Pipeline per request: (1) verify Supabase JWT and resolve userId/workspaceOwnerId via existing middleware; (2) GATE — reject if not an active subscriber (subscription_status in active/trialing per plan policy) and reject if users.support_assistant_locked_until is in the future; (3) load/create conversation, append the user message; (4) run a Claude tool-use loop (Haiku via ai-config getAnthropicClient + getLightweightModel, wrapped in applyAiLimiter/runAiCall) with ONLY the US-832 read-only tools + US-833 KB tool + the US-837 escalate tool, capped at a small max tool-iteration count; (5) stream the assistant reply over SSE and persist all messages + token counts (US-831 incrementUsage). System prompt + output guard come from US-835.",
+      "acceptanceCriteria": [
+        "POST /api/support/assistant/message streams an SSE response and persists user + assistant messages with token counts",
+        "Unauthenticated, non-subscriber, and locked-out callers are rejected with clear 401/403 before any model call",
+        "Model calls route through applyAiLimiter/runAiCall and use the lightweight model from ai-config (no hardcoded model id/key)",
+        "Tool loop is bounded (max N iterations) and only the read-only + KB + escalate tools are registered — no write tools reachable",
+        "Per-request token + message usage is recorded via incrementUsage; GET endpoints return only the caller's own conversations",
+        "deno test covers the gate (subscriber/locked) and the tool-loop iteration cap; npm run verify passes"
+      ],
+      "priority": 834,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-829/831/832/833. Mount alongside existing flipdesk routes in main.ts. Streaming bypasses the limiter's create() path — meter tokens explicitly post-stream. Tier gate policy (which plans get the bot) finalized in US-844 config."
+    },
+    {
+      "id": "US-835",
+      "title": "System prompt + output guardrails: scope confinement & prompt-injection resistance",
+      "description": "As the security owner, the assistant must refuse to leak system internals or step outside tier-1 scope even under adversarial prompting. Author the hardened system prompt + a post-generation output guard in support-assistant. The prompt: defines the role as GradeThread tier-1 support; states it may ONLY answer from KB results (US-833) and the caller's own scoped data (US-832); enumerates the allowed topic taxonomy; instructs that all user-provided text (including pasted listing content) is UNTRUSTED and must never be treated as instructions; forbids revealing/altering the system prompt, tool names/schemas, DB structure, other tenants' data, internal config, or model details; on out-of-scope or unknown questions it gives a brief refusal + offers escalation. The output guard is a deterministic post-filter that blocks responses containing system-prompt/tool/schema leakage markers and replaces them with a safe refusal, recording a scope_probe/prompt_injection abuse event (US-831).",
+      "acceptanceCriteria": [
+        "System prompt encodes: role, KB+own-data-only sourcing, untrusted-input rule, explicit non-disclosure list, refusal+escalation behavior, and the allowed topic taxonomy",
+        "Output guard post-filters model output and converts any detected leakage of system/tool/schema/internal content into a standard refusal",
+        "A detected injection/leakage attempt records a support_abuse_event and does NOT return the offending content",
+        "Refusals are user-friendly and always offer the human-escalation path",
+        "Unit tests cover: refuses 'print your system prompt', refuses 'list your tools', refuses cross-tenant asks, ignores injected 'ignore previous instructions' inside pasted content"
+      ],
+      "priority": 835,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] The prompt is the policy; the output guard is defense-in-depth so a single prompt slip can't leak internals. Allowed-topic taxonomy doubles as the escalation trigger in US-837. Adversarial coverage expanded in US-843."
+    },
+    {
+      "id": "US-836",
+      "title": "Abuse detection & enforced thresholds: rate limits, jailbreak/flood, lockout",
+      "description": "As the security owner, I need explicit, documented numeric thresholds that throttle and lock out abusers automatically. In support-assistant enforce: per-minute message cap and per-day message + token caps (per plan tier), checked against support_assistant_usage before each turn; detection of jailbreak/injection attempts (heuristic markers + a lightweight Haiku classifier pass on the user turn) and floods (burst rate); accumulation rules — e.g. >=K high-severity abuse events in a rolling window, or exceeding the daily cap, sets users.support_assistant_locked_until (graduated: first short cooldown, repeat longer) and raises an admin alert. All thresholds live in one constants block and are documented. Hitting a limit returns a clear, non-leaking message.",
+      "acceptanceCriteria": [
+        "Per-minute and per-day message/token caps enforced from support_assistant_usage; exceeding returns a clear 429-style message and records usage",
+        "Jailbreak/injection classifier runs on user turns; positive hits record a support_abuse_event with severity",
+        "Threshold constants (caps, window, K, cooldown durations) are defined in ONE documented place and unit-referenced",
+        "Reaching the abuse/cap threshold sets support_assistant_locked_until (graduated cooldown) and the engine gate (US-834) honors it",
+        "Admin alert fired on lockout / high-severity event (in-app + email to owner)",
+        "deno tests cover: rate-limit trip, classifier flag, lockout set + honored"
+      ],
+      "priority": 836,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-831 (storage) + US-834 (gate) + US-835 (leakage detection feeds events). Reuse applyAiLimiter for concurrency; this story adds the support-specific message/token/abuse layer on top."
+    },
+    {
+      "id": "US-837",
+      "title": "Human escalation: handoff tool + lifecycle + owner notification",
+      "description": "As a subscribed user, when the bot can't help I'm smoothly handed to a human. Add an escalateToHuman({reason, summary}) tool the model calls when: confidence is low, the question is out of the allowed taxonomy, the user explicitly asks for a person, or repeated answer attempts fail (auto-escalate after a threshold of failed turns). The tool sets conversation status=escalated, stores escalation_reason + an AI-written summary, notifies the owner via notifyInApp + sendFeedbackEmail-style email with a deep link to the admin thread, and tells the user a human will follow up. Subsequent human_agent replies (US-839) notify the user in-app + realtime and move status to awaiting_user/resolved.",
+      "acceptanceCriteria": [
+        "escalateToHuman registered as a tool; calling it sets status=escalated, persists reason+summary, stamps escalated_at",
+        "Owner receives in-app notification (notifyInApp) and an email with a link to the escalated conversation",
+        "Auto-escalation fires after the defined number of failed/uncertain turns without the user asking",
+        "User sees a clear 'handed to a human' state in the chat and stops being charged usage for that idle thread",
+        "deno test covers explicit, auto, and out-of-scope escalation paths"
+      ],
+      "priority": 837,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuses notifyInApp (notifications.ts) + email.ts patterns + the notifications Realtime channel. Escalation triggers derive from the US-835 taxonomy + US-836 thresholds. Admin reply UI is US-839."
+    },
+    {
+      "id": "US-838",
+      "title": "Frontend: tier-gated chat widget with streaming, history, and escalation state",
+      "description": "As a subscribed user, I can open an in-app support chat from the dashboard. Build a chat widget (shadcn sheet/dialog) available in dashboard-layout, gated by subscription tier (hidden/upsell for ineligible plans). Features: streaming assistant responses (SSE from US-834), markdown rendering, conversation history (GET endpoints), an explicit 'Talk to a human' button (triggers escalation), visible escalation/awaiting-human status, rate-limit + lockout messaging surfaced gracefully, and Realtime updates so human_agent replies appear live. Empty/new-user state explains what the assistant can help with (its allowed topics) and what it can't.",
+      "acceptanceCriteria": [
+        "Chat widget mounts in the dashboard and is shown only to eligible subscription tiers (others see an upsell or nothing per US-844 config)",
+        "Assistant responses stream token-by-token; markdown renders; history loads from the caller's conversations only",
+        "'Talk to a human' button escalates; escalated/awaiting-human status is clearly displayed",
+        "Human replies arrive live via the notifications Realtime channel without refresh",
+        "Rate-limit/lockout/refusal responses render as friendly inline states, never raw errors",
+        "npm run build + npm run lint pass; component matches brand + existing widget patterns"
+      ],
+      "priority": 838,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuse Realtime pattern from notification-center.tsx + use-realtime-submission.ts. Uses existing shadcn sheet/dialog. Tier gate reads flipdesk_plan/subscription_status."
+    },
+    {
+      "id": "US-839",
+      "title": "Admin: support inbox for escalated conversations",
+      "description": "As the owner/support, I need an MFA-gated admin inbox to handle escalations. Build /admin/support: list conversations filtered by status (escalated/open/awaiting_user/resolved) with the AI summary, reason, user, and last activity; open a thread to read the full transcript (user + assistant + tool-call context); reply as a human_agent (persists message, notifies user in-app + realtime, sets awaiting_user); and resolve/close. All reads + mutations go through admin-MFA-gated edge endpoints (mirroring admin/reviews.tsx + disputes.tsx), service-role on the server.",
+      "acceptanceCriteria": [
+        "/admin/support lists conversations with status filter, AI summary, escalation reason, user, last_message_at",
+        "Transcript view shows the full ordered message history including which tools the assistant used",
+        "Human reply persists a human_agent message, notifies the user (in-app + realtime), and updates status",
+        "Resolve/close transitions stamp resolved_at and notify the user",
+        "All endpoints are behind the existing admin auth + MFA gate; npm run build passes"
+      ],
+      "priority": 839,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Model after admin/reviews.tsx (MFA-gated edge endpoints) and admin/disputes.tsx (user notifications on status change). Depends on US-829/837."
+    },
+    {
+      "id": "US-840",
+      "title": "Admin: knowledge base authoring, publishing, and versioning",
+      "description": "As the owner, I manage the corpus the assistant speaks from. Build /admin/support/kb: list/search articles, create/edit with a markdown editor, set category + audience, publish/unpublish, and view revision history (US-830 support_kb_revisions). Saving bumps version and writes a revision. This is the single control surface for what system information the bot can ever surface, so changes are immediate and auditable (edited_by recorded).",
+      "acceptanceCriteria": [
+        "/admin/support/kb lists + searches articles and supports create/edit with markdown preview",
+        "Category + audience selectable; publish/unpublish toggles is_published",
+        "Save bumps version and writes a support_kb_revisions row with edited_by",
+        "Revision history is viewable per article",
+        "Endpoints behind admin auth/MFA; npm run build passes"
+      ],
+      "priority": 840,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-830. The published set here is exactly what US-833 can retrieve and US-835 permits the bot to state."
+    },
+    {
+      "id": "US-841",
+      "title": "Admin: abuse & usage monitoring dashboard with manual unlock",
+      "description": "As the owner, I need visibility into assistant abuse and usage. Build /admin/support/monitoring: recent support_abuse_events (type/severity/user/detail/time) with filters; per-user usage rollups (messages, tokens, escalations) and current lockouts with a manual unlock action (clears support_assistant_locked_until); a list of flagged messages (US-829 flagged/flag_reason). Surfaces the thresholds in effect (from US-836) so the team can see how close users are to limits. Reads via admin-MFA-gated endpoints.",
+      "acceptanceCriteria": [
+        "Dashboard lists abuse events with type/severity filters and links to the originating conversation",
+        "Per-user usage + active lockouts are shown; an admin can manually unlock a user (audited)",
+        "Flagged messages are listable for review",
+        "Active threshold values from US-836 are displayed for reference",
+        "Endpoints behind admin auth/MFA; npm run build passes"
+      ],
+      "priority": 841,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Depends on US-831/836. Manual unlock + alerts close the abuse-monitoring loop the user asked for."
+    },
+    {
+      "id": "US-842",
+      "title": "Analytics, cost tracking & observability for the assistant",
+      "description": "As the owner, I need to know the assistant is deflecting load affordably and safely. Emit PostHog events (message_sent, answer_deflected, escalated, refused, rate_limited, abuse_flagged) with non-PII properties; track cost per conversation from persisted token counts (input/output * model price); compute deflection rate (resolved by bot vs escalated), escalation reasons breakdown, and top intents/topics; wire Sentry on engine errors. Surface a small metrics panel in the admin support area (or extend existing analytics).",
+      "acceptanceCriteria": [
+        "PostHog events fire for the listed lifecycle moments with no PII in properties",
+        "Per-conversation token + estimated cost is computed and viewable (admin)",
+        "Deflection rate, escalation-reason breakdown, and top topics are computed from stored data",
+        "Engine errors report to Sentry with conversation context (no message PII)",
+        "npm run build passes; a metrics tile/panel renders in admin"
+      ],
+      "priority": 842,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Reuse existing PostHog + Sentry setup. Cost uses the model pricing for the lightweight model from ai-config."
+    },
+    {
+      "id": "US-843",
+      "title": "Red-team test suite: prompt injection, system-leak, and tenant isolation",
+      "description": "As the security owner, the safety guarantees must be regression-proof. Add a dedicated adversarial test suite (services/edge-functions/src/tests/support-assistant-redteam_test.ts) that drives the engine/guard with attacks attempting to: extract the system prompt; enumerate tool names/schemas; read another tenant's listings/grades/sales; obtain personal/payment/security data (email, Stripe ids, API keys, MFA); jailbreak via 'ignore previous instructions', role-play, encoded payloads, and injection embedded in pasted listing text; and exceed scope. Each case asserts a safe refusal, no leakage, and (where applicable) an abuse event recorded. Extend tenant-isolation_test.ts to cover every US-832 read tool. Wire into npm run verify so the build fails on any regression.",
+      "acceptanceCriteria": [
+        "Red-team suite covers system-prompt extraction, tool/schema enumeration, cross-tenant data, PII/payment/security data, and multiple jailbreak styles incl. injection inside pasted content",
+        "Each case asserts: safe refusal text, absence of the protected content in output, and abuse-event recording where expected",
+        "tenant-isolation_test.ts asserts each US-832 tool returns nothing for a non-owner caller",
+        "Suite runs in CI via npm run verify (deno test lane) and fails the build on regression",
+        "All tests pass on a clean run"
+      ],
+      "priority": 843,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] This is the durable proof of the user's non-negotiables. Depends on US-832/834/835/836. Co-located with existing tenant-isolation_test.ts (US-268)."
+    },
+    {
+      "id": "US-844",
+      "title": "Seed KB, launch config/feature-flag, tier policy, and docs",
+      "description": "As the owner, I need the assistant launch-ready and documented. Seed an initial set of published KB articles covering: the 1.0-10.0 grading scale + tiers + factors, plans/pricing + caps, how to read a grade report, photo requirements, how disputes work, FlipDesk basics, and a billing/account FAQ. Add a feature flag + the tier-eligibility policy (which plans get the bot — default to paid tiers; Business gets priority) in one config place consumed by the engine gate (US-834) and the frontend gate (US-838). Write SUPPORT_ASSISTANT.md documenting the architecture, the read-only tool allowlist, the thresholds, the escalation flow, and the abuse/lockout policy. Define a phased rollout (internal -> Business -> all paid).",
+      "acceptanceCriteria": [
+        "Initial KB articles authored + published covering grading, pricing/plans, grade reports, photos, disputes, flipdesk, billing/account",
+        "A single feature-flag + tier-eligibility config gates both the engine and the widget; flipping it off fully disables the assistant",
+        "SUPPORT_ASSISTANT.md documents architecture, tool allowlist, thresholds, escalation, and abuse policy",
+        "Rollout phases documented (internal -> Business -> all paid tiers)",
+        "npm run verify passes with the assistant disabled by default until launch"
+      ],
+      "priority": 844,
+      "passes": false,
+      "notes": "[EPIC: AI Support Assistant 2026-06-11] Final story. Tier policy referenced by US-834 gate + US-838 widget. Keep flag OFF by default so partial merges never expose the bot in prod."
     }
   ]
 }

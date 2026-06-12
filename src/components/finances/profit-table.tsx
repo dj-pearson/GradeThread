@@ -19,14 +19,11 @@ import {
 } from "@/components/ui/select";
 import { ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { InventoryItemRow, SaleRow, ShipmentRow, ListingRow } from "@/types/database";
+import type { FinProfitRow } from "@/lib/finances-dashboard";
 
 interface ProfitTableProps {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
-  shipments: ShipmentRow[];
-  listings: ListingRow[];
-  periodStart: string | null;
+  rows: FinProfitRow[];
+  rowsTotal: number;
 }
 
 interface ProfitRow {
@@ -49,8 +46,6 @@ type SortField = keyof Omit<ProfitRow, "id">;
 type SortDirection = "asc" | "desc";
 type ProfitFilter = "all" | "profit" | "loss";
 
-const GRADING_COST = 0; // No grading cost column in current DB; placeholder for future
-
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -59,13 +54,7 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-export function ProfitTable({
-  items,
-  sales,
-  shipments,
-  listings,
-  periodStart,
-}: ProfitTableProps) {
+export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
   const [sortField, setSortField] = useState<SortField>("saleDate");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [profitFilter, setProfitFilter] = useState<ProfitFilter>("all");
@@ -74,70 +63,34 @@ export function ProfitTable({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  // Build lookup maps
-  const rows = useMemo((): ProfitRow[] => {
-    const itemById = new Map<string, InventoryItemRow>();
-    for (const item of items) {
-      itemById.set(item.id, item);
-    }
-
-    const shipmentBySaleId = new Map<string, ShipmentRow>();
-    for (const s of shipments) {
-      shipmentBySaleId.set(s.sale_id, s);
-    }
-
-    // Get the highest listing price for each item
-    const listingPriceByItemId = new Map<string, number>();
-    for (const listing of listings) {
-      const existing = listingPriceByItemId.get(listing.inventory_item_id);
-      if (existing === undefined || listing.listing_price > existing) {
-        listingPriceByItemId.set(listing.inventory_item_id, listing.listing_price);
-      }
-    }
-
-    // Filter sales by period
-    const filteredSales = periodStart
-      ? sales.filter((s) => s.sale_date >= periodStart)
-      : sales;
-
-    return filteredSales.map((sale) => {
-      const item = itemById.get(sale.inventory_item_id);
-      const shipment = shipmentBySaleId.get(sale.id);
-      const acquiredPrice = item?.acquired_price ?? 0;
-      const gradingCost = GRADING_COST;
-      const listedPrice = listingPriceByItemId.get(sale.inventory_item_id) ?? 0;
-      const salePrice = sale.sale_price;
-      const platformFees = sale.platform_fees;
-      const shippingCost = shipment
-        ? shipment.shipping_cost + shipment.label_cost
-        : 0;
-      const totalCosts = acquiredPrice + gradingCost + platformFees + shippingCost;
-      const netProfit = salePrice - totalCosts;
-      const profitMargin = salePrice > 0 ? (netProfit / salePrice) * 100 : 0;
-
-      return {
-        id: sale.id,
-        title: item?.title ?? "Unknown Item",
-        brand: item?.brand ?? "—",
-        category: item?.garment_category ?? "—",
-        acquiredPrice,
-        gradingCost,
-        listedPrice,
-        salePrice,
-        platformFees,
-        shippingCost,
-        netProfit,
-        profitMargin,
-        saleDate: sale.sale_date,
-      };
-    });
-  }, [items, sales, shipments, listings, periodStart]);
+  // Server already computed every column (US-403). Map the snake_case payload
+  // into the camelCase shape the table sorts/filters on. No grading-cost column
+  // exists in the DB yet, so it stays at $0.00.
+  const rows = useMemo<ProfitRow[]>(
+    () =>
+      serverRows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        brand: r.brand,
+        category: r.category,
+        acquiredPrice: r.acquired_price,
+        gradingCost: 0,
+        listedPrice: r.listed_price,
+        salePrice: r.sale_price,
+        platformFees: r.platform_fees,
+        shippingCost: r.shipping_cost,
+        netProfit: r.net_profit,
+        profitMargin: r.profit_margin,
+        saleDate: r.sale_date,
+      })),
+    [serverRows]
+  );
 
   // Unique brands and categories for filter dropdowns
   const brands = useMemo(() => {
     const set = new Set<string>();
     for (const r of rows) {
-      if (r.brand !== "—") set.add(r.brand);
+      if (r.brand !== "—" && r.brand !== "Unknown") set.add(r.brand);
     }
     return Array.from(set).sort();
   }, [rows]);
@@ -420,7 +373,10 @@ export function ProfitTable({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Showing {sortedRows.length} of {rows.length} sold items
+        Showing {sortedRows.length} of {rowsTotal} sold items
+        {rowsTotal > rows.length
+          ? ` (most recent ${rows.length} loaded — use Export for the full history)`
+          : ""}
       </p>
     </div>
   );

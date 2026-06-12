@@ -1,12 +1,5 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type {
-  InventoryItemRow,
-  SaleRow,
-  SourceRow,
-} from "@/types/database";
-import { supabase } from "@/lib/supabase";
-import { computePnl } from "@/lib/pnl";
+import type { FinRoiGroup, FinItemRoi } from "@/lib/finances-dashboard";
 import {
   Card,
   CardContent,
@@ -59,10 +52,6 @@ function formatRoi(value: number | null): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
-function titleCase(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
 interface RoiGroup {
   name: string;
   itemsSold: number;
@@ -71,50 +60,24 @@ interface RoiGroup {
   roiPct: number | null;
 }
 
-interface ItemRoi {
-  id: string;
-  title: string;
-  detail: string;
-  profit: number;
-  costBasis: number;
-  roiPct: number;
-}
-
 interface RoiAnalyticsProps {
-  items: InventoryItemRow[];
-  sales: SaleRow[];
-  periodStart: string | null;
+  byBrand: FinRoiGroup[];
+  byCategory: FinRoiGroup[];
+  bySource: FinRoiGroup[];
+  bestItems: FinItemRoi[];
+  worstItems: FinItemRoi[];
   isLoading: boolean;
 }
 
-function buildGroups(
-  rows: { key: string; profit: number; costBasis: number }[]
-): RoiGroup[] {
-  const map = new Map<string, RoiGroup>();
-  for (const row of rows) {
-    const group =
-      map.get(row.key) ??
-      ({
-        name: row.key,
-        itemsSold: 0,
-        totalProfit: 0,
-        totalCostBasis: 0,
-        roiPct: null,
-      } as RoiGroup);
-    group.itemsSold += 1;
-    group.totalProfit += row.profit;
-    group.totalCostBasis += row.costBasis;
-    map.set(row.key, group);
-  }
-  return Array.from(map.values())
-    .map((g) => ({
-      ...g,
-      roiPct:
-        g.totalCostBasis > 0
-          ? (g.totalProfit / g.totalCostBasis) * 100
-          : null,
-    }))
-    .sort((a, b) => b.totalProfit - a.totalProfit);
+// Server returns summed profit/cost-basis per group; derive the ROI % here.
+function toGroups(rows: FinRoiGroup[]): RoiGroup[] {
+  return rows.map((g) => ({
+    name: g.name,
+    itemsSold: g.items_sold,
+    totalProfit: g.total_profit,
+    totalCostBasis: g.total_cost_basis,
+    roiPct: g.total_cost_basis > 0 ? (g.total_profit / g.total_cost_basis) * 100 : null,
+  }));
 }
 
 function RoiTable({
@@ -236,7 +199,7 @@ function ItemRoiTable({
   items,
   emptyText,
 }: {
-  items: ItemRoi[];
+  items: FinItemRoi[];
   emptyText: string;
 }) {
   if (items.length === 0) {
@@ -267,7 +230,7 @@ function ItemRoiTable({
                 </div>
               </TableCell>
               <TableCell className="text-right">
-                {formatCurrency(item.costBasis)}
+                {formatCurrency(item.cost_basis)}
               </TableCell>
               <TableCell
                 className={
@@ -280,12 +243,12 @@ function ItemRoiTable({
               </TableCell>
               <TableCell
                 className={
-                  item.roiPct < 0
+                  item.roi_pct < 0
                     ? "text-right font-medium text-red-600"
                     : "text-right font-medium text-green-600"
                 }
               >
-                {formatRoi(item.roiPct)}
+                {formatRoi(item.roi_pct)}
               </TableCell>
             </TableRow>
           ))}
@@ -296,84 +259,17 @@ function ItemRoiTable({
 }
 
 export function RoiAnalytics({
-  items,
-  sales,
-  periodStart,
+  byBrand,
+  byCategory,
+  bySource,
+  bestItems,
+  worstItems,
   isLoading,
 }: RoiAnalyticsProps) {
-  const { data: sources } = useQuery({
-    queryKey: ["roi-sources"],
-    queryFn: async (): Promise<SourceRow[]> => {
-      const { data, error } = await supabase.from("sources").select("*");
-      if (error) throw error;
-      return (data ?? []) as SourceRow[];
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const analysis = useMemo(() => {
-    const itemById = new Map<string, InventoryItemRow>();
-    for (const item of items) itemById.set(item.id, item);
-
-    const sourceById = new Map<string, SourceRow>();
-    for (const s of sources ?? []) sourceById.set(s.id, s);
-
-    const filteredSales = periodStart
-      ? sales.filter((s) => s.sale_date >= periodStart)
-      : sales;
-
-    const brandRows: { key: string; profit: number; costBasis: number }[] = [];
-    const categoryRows: { key: string; profit: number; costBasis: number }[] =
-      [];
-    const sourceRows: { key: string; profit: number; costBasis: number }[] = [];
-    const itemRoi: ItemRoi[] = [];
-
-    for (const sale of filteredSales) {
-      const item = itemById.get(sale.inventory_item_id);
-      const costBasis = item?.acquired_price ?? 0;
-      const profit = computePnl(sale, costBasis).net;
-
-      const brand = item?.brand?.trim() || "Unknown";
-      const category = item?.garment_category
-        ? titleCase(item.garment_category)
-        : "Unknown";
-      const source =
-        (item?.source_id && sourceById.get(item.source_id)?.name) ||
-        item?.acquired_source?.trim() ||
-        "Unknown";
-
-      brandRows.push({ key: brand, profit, costBasis });
-      categoryRows.push({ key: category, profit, costBasis });
-      sourceRows.push({ key: source, profit, costBasis });
-
-      if (item && costBasis > 0) {
-        itemRoi.push({
-          id: sale.id,
-          title: item.title,
-          detail: [brand, category].filter((v) => v !== "Unknown").join(" · "),
-          profit,
-          costBasis,
-          roiPct: (profit / costBasis) * 100,
-        });
-      }
-    }
-
-    const ranked = [...itemRoi].sort((a, b) => b.roiPct - a.roiPct);
-    const bestItems = ranked.slice(0, 10);
-    const worstItems = ranked
-      .slice(-10)
-      .reverse()
-      .filter((i) => !bestItems.includes(i));
-
-    return {
-      byBrand: buildGroups(brandRows),
-      byCategory: buildGroups(categoryRows),
-      bySource: buildGroups(sourceRows),
-      bestItems,
-      worstItems,
-      hasData: filteredSales.length > 0,
-    };
-  }, [items, sales, sources, periodStart]);
+  const brandGroups = useMemo(() => toGroups(byBrand), [byBrand]);
+  const categoryGroups = useMemo(() => toGroups(byCategory), [byCategory]);
+  const sourceGroups = useMemo(() => toGroups(bySource), [bySource]);
+  const hasData = byBrand.length > 0;
 
   if (isLoading) {
     return (
@@ -388,7 +284,7 @@ export function RoiAnalytics({
     );
   }
 
-  if (!analysis.hasData) {
+  if (!hasData) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
@@ -420,13 +316,13 @@ export function RoiAnalytics({
               <TabsTrigger value="source">By Source</TabsTrigger>
             </TabsList>
             <TabsContent value="brand" className="mt-4">
-              <RoiTable groups={analysis.byBrand} groupLabel="Brand" />
+              <RoiTable groups={brandGroups} groupLabel="Brand" />
             </TabsContent>
             <TabsContent value="category" className="mt-4">
-              <RoiTable groups={analysis.byCategory} groupLabel="Category" />
+              <RoiTable groups={categoryGroups} groupLabel="Category" />
             </TabsContent>
             <TabsContent value="source" className="mt-4">
-              <RoiTable groups={analysis.bySource} groupLabel="Source" />
+              <RoiTable groups={sourceGroups} groupLabel="Source" />
             </TabsContent>
           </Tabs>
         </CardContent>
@@ -442,7 +338,7 @@ export function RoiAnalytics({
         </CardHeader>
         <CardContent>
           <ItemRoiTable
-            items={analysis.bestItems}
+            items={bestItems}
             emptyText="No items with a recorded cost basis."
           />
         </CardContent>
@@ -458,7 +354,7 @@ export function RoiAnalytics({
         </CardHeader>
         <CardContent>
           <ItemRoiTable
-            items={analysis.worstItems}
+            items={worstItems}
             emptyText="No items with a recorded cost basis."
           />
         </CardContent>
