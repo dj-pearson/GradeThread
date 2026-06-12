@@ -702,3 +702,10 @@ Branch: ralph/gradethread-build
 - Notes: navigateFallbackDenylist rebuilt (NAVIGATE_FALLBACK_DENYLIST) from PUBLIC_ROUTES + all Pages-Function path prefixes so prerendered + dynamic routes hit the network/edge instead of the cached generic shell. globPatterns html restricted to bare "index.html" (root shell only) so the 27 per-route prerendered shells aren't precached; root shell is revisioned so deploys bust stale shells. Verified against generated dist/sw.js. Root "/" left to navigateFallback (dist/index.html is the prerendered home). tsc/build/lint clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-422: Return real 404s for unknown routes (fix soft 404)
+- Status: COMPLETE
+- Files changed: public/_redirects, public/404.html, src/lib/seo/__tests__/not-found.test.ts, prd.json, scripts/ralph/progress.txt
+- Notes: Replaced the soft-404 SPA fallback (/* /index.html 200) in public/_redirects. Now the known client-rendered app namespaces (/dashboard[/*], /admin[/*], /auth/*, /login, /signup, /accept-invite) rewrite to /index.html 200 so authenticated deep links + guest flows keep 200, and a final /* /404.html 404 returns a real HTTP 404 for everything else. Added a static branded public/404.html with meta robots noindex and NO inline script (CSP-safe). CF Pages precedence means Pages Functions (/cert, /verified, sitemaps) and prerendered static pages are served before these splats, so they keep their own HTML/status. Had to add explicit bare-base rules for /dashboard and /admin because the "/*" splat only matches paths with the trailing slash. Build verified: prerender still prepends the 27 trailing-slash 301s ahead of the new rules (first-match wins), dist/404.html emitted. Guard test (not-found.test.ts) locks the contract so the old soft-404 can't be reinstated.
+- Timestamp: 2026-06-12
+---

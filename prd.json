@@ -6691,8 +6691,8 @@
         "curl -I /nonexistent returns 404"
       ],
       "priority": 422,
-      "passes": false,
-      "notes": "[P1][SEO] Audit 2026-06-03. public/_redirects /* /index.html 200 makes every unknown path a soft 404."
+      "passes": true,
+      "notes": "[P1][SEO] Audit 2026-06-03. public/_redirects /* /index.html 200 makes every unknown path a soft 404. DONE 2026-06-12: public/_redirects now serves known app namespaces (/dashboard,/admin,/auth,/login,/signup,/accept-invite) as SPA shell 200 and routes everything else to /404.html with a real HTTP 404; added public/404.html (noindex, no inline script for CSP); prerendered pages + Pages Functions take precedence so they keep their own HTML. Guard test src/lib/seo/__tests__/not-found.test.ts."
     },
     {
       "id": "US-423",

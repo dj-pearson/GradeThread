@@ -1,1 +1,28 @@
-/* /index.html 200
+# US-422: real 404s for unknown URLs (fix soft 404).
+#
+# Cloudflare Pages resolution order: a Pages Function (functions/*, e.g. the
+# /cert/:id and /verified/:handle SSR handlers, sitemaps, robots.txt) runs first,
+# then an exact static-asset match (every prerendered public page —
+# /, /pricing, /privacy, /grading/<slug>, … — is a dist/<route>/index.html file
+# and is served directly), and only THEN are these _redirects rules evaluated.
+#
+# So the rules below only ever fire for paths with NO function and NO static
+# file. We rewrite the known client-rendered app namespaces to the SPA shell
+# (200) so client-side routing and authenticated deep links keep working, and
+# send everything else to the 404 page with a real HTTP 404 status — junk and
+# deleted URLs are no longer soft-404 indexed. First match wins.
+
+# Client-rendered app shells (no prerender; behind auth or guest-only flows).
+# Both the bare base (/dashboard) and the subtree (/dashboard/*) need a rule —
+# the "/*" splat matches only paths that include the trailing slash.
+/dashboard      /index.html   200
+/dashboard/*    /index.html   200
+/admin          /index.html   200
+/admin/*        /index.html   200
+/auth/*         /index.html   200
+/login          /index.html   200
+/signup         /index.html   200
+/accept-invite  /index.html   200
+
+# Genuinely unknown URL → real 404 (404.html carries meta robots noindex).
+/*              /404.html     404
