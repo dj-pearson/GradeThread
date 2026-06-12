@@ -7553,8 +7553,8 @@
         "Monitoring tracks signed vs hash-only vs unverifiable certificate share"
       ],
       "priority": 490,
-      "passes": false,
-      "notes": "[P3][Certificates] Audit 2026-06-03. Pre-US-333 rows verify as 'unverifiable'; no backfill; no signing-key boot check."
+      "passes": true,
+      "notes": "[P3][Certificates] Audit 2026-06-03. Pre-US-333 rows verify as 'unverifiable'; no backfill; no signing-key boot check. DONE 2026-06-12: (1) backfill — new lib cert-integrity-backfill.ts + POST /api/jobs/cert-integrity-backfill (job-secret + lock, idempotent, batch-paged, poisoned rows excluded + alerted); seals legacy rows under integrity v2 so they verify signed. (2) prod boot assert already existed (CERT_SIGNING_KEY in PROD_REQUIRED, env-validation.ts US-777, test-covered). (3) certificates.integrity_share metric (signed/hash_only/unverifiable/total) emitted by the backfill job AND the daily integrity-scan cron. One-off launch run documented in LAUNCH_CHECKLIST.md section 3."
     },
     {
       "id": "US-491",

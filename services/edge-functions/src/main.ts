@@ -52,6 +52,7 @@ import { handlePushTokenPruneCron } from "./lib/push-token-prune.ts";
 import { handleSyncReaperCron } from "./lib/sync-run-lock.ts";
 import { handleEmailRetryCron } from "./lib/email-retry.ts";
 import { handleIntegrityScanCron } from "./lib/integrity-scan.ts";
+import { handleCertIntegrityBackfillCron } from "./lib/cert-integrity-backfill.ts";
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
@@ -511,6 +512,10 @@ app.post("/api/jobs/sync-reaper", (c) => handleSyncReaperCron(c));
 app.post("/api/jobs/email-retry", (c) => handleEmailRetryCron(c));
 // US-504 periodic DB integrity scan (orphans/drift/stuck rows -> alert).
 app.post("/api/jobs/integrity-scan", (c) => handleIntegrityScanCron(c));
+// US-490 certificate-integrity backfill: seals pre-US-333 certified reports
+// (hash + signature) so legacy certificates verify instead of reporting
+// "unverifiable". Idempotent; run once at launch, safe to re-run any time.
+app.post("/api/jobs/cert-integrity-backfill", (c) => handleCertIntegrityBackfillCron(c));
 // US-521 data-retention / PII purge (delete grading photos past the window).
 app.post("/api/jobs/data-retention", (c) => handleDataRetentionCron(c));
 // US-621 Condition Index refresh — rebuilds the curated price-vs-grade curves.

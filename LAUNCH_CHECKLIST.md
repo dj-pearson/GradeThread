@@ -117,6 +117,16 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | ☐ | full 2-way merge (push **and** pull); `/sync/pull` is an alias |
 | ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | ☐ | re-links parked payout/order/return events once the seller's handle/id hydrates (US-472) |
 
+**One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`
+(same secret header) once after the final pre-launch deploy — it seals every
+pre-US-333 certified report with a content hash + HMAC signature so legacy
+certificates verify instead of reporting "unverifiable" (US-490). Idempotent;
+re-run until the response shows `scanned: 0`. The daily `integrity-scan` tick
+then keeps reporting the signed / hash-only / unverifiable certificate share as
+the `certificates.integrity_share` metric — after the backfill, `unverifiable`
+should be 0 and `hash_only` should not grow (growth means CERT_SIGNING_KEY
+dropped out of the environment).
+
 ---
 
 ## 4. Database

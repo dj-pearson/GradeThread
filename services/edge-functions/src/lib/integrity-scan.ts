@@ -8,6 +8,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { requireJobSecret } from "./job-auth.ts";
 import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
+import { recordCertificateIntegrityShare } from "./cert-integrity-backfill.ts";
 
 export interface IntegrityAnomaly {
   anomaly: string;
@@ -52,7 +53,16 @@ export async function handleIntegrityScanCron(c: {
   }
   try {
     const anomalies = await runIntegrityScan();
-    return c.json({ ok: true, anomalies });
+    // US-490: ride the same recurring tick to track the signed / hash-only /
+    // unverifiable certificate share. Best-effort — a count failure is reported
+    // but must not fail the anomaly scan that already ran.
+    let certificates = null;
+    try {
+      certificates = await recordCertificateIntegrityShare();
+    } catch (err) {
+      captureException(err, { route: "integrity-scan.cert-share" });
+    }
+    return c.json({ ok: true, anomalies, certificates });
   } catch (err) {
     captureException(err, { route: "integrity-scan.cron" });
     return c.json({ error: "Integrity scan failed" }, 500);
