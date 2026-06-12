@@ -8413,8 +8413,8 @@
         "Per-row save errors are isolated (one failure doesn't discard other dirty rows)"
       ],
       "priority": 557,
-      "passes": false,
-      "notes": "[P2][AutoLister/Data] Deep-dive 2026-06-03. Three disconnected save targets; composer saveDraft nulls item_specifics_override; bulk saveAll rolls back all dirty rows on one failure."
+      "passes": true,
+      "notes": "[P2][AutoLister/Data] Deep-dive 2026-06-03. Three disconnected save targets; composer saveDraft nulls item_specifics_override; bulk saveAll rolls back all dirty rows on one failure. DONE 2026-06-12: Unified to one Save model. Picker no longer self-saves — it lifts its live aspect map to the composer via onAspectsChange; composer saveDraft now writes aspects to BOTH listings.item_specifics_override AND inventory_items.ebay_aspects (plus ebay_category_id) in one save, so the two stores never diverge and picker edits cannot vanish. Picker mount gated until saved sources load (no transient empty-map wipe). Bulk saveAll now settles each row independently (Promise.allSettled per chunk): saved rows go clean, failed rows stay dirty with edits intact, no blanket invalidate/roll-back on partial failure."
     },
     {
       "id": "US-558",

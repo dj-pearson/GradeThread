@@ -15,7 +15,6 @@ import {
   useAiExtractAspects,
   useEbayCategoryAspects,
   useEbayCategorySuggest,
-  useSaveEbayCategoryMapping,
   type EbayAspect,
   type EbayCategorySuggestion,
 } from "@/hooks/use-ebay";
@@ -39,6 +38,11 @@ interface Props {
   // Notifies the parent every time the user picks (or clears) a category,
   // so siblings like the comps panel can react before the save is committed.
   onCategoryChange?: (categoryId: string | null) => void;
+  // US-557: surfaces the live aspect map to the parent on every edit. The
+  // composer owns persistence now — there's ONE Save (the draft save) that
+  // writes these aspects to both the listing override and the inventory mirror,
+  // so picker edits can't vanish by skipping a separate "Save specifics" click.
+  onAspectsChange?: (aspects: Record<string, string[]>) => void;
 }
 
 // 250ms debounce — eBay's Taxonomy quota is generous but not free.
@@ -58,6 +62,7 @@ export function EbayCategoryPicker({
   seedQuery,
   itemFields,
   onCategoryChange,
+  onAspectsChange,
 }: Props) {
   const [query, setQuery] = useState(seedQuery ?? "");
   const debounced = useDebounced(query.trim(), 250);
@@ -87,8 +92,14 @@ export function EbayCategoryPicker({
 
   const suggestQuery = useEbayCategorySuggest(debounced);
   const aspectsQuery = useEbayCategoryAspects(categoryId);
-  const save = useSaveEbayCategoryMapping();
   const aiExtract = useAiExtractAspects();
+
+  // US-557: keep the parent's lifted aspect state in lockstep with every edit
+  // (manual, AI fill, category-change prune, prefill). The composer's single
+  // Save reads this — no separate per-picker save to forget.
+  useEffect(() => {
+    onAspectsChange?.(aspectValues);
+  }, [aspectValues, onAspectsChange]);
 
   const initialAspectsRef = useRef(initialAspects);
   // When the user picks a different category, drop any aspect values that no
@@ -230,30 +241,6 @@ export function EbayCategoryPicker({
     } catch {
       /* hook surfaces the error toast */
     }
-  }
-
-  async function handleSave() {
-    if (!categoryId) {
-      toast.error("Pick an eBay category first.");
-      return;
-    }
-    if (missingRequired.length > 0) {
-      toast.error(
-        `Missing required ${
-          missingRequired.length === 1 ? "field" : "fields"
-        }: ${missingRequired
-          .slice(0, 3)
-          .map((a) => a.localizedAspectName)
-          .join(", ")}${missingRequired.length > 3 ? "…" : ""}`
-      );
-      return;
-    }
-    await save.mutateAsync({
-      itemId,
-      categoryId,
-      aspects: aspectValues,
-    });
-    toast.success("eBay category + specifics saved.");
   }
 
   return (
@@ -432,24 +419,23 @@ export function EbayCategoryPicker({
         )}
 
         {categoryId && (
-          <div className="flex items-center justify-between border-t pt-4">
-            <p className="text-xs text-muted-foreground">
-              {missingRequired.length > 0
-                ? `${missingRequired.length} required ${
-                    missingRequired.length === 1 ? "field" : "fields"
-                  } still empty.`
-                : "All required fields are filled."}
-            </p>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={save.isPending || missingRequired.length > 0}
-            >
-              {save.isPending && (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              )}
-              Save eBay specifics
-            </Button>
+          <div className="flex items-center gap-2 border-t pt-4">
+            {missingRequired.length > 0 ? (
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-destructive">
+                  {missingRequired.length} required{" "}
+                  {missingRequired.length === 1 ? "field" : "fields"}
+                </span>{" "}
+                still empty. Saving the draft keeps your edits; fill these before
+                publishing.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                All required fields are filled. Use{" "}
+                <span className="font-medium">Save draft</span> above to keep
+                these specifics.
+              </p>
+            )}
           </div>
         )}
       </CardContent>

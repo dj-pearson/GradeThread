@@ -708,6 +708,54 @@ export function FlipdeskAutolisterBulkEditPage() {
     }
   }
 
+  // Persists ONE dirty row's edits to its listings row. Merges the inline
+  // aspect columns back into item_specifics_override losslessly, the same model
+  // the composer now writes (US-557). Throws on the row's own error so the
+  // caller can isolate that single failure.
+  async function saveRow(r: EditRow): Promise<void> {
+    const price = Number.parseFloat(r.price);
+    const qty = Number.parseInt(r.quantity, 10);
+    // Re-merge the inline aspects back into the rest of the specifics. A
+    // blank value drops the key (server re-derives it from the item's
+    // column); null the whole column when nothing's left.
+    const mergedSpecifics: Record<string, string[]> = {};
+    // Carry the arbitrary specifics, dropping any key the user left with
+    // no non-blank values (US-556: the popover can stage an empty key).
+    for (const [k, vals] of Object.entries(r.specifics)) {
+      const cleaned = (vals ?? []).map((v) => v.trim()).filter(Boolean);
+      if (cleaned.length > 0) mergedSpecifics[k] = cleaned;
+    }
+    const setOrDrop = (key: string, value: string) => {
+      const v = value.trim();
+      if (v) mergedSpecifics[key] = [v];
+      else delete mergedSpecifics[key];
+    };
+    setOrDrop("Department", r.department);
+    setOrDrop("Brand", r.brand);
+    setOrDrop("Size", r.size);
+    setOrDrop("Color", r.color);
+    const { error: upErr } = await supabase
+      .from("listings")
+      .update({
+        listing_title: r.title.trim() || null,
+        listing_description: r.description.trim() || null,
+        listing_price: Number.isFinite(price) ? price : 0,
+        ebay_condition: r.condition || null,
+        quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
+        best_offer_enabled: r.bestOffer,
+        scheduled_publish_at: localInputToIso(r.scheduledAt),
+        platform_category_id: r.categoryId.trim() || null,
+        item_specifics_override:
+          Object.keys(mergedSpecifics).length > 0 ? mergedSpecifics : null,
+        shipping_policy_id: r.shippingPolicyId || null,
+        payment_policy_id: r.paymentPolicyId || null,
+        return_policy_id: r.returnPolicyId || null,
+        price_is_estimated: false,
+      } as never)
+      .eq("id", r.id);
+    if (upErr) throw upErr;
+  }
+
   async function saveAll() {
     const dirty = rows.filter((r) => r.dirty);
     if (dirty.length === 0) {
@@ -715,64 +763,57 @@ export function FlipdeskAutolisterBulkEditPage() {
       return;
     }
     setSaving(true);
+    // US-557: persist each dirty row INDEPENDENTLY. A single row's failure must
+    // never discard the edits on the others — we settle every row, mark only the
+    // ones that actually saved as clean, and leave the failed rows dirty so the
+    // seller can fix and retry them. No blanket roll-back of in-progress work.
+    const succeeded = new Set<string>();
+    const failures: { id: string; message: string }[] = [];
     try {
       const CONCURRENCY = 5;
       for (let i = 0; i < dirty.length; i += CONCURRENCY) {
-        await Promise.all(
-          dirty.slice(i, i + CONCURRENCY).map(async (r) => {
-            const price = Number.parseFloat(r.price);
-            const qty = Number.parseInt(r.quantity, 10);
-            // Re-merge the inline aspects back into the rest of the specifics. A
-            // blank value drops the key (server re-derives it from the item's
-            // column); null the whole column when nothing's left.
-            const mergedSpecifics: Record<string, string[]> = {};
-            // Carry the arbitrary specifics, dropping any key the user left with
-            // no non-blank values (US-556: the popover can stage an empty key).
-            for (const [k, vals] of Object.entries(r.specifics)) {
-              const cleaned = (vals ?? []).map((v) => v.trim()).filter(Boolean);
-              if (cleaned.length > 0) mergedSpecifics[k] = cleaned;
-            }
-            const setOrDrop = (key: string, value: string) => {
-              const v = value.trim();
-              if (v) mergedSpecifics[key] = [v];
-              else delete mergedSpecifics[key];
-            };
-            setOrDrop("Department", r.department);
-            setOrDrop("Brand", r.brand);
-            setOrDrop("Size", r.size);
-            setOrDrop("Color", r.color);
-            const { error: upErr } = await supabase
-              .from("listings")
-              .update({
-                listing_title: r.title.trim() || null,
-                listing_description: r.description.trim() || null,
-                listing_price: Number.isFinite(price) ? price : 0,
-                ebay_condition: r.condition || null,
-                quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
-                best_offer_enabled: r.bestOffer,
-                scheduled_publish_at: localInputToIso(r.scheduledAt),
-                platform_category_id: r.categoryId.trim() || null,
-                item_specifics_override:
-                  Object.keys(mergedSpecifics).length > 0 ? mergedSpecifics : null,
-                shipping_policy_id: r.shippingPolicyId || null,
-                payment_policy_id: r.paymentPolicyId || null,
-                return_policy_id: r.returnPolicyId || null,
-                price_is_estimated: false,
-              } as never)
-              .eq("id", r.id);
-            if (upErr) throw upErr;
-          }),
+        const chunk = dirty.slice(i, i + CONCURRENCY);
+        const results = await Promise.allSettled(chunk.map((r) => saveRow(r)));
+        results.forEach((res, j) => {
+          const row = chunk[j]!;
+          if (res.status === "fulfilled") {
+            succeeded.add(row.id);
+          } else {
+            const reason = res.reason;
+            failures.push({
+              id: row.id,
+              message:
+                reason instanceof Error ? reason.message : String(reason),
+            });
+          }
+        });
+      }
+      // Clear the dirty flag ONLY on the rows that committed; failed rows keep
+      // their edits (still dirty) for a retry.
+      if (succeeded.size > 0) {
+        setRows((prev) =>
+          prev.map((r) => (succeeded.has(r.id) ? { ...r, dirty: false } : r)),
         );
       }
-      setRows((prev) => prev.map((r) => ({ ...r, dirty: false })));
-      await qc.invalidateQueries({ queryKey: ["autolister_batch_drafts", batchId] });
-      toast.success(`Saved ${dirty.length} listing${dirty.length === 1 ? "" : "s"}.`);
-    } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      // Roll back to the server's truth.
-      await qc.invalidateQueries({ queryKey: ["autolister_batch_drafts", batchId] });
+      if (failures.length === 0) {
+        // Everything saved — safe to refetch the server's truth.
+        await qc.invalidateQueries({
+          queryKey: ["autolister_batch_drafts", batchId],
+        });
+        toast.success(
+          `Saved ${succeeded.size} listing${succeeded.size === 1 ? "" : "s"}.`,
+        );
+      } else {
+        // Partial failure: do NOT invalidate — a refetch would overwrite the
+        // still-dirty failed rows with the server's stale copy and lose edits.
+        const savedMsg =
+          succeeded.size > 0 ? `Saved ${succeeded.size}. ` : "";
+        toast.error(
+          `${savedMsg}${failures.length} listing${
+            failures.length === 1 ? "" : "s"
+          } couldn't save and stay marked unsaved: ${failures[0]!.message}`,
+        );
+      }
     } finally {
       setSaving(false);
     }

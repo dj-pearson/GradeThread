@@ -128,6 +128,14 @@ export function FlipdeskComposerPage() {
   const [livePickedCategoryId, setLivePickedCategoryId] = useState<
     string | null
   >(null);
+  // US-557: the aspect map lifted out of the category picker. The picker no
+  // longer has its own Save — saveDraft is the single Save that writes these to
+  // BOTH the listing override and the inventory mirror, so aspect edits can't
+  // silently vanish. null = the picker hasn't reported yet (fall back to the
+  // saved values on save).
+  const [livePickedAspects, setLivePickedAspects] = useState<
+    Record<string, string[]> | null
+  >(null);
   const [publishOpen, setPublishOpen] = useState(false);
   // US-552: inline AI rewrite — the in-flight action (for the spinner) and the
   // result fed into AiFillPanel for review/accept.
@@ -171,7 +179,7 @@ export function FlipdeskComposerPage() {
   });
 
   // The most-recent listing row, when one exists — seeds the saved picks.
-  const { data: listing = null } = useQuery({
+  const { data: listing = null, isLoading: listingLoading } = useQuery({
     queryKey: ["listing", item?.listing_id],
     enabled: !!item?.listing_id,
     queryFn: async (): Promise<ListingRow | null> => {
@@ -189,7 +197,7 @@ export function FlipdeskComposerPage() {
   // isn't exposed through the items_full view. Fetch it on the side so the
   // composer can render the eBay category picker. color/material ride along
   // (also missing from items_full) to feed the aspect prefill.
-  const { data: ebayMapping = null } = useQuery({
+  const { data: ebayMapping = null, isLoading: ebayMappingLoading } = useQuery({
     queryKey: ["inventory_item_ebay", id],
     enabled: !!id,
     queryFn: async (): Promise<{
@@ -425,17 +433,25 @@ export function FlipdeskComposerPage() {
           item.target_price,
           item.list_price,
         ].find((p): p is number => p != null && p > 0) ?? 0;
-      // US-319: round-trip the listing-row override columns so publish picks
-      // them up. The picker writes aspects to inventory_items on its own
-      // save; we null item_specifics_override here so the picker's aspect
-      // mirror becomes the source of truth for any subsequent publish. The
-      // bulk editor remains free to set its own override (it doesn't route
-      // through the composer).
+      // US-557: ONE coherent save. The category picker reports its live aspect
+      // map up via onAspectsChange; here we write it to BOTH the listing
+      // override (item_specifics_override — the per-listing canonical copy
+      // publish reads first) AND the inventory mirror (ebay_aspects — the
+      // fallback) in the same save, so the two stores never diverge and a
+      // picker edit can't vanish by skipping a separate save. Fall back to the
+      // saved values when the picker hasn't reported yet.
       const resolvedCategoryId =
         livePickedCategoryId ??
         listing?.platform_category_id ??
         ebayMapping?.ebay_category_id ??
         null;
+      const liveAspects =
+        livePickedAspects ??
+        listing?.item_specifics_override ??
+        ebayMapping?.ebay_aspects ??
+        null;
+      const resolvedAspects =
+        liveAspects && Object.keys(liveAspects).length > 0 ? liveAspects : null;
       const payload: ListingInsert = {
         inventory_item_id: item.id,
         platform: "ebay",
@@ -446,7 +462,7 @@ export function FlipdeskComposerPage() {
         ebay_condition: ebayCondition || null,
         ebay_condition_description: conditionDesc.trim() || null,
         platform_category_id: resolvedCategoryId,
-        item_specifics_override: null,
+        item_specifics_override: resolvedAspects,
         scheduled_publish_at: localInputToIso(scheduledAt),
         // Saving = a human reviewed the price, so it's no longer an unverified
         // AI estimate.
@@ -479,14 +495,23 @@ export function FlipdeskComposerPage() {
         ...factsOf(item),
         hasDraftListing: true,
       });
+      // Mirror the category + aspects onto the item in the same save so the
+      // inventory store stays in lockstep with the listing override (US-557).
       const { error: sErr } = await supabase
         .from("inventory_items")
-        .update({ status: resolvedStatus } as never)
+        .update({
+          status: resolvedStatus,
+          ebay_category_id: resolvedCategoryId,
+          ebay_aspects: resolvedAspects,
+        } as never)
         .eq("id", item.id);
       if (sErr) throw sErr;
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
+      await qc.invalidateQueries({
+        queryKey: ["inventory_item_ebay", item.id],
+      });
       toast.success("Draft saved.");
       return listingId;
     } catch (err) {
@@ -747,19 +772,37 @@ export function FlipdeskComposerPage() {
 
           {/* eBay category + item specifics — prefer the listing-row override
               when present (the editor / bulk-edit writes here), then fall
-              back to the inventory_items mirror for legacy single-item flows. */}
-          <EbayCategoryPicker
-            itemId={item.id}
-            initialCategoryId={
-              listing?.platform_category_id ?? ebayMapping?.ebay_category_id ?? null
-            }
-            initialAspects={
-              listing?.item_specifics_override ?? ebayMapping?.ebay_aspects ?? null
-            }
-            seedQuery={item.item_title ?? ""}
-            itemFields={itemAspectSource}
-            onCategoryChange={setLivePickedCategoryId}
-          />
+              back to the inventory_items mirror for legacy single-item flows.
+              US-557: gate the mount until both saved sources have loaded, so the
+              picker seeds its (now lifted) aspect state from the real values —
+              never from a transient empty map that a save would persist as a
+              wipe. */}
+          {listingLoading || ebayMappingLoading ? (
+            <Card>
+              <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading eBay item specifics…
+              </CardContent>
+            </Card>
+          ) : (
+            <EbayCategoryPicker
+              itemId={item.id}
+              initialCategoryId={
+                listing?.platform_category_id ??
+                ebayMapping?.ebay_category_id ??
+                null
+              }
+              initialAspects={
+                listing?.item_specifics_override ??
+                ebayMapping?.ebay_aspects ??
+                null
+              }
+              seedQuery={item.item_title ?? ""}
+              itemFields={itemAspectSource}
+              onCategoryChange={setLivePickedCategoryId}
+              onAspectsChange={setLivePickedAspects}
+            />
+          )}
 
           {/* Live comps + price recommendation */}
           <EbayCompsPanel
