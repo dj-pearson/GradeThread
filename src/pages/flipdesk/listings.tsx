@@ -38,6 +38,7 @@ import {
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ItemCardList } from "@/components/flipdesk/item-card-list";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1446,45 +1447,73 @@ export function FlipdeskListingsPage() {
           {isLoading ? (
             <TableLoadingSkeleton rows={10} columns={7} />
           ) : pageRows.length === 0 ? (
-            <div className="space-y-3 py-12 text-center text-sm text-muted-foreground">
-              <div>
-                {tab === "to_list"
-                  ? "Nothing ready to list."
+            <EmptyState
+              icon={
+                tab === "to_list"
+                  ? Sparkles
                   : tab === "drafts"
-                    ? "No drafts."
+                    ? FileText
                     : tab === "active"
-                      ? "No active listings."
+                      ? Star
                       : tab === "sold"
-                        ? "No sold items match this filter."
+                        ? TrendingDown
                         : tab === "shipped"
-                          ? "Nothing shipped."
+                          ? Truck
                           : tab === "returned"
-                            ? "No returns."
-                            : "No items."}
-              </div>
-              {activeTab.emptyCta.to.startsWith("?") ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const url = new URL(
-                      activeTab.emptyCta.to,
-                      window.location.href,
-                    );
-                    const t = url.searchParams.get("tab") as TabId | null;
-                    if (t) setTab(t);
-                  }}
-                >
-                  {activeTab.emptyCta.label}
-                </Button>
-              ) : (
-                <Button variant="outline" size="sm" asChild>
-                  <Link to={activeTab.emptyCta.to}>
-                    {activeTab.emptyCta.label}
-                  </Link>
-                </Button>
-              )}
-            </div>
+                            ? RotateCcw
+                            : Rocket
+              }
+              title={
+                tab === "to_list"
+                  ? "Nothing ready to list"
+                  : tab === "drafts"
+                    ? "No drafts yet"
+                    : tab === "active"
+                      ? "No active listings"
+                      : tab === "sold"
+                        ? "No sold items match this filter"
+                        : tab === "shipped"
+                          ? "Nothing shipped yet"
+                          : tab === "returned"
+                            ? "No returns"
+                            : "No items yet"
+              }
+              description={
+                tab === "to_list"
+                  ? "Graded items ready to sell will land here. Add an item to get started."
+                  : tab === "drafts"
+                    ? "Drafts you've started but not yet published will appear here."
+                    : tab === "active"
+                      ? "Listings live on a marketplace will show here once you publish."
+                      : tab === "sold"
+                        ? "Sold items will appear here as orders come in."
+                        : tab === "shipped"
+                          ? "Items you've marked shipped will be tracked here."
+                          : tab === "returned"
+                            ? "Returned orders will be tracked here."
+                            : "Add an item to start building your listing pipeline."
+              }
+              action={
+                activeTab.emptyCta.to.startsWith("?")
+                  ? {
+                      label: activeTab.emptyCta.label,
+                      onClick: () => {
+                        const url = new URL(
+                          activeTab.emptyCta.to,
+                          window.location.href,
+                        );
+                        const t = url.searchParams.get(
+                          "tab",
+                        ) as TabId | null;
+                        if (t) setTab(t);
+                      },
+                    }
+                  : {
+                      label: activeTab.emptyCta.label,
+                      to: activeTab.emptyCta.to,
+                    }
+              }
+            />
           ) : (
             <>
               {/* Mobile: card list (the wide table is unusable on a phone). */}

@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Sparkles } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   CONTENT_PRODUCTS,
   CONTENT_STATUSES,
@@ -100,19 +101,12 @@ export function SocialListPage() {
         </Card>
       ) : posts.length === 0 ? (
         <Card>
-          <CardContent className="flex h-32 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-            <span>No social posts yet.</span>
-            <span>
-              Promote a topic from the{" "}
-              <Link
-                to="/admin/content/topics"
-                className="underline underline-offset-2"
-              >
-                Topic Bank
-              </Link>{" "}
-              to start.
-            </span>
-          </CardContent>
+          <EmptyState
+            icon={Sparkles}
+            title="No social posts yet"
+            description="Promote a topic from the Topic Bank to generate platform-ready social posts."
+            action={{ label: "Open Topic Bank", to: "/admin/content/topics" }}
+          />
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">

@@ -57,6 +57,7 @@ import {
   AlertTriangle,
   Loader2,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -523,8 +524,12 @@ export function AdminSubmissionsPage() {
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                      No submissions found matching your filters.
+                    <TableCell colSpan={8} className="p-0">
+                      <EmptyState
+                        icon={Search}
+                        title="No submissions found"
+                        description="No submissions match the current filters. Try widening the date range or clearing the search."
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

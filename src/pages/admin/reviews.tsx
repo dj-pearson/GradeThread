@@ -54,7 +54,9 @@ import {
   AlertTriangle,
   Loader2,
   ImageIcon,
+  CheckCircle2,
 } from "lucide-react";
+import { EmptyState } from "@/components/ui/empty-state";
 import { toast } from "sonner";
 
 // US-775: low-confidence human-review queue. All reads + mutations go through the
@@ -523,8 +525,12 @@ export function AdminReviewsPage() {
               <TableBody>
                 {paginated.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                      No submissions pending human review.
+                    <TableCell colSpan={7} className="p-0">
+                      <EmptyState
+                        icon={CheckCircle2}
+                        title="Review queue is clear"
+                        description="No submissions are pending human review right now. Low-confidence grades will appear here for adjustment."
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

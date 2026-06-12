@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ChartSkeleton } from "@/components/ui/skeletons";
 import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // Defer the Recharts bundle so the dashboard shell paints before charts load.
 const GradeCharts = lazy(() =>
@@ -409,20 +410,16 @@ export function DashboardPage() {
               ))}
             </div>
           ) : recentSubmissions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">No submissions yet</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Upload photos of a garment to get your first AI-powered condition grade.
-              </p>
-              <Button
-                className="mt-4"
-                onClick={() => navigate("/dashboard/submissions/new")}
-              >
-                <Plus className="mr-1 h-4 w-4" />
-                Submit Your First Garment
-              </Button>
-            </div>
+            <EmptyState
+              icon={FileText}
+              title="No submissions yet"
+              description="Upload photos of a garment to get your first AI-powered condition grade."
+              action={{
+                label: "Submit your first garment",
+                onClick: () => navigate("/dashboard/submissions/new"),
+                icon: Plus,
+              }}
+            />
           ) : (
             <div className="space-y-2">
               {recentSubmissions.map((sub) => (

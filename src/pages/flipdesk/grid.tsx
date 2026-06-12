@@ -23,6 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
@@ -461,9 +462,24 @@ export function FlipdeskGridPage() {
           {isLoading ? (
             <TableLoadingSkeleton rows={10} columns={8} />
           ) : pageRows.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No rows.
-            </div>
+            search.trim() ? (
+              <EmptyState
+                icon={Search}
+                title="No rows match your search"
+                description={`Nothing matched "${search.trim()}". Try a different title, brand, or SKU.`}
+                secondaryAction={{
+                  label: "Clear search",
+                  onClick: () => setSearch(""),
+                }}
+              />
+            ) : (
+              <EmptyState
+                icon={Grid3x3}
+                title="No inventory yet"
+                description="Add or import items to start editing them spreadsheet-style here."
+                action={{ label: "Go to inventory", to: "/dashboard/inventory" }}
+              />
+            )
           ) : (
             <>
               <div

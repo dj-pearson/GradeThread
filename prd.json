@@ -7007,8 +7007,8 @@
         "Empty state is distinguished from the error state"
       ],
       "priority": 447,
-      "passes": false,
-      "notes": "[P2][UX] Audit 2026-06-03. Many surfaces show terse 'No rows.'/'No matches.'"
+      "passes": true,
+      "notes": "[P2][UX] Audit 2026-06-03. Many surfaces show terse 'No rows.'/'No matches.' DONE 2026-06-12: Standardized empty states on primary list/table pages onto the shared EmptyState (icon+heading+copy+CTA) component. Converted: flipdesk/sources ('No sources yet' + New source CTA), flipdesk/grid (search-aware: 'No rows match your search'+Clear search vs 'No inventory yet'+Go to inventory), flipdesk/listings (per-tab icon/title/copy + existing tab/Link CTA mapped to action), admin/submissions ('No submissions found' filter copy), admin/reviews ('Review queue is clear' CheckCircle2), admin/moderation (inline pattern → shared component), content/social-list ('No social posts yet' + Open Topic Bank), dashboard recent-submissions (inline → shared component). Action-oriented on-brand copy; all CTAs route to existing routes (verified). Empty states are visually/structurally distinct from ErrorState (used by query-boundary). Left the autolister category-picker typeahead 'No matches' as-is — it's an inline combobox dropdown, not a primary list surface, where the icon+CTA pattern doesn't fit. tsc/build/lint/empty-state test all clean."
     },
     {
       "id": "US-448",

@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Select,
   SelectContent,
@@ -206,10 +207,16 @@ export function FlipdeskSourcesPage() {
               Failed to load sources: {String(error)}
             </div>
           ) : sources.length === 0 ? (
-            <div className="py-12 text-center text-sm text-muted-foreground">
-              No sources yet. Click <strong>New source</strong> to add one, or
-              they'll be auto-created when you import items.
-            </div>
+            <EmptyState
+              icon={MapPin}
+              title="No sources yet"
+              description="Track where your inventory comes from. Add a source manually, or they'll be auto-created when you import items."
+              action={{
+                label: "New source",
+                onClick: () => setEditing({ ...EMPTY }),
+                icon: Plus,
+              }}
+            />
           ) : (
             <Table>
               <TableHeader>

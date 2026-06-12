@@ -37,6 +37,7 @@ import {
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface FlaggedSubmission {
   submission: SubmissionRow;
@@ -259,13 +260,11 @@ export function AdminModerationPage() {
         </div>
       ) : entries.length === 0 ? (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <CheckCircle2 className="h-12 w-12 text-green-500/60" />
-            <h3 className="mt-4 text-lg font-medium">Queue is clear</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              No submissions are currently awaiting moderation.
-            </p>
-          </CardContent>
+          <EmptyState
+            icon={CheckCircle2}
+            title="Queue is clear"
+            description="No submissions are currently awaiting moderation. Flagged submissions will appear here for review."
+          />
         </Card>
       ) : (
         <div className="space-y-4">
