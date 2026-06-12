@@ -45,6 +45,37 @@ function bundleModulesManifestPlugin(): Plugin {
   };
 }
 
+// US-421: every navigation that MUST reach the network/edge to get the correct
+// per-route HTML — the prerendered static pages (their own crawlable <head>) and
+// the dynamic Pages Functions (blog/cert/og/sitemaps SSR) — rather than the
+// service worker's generic /index.html SPA shell. Without this the SW bypasses
+// the entire prerender/SSR investment by handing every navigation the cached
+// shell. The prerendered-route entries are derived from the SEO registry so new
+// marketing/glossary pages are excluded automatically.
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+const NAVIGATE_FALLBACK_DENYLIST: RegExp[] = [
+  // API + dynamic, server-rendered Pages Functions (functions/*).
+  /^\/api\//,
+  /^\/blog(\/|$)/,
+  /^\/cert\//,
+  /^\/badge\//,
+  /^\/slab\//,
+  /^\/verified\//,
+  /^\/condition-index(\/|$)/,
+  /^\/og\//,
+  /^\/\.well-known\//,
+  /^\/(sitemap.*\.xml|robots\.txt|llms\.txt|rss\.xml|csp-report)$/,
+  // Prerendered static routes (marketing, legal, glossary spokes). Each is a
+  // real per-route index.html on the edge with its own <head>; the root "/"
+  // is intentionally left to the navigateFallback (it IS dist/index.html).
+  ...PUBLIC_ROUTES.map((r) => r.path)
+    .filter((p) => p !== "/")
+    .map((p) => new RegExp(`^${escapeRegExp(p)}/?$`)),
+];
+
 function seoManifestPlugin(): Plugin {
   return {
     name: "seo-manifest",
@@ -82,18 +113,21 @@ export default defineConfig({
       // The web app manifest is the static file at public/manifest.webmanifest.
       manifest: false,
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,woff2}"],
+        // US-421: precache assets + ONLY the root shell (dist/index.html), NOT
+        // the per-route prerendered shells (dist/<route>/index.html). The bare
+        // "index.html" glob matches only the top-level file; "**/*.html" would
+        // pull every per-route shell into the precache where the generic
+        // navigateFallback could serve them stale. The root shell carries a
+        // revision hash, so a new deploy busts any stale shell (with
+        // cleanupOutdatedCaches + skipWaiting below).
+        globPatterns: ["**/*.{js,css,svg,woff2}", "index.html"],
         navigateFallback: "/index.html",
-        // Never serve the SPA shell for API calls or server-rendered/dynamic
-        // routes — those are Pages Functions (blog + certificate SSR, sitemaps,
-        // robots/llms, RSS), not client routes. Without this the SW would hand
-        // a navigation to one of these the cached index.html.
-        navigateFallbackDenylist: [
-          /^\/api\//,
-          /^\/blog/,
-          /^\/cert\//,
-          /^\/(sitemap.*\.xml|robots\.txt|llms\.txt|rss\.xml)$/,
-        ],
+        // Never serve the SPA shell for API calls, server-rendered Pages
+        // Functions (blog/cert/og SSR, sitemaps, robots/llms, RSS), OR the
+        // prerendered static pages — every one of those must hit the
+        // network/edge to get its own per-route <head> instead of the generic
+        // cached index.html. See NAVIGATE_FALLBACK_DENYLIST above.
+        navigateFallbackDenylist: NAVIGATE_FALLBACK_DENYLIST,
         // Stale-shell guards (US deploy-safety): purge precaches from previous
         // builds on activate, and have a freshly-deployed SW take control of
         // open tabs immediately instead of waiting for every tab to close.

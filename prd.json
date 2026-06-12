@@ -6678,8 +6678,8 @@
         "With SW installed, hard-navigating to /pricing, /cert/<id>, /blog/<slug> serves the correct per-route head"
       ],
       "priority": 421,
-      "passes": false,
-      "notes": "[P0][SEO] Audit 2026-06-03. vite.config.ts navigateFallback:/index.html + precache **/*.html."
+      "passes": true,
+      "notes": "[P0][SEO] Audit 2026-06-03. vite.config.ts navigateFallback:/index.html + precache **/*.html. | DONE 2026-06-12. The SW was handing EVERY non-denylisted navigation the generic cached /index.html, bypassing the whole prerender/SSR investment (e.g. hard-nav to /pricing got the bare shell, not the prerendered head). AC1: navigateFallbackDenylist rebuilt as NAVIGATE_FALLBACK_DENYLIST — covers all dynamic Pages-Function prefixes (/api,/blog,/cert,/badge,/slab,/verified,/condition-index,/og,/.well-known, sitemaps/robots/llms/rss/csp-report) PLUS every prerendered static route derived from PUBLIC_ROUTES (so new marketing/glossary pages auto-exclude). Root '/' intentionally left to navigateFallback since dist/index.html IS the prerendered home. Verified in dist/sw.js: denylist:[/^\\/api\\//,...,/^\\/pricing\\/?$/,/^\\/grading\\/...]. AC2: globPatterns changed from **/*.{js,css,html,svg,woff2} to **/*.{js,css,svg,woff2}+\"index.html\" — bare glob matches ONLY top-level dist/index.html, so the 27 per-route prerendered shells are no longer precached (verified: only {url:'index.html',revision:'...'} in manifest); the revision hash + existing cleanupOutdatedCaches/skipWaiting/clientsClaim bust a stale shell on deploy. AC3: /pricing (prerendered), /cert/<id> + /blog/<slug> (Pages Fns) are all denylisted → navigations hit network/edge and get the correct per-route head. tsc + build + lint clean."
     },
     {
       "id": "US-422",
