@@ -33,17 +33,20 @@ export async function timingSafeEqual(a: string, b: string): Promise<boolean> {
 
 /**
  * True when `provided` matches the expected job secret. Accepts an explicit
- * expected value, else reads FLIPDESK_INTERNAL_JOB_SECRET (plus an optional
+ * expected value (or an array of candidates, e.g. current + _OLD for overlap
+ * rotation), else reads FLIPDESK_INTERNAL_JOB_SECRET (plus an optional
  * FLIPDESK_INTERNAL_JOB_SECRET_OLD for overlap rotation). Fail-closed.
  */
 export async function verifyJobSecret(
   provided: string | null | undefined,
-  expected?: string | null,
+  expected?: string | null | Array<string | null | undefined>,
 ): Promise<boolean> {
   const got = (provided ?? "").trim();
   if (!got) return false;
 
-  const candidates = expected != null
+  const candidates = Array.isArray(expected)
+    ? expected
+    : expected != null
     ? [expected]
     : [
       Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET"),
@@ -61,6 +64,117 @@ export async function verifyJobSecret(
   return ok;
 }
 
+// ── Signed timestamped job requests (US-487) ───────────────────────
+//
+// Stronger alternative to presenting the static secret: the caller sends
+//
+//   X-Internal-Job-Timestamp: <unix epoch seconds>
+//   X-Internal-Job-Signature: hex(HMAC-SHA256(secret, "v1:<ts>:<METHOD>:<path>"))
+//
+// The signature is bound to the method + path, only valid inside a small
+// freshness window, and single-use within that window (process-local replay
+// cache — the edge service deploys as a single container, so an in-memory
+// cache covers the whole window). A captured request can't be replayed, and
+// the secret itself never crosses the wire.
+
+const SIGNED_JOB_VERSION = "v1";
+const SIGNED_JOB_MAX_SKEW_SECONDS = 300;
+
+async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function signedJobMessage(
+  timestampSeconds: number,
+  method: string,
+  path: string,
+): string {
+  return `${SIGNED_JOB_VERSION}:${timestampSeconds}:${method.toUpperCase()}:${path}`;
+}
+
+/** Compute the X-Internal-Job-Signature value a caller should send. */
+export async function signJobRequest(
+  secret: string,
+  opts: { timestamp: number; method: string; path: string },
+): Promise<string> {
+  return await hmacSha256Hex(
+    secret,
+    signedJobMessage(opts.timestamp, opts.method, opts.path),
+  );
+}
+
+// signature → expiry (epoch ms). Pruned on every verification.
+const seenJobSignatures = new Map<string, number>();
+
+export function clearJobReplayCacheForTests(): void {
+  seenJobSignatures.clear();
+}
+
+type SignedHeaderReader = {
+  req: {
+    header: (name: string) => string | undefined;
+    method: string;
+    path: string;
+  };
+};
+
+/**
+ * Verifies a signed timestamped job request (headers above). Fail-closed:
+ * missing/malformed headers, stale or future-dated timestamps, signatures for
+ * a different method/path, and REPLAYED signatures are all rejections.
+ */
+export async function verifySignedJobRequest(
+  c: SignedHeaderReader,
+  secrets: Array<string | null | undefined>,
+  opts: { maxSkewSeconds?: number; nowMs?: number } = {},
+): Promise<boolean> {
+  const sig = (c.req.header("X-Internal-Job-Signature") ?? "")
+    .trim()
+    .toLowerCase();
+  const tsRaw = (c.req.header("X-Internal-Job-Timestamp") ?? "").trim();
+  if (!sig || !tsRaw) return false;
+
+  const ts = Number(tsRaw);
+  if (!Number.isFinite(ts) || ts <= 0) return false;
+
+  const nowMs = opts.nowMs ?? Date.now();
+  const maxSkew = opts.maxSkewSeconds ?? SIGNED_JOB_MAX_SKEW_SECONDS;
+  if (Math.abs(nowMs / 1000 - ts) > maxSkew) return false;
+
+  const message = signedJobMessage(ts, c.req.method, c.req.path);
+  let ok = false;
+  for (const cand of secrets) {
+    const secret = (cand ?? "").trim();
+    if (!secret) continue;
+    // Evaluate all candidates (no early break) — same timing rationale as
+    // verifyJobSecret.
+    if (await timingSafeEqual(sig, await hmacSha256Hex(secret, message))) {
+      ok = true;
+    }
+  }
+  if (!ok) return false;
+
+  // Replay rejection: each signature is single-use. Entries outlive the skew
+  // window (2x) so a signature can't be replayed at the window's edge.
+  for (const [s, exp] of seenJobSignatures) {
+    if (exp <= nowMs) seenJobSignatures.delete(s);
+  }
+  if (seenJobSignatures.has(sig)) return false;
+  seenJobSignatures.set(sig, nowMs + maxSkew * 2 * 1000);
+  return true;
+}
+
 type HeaderReader = { req: { header: (name: string) => string | undefined } };
 
 /**
@@ -70,7 +184,10 @@ type HeaderReader = { req: { header: (name: string) => string | undefined } };
  */
 export async function requireJobSecret(
   c: HeaderReader,
-  opts: { bearer?: boolean; expected?: string | null } = {},
+  opts: {
+    bearer?: boolean;
+    expected?: string | null | Array<string | null | undefined>;
+  } = {},
 ): Promise<boolean> {
   let provided: string | undefined;
   if (opts.bearer) {

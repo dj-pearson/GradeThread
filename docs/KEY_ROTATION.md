@@ -76,8 +76,27 @@ the old key.
 
 ## Shared job secrets (`FLIPDESK_INTERNAL_JOB_SECRET`, `CONTENT_INTERNAL_JOB_SECRET`, `CONTENT_WEBHOOK_SIGNING_SECRET`)
 
-`openssl rand -hex 32` for a new value. Update Coolify **and** the caller
-(Make.com scenario / cron job) at the same time, then redeploy.
+`openssl rand -hex 32` for a new value.
+
+`FLIPDESK_INTERNAL_JOB_SECRET` and `CONTENT_INTERNAL_JOB_SECRET` support
+**zero-downtime overlap rotation** via a matching `*_OLD` env var (US-360 /
+US-487):
+
+1. Set the new value as the primary env var in Coolify.
+2. Move the previous value to `FLIPDESK_INTERNAL_JOB_SECRET_OLD` /
+   `CONTENT_INTERNAL_JOB_SECRET_OLD` and redeploy — callers configured with
+   either value keep working.
+3. Update the caller (Make.com scenario / cron job) to the new secret.
+4. Clear the `*_OLD` var and redeploy.
+
+`CONTENT_WEBHOOK_SIGNING_SECRET` has no overlap var: update Coolify **and** the
+downstream Make.com verifier at the same time, then redeploy.
+
+The content scheduler also accepts a **signed timestamped request** instead of
+the raw secret — `X-Internal-Job-Timestamp: <unix seconds>` plus
+`X-Internal-Job-Signature: hex(HMAC-SHA256(secret, "v1:<ts>:<METHOD>:<path>"))`
+(5-minute freshness window, single-use signatures, so replays are rejected).
+Prefer this for new callers: the secret never leaves the caller.
 
 ---
 

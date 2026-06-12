@@ -7514,8 +7514,8 @@
         "Settings loaded once per tick"
       ],
       "priority": 487,
-      "passes": false,
-      "notes": "[P3][Content] Audit 2026-06-03. Static CONTENT_INTERNAL_JOB_SECRET; dispatchContentWebhook is best-effort .catch(log)."
+      "passes": true,
+      "notes": "[P3][Content] Audit 2026-06-03. Static CONTENT_INTERNAL_JOB_SECRET; dispatchContentWebhook is best-effort .catch(log). DONE 2026-06-12: CONTENT_INTERNAL_JOB_SECRET_OLD overlap rotation (verifyJobSecret now takes candidate arrays); signed timestamped requests via X-Internal-Job-Timestamp + X-Internal-Job-Signature (HMAC-SHA256 bound to method+path, 5-min window, single-use signatures so replays rejected) preferred over the raw secret; terminal webhook-delivery failure now alerts ops (content_webhook.delivery_failed metric + captureException + CONTENT_ALERT_WEBHOOK/MONITOR_ALERT_WEBHOOK ping) on top of the existing 3-attempt backoff + content_webhook_log recording; /tick loads content_settings once and threads it into publishDueScheduledPosts/runBlogTick. Docs: KEY_ROTATION.md + .env.example. Tests in job-auth_test.ts."
     },
     {
       "id": "US-488",

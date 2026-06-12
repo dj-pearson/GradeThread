@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureServer } from "./posthog.ts";
+import { captureException, recordMetric } from "./observability.ts";
 
 // Outbound webhook dispatcher for the content module.
 //
@@ -12,6 +13,8 @@ import { captureServer } from "./posthog.ts";
 //   - 3 attempts: 0s, 5s, 30s (mirrors webhook-delivery.ts shape)
 //   - 10s per-attempt timeout
 //   - Each attempt logged to content_webhook_log
+//   - Terminal failure alerts ops (metric + error tracker + alert webhook,
+//     US-487) and stays retryable via POST /webhooks/:logId/retry
 //   - Best-effort: errors throw out of this function only on the LAST
 //     attempt; intermediate failures retry. The caller still wraps in
 //     a try/catch so a webhook failure never rolls back a publish.
@@ -222,11 +225,63 @@ export async function dispatchContentWebhook(
     } after ${ATTEMPT_DELAYS_MS.length} attempts`,
   );
   captureWebhookDispatched(payload, false);
+  await alertDeliveryFailure(payload, format, target, lastStatus);
   return {
     delivered: false,
     attempts: ATTEMPT_DELAYS_MS.length,
     last_status: lastStatus,
   };
+}
+
+// US-487: a delivery that exhausts every retry must page someone, not just
+// sit in content_webhook_log. Three channels, all fail-safe: a metric line
+// (content_webhook.delivery_failed), the error tracker, and an ops webhook
+// (CONTENT_ALERT_WEBHOOK, falling back to the grading monitor's
+// MONITOR_ALERT_WEBHOOK — Slack/PagerDuty-compatible `text`+`summary` body).
+// Never throws into the dispatcher; the failed payload stays retryable from
+// the dashboard (POST /webhooks/:logId/retry).
+async function alertDeliveryFailure(
+  payload: WebhookPayload,
+  format: SocialFormat | undefined,
+  target: ResolvedTarget,
+  lastStatus: number | null,
+): Promise<void> {
+  const summary =
+    `[GradeThread content] webhook delivery FAILED: ${payload.event}` +
+    `${format ? `/${format}` : ""} (post ${payload.data.id}) to ${target.field} ` +
+    `after ${ATTEMPT_DELAYS_MS.length} attempts ` +
+    `(last status: ${lastStatus ?? "network error"}). ` +
+    `Retry from Content Settings → webhook log.`;
+
+  recordMetric("content_webhook.delivery_failed", 1, {
+    event: payload.event,
+    target: target.field,
+  });
+  captureException(new Error(summary), {
+    route: "content-webhook.dispatch",
+    tags: { event: payload.event, target: target.field },
+  });
+
+  const hook = Deno.env.get("CONTENT_ALERT_WEBHOOK")?.trim() ||
+    Deno.env.get("MONITOR_ALERT_WEBHOOK")?.trim() || "";
+  if (!hook) return;
+  try {
+    const res = await fetch(hook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: summary, // Slack
+        summary, // PagerDuty/generic
+        event: payload.event,
+        post_id: payload.data.id,
+        last_status: lastStatus,
+      }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    await res.body?.cancel();
+  } catch (err) {
+    captureException(err, { route: "content-webhook.alert" });
+  }
 }
 
 // US-255: emit the server-side 'webhook.dispatched' analytics event once a

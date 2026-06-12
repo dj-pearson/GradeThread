@@ -3,7 +3,7 @@ import { createMiddleware } from "hono/factory";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { authMiddleware } from "../middleware/auth.ts";
 import { adminAuthMiddleware } from "../middleware/admin-auth.ts";
-import { verifyJobSecret } from "../lib/job-auth.ts";
+import { verifyJobSecret, verifySignedJobRequest } from "../lib/job-auth.ts";
 import { generateBlogArticle } from "../lib/content-ai-blog.ts";
 import { generateSocialPost } from "../lib/content-ai-social.ts";
 import { researchTopics } from "../lib/content-ai-research.ts";
@@ -32,10 +32,30 @@ type SchedulerEnv = { Variables: { userId?: string } };
 export const contentSchedulerRoutes = new Hono<SchedulerEnv>();
 
 const schedulerAuth = createMiddleware<SchedulerEnv>(async (c, next) => {
-  // US-360: constant-time compare of the Make.com job secret.
-  const headerSecret = c.req.header("X-Internal-Job-Secret");
-  const envSecret = Deno.env.get("CONTENT_INTERNAL_JOB_SECRET")?.trim();
-  if (await verifyJobSecret(headerSecret, envSecret ?? "")) {
+  // US-487: overlap rotation — both the current secret and (during a rotation
+  // window) the previous one in CONTENT_INTERNAL_JOB_SECRET_OLD are accepted,
+  // so the secret can be rotated with zero downtime: set the new value, move
+  // the old one to _OLD, update the Make.com scenario, then drop _OLD.
+  const secrets = [
+    Deno.env.get("CONTENT_INTERNAL_JOB_SECRET"),
+    Deno.env.get("CONTENT_INTERNAL_JOB_SECRET_OLD"),
+  ];
+
+  // Preferred path (US-487): signed timestamped request — HMAC bound to
+  // method+path with a freshness window and single-use signatures (replay
+  // rejected). The secret never crosses the wire. A request that PRESENTS a
+  // signature but fails verification is rejected outright rather than falling
+  // through to weaker auth paths.
+  if (c.req.header("X-Internal-Job-Signature")) {
+    if (await verifySignedJobRequest(c, secrets)) {
+      await next();
+      return;
+    }
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  // Legacy Make.com path: static header secret (US-360 constant-time compare).
+  if (await verifyJobSecret(c.req.header("X-Internal-Job-Secret"), secrets)) {
     // Make.com path — no JWT.
     await next();
     return;
@@ -180,7 +200,10 @@ async function pickProductFocus(surface: Surface): Promise<Product> {
 //
 // Best-effort per row — a failure on one post doesn't abort the others.
 // Returns the count of posts actually published.
-async function publishDueScheduledPosts(): Promise<number> {
+//
+// US-487: settings are loaded ONCE in /tick and passed in — this used to
+// re-query content_settings per published blog post.
+async function publishDueScheduledPosts(settings: SettingsRow): Promise<number> {
   const nowIso = new Date().toISOString();
   let published = 0;
 
@@ -242,8 +265,7 @@ async function publishDueScheduledPosts(): Promise<number> {
         .then((files) => purgeCloudflareCache({ files }))
         .catch((e) => console.error("[scheduler] scheduled blog purge failed:", e));
 
-      const siteUrl =
-        (await loadSettings())?.public_site_url ?? "https://gradethread.com";
+      const siteUrl = settings.public_site_url || "https://gradethread.com";
       dispatchContentWebhook({
         event: "blog.published",
         timestamp: nowIso,
@@ -447,6 +469,7 @@ async function uniqueSlug(base: string): Promise<string> {
 async function runBlogTick(
   product: Product,
   autoPublish: boolean,
+  settings: SettingsRow,
 ): Promise<TickResult> {
   const topic = await pickNextTopic("blog", product);
   if (!topic) return { skipped: true, reason: "no queued topics after refill" };
@@ -658,7 +681,7 @@ async function runBlogTick(
       timestamp: now,
       data: {
         id: published.id,
-        url: `${(await loadSettings())?.public_site_url ?? "https://gradethread.com"}/blog/${published.slug}`,
+        url: `${settings.public_site_url || "https://gradethread.com"}/blog/${published.slug}`,
         title: published.title,
         excerpt: published.excerpt ?? null,
         hero_image_url: published.hero_image_url ?? null,
@@ -915,7 +938,7 @@ contentSchedulerRoutes.post("/tick", async (c) => {
   // scheduled_for in the past). This runs every tick regardless of
   // cadence, so a scheduled post fires within the cron interval of its
   // scheduled_for. Counts toward today's cadence below.
-  const publishedScheduled = await publishDueScheduledPosts();
+  const publishedScheduled = await publishDueScheduledPosts(settings);
 
   const today = await publishedTodayCounts();
 
@@ -975,7 +998,7 @@ contentSchedulerRoutes.post("/tick", async (c) => {
 
   const result =
     surface === "blog"
-      ? await runBlogTick(product, autoPublish)
+      ? await runBlogTick(product, autoPublish, settings)
       : await runSocialTick(product, autoPublish);
 
   return c.json({
