@@ -7019,8 +7019,8 @@
         "Background content is inert/aria-hidden while a modal is open; tab order doesn't escape"
       ],
       "priority": 448,
-      "passes": false,
-      "notes": "[P2][A11y] Audit 2026-06-03. Raw-div overlays need focus-trap verification."
+      "passes": true,
+      "notes": "[P2][A11y] Audit 2026-06-03. Raw-div overlays need focus-trap verification. DONE 2026-06-12: Audited all custom (non-Radix) overlays. photo-editor uses Radix Dialog (compliant); item-canvas/annotated-photo/disclosure-panel render inline (not modals). The one hand-rolled modal overlay is certificate ImageLightbox. Extracted reusable trapFocus() (src/lib/a11y/focus-trap.ts) + useFocusTrap hook (src/hooks/use-focus-trap.ts): moves focus in, traps Tab, Esc closes, restores focus to opener, and marks every sibling up the ancestor chain inert+aria-hidden so background is unreachable by keyboard/SR. Refactored ImageLightbox onto the hook (adds the missing background-inert). 10 unit tests in src/lib/a11y/__tests__/focus-trap.test.ts."
     },
     {
       "id": "US-449",

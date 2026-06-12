@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Download, X, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { cn } from "@/lib/utils";
 
 // US-761: accessible full-screen viewer for the certificate photo gallery so a
@@ -24,9 +25,7 @@ export function ImageLightbox({
   onClose: () => void;
   onNavigate: (next: number) => void;
 }) {
-  const overlayRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const restoreFocusRef = useRef<Element | null>(null);
   const touchStartX = useRef<number | null>(null);
   const [zoomed, setZoomed] = useState(false);
 
@@ -42,47 +41,24 @@ export function ImageLightbox({
     [index, images.length, onNavigate],
   );
 
-  // Move focus into the dialog on open; restore it to the trigger on close.
-  useEffect(() => {
-    restoreFocusRef.current = document.activeElement;
-    closeRef.current?.focus();
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden"; // lock background scroll
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      (restoreFocusRef.current as HTMLElement | null)?.focus?.();
-    };
-  }, []);
+  // Focus trap + Esc-to-close + background inert/aria-hidden + scroll lock + focus
+  // restore on close, all via the shared overlay helper (US-448). Focus lands on
+  // the close button first.
+  const overlayRef = useFocusTrap<HTMLDivElement>({
+    onEscape: onClose,
+    initialFocus: closeRef,
+  });
 
-  // Keyboard: Esc closes, arrows navigate, Tab is trapped within the overlay.
+  // Arrow keys step through the gallery (Esc/Tab are owned by the focus trap).
   useEffect(() => {
+    if (!hasMultiple) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === "ArrowRight" && hasMultiple) {
-        go(1);
-      } else if (e.key === "ArrowLeft" && hasMultiple) {
-        go(-1);
-      } else if (e.key === "Tab") {
-        const focusables = overlayRef.current?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), a[href]',
-        );
-        if (!focusables || focusables.length === 0) return;
-        const first = focusables[0];
-        const last = focusables[focusables.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last?.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first?.focus();
-        }
-      }
+      if (e.key === "ArrowRight") go(1);
+      else if (e.key === "ArrowLeft") go(-1);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [go, hasMultiple, onClose]);
+  }, [go, hasMultiple]);
 
   async function download() {
     if (!current) return;
