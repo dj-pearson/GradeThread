@@ -25,6 +25,7 @@ import {
   CircleUser,
   Zap,
   Eye,
+  CalendarClock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ const navGroups: NavGroup[] = [
       { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
       { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
       { to: "/dashboard/flipdesk/autolister/drafts", icon: ClipboardList, label: "Drafts", end: false, requiresFlipdeskFlag: "autolister" },
+      { to: "/dashboard/flipdesk/scheduled-drops", icon: CalendarClock, label: "Scheduled drops", end: false },
       { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
       { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
       // Reconcile is the ungated bulk-photo→item tool. Once a plan unlocks

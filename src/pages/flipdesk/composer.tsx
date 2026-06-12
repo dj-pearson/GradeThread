@@ -48,6 +48,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  COMMON_TIMEZONES,
+  DROP_PRESETS,
+  detectTimezone,
+  formatInZone,
+  nextPresetUtc,
+} from "@/lib/scheduling";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useItemsFull } from "@/hooks/use-items-full";
@@ -119,6 +133,11 @@ export function FlipdeskComposerPage() {
   // distinct caveat — asking prices, not realized sales).
   const [priceCompSource, setPriceCompSource] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState("");
+  // US-563: timezone the drop presets are evaluated in (peak buying times are
+  // local, e.g. "Sunday 7 PM" in the seller's market). Defaults to the viewer's
+  // own zone; the <input type="datetime-local"> stays browser-local, so a preset
+  // just computes the UTC instant and fills the input with its local equivalent.
+  const [dropTimezone, setDropTimezone] = useState(() => detectTimezone());
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
   const [badgeEnabled, setBadgeEnabled] = useState(false);
@@ -1079,9 +1098,62 @@ export function FlipdeskComposerPage() {
                     </Button>
                   )}
                 </div>
+                {/* US-563: timezone-aware peak-time presets. The picker only
+                    controls how the presets below are evaluated; the input
+                    stays in your browser's local time. */}
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  <Select value={dropTimezone} onValueChange={setDropTimezone}>
+                    <SelectTrigger className="h-8 w-[15rem] text-xs">
+                      <SelectValue placeholder="Timezone" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(COMMON_TIMEZONES.some((t) => t.id === dropTimezone)
+                        ? COMMON_TIMEZONES
+                        : [{ id: dropTimezone, label: `${dropTimezone} (your timezone)` }, ...COMMON_TIMEZONES]
+                      ).map((tz) => (
+                        <SelectItem key={tz.id} value={tz.id} className="text-xs">
+                          {tz.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {DROP_PRESETS.map((preset) => (
+                    <Button
+                      key={preset.id}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      title={preset.hint}
+                      onClick={() => {
+                        const utc = nextPresetUtc(preset, dropTimezone);
+                        setScheduledAt(isoToLocalInput(utc.toISOString()));
+                        toast.success(
+                          `Drop set for ${formatInZone(utc.toISOString(), dropTimezone)}`,
+                        );
+                      }}
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Leave empty to publish immediately when you hit “Publish”.
                   If set, save the draft and it goes live automatically at that time.
+                  {scheduledAt && (
+                    <>
+                      {" "}Goes live{" "}
+                      <span className="font-medium text-foreground">
+                        {formatInZone(
+                          localInputToIso(scheduledAt) ?? "",
+                          dropTimezone,
+                        )}
+                      </span>
+                      .
+                    </>
+                  )}
                 </p>
               </div>
             </CardContent>

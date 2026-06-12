@@ -8490,8 +8490,8 @@
         "Built on the existing scheduled_publish_at + 5-min cron"
       ],
       "priority": 563,
-      "passes": false,
-      "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. Plumbing exists; no tz-aware presets/calendar."
+      "passes": true,
+      "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. Plumbing exists; no tz-aware presets/calendar. IMPLEMENTED 2026-06-12: src/lib/scheduling.ts (Intl-based tz math: zonedWallTimeToUtc, nextPresetUtc, DROP_PRESETS peak-time presets, formatInZone) + tests; composer schedule card gains a timezone picker + peak-time preset buttons (filling the existing scheduled_publish_at input); new calendar page src/pages/flipdesk/scheduled-drops.tsx (month grid + upcoming list, tz-aware, shows Promoted-Listings boost per drop) wired into routes + sidebar. Reuses existing publish-due 5-min cron + US-561 promo plumbing — no backend changes."
     },
     {
       "id": "US-564",
