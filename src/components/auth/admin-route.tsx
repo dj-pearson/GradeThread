@@ -2,6 +2,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { useEffect, useRef } from "react";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 export function AdminRoute() {
   const { session, profile, isLoading } = useAuth();
@@ -32,5 +33,13 @@ export function AdminRoute() {
     return <Navigate to="/dashboard" replace />;
   }
 
-  return <Outlet />;
+  // US-437: the admin tree is a sibling of ProtectedRoute (not nested under it),
+  // so it needs its own ConfirmProvider — admin pages (blog/social editors) call
+  // useConfirm() and would otherwise crash with "must be used within a
+  // <ConfirmProvider>".
+  return (
+    <ConfirmProvider>
+      <Outlet />
+    </ConfirmProvider>
+  );
 }
