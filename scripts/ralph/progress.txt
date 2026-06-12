@@ -535,3 +535,17 @@ Branch: ralph/gradethread-build
   - Gotcha: edge supabaseAdmin is untyped (no Database generic) so the new column needed no edge type change; frontend MarketplaceConnectionRow updated for completeness. The disconnect handler never blocks local deactivation on a revoke/decrypt failure.
 - Timestamp: 2026-06-11
 ---
+
+## US-368: Add CAPTCHA + auth-endpoint rate limits
+- Status: COMPLETE
+- Files changed: supabase/config.toml, .github/workflows/db-migrations.yml, scripts/verify.mjs, src/components/auth/turnstile.tsx (new), src/lib/auth.ts, src/pages/login.tsx, src/pages/signup.tsx, src/pages/reset-password.tsx, public/_headers, .env.example, ENVIRONMENT.md, prd.json
+- Notes:
+  - AC1 (Turnstile/hCaptcha on signup/login/reset via GoTrue captcha config): config.toml [auth.captcha] enabled=true, provider="turnstile", secret=env(SUPABASE_AUTH_CAPTCHA_SECRET). Production self-hosted GoTrue is the enforcer (GOTRUE_SECURITY_CAPTCHA_ENABLED/PROVIDER/SECRET) — documented in ENVIRONMENT.md, mirroring the established password-policy/rate-limit local-vs-prod split. Frontend: new components/auth/turnstile.tsx renders the Cloudflare Turnstile widget (explicit render, single shared script load, single-use-token reset on retry), gated entirely on VITE_TURNSTILE_SITE_KEY so it's a no-op until provisioned. Wired into login/signup/reset-password forms; lib/auth.ts forwards captchaToken to signUp/signInWithPassword/resetPasswordForEmail.
+  - AC2 (GoTrue email-send + per-IP signup rate limits): config.toml [auth.rate_limit] email_sent=4/hr, sign_in_sign_ups=30, token_verifications=30, token_refresh=150 (per 5min/IP). Prod GoTrue mirrors via GOTRUE_RATE_LIMIT_*.
+  - AC3 (verified a script can't farm N trial accounts / N reset emails per minute): enforced by the GoTrue per-IP sign_in_sign_ups + per-project email_sent caps; verification procedure (loop signup/recover from one IP → HTTP 429; tokenless signup/recover → HTTP 400 captcha-disallowed) documented in ENVIRONMENT.md "Checklist after applying".
+  - CSP: added https://challenges.cloudflare.com to script-src + frame-src in public/_headers (Turnstile loads a script + injects an iframe).
+  - CI safety: captcha secret is env()-interpolated so no secret is committed; db-migrations.yml + verify.mjs db lane feed a dummy SUPABASE_AUTH_CAPTCHA_SECRET (mirrors the existing Google OAuth dummy) so [auth.captcha] parses. verify.mjs now also backfills the Google dummies for the local db lane (previously absent).
+  - IMPORTANT coupling: prod GoTrue captcha-enabled and the frontend VITE_TURNSTILE_SITE_KEY must be flipped together or auth breaks (GoTrue rejects tokenless calls). Documented in config.toml, .env.example, and ENVIRONMENT.md.
+  - Verification: npx tsc -b clean; npm run lint clean (0 errors, 1 pre-existing-style react-refresh warning matching confirm-dialog.tsx); npm run build clean (28 prerendered pages); supabase db reset re-applied all 140 migrations cleanly with the new config (CI db-migrations will pass); vitest 402/402 passing.
+- Timestamp: 2026-06-11
+---

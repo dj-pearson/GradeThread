@@ -57,6 +57,41 @@ password_requirements = "lower_upper_letters_digits"
 #   GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED=true. Tune VERIFY low enough to
 #   throttle password-guessing per IP.
 
+# US-368: CAPTCHA (Cloudflare Turnstile) on signup / login / password-reset to
+# stop bot-driven trial-farming + credential-stuffing + reset-email floods. The
+# self-hosted PRODUCTION GoTrue is the enforcer; mirror this there via env:
+#   GOTRUE_SECURITY_CAPTCHA_ENABLED=true
+#   GOTRUE_SECURITY_CAPTCHA_PROVIDER=turnstile   (or "hcaptcha")
+#   GOTRUE_SECURITY_CAPTCHA_SECRET=<Turnstile secret key>
+# Once captcha is ON, GoTrue REJECTS any signup/login/reset call that lacks a
+# valid captcha token, so the FRONTEND must send one — it does, gated on
+# VITE_TURNSTILE_SITE_KEY (see .env.example + components/auth/turnstile.tsx).
+# Flip BOTH together: enable here / on prod GoTrue AND set the site key in the
+# build, or auth breaks. With the site key unset the widget is a no-op (dev/local).
+[auth.captcha]
+enabled = true
+provider = "turnstile"
+# env() so no secret is committed; the current CLI rejects an enabled provider
+# with an empty secret, so CI (db-migrations.yml) feeds a harmless dummy — it only
+# validates that migrations apply, never the captcha handshake.
+secret = "env(SUPABASE_AUTH_CAPTCHA_SECRET)"
+
+# US-368: server-enforced auth throttling (anti trial-farming / credential-
+# stuffing / reset-email floods). Mirror on prod GoTrue via the GOTRUE_RATE_LIMIT_*
+# env vars above. These caps are the local-CLI equivalents.
+[auth.rate_limit]
+# Confirmation + recovery emails per hour (per project). A low cap is the primary
+# defense against reset-email floods; still covers a signup-confirm + a reset
+# within the same hour for a real user.
+email_sent = 4
+# Sign-up + sign-in requests per 5-minute window per IP address. Throttles
+# scripted trial-account farming and password spraying from a single source.
+sign_in_sign_ups = 30
+# Magic-link / OTP / recovery-token verifications per 5 min per IP.
+token_verifications = 30
+# Session refreshes per 5 min per IP (generous — legit apps refresh often).
+token_refresh = 150
+
 [auth.email]
 enable_signup = true
 double_confirm_changes = true

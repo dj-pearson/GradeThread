@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Rocket } from "lucide-react";
 import * as Sentry from "@sentry/react";
 import { signUpWithEmail, signInWithGoogle } from "@/lib/auth";
+import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,9 @@ export function SignupPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmation, setIsConfirmation] = useState(false);
+  // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,9 +42,14 @@ export function SignupPage() {
       toast.error(pwCheck.reason ?? "Password does not meet the requirements");
       return;
     }
+    // US-368: bot-protection — a captcha token is required when Turnstile is on.
+    if (captchaRequired && !captchaToken) {
+      toast.error("Please complete the verification challenge.");
+      return;
+    }
     setIsLoading(true);
     try {
-      const data = await signUpWithEmail(email, password, fullName);
+      const data = await signUpWithEmail(email, password, fullName, captchaToken ?? undefined);
       setIsConfirmation(true);
 
       // US-219: every new signup is granted a 14-day Pro trial by the
@@ -79,6 +88,9 @@ export function SignupPage() {
         setIsConfirmation(true);
       } else {
         toast.error("We couldn't create your account. Please check your details and try again.");
+        // US-368: the Turnstile token was consumed — reset for the retry.
+        setCaptchaToken(null);
+        setCaptchaReset((n) => n + 1);
       }
     } finally {
       setIsLoading(false);
@@ -169,6 +181,11 @@ export function SignupPage() {
             />
             <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
           </div>
+          <TurnstileWidget
+            onVerify={setCaptchaToken}
+            onExpire={() => setCaptchaToken(null)}
+            resetSignal={captchaReset}
+          />
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Creating account..." : "Create account"}
           </Button>

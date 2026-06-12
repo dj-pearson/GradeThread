@@ -1,22 +1,32 @@
 import { supabase } from "./supabase";
 
-export async function signUpWithEmail(email: string, password: string, fullName: string) {
+// US-368: `captchaToken` is the Cloudflare Turnstile token from the auth pages.
+// GoTrue requires it on signup/login/reset once captcha is enabled; it's
+// undefined (and ignored) when VITE_TURNSTILE_SITE_KEY is unset.
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  fullName: string,
+  captchaToken?: string,
+) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: { full_name: fullName },
       emailRedirectTo: `${window.location.origin}/auth/callback`,
+      captchaToken,
     },
   });
   if (error) throw error;
   return data;
 }
 
-export async function signInWithEmail(email: string, password: string) {
+export async function signInWithEmail(email: string, password: string, captchaToken?: string) {
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
+    options: { captchaToken },
   });
   if (error) throw error;
   return data;
@@ -53,9 +63,10 @@ export async function signOutOtherSessions() {
   if (error) throw error;
 }
 
-export async function resetPassword(email: string) {
+export async function resetPassword(email: string, captchaToken?: string) {
   const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}/auth/reset-password`,
+    captchaToken,
   });
   if (error) throw error;
   return data;

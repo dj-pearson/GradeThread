@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { resetPassword, updatePassword } from "@/lib/auth";
+import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { supabase } from "@/lib/supabase";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { Button } from "@/components/ui/button";
@@ -29,15 +30,25 @@ function RequestResetForm() {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (captchaRequired && !captchaToken) {
+      toast.error("Please complete the verification challenge.");
+      return;
+    }
     setIsLoading(true);
     try {
-      await resetPassword(email);
+      await resetPassword(email, captchaToken ?? undefined);
       setIsSent(true);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send reset email");
+      // US-368: the Turnstile token was consumed — reset for the retry.
+      setCaptchaToken(null);
+      setCaptchaReset((n) => n + 1);
     } finally {
       setIsLoading(false);
     }
@@ -82,6 +93,11 @@ function RequestResetForm() {
               required
             />
           </div>
+          <TurnstileWidget
+            onVerify={setCaptchaToken}
+            onExpire={() => setCaptchaToken(null)}
+            resetSignal={captchaReset}
+          />
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Sending..." : "Send reset link"}
           </Button>

@@ -189,7 +189,8 @@ official self-hosting auth reference before applying.
 | Refresh-token rotation | `GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED` | `true` | Rotate refresh tokens on use |
 | Refresh-token reuse detection | `GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL` | `10` (sec) | Detect + revoke a stolen refresh token replayed after the grace window |
 | Access-token lifetime | `GOTRUE_JWT_EXP` | `3600` | Already 3600 in config.toml; keep short |
-| Sign-in brute-force / OTP limits | `GOTRUE_RATE_LIMIT_VERIFY`, `GOTRUE_RATE_LIMIT_OTP`, `GOTRUE_RATE_LIMIT_TOKEN_REFRESH`, `GOTRUE_RATE_LIMIT_EMAIL_SENT` | sane caps | Throttle credential stuffing + OTP/email abuse |
+| Sign-in brute-force / OTP limits | `GOTRUE_RATE_LIMIT_VERIFY`, `GOTRUE_RATE_LIMIT_OTP`, `GOTRUE_RATE_LIMIT_TOKEN_REFRESH`, `GOTRUE_RATE_LIMIT_EMAIL_SENT` | sane caps | Throttle credential stuffing + OTP/email abuse (US-368 mirrors these in `config.toml` `[auth.rate_limit]`: `email_sent`, `sign_in_sign_ups`, `token_verifications`, `token_refresh`) |
+| **CAPTCHA (US-368)** | `GOTRUE_SECURITY_CAPTCHA_ENABLED=true`, `GOTRUE_SECURITY_CAPTCHA_PROVIDER=turnstile`, `GOTRUE_SECURITY_CAPTCHA_SECRET=<Turnstile secret key>` | enabled | Bot-protect signup/login/reset (anti trial-farming + credential-stuffing). **Coupled to the frontend:** once enabled, GoTrue rejects any auth call lacking a valid token, so the build MUST set `VITE_TURNSTILE_SITE_KEY` (the matching Turnstile **site** key). Flip both together or auth breaks. Mirrored in `config.toml` `[auth.captcha]`. |
 | **Site URL (OAuth fallback target)** | `GOTRUE_SITE_URL` | `https://gradethread.com` | Where GoTrue sends users when no (allowed) `redirect_to` is given. **Must be the frontend, never `api.gradethread.com`** — a wrong value here is exactly the "Google sign-in lands on the Supabase host" bug (diagnosed 2026-06-11: the `state` JWT showed `site_url: https://api.gradethread.com`). |
 | Redirect allow-list | `GOTRUE_URI_ALLOW_LIST` | exact callback URLs only | **No wildcards.** Must contain ALL of: `https://gradethread.com/auth/callback`, `https://gradethread.com/auth/reset-password`, `https://gradethread.com/accept-invite`, `https://gradethread.com/app/auth-callback` (iOS 17.4+ Universal Link), `com.gradethread.app://auth-callback` (iOS <17.4 fallback scheme). A missing entry makes GoTrue silently fall back to `GOTRUE_SITE_URL` — on iOS the web-auth session then never sees its callback and reports "sign-in cancelled". |
 
@@ -205,7 +206,13 @@ MFA enforcement for admin/super_admin accounts is tracked separately in
 
 **Checklist after applying:** sign-up requires confirmation · a known-breached
 password is rejected · old refresh token is rejected after rotation · an OAuth
-redirect to an unlisted URL is refused · `https://api.gradethread.com/auth/v1/settings`
+redirect to an unlisted URL is refused · **captcha is enforced** —
+`/auth/v1/settings` shows `"external": {...}` plus a non-null captcha config, and
+a scripted `POST /auth/v1/signup` (or `/recover`) WITHOUT a `gotrue_meta_security.captcha_token`
+returns HTTP 400 (`captcha protection: request disallowed`) · **rate limits bite**
+— a loop firing N signups or N `/recover` calls from one IP starts getting HTTP 429
+after the configured cap (so a script can't farm trial accounts or flood reset
+emails per minute) · `https://api.gradethread.com/auth/v1/settings`
 shows `"google": true` and `"apple": true` · the `state` JWT on
 `/auth/v1/authorize?provider=google&redirect_to=https://gradethread.com/auth/callback`
 carries `site_url`/`referrer` = `https://gradethread.com...` (decode the

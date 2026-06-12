@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmail, signInWithGoogle } from "@/lib/auth";
+import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,12 +16,19 @@ export function LoginPage() {
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (captchaRequired && !captchaToken) {
+      toast.error("Please complete the verification challenge.");
+      return;
+    }
     setIsLoading(true);
     try {
-      await signInWithEmail(email, password);
+      await signInWithEmail(email, password, captchaToken ?? undefined);
       navigate(inviteToken ? `/accept-invite?token=${inviteToken}` : "/dashboard");
     } catch {
       // US-369: a single generic message for ALL sign-in failures so the error
@@ -29,6 +37,10 @@ export function LoginPage() {
       toast.error(
         "We couldn't sign you in. Check your email and password — and if you just signed up, confirm your email first.",
       );
+      // US-368: the Turnstile token was consumed by the failed attempt — reset
+      // for the retry.
+      setCaptchaToken(null);
+      setCaptchaReset((n) => n + 1);
     } finally {
       setIsLoading(false);
     }
@@ -79,6 +91,11 @@ export function LoginPage() {
               required
             />
           </div>
+          <TurnstileWidget
+            onVerify={setCaptchaToken}
+            onExpire={() => setCaptchaToken(null)}
+            resetSignal={captchaReset}
+          />
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Signing in..." : "Sign in"}
           </Button>

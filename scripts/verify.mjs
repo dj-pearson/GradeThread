@@ -77,6 +77,13 @@ if (on("db")) {
   if (!dockerUp()) {
     skipped.push("db: Docker daemon is not running — start Docker Desktop, then `npm run verify:db`.");
   } else {
+    // config.toml interpolates the Google OAuth creds + Turnstile captcha secret
+    // via env(); the CLI rejects an enabled provider/captcha with empty values.
+    // Mirror db-migrations.yml's dummies so the local db lane works out of the box
+    // (migrations only — neither handshake is exercised). Don't clobber real values.
+    process.env.SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID ??= "ci-dummy-client-id.apps.googleusercontent.com";
+    process.env.SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET ??= "ci-dummy-secret";
+    process.env.SUPABASE_AUTH_CAPTCHA_SECRET ??= "1x0000000000000000000000000000000AA";
     run("db: supabase db start (apply migrations)", "supabase db start");
     run("db: supabase db reset --no-seed (re-apply from zero)", "supabase db reset --no-seed");
   }

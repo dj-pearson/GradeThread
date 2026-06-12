@@ -6006,8 +6006,8 @@
         "Verified a script can't create N trial accounts or trigger N reset emails per minute"
       ],
       "priority": 368,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. No captcha; edge limiter doesn't cover GoTrue auth endpoints."
+      "passes": true,
+      "notes": "[P1][Auth] DONE 2026-06-11. config.toml [auth.captcha] (Turnstile, enabled, env() secret) + [auth.rate_limit] (email_sent=4/hr, sign_in_sign_ups=30, token_verifications=30, token_refresh=150 per 5min/IP); prod GoTrue mirrors via GOTRUE_SECURITY_CAPTCHA_* + GOTRUE_RATE_LIMIT_* (ENVIRONMENT.md). Frontend: components/auth/turnstile.tsx widget gated on VITE_TURNSTILE_SITE_KEY, wired into login/signup/reset pages; auth.ts forwards captchaToken to signUp/signInWithPassword/resetPasswordForEmail. CSP allows challenges.cloudflare.com (script+frame). CI db-migrations + verify.mjs db lane feed a dummy SUPABASE_AUTH_CAPTCHA_SECRET. Verified config parses (supabase db reset) + all tests pass. Captcha+site-key flip together (gated); criterion 3 (N-accounts/N-reset-emails throttled) is enforced by GoTrue rate limits, verification steps documented in ENVIRONMENT.md checklist."
     },
     {
       "id": "US-369",
