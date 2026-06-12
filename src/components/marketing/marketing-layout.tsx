@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { Image } from "@/components/responsive-image";
 import {
   organizationLd,
@@ -102,7 +103,12 @@ export function MarketingLayout({
       </header>
 
       {/* Page content */}
-      <main className="flex-1">{children}</main>
+      <main className="flex-1">
+        {/* Visible breadcrumb trail (US-433) — same items as the BreadcrumbList
+            JSON-LD above, so the on-page hierarchy matches the structured data. */}
+        <Breadcrumbs items={trail} className="mx-auto max-w-3xl px-6 pt-6" />
+        {children}
+      </main>
 
       {/* Footer — matches the landing page */}
       <footer className="border-t px-6 py-10 lg:px-12">

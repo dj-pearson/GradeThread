@@ -9,11 +9,13 @@
 // rule in public/_redirects only matches paths NOT served by Functions.
 
 import {
+  breadcrumbListLd,
   escape,
   fetchJson,
   formatDate,
   ga4MeasurementId,
   notFoundResponse,
+  renderBreadcrumbs,
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
@@ -97,13 +99,20 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
     )
     .join("");
 
-  const bodyHtml = `<main class="container container--wide">
+  const breadcrumbItems = [
+    { name: "GradeThread", url: `${siteUrl(env)}/` },
+    { name: "Blog", url: canonical },
+  ];
+
+  const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, siteUrl(env), { wide: true })}
+  <main class="container container--wide">
   <h1>The GradeThread Blog</h1>
   <p style="color:var(--muted);margin-bottom:32px">Condition grading for resellers, FlipDesk workflows, and how to make pre-owned clothing sell faster.</p>
   ${posts.length === 0 ? "<p>No posts yet.</p>" : cards}
 </main>`;
 
   const jsonLd = [
+    breadcrumbListLd(breadcrumbItems),
     {
       "@context": "https://schema.org",
       "@type": "Blog",
@@ -196,7 +205,15 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
   // Add responsive srcset + lazy loading to in-body content images (US-306).
   const articleHtml = rewriteContentImages(bodyWithAnchors, resizeImages);
 
-  const bodyHtml = `<main class="container">
+  // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
+  const breadcrumbItems = [
+    { name: "GradeThread", url: `${siteUrl(env)}/` },
+    { name: "Blog", url: `${siteUrl(env)}/blog` },
+    { name: post.title, url: canonical },
+  ];
+
+  const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, siteUrl(env))}
+  <main class="container">
   ${heroHtml}
   <h1>${escape(post.title)}</h1>
   <div class="post-meta">
@@ -234,16 +251,9 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
         .join(", ") || undefined,
   };
 
-  // Breadcrumb: GradeThread › Blog › <post> (US-299).
-  const breadcrumbLd = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "GradeThread", item: `${siteUrl(env)}/` },
-      { "@type": "ListItem", position: 2, name: "Blog", item: `${siteUrl(env)}/blog` },
-      { "@type": "ListItem", position: 3, name: post.title, item: canonical },
-    ],
-  };
+  // Breadcrumb: GradeThread › Blog › <post> (US-299) — same trail as the
+  // visible <nav> above so the structured data and on-page links match (US-433).
+  const breadcrumbLd = breadcrumbListLd(breadcrumbItems);
 
   // FAQPage node (US-304) — emitted in addition to the Article so AI answer
   // engines can extract the Q&A even though Google dropped FAQ rich results.
@@ -352,7 +362,14 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
     )
     .join("");
 
-  const bodyHtml = `<main class="container container--wide">
+  const breadcrumbItems = [
+    { name: "GradeThread", url: `${siteUrl(env)}/` },
+    { name: "Blog", url: `${siteUrl(env)}/blog` },
+    { name: `Tag: ${tag}`, url: canonical },
+  ];
+
+  const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, siteUrl(env), { wide: true })}
+  <main class="container container--wide">
   <h1>Tag: ${escape(tag)}</h1>
   ${posts.length === 0 ? `<p>No posts tagged <code>${escape(tag)}</code>.</p>` : cards}
 </main>`;
@@ -365,6 +382,7 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
       ogImage: `${siteUrl(env)}/logo_icon_512.png`,
       gaMeasurementId: ga4MeasurementId(env),
       twitterSite: twitterSiteHandle(env),
+      jsonLd: [breadcrumbListLd(breadcrumbItems)],
       bodyHtml,
     }),
     {

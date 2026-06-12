@@ -20,6 +20,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SEO } from "@/components/seo";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
@@ -432,6 +433,13 @@ export function CertificatePage() {
   const heroImage = images.find((i) => i.image_type === "front") ?? images[0];
   const heroImageUrl = heroImage ? imageUrls[heroImage.id] : undefined;
 
+  // US-433: one trail powers both the visible breadcrumb and the BreadcrumbList
+  // JSON-LD, mirroring the cert SSR Pages Function (functions/cert/[id].ts).
+  const breadcrumbTrail = [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Grade Certificate", url: `${SITE_URL}/cert/${id ?? ""}` },
+  ];
+
   return (
     <div className="min-h-screen bg-background">
       <SEO
@@ -450,13 +458,7 @@ export function CertificatePage() {
             images: heroImageUrl ? [heroImageUrl] : undefined,
             datePublished: gradeReport.created_at,
           }),
-          breadcrumbLd([
-            { name: "GradeThread", url: `${SITE_URL}/` },
-            {
-              name: "Grade Certificate",
-              url: `${SITE_URL}/cert/${id ?? ""}`,
-            },
-          ]),
+          breadcrumbLd(breadcrumbTrail),
         ]}
       />
       {/* Header with branding (hidden when printing — replaced by a clean
@@ -490,6 +492,9 @@ export function CertificatePage() {
 
       {/* Main content */}
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
+        {/* US-433: visible breadcrumb matching the BreadcrumbList JSON-LD.
+            Hidden on print to keep the certificate PDF clean. */}
+        <Breadcrumbs items={breadcrumbTrail} className="print:hidden" />
         {/* Share / save actions (US-767) — interactive, so dropped on print. */}
         <div className="flex justify-end print:hidden">
           <CertShareActions

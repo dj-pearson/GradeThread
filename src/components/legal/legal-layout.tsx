@@ -2,6 +2,7 @@ import { Link, NavLink } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SEO } from "@/components/seo";
+import { Breadcrumbs } from "@/components/breadcrumbs";
 import { breadcrumbLd, organizationLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
 
@@ -31,19 +32,18 @@ export function LegalLayout({
   effectiveDate,
   children,
 }: LegalLayoutProps) {
+  // Shared trail powers both the visible breadcrumb (US-433) and the JSON-LD.
+  const trail = [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: title, url: `${SITE_URL}${canonicalPath}` },
+  ];
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <SEO
         title={title}
         description={description}
         canonicalUrl={`${SITE_URL}${canonicalPath}`}
-        jsonLd={[
-          organizationLd(),
-          breadcrumbLd([
-            { name: "GradeThread", url: `${SITE_URL}/` },
-            { name: title, url: `${SITE_URL}${canonicalPath}` },
-          ]),
-        ]}
+        jsonLd={[organizationLd(), breadcrumbLd(trail)]}
       />
 
       {/* Header */}
@@ -101,6 +101,7 @@ export function LegalLayout({
 
           {/* Content */}
           <article>
+            <Breadcrumbs items={trail} className="mb-6" />
             <header className="mb-8 border-b pb-6">
               <h1 className="text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl">
                 {title}

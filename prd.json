@@ -6831,8 +6831,8 @@
         "Pillar<->spoke and related internal links present in rendered HTML, with URLs matching canonical paths"
       ],
       "priority": 433,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. breadcrumbLd emitted but no visible breadcrumb UI."
+      "passes": true,
+      "notes": "[P3][SEO] Audit 2026-06-03. breadcrumbLd emitted but no visible breadcrumb UI. DONE 2026-06-12: Added shared visible <Breadcrumbs> (src/components/breadcrumbs.tsx) rendering the SAME {name,url} trail passed to breadcrumbLd, wired into MarketingLayout (marketing+glossary), LegalLayout, and the cert SPA page; removed glossary page duplicate nav. SSR side: breadcrumbListLd()+renderBreadcrumbs() helpers in functions/_shared/blog-render.ts (one trail builds both visible nav + JSON-LD) wired into cert, verified, and blog (post/index/tag). Visible trail names/URLs verified == BreadcrumbList JSON-LD in prerendered dist HTML. Pillar<->spoke + related internal links already present (condition-grading<->glossary, related posts/terms). Guard test src/components/breadcrumbs.test.tsx (8 cases)."
     },
     {
       "id": "US-434",

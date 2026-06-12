@@ -11,9 +11,11 @@
 // which only ever returns verified_enabled profiles + certified reports (US-268).
 
 import {
+  breadcrumbListLd,
   escape,
   fetchJson,
   notFoundResponse,
+  renderBreadcrumbs,
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
@@ -209,7 +211,15 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     .sf-graded { color:#15803d; font-weight:600; }
   `;
 
-  const bodyHtml = `<main class="container">
+  // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
+  const breadcrumbItems = [
+    { name: "GradeThread", url: `${base}/` },
+    { name: "Verified Sellers", url: `${base}/for-resellers` },
+    { name: seller.display_name, url: canonical },
+  ];
+
+  const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
+  <main class="container">
   <style>${extraStyles}</style>
   <div class="vt-hero">
     <span class="vt-badge">✓ GradeThread Verified Seller</span>
@@ -253,15 +263,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     },
   };
 
-  const breadcrumbLd = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "GradeThread", item: `${base}/` },
-      { "@type": "ListItem", position: 2, name: "Verified Sellers", item: `${base}/for-resellers` },
-      { "@type": "ListItem", position: 3, name: seller.display_name, item: canonical },
-    ],
-  };
+  const breadcrumbLd = breadcrumbListLd(breadcrumbItems);
 
   // ItemList of the storefront listings — real data only (name + URL); no
   // fabricated ratings or offers, so it's policy-compliant.

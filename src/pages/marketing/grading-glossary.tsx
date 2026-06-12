@@ -36,14 +36,9 @@ export function GradingGlossaryPage({ slug: slugProp }: { slug?: string }) {
       {/* Answer-first lead */}
       <section className="px-6 py-16 lg:py-20">
         <div className="mx-auto max-w-3xl">
-          <nav className="text-sm text-muted-foreground" aria-label="Breadcrumb">
-            <Link to="/condition-grading" className="hover:text-foreground">
-              Condition grading
-            </Link>
-            <span className="mx-2">/</span>
-            <span className="text-foreground">{entry.term}</span>
-          </nav>
-          <h1 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
+          {/* US-433: the 3-level breadcrumb (GradeThread → Condition grading →
+              term) now renders once in MarketingLayout, matching the JSON-LD. */}
+          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
             {entry.h1}
           </h1>
           <p className="mt-3 inline-block rounded-full bg-brand-navy px-3 py-1 text-sm font-medium text-white">

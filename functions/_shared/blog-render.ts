@@ -211,6 +211,12 @@ const BASE_STYLES = `
   th { background: #f9fafb; font-weight: 600; }
   hr { border: 0; border-top: 1px solid #e5e7eb; margin: 32px 0; }
   iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 8px; }
+  .breadcrumbs { max-width: 720px; margin: 0 auto; padding: 20px 20px 0; font-size: 0.85rem; color: var(--muted); }
+  .breadcrumbs a { color: var(--muted); text-decoration: none; }
+  .breadcrumbs a:hover { color: var(--fg); text-decoration: underline; }
+  .breadcrumbs .bc-sep { margin: 0 8px; }
+  .breadcrumbs [aria-current="page"] { color: var(--fg); font-weight: 600; }
+  .breadcrumbs--wide { max-width: 1080px; }
   .post-meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
   .post-meta .sep { margin: 0 8px; }
   .hero { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; margin-bottom: 24px; }
@@ -303,6 +309,64 @@ ${input.bodyHtml}
 </footer>
 </body>
 </html>`;
+}
+
+// ─── Breadcrumbs (US-433) ─────────────────────────────────────────────────
+// Single source of truth for the SSR pages' breadcrumb trail: the SAME items
+// feed both the visible <nav> and the BreadcrumbList JSON-LD, so the on-page
+// hierarchy can't drift from the structured data. Pure (no CF globals) so
+// they're unit-testable from Vitest.
+export interface BreadcrumbItem {
+  name: string;
+  /** Absolute, e.g. https://gradethread.com/blog — matches the JSON-LD `item`. */
+  url: string;
+}
+
+/** BreadcrumbList JSON-LD from a {name,url} trail. */
+export function breadcrumbListLd(
+  items: ReadonlyArray<BreadcrumbItem>,
+): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: items.map((it, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: it.name,
+      item: it.url,
+    })),
+  };
+}
+
+/**
+ * Visible breadcrumb <nav> whose links + labels match breadcrumbListLd(items).
+ * Absolute SITE_URL links are emitted as root-relative paths (same-origin
+ * navigation). The last item is the current page (aria-current, not a link).
+ * Returns "" for a single-item trail (nothing to show).
+ */
+export function renderBreadcrumbs(
+  items: ReadonlyArray<BreadcrumbItem>,
+  siteBase: string,
+  opts?: { wide?: boolean },
+): string {
+  if (items.length < 2) return "";
+  const parts = items
+    .map((it, i) => {
+      const isLast = i === items.length - 1;
+      const rel = it.url.startsWith(siteBase)
+        ? it.url.slice(siteBase.length) || "/"
+        : it.url;
+      const sep =
+        i > 0 ? `<span class="bc-sep" aria-hidden="true">&rsaquo;</span>` : "";
+      const node = isLast
+        ? `<span aria-current="page">${escape(it.name)}</span>`
+        : `<a href="${escape(rel)}">${escape(it.name)}</a>`;
+      return `${sep}${node}`;
+    })
+    .join("");
+  // Wide variant aligns with .container--wide pages (blog index/tag).
+  const cls = opts?.wide ? "breadcrumbs breadcrumbs--wide" : "breadcrumbs";
+  return `<nav class="${cls}" aria-label="Breadcrumb">${parts}</nav>`;
 }
 
 export function notFoundResponse(env: PagesEnv): Response {

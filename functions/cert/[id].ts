@@ -11,10 +11,12 @@
 // report 404s there and therefore here too (US-268).
 
 import {
+  breadcrumbListLd,
   certificateProductLd,
   escape,
   fetchJson,
   notFoundResponse,
+  renderBreadcrumbs,
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
@@ -115,7 +117,14 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       ? `<h2>About this item</h2>${aboutRows ? `<table><tbody>${aboutRows}</tbody></table>` : ""}${cert.description ? `<p>${escape(cert.description)}</p>` : ""}`
       : "";
 
-  const bodyHtml = `<main class="container">
+  // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
+  const breadcrumbItems = [
+    { name: "GradeThread", url: `${base}/` },
+    { name: "Grade Certificate", url: canonical },
+  ];
+
+  const bodyHtml = `${renderBreadcrumbs(breadcrumbItems, base)}
+  <main class="container">
   <p style="color:var(--muted);margin-bottom:8px">Verified Grade Certificate</p>
   <h1>${escape(cert.title)}${cert.brand ? ` <span style="color:var(--muted)">— ${escape(cert.brand)}</span>` : ""}</h1>
   <div style="display:flex;align-items:center;gap:16px;margin:16px 0 24px">
@@ -153,14 +162,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     siteUrl: base,
   });
 
-  const breadcrumbLd = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "GradeThread", item: `${base}/` },
-      { "@type": "ListItem", position: 2, name: "Grade Certificate", item: canonical },
-    ],
-  };
+  const breadcrumbLd = breadcrumbListLd(breadcrumbItems);
 
   return new Response(
     renderLayout({
