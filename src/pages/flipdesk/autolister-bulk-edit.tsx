@@ -24,6 +24,16 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { useEbayCategorySuggest } from "@/hooks/use-ebay";
 import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
+import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
+import {
+  aiAspect,
+  aiPriceInput,
+  conditionLabel,
+  formatAiPrice,
+  priceChanged,
+  textChanged,
+  type ListingAiSnapshot,
+} from "@/lib/listing-ai-diff";
 
 // AutoLister bulk spreadsheet editor (US-320). Edit a whole generated batch in
 // a grid — inline title/price/condition/quantity/best-offer — with bulk-apply
@@ -42,6 +52,7 @@ interface DraftRow {
   scheduled_publish_at: string | null;
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
+  ai_generated_snapshot: ListingAiSnapshot | null;
 }
 
 interface EditRow {
@@ -68,6 +79,9 @@ interface EditRow {
   size: string;
   color: string;
   specifics: Record<string, string[]>;
+  // US-551: the AI's original draft, snapshotted at generation. Drives the
+  // per-field diff chips + revert-to-AI. Null for manually-created drafts.
+  ai: ListingAiSnapshot | null;
   // Server-side validation blockers (US-320) — populated by "Validate" actions.
   validationBlockers: string[] | null;
   dirty: boolean;
@@ -90,7 +104,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override",
+          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -184,6 +198,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           size: Size?.[0] ?? "",
           color: Color?.[0] ?? "",
           specifics: rest,
+          ai: r.ai_generated_snapshot ?? null,
           validationBlockers: null,
           dirty: false,
         };
@@ -743,6 +758,18 @@ export function FlipdeskAutolisterBulkEditPage() {
                     >
                       {r.title.length}/{TITLE_MAX}
                     </span>
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={textChanged(r.ai.title, r.title)}
+                        aiDisplay={r.ai.title ?? ""}
+                        onRevert={() =>
+                          patchRow(r.id, {
+                            title: (r.ai?.title ?? "").slice(0, TITLE_MAX),
+                          })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <Input
@@ -754,6 +781,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                       placeholder="0.00"
                     />
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={priceChanged(r.ai.price_cents, r.price)}
+                        aiDisplay={formatAiPrice(r.ai.price_cents)}
+                        onRevert={() =>
+                          patchRow(r.id, { price: aiPriceInput(r.ai?.price_cents) })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <select
@@ -768,6 +805,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                         </option>
                       ))}
                     </select>
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={textChanged(r.ai.ebay_condition, r.condition)}
+                        aiDisplay={conditionLabel(r.ai.ebay_condition)}
+                        onRevert={() =>
+                          patchRow(r.id, { condition: r.ai?.ebay_condition ?? "" })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <CategorySearchControl
@@ -795,6 +842,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                         </option>
                       ))}
                     </select>
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={textChanged(aiAspect(r.ai, "Department"), r.department)}
+                        aiDisplay={aiAspect(r.ai, "Department")}
+                        onRevert={() =>
+                          patchRow(r.id, { department: aiAspect(r.ai, "Department") })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <Input
@@ -803,6 +860,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                       placeholder={itemAttrs[r.itemId]?.brand || "—"}
                     />
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={textChanged(aiAspect(r.ai, "Brand"), r.brand)}
+                        aiDisplay={aiAspect(r.ai, "Brand")}
+                        onRevert={() =>
+                          patchRow(r.id, { brand: aiAspect(r.ai, "Brand") })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <Input
@@ -811,6 +878,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                       placeholder={itemAttrs[r.itemId]?.size || "—"}
                     />
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={textChanged(aiAspect(r.ai, "Size"), r.size)}
+                        aiDisplay={aiAspect(r.ai, "Size")}
+                        onRevert={() =>
+                          patchRow(r.id, { size: aiAspect(r.ai, "Size") })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <Input
@@ -819,6 +896,16 @@ export function FlipdeskAutolisterBulkEditPage() {
                       className="h-8"
                       placeholder={itemAttrs[r.itemId]?.color || "—"}
                     />
+                    {r.ai && (
+                      <AiDiffChip
+                        changed={textChanged(aiAspect(r.ai, "Color"), r.color)}
+                        aiDisplay={aiAspect(r.ai, "Color")}
+                        onRevert={() =>
+                          patchRow(r.id, { color: aiAspect(r.ai, "Color") })
+                        }
+                        className="mt-1"
+                      />
+                    )}
                   </td>
                   <td className="p-2">
                     <Input

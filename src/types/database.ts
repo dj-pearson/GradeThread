@@ -771,8 +771,24 @@ export interface ListingRow {
   click_through_rate: number | null;
   last_metrics_synced_at: string | null;
   view_trend_7d: Array<{ date: string; views: number }>;
+  // US-547/US-551: snapshot of the AI's generated fields at draft time. Stays
+  // immutable as the seller edits the live columns, so the composer + bulk grid
+  // can diff edited-vs-AI and offer a per-field revert-to-AI. Null for listings
+  // that were never AI-generated (manual drafts).
+  ai_generated_snapshot: ListingAiSnapshot | null;
   created_at: string;
   updated_at: string;
+}
+
+// US-551: shape of listings.ai_generated_snapshot (written in ai-listing.ts).
+export interface ListingAiSnapshot {
+  title?: string | null;
+  description?: string | null;
+  price_cents?: number | null;
+  ebay_condition?: string | null;
+  condition_description?: string | null;
+  category_id?: string | null;
+  item_specifics?: Record<string, string[]> | null;
 }
 
 export interface SaleRow {

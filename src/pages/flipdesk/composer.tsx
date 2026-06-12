@@ -66,6 +66,14 @@ import {
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
+import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
+import {
+  aiPriceInput,
+  conditionLabel,
+  formatAiPrice,
+  priceChanged,
+  textChanged,
+} from "@/lib/listing-ai-diff";
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ListingKit } from "@/components/flipdesk/listing-kit";
@@ -284,6 +292,10 @@ export function FlipdeskComposerPage() {
         !!r.value && r.value.trim() !== "",
     );
   }, [item]);
+
+  // US-551: the AI's original draft, snapshotted at generation. Drives the
+  // per-field diff chips + revert-to-AI. Null for manually-created drafts.
+  const aiSnapshot = listing?.ai_generated_snapshot ?? null;
 
   function applyTemplate() {
     if (!item) return;
@@ -613,6 +625,13 @@ export function FlipdeskComposerPage() {
                   {titleLen}/{TITLE_MAX}
                 </span>
               </div>
+              {aiSnapshot && (
+                <AiDiffChip
+                  changed={textChanged(aiSnapshot.title, title)}
+                  aiDisplay={aiSnapshot.title ?? ""}
+                  onRevert={() => setTitle((aiSnapshot.title ?? "").slice(0, TITLE_MAX))}
+                />
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
@@ -691,6 +710,13 @@ export function FlipdeskComposerPage() {
                     </option>
                   ))}
                 </select>
+                {aiSnapshot && (
+                  <AiDiffChip
+                    changed={textChanged(aiSnapshot.ebay_condition, ebayCondition)}
+                    aiDisplay={conditionLabel(aiSnapshot.ebay_condition)}
+                    onRevert={() => setEbayCondition(aiSnapshot.ebay_condition ?? "")}
+                  />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="condition-desc">Condition description</Label>
@@ -701,6 +727,18 @@ export function FlipdeskComposerPage() {
                   rows={3}
                   placeholder="Honest, buyer-facing condition notes — call out any flaws."
                 />
+                {aiSnapshot && (
+                  <AiDiffChip
+                    changed={textChanged(
+                      aiSnapshot.condition_description,
+                      conditionDesc,
+                    )}
+                    aiDisplay={aiSnapshot.condition_description ?? ""}
+                    onRevert={() =>
+                      setConditionDesc(aiSnapshot.condition_description ?? "")
+                    }
+                  />
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="listing-price">Price (USD)</Label>
@@ -726,6 +764,17 @@ export function FlipdeskComposerPage() {
                         ? "Asking-price comp — may run high"
                         : "AI estimate — verify"}
                     </Badge>
+                  )}
+                  {aiSnapshot && (
+                    <AiDiffChip
+                      changed={priceChanged(aiSnapshot.price_cents, price)}
+                      aiDisplay={formatAiPrice(aiSnapshot.price_cents)}
+                      onRevert={() => {
+                        setPrice(aiPriceInput(aiSnapshot.price_cents));
+                        setPriceEstimated(true);
+                        setPriceCompSource(null);
+                      }}
+                    />
                   )}
                 </div>
                 {priceEstimated && (
@@ -964,7 +1013,7 @@ export function FlipdeskComposerPage() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-2">
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -972,6 +1021,13 @@ export function FlipdeskComposerPage() {
                 placeholder="Apply the template above, or write your own."
                 className="font-mono text-xs"
               />
+              {aiSnapshot?.description && (
+                <AiDiffChip
+                  changed={textChanged(aiSnapshot.description, description)}
+                  aiDisplay="AI draft"
+                  onRevert={() => setDescription(aiSnapshot.description ?? "")}
+                />
+              )}
             </CardContent>
           </Card>
         </div>

@@ -1077,3 +1077,10 @@ Branch: ralph/gradethread-build
 - Notes: Implemented on the persistent AutoLister drafts cockpit (a real <Table> with find), not the virtualized generation queue. window keydown handler: j/k + ArrowUp/Down move the active row; e expands an inline editor (title + price); Enter = Save & next (supabase listings update, react-query cache patched in place so the list doesn't reorder mid-review, then advance + reopen editor on next row — stays in cockpit, never the item canvas); x toggles per-row multi-select; p publishes the selection via useBulkPublish pre-flight; / focuses find. Active row visibly highlighted (outline+bg, aria-selected, scroll-into-view), keyboard cheatsheet chip-bar, new checkbox column + Pencil button as mouse equivalents. Typing in inputs respected; Esc cancels editor / blurs search. tsc/eslint/build clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-551: Show AI-vs-edited diff with revert-to-AI
+- Status: COMPLETE
+- Files changed: src/types/database.ts, src/lib/listing-ai-diff.ts (+ .test.ts), src/components/flipdesk/ai-diff-chip.tsx, src/pages/flipdesk/composer.tsx, src/pages/flipdesk/autolister-bulk-edit.tsx, prd.json
+- Notes: The AI original was ALREADY snapshotted by US-547 in listings.ai_generated_snapshot (jsonb: title/description/price_cents/ebay_condition/condition_description/category_id/item_specifics) — so AC1 needed no migration. Typed it as ListingAiSnapshot on ListingRow. Built listing-ai-diff.ts helpers (textChanged/priceChanged/formatAiPrice/conditionLabel/aiAspect) + a reusable AiDiffChip (renders only when changed; whole chip is the revert-to-AI button, keyboard-accessible). Wired chips into the composer (title, eBay condition, condition description, price, description) and the bulk grid (title, price, condition, department, brand, size, color) — strikethrough on the AI value with per-field revert. Reverting the price re-flags it as an AI estimate. tsc/build/lint/vitest all green.
+- Timestamp: 2026-06-12
+---

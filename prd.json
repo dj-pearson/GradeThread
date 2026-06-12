@@ -8336,8 +8336,8 @@
         "Works in both the composer and the bulk grid"
       ],
       "priority": 551,
-      "passes": false,
-      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Once a field is edited the AI's original is lost; no undo/revert."
+      "passes": true,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Once a field is edited the AI's original is lost; no undo/revert. DONE 2026-06-12: AI original already snapshotted in listings.ai_generated_snapshot (US-547) — no migration needed. Added src/lib/listing-ai-diff.ts (+test), reusable AiDiffChip, and per-field diff chips + revert-to-AI in composer (title/condition/condition-desc/price/description) and bulk grid (title/price/condition/department/brand/size/color)."
     },
     {
       "id": "US-552",
