@@ -147,6 +147,31 @@ export function useListingCopy() {
   });
 }
 
+// US-552: one-click inline rewrites of the composer's title/description. The
+// server returns an AiExtractResponse-shaped payload so the result flows
+// straight into AiFillPanel (accept-all, confidence, acceptance logging).
+export type RewriteAction =
+  | "title_seo"
+  | "title_shorten"
+  | "title_keywords"
+  | "description_tighten"
+  | "description_regen";
+
+export interface RewriteInput {
+  item_id: string;
+  action: RewriteAction;
+  title?: string;
+  description?: string;
+}
+
+export function useAiRewrite() {
+  return useMutation<AiExtractResponse, ApiError, RewriteInput>({
+    mutationFn: (input) =>
+      postJson<AiExtractResponse>("/api/flipdesk/ai/rewrite", input),
+    onError: aiErrorToast,
+  });
+}
+
 export interface BulkExtractResult {
   item_id: string;
   status: "enriched" | "needs_review" | "failed";

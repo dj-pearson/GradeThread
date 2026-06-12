@@ -811,3 +811,194 @@ export async function generateListingCopy(
     tokensOut: response.usage.output_tokens,
   };
 }
+
+// ─── Inline AI rewrite (US-552) ─────────────────────────────────────
+//
+// One-shot rewrites of an already-drafted title or description, driven by a
+// fixed menu of reseller actions. Unlike generateListingCopy these operate on
+// the seller's current text (punch it up, shorten, add keywords, tighten),
+// except the photo regenerate which re-derives the description from scratch.
+
+export const REWRITE_ACTIONS = [
+  "title_seo",
+  "title_shorten",
+  "title_keywords",
+  "description_tighten",
+  "description_regen",
+] as const;
+
+export type RewriteAction = (typeof REWRITE_ACTIONS)[number];
+
+export function isRewriteAction(v: unknown): v is RewriteAction {
+  return (
+    typeof v === "string" &&
+    (REWRITE_ACTIONS as readonly string[]).includes(v)
+  );
+}
+
+// Which form field each action rewrites.
+export function rewriteField(action: RewriteAction): "title" | "description" {
+  return action.startsWith("title_") ? "title" : "description";
+}
+
+// Only the photo-regenerate action needs to look at the images; the rest
+// transform existing text, so they route to the cheap lightweight model.
+function rewriteUsesPhotos(action: RewriteAction): boolean {
+  return action === "description_regen";
+}
+
+const TITLE_CHAR_LIMIT = 80;
+
+const REWRITE_INSTRUCTIONS: Record<RewriteAction, string> = {
+  title_seo:
+    `Rewrite this eBay listing TITLE to maximize search visibility. Front-load the highest-value search keywords (brand, item type, then key attributes like size/color/material), drop filler words, and keep it readable. Use ONLY facts supported by the title and known attributes — never invent attributes. The result MUST be ${TITLE_CHAR_LIMIT} characters or fewer.`,
+  title_shorten:
+    `Shorten this eBay listing TITLE to ${TITLE_CHAR_LIMIT} characters or fewer while preserving the most important search keywords (brand, item type, size). Drop the least valuable words first. The result MUST be ${TITLE_CHAR_LIMIT} characters or fewer.`,
+  title_keywords:
+    `Rewrite this eBay listing TITLE to add high-value buyer search keywords drawn from the known attributes (e.g. style, fit, era, colorway, material) that buyers actually search. Do NOT invent attributes the item does not have. The result MUST be ${TITLE_CHAR_LIMIT} characters or fewer.`,
+  description_tighten:
+    `Tighten and polish this listing DESCRIPTION: cut redundancy, improve flow and readability, and keep every factual claim and the honest condition statement intact. Do NOT add attributes the item does not have and do NOT upgrade any condition claim.`,
+  description_regen:
+    `Write a fresh buyer-facing listing DESCRIPTION from the photos and known attributes: a short opening line, the key attributes (brand, item type, size, color, material), then an HONEST condition statement. Use ONLY what the photos and attributes support — never invent attributes or upgrade condition (over-promising condition causes returns).`,
+};
+
+export interface RewriteInput {
+  action: RewriteAction;
+  title?: string;
+  description?: string;
+  attributes?: Record<string, unknown>;
+  conditionNotes?: string;
+  photos?: ExtractPhoto[];
+}
+
+export interface RewriteResult {
+  field: "title" | "description";
+  value: string;
+  confidence: number;
+  model: string;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+const REWRITE_SYSTEM_PROMPT =
+  `You are a resale listing copywriter for FlipDesk. You revise a single field of
+an existing eBay listing on request, returning ONLY the rewritten field.
+
+Rules:
+- Follow the requested action exactly.
+- CONDITION HONESTY IS CRITICAL: never invent attributes and never upgrade or
+  soften a condition claim — over-promising condition causes returns.
+- Only use facts present in the supplied text, attributes, or photos.
+- For TITLE rewrites the result must be 80 characters or fewer.
+- Return a calibrated 0..1 confidence for your rewrite.`;
+
+const REWRITE_TOOL: Anthropic.Tool = {
+  name: "rewrite_listing_field",
+  description: "Return the single rewritten listing field.",
+  input_schema: {
+    type: "object",
+    properties: {
+      value: { type: "string", description: "The rewritten field text" },
+      confidence: {
+        type: "number",
+        description: "0..1 calibrated confidence in the rewrite",
+      },
+    },
+    required: ["value"],
+  },
+};
+
+/**
+ * Rewrites a listing title or description per a fixed reseller action. Routes
+ * to Sonnet only for the photo-driven regenerate; all text transforms use the
+ * cheap lightweight model. Throws on transport/parse errors so the caller can
+ * return a 502 without charging a log row.
+ */
+export async function rewriteListingCopy(
+  input: RewriteInput
+): Promise<RewriteResult> {
+  const field = rewriteField(input.action);
+  const photos = rewriteUsesPhotos(input.action) ? input.photos ?? [] : [];
+  const hasPhotos = photos.length > 0;
+  const model = hasPhotos ? getSonnetModel() : getHaikuModel();
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+
+  const content: Anthropic.ContentBlockParam[] = [];
+  photos.forEach((photo, i) => {
+    content.push({
+      type: "text",
+      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
+    });
+    content.push({ type: "image", source: { type: "url", url: photo.url } });
+  });
+
+  const lines: string[] = [`ACTION:\n${REWRITE_INSTRUCTIONS[input.action]}`];
+  if (input.title && input.title.trim()) {
+    lines.push(`CURRENT TITLE:\n${input.title.trim()}`);
+  }
+  if (input.description && input.description.trim()) {
+    lines.push(`CURRENT DESCRIPTION:\n${input.description.trim()}`);
+  }
+  if (input.attributes && Object.keys(input.attributes).length > 0) {
+    lines.push(
+      `KNOWN ATTRIBUTES (do not contradict):\n` +
+        JSON.stringify(input.attributes, null, 2)
+    );
+  }
+  if (input.conditionNotes && input.conditionNotes.trim()) {
+    lines.push(`CONDITION NOTES:\n${input.conditionNotes.trim()}`);
+  }
+  lines.push(
+    `Call rewrite_listing_field with the rewritten ${field.toUpperCase()} only.`
+  );
+  content.push({ type: "text", text: lines.join("\n\n") });
+
+  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
+    ? {
+        type: "text",
+        text: REWRITE_SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      }
+    : { type: "text", text: REWRITE_SYSTEM_PROMPT };
+
+  const response = await client.messages.create({
+    model,
+    max_tokens: 1024,
+    ...(temperature !== undefined ? { temperature } : {}),
+    system: [systemBlock],
+    tools: [REWRITE_TOOL],
+    tool_choice: { type: "tool", name: "rewrite_listing_field" },
+    messages: [{ role: "user", content }],
+  });
+
+  const toolUse = response.content.find((b) => b.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("AI did not return a rewritten field");
+  }
+  const raw = toolUse.input as { value?: unknown; confidence?: unknown };
+  let value = typeof raw.value === "string" ? raw.value.trim() : "";
+  if (!value) {
+    throw new Error("AI returned an empty rewrite");
+  }
+  // Defensive title cap — the prompt asks for <=80 but the user-facing
+  // composer hard-limits at 80, so never hand back something longer.
+  if (field === "title" && value.length > TITLE_CHAR_LIMIT) {
+    value = value.slice(0, TITLE_CHAR_LIMIT).trimEnd();
+  }
+  let confidence = Number(raw.confidence);
+  if (Number.isNaN(confidence)) confidence = 0.8;
+  confidence = Math.max(0, Math.min(1, confidence));
+
+  return {
+    field,
+    value,
+    confidence,
+    model,
+    tokensIn:
+      response.usage.input_tokens +
+      (response.usage.cache_read_input_tokens ?? 0) +
+      (response.usage.cache_creation_input_tokens ?? 0),
+    tokensOut: response.usage.output_tokens,
+  };
+}

@@ -43,6 +43,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
 import {
@@ -67,6 +73,15 @@ import {
 } from "@/lib/ebay-prefill";
 import { EbayCategoryPicker } from "@/components/flipdesk/ebay-category-picker";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
+import {
+  AiFillPanel,
+  type AcceptedField,
+} from "@/components/flipdesk/ai-fill-panel";
+import {
+  useAiRewrite,
+  type AiExtractResponse,
+  type RewriteAction,
+} from "@/hooks/use-ai-extract";
 import {
   aiPriceInput,
   conditionLabel,
@@ -114,6 +129,14 @@ export function FlipdeskComposerPage() {
     string | null
   >(null);
   const [publishOpen, setPublishOpen] = useState(false);
+  // US-552: inline AI rewrite — the in-flight action (for the spinner) and the
+  // result fed into AiFillPanel for review/accept.
+  const [rewriteAction, setRewriteAction] = useState<RewriteAction | null>(null);
+  const [rewriteResult, setRewriteResult] = useState<AiExtractResponse | null>(
+    null,
+  );
+  const [rewritePanelOpen, setRewritePanelOpen] = useState(false);
+  const aiRewrite = useAiRewrite();
   // US-149: multi-marketplace "Push to" picks + per-platform price overrides
   // (string-typed like the main price input; blank = use the main price).
   const [pushPlatforms, setPushPlatforms] = useState<Set<CrossListingPlatform>>(
@@ -306,6 +329,40 @@ export function FlipdeskComposerPage() {
   function appendKeyword(kw: string) {
     const next = title.trim() ? `${title.trim()} ${kw}` : kw;
     setTitle(next.slice(0, TITLE_MAX));
+  }
+
+  // US-552: kick off a one-click AI rewrite of the title or description. The
+  // result reuses AiFillPanel so the seller reviews, accepts, and the
+  // acceptance is logged — nothing is applied silently.
+  async function runRewrite(action: RewriteAction) {
+    if (!item) return;
+    setRewriteAction(action);
+    try {
+      const res = await aiRewrite.mutateAsync({
+        item_id: item.id,
+        action,
+        title,
+        description,
+      });
+      setRewriteResult(res);
+      setRewritePanelOpen(true);
+    } catch {
+      /* error toast handled by the hook */
+    } finally {
+      setRewriteAction(null);
+    }
+  }
+
+  // Apply whatever the seller accepted in AiFillPanel back into the form. Edits
+  // remain fully overridable — this just seeds the field with the AI's text.
+  function applyRewrite(accepted: AcceptedField[]) {
+    for (const f of accepted) {
+      if (f.field === "title") setTitle(f.value.slice(0, TITLE_MAX));
+      else if (f.field === "description") setDescription(f.value);
+    }
+    if (accepted.length > 0) {
+      toast.success("AI rewrite applied. Save the draft to keep it.");
+    }
   }
 
   async function persistOrder(next: ItemPhotoRow[]) {
@@ -641,6 +698,38 @@ export function FlipdeskComposerPage() {
                   <Wand2 className="mr-2 h-3 w-3" />
                   Suggest title
                 </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!title.trim() || aiRewrite.isPending}
+                    >
+                      {aiRewrite.isPending &&
+                      rewriteAction?.startsWith("title_") ? (
+                        <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="mr-2 h-3 w-3" />
+                      )}
+                      AI rewrite
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuItem onClick={() => void runRewrite("title_seo")}>
+                      Punch up for SEO
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void runRewrite("title_shorten")}
+                    >
+                      Shorten to 80
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void runRewrite("title_keywords")}
+                    >
+                      Add buyer keywords
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 {keywords.map((kw) => (
                   <button
                     key={kw}
@@ -1007,10 +1096,43 @@ export function FlipdeskComposerPage() {
                     template, then edit freely.
                   </CardDescription>
                 </div>
-                <Button variant="outline" size="sm" onClick={applyTemplate}>
-                  <Wand2 className="mr-2 h-3 w-3" />
-                  Apply template
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={applyTemplate}>
+                    <Wand2 className="mr-2 h-3 w-3" />
+                    Apply template
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={aiRewrite.isPending}
+                      >
+                        {aiRewrite.isPending &&
+                        rewriteAction?.startsWith("description_") ? (
+                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                        ) : (
+                          <Sparkles className="mr-2 h-3 w-3" />
+                        )}
+                        AI rewrite
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        disabled={!description.trim()}
+                        onClick={() => void runRewrite("description_tighten")}
+                      >
+                        Tighten &amp; polish
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={order.length === 0}
+                        onClick={() => void runRewrite("description_regen")}
+                      >
+                        Regenerate from photos
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -1202,6 +1324,17 @@ export function FlipdeskComposerPage() {
         open={publishOpen}
         onOpenChange={setPublishOpen}
         itemId={item.id}
+      />
+
+      {/* US-552: review/accept the AI rewrite — reuses the extract panel so
+          accept-all, confidence tiers, and acceptance logging all carry over. */}
+      <AiFillPanel
+        open={rewritePanelOpen}
+        onOpenChange={setRewritePanelOpen}
+        result={rewriteResult}
+        currentValues={{ title, description }}
+        fieldLabels={{ title: "Title", description: "Description" }}
+        onApply={applyRewrite}
       />
     </div>
   );

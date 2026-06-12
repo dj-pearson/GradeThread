@@ -8349,8 +8349,8 @@
         "Edits remain user-overridable"
       ],
       "priority": 552,
-      "passes": false,
-      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Title/description are deterministic templates; AiFillPanel exists but isn't wired into the composer."
+      "passes": true,
+      "notes": "[P2][AutoLister/UX] Deep-dive 2026-06-03. Title/description are deterministic templates; AiFillPanel exists but isn't wired into the composer. IMPLEMENTED 2026-06-12: added rewriteListingCopy() in ai-extract.ts + POST /api/flipdesk/ai/rewrite (returns AiExtractResponse shape, ownership-scoped, atomic action reserve, logs to ai_enrichment_log). useAiRewrite() hook. Composer wires AI-rewrite dropdowns on the title (SEO/shorten-to-80/add buyer keywords) and description (tighten / regenerate-from-photos) cards; result flows into AiFillPanel so accept-all/confidence/acceptance-logging are reused; edits stay user-overridable."
     },
     {
       "id": "US-553",

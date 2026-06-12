@@ -5,6 +5,9 @@ import {
   extractEbayAspects,
   extractItemFields,
   generateListingCopy,
+  isRewriteAction,
+  rewriteField,
+  rewriteListingCopy,
   type AspectValueSuggestion,
   type EbayAspectSpec,
   type ExtractionResult,
@@ -922,6 +925,148 @@ flipdeskAiRoutes.post("/listing-copy", async (c) => {
     model: result.model,
     log_id: logRow?.id ?? null,
     actions_remaining: actionsRemaining,
+  });
+});
+
+/**
+ * POST /rewrite
+ * Body: { item_id, action, title?, description? }. Rewrites a single listing
+ * field (title or description) per a fixed reseller action — SEO punch-up,
+ * shorten-to-80, add buyer keywords, tighten, or regenerate-from-photos
+ * (US-552). Returns the suggestion in the same shape as /extract so the
+ * composer can reuse AiFillPanel (accept-all, confidence, acceptance logging).
+ */
+flipdeskAiRoutes.post("/rewrite", async (c) => {
+  // Re-bind userId to the active workspace owner. For solo users this is
+  // identical to the caller's id; for a member acting in someone else's
+  // workspace, all reads/writes/quota lookups must target the owner.
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    item_id?: unknown;
+    action?: unknown;
+    title?: unknown;
+    description?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : null;
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+  if (!isRewriteAction(body.action)) {
+    return c.json({ error: "Unknown rewrite action" }, 400);
+  }
+  const action = body.action;
+  const field = rewriteField(action);
+  const title = typeof body.title === "string" ? body.title : "";
+  const description =
+    typeof body.description === "string" ? body.description : "";
+
+  // The text actions need their source field to actually contain text; the
+  // photo regenerate is the only one that can run on an empty description.
+  if (field === "title" && !title.trim()) {
+    return c.json({ error: "Add a title before rewriting it." }, 400);
+  }
+  if (action === "description_tighten" && !description.trim()) {
+    return c.json(
+      { error: "Add a description before tightening it." },
+      400
+    );
+  }
+
+  const quota = await checkQuota(userId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // Tenant-scoped ownership check before touching anything billable.
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, user_id, title, brand, style, size, color, material, item_category, condition_notes"
+    )
+    .eq("id", itemId)
+    .single();
+  if (!item || item.user_id !== userId) {
+    return c.json({ error: "Item not found" }, 404);
+  }
+
+  const photos =
+    action === "description_regen" ? await loadItemPhotos(itemId) : [];
+
+  // US-387: reserve the action atomically before spending it.
+  if (!(await reserveAiAction(userId, quota.limit))) {
+    return c.json(QUOTA_EXHAUSTED_429, 429);
+  }
+
+  const start = Date.now();
+  let result;
+  try {
+    result = await rewriteListingCopy({
+      action,
+      title,
+      description,
+      attributes: {
+        title: item.title,
+        brand: item.brand,
+        style: item.style,
+        size: item.size,
+        color: item.color,
+        material: item.material,
+        item_category: item.item_category,
+      },
+      conditionNotes: item.condition_notes ?? undefined,
+      photos,
+    });
+  } catch (err) {
+    await refundAiAction(userId);
+    console.error(
+      "[flipdesk-ai] rewrite failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return c.json(
+      { error: "AI rewrite is temporarily unavailable." },
+      502
+    );
+  }
+  const latencyMs = Date.now() - start;
+  const costUsd = estimateCost(result.model, result.tokensIn, result.tokensOut);
+
+  const { data: logRow } = await supabaseAdmin
+    .from("ai_enrichment_log")
+    .insert({
+      user_id: userId,
+      inventory_item_id: itemId,
+      model: result.model,
+      input_kind: photos.length > 0 ? "both" : "text",
+      tokens_in: result.tokensIn,
+      tokens_out: result.tokensOut,
+      cost_usd: costUsd,
+      latency_ms: latencyMs,
+      suggested_fields: { [result.field]: result.value },
+    })
+    .select("id")
+    .single();
+  // Action already reserved atomically above (US-387).
+
+  const actionsRemaining =
+    quota.limit === -1 ? -1 : Math.max(0, quota.limit - quota.used - 1);
+  // Shape matches AiExtractResponse so the web composer can drop the result
+  // straight into AiFillPanel (US-552).
+  return c.json({
+    suggestions: {
+      [result.field]: {
+        value: result.value,
+        confidence: result.confidence,
+        source: `ai:${action}`,
+      },
+    },
+    condition_summary: null,
+    conflicts: [],
+    measurements: null,
+    model: result.model,
+    log_id: logRow?.id ?? null,
+    actions_remaining: actionsRemaining,
+    ebay: null,
   });
 });
 
