@@ -9,6 +9,8 @@
 //
 // Pure module (no I/O) — unit-testable, used by the on-demand scan + the cron.
 
+import { engagementSuggestsMarkdown } from "./performance-signals.ts";
+
 export type ReasonCode =
   | "UNDERPRICED"
   | "OVERPRICED"
@@ -32,6 +34,11 @@ export interface RepriceInput {
   listingAgeDays: number;
   watchers: number;
   views: number;
+  // US-565: post-publish engagement signals from getTrafficReport. Optional so
+  // pre-analytics callers/tests keep working; when present they let a markdown
+  // fire for a watched-but-unsold listing even before the 30-day age gate.
+  impressions?: number;
+  clickThroughRate?: number | null;
 }
 
 export interface RepriceSuggestion {
@@ -114,7 +121,7 @@ function confidenceFromCount(count: number): number {
 }
 
 export function computeSuggestion(input: RepriceInput): RepriceSuggestion {
-  const { currentPriceCents, gradeValue, stats, listingAgeDays, watchers } = input;
+  const { currentPriceCents, gradeValue, stats, listingAgeDays, watchers, views } = input;
   const compMedianCents = stats.median != null ? dollarsToCents(stats.median) : null;
 
   if (stats.count < MIN_COMPS || compMedianCents == null) {
@@ -150,22 +157,39 @@ export function computeSuggestion(input: RepriceInput): RepriceSuggestion {
     };
   }
 
-  // Stale: been up a while with little interest → markdown nudge. Checked
-  // before OVERPRICED so a long-stale-but-only-slightly-high listing still
-  // reads as "drop to move it".
-  if (listingAgeDays >= STALE_AGE_DAYS && watchers <= STALE_MAX_WATCHERS) {
+  // Stale: drop-to-move nudge, from EITHER signal —
+  //   (a) age-stale: up a while with no watchers, or
+  //   (b) engagement-stale (US-565): being watched but not converting, which the
+  //       performance feedback loop surfaces well before the 30-day age gate.
+  // Checked before OVERPRICED so a long-stale-but-only-slightly-high listing
+  // still reads as "drop to move it".
+  const ageStale = listingAgeDays >= STALE_AGE_DAYS && watchers <= STALE_MAX_WATCHERS;
+  const engagementStale = engagementSuggestsMarkdown({
+    impressions: input.impressions ?? 0,
+    views,
+    watchers,
+    clickThroughRate: input.clickThroughRate ?? null,
+    listingAgeDays,
+    hasBestOffer: false,
+  });
+  if (ageStale || engagementStale) {
     const dropTarget = Math.min(
       positioned,
       Math.round(currentPriceCents * (1 - STALE_DROP)),
     );
     if (dropTarget < currentPriceCents) {
+      const dropPct = Math.round(STALE_DROP * 100);
+      // Tailor the copy to whichever signal fired so the nudge reads honestly.
+      const message = engagementStale && watchers > STALE_MAX_WATCHERS
+        ? `${watchers} watchers but no sale yet. Drop ~${dropPct}% to ${fmt(dropTarget)} to convert the interest.`
+        : `Listed ${listingAgeDays} days with little interest. Drop ~${dropPct}% to ${fmt(dropTarget)} to move it.`;
       return {
         suggestedPriceCents: dropTarget,
         compMedianCents,
         compCount: stats.count,
         deltaPct: (dropTarget - currentPriceCents) / currentPriceCents,
         reasonCode: "STALE",
-        message: `Listed ${listingAgeDays} days with little interest. Drop ~${Math.round(STALE_DROP * 100)}% to ${fmt(dropTarget)} to move it.`,
+        message,
         confidence: Math.min(confidence, 0.6),
       };
     }

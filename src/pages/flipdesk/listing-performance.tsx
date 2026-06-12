@@ -9,6 +9,7 @@ import {
   Eye,
   ExternalLink,
   Info,
+  Lightbulb,
   RefreshCw,
 } from "lucide-react";
 import {
@@ -32,6 +33,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEbayConnection } from "@/hooks/use-ebay";
+import { usePerformanceSuggestions } from "@/hooks/use-repricing";
 import { cn } from "@/lib/utils";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -93,6 +95,7 @@ function relativeTime(iso: string | null | undefined): string {
 export function FlipdeskListingPerformancePage() {
   const user = useAuthStore((s) => s.user);
   const { data: connection } = useEbayConnection();
+  const { data: suggestions = [] } = usePerformanceSuggestions();
 
   const [sortKey, setSortKey] = useState<SortKey>("views_total");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -242,6 +245,45 @@ export function FlipdeskListingPerformancePage() {
             <Button asChild size="sm" variant="outline">
               <Link to="/dashboard/flipdesk/marketplaces">Reconnect eBay</Link>
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {suggestions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-brand-red-text" />
+              Suggestions
+              <Badge variant="outline">{suggestions.length}</Badge>
+            </CardTitle>
+            <CardDescription>
+              Performance-driven nudges from views, watchers and click-through.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {suggestions.map((s) => (
+              <div
+                key={s.listing_id}
+                className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm"
+              >
+                <Badge
+                  variant={s.suggests_price_drop ? "destructive" : "secondary"}
+                  className="shrink-0"
+                >
+                  {s.title_text}
+                </Badge>
+                <Link
+                  to={`/dashboard/flipdesk/items/${s.inventory_item_id}`}
+                  className="font-medium hover:underline"
+                >
+                  {s.title}
+                </Link>
+                <span className="w-full text-muted-foreground sm:w-auto sm:flex-1">
+                  {s.message}
+                </span>
+              </div>
+            ))}
           </CardContent>
         </Card>
       )}

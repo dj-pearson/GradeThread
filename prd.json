@@ -8516,8 +8516,8 @@
         "Feed signals into the repricing engine"
       ],
       "priority": 565,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Sync pulls price/status/fees but no impressions/watchers feedback for owned listings."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Sync pulls price/status/fees but no impressions/watchers feedback for owned listings. [DONE 2026-06-12] Added listing_metrics time-series table (mig 00159) upserted daily by the getTrafficReport sync; pure performance-signals.ts (LOW_CTR/WATCHED_NO_SALE/NO_TRAFFIC) surfaced via GET /api/flipdesk/pricing/performance + the Listing Performance page Suggestions card; engagementSuggestsMarkdown feeds the repricing engine so watched-but-unsold listings earn a STALE drop before the 30-day age gate. Tests in performance-signals_test.ts."
     },
     {
       "id": "US-566",

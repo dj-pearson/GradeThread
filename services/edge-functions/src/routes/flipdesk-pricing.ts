@@ -15,6 +15,10 @@ import {
   gradeToConditionId,
   type ReasonCode,
 } from "../lib/repricing.ts";
+import {
+  evaluatePerformance,
+  type PerformanceSignalCode,
+} from "../lib/performance-signals.ts";
 import { valueAtGrade } from "../lib/condition-value.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
@@ -51,6 +55,9 @@ interface ListingJoinRow {
   listed_at: string;
   watchers: number;
   views: number;
+  watchers_count: number;
+  impressions_7d: number;
+  click_through_rate: number | null;
   platform_offer_id: string | null;
   platform_category_id: string | null;
   inventory_items: {
@@ -94,7 +101,7 @@ async function scanListings(
   let q = supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, listing_price, listed_at, watchers, views, platform_offer_id, platform_category_id, " +
+      "id, inventory_item_id, listing_price, listed_at, watchers, views, watchers_count, impressions_7d, click_through_rate, platform_offer_id, platform_category_id, " +
         "inventory_items!inner(user_id, ebay_category_id, grade_value, brand, size, title)",
     )
     .eq("platform", "ebay")
@@ -133,8 +140,14 @@ async function scanListings(
         gradeValue: item.grade_value,
         stats: comps.stats,
         listingAgeDays: daysSince(listing.listed_at),
-        watchers: listing.watchers ?? 0,
+        // watchers_count is the fresh analytics watcher total (US-151);
+        // listing.watchers is the legacy listings-pull value — prefer the former.
+        watchers: listing.watchers_count ?? listing.watchers ?? 0,
         views: listing.views ?? 0,
+        // US-565: feed engagement signals so a watched-but-unsold listing earns
+        // a markdown nudge even before the 30-day age gate.
+        impressions: listing.impressions_7d ?? 0,
+        clickThroughRate: listing.click_through_rate ?? null,
       });
 
       if (ACTIONABLE.includes(suggestion.reasonCode)) {
@@ -253,6 +266,72 @@ flipdeskPricingRoutes.get("/suggestions", async (c) => {
     .limit(200);
   if (error) return failSafe(c, 500, "Couldn't load repricing suggestions.", error, "repricing.list");
   return c.json({ suggestions: data ?? [] });
+});
+
+// ── GET /performance ──────────────────────────────────────────────
+// US-565: post-publish performance feedback loop. Reads the engagement snapshot
+// the getTrafficReport sync writes per active eBay listing and returns one
+// actionable suggestion per listing that needs attention ("low CTR → fix
+// title/photo", "watched but unsold → drop price / enable Best Offer", "no
+// traffic → promote"). Tenant-scoped via inventory_items.user_id (US-268).
+interface PerfRow {
+  id: string;
+  inventory_item_id: string;
+  listing_title: string | null;
+  listing_url: string | null;
+  listed_at: string;
+  views_total: number;
+  watchers_count: number;
+  impressions_7d: number;
+  click_through_rate: number | null;
+  best_offer_enabled: boolean;
+  inventory_items: { user_id: string; title: string | null };
+}
+
+flipdeskPricingRoutes.get("/performance", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, listing_title, listing_url, listed_at, views_total, watchers_count, impressions_7d, click_through_rate, best_offer_enabled, " +
+        "inventory_items!inner(user_id, title)",
+    )
+    .eq("platform", "ebay")
+    .eq("listing_status", "active")
+    .eq("inventory_items.user_id", ownerId)
+    .limit(1000);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load listing performance.", error, "performance.list");
+  }
+
+  const rows = (data ?? []) as unknown as PerfRow[];
+  const suggestions = rows
+    .map((r) => {
+      const suggestion = evaluatePerformance({
+        impressions: r.impressions_7d ?? 0,
+        views: r.views_total ?? 0,
+        watchers: r.watchers_count ?? 0,
+        clickThroughRate: r.click_through_rate,
+        listingAgeDays: daysSince(r.listed_at),
+        hasBestOffer: r.best_offer_enabled === true,
+      });
+      return { row: r, suggestion };
+    })
+    .filter((x) => x.suggestion.code !== "HEALTHY")
+    .map(({ row, suggestion }) => ({
+      listing_id: row.id,
+      inventory_item_id: row.inventory_item_id,
+      title: row.listing_title || row.inventory_items?.title || "Untitled item",
+      listing_url: row.listing_url,
+      code: suggestion.code as PerformanceSignalCode,
+      title_text: suggestion.title,
+      message: suggestion.message,
+      suggests_price_drop: suggestion.suggestsPriceDrop,
+      suggests_best_offer: suggestion.suggestsBestOffer,
+      suggests_content_fix: suggestion.suggestsContentFix,
+    }));
+
+  return c.json({ suggestions });
 });
 
 // ── POST /suggestions/:id/apply ───────────────────────────────────

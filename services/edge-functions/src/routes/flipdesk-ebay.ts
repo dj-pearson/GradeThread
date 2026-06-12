@@ -488,6 +488,18 @@ async function syncListingPerformanceForUser(
   const nowIso = new Date().toISOString();
   let updated = 0;
 
+  // US-565: per-day time-series rows behind the listings snapshot columns. One
+  // row per (listing, today); upsert so a re-run within the day overwrites.
+  const metricRows: Array<{
+    listing_id: string;
+    user_id: string;
+    metric_date: string;
+    impressions: number;
+    views: number;
+    watchers: number;
+    click_through_rate: number | null;
+  }> = [];
+
   for (const row of rows) {
     const metrics = row.platform_listing_id
       ? byListingId.get(row.platform_listing_id)
@@ -512,6 +524,16 @@ async function syncListingPerformanceForUser(
       patch.impressions_7d = metrics.impressions;
       patch.click_through_rate = metrics.clickThroughRate;
       patch.view_trend_7d = trend.slice(-7);
+
+      metricRows.push({
+        listing_id: row.id,
+        user_id: userId,
+        metric_date: today,
+        impressions: metrics.impressions,
+        views: metrics.views,
+        watchers: row.watchers ?? 0,
+        click_through_rate: metrics.clickThroughRate,
+      });
     }
 
     const { error } = await supabaseAdmin
@@ -519,6 +541,20 @@ async function syncListingPerformanceForUser(
       .update(patch)
       .eq("id", row.id);
     if (!error) updated += 1;
+  }
+
+  // Persist the day's time-series rows in one upsert (US-565). Best-effort: a
+  // metrics-history write must never fail the snapshot sync above.
+  if (metricRows.length > 0) {
+    const { error: metricsErr } = await supabaseAdmin
+      .from("listing_metrics")
+      .upsert(metricRows, { onConflict: "listing_id,metric_date" });
+    if (metricsErr) {
+      console.error(
+        "[flipdesk-ebay] listing_metrics upsert failed:",
+        metricsErr.message,
+      );
+    }
   }
 
   return { updated, accessDenied: false };

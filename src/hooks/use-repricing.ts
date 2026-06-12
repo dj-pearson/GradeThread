@@ -32,6 +32,39 @@ export interface RepriceSuggestion {
   } | null;
 }
 
+// US-565: post-publish performance feedback loop. One actionable suggestion per
+// active listing that needs attention, derived from the engagement snapshot.
+export type PerformanceSignalCode =
+  | "NO_TRAFFIC"
+  | "LOW_CTR"
+  | "WATCHED_NO_SALE";
+
+export interface PerformanceSuggestion {
+  listing_id: string;
+  inventory_item_id: string;
+  title: string;
+  listing_url: string | null;
+  code: PerformanceSignalCode;
+  title_text: string;
+  message: string;
+  suggests_price_drop: boolean;
+  suggests_best_offer: boolean;
+  suggests_content_fix: boolean;
+}
+
+export function usePerformanceSuggestions() {
+  return useQuery({
+    queryKey: ["performance_suggestions"],
+    staleTime: 60_000,
+    queryFn: async (): Promise<PerformanceSuggestion[]> => {
+      const res = await edgeFetch("/api/flipdesk/pricing/performance");
+      if (!res.ok) throw new Error("Failed to load performance suggestions");
+      const data = (await res.json()) as { suggestions: PerformanceSuggestion[] };
+      return data.suggestions ?? [];
+    },
+  });
+}
+
 export function useRepricingSuggestions() {
   return useQuery({
     queryKey: ["repricing_suggestions"],
