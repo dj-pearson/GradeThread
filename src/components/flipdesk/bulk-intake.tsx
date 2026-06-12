@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { VirtualList } from "@/components/flipdesk/virtual-list";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
@@ -523,12 +524,15 @@ export function BulkIntake() {
               No items captured yet.
             </div>
           ) : (
-            <ul className="space-y-1.5">
-              {session.items.map((it, i) => (
-                <li
-                  key={it.id}
-                  className="flex items-center gap-3 rounded-md border p-2.5"
-                >
+            // US-416: virtualized so a large haul (1k+ items) stays smooth.
+            <VirtualList
+              items={session.items}
+              getKey={(it) => it.id}
+              estimateSize={60}
+              gap={6}
+              className="max-h-[60vh]"
+              renderItem={(it, i) => (
+                <div className="flex items-center gap-3 rounded-md border p-2.5">
                   <span className="w-6 flex-shrink-0 text-center font-mono text-xs text-muted-foreground">
                     {i + 1}
                   </span>
@@ -557,9 +561,9 @@ export function BulkIntake() {
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}
+            />
           )}
         </CardContent>
       </Card>

@@ -47,6 +47,7 @@ import {
 } from "@/hooks/use-autolister";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { ReconcilePanel } from "@/components/flipdesk/reconcile-panel";
+import { VirtualList } from "@/components/flipdesk/virtual-list";
 import type { PhotoQaIssue } from "@/types/database";
 import { cn } from "@/lib/utils";
 
@@ -687,26 +688,32 @@ export function FlipdeskAutolisterQueuePage() {
         </div>
       )}
 
-      {/* Per-item rows */}
-      <div className="space-y-2">
-        {!isRunning && visibleJobs.length === 0 && jobs.length > 0 && (
-          <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
-            No drafts match this filter.
-          </p>
-        )}
-        {visibleJobs.map((job) => {
-          const pub = bulkPublish.results[job.inventory_item_id];
-          // US-550: tier dot (only meaningful once a draft is generated).
-          const tier = job.status === "success" ? tierOf(job) : null;
-          const tierColor =
-            tier === "green"
-              ? "bg-emerald-500"
-              : tier === "amber"
-                ? "bg-amber-500"
-                : null;
-          const selectable = job.status === "success";
-          return (
-            <div key={job.id} className="space-y-1.5">
+      {/* Per-item rows — virtualized (US-416) so a 1k+ item batch stays smooth. */}
+      {!isRunning && visibleJobs.length === 0 && jobs.length > 0 && (
+        <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
+          No drafts match this filter.
+        </p>
+      )}
+      {visibleJobs.length > 0 && (
+        <VirtualList
+          items={visibleJobs}
+          getKey={(job) => job.id}
+          estimateSize={120}
+          gap={8}
+          className="max-h-[70vh] pr-1"
+          renderItem={(job) => {
+            const pub = bulkPublish.results[job.inventory_item_id];
+            // US-550: tier dot (only meaningful once a draft is generated).
+            const tier = job.status === "success" ? tierOf(job) : null;
+            const tierColor =
+              tier === "green"
+                ? "bg-emerald-500"
+                : tier === "amber"
+                  ? "bg-amber-500"
+                  : null;
+            const selectable = job.status === "success";
+            return (
+            <div className="space-y-1.5">
             <div
               className="flex items-center gap-3 rounded-md border px-3 py-2 text-sm"
             >
@@ -815,9 +822,10 @@ export function FlipdeskAutolisterQueuePage() {
               />
             )}
             </div>
-          );
-        })}
-      </div>
+            );
+          }}
+        />
+      )}
 
       <PublishConfirmDialog
         open={publishDialogOpen}

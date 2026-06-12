@@ -6617,8 +6617,8 @@
         "Keyboard nav and sticky headers preserved; smooth scroll at 1k+ rows"
       ],
       "priority": 416,
-      "passes": false,
-      "notes": "[P2][Performance/UX] Audit 2026-06-03 (2 agents). No virtualization anywhere."
+      "passes": true,
+      "notes": "[P2][Performance/UX] Done 2026-06-12. Added @tanstack/react-virtual + a reusable element-scoped VirtualList (src/components/flipdesk/virtual-list.tsx) with dynamic row measurement. Virtualized: autolister queue (per-item rows incl. ReconcilePanel), bulk-intake session list, and the bulk-edit editable grid via the padding-row technique with a sticky <thead> (sticky/bg on th). Each surface gets a bounded scroll container (max-h) since the dashboard <main> is the page scroller. Verified tsc/build/lint clean."
     },
     {
       "id": "US-417",

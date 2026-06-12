@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Loader2,
   Save,
@@ -357,6 +358,17 @@ export function FlipdeskAutolisterBulkEditPage() {
     return issues;
   }
 
+  // US-416: virtualize the grid body so a 1k+ row batch scrolls smoothly. The
+  // Card is the scroll container; rows mount only when near the viewport. Hooks
+  // must run before the early returns below, so this lives here.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 64,
+    overscan: 10,
+  });
+
   if (!batchId) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
@@ -387,6 +399,17 @@ export function FlipdeskAutolisterBulkEditPage() {
   }
 
   const allSelected = rows.length > 0 && selected.size === rows.length;
+
+  // Padding-row virtualization: spacer <tr>s above/below the rendered window
+  // keep the <table> layout (and the sticky <thead>) intact while only the
+  // on-screen rows mount.
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]!.start : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? totalSize - virtualRows[virtualRows.length - 1]!.end
+      : 0;
 
   return (
     <div className="space-y-4">
@@ -633,10 +656,14 @@ export function FlipdeskAutolisterBulkEditPage() {
         </div>
       </Card>
 
-      {/* Grid */}
-      <Card className="overflow-x-auto p-0">
+      {/* Grid — virtualized (US-416). The scroll container owns both axes so the
+          sticky header and bounded height drive the row virtualizer. */}
+      <div
+        ref={scrollRef}
+        className="max-h-[70vh] overflow-auto rounded-xl border bg-card shadow-sm"
+      >
         <table className="w-full text-sm">
-          <thead className="border-b bg-muted/40 text-left text-xs uppercase text-muted-foreground">
+          <thead className="border-b text-left text-xs uppercase text-muted-foreground [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-muted">
             <tr>
               <th className="w-8 p-2">
                 <input
@@ -665,10 +692,22 @@ export function FlipdeskAutolisterBulkEditPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => {
+            {paddingTop > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={13} style={{ height: paddingTop }} />
+              </tr>
+            )}
+            {virtualRows.map((vr) => {
+              const r = rows[vr.index];
+              if (!r) return null;
               const issues = rowIssues(r);
               return (
-                <tr key={r.id} className="border-b last:border-0 align-top">
+                <tr
+                  key={r.id}
+                  data-index={vr.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="border-b last:border-0 align-top"
+                >
                   <td className="p-2">
                     <input
                       type="checkbox"
@@ -816,6 +855,11 @@ export function FlipdeskAutolisterBulkEditPage() {
                 </tr>
               );
             })}
+            {paddingBottom > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={13} style={{ height: paddingBottom }} />
+              </tr>
+            )}
             {rows.length === 0 && (
               <tr>
                 <td colSpan={13} className="p-6 text-center text-sm text-muted-foreground">
@@ -825,7 +869,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             )}
           </tbody>
         </table>
-      </Card>
+      </div>
     </div>
   );
 }
