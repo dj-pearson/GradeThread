@@ -42,6 +42,12 @@ jobs:
         run: npm run test:coverage
       - name: Build
         run: npm run build
+      # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
+      # if the entry/eager gz size regresses past budget, or if a heavy primitive
+      # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides
+      # into the eager graph. Reads build-meta/bundle-modules.json from the build.
+      - name: Bundle-size budget + code-splitting guard
+        run: node scripts/check-bundle-budget.mjs
 
   e2e:
     name: E2E (Playwright)

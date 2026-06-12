@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import path from "path";
-import { writeFileSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
 import { PUBLIC_ROUTES, SITE_URL, lastModifiedFor } from "./src/lib/seo/public-routes";
 
 // Source-map upload only runs on builds that carry a Sentry auth token (CI).
@@ -15,6 +15,36 @@ const uploadSourcemaps = Boolean(sentryAuthToken);
 // Emits dist/seo-manifest.json from the indexable-route registry (US-291) so
 // the sitemap Pages Function and the deploy-time IndexNow submitter share a
 // build-stable source of truth for static public URLs.
+// US-417: emit a chunk → module-ids map (outside dist, so it isn't deployed)
+// for the bundle-size budget check (scripts/check-bundle-budget.mjs). It lets
+// the CI guard prove WHICH npm packages landed in the eager/landing chunks —
+// e.g. that radix Dialog/Select/Popover and TipTap stay code-split out of them —
+// without grepping minified output. Client build only; the prerender SSR pass
+// uses a dev server (serve mode) so this never fires there.
+function bundleModulesManifestPlugin(): Plugin {
+  return {
+    name: "bundle-modules-manifest",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const chunks: Record<string, { isEntry: boolean; imports: string[]; modules: string[] }> = {};
+      for (const [fileName, output] of Object.entries(bundle)) {
+        if (output.type !== "chunk") continue;
+        chunks[fileName] = {
+          isEntry: output.isEntry,
+          imports: output.imports,
+          modules: Object.keys(output.modules).map((m) => m.replace(/\\/g, "/")),
+        };
+      }
+      const outDir = path.resolve(__dirname, "build-meta");
+      mkdirSync(outDir, { recursive: true });
+      writeFileSync(
+        path.resolve(outDir, "bundle-modules.json"),
+        JSON.stringify(chunks, null, 2) + "\n",
+      );
+    },
+  };
+}
+
 function seoManifestPlugin(): Plugin {
   return {
     name: "seo-manifest",
@@ -42,6 +72,7 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    bundleModulesManifestPlugin(),
     seoManifestPlugin(),
     VitePWA({
       registerType: "autoUpdate",

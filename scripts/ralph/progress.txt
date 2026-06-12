@@ -667,3 +667,10 @@ Branch: ralph/gradethread-build
 - Notes: Added a reusable element-scoped VirtualList (absolute-positioned rows + dynamic measureElement) for the div/li lists (autolister queue rows + bulk-intake session). The bulk-edit editable grid is a <table>, so used the padding-row technique (spacer <tr>s above/below the rendered window) which keeps table semantics and a sticky <thead> intact — applied sticky+solid bg to the th cells. Dashboard <main> is the real page scroller, so each surface gets its own bounded scroll container (max-h-[70vh]/[60vh]) for the virtualizer to measure against; window virtualization wouldn't work here. Only visible rows mount, so the queue also stops mounting a ReconcilePanel (with its own query) per off-screen row. tsc --noEmit, npm run build, and eslint all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-417: Add a CI bundle-size budget + verify code-splitting
+- Status: COMPLETE
+- Files changed: vite.config.ts (+bundleModulesManifest plugin), scripts/check-bundle-budget.mjs (new), scripts/verify.mjs, .github/workflows/ci.yml, .gitignore, prd.json
+- Notes: Guard targets the EAGER chunk graph = entry chunk + transitive static imports (Vite modulepreloads). check-bundle-budget.mjs asserts gz budgets (entry <=48KB now 39.7, eager total <=215KB now 192.6/4 chunks) AND that radix Dialog/Select/Popover + @tiptap stay out of the eager graph, confirming TipTap is in a non-eager (blog-editor) chunk. radix react-slot/compose-refs allowed in entry (Button uses them on landing). Robust via a build-only Vite plugin emitting build-meta/bundle-modules.json (chunk->module ids + imports), gitignored; the prerender SSR pass is serve-mode so the plugin never fires there. Wired into ci.yml (after Build) and verify:web. Verified: tsc -b + build + lint clean; negative test (inject @tiptap into entry chunk) exits 1, restore exits 0.
+- Timestamp: 2026-06-12
+---

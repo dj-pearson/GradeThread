@@ -61,6 +61,7 @@ if (on("web")) {
   run("web: tsc -b", "npx tsc -b");
   run("web: vitest + coverage", "npm run test:coverage");
   run("web: production build (incl. prerender)", "npm run build");
+  run("web: bundle-size budget + code-splitting", "node scripts/check-bundle-budget.mjs");
   run("web: npm audit (high)", "npm audit --audit-level=high");
 }
 

@@ -6629,8 +6629,8 @@
         "Build report confirms radix Dialog/Select/Popover and TipTap stay out of eager/landing chunks; blog-editor TipTap deps are lazy"
       ],
       "priority": 417,
-      "passes": false,
-      "notes": "[P3][Performance] Audit 2026-06-03. manualChunks leaves radix/recharts to Rollup; no size guard."
+      "passes": true,
+      "notes": "[P3][Performance] DONE 2026-06-12. New scripts/check-bundle-budget.mjs gates the EAGER (landing/cold-load) chunk graph = entry chunk + transitive static imports (Vite emits a <modulepreload> per import). AC1: asserts gz budgets — entry chunk ≤ 48 KB (now 39.7) and full eager graph ≤ 215 KB (now 192.6 across 4 chunks: vendor-react/sentry/query + index). AC2: asserts radix Dialog/Select/Popover and @tiptap/* never appear in the eager graph (they stay in their own route/lazy chunks: select-*, popover-*, dialog index-*, dropdown-menu-*, blog-editor-*/composer-*), and confirms TipTap actually resolved to a non-eager chunk. radix react-slot/react-compose-refs ARE allowed in the entry (Button pulls those tiny helpers; renders on landing). Robust, not grep-of-minified: added a `bundleModulesManifest` Vite plugin (apply:'build', client build only — the prerender SSR pass runs in serve mode so it never fires) that emits build-meta/bundle-modules.json (chunk → module ids + static imports); build-meta/ is gitignored. Wired into ci.yml (after Build) and `npm run verify:web`. Verified: tsc -b + npm run build + lint clean; negative test (inject @tiptap into entry) exits 1; restore exits 0."
     },
     {
       "id": "US-418",

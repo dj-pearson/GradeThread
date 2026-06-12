@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
+# US-417: bundle-modules manifest emitted by the bundle-budget Vite plugin
+build-meta/
 
 # Environment variables — ignore every .env variant (incl. .env.development,
 # services/edge-functions/.env, etc.) but keep the tracked placeholder examples.
