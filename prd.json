@@ -7031,8 +7031,8 @@
         "Grid exposes role=grid/gridcell with row/column context; current cell coordinates announced or visibly emphasized"
       ],
       "priority": 449,
-      "passes": false,
-      "notes": "[P2][A11y] Audit 2026-06-03. grid.tsx cells are bare inputs with low-contrast navy focus ring, no grid roles."
+      "passes": true,
+      "notes": "[P2][A11y] Audit 2026-06-03. grid.tsx cells are bare inputs with low-contrast navy focus ring, no grid roles. [DONE 2026-06-12] Added role=grid/row/columnheader/gridcell/rowheader with aria-rowcount/colcount/rowindex/colindex; per-cell aria-label announces column+row coords; replaced low-contrast navy focus ring with a 2px brand-red inset ring + tint (≥3:1 in light & dark) lifted via focus:z-10."
     },
     {
       "id": "US-450",

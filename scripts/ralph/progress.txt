@@ -823,3 +823,10 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean, npm run build clean (tsc -b + vite + 28 prerendered routes), eslint clean on changed files, full vitest suite 495/495 pass (48 files).
 - Timestamp: 2026-06-12
 ---
+
+## US-449: Add grid semantics + visible focus to the editable inventory grid
+- Status: COMPLETE
+- Files changed: src/pages/flipdesk/grid.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Added ARIA grid roles to the spreadsheet table — role=grid (aria-rowcount/aria-colcount/aria-label), role=row (aria-rowindex, header=1, data rows offset by header + page start), role=columnheader (aria-colindex), role=rowheader for the # column, role=gridcell (aria-colindex) for editable cells. Each input gets aria-label="<Column>, row N" so SR announces current-cell coordinates. Replaced the low-contrast navy focus ring with a 2px brand-red inset ring (#E94560 ≥3:1 against both #F5F5F5 light and #1A1A2E dark surfaces per WCAG 1.4.11) plus a tint, lifted above row borders with focus:z-10. tsc/build/eslint clean.
+- Timestamp: 2026-06-12
+---

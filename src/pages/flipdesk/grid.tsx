@@ -488,15 +488,27 @@ export function FlipdeskGridPage() {
                   isPlaceholderData && "opacity-60",
                 )}
               >
-                <table className="w-full border-collapse text-xs">
+                <table
+                  className="w-full border-collapse text-xs"
+                  role="grid"
+                  aria-label="Editable inventory grid"
+                  aria-rowcount={total}
+                  aria-colcount={COLS.length + 1}
+                >
                   <thead>
-                    <tr className="border-b bg-muted/40">
-                      <th className="w-10 px-2 py-2 text-left font-medium text-muted-foreground">
+                    <tr className="border-b bg-muted/40" role="row" aria-rowindex={1}>
+                      <th
+                        role="columnheader"
+                        aria-colindex={1}
+                        className="w-10 px-2 py-2 text-left font-medium text-muted-foreground"
+                      >
                         #
                       </th>
-                      {COLS.map((col) => (
+                      {COLS.map((col, colIdx) => (
                         <th
                           key={col.key}
+                          role="columnheader"
+                          aria-colindex={colIdx + 2}
                           className={cn(
                             "px-2 py-2 text-left font-medium text-muted-foreground",
                             col.width,
@@ -508,42 +520,64 @@ export function FlipdeskGridPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pageRows.map((it, rowIdx) => (
-                      <tr key={it.id} className="border-b">
-                        <td className="px-2 py-0 text-[10px] text-muted-foreground">
-                          {pageStart + rowIdx + 1}
-                        </td>
-                        {COLS.map((col, colIdx) => {
-                          const dirty = isCellDirty(it.id, col.field);
-                          return (
-                            <td key={col.key} className="p-0">
-                              <input
-                                data-grid-row={rowIdx}
-                                data-grid-col={colIdx}
-                                value={cellValue(it, col)}
-                                onChange={(e) =>
-                                  stageCell(it, col, e.target.value)
-                                }
-                                onKeyDown={(e) =>
-                                  handleKeyDown(e, rowIdx, colIdx, it, col)
-                                }
-                                onPaste={(e) =>
-                                  handlePaste(e, rowIdx, colIdx)
-                                }
-                                onFocus={(e) => e.currentTarget.select()}
-                                inputMode={col.numeric ? "decimal" : "text"}
-                                className={cn(
-                                  "h-8 w-full border-0 bg-transparent px-2 outline-none focus:bg-brand-navy/10 focus:ring-1 focus:ring-inset focus:ring-brand-navy",
-                                  col.numeric && "text-right tabular-nums",
-                                  dirty &&
-                                    "bg-amber-100 dark:bg-amber-950/40",
-                                )}
-                              />
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                    {pageRows.map((it, rowIdx) => {
+                      const rowNumber = pageStart + rowIdx + 1;
+                      return (
+                        <tr
+                          key={it.id}
+                          className="border-b"
+                          role="row"
+                          aria-rowindex={pageStart + rowIdx + 2}
+                        >
+                          <td
+                            role="rowheader"
+                            aria-colindex={1}
+                            className="px-2 py-0 text-[10px] text-muted-foreground"
+                          >
+                            {rowNumber}
+                          </td>
+                          {COLS.map((col, colIdx) => {
+                            const dirty = isCellDirty(it.id, col.field);
+                            return (
+                              <td
+                                key={col.key}
+                                role="gridcell"
+                                aria-colindex={colIdx + 2}
+                                className="p-0"
+                              >
+                                <input
+                                  data-grid-row={rowIdx}
+                                  data-grid-col={colIdx}
+                                  aria-label={`${col.label}, row ${rowNumber}`}
+                                  value={cellValue(it, col)}
+                                  onChange={(e) =>
+                                    stageCell(it, col, e.target.value)
+                                  }
+                                  onKeyDown={(e) =>
+                                    handleKeyDown(e, rowIdx, colIdx, it, col)
+                                  }
+                                  onPaste={(e) =>
+                                    handlePaste(e, rowIdx, colIdx)
+                                  }
+                                  onFocus={(e) => e.currentTarget.select()}
+                                  inputMode={col.numeric ? "decimal" : "text"}
+                                  className={cn(
+                                    // AA-contrast active-cell indicator (US-449):
+                                    // a 2px brand-red inset ring (≥3:1 against the
+                                    // light gray AND dark night surfaces) plus a
+                                    // tint, lifted above the row borders with z-10.
+                                    "h-8 w-full border-0 bg-transparent px-2 outline-none focus:relative focus:z-10 focus:bg-brand-red/10 focus:ring-2 focus:ring-inset focus:ring-brand-red dark:focus:bg-brand-red/20",
+                                    col.numeric && "text-right tabular-nums",
+                                    dirty &&
+                                      "bg-amber-100 dark:bg-amber-950/40",
+                                  )}
+                                />
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
