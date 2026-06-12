@@ -59,6 +59,16 @@ function getSigningSecret(): string | null {
   return Deno.env.get("CONTENT_WEBHOOK_SIGNING_SECRET")?.trim() || null;
 }
 
+/**
+ * Sign a serialized webhook body with CONTENT_WEBHOOK_SIGNING_SECRET, or null
+ * when no secret is configured. Exported so the settings page's "Test
+ * webhook" fire carries the same X-Content-Signature a real publish does.
+ */
+export async function signContentBody(body: string): Promise<string | null> {
+  const secret = getSigningSecret();
+  return secret ? await hmacSha256Hex(secret, body) : null;
+}
+
 // HMAC-SHA256 hex signature. Uses Web Crypto so this works under Deno
 // without pulling Node's crypto.
 async function hmacSha256Hex(secret: string, body: string): Promise<string> {
@@ -159,8 +169,7 @@ export async function dispatchContentWebhook(
   }
 
   const body = JSON.stringify(payload);
-  const secret = getSigningSecret();
-  const signature = secret ? await hmacSha256Hex(secret, body) : null;
+  const signature = await signContentBody(body);
 
   let lastStatus: number | null = null;
   for (let i = 0; i < ATTEMPT_DELAYS_MS.length; i++) {

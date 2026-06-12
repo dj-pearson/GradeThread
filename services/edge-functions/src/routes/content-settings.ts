@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { dispatchContentWebhook } from "../lib/content-webhook.ts";
+import {
+  dispatchContentWebhook,
+  signContentBody,
+} from "../lib/content-webhook.ts";
 
 // Singleton settings table (id=1). The dashboard's Content Settings page
 // reads/writes here for webhook URLs, auto-publish toggles, cadence,
@@ -282,13 +285,55 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
     return c.json({ error: `No URL configured for ${body.target}` }, 400);
   }
 
-  const payload = {
-    event: body.target === "blog" ? "blog.published" : "social.published",
-    format: body.target === "social_short" ? "short" : body.target === "social_long" ? "long" : undefined,
-    timestamp: new Date().toISOString(),
-    test: true,
-    data: { id: "test-00000000-0000-0000-0000-000000000000", title: "Test webhook from GradeThread" },
-  };
+  // The test payload MUST mirror the real publish payload shape exactly
+  // (plus `test: true` as the discriminator). Make.com scenarios determine
+  // their webhook data structure from whatever fires first — a divergent
+  // test shape (the old one had only data.id/title, no data.body) leaves the
+  // content fields unmapped, so real publishes go out empty or with leftover
+  // test text. Downstream scenarios should filter on `test: true` so test
+  // fires never reach live channels.
+  const format =
+    body.target === "social_short"
+      ? ("short" as const)
+      : body.target === "social_long"
+        ? ("long" as const)
+        : undefined;
+  const timestamp = new Date().toISOString();
+  const testId = "test-00000000-0000-0000-0000-000000000000";
+  const payload =
+    body.target === "blog"
+      ? {
+          event: "blog.published" as const,
+          timestamp,
+          test: true,
+          data: {
+            id: testId,
+            url: "https://gradethread.com/blog/test-webhook-post",
+            title: "Test webhook from GradeThread",
+            excerpt:
+              "Sample excerpt — fired from Content Settings → Test webhook.",
+            hero_image_url: null,
+            primary_keyword: "test webhook",
+            tags: ["test"],
+            product_focus: "gradethread" as const,
+          },
+        }
+      : {
+          event: "social.published" as const,
+          format,
+          timestamp,
+          test: true,
+          data: {
+            id: testId,
+            body:
+              format === "short"
+                ? "Sample SHORT post body — test fire from GradeThread Content Settings. Filter on `test: true` so this never reaches live channels."
+                : "Sample LONG post body — test fire from GradeThread Content Settings.\n\nThis mirrors the exact field shape of a real social.published event (body, hashtags, cta_url, product_focus). Filter on `test: true` so this never reaches live channels.",
+            hashtags: ["#test"],
+            cta_url: "https://gradethread.com",
+            product_focus: "gradethread" as const,
+          },
+        };
 
   const startTime = Date.now();
   let httpStatus = 0;
@@ -296,10 +341,19 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
   let succeeded = false;
   let err: string | null = null;
   try {
+    const serialized = JSON.stringify(payload);
+    // Same headers a real dispatch sends, so a scenario that verifies the
+    // HMAC signature passes on test fires too.
+    const signature = await signContentBody(serialized);
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+        ...(signature ? { "X-Content-Signature": signature } : {}),
+        "X-Content-Event": payload.event,
+        ...(format ? { "X-Content-Format": format } : {}),
+      },
+      body: serialized,
       signal: AbortSignal.timeout(10_000),
     });
     httpStatus = res.status;
@@ -312,7 +366,7 @@ contentSettingsRoutes.post("/webhooks/test", async (c) => {
 
   await supabaseAdmin.from("content_webhook_log").insert({
     event: payload.event,
-    format: payload.format ?? null,
+    format: format ?? null,
     target_url: url,
     payload,
     attempt_no: 1,
