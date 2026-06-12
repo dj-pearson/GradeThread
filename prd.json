@@ -6481,8 +6481,8 @@
         "Benchmarked: 1,000 offers sync in seconds"
       ],
       "priority": 405,
-      "passes": false,
-      "notes": "[P0][Performance] Audit 2026-06-03. flipdesk-ebay.ts doListingsPull does thousands of sequential PostgREST round-trips."
+      "passes": true,
+      "notes": "[P0][Performance] Audit 2026-06-03. flipdesk-ebay.ts doListingsPull does thousands of sequential PostgREST round-trips. DONE: pre-load existing eBay listings into existingListingByItem map (one inner-join query) replacing the per-row SELECT in BOTH the modern offers loop and the legacy Trading-API loop. Writes accumulated in memory and flushed as a handful of bulk calls before the orders pass: a single listings.upsert(onConflict:id) over full uniform ListingWrite rows (client-generated UUIDs for new rows so a later pass updates the same row; all NOT NULL columns supplied so the upsert INSERT arm is valid for both new+existing); a single flipdesk_ebay_listings.upsert(onConflict:user_id,ebay_item_id) over a de-duped orphan map; and status flips collapsed to TWO .in('id',[...]) updates per run (notify set = modern offers, fires listing_live on the real transition via .select(); silent set = legacy). Catalog patches kept as per-row UPDATEs on purpose (inventory_items has NOT NULL cols like status the upsert INSERT arm would violate/clobber) but they're gated fill-if-blank so steady-state syncs issue ~0. Steady-state 1k-offer re-sync now ~5 round-trips total. Behavior preserved: US-148 source-of-truth pins, cross-source observations, US-465 orphan match_status preservation, US-737 notifications. deno check + lint + ebay/tenant tests green."
     },
     {
       "id": "US-406",

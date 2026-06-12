@@ -1011,6 +1011,164 @@ async function doListingsPull(
     }
   }
 
+  // ── US-405: batched-write accumulators ──────────────────────────────
+  // The offers + legacy passes below used to do a per-row SELECT, then an
+  // INSERT/UPDATE, then a status flip — thousands of sequential PostgREST
+  // round-trips on a large seller. Instead we pre-load existing listings into a
+  // map (like the SKU map), accumulate every write in memory, and flush them as
+  // a handful of bulk calls before the orders pass. This takes a 1,000-offer
+  // sync from minutes to seconds.
+  type ExistingListingRow = {
+    id: string;
+    inventory_item_id: string;
+    platform_listing_id: string | null;
+    platform_offer_id: string | null;
+    listing_url: string | null;
+    listing_price: number | null;
+    listing_status: string | null;
+    listing_title: string | null;
+    is_active: boolean | null;
+    quantity: number | null;
+    listed_at: string | null;
+    listing_description: string | null;
+    platform_category_id: string | null;
+    source_of_truth: Record<string, string> | null;
+  };
+  // Every column the offers/legacy passes may write to `listings`. Building a
+  // FULL row for every insert AND edit (seeded from the pre-loaded snapshot,
+  // then patched) keeps the upsert array uniform — and supplies all the
+  // NOT NULL columns — so a single .upsert() on the primary key handles new
+  // rows and updates in one round-trip.
+  type ListingWrite = {
+    id: string;
+    inventory_item_id: string;
+    platform: "ebay";
+    platform_listing_id: string | null;
+    platform_offer_id: string | null;
+    listing_url: string | null;
+    listing_price: number;
+    listing_status: string | null;
+    is_active: boolean;
+    quantity: number | null;
+    listed_at: string;
+    listing_description: string | null;
+    platform_category_id: string | null;
+    listing_title: string | null;
+  };
+  type OrphanWrite = {
+    user_id: string;
+    ebay_item_id: string;
+    custom_label: string | null;
+    title: string | null;
+    current_price: number | null;
+    available_quantity: number | null;
+    listing_url: string | null;
+    listing_format: string | null;
+    start_date: string | null;
+    raw: Record<string, unknown>;
+    imported_at: string;
+  };
+
+  // Inventory statuses a "now listed on eBay" flip is allowed to advance FROM
+  // (forward-only — never regress a sold/shipped item).
+  const PREP_STATUSES = [
+    "sourced",
+    "acquired",
+    "cataloged",
+    "measured",
+    "photographed",
+    "comped",
+    "drafted",
+  ];
+
+  // Pre-load this user's existing eBay listings (most-recent per item) so the
+  // loops below join in memory instead of a per-row SELECT. Tenant-scoped via
+  // the inner join on inventory_items.user_id (listings has no user_id — US-268).
+  const existingListingByItem = new Map<string, ExistingListingRow>();
+  {
+    const { data: rows } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "id, inventory_item_id, platform_listing_id, platform_offer_id, listing_url, listing_price, listing_status, listing_title, is_active, quantity, listed_at, listing_description, platform_category_id, source_of_truth, created_at, inventory_items!inner(user_id)",
+      )
+      .eq("platform", "ebay")
+      .eq("inventory_items.user_id", userId)
+      .order("created_at", { ascending: false });
+    for (const r of (rows ?? []) as unknown as ExistingListingRow[]) {
+      // created_at desc → the first row seen for an item is the most recent.
+      if (r.inventory_item_id && !existingListingByItem.has(r.inventory_item_id)) {
+        existingListingByItem.set(r.inventory_item_id, r);
+      }
+    }
+  }
+
+  // Accumulators flushed in one bulk call each after both listing passes.
+  const pendingListing = new Map<string, ListingWrite>();
+  const orphanByEbayId = new Map<string, OrphanWrite>();
+  // Items eBay reports as ACTIVE → flip to 'listed'. The notify set (modern
+  // offers) emits the "listing is live" notification on the real transition;
+  // the silent set (legacy listings) flips without notifying, matching the
+  // prior behavior where only the modern pass notified.
+  const listedNotifyItemIds = new Set<string>();
+  const listedSilentItemIds = new Set<string>();
+
+  // Seed (or fetch) the pending write row for an item — from the pre-loaded
+  // snapshot when one exists, otherwise a fresh row with a client-generated id
+  // so a later pass (and the flush) addresses the same row instead of inserting
+  // a duplicate.
+  function ensurePendingListing(itemId: string): ListingWrite {
+    const cached = pendingListing.get(itemId);
+    if (cached) return cached;
+    const ex = existingListingByItem.get(itemId);
+    const w: ListingWrite = ex
+      ? {
+          id: ex.id,
+          inventory_item_id: itemId,
+          platform: "ebay",
+          platform_listing_id: ex.platform_listing_id ?? null,
+          platform_offer_id: ex.platform_offer_id ?? null,
+          listing_url: ex.listing_url ?? null,
+          listing_price: ex.listing_price ?? 0,
+          listing_status: ex.listing_status ?? null,
+          is_active: ex.is_active ?? false,
+          quantity: ex.quantity ?? null,
+          listed_at: ex.listed_at ?? new Date().toISOString(),
+          listing_description: ex.listing_description ?? null,
+          platform_category_id: ex.platform_category_id ?? null,
+          listing_title: ex.listing_title ?? null,
+        }
+      : {
+          id: crypto.randomUUID(),
+          inventory_item_id: itemId,
+          platform: "ebay",
+          platform_listing_id: null,
+          platform_offer_id: null,
+          listing_url: null,
+          listing_price: 0,
+          listing_status: null,
+          is_active: false,
+          quantity: null,
+          listed_at: new Date().toISOString(),
+          listing_description: null,
+          platform_category_id: null,
+          listing_title: null,
+        };
+    pendingListing.set(itemId, w);
+    return w;
+  }
+
+  // Copy the defined keys of a (pin-filtered) patch onto a pending write row.
+  // `undefined` means "leave the existing value" — exactly the semantics the
+  // per-row update/insert relied on.
+  function applyListingPatch(
+    w: ListingWrite,
+    patch: Record<string, unknown>,
+  ): void {
+    for (const [k, v] of Object.entries(patch)) {
+      if (v !== undefined) (w as Record<string, unknown>)[k] = v;
+    }
+  }
+
   // Catalog-backfill bookkeeping. GetItem (legacy specifics) is gated to items
   // still missing a field and capped per run, so first-sync cost tapers to ~0.
   const MAX_SPECIFICS_FETCH_PER_SYNC = 300;
@@ -1020,6 +1178,10 @@ async function doListingsPull(
 
   // Apply an eBay-sourced catalog patch to a matched inventory_item, keeping
   // our in-memory ItemRow in sync so the orders pass below sees fresh values.
+  // Kept as a per-row UPDATE (not folded into the bulk upsert): inventory_items
+  // has NOT NULL columns we don't carry here (status, etc.), and the INSERT arm
+  // of an upsert would either violate them or clobber a live status. Patches are
+  // gated (fill-if-blank / title-change) so steady-state syncs issue ~0 of these.
   async function applyCatalogPatch(
     itemId: string,
     row: ItemRow,
@@ -1060,14 +1222,6 @@ async function doListingsPull(
   // Statuses where an eBay-vs-FlipDesk status diff is meaningful; sold /
   // relisted are FlipDesk-richer states eBay can't express.
   const COMPARABLE_STATUSES = new Set(["active", "ended", "draft"]);
-  type ExistingListingRow = {
-    id: string;
-    listing_price: number | null;
-    listing_status: string | null;
-    listing_title: string | null;
-    quantity: number | null;
-    source_of_truth: Record<string, string> | null;
-  };
   // True when the user already picked a non-eBay winner for this field — the
   // pull must not overwrite it (US-148 source-of-truth persistence).
   const pinnedAgainstEbay = (
@@ -1091,18 +1245,9 @@ async function doListingsPull(
       const isActive = (o.listingStatus ?? "").toUpperCase() === "ACTIVE";
 
       if (itemId) {
-        // Upsert into listings (by inventory_item_id + platform).
-        const { data: existingRow } = await supabaseAdmin
-          .from("listings")
-          .select(
-            "id, listing_price, listing_status, listing_title, quantity, source_of_truth",
-          )
-          .eq("inventory_item_id", itemId)
-          .eq("platform", "ebay")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const existing = (existingRow ?? null) as ExistingListingRow | null;
+        // US-405: the existing listing comes from the pre-loaded map, not a
+        // per-row SELECT.
+        const existing = existingListingByItem.get(itemId) ?? null;
 
         // US-148: capture eBay-vs-FlipDesk disagreements before the overwrite.
         if (existing) {
@@ -1178,50 +1323,16 @@ async function doListingsPull(
         if (o.categoryId) {
           patch.platform_category_id = o.categoryId;
         }
-        if (existing) {
-          await supabaseAdmin
-            .from("listings")
-            .update(patch)
-            .eq("id", (existing as { id: string }).id);
-        } else {
-          await supabaseAdmin.from("listings").insert({
-            inventory_item_id: itemId,
-            platform: "ebay",
-            listing_price: priceNum ?? 0,
-            ...patch,
-          });
-        }
-        // Forward-only status — don't regress sold/shipped items.
+        // US-405: accumulate the write — flushed as one bulk upsert after both
+        // listing passes. ensurePendingListing seeds a full row from the
+        // pre-loaded snapshot (or a fresh client-id'd row), then the patch is
+        // merged on top.
+        applyListingPatch(ensurePendingListing(itemId), patch);
+        // Forward-only status — don't regress sold/shipped items. The flip is
+        // batched after the loop; the modern pass notifies on the real
+        // transition (notify set), the legacy pass flips silently.
         if (isActive) {
-          // .select() returns only the rows actually flipped (those that were
-          // in a pre-list status), so we emit the "live" notification once on
-          // the real transition, not on every re-sync of an already-listed item.
-          const { data: flipped } = await supabaseAdmin
-            .from("inventory_items")
-            .update({ status: "listed" })
-            .eq("id", itemId)
-            .in("status", [
-              "sourced",
-              "acquired",
-              "cataloged",
-              "measured",
-              "photographed",
-              "comped",
-              "drafted",
-            ])
-            .select("id, title");
-          const live = (flipped ?? [])[0] as
-            | { id: string; title: string | null }
-            | undefined;
-          if (live) {
-            // US-737: item went live on a marketplace.
-            void notifyUser(userId, {
-              type: "listing_live",
-              title: "Listing is live",
-              message: `${live.title ?? "Your item"} is now listed on eBay.`,
-              link: `/dashboard/flipdesk/items/${itemId}`,
-            });
-          }
+          listedNotifyItemIds.add(itemId);
         } else {
           // eBay reports this offer's listing as ended/inactive. Remember it so
           // the post-orders reconciliation can move it back to Drafts if it
@@ -1244,33 +1355,32 @@ async function doListingsPull(
         matched += 1;
       } else {
         // Snapshot orphan eBay listings — surfaced on the Reconciliation page.
-        await supabaseAdmin
-          .from("flipdesk_ebay_listings")
-          .upsert(
-            {
-              user_id: userId,
-              ebay_item_id: o.listingId,
-              custom_label: sku,
-              title: null,
-              current_price: priceNum,
-              available_quantity: o.availableQuantity,
-              listing_url: ebayListingUrl(o.listingId),
-              listing_format: o.format,
-              raw: {
-                offerId: o.offerId,
-                listingStatus: o.listingStatus,
-                categoryId: o.categoryId,
-                price: o.price,
-              },
-              // US-465 AC2: do NOT write match_status here. Omitting it means a
-              // brand-new orphan gets the column default ('unmatched') on INSERT,
-              // while an existing row's match_status (and matched_item_id, also
-              // omitted) is PRESERVED on conflict — so a manually-linked orphan
-              // is never resurrected as unmatched by a later re-sync.
-              imported_at: new Date().toISOString(),
-            },
-            { onConflict: "user_id,ebay_item_id" }
-          );
+        // US-405: collected into a map and bulk-upserted after the loop. Keyed
+        // by ebay_item_id so a duplicate id within the run can't make the bulk
+        // upsert "affect a row a second time".
+        orphanByEbayId.set(o.listingId, {
+          user_id: userId,
+          ebay_item_id: o.listingId,
+          custom_label: sku ?? null,
+          title: null,
+          current_price: priceNum,
+          available_quantity: o.availableQuantity ?? null,
+          listing_url: ebayListingUrl(o.listingId),
+          listing_format: o.format ?? null,
+          start_date: null,
+          raw: {
+            offerId: o.offerId,
+            listingStatus: o.listingStatus,
+            categoryId: o.categoryId,
+            price: o.price,
+          },
+          // US-465 AC2: do NOT write match_status here. Omitting it means a
+          // brand-new orphan gets the column default ('unmatched') on INSERT,
+          // while an existing row's match_status (and matched_item_id, also
+          // omitted) is PRESERVED on conflict — so a manually-linked orphan is
+          // never resurrected as unmatched by a later re-sync.
+          imported_at: new Date().toISOString(),
+        });
         unmatched += 1;
       }
       processedListingIds.add(o.listingId);
@@ -1301,19 +1411,11 @@ async function doListingsPull(
         const itemId = sku ? skuToItemId.get(sku) ?? null : null;
 
         if (itemId) {
-          // Same upsert path as the modern flow — but no platform_offer_id
+          // Same write path as the modern flow — but no platform_offer_id
           // because legacy listings don't have a Sell Inventory offer.
-          const { data: existingRow } = await supabaseAdmin
-            .from("listings")
-            .select(
-              "id, listing_price, listing_status, listing_title, quantity, source_of_truth",
-            )
-            .eq("inventory_item_id", itemId)
-            .eq("platform", "ebay")
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          const existing = (existingRow ?? null) as ExistingListingRow | null;
+          // US-405: existing listing from the pre-loaded map (may already hold
+          // an in-memory write from the modern pass for this same item).
+          const existing = existingListingByItem.get(itemId) ?? null;
 
           // US-148: GetMyeBaySelling only returns ACTIVE listings.
           if (existing) {
@@ -1377,32 +1479,10 @@ async function doListingsPull(
           }
           if (pinnedAgainstEbay(existing, "title")) delete patch.listing_title;
           if (l.primaryCategoryId) patch.platform_category_id = l.primaryCategoryId;
-          if (existing) {
-            await supabaseAdmin
-              .from("listings")
-              .update(patch)
-              .eq("id", (existing as { id: string }).id);
-          } else {
-            await supabaseAdmin.from("listings").insert({
-              inventory_item_id: itemId,
-              platform: "ebay",
-              listing_price: l.currentPrice ?? 0,
-              ...patch,
-            });
-          }
-          await supabaseAdmin
-            .from("inventory_items")
-            .update({ status: "listed" })
-            .eq("id", itemId)
-            .in("status", [
-              "sourced",
-              "acquired",
-              "cataloged",
-              "measured",
-              "photographed",
-              "comped",
-              "drafted",
-            ]);
+          // US-405: accumulate the write (merging onto any row the modern pass
+          // already seeded for this item) and the silent status flip.
+          applyListingPatch(ensurePendingListing(itemId), patch);
+          listedSilentItemIds.add(itemId);
           // eBay as source of truth. Legacy (GetMyeBaySelling) gives us the
           // title for free, but NOT item specifics — fetch those via GetItem
           // ONLY when this item still has a blank target field, and only while
@@ -1432,32 +1512,28 @@ async function doListingsPull(
         } else {
           // Orphan: most legacy Seller-Hub listings have no Custom Label.
           // Snapshot with the title so the Reconciliation page can show it
-          // and let the user link it to a FlipDesk SKU.
-          await supabaseAdmin
-            .from("flipdesk_ebay_listings")
-            .upsert(
-              {
-                user_id: userId,
-                ebay_item_id: l.ebayItemId,
-                custom_label: sku,
-                title: l.title,
-                current_price: l.currentPrice,
-                available_quantity: l.quantityAvailable ?? l.quantity,
-                listing_url: l.listingUrl,
-                listing_format: l.listingType,
-                start_date: l.startTime ? l.startTime.slice(0, 10) : null,
-                raw: {
-                  source: "trading_api",
-                  watchCount: l.watchCount,
-                  endTime: l.endTime,
-                },
-                // US-465 AC2: omit match_status so a manual link survives re-sync
-                // (default 'unmatched' applies only to brand-new rows; existing
-                // match_status + matched_item_id are preserved on conflict).
-                imported_at: new Date().toISOString(),
-              },
-              { onConflict: "user_id,ebay_item_id" }
-            );
+          // and let the user link it to a FlipDesk SKU. US-405: bulk-upserted
+          // after the loop (keyed by ebay_item_id).
+          orphanByEbayId.set(l.ebayItemId, {
+            user_id: userId,
+            ebay_item_id: l.ebayItemId,
+            custom_label: sku ?? null,
+            title: l.title ?? null,
+            current_price: l.currentPrice ?? null,
+            available_quantity: l.quantityAvailable ?? l.quantity ?? null,
+            listing_url: l.listingUrl ?? null,
+            listing_format: l.listingType ?? null,
+            start_date: l.startTime ? l.startTime.slice(0, 10) : null,
+            raw: {
+              source: "trading_api",
+              watchCount: l.watchCount,
+              endTime: l.endTime,
+            },
+            // US-465 AC2: omit match_status so a manual link survives re-sync
+            // (default 'unmatched' applies only to brand-new rows; existing
+            // match_status + matched_item_id are preserved on conflict).
+            imported_at: new Date().toISOString(),
+          });
           legacyUnmatched += 1;
         }
         processedListingIds.add(l.ebayItemId);
@@ -1473,6 +1549,63 @@ async function doListingsPull(
     errors.push(
       `trading api: ${err instanceof Error ? err.message : String(err)}`
     );
+  }
+
+  // ── US-405: flush the batched writes from the offers + legacy passes ─────
+  // A handful of bulk calls replaces the thousands of per-row round-trips the
+  // loops above used to make. This runs BEFORE the ebayItemIdToItemId rebuild
+  // and the orders pass below, both of which read `listings` fresh from the DB.
+  if (pendingListing.size > 0) {
+    // Every row is a full ListingWrite (all NOT NULL columns present), so a
+    // single upsert on the primary key inserts new rows and updates existing
+    // ones in one round-trip.
+    const { error } = await supabaseAdmin
+      .from("listings")
+      .upsert(Array.from(pendingListing.values()), { onConflict: "id" });
+    if (error) errors.push(`listings upsert: ${error.message.slice(0, 160)}`);
+  }
+  if (orphanByEbayId.size > 0) {
+    const { error } = await supabaseAdmin
+      .from("flipdesk_ebay_listings")
+      .upsert(Array.from(orphanByEbayId.values()), {
+        onConflict: "user_id,ebay_item_id",
+      });
+    if (error) errors.push(`orphan upsert: ${error.message.slice(0, 160)}`);
+  }
+  // Status flips — one .in('id',[...]) update per transition. The prep-status
+  // filter keeps the flip forward-only; .select() returns only the rows that
+  // actually advanced, so the "listing is live" notification fires once on the
+  // real transition. Run the notify flip FIRST so an item that is active on
+  // BOTH the modern and legacy surfaces still notifies (the silent flip then
+  // finds it already 'listed' and no-ops).
+  if (listedNotifyItemIds.size > 0) {
+    const { data: flipped } = await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: "listed" })
+      .eq("user_id", userId)
+      .in("id", Array.from(listedNotifyItemIds))
+      .in("status", PREP_STATUSES)
+      .select("id, title");
+    for (const r of (flipped ?? []) as Array<{
+      id: string;
+      title: string | null;
+    }>) {
+      // US-737: item went live on a marketplace.
+      void notifyUser(userId, {
+        type: "listing_live",
+        title: "Listing is live",
+        message: `${r.title ?? "Your item"} is now listed on eBay.`,
+        link: `/dashboard/flipdesk/items/${r.id}`,
+      });
+    }
+  }
+  if (listedSilentItemIds.size > 0) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({ status: "listed" })
+      .eq("user_id", userId)
+      .in("id", Array.from(listedSilentItemIds))
+      .in("status", PREP_STATUSES);
   }
 
   // eBay item-id → inventory_item map, built AFTER the listing passes above so
