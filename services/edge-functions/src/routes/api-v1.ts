@@ -468,7 +468,10 @@ apiV1Routes.get("/grades/:id", async (c) => {
       .from("grade_reports")
       .select("id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, confidence_score, ai_summary, detailed_notes, model_version, certificate_id, created_at")
       .eq("submission_id", id)
-      .single();
+      // US-479: a regraded submission keeps superseded history — return only the
+      // active report.
+      .is("superseded_at", null)
+      .maybeSingle();
 
     gradeReport = report || null;
   }

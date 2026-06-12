@@ -130,6 +130,122 @@ export async function claimSubmissionForGrading(
   return row ? "claimed" : "already";
 }
 
+// US-479: admin reject-and-regrade. The old admin "re-trigger grading" action
+// was a DIRECT browser write that flipped status to 'processing' and stopped —
+// nothing re-ran the pipeline, so the submission hung in 'processing' forever
+// (no worker). This re-invokes the grading pipeline server-side and SUPERSEDES
+// the prior report.
+//
+// The orchestration is extracted behind an injectable store so the supersede →
+// reset → re-kick contract is unit-testable WITHOUT a DB or a live Claude call
+// (mirrors the AbandonedSweepStore idiom in stuck-submissions.ts). The default
+// store wires it to supabaseAdmin + processSubmission.
+export interface RegradeStore {
+  /** The submission to regrade, or null if it doesn't exist. */
+  loadSubmission: (
+    submissionId: string,
+  ) => Promise<{ id: string; status: string | null; title: string | null } | null>;
+  /**
+   * Mark every ACTIVE (superseded_at IS NULL) report for the submission as
+   * superseded and withhold its certificate (null certificate_id) so the stale
+   * public certificate stops verifying. Returns the superseded report ids.
+   * Non-destructive — referencing disputes/human_reviews/grade_outcomes survive.
+   */
+  supersedePriorReports: (submissionId: string) => Promise<string[]>;
+  /**
+   * Reset the submission so the pipeline's atomic claim (grading_started_at IS
+   * NULL + status pending/processing) will pick it up again on the re-kick.
+   * Clears any prior abstention feedback + moderation flag.
+   */
+  resetForRegrade: (submissionId: string) => Promise<void>;
+  /** Re-invoke the grading pipeline (the in-process worker). */
+  kick: (submissionId: string) => Promise<void> | void;
+}
+
+export type RegradeResult =
+  | { ok: true; supersededReportIds: string[]; previousStatus: string | null; title: string | null }
+  | { ok: false; status: number; error: string };
+
+export async function regradeSubmission(
+  submissionId: string,
+  store: RegradeStore,
+): Promise<RegradeResult> {
+  const submission = await store.loadSubmission(submissionId);
+  if (!submission) {
+    return { ok: false, status: 404, error: "Submission not found" };
+  }
+
+  // Supersede BEFORE the re-kick so the about-to-be-created report is the only
+  // active one the moment the pipeline inserts it.
+  const supersededReportIds = await store.supersedePriorReports(submissionId);
+
+  // Reset so the pipeline can re-claim the row. After this the submission is
+  // 'pending' (not stuck in 'processing' with no worker): the re-kick runs the
+  // pipeline to a terminal status, and the stuck/stranded-paid sweeps are the
+  // backstop if the container dies mid-grade.
+  await store.resetForRegrade(submissionId);
+
+  await store.kick(submissionId);
+
+  return {
+    ok: true,
+    supersededReportIds,
+    previousStatus: submission.status,
+    title: submission.title,
+  };
+}
+
+// Default store: supabaseAdmin reads/writes + processSubmission re-kick.
+export const defaultRegradeStore: RegradeStore = {
+  loadSubmission: async (submissionId) => {
+    const { data } = await supabaseAdmin
+      .from("submissions")
+      .select("id, status, title")
+      .eq("id", submissionId)
+      .maybeSingle();
+    return (
+      (data as { id: string; status: string | null; title: string | null } | null) ?? null
+    );
+  },
+  supersedePriorReports: async (submissionId) => {
+    const { data: active } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id")
+      .eq("submission_id", submissionId)
+      .is("superseded_at", null);
+    const ids = ((active ?? []) as Array<{ id: string }>).map((r) => r.id);
+    if (ids.length > 0) {
+      await supabaseAdmin
+        .from("grade_reports")
+        .update({ superseded_at: new Date().toISOString(), certificate_id: null })
+        .in("id", ids);
+    }
+    return ids;
+  },
+  resetForRegrade: async (submissionId) => {
+    await supabaseAdmin
+      .from("submissions")
+      .update({
+        status: "pending",
+        grading_started_at: null,
+        quality_feedback: null,
+        flagged: false,
+        flag_reason: null,
+        moderation_status: null,
+      })
+      .eq("id", submissionId);
+  },
+  kick: (submissionId) => {
+    // Fire-and-forget; processSubmission's atomic claim guards a concurrent kick.
+    processSubmission(submissionId).catch((err) => {
+      console.error(
+        `[Pipeline] regrade re-kick failed for submission ${submissionId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+  },
+};
+
 export async function processSubmission(submissionId: string) {
   const startTime = Date.now();
 

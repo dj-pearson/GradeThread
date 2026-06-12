@@ -151,7 +151,8 @@ export function GradeCharts() {
           const { data: reportData, error: reportError } = await supabase
             .from("grade_reports")
             .select("*")
-            .in("submission_id", chunk);
+            .in("submission_id", chunk)
+            .is("superseded_at", null); // US-479: active report per submission
 
           if (reportError) throw reportError;
           const rows = (reportData ?? []) as Array<GradeReportRow & { submission_id: string }>;

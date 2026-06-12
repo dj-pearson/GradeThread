@@ -7411,8 +7411,8 @@
         "Test: rejecting produces a new report and a terminal status"
       ],
       "priority": 479,
-      "passes": false,
-      "notes": "[P1][Grading] Audit 2026-06-03. handleRejectAndRegrade sets status=processing but nothing re-runs the pipeline."
+      "passes": true,
+      "notes": "[P1][Grading] Audit 2026-06-03. Fixed: the admin 're-trigger grading' action now POSTs to a server endpoint (POST /api/admin/grading/submissions/:id/regrade) that actually re-invokes the pipeline. regradeSubmission() (grading-pipeline.ts, injectable RegradeStore) supersedes the active report(s) (new superseded_at column, migration 00150; certificate withheld), resets the submission (status=pending, grading_started_at=null) so processSubmission's atomic claim re-runs it in-process, and kicks it. Submission reaches a terminal status; stuck/stranded-paid sweeps are the backstop. 'Current report' reads across web (submission-detail x2, submissions, dashboard x2, admin/submissions, admin/moderation, grade-charts) + edge (grade.ts, api-v1.ts) filter superseded_at IS NULL so .single() still resolves to one row. Test: regrade_test.ts (in-memory store) proves a new active report + terminal status; missing submission → 404; never-graded submission still re-runs."
     },
     {
       "id": "US-480",

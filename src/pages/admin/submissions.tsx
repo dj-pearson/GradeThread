@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
 import type {
   SubmissionRow,
@@ -166,7 +167,9 @@ export function AdminSubmissionsPage() {
     queryFn: async () => {
       const [subsRes, reportsRes, usersRes] = await Promise.all([
         supabase.from("submissions").select("*"),
-        supabase.from("grade_reports").select("*"),
+        // US-479: only the ACTIVE report per submission — a regraded submission
+        // keeps its superseded history, which must not win the reportMap.
+        supabase.from("grade_reports").select("*").is("superseded_at", null),
         supabase.from("users").select("id, email, full_name"),
       ]);
       if (subsRes.error) throw subsRes.error;
@@ -297,21 +300,20 @@ export function AdminSubmissionsPage() {
     if (!retriggerTarget) return;
     setActionLoading(true);
     try {
-      // Reset submission status to 'processing'
-      const { error } = await supabase
-        .from("submissions")
-        .update({ status: "processing" } as never)
-        .eq("id", retriggerTarget.id);
-
-      if (error) throw error;
-
-      await logAuditAction("retrigger_grading", retriggerTarget.id, {
-        previous_status: retriggerTarget.status,
-        title: retriggerTarget.title,
-      });
+      // US-479: re-run grading through the server endpoint, which actually
+      // re-invokes the pipeline (supersedes the prior report, resets the row,
+      // and kicks processSubmission) and writes the audit log. The old direct
+      // browser write only set status='processing' and re-ran nothing, leaving
+      // the submission stuck in 'processing' forever with no worker.
+      const res = await edgeFetch(
+        `/api/admin/grading/submissions/${retriggerTarget.id}/regrade`,
+        { method: "POST", json: {} },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to re-trigger grading.");
 
       toast.success("Grading re-triggered", {
-        description: `Submission "${retriggerTarget.title}" has been queued for re-grading.`,
+        description: `Submission "${retriggerTarget.title}" is being re-graded.`,
       });
 
       queryClient.invalidateQueries({ queryKey: ["admin-submissions"] });
@@ -834,8 +836,9 @@ export function AdminSubmissionsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Re-trigger grading</AlertDialogTitle>
             <AlertDialogDescription>
-              This will reset the submission status to &ldquo;processing&rdquo; and queue it for
-              re-grading. The existing grade report (if any) will remain until a new one is generated.
+              This re-runs the AI grading pipeline. The current grade report (if any) is superseded
+              and its certificate withheld; a fresh report and certificate are generated once
+              grading completes.
               <br /><br />
               <strong>Submission:</strong> {retriggerTarget?.title}
             </AlertDialogDescription>

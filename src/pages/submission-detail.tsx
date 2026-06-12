@@ -165,8 +165,11 @@ export function SubmissionDetailPage() {
     const { data: reportData } = await supabase
       .from("grade_reports")
       .select("*")
+      // US-479: a regraded submission keeps superseded history; fetch only the
+      // active report so .single() resolves to exactly one row.
       .eq("submission_id", id)
-      .single();
+      .is("superseded_at", null)
+      .maybeSingle();
     if (reportData) setGradeReport(reportData);
   }, [id]);
 
@@ -284,12 +287,14 @@ export function SubmissionDetailPage() {
       }
       setSubmission(sub);
 
-      // Fetch grade report
+      // Fetch grade report (US-479: active report only — a regraded submission
+      // keeps superseded history, which would break .single()).
       const { data: reportData } = await supabase
         .from("grade_reports")
         .select("*")
         .eq("submission_id", id!)
-        .single();
+        .is("superseded_at", null)
+        .maybeSingle();
 
       if (reportData) {
         setGradeReport(reportData);

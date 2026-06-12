@@ -904,3 +904,23 @@ Branch: ralph/gradethread-build
   * Verification: deno check src/main.ts, deno lint (5 changed files), full deno test (739 passed/0 failed). Frontend: npx tsc --noEmit + npm run build (tsc -b) + eslint disputes.tsx all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-479: Make reject-and-regrade actually re-run the pipeline
+- Status: COMPLETE
+- Files changed:
+  * supabase/migrations/00150_grade_report_supersede.sql (new) — grade_reports.superseded_at column + partial index idx_grade_reports_active
+  * services/edge-functions/src/lib/grading-pipeline.ts — regradeSubmission() + injectable RegradeStore + defaultRegradeStore (supersede active reports/withhold cert, reset row, kick processSubmission)
+  * services/edge-functions/src/routes/admin-grading.ts — POST /submissions/:id/regrade (admin JWT + AAL2; audited grading.regrade)
+  * services/edge-functions/src/routes/grade.ts, api-v1.ts — current-report reads filter superseded_at IS NULL (maybeSingle)
+  * services/edge-functions/src/lib/schema-version.ts — EXPECTED_SCHEMA_VERSION 00149 -> 00150
+  * services/edge-functions/src/tests/regrade_test.ts (new) — in-memory store proves new active report + terminal status, 404, never-graded re-run
+  * src/types/database.ts — superseded_at on GradeReportRow + GradeReportInsert
+  * src/pages/admin/submissions.tsx — handleRetriggerGrading now POSTs the regrade endpoint via edgeFetch; report query + dialog copy updated
+  * src/pages/submission-detail.tsx (x2), submissions.tsx (x2), dashboard.tsx (x2), admin/moderation.tsx, components/dashboard/grade-charts.tsx — current-report reads filter superseded_at IS NULL
+- Notes:
+  * Root cause: admin "re-trigger grading" was a direct browser write setting status=processing with NO worker -> stuck forever.
+  * "Supersede" is non-destructive (disputes/human_reviews/grade_outcomes FKs preserved); the prior report's certificate_id is nulled so the stale cert stops verifying. New report is the only active (superseded_at IS NULL) row.
+  * processSubmission's atomic claim requires grading_started_at IS NULL + status pending/processing, so the reset sets both; kick is fire-and-forget like every other call site. Stuck/stranded-paid sweeps remain the backstop.
+  * Verification: deno check (grading-pipeline, admin-grading, grade, api-v1) clean; deno lint 5 files clean; full edge suite 742 passed/0 failed (after schema-version bump); frontend npx tsc -b + npm run build clean; eslint 6 changed web files clean.
+- Timestamp: 2026-06-12
+---

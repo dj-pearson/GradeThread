@@ -20,8 +20,8 @@ import { supabaseAdmin } from "./supabase.ts";
 import { edgeEnv } from "./env.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00149_ebay_pending_webhook_events.sql)
-export const EXPECTED_SCHEMA_VERSION = "00149";
+// supabase/migrations/. (00150_grade_report_supersede.sql)
+export const EXPECTED_SCHEMA_VERSION = "00150";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

@@ -27,6 +27,7 @@ import {
   updateByIdChecked,
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
+import { defaultRegradeStore, regradeSubmission } from "../lib/grading-pipeline.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -1272,4 +1273,31 @@ adminGradingRoutes.post("/review/:id/send-back", async (c) => {
     notes,
   });
   return c.json({ ok: true });
+});
+
+// ── Reject-and-regrade (US-479) ──────────────────────────────────────
+//
+// POST /submissions/:id/regrade — re-run the grading pipeline for a submission
+// and SUPERSEDE the prior report. Replaces the old admin "re-trigger grading"
+// browser write, which only set status='processing' and re-ran nothing — so the
+// submission hung in 'processing' forever with no worker. The server endpoint
+// supersedes the active report(s), resets the row so the pipeline can re-claim
+// it, and re-invokes processSubmission in-process (the edge service IS the
+// worker). The submission reaches a terminal status (completed/failed); the
+// stuck/stranded-paid sweeps are the backstop if the container dies mid-grade.
+//
+// Inherits authMiddleware + adminAuthMiddleware (admin JWT + standing AAL2) from
+// the /api/admin/* group — same gate as moderation reject (which also fails a
+// grade); no extra step-up, consistent with that action.
+adminGradingRoutes.post("/submissions/:id/regrade", async (c) => {
+  const id = c.req.param("id");
+  const result = await regradeSubmission(id, defaultRegradeStore);
+  if (!result.ok) return c.json({ error: result.error }, result.status as 404);
+
+  await auditLog(c, "grading.regrade", "submission", id, {
+    previous_status: result.previousStatus,
+    superseded_report_ids: result.supersededReportIds,
+    title: result.title,
+  });
+  return c.json({ ok: true, superseded: result.supersededReportIds.length });
 });

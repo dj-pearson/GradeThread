@@ -120,7 +120,8 @@ export function AdminModerationPage() {
       const { data: reportsRaw } = await supabase
         .from("grade_reports")
         .select("*")
-        .in("submission_id", submissionIds);
+        .in("submission_id", submissionIds)
+        .is("superseded_at", null); // US-479: active report per submission
       const reportBySubmission = new Map<string, GradeReportRow>();
       for (const r of (reportsRaw ?? []) as GradeReportRow[]) {
         reportBySubmission.set(r.submission_id, r);

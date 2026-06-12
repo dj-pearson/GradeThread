@@ -554,6 +554,11 @@ export interface GradeReportRow {
   integrity_version: number | null;
   // US-769: aggregate certificate view count (no buyer PII). 0 until viewed.
   view_count: number;
+  // US-479: set when an admin reject-and-regrade replaced this report with a
+  // fresh grade. A non-null value means this is HISTORY — the active report for
+  // the submission is the one with superseded_at IS NULL. Null for every report
+  // graded before the regrade flow existed.
+  superseded_at: string | null;
   created_at: string;
 }
 
@@ -1466,6 +1471,7 @@ export interface GradeReportInsert {
   content_hash?: string | null;
   content_signature?: string | null;
   integrity_version?: number | null;
+  superseded_at?: string | null;
 }
 
 export interface DisputeInsert {

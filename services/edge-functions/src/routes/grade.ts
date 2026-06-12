@@ -584,7 +584,10 @@ gradeRoutes.get("/status/:id", async (c) => {
       .from("grade_reports")
       .select("*")
       .eq("submission_id", id)
-      .single();
+      // US-479: a regraded submission keeps superseded history — return only the
+      // active report.
+      .is("superseded_at", null)
+      .maybeSingle();
     gradeReport = report || null;
   }
 

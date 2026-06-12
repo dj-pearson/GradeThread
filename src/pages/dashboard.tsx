@@ -119,7 +119,8 @@ export function DashboardPage() {
         const { data: reports } = await supabase
           .from("grade_reports")
           .select("submission_id, overall_score, grade_tier")
-          .in("submission_id", completedIds);
+          .in("submission_id", completedIds)
+          .is("superseded_at", null); // US-479: active report per submission
 
         const reportRows = (reports ?? []) as Array<
           Pick<GradeReportRow, "overall_score" | "grade_tier"> & { submission_id: string }
@@ -182,7 +183,8 @@ export function DashboardPage() {
         const { data, error } = await supabase
           .from("grade_reports")
           .select("submission_id, confidence_score")
-          .in("submission_id", chunk);
+          .in("submission_id", chunk)
+          .is("superseded_at", null); // US-479: active report per submission
         return { data: data as unknown as GradeReportRow[] | null, error };
       });
 
