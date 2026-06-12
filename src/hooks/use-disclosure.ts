@@ -29,7 +29,13 @@ export interface DisclosurePhoto {
 
 export interface DisclosureData {
   graded: boolean;
-  item?: { id: string; title: string | null; brand?: string | null };
+  item?: {
+    id: string;
+    title: string | null;
+    brand?: string | null;
+    // US-538: per-item opt-in for AutoLister auto-attaching annotated photos.
+    annotate_defect_photos?: boolean;
+  };
   grade?: {
     overall_score: number;
     grade_tier: string;
@@ -80,6 +86,32 @@ export function useApplyDisclosure(itemId: string | undefined) {
           ? "Disclosure is already on this listing."
           : "Condition & flaws added to your listing description.",
       );
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+}
+
+// US-538: toggle the per-item opt-in for AutoLister auto-attaching
+// defect-callout photos composited from the verified grade.
+export function useSetAnnotationOptIn(itemId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean): Promise<boolean> => {
+      const res = await edgeFetch(
+        `/api/flipdesk/disclosure/item/${itemId}/annotation-optin`,
+        { method: "POST", json: { enabled } },
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed to update setting");
+      return enabled;
+    },
+    onSuccess: (enabled) => {
+      toast.success(
+        enabled
+          ? "AutoLister will attach annotated defect photos for this item."
+          : "Auto-annotation turned off for this item.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["disclosure", itemId] });
     },
     onError: (err: Error) => toast.error(err.message),
   });

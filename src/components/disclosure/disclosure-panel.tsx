@@ -9,9 +9,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { CopyField } from "@/components/verified/copy-field";
 import { AnnotatedPhoto } from "@/components/disclosure/annotated-photo";
-import { useDisclosure, useApplyDisclosure } from "@/hooks/use-disclosure";
+import {
+  useDisclosure,
+  useApplyDisclosure,
+  useSetAnnotationOptIn,
+} from "@/hooks/use-disclosure";
 
 // Auto-Disclosure Engine surface for a graded FlipDesk item: the documented
 // "Condition & Flaws" section (copy / add to listing) + AI-annotated defect
@@ -21,6 +26,7 @@ import { useDisclosure, useApplyDisclosure } from "@/hooks/use-disclosure";
 export function DisclosurePanel({ itemId }: { itemId: string }) {
   const { data, isLoading } = useDisclosure(itemId);
   const apply = useApplyDisclosure(itemId);
+  const annotationOptIn = useSetAnnotationOptIn(itemId);
 
   if (isLoading) {
     return (
@@ -110,6 +116,29 @@ export function DisclosurePanel({ itemId }: { itemId: string }) {
             <span className="font-medium">Design features (not flaws):</span>{" "}
             {disclosure.style_features.join(", ")}. Graded as styling, not damage.
           </p>
+        )}
+
+        {/* US-538: per-item opt-in — AutoLister attaches the annotated photos
+            automatically when it generates this item's listing. */}
+        {disclosure.has_defects && (
+          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+            <div className="space-y-0.5">
+              <div className="text-sm font-medium">
+                Auto-attach in AutoLister
+              </div>
+              <p className="text-xs text-muted-foreground">
+                When AutoLister generates this item's listing, defect-callout
+                photos are composited from the verified grade and added to the
+                photo set automatically.
+              </p>
+            </div>
+            <Switch
+              checked={data.item?.annotate_defect_photos === true}
+              onCheckedChange={(v) => annotationOptIn.mutate(v)}
+              disabled={annotationOptIn.isPending}
+              aria-label="Auto-attach annotated defect photos in AutoLister"
+            />
+          </div>
         )}
 
         {/* Annotated defect photos */}

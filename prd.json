@@ -8168,8 +8168,8 @@
         "Opt-in per item; annotations reflect the verified grade defects"
       ],
       "priority": 538,
-      "passes": false,
-      "notes": "[P3][AutoLister/Input] Deep-dive 2026-06-03. AnnotatedPhoto exists for grading disclosure but isn't used in AutoLister."
+      "passes": true,
+      "notes": "[P3][AutoLister/Input] Deep-dive 2026-06-03. AnnotatedPhoto exists for grading disclosure but isn't used in AutoLister. DONE 2026-06-12: server-side compositor lib/defect-annotations.ts (ImageScript bbox callouts + numbered legend, mirrors annotated-photo.tsx) runs in the AutoLister worker after each successful generation; opt-in via inventory_items.annotate_defect_photos (migration 00152), toggled from the DisclosurePanel via POST /api/flipdesk/disclosure/item/:id/annotation-optin. Idempotent per grade report (dest path encodes report id); stale auto photos from superseded reports pruned; label shots excluded per US-276."
     },
     {
       "id": "US-539",

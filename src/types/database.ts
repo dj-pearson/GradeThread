@@ -672,6 +672,9 @@ export interface InventoryItemRow {
   photo_qa_at: string | null;
   // Per-listing automation override (US-150, migration 00135)
   exclude_from_automations: boolean;
+  // US-538: opt-in — AutoLister auto-attaches AI defect-callout photos
+  // composited from the verified grade report (migration 00152).
+  annotate_defect_photos: boolean;
   created_at: string;
   updated_at: string;
 }

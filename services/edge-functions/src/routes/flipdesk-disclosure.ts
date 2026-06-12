@@ -25,6 +25,8 @@ interface OwnedItem {
   title: string | null;
   brand: string | null;
   grade_report_id: string | null;
+  // US-538: per-item opt-in for AutoLister auto-attaching annotated photos.
+  annotate_defect_photos: boolean;
 }
 
 /** Load an inventory_item iff the caller owns it. Returns null otherwise. */
@@ -34,7 +36,7 @@ async function loadOwnedItem(
 ): Promise<OwnedItem | null> {
   const { data } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, user_id, title, brand, grade_report_id")
+    .select("id, user_id, title, brand, grade_report_id, annotate_defect_photos")
     .eq("id", itemId)
     .eq("user_id", ownerId)
     .maybeSingle();
@@ -128,7 +130,12 @@ flipdeskDisclosureRoutes.get("/item/:itemId", async (c) => {
 
   return c.json({
     graded: true,
-    item: { id: item.id, title: item.title, brand: item.brand },
+    item: {
+      id: item.id,
+      title: item.title,
+      brand: item.brand,
+      annotate_defect_photos: item.annotate_defect_photos,
+    },
     grade: {
       overall_score: report.overall_score,
       grade_tier: report.grade_tier,
@@ -284,4 +291,34 @@ flipdeskDisclosureRoutes.post("/item/:itemId/annotated-photo", async (c) => {
     photo_id: (inserted as { id?: string } | null)?.id ?? null,
     photo_url: pub.publicUrl,
   });
+});
+
+// ── POST /item/:itemId/annotation-optin ───────────────────────────
+// US-538: per-item opt-in for the AutoLister auto-attaching defect-callout
+// photos composited from the verified grade. Body: { enabled: boolean }.
+flipdeskDisclosureRoutes.post("/item/:itemId/annotation-optin", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const itemId = c.req.param("itemId");
+
+  const item = await loadOwnedItem(itemId, ownerId);
+  if (!item) return c.json({ error: "Item not found" }, 404);
+
+  let body: { enabled?: unknown };
+  try {
+    body = (await c.req.json()) as { enabled?: unknown };
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  if (typeof body.enabled !== "boolean") {
+    return c.json({ error: "enabled must be a boolean." }, 400);
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("inventory_items")
+    .update({ annotate_defect_photos: body.enabled })
+    .eq("id", item.id)
+    .eq("user_id", ownerId);
+  if (updErr) return c.json({ error: updErr.message }, 500);
+
+  return c.json({ ok: true, annotate_defect_photos: body.enabled });
 });

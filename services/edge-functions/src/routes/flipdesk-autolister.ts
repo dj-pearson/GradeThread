@@ -25,6 +25,7 @@ import {
 } from "../lib/reconcile-fields.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { applyAutoDefectAnnotations } from "../lib/defect-annotations.ts";
 
 // Columns the template overlay needs to patch a generated draft (US-674).
 const TEMPLATE_OVERLAY_COLUMNS =
@@ -307,6 +308,15 @@ async function processBatch(
         await applyTemplate(result.listingId);
       } catch (overlayErr) {
         console.error("[flipdesk-autolister] template overlay failed:", overlayErr);
+      }
+      // US-538: for an opted-in, graded item, composite the verified grade's
+      // defect annotations (bbox callouts + legend) onto the grading photos
+      // and append them to the listing photo set. Best-effort + idempotent —
+      // an annotation failure must never fail the generation job.
+      try {
+        await applyAutoDefectAnnotations(ownerId, job.inventory_item_id);
+      } catch (annErr) {
+        console.error("[flipdesk-autolister] defect annotation failed:", annErr);
       }
     } catch (err) {
       // Generation failed (incl. timeout) — give the reserved quota slot back.
