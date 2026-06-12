@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Boxes,
   Search,
@@ -11,6 +11,10 @@ import {
   Layers,
   Rocket,
   ExternalLink,
+  Keyboard,
+  Check,
+  X,
+  Pencil,
 } from "lucide-react";
 import {
   Card,
@@ -42,6 +46,7 @@ import { useBulkPublish } from "@/hooks/use-autolister";
 import { useEbayConnection } from "@/hooks/use-ebay";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { cn } from "@/lib/utils";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
 // only at a ?batch= URL, so a reseller who generates today and reviews tomorrow
@@ -85,8 +90,21 @@ function fmtMoney(n: number | null | undefined): string {
   return `$${n.toFixed(2)}`;
 }
 
+// US-549: a small "key — action" chip for the keyboard-review cheatsheet.
+function Shortcut({ keys, label }: { keys: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground">
+        {keys}
+      </kbd>
+      <span>{label}</span>
+    </span>
+  );
+}
+
 export function FlipdeskAutolisterDraftsPage() {
   const user = useAuthStore((s) => s.user);
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("created_desc");
   const bulkPublish = useBulkPublish();
@@ -196,6 +214,199 @@ export function FlipdeskAutolisterDraftsPage() {
     toast.success("Publish finished — see per-row status.");
   }
 
+  // US-549: keyboard-first review. j/k move the active row, e expands an inline
+  // editor, Enter = Save & next (stays in the cockpit — never the item canvas),
+  // x toggles multi-select, p publishes the selection, / focuses the find box.
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editPrice, setEditPrice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const searchRef = useRef<HTMLInputElement>(null);
+  const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
+  const editTitleRef = useRef<HTMLInputElement>(null);
+
+  // Keep the active index inside the visible (filtered + sorted) list.
+  useEffect(() => {
+    if (sorted.length === 0) {
+      if (activeIndex !== 0) setActiveIndex(0);
+    } else if (activeIndex > sorted.length - 1) {
+      setActiveIndex(sorted.length - 1);
+    }
+  }, [sorted.length, activeIndex]);
+
+  // Scroll the active row into view as the user navigates with j/k.
+  useEffect(() => {
+    const row = sorted[activeIndex];
+    if (row) rowRefs.current[row.id]?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, sorted]);
+
+  // Focus the title field whenever the inline editor opens.
+  useEffect(() => {
+    if (editingId) editTitleRef.current?.focus();
+  }, [editingId]);
+
+  const openEditor = useCallback((d: DraftRow) => {
+    setEditingId(d.id);
+    setEditTitle(
+      (d.listing_title && d.listing_title.trim()) ||
+        titles[d.inventory_item_id] ||
+        "",
+    );
+    setEditPrice(d.listing_price != null ? String(d.listing_price) : "");
+  }, [titles]);
+
+  // Persist the inline edits, patching the cached row in place so the list
+  // doesn't re-sort/jump mid-review.
+  const persistEdit = useCallback(
+    async (row: DraftRow): Promise<boolean> => {
+      const title = editTitle.trim();
+      const parsed = editPrice.trim() === "" ? null : Number(editPrice);
+      const price = parsed != null && Number.isFinite(parsed) ? parsed : null;
+      setSaving(true);
+      try {
+        const { error } = await supabase
+          .from("listings")
+          .update({ listing_title: title || null, listing_price: price } as never)
+          .eq("id", row.id);
+        if (error) {
+          toast.error(`Couldn't save: ${error.message}`);
+          return false;
+        }
+        queryClient.setQueryData<DraftRow[]>(
+          ["autolister_drafts", user?.id],
+          (old) =>
+            (old ?? []).map((d) =>
+              d.id === row.id
+                ? { ...d, listing_title: title || null, listing_price: price }
+                : d,
+            ),
+        );
+        return true;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [editTitle, editPrice, queryClient, user?.id],
+  );
+
+  // Enter inside the editor: save the current row, then advance and keep the
+  // editor open on the next row so the seller can fly through the batch.
+  const saveAndNext = useCallback(async () => {
+    const row = sorted[activeIndex];
+    if (!row) return;
+    const ok = await persistEdit(row);
+    if (!ok) return;
+    const next = activeIndex + 1;
+    if (next < sorted.length) {
+      setActiveIndex(next);
+      openEditor(sorted[next]!);
+    } else {
+      setEditingId(null);
+      toast.success("Reviewed the last draft.");
+    }
+  }, [sorted, activeIndex, persistEdit, openEditor]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  async function publishSelected() {
+    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    if (chosen.length === 0) {
+      toast.error("Select drafts first (press x on a row).");
+      return;
+    }
+    if (!ebayConnection) {
+      toast.error("Connect eBay first on the Marketplaces page.");
+      return;
+    }
+    await bulkPublish.run(
+      chosen.map((d) => ({ itemId: d.inventory_item_id, listingId: d.id })),
+    );
+    toast.success("Publish finished — see per-row status.");
+  }
+
+  // Global key handler for the cockpit. Typing in the search/editor inputs is
+  // respected; only the documented shortcuts are intercepted.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+      const inEditor =
+        editingId !== null && !!el?.closest("[data-draft-editor]");
+
+      // "/" focuses the find box from anywhere we're not already typing.
+      if (e.key === "/" && !typing) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+
+      if (inEditor) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void saveAndNext();
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          setEditingId(null);
+        }
+        return;
+      }
+
+      // Don't hijack normal typing in the search box (but let Esc blur it).
+      if (typing) {
+        if (e.key === "Escape") (el as HTMLElement).blur();
+        return;
+      }
+
+      if (sorted.length === 0) return;
+      const active = sorted[activeIndex];
+      switch (e.key) {
+        case "j":
+        case "ArrowDown":
+          e.preventDefault();
+          setActiveIndex((i) => Math.min(i + 1, sorted.length - 1));
+          break;
+        case "k":
+        case "ArrowUp":
+          e.preventDefault();
+          setActiveIndex((i) => Math.max(i - 1, 0));
+          break;
+        case "e":
+        case "Enter":
+          if (active) {
+            e.preventDefault();
+            openEditor(active);
+          }
+          break;
+        case "x":
+          if (active) {
+            e.preventDefault();
+            toggleSelect(active.id);
+          }
+          break;
+        case "p":
+          e.preventDefault();
+          void publishSelected();
+          break;
+        default:
+          break;
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // publishSelected is intentionally not memoized; it closes over current state.
+  }, [sorted, activeIndex, editingId, saveAndNext, openEditor, toggleSelect]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const totalValue = useMemo(
     () => drafts.reduce((sum, d) => sum + (d.listing_price ?? 0), 0),
     [drafts],
@@ -244,7 +455,8 @@ export function FlipdeskAutolisterDraftsPage() {
               <div className="relative w-full max-w-xs">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search drafts by title…"
+                  ref={searchRef}
+                  placeholder="Search drafts by title…  ( / )"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-8"
@@ -262,6 +474,26 @@ export function FlipdeskAutolisterDraftsPage() {
                   <SelectItem value="title_asc">Title: A → Z</SelectItem>
                 </SelectContent>
               </Select>
+              {/* US-549: publish the keyboard-selected subset. */}
+              {selectedIds.size > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => void publishSelected()}
+                  disabled={bulkPublish.running || !ebayConnection}
+                  title={
+                    !ebayConnection
+                      ? "Connect eBay first on the Marketplaces page."
+                      : "Validate and publish the selected drafts (p)."
+                  }
+                >
+                  {bulkPublish.running ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Rocket className="mr-2 h-4 w-4" />
+                  )}
+                  Publish {selectedIds.size} selected
+                </Button>
+              )}
               {/* US-548: publish-all from the cockpit (ready drafts only). */}
               {readyDrafts.length > 0 && (
                 <Button
@@ -309,9 +541,23 @@ export function FlipdeskAutolisterDraftsPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
+              {/* US-549: keyboard-first review cheatsheet. */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pb-3 text-[11px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1 font-medium text-foreground">
+                  <Keyboard className="h-3.5 w-3.5" />
+                  Keyboard review
+                </span>
+                <Shortcut keys="j / k" label="move" />
+                <Shortcut keys="e" label="edit" />
+                <Shortcut keys="Enter" label="save & next" />
+                <Shortcut keys="x" label="select" />
+                <Shortcut keys="p" label="publish selected" />
+                <Shortcut keys="/" label="find" />
+              </div>
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-8" />
                     <TableHead>Title</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Price</TableHead>
@@ -323,10 +569,37 @@ export function FlipdeskAutolisterDraftsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sorted.map((d) => {
+                  {sorted.map((d, idx) => {
                     const pub = bulkPublish.results[d.inventory_item_id];
+                    const isActive = idx === activeIndex;
+                    const isSelected = selectedIds.has(d.id);
+                    const isEditing = editingId === d.id;
                     return (
-                    <TableRow key={d.id}>
+                    <Fragment key={d.id}>
+                    <TableRow
+                      ref={(node) => {
+                        rowRefs.current[d.id] = node;
+                      }}
+                      aria-selected={isActive}
+                      data-active={isActive || undefined}
+                      onClick={() => setActiveIndex(idx)}
+                      className={cn(
+                        "cursor-pointer scroll-mt-16",
+                        isActive &&
+                          "bg-accent/60 outline outline-2 -outline-offset-2 outline-primary",
+                        isSelected && "bg-emerald-500/5",
+                      )}
+                    >
+                      <TableCell className="w-8 align-middle">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-emerald-600"
+                          checked={isSelected}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => toggleSelect(d.id)}
+                          aria-label={`Select ${titleFor(d)}`}
+                        />
+                      </TableCell>
                       <TableCell className="max-w-xs truncate font-medium">
                         {titleFor(d)}
                       </TableCell>
@@ -435,16 +708,99 @@ export function FlipdeskAutolisterDraftsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button asChild size="sm" variant="ghost">
-                          <Link
-                            to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2"
+                            title="Edit inline (e)"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveIndex(idx);
+                              if (isEditing) setEditingId(null);
+                              else openEditor(d);
+                            }}
                           >
-                            Review
-                            <ArrowRight className="ml-1 h-3 w-3" />
-                          </Link>
-                        </Button>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button asChild size="sm" variant="ghost">
+                            <Link
+                              to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              Review
+                              <ArrowRight className="ml-1 h-3 w-3" />
+                            </Link>
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
+                    {isEditing && (
+                      <TableRow data-draft-editor className="bg-muted/40 hover:bg-muted/40">
+                        <TableCell colSpan={9} className="py-3">
+                          <div className="flex flex-wrap items-end gap-3">
+                            <div className="min-w-[16rem] flex-1 space-y-1">
+                              <label
+                                htmlFor={`edit-title-${d.id}`}
+                                className="text-xs font-medium text-muted-foreground"
+                              >
+                                Title
+                              </label>
+                              <Input
+                                id={`edit-title-${d.id}`}
+                                ref={editTitleRef}
+                                value={editTitle}
+                                onChange={(e) => setEditTitle(e.target.value)}
+                                maxLength={80}
+                                className="h-9"
+                              />
+                            </div>
+                            <div className="w-32 space-y-1">
+                              <label
+                                htmlFor={`edit-price-${d.id}`}
+                                className="text-xs font-medium text-muted-foreground"
+                              >
+                                Price ($)
+                              </label>
+                              <Input
+                                id={`edit-price-${d.id}`}
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={editPrice}
+                                onChange={(e) => setEditPrice(e.target.value)}
+                                className="h-9 tabular-nums"
+                              />
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => void saveAndNext()}
+                                disabled={saving}
+                                title="Save & next (Enter)"
+                              >
+                                {saving ? (
+                                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Check className="mr-1 h-3.5 w-3.5" />
+                                )}
+                                Save &amp; next
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setEditingId(null)}
+                                title="Cancel (Esc)"
+                              >
+                                <X className="mr-1 h-3.5 w-3.5" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    </Fragment>
                     );
                   })}
                 </TableBody>

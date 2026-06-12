@@ -1068,3 +1068,12 @@ Branch: ralph/gradethread-build
 - Notes: AC1 capture = per-field keep/change diff (AI snapshot vs seller-published) attributed to prompt_version, paired with sell-through. AC2 A/B = eval-gated challenger flagged in_trial takes ~50% traffic (FNV-1a hash on item id); auto-promote on combined keep-rate+sell-through score (env-tunable LISTING_AB_MIN_SAMPLE/PROMOTE_MARGIN), still goes through activatePromptVersion eval gate. AC3 dashboard panel shows per-version listings/keep-rate/sell-through/score + run-auto-promote button. Coolify: add scheduled task hitting /api/jobs/listing-prompt-promote. tsc/build/deno check/lint/tests all green.
 - Timestamp: 2026-06-12
 ---
+
+## US-549: Keyboard-first review with Save & next
+- Status: COMPLETE
+- Files changed:
+  - src/pages/flipdesk/autolister-drafts.tsx: keyboard-review on the drafts cockpit
+  - prd.json, scripts/ralph/progress.txt
+- Notes: Implemented on the persistent AutoLister drafts cockpit (a real <Table> with find), not the virtualized generation queue. window keydown handler: j/k + ArrowUp/Down move the active row; e expands an inline editor (title + price); Enter = Save & next (supabase listings update, react-query cache patched in place so the list doesn't reorder mid-review, then advance + reopen editor on next row — stays in cockpit, never the item canvas); x toggles per-row multi-select; p publishes the selection via useBulkPublish pre-flight; / focuses find. Active row visibly highlighted (outline+bg, aria-selected, scroll-into-view), keyboard cheatsheet chip-bar, new checkbox column + Pencil button as mouse equivalents. Typing in inputs respected; Esc cancels editor / blurs search. tsc/eslint/build clean.
+- Timestamp: 2026-06-12
+---

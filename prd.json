@@ -8310,8 +8310,8 @@
         "Focus and active-row state are visible and accessible"
       ],
       "priority": 549,
-      "passes": false,
-      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. No keyboard nav; reviewing N drafts is Review->edit->save->browser-back->find-next, N times."
+      "passes": true,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. No keyboard nav; reviewing N drafts is Review->edit->save->browser-back->find-next, N times. | DONE 2026-06-12. Built on the persistent AutoLister drafts cockpit (autolister-drafts.tsx) — a real <Table> with find already, the natural 'queue' for review (the generation queue is virtualized). Added a window keydown handler: j/k (and Arrow Up/Down) move the active row, e expands an inline editor (title + price), Enter = Save & next (persists via supabase listings update, patches the react-query cache in place so the list doesn't re-sort/jump, advances + reopens the editor on the next row — stays in the cockpit, never the /items/:id/draft canvas), x toggles per-row multi-select, p publishes the selection (reuses useBulkPublish pre-flight), / focuses the find box. Active row is visibly highlighted (outline + bg, aria-selected, scroll-into-view) and a Keyboard cheatsheet chip-bar documents the keys. Typing in search/editor inputs is respected (only documented shortcuts intercepted; Esc cancels editor / blurs search). New select-checkbox column + inline Pencil edit button mirror the keyboard actions for mouse users. tsc/eslint/build clean."
     },
     {
       "id": "US-550",
