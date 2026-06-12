@@ -2,35 +2,82 @@
 // US-295). Kept dependency-free (no Cloudflare types) so they're unit-testable
 // from the src/ test suite and reusable by the Pages Function handlers.
 
-// AI + search crawlers we explicitly welcome — we WANT these answering with
-// (and citing) GradeThread content. Each gets an Allow on the public site.
-export const ALLOWED_AI_AGENTS: readonly string[] = [
+// ── AI-crawler policy (US-430) ───────────────────────────────────────────────
+//
+// We split the bots we welcome into two classes, because "let an AI read the
+// page to answer a user and cite us" and "let an AI vacuum the page into a
+// training corpus" are DIFFERENT decisions:
+//
+//   • CITATION/SEARCH bots — live retrieval + answer-engine citation. These are
+//     pure GEO upside (they quote and LINK back to GradeThread), so they are
+//     ALWAYS allowed and not configurable.
+//   • TRAINING bots — content may be ingested into model training data. Allowed
+//     by DEFAULT (presence in training corpora still strengthens brand recall in
+//     AI answers, and our public content is marketing we WANT memorised), but the
+//     handler can flip them to Disallow via the AI_TRAINING_CRAWLERS env var with
+//     no code change — see `trainingCrawlersAllowed()` and docs/AI_CRAWLER_POLICY.md.
+//
+// Stakeholder decision (Pearson Media LLC, 2026-06-12): allow training by
+// default; revisit if/when proprietary, non-marketing content (e.g. the full
+// grading rubric or customer data) ever becomes crawlable. Aggressive,
+// non-attributing scrapers are hard-blocked regardless (BLOCKED_AI_AGENTS).
+
+/** Search + citation crawlers: live retrieval / answer-engine citation. Always allowed. */
+export const CITATION_AI_AGENTS: readonly string[] = [
   // Traditional search
   "Googlebot",
   "Bingbot",
-  // OpenAI
-  "GPTBot",
+  // OpenAI — search index + user-initiated fetch
   "OAI-SearchBot",
   "ChatGPT-User",
-  // Anthropic
-  "ClaudeBot",
+  // Anthropic — user-initiated fetch
   "Claude-User",
-  // Perplexity
+  // Perplexity — search index + user-initiated fetch
   "PerplexityBot",
   "Perplexity-User",
-  // Google Gemini / Vertex training opt-in
-  "Google-Extended",
-  // Apple Intelligence
+  // Apple — Siri / Spotlight search
   "Applebot",
-  "Applebot-Extended",
 ];
 
-// Aggressive / non-attributing scrapers to disallow site-wide. Empty by
-// default — flip entries in here to block without touching handler code.
-export const BLOCKED_AI_AGENTS: readonly string[] = [
-  // "Bytespider",
-  // "CCBot",
+/** Training crawlers: content may enter model training corpora. Allowed by default,
+ *  configurable to Disallow. */
+export const TRAINING_AI_AGENTS: readonly string[] = [
+  "GPTBot", // OpenAI training crawler
+  "ClaudeBot", // Anthropic training crawler
+  "Google-Extended", // Gemini / Vertex training opt-in token
+  "Applebot-Extended", // Apple Intelligence training opt-in token
 ];
+
+// Back-compat union of every bot we welcome for at least citation. Existing
+// callers/tests iterate this; new code should prefer the two narrower lists.
+export const ALLOWED_AI_AGENTS: readonly string[] = [
+  ...CITATION_AI_AGENTS,
+  ...TRAINING_AI_AGENTS,
+];
+
+// Aggressive / non-attributing scrapers hard-blocked site-wide regardless of the
+// training toggle — they either ignore citation entirely or are known to hammer
+// origins. Add to this list to block more without touching handler code.
+export const BLOCKED_AI_AGENTS: readonly string[] = [
+  "Bytespider", // ByteDance — ignores robots, no attribution
+  "CCBot", // Common Crawl — feeds many training sets with no link-back
+  "Diffbot", // commercial scraper resold as datasets
+  "Omgilibot", // bulk content scraper (Webz.io) sold as data
+  "ImagesiftBot", // image scraper feeding training sets
+];
+
+/** Whether the (default-on) training crawlers should be allowed. The env value is
+ *  read by the handler; "disallow"/"block"/"false"/"off"/"no"/"0" opts out. */
+export function trainingCrawlersAllowed(policy: string | undefined | null): boolean {
+  const v = (policy ?? "").trim().toLowerCase();
+  return !["disallow", "block", "blocked", "false", "off", "no", "0"].includes(v);
+}
+
+/** One-line AI-usage policy surfaced in llms.txt so models see the intent. */
+export const AI_CRAWLER_POLICY_NOTE =
+  "AI usage: this public content is offered for citation and live retrieval — " +
+  "please quote it and link back to gradethread.com. Training-crawler access " +
+  "follows robots.txt. Aggressive non-attributing scrapers are blocked.";
 
 // Paths that must never be indexed by anyone.
 export const DISALLOWED_PATHS: readonly string[] = [
@@ -43,11 +90,16 @@ export const DISALLOWED_PATHS: readonly string[] = [
 
 export function buildRobotsTxt(opts: {
   siteUrl: string;
-  allowed?: readonly string[];
+  citation?: readonly string[];
+  training?: readonly string[];
   blocked?: readonly string[];
+  /** Allow training crawlers (default true). Set false to opt out of model training. */
+  allowTraining?: boolean;
 }): string {
-  const allowed = opts.allowed ?? ALLOWED_AI_AGENTS;
+  const citation = opts.citation ?? CITATION_AI_AGENTS;
+  const training = opts.training ?? TRAINING_AI_AGENTS;
   const blocked = opts.blocked ?? BLOCKED_AI_AGENTS;
+  const allowTraining = opts.allowTraining ?? true;
   const disallowLines = DISALLOWED_PATHS.map((p) => `Disallow: ${p}`).join("\n");
 
   const blocks: string[] = [];
@@ -58,12 +110,24 @@ Allow: /
 Allow: /blog/
 ${disallowLines}`);
 
-  // Explicit per-agent allow blocks. Redundant with "*" today, but documents
-  // intent and survives future tightening of the default policy.
-  for (const ua of allowed) {
+  // Citation / search bots — always welcomed. Redundant with "*" today, but
+  // documents intent and survives future tightening of the default policy.
+  for (const ua of citation) {
     blocks.push(`User-agent: ${ua}
 Allow: /
 ${disallowLines}`);
+  }
+
+  // Training bots — allowed or disallowed per the configured policy.
+  for (const ua of training) {
+    blocks.push(
+      allowTraining
+        ? `User-agent: ${ua}
+Allow: /
+${disallowLines}`
+        : `User-agent: ${ua}
+Disallow: /`,
+    );
   }
 
   // Hard blocks for unwanted scrapers.
@@ -91,12 +155,18 @@ export function buildLlmsTxt(opts: {
   siteUrl: string;
   summary: string;
   sections: LlmsSection[];
+  /** Optional AI-usage policy line surfaced under the summary (US-430). */
+  policyNote?: string;
 }): string {
   const lines: string[] = [];
   lines.push(`# GradeThread`);
   lines.push("");
   lines.push(`> ${opts.summary}`);
   lines.push("");
+  if (opts.policyNote) {
+    lines.push(`_${opts.policyNote}_`);
+    lines.push("");
+  }
   for (const section of opts.sections) {
     lines.push(`## ${section.heading}`);
     lines.push("");

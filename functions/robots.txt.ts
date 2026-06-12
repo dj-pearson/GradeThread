@@ -3,10 +3,13 @@
 // reflects the deployed PUBLIC_SITE_URL.
 
 import { siteUrl, type PagesEnv } from "./_shared/blog-render";
-import { buildRobotsTxt } from "./_shared/seo-config";
+import { buildRobotsTxt, trainingCrawlersAllowed } from "./_shared/seo-config";
 
 export const onRequestGet: PagesFunction<PagesEnv> = ({ env }) => {
-  const body = buildRobotsTxt({ siteUrl: siteUrl(env) });
+  const body = buildRobotsTxt({
+    siteUrl: siteUrl(env),
+    allowTraining: trainingCrawlersAllowed(env.AI_TRAINING_CRAWLERS),
+  });
   return new Response(body, {
     status: 200,
     headers: {

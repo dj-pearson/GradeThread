@@ -12,6 +12,7 @@ import {
   buildLlmsTxt,
   buildLlmsSections,
   LLMS_SUMMARY,
+  AI_CRAWLER_POLICY_NOTE,
   type LlmsRoute,
 } from "./_shared/seo-config";
 
@@ -92,6 +93,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
   const body = buildLlmsTxt({
     siteUrl: base,
     summary: LLMS_SUMMARY,
+    policyNote: AI_CRAWLER_POLICY_NOTE,
     sections: buildLlmsSections({ routes, certUrls, sellerUrls }),
   });
 

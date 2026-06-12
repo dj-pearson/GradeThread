@@ -6793,8 +6793,8 @@
         "Reflected in robots.txt and llms.txt; stakeholder-reviewed"
       ],
       "priority": 430,
-      "passes": false,
-      "notes": "[P2][SEO/Legal] Audit 2026-06-03. seo-config.ts grants Allow:/ to training + citation bots identically."
+      "passes": true,
+      "notes": "[P2][SEO/Legal] Audit 2026-06-03. seo-config.ts grants Allow:/ to training + citation bots identically. | DONE 2026-06-12: explicit, documented split of the AI-crawler policy. seo-config.ts now separates CITATION_AI_AGENTS (Googlebot/Bingbot/OAI-SearchBot/ChatGPT-User/Claude-User/PerplexityBot/Perplexity-User/Applebot — always Allow) from TRAINING_AI_AGENTS (GPTBot/ClaudeBot/Google-Extended/Applebot-Extended — Allow by default, configurable to Disallow). BLOCKED_AI_AGENTS populated with real aggressive/non-attributing scrapers (Bytespider, CCBot, Diffbot, Omgilibot, ImagesiftBot) — always Disallow. buildRobotsTxt() gained an allowTraining flag; robots.txt.ts reads the new AI_TRAINING_CRAWLERS Pages env var via trainingCrawlersAllowed() (unset=allow; disallow/block/off/false/no/0 opts out) — no code change to flip. llms.txt now carries AI_CRAWLER_POLICY_NOTE (cite + link-back ask) under the summary via buildLlmsTxt's policyNote. Stakeholder decision (allow training by default; revisit if proprietary content becomes crawlable) documented in docs/AI_CRAWLER_POLICY.md. AI_TRAINING_CRAWLERS documented in .env.example + PagesEnv. Covered by src/test/seo-crawl.test.ts (new US-430 suite: classification/no-overlap, hard-block list, training allow-vs-deny, env parsing, llms policy note). tsc/eslint/build/vitest all green."
     },
     {
       "id": "US-431",

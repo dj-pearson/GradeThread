@@ -35,6 +35,12 @@ export interface PagesEnv {
   VITE_SOCIAL_LINKEDIN?: string;
   VITE_SOCIAL_INSTAGRAM?: string;
   VITE_SOCIAL_CRUNCHBASE?: string;
+  // US-430: AI training-crawler policy. Unset (default) = allow training bots
+  // (GPTBot/ClaudeBot/Google-Extended/Applebot-Extended) to crawl the public
+  // site. Set to "disallow"/"block"/"off" to emit Disallow blocks for them in
+  // robots.txt without a code change. Citation/search bots are always allowed;
+  // aggressive scrapers (BLOCKED_AI_AGENTS) are always blocked.
+  AI_TRAINING_CRAWLERS?: string;
 }
 
 // US-428: the always-live GitHub profile (mirrors src/lib/seo/social.ts).
