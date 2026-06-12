@@ -44,6 +44,11 @@ import {
 import { resolveSeededCategory } from "./marketplace-category.ts";
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 import { getRealizedComps } from "./sold-comps.ts";
+import {
+  extractTagGroundTruth,
+  mergeTagGroundTruth,
+  TAG_PHOTO_TYPES,
+} from "./ai-tag-ocr.ts";
 
 // US-542: where a draft's suggested price came from. Only the sold-backed
 // sources (private_sales, ebay_sold) justify price_is_estimated=false.
@@ -106,6 +111,11 @@ export interface ListingGenInput {
   photos: ListingGenPhoto[];
   // Optional known attributes (brand/size/etc.) already captured for the item.
   knownFields?: Record<string, unknown>;
+  // US-543: fields read VERBATIM off the garment's tag/care label by the
+  // dedicated tag-OCR pass. Surfaced to the model as authoritative ground truth
+  // (weighted above its own visual inference) so listings don't hallucinate
+  // brand/size/fiber/style. Keyed like knownFields (brand/size/material/style).
+  tagGroundTruth?: Record<string, string>;
   // Optional measurements (inches) to fold into the description.
   measurements?: Record<string, unknown>;
   // Optional: the resolved category's allowed aspects, used to steer
@@ -129,6 +139,10 @@ measurements), produce a complete, accurate, publish-ready eBay listing by
 calling the create_ebay_listing tool.
 
 Hard rules:
+- TAG GROUND TRUTH (when supplied) is read verbatim off the garment's care/brand
+  label and is AUTHORITATIVE. Use those brand/size/fiber/style values exactly,
+  weighted ABOVE your own visual inference — never contradict, "correct", or
+  override them, and never substitute a value you merely think you see.
 - title: <= 80 characters (eBay's hard limit). Lead with brand, then item type,
   then the most search-relevant attributes (size, color, model, style code).
   No ALL-CAPS spam, no emoji, no keyword stuffing of unrelated terms.
@@ -315,6 +329,14 @@ export async function generateListingFields(
   });
 
   const lines: string[] = [];
+  if (input.tagGroundTruth && Object.keys(input.tagGroundTruth).length > 0) {
+    lines.push(
+      "TAG GROUND TRUTH (read verbatim off the garment's tag/care label — " +
+        "AUTHORITATIVE. Weight these ABOVE your own visual inference; use them " +
+        "exactly and NEVER contradict or override them):\n" +
+        JSON.stringify(input.tagGroundTruth, null, 2),
+    );
+  }
   if (input.knownFields && Object.keys(input.knownFields).length > 0) {
     lines.push(`KNOWN ATTRIBUTES:\n${JSON.stringify(input.knownFields, null, 2)}`);
   }
@@ -656,6 +678,35 @@ export async function generateListing(
     ? item.measurements
     : undefined;
 
+  // 2b. US-543: dedicated tag-OCR ground-truth pass. When a tag/care-label
+  // photo exists, run a focused vision pass over ONLY the tag(s) to read
+  // brand/size/fiber/style/RN verbatim, then fold confident reads into
+  // knownFields (tag WINS) and flag them as authoritative for the listing call
+  // so brand/size aren't hallucinated from a busy garment shot.
+  let tagGroundTruth: Record<string, string> | undefined;
+  let tagOcrTokensIn = 0;
+  let tagOcrTokensOut = 0;
+  let tagOcrCost = 0;
+  let tagOcrModel: string | null = null;
+  const tagPhotos = photos.filter((p) => p.type && TAG_PHOTO_TYPES.has(p.type));
+  if (tagPhotos.length > 0) {
+    try {
+      const ocr = await extractTagGroundTruth(
+        tagPhotos.map((p) => ({ url: p.url, type: p.type })),
+      );
+      const { merged, groundTruth } = mergeTagGroundTruth(knownFields, ocr.fields);
+      Object.assign(knownFields, merged);
+      if (Object.keys(groundTruth).length > 0) tagGroundTruth = groundTruth;
+      tagOcrModel = ocr.model;
+      tagOcrTokensIn = ocr.tokensIn;
+      tagOcrTokensOut = ocr.tokensOut;
+      tagOcrCost = estimateCost(ocr.model, ocr.tokensIn, ocr.tokensOut);
+    } catch (err) {
+      // Non-fatal: fall back to implicit inference from the full photo set.
+      console.error("[AI Listing] tag-OCR ground-truth pass failed:", err);
+    }
+  }
+
   // 3. If the item already has a category, constrain item_specifics up front.
   let categoryId = item.ebay_category_id;
   let categoryPath: string | null = null;
@@ -675,6 +726,7 @@ export async function generateListing(
   const gen = await generateListingFields({
     photos,
     knownFields: Object.keys(knownFields).length > 0 ? knownFields : undefined,
+    tagGroundTruth,
     measurements,
     allowedAspects: aspectsAlreadyConstrained ? allowedAspects : undefined,
   });
@@ -952,9 +1004,9 @@ export async function generateListing(
   //     the second-pass aspect-extraction tokens/cost so per-item billing
   //     reflects total Anthropic spend, not just the generation call.
   const genCost = estimateCost(gen.model, gen.tokensIn, gen.tokensOut);
-  const costUsd = genCost + extractCost;
-  const totalTokensIn = gen.tokensIn + extractTokensIn;
-  const totalTokensOut = gen.tokensOut + extractTokensOut;
+  const costUsd = genCost + extractCost + tagOcrCost;
+  const totalTokensIn = gen.tokensIn + extractTokensIn + tagOcrTokensIn;
+  const totalTokensOut = gen.tokensOut + extractTokensOut + tagOcrTokensOut;
   try {
     await supabaseAdmin.from("ai_enrichment_log").insert({
       user_id: ownerId,
@@ -974,6 +1026,12 @@ export async function generateListing(
           prompt_version: gen.promptVersion,
           aspect_refine_tokens_in: extractTokensIn,
           aspect_refine_tokens_out: extractTokensOut,
+          // US-543: which fields were read verbatim off the tag (ground truth),
+          // so brand/size accuracy can be measured against a labeled sample.
+          tag_ground_truth: tagGroundTruth ?? null,
+          tag_ocr_model: tagOcrModel,
+          tag_ocr_tokens_in: tagOcrTokensIn,
+          tag_ocr_tokens_out: tagOcrTokensOut,
         },
       },
     });

@@ -8232,8 +8232,8 @@
         "Reduced brand/size error measured against a sample"
       ],
       "priority": 543,
-      "passes": false,
-      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03. Brand/size rely on implicit vision reading; no dedicated tag crop/OCR step."
+      "passes": true,
+      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03. Brand/size rely on implicit vision reading; no dedicated tag crop/OCR step. [DONE 2026-06-12] New lib/ai-tag-ocr.ts runs a focused vision pass over ONLY tag/tag_2 photos, reads brand/size/fiber/style/RN verbatim (read_garment_tag tool, per-field confidence). mergeTagGroundTruth folds confident reads (>=0.4) into knownFields (tag wins) and surfaces a tagGroundTruth block; generateListingFields now weights it above visual inference via a hard prompt rule. Tokens/cost rolled into ai_enrichment_log + a tag_ground_truth marker for sample accuracy measurement. Pure fns unit-tested (ai-tag-ocr_test.ts, 7 tests)."
     },
     {
       "id": "US-544",
