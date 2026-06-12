@@ -33,17 +33,25 @@
     <meta name="twitter:image" content="https://gradethread.com/og-image.png" />
     <!-- prerender:head:end -->
 
-    <!-- Inter font (US-305) + Consent Mode v2 + Google Analytics bootstrap.
+    <!-- Self-hosted fonts (US-412): Inter + Outfit woff2 served from /fonts/*,
+         @font-face declared in src/index.css with font-display:swap. No Google
+         Fonts round-trip and no JS-driven font injection on the LCP path.
+         Preload the Inter regular (latin) weight so it's fetched in parallel
+         with the HTML and the hero H1 swaps in without layout shift. -->
+    <link
+      rel="preload"
+      href="/fonts/inter-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <!-- Consent Mode v2 + Google Analytics bootstrap.
          INLINED (was the external /head-init.js) so it costs no render-blocking
          network round trip — that request was the #1 PageSpeed mobile blocker
-         (~490ms). CSP-safe via a sha256 hash in public/_headers (US-264); keep
-         the script byte-identical to that hash. preconnects + <noscript> stay
-         for the font; gtag.js is deferred to idle so it's off the LCP path. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    </noscript>
+         (~490ms). CSP-safe via a sha256 hash in public/_headers (US-264),
+         auto-synced at build by scripts/prerender.mjs; gtag.js is deferred to
+         idle so it's off the LCP path. -->
     <script>
       (function () {
         // Google Consent Mode v2 — everything denied until the cookie banner
@@ -60,14 +68,6 @@
         });
         gtag("js", new Date());
         gtag("config", "G-CMDWCFC275");
-
-        // Inter and Outfit fonts, non-render-blocking (display=swap → the hero LCP paints
-        // in the system fallback and swaps to Inter/Outfit on load).
-        var font = document.createElement("link");
-        font.rel = "stylesheet";
-        font.href =
-          "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Outfit:wght@400;500;600;700;800&display=swap";
-        document.head.appendChild(font);
 
         // gtag.js (~154 KiB) off the critical path: load it once the page is
         // idle so it never competes with LCP. The consent defaults + config

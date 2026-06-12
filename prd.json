@@ -6568,8 +6568,8 @@
         "Verified reduced LCP and no layout shift on first paint"
       ],
       "priority": 412,
-      "passes": false,
-      "notes": "[P2][Performance/SEO] Audit 2026-06-03. index.html loads Inter from Google Fonts via a blocking inline script."
+      "passes": true,
+      "notes": "[P2][Performance/SEO] Audit 2026-06-03. index.html loads Inter from Google Fonts via a blocking inline script. | DONE 2026-06-11: Self-hosted Inter+Outfit variable woff2 (latin+latin-ext) under /public/fonts; @font-face with font-display:swap in src/index.css; <link rel=preload> for /fonts/inter-latin.woff2 in index.html; removed JS-driven Google Fonts injection + preconnects/noscript; /fonts/* immutable cache in _headers. CSP inline-script hash auto-resynced by build."
     },
     {
       "id": "US-413",
