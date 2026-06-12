@@ -69,6 +69,13 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
     editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run();
   };
 
+  // Prompt for alt text on every insert (US-434): content images need a
+  // description for image SEO + screen readers. The publish-time SSR render
+  // (rewriteContentImages) backfills a sensible fallback if this is left blank,
+  // but capturing it here is the authored, descriptive source of truth.
+  const promptAlt = () =>
+    window.prompt("Describe this image (alt text for SEO & screen readers)")?.trim() || "";
+
   const addImage = async () => {
     if (onImageUpload) {
       const input = document.createElement("input");
@@ -79,7 +86,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         if (!file) return;
         try {
           const url = await onImageUpload(file);
-          editor.chain().focus().setImage({ src: url }).run();
+          const alt = promptAlt();
+          editor.chain().focus().setImage({ src: url, alt }).run();
         } catch (e) {
           window.alert(
             `Image upload failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -90,7 +98,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
     } else {
       const url = window.prompt("Image URL");
       if (!url) return;
-      editor.chain().focus().setImage({ src: url }).run();
+      const alt = promptAlt();
+      editor.chain().focus().setImage({ src: url, alt }).run();
     }
   };
 

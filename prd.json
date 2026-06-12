@@ -6843,8 +6843,8 @@
         "SSR <img> carry explicit width/height (or guaranteed aspect-ratio)"
       ],
       "priority": 434,
-      "passes": false,
-      "notes": "[P3][SEO/A11y] Audit 2026-06-03. blog-render rewriteContentImages never backfills missing alt; no width/height."
+      "passes": true,
+      "notes": "[P3][SEO/A11y] DONE 2026-06-12. rewriteContentImages now backfills missing alt (deriveAltFromSrc: humanized filename -> post-title fallback -> empty) and reserves a guaranteed non-distorting aspect-ratio (style=aspect-ratio:auto 16/9) when an img lacks explicit width+height; explicit alt=empty and dimensions respected. Pages Function passes post.title as fallbackAlt. Tiptap toolbar prompts for alt on insert (editor validation). Tests in src/test/responsive-images.test.ts."
     },
     {
       "id": "US-435",

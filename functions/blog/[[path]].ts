@@ -202,8 +202,12 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       )}">${escape(formatDate(post.updated_at))}</time></span>`
     : "";
   const { html: bodyWithAnchors, toc } = buildTableOfContents(post.body_html);
-  // Add responsive srcset + lazy loading to in-body content images (US-306).
-  const articleHtml = rewriteContentImages(bodyWithAnchors, resizeImages);
+  // Add responsive srcset + lazy loading to in-body content images (US-306),
+  // backfill a sensible alt fallback for any image missing one, and reserve a
+  // guaranteed aspect-ratio so the layout doesn't shift as images load (US-434).
+  const articleHtml = rewriteContentImages(bodyWithAnchors, resizeImages, {
+    fallbackAlt: post.title,
+  });
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.
   const breadcrumbItems = [

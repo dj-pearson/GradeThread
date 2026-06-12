@@ -7,6 +7,7 @@ import {
   buildSrcSet as buildSrcSetSsr,
   renderHeroImage,
   rewriteContentImages,
+  deriveAltFromSrc,
 } from "../../functions/_shared/blog-render";
 
 // US-306: responsive images via Cloudflare Image Resizing. The frontend helper
@@ -103,13 +104,63 @@ describe("rewriteContentImages (blog SSR)", () => {
     expect(out).toContain('decoding="async"');
     expect(out).toContain('alt="x"');
   });
-  it("is idempotent — skips images that already have a srcset", () => {
-    const already = '<img src="/a.png" srcset="/a.png 1x">';
-    expect(rewriteContentImages(already, true)).toBe(already);
+  it("does not double the responsive srcset; is idempotent on a second pass", () => {
+    const once = rewriteContentImages('<img src="/a.png" alt="a">', true);
+    // Exactly one srcset, and re-running changes nothing.
+    expect(once.match(/srcset=/g)?.length).toBe(1);
+    expect(rewriteContentImages(once, true)).toBe(once);
   });
   it("skips data: URIs and leaves non-image markup alone", () => {
     expect(rewriteContentImages('<img src="data:abc">', true)).toBe('<img src="data:abc">');
     expect(rewriteContentImages("<p>no images</p>", true)).toBe("<p>no images</p>");
+  });
+
+  // US-434: alt backfill + guaranteed aspect-ratio.
+  it("backfills a missing alt from a word-like filename", () => {
+    const out = rewriteContentImages('<img src="https://cdn/vintage-levis-jacket.jpg">');
+    expect(out).toContain('alt="vintage levis jacket"');
+  });
+  it("falls back to the post title when the filename is a hash/UUID", () => {
+    const out = rewriteContentImages('<img src="https://cdn/8f3a2b1c9d0e4f5a.jpg">', false, {
+      fallbackAlt: "How to grade a denim jacket",
+    });
+    expect(out).toContain('alt="How to grade a denim jacket"');
+  });
+  it("respects an explicit decorative alt='' and never overwrites an existing alt", () => {
+    const out = rewriteContentImages('<img src="https://cdn/x.png" alt="">', false, {
+      fallbackAlt: "Post",
+    });
+    expect(out).toContain('alt=""');
+    expect(out).not.toContain('alt="Post"');
+  });
+  it("reserves a guaranteed aspect-ratio when the image has no width+height", () => {
+    const out = rewriteContentImages('<img src="https://cdn/in.jpg" alt="x">');
+    expect(out).toContain('style="aspect-ratio:auto 16/9"');
+  });
+  it("leaves dimensions alone (no reservation) when width+height are explicit", () => {
+    const out = rewriteContentImages('<img src="https://cdn/in.jpg" alt="x" width="800" height="450">');
+    expect(out).not.toContain("aspect-ratio");
+    expect(out).toContain('width="800"');
+    expect(out).toContain('height="450"');
+  });
+  it("strips the upstream void-slash so appended attrs are well-formed", () => {
+    const out = rewriteContentImages('<img src="https://cdn/in.jpg" alt="x" />');
+    expect(out).not.toContain("/ "); // no stray slash before appended attrs
+    expect(out).toContain('loading="lazy"');
+  });
+});
+
+describe("deriveAltFromSrc (US-434)", () => {
+  it("humanizes a word-like filename", () => {
+    expect(deriveAltFromSrc("https://cdn/vintage-levis-jacket.jpg?v=2")).toBe(
+      "vintage levis jacket",
+    );
+    expect(deriveAltFromSrc("/uploads/red_wool_coat.webp")).toBe("red wool coat");
+  });
+  it("returns '' for hash/UUID/dimension-only filenames", () => {
+    expect(deriveAltFromSrc("https://cdn/8f3a2b1c9d0e4f5a.jpg")).toBe("");
+    expect(deriveAltFromSrc("https://cdn/1024x768.png")).toBe("");
+    expect(deriveAltFromSrc("https://cdn/ab.png")).toBe(""); // too few letters
   });
 });
 

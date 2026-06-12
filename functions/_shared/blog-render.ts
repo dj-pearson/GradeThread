@@ -571,26 +571,70 @@ export function renderHeroImage(
 }
 
 /**
- * Rewrite in-body content <img> tags to add lazy loading + (when `resize` is
- * true) a responsive srcset/sizes. Idempotent: skips data: URIs and images that
- * already carry a srcset or a cdn-cgi transform. Body HTML is sanitized
- * upstream, so this only adds attributes — it never introduces new tags. The
- * srcset is gated on `resize` because /cdn-cgi/image/ 404s until Image Resizing
- * is enabled; lazy/decoding hints are always safe so they apply either way.
+ * Derive a sensible, human-readable alt text from an image `src` (US-434).
+ * Humanizes the filename ("vintage-levis-jacket.jpg" → "vintage levis jacket")
+ * when it looks word-like; returns "" for hash/UUID filenames so the caller can
+ * fall back to a page-level label instead of surfacing gibberish to AT/crawlers.
  */
-export function rewriteContentImages(html: string, resize = false): string {
-  return html.replace(/<img\b([^>]*?)>/gi, (full, attrs: string) => {
-    if (/\bsrcset=/i.test(attrs) || /\/cdn-cgi\/image\//i.test(attrs)) return full;
+export function deriveAltFromSrc(src: string): string {
+  const noQuery = (src.split(/[?#]/)[0] ?? "").trim();
+  const file = noQuery.split("/").pop() ?? "";
+  const base = file.replace(/\.[a-z0-9]+$/i, "");
+  const words = base.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!words) return "";
+  if (!/[a-z]/i.test(words)) return ""; // no letters (e.g. "1024x768")
+  if (/^[0-9a-f]{16,}$/i.test(base)) return ""; // long hex hash / content-addressed
+  if (words.replace(/[^a-z]/gi, "").length < 3) return ""; // too few letters to be a label
+  return words;
+}
+
+/**
+ * Rewrite in-body content <img> tags for SEO + a11y + CLS (US-306, US-434):
+ *   - lazy `loading`/`decoding` hints (always safe)
+ *   - a responsive `/cdn-cgi` srcset/sizes when `resize` is true (gated because
+ *     the transform endpoint 404s until Cloudflare Image Resizing is enabled)
+ *   - a `sensible alt fallback` when the image carries none — derived from the
+ *     filename, else `opts.fallbackAlt` (the post title), else "" (US-434 AC#1)
+ *   - a guaranteed `aspect-ratio` reservation when the image has no explicit
+ *     width+height, so the layout doesn't shift as images load (US-434 AC#2).
+ *     `auto 16/9` reserves 16:9 up front but defers to the image's natural ratio
+ *     once known, so nothing is permanently distorted.
+ * Idempotent: a second pass is a no-op (every guard already trips). Body HTML is
+ * sanitized upstream, so this only adds attributes — it never introduces tags.
+ */
+export function rewriteContentImages(
+  html: string,
+  resize = false,
+  opts: { fallbackAlt?: string } = {},
+): string {
+  const fallbackAlt = (opts.fallbackAlt ?? "").trim();
+  return html.replace(/<img\b([^>]*?)\s*\/?>/gi, (full, attrs: string) => {
     const src = attrs.match(/\bsrc="([^"]+)"/i)?.[1];
     if (!src || src.startsWith("data:")) return full;
+    const alreadyResponsive =
+      /\bsrcset=/i.test(attrs) || /\/cdn-cgi\/image\//i.test(attrs);
     let extra = "";
-    if (resize) {
+    if (resize && !alreadyResponsive) {
       const srcset = buildSrcSet(src, BLOG_IMG_WIDTHS);
       if (srcset) extra += ` srcset="${escape(srcset)}" sizes="${BLOG_IMG_SIZES}"`;
     }
     if (!/\bloading=/i.test(attrs)) extra += ` loading="lazy"`;
     if (!/\bdecoding=/i.test(attrs)) extra += ` decoding="async"`;
-    return extra ? `<img${attrs}${extra}>` : full;
+    // Backfill a missing alt (an explicit alt="" decorative marker is respected).
+    if (!/\balt=/i.test(attrs)) {
+      const alt = deriveAltFromSrc(src) || fallbackAlt;
+      extra += ` alt="${escape(alt)}"`;
+    }
+    // Reserve layout: explicit width+height already lets the browser compute the
+    // ratio; otherwise add a guaranteed (non-distorting) aspect-ratio fallback.
+    const hasDims = /\bwidth=/i.test(attrs) && /\bheight=/i.test(attrs);
+    if (!hasDims && !/\bstyle=/i.test(attrs)) {
+      extra += ` style="aspect-ratio:auto 16/9"`;
+    }
+    if (!extra) return full;
+    // Re-emit without the trailing void-slash the upstream sanitizer adds, so
+    // appended attributes don't land after a stray `/`.
+    return `<img${attrs.replace(/\s+$/, "")}${extra}>`;
   });
 }
 
