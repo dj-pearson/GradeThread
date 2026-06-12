@@ -7348,8 +7348,8 @@
         "Regression test asserts an admin adjustment is readable back from the DB"
       ],
       "priority": 474,
-      "passes": false,
-      "notes": "[P0][Admin/Grading] Audit 2026-06-03. No grade_reports UPDATE policy exists; client UPDATEs no-op (RLS) but report success."
+      "passes": true,
+      "notes": "[P0][Admin/Grading] Audit 2026-06-03. No grade_reports UPDATE policy exists; client UPDATEs no-op (RLS) but report success. | DONE 2026-06-12: moved ALL admin dispute writes off the browser Supabase client (which no-oped under RLS — there's no admin UPDATE policy on grade_reports OR disputes OR submissions) to a new service-role edge route admin-disputes.ts mounted at /api/admin/disputes (under-review/resolve/reject), admin-JWT+MFA gated. New lib/db-write.ts updateByIdChecked() runs .update().eq().select('id') and THROWS ZeroRowsAffectedError on 0 rows, so a vanished/mismatched id surfaces a real 409 instead of a false success (AC2); used by dispute resolve/reject AND the review-queue adjust+approve paths in admin-grading.ts. New shared lib/grade-adjustment.ts applyGradeAdjustment() reseals the certificate hash on a score change (US-475) for both call sites. disputes.tsx now calls the edge via edgeFetch (super-admin >1.5pt gate enforced client+server). Chose the edge-route option of AC1 (not an RLS policy) because the client can't reseal the cert. Regression test dispute-resolution_test.ts asserts an adjustment persists + is readable back + verifies authentic, and that a 0-row update throws (AC3). deno check/lint clean, 739 edge tests pass, frontend tsc -b + build + eslint clean."
     },
     {
       "id": "US-475",

@@ -885,3 +885,22 @@ Branch: ralph/gradethread-build
   * Verification: deno lint (304 files), deno check src/main.ts, full deno test (737 passed / 0 failed). Frontend untouched.
 - Timestamp: 2026-06-12
 ---
+
+## US-474: Fix admin grade-correction/dispute writes (RLS or move to edge)
+- Status: COMPLETE
+- Files changed:
+  * services/edge-functions/src/lib/db-write.ts (NEW — updateByIdChecked + ZeroRowsAffectedError)
+  * services/edge-functions/src/lib/grade-adjustment.ts (NEW — applyGradeAdjustment, shared reseal+checked-write)
+  * services/edge-functions/src/routes/admin-disputes.ts (NEW — /api/admin/disputes under-review/resolve/reject, service-role)
+  * services/edge-functions/src/routes/admin-grading.ts (adjust+approve now use applyGradeAdjustment/updateByIdChecked → 0-row = real 409)
+  * services/edge-functions/src/main.ts (import + mount adminDisputesRoutes)
+  * services/edge-functions/src/tests/dispute-resolution_test.ts (NEW — readback + zero-row regression)
+  * src/pages/admin/disputes.tsx (handleMarkUnderReview/handleResolve/handleReject now call edge via edgeFetch; removed dead client-side grade_reports/disputes/submissions UPDATEs + logAuditAction)
+- Notes:
+  * Root cause was broader than grade_reports: there is NO admin/reviewer UPDATE policy on grade_reports, disputes, OR submissions, so the entire browser-side dispute flow (status flips + grade correction) no-oped under RLS while toasting success.
+  * Chose AC1's "move to a service-role edge route" over adding an is_reviewer_or_admin() UPDATE policy — the browser can't reseal the certificate (CERT_SIGNING_KEY is edge-only), so a client write would leave the cert verifying as tampered (the exact bug US-775 fixed for the review queue).
+  * AC2 satisfied by updateByIdChecked() across dispute resolve/reject + review adjust/approve; AC3 by the new test (persist→readback→verify authentic, plus 0-row throws).
+  * Super-admin >1.5pt swing gate enforced server-side on dispute resolve too (parity with review adjust); client pre-checks for friendlier UX.
+  * Verification: deno check src/main.ts, deno lint (5 changed files), full deno test (739 passed/0 failed). Frontend: npx tsc --noEmit + npm run build (tsc -b) + eslint disputes.tsx all clean.
+- Timestamp: 2026-06-12
+---

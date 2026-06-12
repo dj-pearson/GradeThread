@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { getImageUrl } from "@/lib/storage";
 import { promoteEvalCandidate } from "@/lib/eval-candidates";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { GRADE_FACTORS } from "@/lib/constants";
 import type {
   DisputeRow,
@@ -12,8 +13,6 @@ import type {
   SubmissionRow,
   GradeReportRow,
   SubmissionImageRow,
-  HumanReviewInsert,
-  AdminAuditLogInsert,
   UserRow,
 } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -392,40 +391,24 @@ export function AdminDisputesPage() {
     [adjustedScores]
   );
 
-  // ─── Audit Logging ────────────────────────────────────────────────
-
-  async function logAuditAction(
-    action: string,
-    targetType: string,
-    targetId: string,
-    details: Record<string, unknown>
-  ) {
-    if (!profile) return;
-    const entry: AdminAuditLogInsert = {
-      admin_user_id: profile.id,
-      action,
-      target_type: targetType,
-      target_id: targetId,
-      details,
-    };
-    await supabase.from("admin_audit_log").insert(entry as never);
-  }
-
   // ─── Actions ──────────────────────────────────────────────────────
+  //
+  // US-474: every dispute mutation goes through the admin-MFA-gated edge
+  // endpoints (/api/admin/disputes/*). The browser Supabase client can't write
+  // grade_reports/disputes/submissions (no admin UPDATE policy — those calls
+  // no-oped under RLS while reporting success), and only the edge can reseal a
+  // certificate after a grade adjustment. The server records the audit trail +
+  // human_review and verifies each write changed a row.
 
   async function handleMarkUnderReview(item: EnrichedDispute) {
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from("disputes")
-        .update({ status: "under_review" } as never)
-        .eq("id", item.dispute.id);
-      if (error) throw error;
-
-      await logAuditAction("dispute_under_review", "dispute", item.dispute.id, {
-        submission_id: item.submission.id,
-        grade_report_id: item.report.id,
-      });
+      const res = await edgeFetch(
+        `/api/admin/disputes/${item.dispute.id}/under-review`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to update dispute.");
 
       // Notify the submitter their dispute is being reviewed.
       sendDisputeNotification(item.dispute.id);
@@ -452,74 +435,47 @@ export function AdminDisputesPage() {
       return;
     }
 
+    // US-478 parity: a swing > 1.5 points requires super_admin (the server
+    // enforces this too — this is just an early, friendlier block).
+    const scoreDiff = Math.abs(computedOverallScore - selectedDispute.report.overall_score);
+    if (adjustGrade && scoreDiff > 1.5 && profile.role !== "super_admin") {
+      toast.error("Super admin approval required", {
+        description: "Grade changes greater than 1.5 points require super_admin approval.",
+      });
+      return;
+    }
+
     setActionLoading(true);
     try {
-      // If adjusting grade, create a human_review record and update the grade report
+      const res = await edgeFetch(
+        `/api/admin/disputes/${selectedDispute.dispute.id}/resolve`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            notes: resolutionNotes,
+            adjustGrade,
+            factors: adjustGrade ? adjustedScores : undefined,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to resolve dispute.");
+
+      // US-329: a dispute resolved by adjusting the grade is a high-value
+      // correction — promote it into a pending eval candidate (best-effort).
       if (adjustGrade) {
-        const reviewInsert: HumanReviewInsert = {
-          grade_report_id: selectedDispute.report.id,
-          reviewer_id: profile.id,
-          original_score: selectedDispute.report.overall_score,
-          adjusted_score: computedOverallScore,
-          review_notes: `Dispute resolution: ${resolutionNotes}`,
-        };
-
-        const { error: reviewError } = await supabase
-          .from("human_reviews")
-          .insert(reviewInsert as never);
-        if (reviewError) throw reviewError;
-
-        // Update grade report with adjusted scores
-        const { error: updateError } = await supabase
-          .from("grade_reports")
-          .update({
-            overall_score: computedOverallScore,
-            fabric_condition_score: adjustedScores.fabric_condition_score,
-            structural_integrity_score: adjustedScores.structural_integrity_score,
-            cosmetic_appearance_score: adjustedScores.cosmetic_appearance_score,
-            functional_elements_score: adjustedScores.functional_elements_score,
-            odor_cleanliness_score: adjustedScores.odor_cleanliness_score,
-          } as never)
-          .eq("id", selectedDispute.report.id);
-        if (updateError) throw updateError;
-
-        // US-329: a dispute resolved by adjusting the grade is a high-value
-        // correction — promote it into a pending eval candidate (best-effort).
         await promoteEvalCandidate(selectedDispute.report.id, "dispute");
       }
-
-      // Update dispute status to resolved
-      const { error: disputeError } = await supabase
-        .from("disputes")
-        .update({
-          status: "resolved",
-          resolution_notes: resolutionNotes,
-        } as never)
-        .eq("id", selectedDispute.dispute.id);
-      if (disputeError) throw disputeError;
-
-      // Update submission status to completed
-      const { error: subError } = await supabase
-        .from("submissions")
-        .update({ status: "completed" } as never)
-        .eq("id", selectedDispute.submission.id);
-      if (subError) throw subError;
-
-      await logAuditAction("dispute_resolved", "dispute", selectedDispute.dispute.id, {
-        submission_id: selectedDispute.submission.id,
-        grade_report_id: selectedDispute.report.id,
-        grade_adjusted: adjustGrade,
-        original_score: selectedDispute.report.overall_score,
-        new_score: adjustGrade ? computedOverallScore : selectedDispute.report.overall_score,
-        resolution_notes: resolutionNotes,
-      });
 
       // Send dispute resolved email notification (fire-and-forget)
       sendDisputeNotification(selectedDispute.dispute.id);
 
+      const newScore = typeof json.overall_score === "number"
+        ? json.overall_score
+        : computedOverallScore;
       toast.success("Dispute resolved", {
         description: adjustGrade
-          ? `Grade adjusted from ${selectedDispute.report.overall_score.toFixed(1)} to ${computedOverallScore.toFixed(1)}.`
+          ? `Grade adjusted from ${selectedDispute.report.overall_score.toFixed(1)} to ${newScore.toFixed(1)}${json.resealed ? " (certificate resealed)" : ""}.`
           : "Dispute resolved with original grade maintained.",
       });
 
@@ -546,27 +502,12 @@ export function AdminDisputesPage() {
 
     setActionLoading(true);
     try {
-      const { error: disputeError } = await supabase
-        .from("disputes")
-        .update({
-          status: "rejected",
-          resolution_notes: rejectReason,
-        } as never)
-        .eq("id", rejectTarget.dispute.id);
-      if (disputeError) throw disputeError;
-
-      // Update submission status back to completed
-      const { error: subError } = await supabase
-        .from("submissions")
-        .update({ status: "completed" } as never)
-        .eq("id", rejectTarget.submission.id);
-      if (subError) throw subError;
-
-      await logAuditAction("dispute_rejected", "dispute", rejectTarget.dispute.id, {
-        submission_id: rejectTarget.submission.id,
-        grade_report_id: rejectTarget.report.id,
-        rejection_reason: rejectReason,
-      });
+      const res = await edgeFetch(
+        `/api/admin/disputes/${rejectTarget.dispute.id}/reject`,
+        { method: "POST", body: JSON.stringify({ reason: rejectReason }) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Failed to reject dispute.");
 
       // Send dispute rejected email notification (fire-and-forget)
       sendDisputeNotification(rejectTarget.dispute.id);

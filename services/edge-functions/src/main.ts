@@ -42,6 +42,7 @@ import {
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
+import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
@@ -475,6 +476,10 @@ app.route("/api/admin", adminBillingRoutes);
 // US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
 app.route("/api/admin/feature-flags", adminFlagsRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
+// US-474 admin dispute resolution. Service-role writes (grade_reports/disputes/
+// submissions) that used to no-op under RLS as browser calls; reseals the
+// certificate on a grade adjustment. Admin JWT + MFA via the /api/admin/* group.
+app.route("/api/admin/disputes", adminDisputesRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).

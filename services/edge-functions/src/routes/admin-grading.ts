@@ -19,9 +19,14 @@ import {
   clampScore,
   computeWeightedOverall,
   type FactorScores,
-  resealCertificate,
   scoreToGradeTier,
 } from "../lib/human-review.ts";
+import { applyGradeAdjustment } from "../lib/grade-adjustment.ts";
+import {
+  type CheckedUpdateClient,
+  updateByIdChecked,
+  ZeroRowsAffectedError,
+} from "../lib/db-write.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -1079,10 +1084,22 @@ adminGradingRoutes.post("/review/:id/approve", async (c) => {
     return c.json({ error: "Failed to record review" }, 500);
   }
 
-  await supabaseAdmin
-    .from("grade_reports")
-    .update({ human_reviewed: true, needs_human_review: false })
-    .eq("id", report.id);
+  // US-474: verify the flag-clear actually changed a row (service-role updates
+  // no-op silently when the id no longer matches).
+  try {
+    await updateByIdChecked(
+      supabaseAdmin as unknown as CheckedUpdateClient,
+      "grade_reports",
+      report.id,
+      { human_reviewed: true, needs_human_review: false },
+    );
+  } catch (err) {
+    if (err instanceof ZeroRowsAffectedError) {
+      return c.json({ error: "Grade report not found or unchanged" }, 409);
+    }
+    console.error("[admin-grading] approve: grade_reports update failed:", err);
+    return c.json({ error: "Failed to record review" }, 500);
+  }
 
   await auditLog(c, "grading.review_approved", "grade_report", report.id, {
     submission_id: report.submission_id,
@@ -1167,38 +1184,24 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
     return c.json({ error: "Failed to record review" }, 500);
   }
 
-  // Reseal the certificate over the NEW certified fields (US-333/US-770). The
-  // ai_summary + buyer_writeup are unchanged by a score adjustment but must be
-  // passed so the v2 hash keeps matching.
+  // Write the corrected scores, reseal the certificate over the NEW certified
+  // fields (US-333/US-770), and VERIFY a row changed (US-474) — a 0-row update
+  // must surface a real error, not a false success. The shared helper is the
+  // single source of truth shared with dispute resolution.
   let resealed = false;
-  const update: Record<string, unknown> = {
-    overall_score: overall,
-    grade_tier: tier,
-    ...factors,
-    human_reviewed: true,
-    needs_human_review: false,
-  };
-  if (report.certificate_id) {
-    const integrity = await resealCertificate({
-      certificate_id: report.certificate_id,
-      overall_score: overall,
-      grade_tier: tier,
-      ...factors,
-      ai_summary: report.ai_summary,
-      buyer_writeup: report.buyer_writeup,
-    });
-    update.content_hash = integrity.content_hash;
-    update.content_signature = integrity.content_signature;
-    update.integrity_version = integrity.integrity_version;
-    resealed = true;
-  }
-
-  const { error: updErr } = await supabaseAdmin
-    .from("grade_reports")
-    .update(update)
-    .eq("id", report.id);
-  if (updErr) {
-    console.error("[admin-grading] adjust: grade_reports update failed:", updErr);
+  try {
+    const result = await applyGradeAdjustment(
+      supabaseAdmin as unknown as CheckedUpdateClient,
+      report,
+      factors,
+      { human_reviewed: true, needs_human_review: false },
+    );
+    resealed = result.resealed;
+  } catch (err) {
+    if (err instanceof ZeroRowsAffectedError) {
+      return c.json({ error: "Grade report not found or unchanged" }, 409);
+    }
+    console.error("[admin-grading] adjust: grade_reports update failed:", err);
     return c.json({ error: "Failed to update grade" }, 500);
   }
 
