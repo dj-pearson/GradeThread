@@ -206,11 +206,11 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 29000,
     activeListingCap: 250,
     aiActionsPerMonth: 200,
-    marketplacesCap: 2,
+    marketplacesCap: 1,
     includedStandardGradesPerMonth: 10,
     features: [
       "250 active listings",
-      "eBay + 1 additional marketplace",
+      "eBay listings & sync (more marketplaces coming soon)",
       "200 AI actions / month",
       "10 Standard grades included / month",
       "Auto-import payouts",
@@ -233,11 +233,11 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 59000,
     activeListingCap: 1000,
     aiActionsPerMonth: 1000,
-    marketplacesCap: -1,
+    marketplacesCap: 1,
     includedStandardGradesPerMonth: 30,
     features: [
       "1,000 active listings",
-      "All marketplaces",
+      "eBay listings & sync (more marketplaces coming soon)",
       "1,000 AI actions / month",
       "30 Standard grades included / month",
       "Bulk actions + scheduled actions",
@@ -263,11 +263,11 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 99000,
     activeListingCap: -1,
     aiActionsPerMonth: 5000,
-    marketplacesCap: -1,
+    marketplacesCap: 1,
     includedStandardGradesPerMonth: 75,
     features: [
       "Unlimited active listings",
-      "All marketplaces",
+      "eBay listings & sync (more marketplaces coming soon)",
       "5,000 AI actions / month",
       "75 Standard grades included / month",
       "AI AutoLister — bulk photos to eBay listings",
@@ -291,6 +291,16 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
 } as const;
 
 export type FlipdeskPlanKey = "free" | "starter" | "pro" | "business";
+
+// Human label for a plan's marketplace cap. At launch FlipDesk publishes to
+// eBay only (other adapters are stubs that return 501 — see US-458), so a cap
+// of 1 reads as "eBay" rather than an ambiguous bare "1"; -1 stays "All" for
+// when additional marketplaces ship.
+export function formatMarketplacesCap(cap: number): string {
+  if (cap === -1) return "All";
+  if (cap === 1) return "eBay";
+  return String(cap);
+}
 
 // eBay Sell API condition enum values with buyer-friendly labels. Mirrors
 // EBAY_CONDITION_VALUES in services/edge-functions/src/lib/ai-listing.ts.

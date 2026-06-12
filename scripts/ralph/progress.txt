@@ -851,3 +851,10 @@ Branch: ralph/gradethread-build
 - Notes: New ScoreBandIcon component pairs each color-coded grade numeral with a distinctly-shaped lucide icon (CheckCircle2 high / MinusCircle mid / AlertTriangle low) sized to 1em + an sr-only band label, so the quality tier reads via shape and screen reader, not color alone (WCAG 1.4.1). Applied to submissions list cell, dashboard recent-submissions, and the factor-breakdown rows in submission-detail/certificate/inventory-detail. Submissions/dashboard list cells also surface grade_tier as visible text (withLabel=false there to avoid redundancy). Overall-score circles already pair with an adjacent tier-text Badge, so left as-is. FlipDesk listings 0-100 readiness score is a numeric value (text), not a grade tier, so unchanged. Verified via tsc --noEmit, npm run build, and eslint (clean). Distinct icon silhouettes pass a color-blindness simulator audit.
 - Timestamp: 2026-06-12
 ---
+
+## US-458: Reconcile multi-marketplace promise vs eBay-only reality
+- Status: COMPLETE
+- Files changed: src/lib/constants.ts, src/components/billing/flipdesk-plan-comparison.tsx, src/components/billing/flipdesk-plan-picker-dialog.tsx, prd.json
+- Notes: Took AC1 option A (correct plan copy/marketplacesCap to eBay-only for launch) instead of building a second integration. All FLIPDESK_PLANS marketplacesCap -> 1 (was starter:2, pro/business:-1); replaced "eBay + 1 additional marketplace"/"All marketplaces" bullets with "eBay listings & sync (more marketplaces coming soon)". Added formatMarketplacesCap() helper (cap 1 -> "eBay", -1 -> "All") used in the two plan-stat render sites. AC2 already met (Marketplaces UI exposes only eBay connect; others under muted "Coming soon"; composer tags non-eBay "saved locally — publish coming soon"). AC3 already met (edge marketplace-adapters registry returns structured 501 for every non-eBay platform via notImplemented(); no coercion to eBay; covered by marketplace-adapters_test.ts). usage-meter already drops the marketplace meter at cap===1. Verified: tsc --noEmit, npm run build, eslint all clean.
+- Timestamp: 2026-06-12
+---

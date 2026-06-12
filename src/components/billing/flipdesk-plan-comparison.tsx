@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { FLIPDESK_PLANS } from "@/lib/constants";
+import { FLIPDESK_PLANS, formatMarketplacesCap } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
 import { cn } from "@/lib/utils";
@@ -174,7 +174,7 @@ export function FlipdeskPlanComparison({
                   />
                   <Stat
                     label="Marketplaces"
-                    value={plan.marketplacesCap === -1 ? "All" : `${plan.marketplacesCap}`}
+                    value={formatMarketplacesCap(plan.marketplacesCap)}
                   />
                   <Stat
                     label="Included grades / mo"

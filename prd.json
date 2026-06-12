@@ -7143,8 +7143,8 @@
         "No code path silently treats a non-eBay platform as eBay"
       ],
       "priority": 458,
-      "passes": false,
-      "notes": "[P1][FlipDesk] Audit 2026-06-03. Plans advertise Poshmark/Mercari/Depop/Etsy; only eBay is implemented."
+      "passes": true,
+      "notes": "[P1][FlipDesk] Audit 2026-06-03. Plans advertise Poshmark/Mercari/Depop/Etsy; only eBay is implemented. | DONE 2026-06-12. Chose AC1 option A (correct copy to eBay-only for launch) rather than building a second integration. constants.ts: all FLIPDESK_PLANS marketplacesCap set to 1 (was starter:2, pro/business:-1) and the 'eBay + 1 additional marketplace'/'All marketplaces' feature bullets replaced with honest 'eBay listings & sync (more marketplaces coming soon)'. New formatMarketplacesCap() helper renders a cap of 1 as 'eBay' (not a bare '1'), -1 as 'All'; used by flipdesk-plan-comparison + flipdesk-plan-picker-dialog Stat rows. AC2 was already satisfied: the Marketplaces UI only exposes an eBay connect flow and lists Poshmark/Mercari/Shopify/Depop/Grailed/Whatnot under a muted 'Coming soon' row; the composer's 'Push to' tags non-eBay platforms 'saved locally — publish coming soon'. AC3 was already satisfied: edge dispatch goes through the marketplace-adapters registry where every non-eBay adapter returns a structured 501 via notImplemented() — no path coerces a non-eBay platform into the eBay pipeline (covered by marketplace-adapters_test.ts). Side effect: the dashboard UsageMeters already drops the marketplace meter at cap===1, and billing.tsx now shows an accurate 'Marketplaces connected 1/1' once eBay is linked. tsc --noEmit + npm run build + eslint clean."
     },
     {
       "id": "US-459",
