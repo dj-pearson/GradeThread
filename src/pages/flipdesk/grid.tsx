@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Grid3x3,
@@ -106,6 +110,48 @@ const COLS: GridCol[] = [
 
 const PAGE_SIZE = 100;
 
+// Only the columns this spreadsheet renders/edits — the items_full view is wide
+// (jsonb comps/measurements, per-row photo subqueries) and loading all of it
+// per page is wasteful (US-404). Selecting a slim projection lets Postgres
+// prune the unused view columns from the plan.
+const GRID_COLUMNS =
+  "id,item_number,item_title,brand,style,size,purchase_price,target_price,notes,status";
+
+// Minimal typed view of the PostgREST builder for the (untyped) items_full
+// view — supports the count + search + range chain this page needs.
+interface ItemsFullPageBuilder {
+  or: (filter: string) => ItemsFullPageBuilder;
+  order: (
+    col: string,
+    opts?: { ascending?: boolean },
+  ) => ItemsFullPageBuilder;
+  range: (
+    from: number,
+    to: number,
+  ) => Promise<{
+    data: ItemFullRow[] | null;
+    error: Error | null;
+    count: number | null;
+  }>;
+}
+
+function itemsFullPage() {
+  return (
+    supabase.from as unknown as (name: "items_full") => {
+      select: (
+        cols: string,
+        opts: { count: "exact" },
+      ) => ItemsFullPageBuilder;
+    }
+  )("items_full");
+}
+
+// PostgREST `.or()` is a comma/parenthesis-delimited grammar, so strip the
+// characters that would break the filter out of the user's search term.
+function sanitizeSearch(raw: string): string {
+  return raw.trim().replace(/[,():*\\%]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 type Staged = Map<string, Record<string, string>>; // itemId → { field: value }
 interface EditLog {
   itemId: string;
@@ -126,47 +172,48 @@ export function FlipdeskGridPage() {
     setPage(1);
   }, [search]);
 
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", user?.id],
+  // US-404: server-side pagination. Only the current page (PAGE_SIZE rows) of a
+  // slim column projection is ever loaded, with a grouped exact count for the
+  // total — so a 5k+ item account stays responsive instead of transferring the
+  // entire wide view on every render. Search is pushed to the server too.
+  const { data, isLoading, isPlaceholderData } = useQuery({
+    queryKey: ["items_full", "grid", user?.id, page, search.trim()],
     enabled: !!user,
     // 15-min freshness — mutations invalidate items_full explicitly (US-735).
     staleTime: 15 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: false });
+    placeholderData: keepPreviousData,
+    queryFn: async (): Promise<{ rows: ItemFullRow[]; total: number }> => {
+      const q = sanitizeSearch(search);
+      const from = (page - 1) * PAGE_SIZE;
+      let builder = itemsFullPage().select(GRID_COLUMNS, { count: "exact" });
+      if (q) {
+        builder = builder.or(
+          `item_title.ilike.*${q}*,brand.ilike.*${q}*,` +
+            `item_number.ilike.*${q}*,style.ilike.*${q}*`,
+        );
+      }
+      const {
+        data: rows,
+        error,
+        count,
+      } = await builder
+        .order("created_at", { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
       if (error) throw error;
-      return data ?? [];
+      return { rows: rows ?? [], total: count ?? 0 };
     },
   });
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((it) => {
-      const hay = [it.item_title, it.brand, it.item_number, it.style]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(q);
-    });
-  }, [items, search]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageRows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Clamp the page when a search shrinks the result set below the current page.
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   const dirtyCount = useMemo(() => {
     let n = 0;
@@ -404,7 +451,7 @@ export function FlipdeskGridPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>{filtered.length} rows</CardTitle>
+          <CardTitle>{total.toLocaleString()} rows</CardTitle>
           <CardDescription>
             Click a cell to edit. Enter / ↑ ↓ move between rows; Esc reverts a
             cell. Changed cells turn amber.
@@ -419,7 +466,12 @@ export function FlipdeskGridPage() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div
+                className={cn(
+                  "overflow-x-auto transition-opacity",
+                  isPlaceholderData && "opacity-60",
+                )}
+              >
                 <table className="w-full border-collapse text-xs">
                   <thead>
                     <tr className="border-b bg-muted/40">
@@ -483,7 +535,7 @@ export function FlipdeskGridPage() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-xs">
                 <div className="text-muted-foreground">
                   {pageStart + 1}–{pageStart + pageRows.length} of{" "}
-                  {filtered.length}
+                  {total.toLocaleString()}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button

@@ -68,10 +68,23 @@ function presetRange(p: Preset): DateRange {
   return { from: from.toISOString().slice(0, 10), to: null };
 }
 
+// US-404: the reports only read these grouping/measure columns. Selecting them
+// explicitly (instead of `*`) keeps the analytics load off the wide items_full
+// view — no jsonb comps/measurements and, crucially, no per-row photo
+// subqueries — so the aggregate scans stay fast on large accounts. This is an
+// account-wide aggregation, so every matching row is needed; pagination does
+// not apply, but the slim projection is what keeps it responsive.
+const ANALYTICS_COLUMNS =
+  "category,brand,source_name,list_date,sale_date,sale_price," +
+  "net_profit,days_to_sell,grade_value";
+
 function useItemsFull() {
   const user = useAuthStore((s) => s.user);
   return useQuery({
-    queryKey: ["items_full", user?.id],
+    // Distinct from the listings/pipeline full-row cache (those expect every
+    // column) but still under the "items_full" prefix so mutation
+    // invalidations reach it.
+    queryKey: ["items_full", "analytics", user?.id],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<ItemFullRow[]> => {
@@ -87,7 +100,7 @@ function useItemsFull() {
           };
         }
       )("items_full")
-        .select("*")
+        .select(ANALYTICS_COLUMNS)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];

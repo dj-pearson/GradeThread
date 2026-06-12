@@ -6468,8 +6468,8 @@
         "Verified responsive (<1s) with 5k+ items"
       ],
       "priority": 404,
-      "passes": false,
-      "notes": "[P0][Performance] Audit 2026-06-03. listings.tsx:444, analytics.tsx:90, grid.tsx:145 do items_full select('*') with no limit."
+      "passes": true,
+      "notes": "[P0][Performance] Audit 2026-06-03. DONE: (1) grid.tsx now true server-side pagination — .range() over a slim 10-col projection + server-side ilike search + count:'exact' for totals (only one PAGE_SIZE page ever loaded). (2) analytics.tsx narrowed to a 9-col projection (no jsonb/photo subqueries); it's an account-wide aggregate so pagination N/A. (3) Migration 00144 adds inventory_status_counts() (security-invoker grouped count); listings tab counts now come from that RPC instead of the loaded rows. (4) listings.tsx select('*')→explicit projection dropping the two per-row photo correlated-subqueries (photo_count, has_required_photos) + ai_field_sources/ai_enriched_at; item-canvas.tsx lazy-loads those four for the single open item (comps/measurements kept since listability scoring + the editor need them across the loaded set). All items_full caches keyed under the 'items_full' prefix so existing invalidations still reach grid/analytics/status-count queries. tsc/build/eslint clean."
     },
     {
       "id": "US-405",

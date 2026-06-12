@@ -174,6 +174,27 @@ function toState(item: ItemFullRow): EditState {
   };
 }
 
+// US-404: heavy/derived columns that the inventory list omits from its bulk
+// load and the canvas lazy-loads for the single open item. Read defensively —
+// when fed from the slim list query these are absent on `item`.
+interface HeavyFields {
+  photo_count: number;
+  has_required_photos: boolean;
+  ai_field_sources: ItemFullRow["ai_field_sources"];
+}
+
+// Mirrors the items_full view's has_required_photos definition (00018).
+const REQUIRED_PHOTO_TYPES = ["front", "back", "tag", "detail"] as const;
+
+function heavyFromItem(item: ItemFullRow): HeavyFields {
+  const partial = item as Partial<ItemFullRow>;
+  return {
+    photo_count: partial.photo_count ?? 0,
+    has_required_photos: partial.has_required_photos ?? false,
+    ai_field_sources: partial.ai_field_sources ?? null,
+  };
+}
+
 // Form-shaped view of a raw inventory_items row, for the duplicate-SKU merge
 // comparison (same string conventions as EditState).
 function rowToMergeValues(row: InventoryItemRow): MergeValues {
@@ -230,6 +251,14 @@ export function ItemCanvas({
   const { workspaceOwnerId } = useWorkspace();
   const [state, setState] = useState<EditState>(() => toState(item));
   const [saving, setSaving] = useState(false);
+
+  // US-404: the inventory LIST now omits these heavy/derived columns from its
+  // bulk load (the per-row photo subqueries + the ai_field_sources jsonb) to
+  // keep the wide items_full view off the list query. When a feeder still
+  // supplies them (pipeline / standalone page) they show instantly; otherwise
+  // we lazy-load them for this one open item below. Initialised from `item`
+  // (which may be a partial row) with safe defaults.
+  const [heavy, setHeavy] = useState<HeavyFields>(() => heavyFromItem(item));
   const [markListedItem, setMarkListedItem] = useState<ItemFullRow | null>(null);
   const [recordSaleItem, setRecordSaleItem] = useState<ItemFullRow | null>(null);
 
@@ -259,6 +288,7 @@ export function ItemCanvas({
   // Re-seed state when the underlying item identity changes.
   useEffect(() => {
     setState(toState(item));
+    setHeavy(heavyFromItem(item));
     setAiResult(null);
     setAiPanelOpen(false);
     setAiFields(new Set());
@@ -266,22 +296,55 @@ export function ItemCanvas({
     pushRecent(item.id);
   }, [item, pushRecent]);
 
-  // color/material live on inventory_items but not the items_full view —
-  // pull them in once the canvas mounts for this item.
+  // color/material/ai_field_sources live on inventory_items but not (or, for
+  // ai_field_sources, no longer) on the slim list query — pull them in once the
+  // canvas mounts for this item (US-404).
   useEffect(() => {
     let cancelled = false;
     void supabase
       .from("inventory_items")
-      .select("color, material")
+      .select("color, material, ai_field_sources")
       .eq("id", item.id)
       .single()
       .then(({ data }) => {
         if (cancelled || !data) return;
-        const row = data as { color: string | null; material: string | null };
+        const row = data as {
+          color: string | null;
+          material: string | null;
+          ai_field_sources: ItemFullRow["ai_field_sources"];
+        };
         setState((s) => ({
           ...s,
           color: row.color ?? "",
           material: row.material ?? "",
+        }));
+        setHeavy((h) => ({
+          ...h,
+          ai_field_sources: row.ai_field_sources ?? null,
+        }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
+
+  // Photo readiness (count + the front/back/tag/detail completeness flag) — the
+  // items_full view computes these as per-row correlated subqueries, which the
+  // list now omits (US-404). Derive them here for the single open item.
+  useEffect(() => {
+    let cancelled = false;
+    void supabase
+      .from("item_photos")
+      .select("photo_type")
+      .eq("inventory_item_id", item.id)
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        const rows = data as { photo_type: string }[];
+        const types = new Set(rows.map((r) => r.photo_type));
+        setHeavy((h) => ({
+          ...h,
+          photo_count: rows.length,
+          has_required_photos: REQUIRED_PHOTO_TYPES.every((t) => types.has(t)),
         }));
       });
     return () => {
@@ -409,7 +472,7 @@ export function ItemCanvas({
     const targetPrice = priceOrNull(s.target_price);
     const resolvedStatus = resolveStatus(item.status, s.status, {
       hasMeasurements: Object.keys(s.measurements).length > 0,
-      hasRequiredPhotos: item.has_required_photos === true,
+      hasRequiredPhotos: heavy.has_required_photos === true,
       hasTargetPrice: targetPrice != null,
       hasDraftListing: item.listing_id != null,
     });
@@ -705,7 +768,7 @@ export function ItemCanvas({
     state.condition_notes,
   ].some((s) => s.trim());
   const canComplete =
-    missingCount > 0 && (item.photo_count > 0 || hasAiText);
+    missingCount > 0 && (heavy.photo_count > 0 || hasAiText);
 
   return (
     <>
@@ -910,7 +973,7 @@ export function ItemCanvas({
             brand={state.brand}
             values={state.measurements}
             onChange={(m) => patch("measurements", m)}
-            aiSources={item.ai_field_sources}
+            aiSources={heavy.ai_field_sources}
           />
         </div>
 

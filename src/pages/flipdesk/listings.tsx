@@ -225,6 +225,64 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
 
+// US-404: explicit projection instead of `select("*")` on the wide items_full
+// view. We drop the columns this triage surface never reads in bulk — the two
+// per-row photo correlated-subqueries (photo_count, has_required_photos) and
+// the AI-provenance fields (ai_field_sources, ai_enriched_at) — which lets
+// Postgres prune those subqueries from the plan. The detail canvas lazy-loads
+// those four for the single open item (see item-canvas.tsx). comps/measurements
+// stay: listability scoring + the editor need them across the loaded set.
+const LISTINGS_COLUMNS = [
+  "id",
+  "user_id",
+  "item_number",
+  "container",
+  "item_title",
+  "item_description",
+  "brand",
+  "style",
+  "size",
+  "notes",
+  "comps",
+  "category",
+  "source_name",
+  "source_id",
+  "sourced_by",
+  "purchase_date",
+  "purchase_price",
+  "listed",
+  "list_date",
+  "link",
+  "list_price",
+  "sale_date",
+  "sale_price",
+  "fees",
+  "tax",
+  "shipping_cost",
+  "net_profit",
+  "payout",
+  "status",
+  "days_to_sell",
+  "tracking",
+  "target_price",
+  "grade_value",
+  "grade_label",
+  "certificate_url",
+  "measurements",
+  "location_bin",
+  "created_at",
+  "updated_at",
+  "buyer_id",
+  "sold_at_raw",
+  "payout_reference",
+  "listing_status",
+  "listing_id",
+  "listing_watchers",
+  "listing_views",
+  "sale_status",
+  "sale_cancelled_at",
+].join(",");
+
 function fmtMoney(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return "";
   return `$${n.toFixed(2)}`;
@@ -446,10 +504,31 @@ export function FlipdeskListingsPage() {
           };
         }
       )("items_full")
-        .select("*")
+        .select(LISTINGS_COLUMNS)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
+    },
+  });
+
+  // US-404: stage-tab counts come from a server-side grouped count (one row per
+  // status) rather than from the loaded rows — keyed under the items_full prefix
+  // so the existing items_full invalidations refresh it after status changes.
+  const { data: statusCounts } = useQuery({
+    queryKey: ["items_full", "status_counts", user?.id],
+    enabled: !!user,
+    staleTime: 15 * 60 * 1000,
+    queryFn: async (): Promise<Record<string, number>> => {
+      const { data, error } = await (
+        supabase.rpc as unknown as (
+          fn: "inventory_status_counts",
+        ) => Promise<{
+          data: Record<string, number> | null;
+          error: Error | null;
+        }>
+      )("inventory_status_counts");
+      if (error) throw error;
+      return data ?? {};
     },
   });
 
@@ -524,11 +603,27 @@ export function FlipdeskListingsPage() {
       shipped: 0,
       returned: 0,
     };
+    // Prefer the server-side grouped count (decoupled from the loaded rows);
+    // fall back to counting the loaded set if the RPC hasn't resolved yet.
+    if (statusCounts && Object.keys(statusCounts).length > 0) {
+      let all = 0;
+      for (const [st, n] of Object.entries(statusCounts)) {
+        all += n;
+        if (TO_LIST_STATUSES.has(st as ItemStatus)) counts.to_list += n;
+      }
+      counts.all = all;
+      counts.drafts = statusCounts.drafted ?? 0;
+      counts.active = statusCounts.listed ?? 0;
+      counts.sold = statusCounts.sold ?? 0;
+      counts.shipped = statusCounts.shipped ?? 0;
+      counts.returned = statusCounts.returned ?? 0;
+      return counts;
+    }
     for (const it of items) {
       for (const t of TABS) if (t.matches(it)) counts[t.id]++;
     }
     return counts;
-  }, [items]);
+  }, [items, statusCounts]);
 
   const activeTab = TABS.find((t) => t.id === tab) ?? TABS[0]!;
 
