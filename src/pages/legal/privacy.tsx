@@ -7,7 +7,7 @@ export function PrivacyPage() {
       title="Privacy Policy"
       description="How GradeThread collects, uses, and protects your information."
       canonicalPath="/privacy"
-      effectiveDate="April 1, 2026"
+      effectiveDate="June 12, 2026"
     >
       <p>
         This Privacy Policy explains how Pearson Media LLC (&ldquo;Pearson
@@ -209,6 +209,56 @@ export function PrivacyPage() {
           us to process and display them.
         </li>
       </ul>
+
+      <h3 id="human-qa">4.1 Human quality-assurance review</h3>
+      <p>
+        To keep grades accurate and consistent, a small number of trained
+        GradeThread reviewers may view the photos you submitted for grading —
+        for example to audit low-confidence AI grades, investigate disputes,
+        or run inter-rater reliability studies in which several reviewers
+        independently grade the same garments. This access is deliberately
+        limited:
+      </p>
+      <ul>
+        <li>
+          <strong>Minimized.</strong> For reliability studies, reviewers see
+          the garment photos and basic garment attributes (type, category,
+          brand) only. Your name, email address, and other account details
+          are never displayed alongside them, and seller-written titles and
+          descriptions are excluded.
+        </li>
+        <li>
+          <strong>Access-logged.</strong> Every reviewer view of a sampled
+          submission's photos is recorded in an audit log identifying the
+          reviewer, the item, and the time of access.
+        </li>
+        <li>
+          <strong>In place, not copied.</strong> Reviewers view photos through
+          short-lived, expiring links inside the platform; QA studies store
+          only the resulting numeric ratings and notes, not copies of your
+          photos.
+        </li>
+        <li>
+          <strong>Confidential.</strong> Reviewers are bound by
+          confidentiality obligations and may use what they see only for
+          quality assurance.
+        </li>
+      </ul>
+      <p>
+        <strong>Consent and retention for QA use.</strong> QA review is part
+        of providing and improving the Service and is covered by the license
+        you grant in the <Link to="/terms">Terms of Service</Link> together
+        with this disclosure; for EEA/UK users our legal basis is our
+        legitimate interest in grading quality. We do not seek separate
+        per-photo consent, but you may object to QA review of your photos at
+        any time by emailing{" "}
+        <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
+        — objecting does not affect your grades or certificates. QA access
+        ends when your photos are deleted under the retention schedule in{" "}
+        <a href="#retention">Section 7</a> (or earlier on request); deleted
+        photos drop out of QA samples because reviewers always read the live
+        stored photo, never a copy.
+      </p>
 
       <h2 id="certificates">5. Public grade certificates</h2>
       <p>

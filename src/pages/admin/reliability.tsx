@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   BarChart3,
   CheckCircle2,
+  Image as ImageIcon,
   Loader2,
   Lock,
   Plus,
@@ -39,13 +40,19 @@ interface Study {
   created_at: string;
   counts?: StudyCounts;
 }
+// US-488: the queue payload is MINIMIZED server-side — non-identifying garment
+// attributes only. No owner identity, no seller free text (title/description).
 interface QueueItem {
   id: string;
   garment_type: string | null;
   garment_category: string | null;
   brand: string | null;
-  title: string | null;
-  description: string | null;
+}
+interface ItemPhoto {
+  id: string;
+  image_type: string;
+  display_order: number;
+  signed_url: string | null;
 }
 interface IrrReport {
   item_count: number;
@@ -78,6 +85,8 @@ export function AdminReliabilityPage() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [scores, setScores] = useState<Record<string, string>>({});
   const [addIds, setAddIds] = useState("");
+  const [photos, setPhotos] = useState<Record<string, ItemPhoto[]>>({});
+  const [photosLoading, setPhotosLoading] = useState<string | null>(null);
 
   const loadStudies = useCallback(async () => {
     setLoading(true);
@@ -121,6 +130,7 @@ export function AdminReliabilityPage() {
     setReport(null);
     setQueue([]);
     setScores({});
+    setPhotos({});
     try {
       const [reportRes, queueRes] = await Promise.all([
         edgeFetch(`/api/admin/grading/reliability/studies/${study.id}/report`),
@@ -152,6 +162,33 @@ export function AdminReliabilityPage() {
       await loadStudies();
     } catch (e) {
       toast.error(`Add failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  // Each open is a server round-trip on purpose: photo access is granted
+  // per-item and audit-logged per view (US-488).
+  async function togglePhotos(submissionId: string) {
+    if (!selected) return;
+    if (photos[submissionId]) {
+      setPhotos((p) => {
+        const next = { ...p };
+        delete next[submissionId];
+        return next;
+      });
+      return;
+    }
+    setPhotosLoading(submissionId);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/grading/reliability/studies/${selected.id}/items/${submissionId}/photos`,
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setPhotos((p) => ({ ...p, [submissionId]: data.images ?? [] }));
+    } catch (e) {
+      toast.error(`Failed to load photos: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setPhotosLoading(null);
     }
   }
 
@@ -359,45 +396,90 @@ export function AdminReliabilityPage() {
                   ({queue.length} to grade — you won't see the AI grade)
                 </span>
               </h3>
+              <p className="mb-2 text-xs text-muted-foreground">
+                QA access to customer photos is minimized (no owner identity,
+                no seller text) and every photo view is audit-logged.
+              </p>
               {queue.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   Nothing left for you to rate in this study.
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {queue.map((q) => (
-                    <div
-                      key={q.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">
-                          {q.title || q.brand || q.garment_category || "Garment"}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {[q.brand, q.garment_type, q.garment_category]
-                            .filter(Boolean)
-                            .join(" • ") || q.id}
-                        </p>
-                      </div>
-                      {selected.status === "open" && (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            className="w-24"
-                            inputMode="decimal"
-                            placeholder="1–10"
-                            value={scores[q.id] ?? ""}
-                            onChange={(e) =>
-                              setScores((p) => ({ ...p, [q.id]: e.target.value }))
-                            }
-                          />
-                          <Button size="sm" onClick={() => submitRating(q.id)}>
-                            Save
-                          </Button>
+                  {queue.map((q) => {
+                    const itemPhotos = photos[q.id];
+                    return (
+                    <div key={q.id} className="rounded-md border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {q.brand || q.garment_category || "Garment"}
+                          </p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {[q.brand, q.garment_type, q.garment_category]
+                              .filter(Boolean)
+                              .join(" • ") || q.id}
+                          </p>
                         </div>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => togglePhotos(q.id)}
+                            disabled={photosLoading === q.id}
+                          >
+                            {photosLoading === q.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <ImageIcon className="h-4 w-4" />
+                            )}
+                            {itemPhotos ? "Hide photos" : "View photos"}
+                          </Button>
+                          {selected.status === "open" && (
+                            <>
+                              <Input
+                                className="w-24"
+                                inputMode="decimal"
+                                placeholder="1–10"
+                                value={scores[q.id] ?? ""}
+                                onChange={(e) =>
+                                  setScores((p) => ({ ...p, [q.id]: e.target.value }))
+                                }
+                              />
+                              <Button size="sm" onClick={() => submitRating(q.id)}>
+                                Save
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {itemPhotos && (
+                        itemPhotos.length === 0 ? (
+                          <p className="mt-3 text-xs text-muted-foreground">
+                            No photos on this submission.
+                          </p>
+                        ) : (
+                          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            {itemPhotos.map((p) =>
+                              p.signed_url ? (
+                                <figure key={p.id}>
+                                  <img
+                                    src={p.signed_url}
+                                    alt={`${p.image_type} photo`}
+                                    className="aspect-square w-full rounded-md border object-cover"
+                                  />
+                                  <figcaption className="mt-1 text-center text-xs text-muted-foreground">
+                                    {p.image_type}
+                                  </figcaption>
+                                </figure>
+                              ) : null
+                            )}
+                          </div>
+                        )
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

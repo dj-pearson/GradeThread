@@ -7527,8 +7527,8 @@
         "A data-retention/consent stance for QA use of customer photos is defined"
       ],
       "priority": 488,
-      "passes": false,
-      "notes": "[P3][Admin/Privacy] Audit 2026-06-03. admin-grading reliability queue exposes arbitrary users' submissions+images to reviewers."
+      "passes": true,
+      "notes": "[P3][Admin/Privacy] Audit 2026-06-03. admin-grading reliability queue exposes arbitrary users' submissions+images to reviewers. DONE 2026-06-12: reliability queue payload minimized to an explicit allowlist (id, garment_type, garment_category, brand — no owner identity, no seller title/description) via lib/reliability-privacy.ts; per-item photo access moved behind GET /reliability/studies/:id/items/:submissionId/photos which is scoped to study membership, signs URLs <=900s, drops storage_path (embeds owner uuid), and writes a view_reliability_item audit row per item viewed (plus view_reliability_queue per queue load). Reviewer QA access + minimization + logging documented in Privacy Policy section 4.1 and DPA section 2; data-retention/consent stance (ToS license + disclosure, legitimate interest, objection via privacy@, photos read in place so purge ends QA access) defined in Privacy Policy 4.1 + docs/QA_PHOTO_ACCESS.md. Tests: reliability-privacy_test.ts."
     },
     {
       "id": "US-489",

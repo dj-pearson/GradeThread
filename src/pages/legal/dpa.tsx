@@ -7,7 +7,7 @@ export function DpaPage() {
       title="Data Processing Addendum"
       description="GradeThread's Data Processing Addendum (DPA) for customers with GDPR/CCPA data-processing obligations."
       canonicalPath="/dpa"
-      effectiveDate="April 1, 2026"
+      effectiveDate="June 12, 2026"
     >
       <p>
         This Data Processing Addendum (&ldquo;DPA&rdquo;) supplements the{" "}
@@ -31,6 +31,7 @@ export function DpaPage() {
         <li>Process personal data only for the purpose of providing the Service.</li>
         <li>Ensure personnel are bound by confidentiality.</li>
         <li>Implement appropriate technical and organizational security measures (encryption in transit/at rest, access controls, RLS tenant isolation, audited admin actions).</li>
+        <li>Limit internal human review of customer-submitted photos (quality assurance and grading-reliability studies) to trained, confidentiality-bound personnel; minimize what reviewers see (no account identity or customer free text alongside photos), grant access through short-lived expiring links, and log every per-item view in an audit trail. See the <Link to="/privacy">Privacy Policy</Link>, section 4.1.</li>
         <li>Assist the Controller with data-subject requests, DPIAs, and breach notification.</li>
         <li>Delete or return personal data at the end of the engagement, subject to the retention schedule in the <Link to="/privacy">Privacy Policy</Link>.</li>
       </ul>

@@ -28,6 +28,11 @@ import {
   ZeroRowsAffectedError,
 } from "../lib/db-write.ts";
 import { defaultRegradeStore, regradeSubmission } from "../lib/grading-pipeline.ts";
+import {
+  minimizeReliabilityPhoto,
+  minimizeReliabilityQueueRow,
+  RELIABILITY_QUEUE_SELECT,
+} from "../lib/reliability-privacy.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
 // Mounted at /api/admin/grading — inherits authMiddleware + adminAuthMiddleware
@@ -723,18 +728,90 @@ adminGradingRoutes.get("/reliability/studies/:id/queue", async (c) => {
   const ratedByMe = new Set((mine ?? []).map((r) => r.submission_id));
   const todo = allIds.filter((id) => !ratedByMe.has(id));
 
-  // Return only the garment metadata + images needed to grade — never the
-  // grade_report (AI score) or anyone else's rating.
+  // MINIMIZED payload (US-488): only the non-identifying garment attributes a
+  // blind grade needs — never the grade_report (AI score), anyone else's
+  // rating, the owner's identity, or seller-authored free text (title /
+  // description can carry PII and bias a blind condition grade). The
+  // allowlist lives in reliability-privacy.ts.
   let queue: unknown[] = [];
   if (todo.length > 0) {
     const { data: subs } = await supabaseAdmin
       .from("submissions")
-      .select("id, garment_type, garment_category, brand, title, description")
+      .select(RELIABILITY_QUEUE_SELECT)
       .in("id", todo);
-    queue = subs ?? [];
+    // supabase-js can't parse a runtime-built SELECT string, so it infers an
+    // error type; the shape is RELIABILITY_QUEUE_FIELDS by construction.
+    queue = ((subs ?? []) as unknown as Record<string, unknown>[]).map(
+      minimizeReliabilityQueueRow,
+    );
   }
+
+  // QA access to the customer-data sample is itself logged (US-488).
+  await auditLog(c, "view_reliability_queue", "reliability_study", studyId, {
+    item_count: todo.length,
+  });
+
   return c.json({ remaining: todo.length, total: allIds.length, queue });
 });
+
+// GET /reliability/studies/:id/items/:submissionId/photos — short-lived signed
+// photo URLs for ONE study item so the reviewer can blind-grade it (US-488).
+// The grant is scoped to study membership (an arbitrary submission id that was
+// never sampled into the study returns 404), the payload is minimized (no
+// storage_path — it embeds the owner's user UUID — and no owner/submission
+// metadata beyond the images), and EVERY call writes a per-item audit row
+// naming the reviewer, study, and submission viewed.
+adminGradingRoutes.get(
+  "/reliability/studies/:id/items/:submissionId/photos",
+  async (c) => {
+    const studyId = c.req.param("id");
+    const submissionId = c.req.param("submissionId");
+
+    const { data: item } = await supabaseAdmin
+      .from("reliability_study_items")
+      .select("id")
+      .eq("study_id", studyId)
+      .eq("submission_id", submissionId)
+      .maybeSingle();
+    if (!item) return c.json({ error: "Submission is not in this study" }, 404);
+
+    const { data: imagesRaw } = await supabaseAdmin
+      .from("submission_images")
+      .select("id, image_type, storage_path, display_order")
+      .eq("submission_id", submissionId)
+      .order("display_order", { ascending: true });
+    const images = (imagesRaw ?? []) as Array<{
+      id: string;
+      image_type: string;
+      storage_path: string;
+      display_order: number;
+    }>;
+
+    // Batch-sign (≤ 900s; private bucket — US-276).
+    let signed: Record<string, string> = {};
+    if (images.length > 0) {
+      const { data: urls } = await supabaseAdmin.storage
+        .from("submission-images")
+        .createSignedUrls(images.map((i) => i.storage_path), REVIEW_IMAGE_TTL);
+      signed = Object.fromEntries(
+        (urls ?? [])
+          .map((u, idx) => [images[idx].id, u.signedUrl] as const)
+          .filter(([, url]) => Boolean(url)),
+      );
+    }
+
+    // Per-item-viewed audit trail (US-488) — written before the URLs are
+    // handed out so the view is on record even if the response is dropped.
+    await auditLog(c, "view_reliability_item", "submission", submissionId, {
+      study_id: studyId,
+      image_count: images.length,
+    });
+
+    return c.json({
+      images: images.map((i) => minimizeReliabilityPhoto(i, signed[i.id] ?? null)),
+    });
+  },
+);
 
 // POST /reliability/studies/:id/ratings — submit/update the current reviewer's
 // blind rating of one submission. Body: { submission_id, overall_score, ... }.
