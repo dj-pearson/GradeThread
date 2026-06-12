@@ -6768,8 +6768,8 @@
         "organizationLd().sameAs includes real X/LinkedIn/Instagram/Crunchbase profiles (only live URLs); contactPoint/foundingDate considered"
       ],
       "priority": 428,
-      "passes": false,
-      "notes": "[P3][SEO] Audit 2026-06-03. No twitter:site; sameAs only lists GitHub."
+      "passes": true,
+      "notes": "[P3][SEO] Implemented 2026-06-12. Config-driven brand identity (no fabricated URLs — honors the \"only live URLs\" AC): new src/lib/seo/social.ts is the single source for twitter:site/twitter:creator handles and Organization.sameAs profiles, read from VITE_TWITTER_SITE/VITE_TWITTER_CREATOR/VITE_SOCIAL_X|LINKEDIN|INSTAGRAM|CRUNCHBASE (GitHub org always included; others emitted only when the env var holds a real https URL). organizationLd() now also emits contactPoint (VITE_CONTACT_EMAIL) + foundingDate (VITE_FOUNDING_DATE) only when set/valid. twitter:site wired into the SPA <SEO> component, the build-time prerender head-builder, and the Cloudflare Pages SSR layout (blog/cert/condition-index/verified). Mirror helpers added in functions/_shared/blog-render.ts so SSR + SPA + prerender emit identical values. .env.example documents every var with the live-only warning. Owner just sets the env vars once the profiles exist — no code change. Covered by src/lib/seo/__tests__/social.test.ts (5 tests)."
     },
     {
       "id": "US-429",

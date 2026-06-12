@@ -8,6 +8,7 @@ import {
   OG_IMAGE_HEIGHT,
   OG_IMAGE_TYPE,
 } from "@/lib/seo/public-routes";
+import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 type JsonLdValue = Record<string, unknown>;
 
@@ -53,6 +54,11 @@ export function SEO({
   keywords,
 }: SEOProps) {
   const fullTitle = title ? `${title} | GradeThread` : DEFAULT_TITLE;
+
+  // US-428: a per-page `twitterSite` prop wins; otherwise fall back to the
+  // configured brand handle. twitter:creator defaults to the same handle.
+  const resolvedTwitterSite = twitterSite || twitterSiteHandle();
+  const resolvedTwitterCreator = twitterCreatorHandle();
 
   // Default the canonical to the current pathname under the production origin
   // so every page is self-canonical even when the caller forgets to pass one.
@@ -147,13 +153,22 @@ export function SEO({
         <meta property="article:author" content={article.author} />
       )}
 
-      {/* Twitter */}
+      {/* Twitter. US-428: default twitter:site (the brand X handle) from the
+          shared social config so EVERY page carries it for entity recognition,
+          while a caller can still override per-page (e.g. a blog author). Both
+          tags are emitted only when a real handle is configured — never a
+          placeholder. twitter:creator falls back to the site handle. */}
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={ogImage} />
       <meta name="twitter:image:alt" content={ogImageAlt} />
-      {twitterSite && <meta name="twitter:site" content={twitterSite} />}
+      {resolvedTwitterSite && (
+        <meta name="twitter:site" content={resolvedTwitterSite} />
+      )}
+      {resolvedTwitterCreator && (
+        <meta name="twitter:creator" content={resolvedTwitterCreator} />
+      )}
 
       {/* US-308: Search Console + Bing Webmaster verification tags. Values
           come from the build-time env (Vite). The string verification flow

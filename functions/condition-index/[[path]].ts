@@ -15,6 +15,7 @@ import {
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
+  twitterSiteHandle,
   type PagesEnv,
 } from "../_shared/blog-render";
 
@@ -121,6 +122,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         bodyHtml: body,
         jsonLd: [jsonLd],
         gaMeasurementId: ga,
+        twitterSite: twitterSiteHandle(env),
       }),
       { headers: { "content-type": "text/html; charset=utf-8", "cache-control": SSR_CACHE_CONTROL } },
     );
@@ -171,6 +173,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         bodyHtml: body,
         jsonLd: [jsonLd],
         gaMeasurementId: ga,
+        twitterSite: twitterSiteHandle(env),
       }),
       { headers: { "content-type": "text/html; charset=utf-8", "cache-control": SSR_CACHE_CONTROL } },
     );

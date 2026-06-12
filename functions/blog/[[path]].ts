@@ -28,6 +28,8 @@ import {
   imageResizingEnabled,
   articleAuthorLd,
   wasUpdatedAfterPublish,
+  twitterSiteHandle,
+  socialProfileUrls,
   type PagesEnv,
   type PublicPost,
   type PublicPostListItem,
@@ -129,6 +131,7 @@ async function renderIndex(env: PagesEnv): Promise<Response> {
       canonicalUrl: canonical,
       ogImage: `${siteUrl(env)}/logo_icon_512.png`,
       gaMeasurementId: ga4MeasurementId(env),
+      twitterSite: twitterSiteHandle(env),
       jsonLd,
       bodyHtml,
     }),
@@ -256,6 +259,7 @@ async function renderPost(env: PagesEnv, slug: string): Promise<Response> {
       // logo is the last-ditch fallback if the OG worker errors.
       ogImage: `${siteUrl(env)}/og/blog/${encodeURIComponent(post.slug)}`,
       gaMeasurementId: ga4MeasurementId(env),
+      twitterSite: twitterSiteHandle(env),
       jsonLd: [articleLd, breadcrumbLd, ...(faqLd ? [faqLd] : [])],
       bodyHtml,
     }),
@@ -360,6 +364,7 @@ async function renderTag(env: PagesEnv, tag: string): Promise<Response> {
       canonicalUrl: canonical,
       ogImage: `${siteUrl(env)}/logo_icon_512.png`,
       gaMeasurementId: ga4MeasurementId(env),
+      twitterSite: twitterSiteHandle(env),
       bodyHtml,
     }),
     {
@@ -379,7 +384,8 @@ function organizationLd(env: PagesEnv) {
     name: "GradeThread",
     url: siteUrl(env),
     logo: `${siteUrl(env)}/logo_icon_512.png`,
-    sameAs: ["https://github.com/dj-pearson"],
+    // US-428: GitHub + any configured live profiles (mirrors the SPA's sameAs).
+    sameAs: socialProfileUrls(env),
   };
 }
 

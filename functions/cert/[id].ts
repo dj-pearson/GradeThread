@@ -18,6 +18,7 @@ import {
   renderLayout,
   siteUrl,
   SSR_CACHE_CONTROL,
+  twitterSiteHandle,
   type PagesEnv,
 } from "../_shared/blog-render";
 
@@ -167,6 +168,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       description,
       canonicalUrl: canonical,
       ogImage,
+      twitterSite: twitterSiteHandle(env),
       // US-425: og:type=product matches the Product primary entity (and the SPA).
       ogType: "product",
       jsonLd: [productLd, breadcrumbLd],

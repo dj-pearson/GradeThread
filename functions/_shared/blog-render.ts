@@ -25,6 +25,39 @@ export interface PagesEnv {
   // Must equal the edge's CF_PAGES_ORIGIN_SECRET. Unset = no header (limiter
   // treats the Pages worker as a normal IP — degraded but not broken).
   CF_PAGES_ORIGIN_SECRET?: string;
+  // US-428: brand social profiles for entity disambiguation. Same VITE_-prefixed
+  // dashboard vars the SPA reads (Cloudflare exposes them to both the Vite build
+  // and the Functions runtime), so blog SSR + app emit identical twitter:site /
+  // Organization.sameAs. Emitted only when set — never a placeholder URL.
+  VITE_TWITTER_SITE?: string;
+  VITE_TWITTER_CREATOR?: string;
+  VITE_SOCIAL_X?: string;
+  VITE_SOCIAL_LINKEDIN?: string;
+  VITE_SOCIAL_INSTAGRAM?: string;
+  VITE_SOCIAL_CRUNCHBASE?: string;
+}
+
+// US-428: the always-live GitHub profile (mirrors src/lib/seo/social.ts).
+const GITHUB_PROFILE = "https://github.com/dj-pearson/GradeThread";
+
+/** Live external profiles for `Organization.sameAs` (GitHub + configured). */
+export function socialProfileUrls(env: PagesEnv): string[] {
+  return [
+    GITHUB_PROFILE,
+    env.VITE_SOCIAL_X,
+    env.VITE_SOCIAL_LINKEDIN,
+    env.VITE_SOCIAL_INSTAGRAM,
+    env.VITE_SOCIAL_CRUNCHBASE,
+  ]
+    .map((u) => (u ?? "").trim())
+    .filter((u) => /^https?:\/\//.test(u));
+}
+
+/** Brand X @handle for `twitter:site`, normalized to a leading "@" ("" if unset). */
+export function twitterSiteHandle(env: PagesEnv): string {
+  const raw = (env.VITE_TWITTER_SITE ?? "").trim();
+  if (!raw) return "";
+  return raw.startsWith("@") ? raw : `@${raw}`;
 }
 
 // The SPA ships this same stream in index.html; keep them in sync so the blog
@@ -123,6 +156,9 @@ interface LayoutInput {
   // passes "product" so og:type stays consistent with the page's primary
   // entity (a Product JSON-LD node) and matches the SPA cert route.
   ogType?: string;
+  // US-428: brand X @handle for twitter:site (pass twitterSiteHandle(env)).
+  // Omitted from the head when empty.
+  twitterSite?: string;
   // US-255: when set, inject GA4 gtag.js (Consent Mode v2, all-denied default —
   // mirrors index.html). Pass ga4MeasurementId(env) from the Pages Function.
   gaMeasurementId?: string | null;
@@ -234,6 +270,7 @@ ${input.ogImage ? `<meta property="og:image" content="${escape(input.ogImage)}">
 <meta name="twitter:title" content="${escape(input.title)}">
 <meta name="twitter:description" content="${escape(input.description)}">
 ${input.ogImage ? `<meta name="twitter:image" content="${escape(input.ogImage)}">` : ""}
+${input.twitterSite ? `<meta name="twitter:site" content="${escape(input.twitterSite)}">` : ""}
 <style>${BASE_STYLES}</style>
 ${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId) : ""}
 ${ldScripts}
@@ -268,6 +305,7 @@ export function notFoundResponse(env: PagesEnv): Response {
       title: "Not found — GradeThread",
       description: "The page you're looking for doesn't exist.",
       canonicalUrl: `${siteUrl(env)}/blog`,
+      twitterSite: twitterSiteHandle(env),
       noindex: true,
       bodyHtml: `<main class="container"><h1>404</h1><p>That post doesn't exist (or was unpublished). <a href="/blog">Back to the blog</a>.</p></main>`,
     }),

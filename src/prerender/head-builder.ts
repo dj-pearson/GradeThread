@@ -37,6 +37,7 @@ import {
   glossaryBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
+import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
 function escapeAttr(s: string): string {
   return s
@@ -141,6 +142,10 @@ export function buildHeadTags(route: PublicRoute): string {
   const ogImage = escapeAttr(og.url);
   const ogAlt = escapeAttr(og.alt);
 
+  // US-428: brand X/Twitter handles, config-driven (empty unless set).
+  const twitterSite = twitterSiteHandle();
+  const twitterCreator = twitterCreatorHandle();
+
   return [
     `<title>${title}</title>`,
     `<meta name="description" content="${desc}">`,
@@ -162,6 +167,12 @@ export function buildHeadTags(route: PublicRoute): string {
     `<meta name="twitter:description" content="${desc}">`,
     `<meta name="twitter:image" content="${ogImage}">`,
     `<meta name="twitter:image:alt" content="${ogAlt}">`,
+    // US-428: brand X handle for entity recognition. Mirrors the SPA <SEO>
+    // component; emitted only when a real handle is configured (no placeholder).
+    twitterSite ? `<meta name="twitter:site" content="${escapeAttr(twitterSite)}">` : "",
+    twitterCreator
+      ? `<meta name="twitter:creator" content="${escapeAttr(twitterCreator)}">`
+      : "",
     verifyGoogle
       ? `<meta name="google-site-verification" content="${escapeAttr(verifyGoogle)}">`
       : "",

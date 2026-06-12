@@ -18,6 +18,7 @@ import {
   siteUrl,
   SSR_CACHE_CONTROL,
   formatDate,
+  twitterSiteHandle,
   type PagesEnv,
 } from "../_shared/blog-render";
 
@@ -286,6 +287,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       description,
       canonicalUrl: canonical,
       ogImage,
+      twitterSite: twitterSiteHandle(env),
       jsonLd: listingsLd
         ? [profileLd, breadcrumbLd, listingsLd]
         : [profileLd, breadcrumbLd],

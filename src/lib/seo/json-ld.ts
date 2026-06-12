@@ -6,6 +6,11 @@
 // visible on the page (Google structured-data policy).
 
 import { SITE_URL } from "./public-routes";
+import {
+  socialProfileUrls,
+  contactEmail,
+  foundingDate,
+} from "./social";
 import { GRADETHREAD_TIERS } from "@/lib/constants";
 
 const LOGO_URL = `${SITE_URL}/logo_icon_512.png`;
@@ -22,6 +27,12 @@ export interface JsonLd {
 
 /** Core entity. The single most important node for entity recognition. */
 export function organizationLd(): JsonLd {
+  // US-428: strengthen entity disambiguation. sameAs lists every LIVE external
+  // profile (config-driven — only real URLs ever appear); contactPoint and
+  // foundingDate are emitted only when the corresponding env value is set, so we
+  // never assert an unmanned mailbox or a guessed date.
+  const email = contactEmail();
+  const founded = foundingDate();
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -44,7 +55,18 @@ export function organizationLd(): JsonLd {
       "Reselling pre-owned clothing on eBay, Poshmark, Mercari, Depop, and Grailed",
       "Reducing returns and disputes on resold apparel",
     ],
-    sameAs: ["https://github.com/dj-pearson/GradeThread"],
+    ...(founded ? { foundingDate: founded } : {}),
+    ...(email
+      ? {
+          contactPoint: {
+            "@type": "ContactPoint",
+            contactType: "customer support",
+            email,
+            url: `${SITE_URL}/`,
+          },
+        }
+      : {}),
+    sameAs: socialProfileUrls(),
   };
 }
 
