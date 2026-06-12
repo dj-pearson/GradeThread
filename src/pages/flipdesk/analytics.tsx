@@ -26,16 +26,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { MIN_BUCKET_SIZE, type GroupKey } from "@/lib/flipdesk-analytics";
 import {
-  sellThroughByGroup,
-  gradingRoiBuckets,
-  MIN_BUCKET_SIZE,
-  type GroupKey,
-  type DateRange,
-} from "@/lib/flipdesk-analytics";
-import type { ItemFullRow } from "@/types/database";
+  fetchSellThrough,
+  fetchGradingRoi,
+} from "@/lib/flipdesk-analytics-server";
 import { ChartSkeleton } from "@/components/ui/skeletons";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
@@ -54,52 +50,15 @@ const pct = (n: number | null | undefined): string =>
 
 type Preset = "all" | "30d" | "90d" | "12mo";
 
-function presetRange(p: Preset): DateRange {
-  if (p === "all") return { from: null, to: null };
+// Lower bound (yyyy-mm-dd) for a preset, or null for all-time. The DB RPC does
+// the actual date filtering; this just translates the preset into the period
+// start it expects (US-418 — aggregation moved server-side).
+function presetStart(p: Preset): string | null {
+  if (p === "all") return null;
   const days = p === "30d" ? 30 : p === "90d" ? 90 : 365;
   const from = new Date();
   from.setDate(from.getDate() - days);
-  return { from: from.toISOString().slice(0, 10), to: null };
-}
-
-// US-404: the reports only read these grouping/measure columns. Selecting them
-// explicitly (instead of `*`) keeps the analytics load off the wide items_full
-// view — no jsonb comps/measurements and, crucially, no per-row photo
-// subqueries — so the aggregate scans stay fast on large accounts. This is an
-// account-wide aggregation, so every matching row is needed; pagination does
-// not apply, but the slim projection is what keeps it responsive.
-const ANALYTICS_COLUMNS =
-  "category,brand,source_name,list_date,sale_date,sale_price," +
-  "net_profit,days_to_sell,grade_value";
-
-function useItemsFull() {
-  const user = useAuthStore((s) => s.user);
-  return useQuery({
-    // Distinct from the listings/pipeline full-row cache (those expect every
-    // column) but still under the "items_full" prefix so mutation
-    // invalidations reach it.
-    queryKey: ["items_full", "analytics", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select(ANALYTICS_COLUMNS)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  return from.toISOString().slice(0, 10);
 }
 
 export function FlipdeskAnalyticsPage() {
@@ -108,8 +67,6 @@ export function FlipdeskAnalyticsPage() {
   const tab = location.pathname.endsWith("/grading-roi")
     ? "grading-roi"
     : "sell-through";
-
-  const { data: items = [], isLoading } = useItemsFull();
 
   return (
     <div className="space-y-6">
@@ -141,15 +98,11 @@ export function FlipdeskAnalyticsPage() {
         </TabsList>
 
         <TabsContent value="sell-through" className="mt-6">
-          {isLoading ? (
-            <Loading />
-          ) : (
-            <SellThroughReport items={items} />
-          )}
+          <SellThroughReport />
         </TabsContent>
 
         <TabsContent value="grading-roi" className="mt-6">
-          {isLoading ? <Loading /> : <GradingRoiReport items={items} />}
+          <GradingRoiReport />
         </TabsContent>
       </Tabs>
     </div>
@@ -164,15 +117,22 @@ function Loading() {
   );
 }
 
-function SellThroughReport({ items }: { items: ItemFullRow[] }) {
+function SellThroughReport() {
+  const user = useAuthStore((s) => s.user);
   const [preset, setPreset] = useState<Preset>("all");
   const [groupKey, setGroupKey] = useState<GroupKey>("category");
 
-  const range = useMemo(() => presetRange(preset), [preset]);
-  const rows = useMemo(
-    () => sellThroughByGroup(items, groupKey, range),
-    [items, groupKey, range],
-  );
+  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  const { data: rows = [], isLoading } = useQuery({
+    // Kept under the "items_full" prefix so the same mutation invalidations that
+    // refresh the pipeline/listings caches also refresh these aggregates.
+    queryKey: ["items_full", "analytics", "sell-through", user?.id, groupKey, preset],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchSellThrough(groupKey, periodStart),
+  });
+
+  if (isLoading) return <Loading />;
 
   const chartData = rows.slice(0, 12).map((r) => ({
     name: r.group,
@@ -284,8 +244,17 @@ function SellThroughReport({ items }: { items: ItemFullRow[] }) {
   );
 }
 
-function GradingRoiReport({ items }: { items: ItemFullRow[] }) {
-  const buckets = useMemo(() => gradingRoiBuckets(items), [items]);
+function GradingRoiReport() {
+  const user = useAuthStore((s) => s.user);
+  const { data: buckets = [], isLoading } = useQuery({
+    queryKey: ["items_full", "analytics", "grading-roi", user?.id],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchGradingRoi(),
+  });
+
+  if (isLoading) return <Loading />;
+
   const meaningful = buckets.filter((b) => b.meaningful);
   const callouts = meaningful
     .filter((b) => b.netProfitLift != null && b.netProfitLift > 0)

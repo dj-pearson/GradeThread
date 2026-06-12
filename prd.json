@@ -6641,8 +6641,8 @@
         "Client receives summary rows; payload independent of inventory size"
       ],
       "priority": 418,
-      "passes": false,
-      "notes": "[P2][Performance] Audit 2026-06-03. analytics.tsx computes sell-through/ROI client-side over full items_full."
+      "passes": true,
+      "notes": "[P2][Performance] Audit 2026-06-03. analytics.tsx computes sell-through/ROI client-side over full items_full. DONE: added DB-side RPCs flipdesk_sell_through(text,date) + flipdesk_grading_roi() (migration 00148, SECURITY INVOKER over items_full so caller RLS applies). analytics.tsx now fetches pre-aggregated summary rows via src/lib/flipdesk-analytics-server.ts; payload is bounded by distinct groups/buckets, not inventory size. SQL mirrors sellThroughByGroup/gradingRoiBuckets exactly (median via percentile_cont(0.5))."
     },
     {
       "id": "US-419",

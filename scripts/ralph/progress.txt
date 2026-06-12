@@ -674,3 +674,10 @@ Branch: ralph/gradethread-build
 - Notes: Guard targets the EAGER chunk graph = entry chunk + transitive static imports (Vite modulepreloads). check-bundle-budget.mjs asserts gz budgets (entry <=48KB now 39.7, eager total <=215KB now 192.6/4 chunks) AND that radix Dialog/Select/Popover + @tiptap stay out of the eager graph, confirming TipTap is in a non-eager (blog-editor) chunk. radix react-slot/compose-refs allowed in entry (Button uses them on landing). Robust via a build-only Vite plugin emitting build-meta/bundle-modules.json (chunk->module ids + imports), gitignored; the prerender SSR pass is serve-mode so the plugin never fires there. Wired into ci.yml (after Build) and verify:web. Verified: tsc -b + build + lint clean; negative test (inject @tiptap into entry chunk) exits 1, restore exits 0.
 - Timestamp: 2026-06-12
 ---
+
+## US-418: Back analytics with DB-side aggregation
+- Status: COMPLETE
+- Files changed: supabase/migrations/00148_flipdesk_analytics_aggregates.sql (new), src/lib/flipdesk-analytics-server.ts (new), src/pages/flipdesk/analytics.tsx, prd.json
+- Notes: Moved FlipDesk Analytics aggregation (sell-through + grading-ROI) into Postgres via two SECURITY INVOKER RPCs over the items_full view (RLS preserved, same model as finances_dashboard). flipdesk_sell_through(p_group_key,p_period_start) and flipdesk_grading_roi() return compact jsonb summary rows whose count is bounded by distinct groups/buckets, independent of inventory size. The page now re-queries per group/preset (each payload minimal) instead of pulling every items_full row and aggregating client-side. SQL faithfully mirrors the pure JS helpers (kept in flipdesk-analytics.ts as the reference + type source); median uses percentile_cont(0.5) which matches the JS even/odd median. Query keys kept under the "items_full" prefix so existing mutation invalidations refresh them. tsc/build/lint all pass. DB lane (supabase db reset) not run locally — Docker not verified this session.
+- Timestamp: 2026-06-12
+---
