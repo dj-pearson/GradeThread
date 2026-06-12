@@ -59,6 +59,7 @@ interface DraftRow {
   created_at: string;
   scheduled_publish_at: string | null;
   price_is_estimated: boolean | null;
+  price_comp_source: string | null;
   platform_category_id: string | null;
   needs_review: boolean | null;
 }
@@ -99,7 +100,7 @@ export function FlipdeskAutolisterDraftsPage() {
       const { data, error } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, platform_category_id, needs_review",
+          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review",
         )
         .eq("listing_status", "draft")
         .not("batch_id", "is", null)
@@ -378,7 +379,11 @@ export function FlipdeskAutolisterDraftsPage() {
                           <Badge
                             variant="outline"
                             className="ml-1.5 text-[10px]"
-                            title="AI estimate — verify before publishing"
+                            title={
+                              d.price_comp_source === "active_asking"
+                                ? "Based on active asking prices (not sold comps) — may run high. Verify before publishing."
+                                : "AI estimate — verify before publishing"
+                            }
                           >
                             est.
                           </Badge>

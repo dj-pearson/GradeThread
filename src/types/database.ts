@@ -745,6 +745,13 @@ export interface ListingRow {
   best_offer_enabled: boolean;
   synced_to_ebay_at: string | null;
   price_is_estimated: boolean;
+  // US-542: comp-derived price range + confidence + source. price_comp_source
+  // is one of: 'ai_estimate' | 'active_asking' | 'private_sales' | 'ebay_sold'.
+  // price_is_estimated is false only for the sold-backed sources.
+  price_range_low_cents: number | null;
+  price_range_high_cents: number | null;
+  price_confidence: number | null;
+  price_comp_source: string | null;
   // Per-field winning source for cross-source sync conflicts, e.g.
   // {"price": "flipdesk"} (US-148, migration 00133). A field pinned to a
   // non-eBay source is protected from the eBay pull's default overwrite.
@@ -1567,6 +1574,11 @@ export interface ListingInsert {
   best_offer_enabled?: boolean;
   synced_to_ebay_at?: string | null;
   price_is_estimated?: boolean;
+  // US-542: comp-derived price range + confidence + source.
+  price_range_low_cents?: number | null;
+  price_range_high_cents?: number | null;
+  price_confidence?: number | null;
+  price_comp_source?: string | null;
   // Cross-listing group key (US-149)
   draft_id?: string | null;
   promo_rate_pct?: number | null;

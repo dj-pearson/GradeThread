@@ -91,6 +91,9 @@ export function FlipdeskComposerPage() {
   const [conditionDesc, setConditionDesc] = useState("");
   const [price, setPrice] = useState("");
   const [priceEstimated, setPriceEstimated] = useState(false);
+  // US-542: which comp source produced the price (active_asking warrants a
+  // distinct caveat — asking prices, not realized sales).
+  const [priceCompSource, setPriceCompSource] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState("");
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
@@ -234,6 +237,7 @@ export function FlipdeskComposerPage() {
       ) ?? null;
     setPrice(seedPrice != null ? String(seedPrice) : "");
     setPriceEstimated(listing?.price_is_estimated ?? false);
+    setPriceCompSource(listing?.price_comp_source ?? null);
     setScheduledAt(isoToLocalInput(listing?.scheduled_publish_at ?? null));
     setBadgeEnabled(listing?.badge_enabled ?? false);
     const seededPrimary =
@@ -711,20 +715,24 @@ export function FlipdeskComposerPage() {
                     onChange={(e) => {
                       setPrice(e.target.value);
                       setPriceEstimated(false);
+                      setPriceCompSource(null);
                     }}
                     placeholder="0.00"
                     className="max-w-[10rem]"
                   />
                   {priceEstimated && (
                     <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
-                      AI estimate — verify
+                      {priceCompSource === "active_asking"
+                        ? "Asking-price comp — may run high"
+                        : "AI estimate — verify"}
                     </Badge>
                   )}
                 </div>
                 {priceEstimated && (
                   <p className="text-xs text-muted-foreground">
-                    No eBay comps were found, so this price is the AI's estimate.
-                    Edit it to confirm.
+                    {priceCompSource === "active_asking"
+                      ? "No sold comps were available, so this price is based on active eBay asking prices, which tend to run high. Verify before publishing."
+                      : "No eBay comps were found, so this price is the AI's estimate. Edit it to confirm."}
                   </p>
                 )}
                 {/* US-553: live profit/margin so pricing is a margin decision. */}

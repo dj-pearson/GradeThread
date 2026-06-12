@@ -43,6 +43,23 @@ import {
 } from "./marketplace-specs.ts";
 import { resolveSeededCategory } from "./marketplace-category.ts";
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
+import { getRealizedComps } from "./sold-comps.ts";
+
+// US-542: where a draft's suggested price came from. Only the sold-backed
+// sources (private_sales, ebay_sold) justify price_is_estimated=false.
+export type PriceCompSource =
+  | "ai_estimate"
+  | "active_asking"
+  | "private_sales"
+  | "ebay_sold";
+
+// Active-comp confidence: lower than realized-comp confidence because asking
+// prices over-state value. Caps below the sold-backed floor so the UI can rank
+// a sold-backed price above an asking-based one.
+function activeCompConfidence(count: number): number {
+  if (count <= 0) return 0;
+  return Math.max(0, Math.min(0.6, 0.15 + count * 0.03));
+}
 
 // Bump when the prompt or tool schema changes in a way that should be tracked
 // for accuracy/eval attribution. Mirrors PER_IMAGE_PROMPT_VERSION etc.
@@ -745,24 +762,61 @@ export async function generateListing(
     }
   }
 
-  // 7. Price: prefer comp median, else AI estimate (flagged).
+  // 7. Price (US-542): prefer REALIZED/sold comps; price_is_estimated=false ONLY
+  // when the price is backed by sold data. Active Browse comps are ASKING prices
+  // (systematically high), so when we fall back to them we set the price but
+  // keep price_is_estimated=true and surface the limitation via price_comp_source.
   let priceCents = listing.suggested_price_cents;
-  let priceIsEstimated = true;
+  let priceIsEstimated = true; // assume AI estimate until sold-backed
+  let priceRangeLowCents: number | null = null;
+  let priceRangeHighCents: number | null = null;
+  let priceConfidence: number | null = null;
+  let priceCompSource: PriceCompSource = "ai_estimate";
   if (useComps && categoryId) {
+    const conditionId = conditionIdForComps(listing.ebay_condition);
+    const compQuery = item.brand ?? (listing.suggested_category_query || undefined);
     try {
-      const comps = await searchBrowseComps({
+      const sold = await getRealizedComps({
+        ownerId,
         categoryId,
-        q: item.brand ?? (listing.suggested_category_query || undefined),
         brand: item.brand ?? undefined,
+        q: compQuery,
         size: item.size ?? undefined,
-        conditionId: conditionIdForComps(listing.ebay_condition),
+        conditionId,
       });
-      if (comps.stats.median != null) {
-        priceCents = Math.round(comps.stats.median * 100);
+      if (sold && sold.medianCents != null) {
+        // Backed by realized sales — the honest, non-estimated price.
+        priceCents = sold.medianCents;
         priceIsEstimated = false;
+        priceRangeLowCents = sold.lowCents;
+        priceRangeHighCents = sold.highCents;
+        priceConfidence = sold.confidence;
+        priceCompSource = sold.source;
+      } else {
+        // Graceful fallback: active asking-price comps. Set the price but flag
+        // it as estimated (not sold-backed) so the editor surfaces the caveat.
+        const active = await searchBrowseComps({
+          categoryId,
+          q: compQuery,
+          brand: item.brand ?? undefined,
+          size: item.size ?? undefined,
+          conditionId,
+        });
+        if (active.stats.median != null) {
+          priceCents = Math.round(active.stats.median * 100);
+          priceRangeLowCents = active.stats.p25 != null
+            ? Math.round(active.stats.p25 * 100)
+            : null;
+          priceRangeHighCents = active.stats.p75 != null
+            ? Math.round(active.stats.p75 * 100)
+            : null;
+          priceConfidence = activeCompConfidence(active.stats.count);
+          priceCompSource = "active_asking";
+          // priceIsEstimated stays true — asking prices are not realized sales.
+        }
       }
     } catch (err) {
-      console.error("[AI Listing] searchBrowseComps failed:", err);
+      console.error("[AI Listing] comp pricing failed:", err);
     }
   }
   const priceDollars = Math.round(priceCents) / 100;
@@ -836,6 +890,10 @@ export async function generateListing(
     ebay_condition_description: conditionDescription,
     item_specifics_override: itemSpecifics,
     price_is_estimated: priceIsEstimated,
+    price_range_low_cents: priceRangeLowCents,
+    price_range_high_cents: priceRangeHighCents,
+    price_confidence: priceConfidence,
+    price_comp_source: priceCompSource,
     batch_id: opts.batchId ?? null,
     primary_photo_id: primaryPhotoId,
     ai_confidence: listing.confidence,

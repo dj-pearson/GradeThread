@@ -2605,6 +2605,124 @@ export async function searchBrowseComps(
   };
 }
 
+// ── Sold/realized comps via eBay Marketplace Insights (US-542) ──────────
+//
+// Browse returns ACTIVE asking prices, which systematically over-state value.
+// Marketplace Insights returns LAST_SOLD prices (realized sales) — the honest
+// comp basis. The API requires a granted `buy.marketplace.insights` scope, so
+// this is OFF by default and gated behind EBAY_MARKETPLACE_INSIGHTS=true; when
+// unavailable (disabled, no scope, error) it returns null so callers fall back
+// to the private sales table, then to active Browse comps.
+
+const MARKETPLACE_INSIGHTS_SCOPE =
+  "https://api.ebay.com/oauth/api_scope/buy.marketplace.insights";
+
+export function isMarketplaceInsightsEnabled(): boolean {
+  return (Deno.env.get("EBAY_MARKETPLACE_INSIGHTS") ?? "").toLowerCase() ===
+    "true";
+}
+
+/**
+ * Search realized (sold) eBay comps via Marketplace Insights. Returns the same
+ * stats shape as searchBrowseComps but over LAST_SOLD prices. Returns null when
+ * the feature is disabled or the call fails for any reason (so the caller can
+ * fall back gracefully) — never throws.
+ */
+export async function searchSoldComps(
+  args: BrowseCompsArgs,
+): Promise<BrowseCompsResult | null> {
+  if (!isMarketplaceInsightsEnabled()) return null;
+  try {
+    const token = await getAppAccessToken(MARKETPLACE_INSIGHTS_SCOPE);
+    const filters: string[] = [];
+    filters.push(`conditionIds:{${args.conditionId ?? "3000"}}`);
+
+    const aspectFilters: string[] = [];
+    if (args.brand) aspectFilters.push(`Brand:{${args.brand}}`);
+    if (args.size) aspectFilters.push(`Size:{${args.size}}`);
+
+    const params = new URLSearchParams();
+    params.set("category_ids", args.categoryId);
+    if (args.q && args.q.trim()) params.set("q", args.q.trim());
+    params.set("filter", filters.join(","));
+    if (aspectFilters.length > 0) {
+      params.set(
+        "aspect_filter",
+        `categoryId:${args.categoryId},${aspectFilters.join(",")}`,
+      );
+    }
+    params.set("limit", String(Math.min(Math.max(args.limit ?? 25, 1), 100)));
+
+    const url =
+      `${apiHost()}/buy/marketplace_insights/v1_beta/item_sales/search?${params.toString()}`;
+    const res = await ebayFetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(
+        `[ebay] Marketplace Insights search failed (${res.status}): ${
+          text.slice(0, 200)
+        }`,
+      );
+      return null;
+    }
+
+    const payload = (await res.json()) as {
+      itemSales?: Array<{
+        itemId?: string;
+        title?: string;
+        lastSoldPrice?: { value?: string; currency?: string };
+        image?: { imageUrl?: string };
+        itemWebUrl?: string;
+        condition?: string;
+      }>;
+      total?: number;
+    };
+
+    const sales = payload.itemSales ?? [];
+    const items: BrowseComp[] = sales.map((s) => ({
+      itemId: s.itemId ?? "",
+      title: s.title ?? "",
+      price: s.lastSoldPrice?.value ? Number(s.lastSoldPrice.value) : null,
+      currency: s.lastSoldPrice?.currency ?? "USD",
+      imageUrl: s.image?.imageUrl ?? null,
+      itemWebUrl: s.itemWebUrl ?? null,
+      condition: s.condition ?? null,
+      buyingOptions: [],
+    }));
+
+    const prices = items
+      .map((i) => i.price)
+      .filter((p): p is number => p != null && p > 0)
+      .sort((a, b) => a - b);
+    const currency = items[0]?.currency ?? "USD";
+
+    return {
+      items,
+      total: payload.total ?? items.length,
+      stats: {
+        count: prices.length,
+        currency,
+        min: prices[0] ?? null,
+        p25: percentile(prices, 0.25),
+        median: percentile(prices, 0.5),
+        p75: percentile(prices, 0.75),
+        max: prices[prices.length - 1] ?? null,
+      },
+    };
+  } catch (err) {
+    console.error(
+      "[ebay] searchSoldComps error:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
 // ── App token (client_credentials) ──────────────────────────────────
 // Used for Taxonomy + Browse — endpoints that don't need a seller context.
 
@@ -2612,15 +2730,21 @@ interface AppTokenCache {
   token: string;
   expiresAt: number;
 }
-let appTokenCache: AppTokenCache | null = null;
+const DEFAULT_APP_SCOPE = "https://api.ebay.com/oauth/api_scope";
+// Cache one token per scope: Marketplace Insights (US-542) needs an extra scope
+// and would otherwise thrash a single global slot with the default-scope token.
+const appTokenCache = new Map<string, AppTokenCache>();
 
-export async function getAppAccessToken(): Promise<string> {
-  if (appTokenCache && appTokenCache.expiresAt - Date.now() > 5 * 60_000) {
-    return appTokenCache.token;
+export async function getAppAccessToken(
+  scope: string = DEFAULT_APP_SCOPE,
+): Promise<string> {
+  const cached = appTokenCache.get(scope);
+  if (cached && cached.expiresAt - Date.now() > 5 * 60_000) {
+    return cached.token;
   }
   const body = new URLSearchParams({
     grant_type: "client_credentials",
-    scope: "https://api.ebay.com/oauth/api_scope",
+    scope,
   });
   const res = await ebayFetch(`${apiHost()}/identity/v1/oauth2/token`, {
     method: "POST",
@@ -2638,10 +2762,10 @@ export async function getAppAccessToken(): Promise<string> {
     access_token: string;
     expires_in: number;
   };
-  appTokenCache = {
+  appTokenCache.set(scope, {
     token: payload.access_token,
     expiresAt: Date.now() + payload.expires_in * 1000,
-  };
+  });
   return payload.access_token;
 }
 

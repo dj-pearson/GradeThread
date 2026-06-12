@@ -8219,8 +8219,8 @@
         "Graceful fallback to active comps with the limitation surfaced"
       ],
       "priority": 542,
-      "passes": false,
-      "notes": "[P1][AutoLister/AI] Deep-dive 2026-06-03. searchBrowseComps uses active Browse listings (asking prices) yet flags price_is_estimated=false. Ties to US-460."
+      "passes": true,
+      "notes": "[P1][AutoLister/AI] DONE 2026-06-12. New lib/sold-comps.ts (getRealizedComps) prefers REALIZED comps: eBay Marketplace Insights LAST_SOLD (new searchSoldComps in ebay-client.ts, gated behind EBAY_MARKETPLACE_INSIGHTS, off by default) → the seller's own sales table as a private comp set (brand+category matched, 365d, tenant-scoped). ai-listing.ts now sets price_is_estimated=false ONLY when sold-backed; active Browse comps are a graceful fallback that keeps price_is_estimated=true and records price_comp_source='active_asking'. New listings columns (migration 00153): price_range_low_cents/price_range_high_cents/price_confidence/price_comp_source. Composer + autolister-drafts surface the active-asking limitation. Pure range/confidence math unit-tested in sold-comps_test.ts (6 tests). Ties to US-460."
     },
     {
       "id": "US-543",
