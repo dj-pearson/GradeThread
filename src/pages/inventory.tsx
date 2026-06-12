@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { QueryBoundary } from "@/components/ui/query-boundary";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Card,
@@ -179,7 +180,13 @@ export function InventoryPage() {
     }
   }
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: [
       "inventory",
       page,
@@ -353,38 +360,49 @@ export function InventoryPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : items.length === 0 ? (
-            statusFilter !== "all" ||
-            garmentTypeFilter !== "all" ||
-            brandFilter !== "all" ? (
-              <EmptyState
-                icon={Package}
-                title="No matching items"
-                description="No inventory items match the current filters."
-                secondaryAction={{
-                  label: "Clear filters",
-                  onClick: () => {
-                    setStatusFilter("all");
-                    setGarmentTypeFilter("all");
-                    setBrandFilter("all");
-                  },
-                }}
-              />
-            ) : (
-              <EmptyState
-                icon={Package}
-                title="No inventory items yet"
-                description="Add your first item to start tracking your inventory."
-                action={{
-                  label: "Add your first item",
-                  to: "/dashboard/inventory/new",
-                  icon: Plus,
-                }}
-              />
-            )
-          ) : (
+          <QueryBoundary
+            isLoading={isLoading}
+            isError={isError}
+            isEmpty={items.length === 0}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            loading={<LoadingSkeleton />}
+            errorProps={{
+              title: "Couldn't load inventory",
+              description:
+                "Something went wrong while loading your inventory. This is usually temporary.",
+            }}
+            empty={
+              statusFilter !== "all" ||
+              garmentTypeFilter !== "all" ||
+              brandFilter !== "all" ? (
+                <EmptyState
+                  icon={Package}
+                  title="No matching items"
+                  description="No inventory items match the current filters."
+                  secondaryAction={{
+                    label: "Clear filters",
+                    onClick: () => {
+                      setStatusFilter("all");
+                      setGarmentTypeFilter("all");
+                      setBrandFilter("all");
+                    },
+                  }}
+                />
+              ) : (
+                <EmptyState
+                  icon={Package}
+                  title="No inventory items yet"
+                  description="Add your first item to start tracking your inventory."
+                  action={{
+                    label: "Add your first item",
+                    to: "/dashboard/inventory/new",
+                    icon: Plus,
+                  }}
+                />
+              )
+            }
+          >
             <>
               {/* Mobile: card list instead of the horizontal-scroll table. */}
               <ul className="divide-y md:hidden">
@@ -523,7 +541,7 @@ export function InventoryPage() {
                 </div>
               )}
             </>
-          )}
+          </QueryBoundary>
         </CardContent>
       </Card>
     </div>

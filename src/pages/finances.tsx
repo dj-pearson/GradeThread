@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { ProfitTable } from "@/components/finances/profit-table";
 import { FinancialExport } from "@/components/finances/financial-export";
 import { ChartSkeleton } from "@/components/ui/skeletons";
+import { ErrorState } from "@/components/ui/error-state";
 
 // The six chart panels each pull in Recharts — lazy-load them so the page
 // shell + stat cards paint first and the chart bundle streams in after.
@@ -96,7 +97,7 @@ export function FinancesPage() {
 
   // One RPC round-trip per period: Postgres returns every summary metric and
   // chart series pre-aggregated (US-403). No raw tables cross the wire.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["finances-dashboard", period],
     queryFn: () => fetchFinancesDashboard(periodStart),
     staleTime: 5 * 60 * 1000,
@@ -132,6 +133,15 @@ export function FinancesPage() {
       {/* Financial Export — fetches its own row-level data on demand */}
       <FinancialExport />
 
+      {isError ? (
+        <ErrorState
+          title="Couldn't load financial data"
+          description="Something went wrong while loading your finances. This is usually temporary."
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      ) : (
+        <>
       {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -407,6 +417,8 @@ export function FinancesPage() {
           />
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

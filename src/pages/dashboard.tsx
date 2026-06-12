@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChartSkeleton } from "@/components/ui/skeletons";
+import { ErrorState } from "@/components/ui/error-state";
 
 // Defer the Recharts bundle so the dashboard shell paints before charts load.
 const GradeCharts = lazy(() =>
@@ -78,7 +79,13 @@ export function DashboardPage() {
   const gradesPercent =
     typeof gradesLimit === "number" ? Math.round((gradesUsed / gradesLimit) * 100) : 0;
 
-  const { data: submissionData, isLoading } = useQuery({
+  const {
+    data: submissionData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: ["dashboard-submissions"],
     queryFn: async () => {
       // Fetch total submission count
@@ -335,6 +342,8 @@ export function DashboardPage() {
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-8 w-16" />
+            ) : isError ? (
+              <p className="text-sm text-destructive">Failed to load</p>
             ) : (
               <>
                 <div className="text-2xl font-bold">{totalCount}</div>
@@ -384,7 +393,14 @@ export function DashboardPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isError ? (
+            <ErrorState
+              title="Couldn't load recent submissions"
+              description="Something went wrong while loading your submissions. This is usually temporary."
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4">

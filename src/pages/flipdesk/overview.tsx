@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useItemsFull } from "@/hooks/use-items-full";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Package,
   DollarSign,
@@ -67,7 +68,13 @@ function daysSince(iso: string | null | undefined): number | null {
 
 export function FlipdeskOverviewPage() {
   // Shared items_full read — single source of truth across FlipDesk (US-419).
-  const { data: items = [], isLoading } = useItemsFull();
+  const {
+    data: items = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useItemsFull();
 
   const stats = useMemo(() => {
     const now = Date.now();
@@ -196,6 +203,19 @@ export function FlipdeskOverviewPage() {
         </div>
       </div>
 
+      {isError ? (
+        <Card>
+          <CardContent className="p-0">
+            <ErrorState
+              title="Couldn't load your overview"
+              description="Something went wrong while loading your FlipDesk data. This is usually temporary."
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <>
       {/* Top metrics */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -467,6 +487,8 @@ export function FlipdeskOverviewPage() {
           )}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }

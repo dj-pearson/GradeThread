@@ -6868,8 +6868,8 @@
         "A shared QueryStateBoundary/hook standardizes loading/error/empty"
       ],
       "priority": 436,
-      "passes": false,
-      "notes": "[P1][UX] Audit 2026-06-03. Most pages only branch on isLoading (dashboard, submissions, inventory, finances, flipdesk/*)."
+      "passes": true,
+      "notes": "[P1][UX] Audit 2026-06-03. Most pages only branch on isLoading (dashboard, submissions, inventory, finances, flipdesk/*). | DONE 2026-06-12: Added shared <ErrorState> (retry + support, role=alert, no create-CTA) and <QueryBoundary> (loading→error→empty precedence, error wins over empty) in src/components/ui/. Wired distinct isError states into dashboard, submissions (+disputes), inventory, finances, and flipdesk pipeline + overview — each offers refetch(). Tests in query-boundary.test.tsx."
     },
     {
       "id": "US-437",

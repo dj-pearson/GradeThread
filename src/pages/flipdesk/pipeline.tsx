@@ -69,6 +69,7 @@ import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import { validateStatusChange } from "@/lib/pipeline-rules";
 import { useFlipdeskSettings } from "@/stores/flipdesk-settings";
+import { ErrorState } from "@/components/ui/error-state";
 import { ItemDetailDialog } from "@/components/flipdesk/item-detail-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
@@ -147,7 +148,13 @@ export function FlipdeskPipelinePage() {
   );
 
   // Shared items_full read — single source of truth across FlipDesk (US-419).
-  const { data: items = [], isLoading } = useItemsFull();
+  const {
+    data: items = [],
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useItemsFull();
 
   const brands = useMemo(() => {
     const set = new Set<string>();
@@ -439,7 +446,18 @@ export function FlipdeskPipelinePage() {
         </Select>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Card>
+          <CardContent className="p-0">
+            <ErrorState
+              title="Couldn't load your pipeline"
+              description="Something went wrong while loading your inventory. This is usually temporary."
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
             Loading pipeline…

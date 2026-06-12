@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { QueryBoundary } from "@/components/ui/query-boundary";
+import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import {
@@ -239,7 +241,13 @@ export function SubmissionsPage() {
   const [sortField, setSortField] = useState<SortField>("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useQuery({
     queryKey: [
       "submissions",
       page,
@@ -321,7 +329,13 @@ export function SubmissionsPage() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: disputesData, isLoading: disputesLoading } = useQuery({
+  const {
+    data: disputesData,
+    isLoading: disputesLoading,
+    isError: disputesError,
+    isFetching: disputesFetching,
+    refetch: refetchDisputes,
+  } = useQuery({
     queryKey: ["my-disputes"],
     queryFn: async () => {
       // Fetch all user disputes
@@ -502,35 +516,46 @@ export function SubmissionsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <LoadingSkeleton />
-          ) : submissions.length === 0 ? (
-            statusFilter !== "all" || garmentTypeFilter !== "all" ? (
-              <EmptyState
-                icon={FileText}
-                title="No matching submissions"
-                description="No submissions match the current filters."
-                secondaryAction={{
-                  label: "Clear filters",
-                  onClick: () => {
-                    setStatusFilter("all");
-                    setGarmentTypeFilter("all");
-                  },
-                }}
-              />
-            ) : (
-              <EmptyState
-                icon={FileText}
-                title="No submissions yet"
-                description="Submit your first garment for grading to get started."
-                action={{
-                  label: "Submit your first garment",
-                  to: "/dashboard/submissions/new",
-                  icon: Plus,
-                }}
-              />
-            )
-          ) : (
+          <QueryBoundary
+            isLoading={isLoading}
+            isError={isError}
+            isEmpty={submissions.length === 0}
+            onRetry={() => refetch()}
+            isRetrying={isFetching}
+            loading={<LoadingSkeleton />}
+            errorProps={{
+              title: "Couldn't load submissions",
+              description:
+                "Something went wrong while loading your submissions. This is usually temporary.",
+            }}
+            empty={
+              statusFilter !== "all" || garmentTypeFilter !== "all" ? (
+                <EmptyState
+                  icon={FileText}
+                  title="No matching submissions"
+                  description="No submissions match the current filters."
+                  secondaryAction={{
+                    label: "Clear filters",
+                    onClick: () => {
+                      setStatusFilter("all");
+                      setGarmentTypeFilter("all");
+                    },
+                  }}
+                />
+              ) : (
+                <EmptyState
+                  icon={FileText}
+                  title="No submissions yet"
+                  description="Submit your first garment for grading to get started."
+                  action={{
+                    label: "Submit your first garment",
+                    to: "/dashboard/submissions/new",
+                    icon: Plus,
+                  }}
+                />
+              )
+            }
+          >
             <>
               <div className="overflow-x-auto">
                 <Table>
@@ -634,7 +659,7 @@ export function SubmissionsPage() {
                 </div>
               )}
             </>
-          )}
+          </QueryBoundary>
         </CardContent>
       </Card>
 
@@ -654,7 +679,14 @@ export function SubmissionsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {disputesLoading ? (
+          {disputesError ? (
+            <ErrorState
+              title="Couldn't load disputes"
+              description="Something went wrong while loading your disputes. This is usually temporary."
+              onRetry={() => refetchDisputes()}
+              retrying={disputesFetching}
+            />
+          ) : disputesLoading ? (
             <LoadingSkeleton />
           ) : myDisputes.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
