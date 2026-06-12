@@ -18,6 +18,7 @@ import {
   Lightbulb,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -878,8 +879,12 @@ export function InventoryDetailPage() {
                         {GRADE_FACTORS[key].label}
                       </span>
                       <span
-                        className={cn("font-medium", getScoreColor(score))}
+                        className={cn(
+                          "inline-flex items-center gap-1 font-medium",
+                          getScoreColor(score)
+                        )}
                       >
+                        <ScoreBandIcon score={score} />
                         {score.toFixed(1)}
                       </span>
                     </div>

@@ -844,3 +844,10 @@ Branch: ralph/gradethread-build
 - Notes: Authored a short copy style guide (sentence case, action-first labels, confirm/cancel + tooltip rules). Audited direct <AlertDialog> usages and made confirm labels action-first + sentence case (e.g. "Confirm Change" -> "Change plan"/"Change role"; bare "Delete" -> "Delete source"/"Delete version"/"Delete project"/"Delete task"; "Remove" -> "Remove member"; "Re-trigger"/"Mark as Failed"/"Send Back"/"Reject Dispute" -> sentence case). Sentence-cased Title-Case dialog titles. The useConfirm() promise-based dialog (US-437) already complied. Removed the redundant per-link sidebar `title` tooltip that just duplicated each nav label and repeated the global Ctrl+K hint on every link. tsc --noEmit, npm run build, and eslint all pass.
 - Timestamp: 2026-06-12
 ---
+
+## US-454: Ensure color is never the sole status indicator
+- Status: COMPLETE
+- Files changed: src/components/grade/score-indicator.tsx (new), src/pages/submissions.tsx, src/pages/dashboard.tsx, src/pages/submission-detail.tsx, src/pages/certificate.tsx, src/pages/inventory-detail.tsx, prd.json
+- Notes: New ScoreBandIcon component pairs each color-coded grade numeral with a distinctly-shaped lucide icon (CheckCircle2 high / MinusCircle mid / AlertTriangle low) sized to 1em + an sr-only band label, so the quality tier reads via shape and screen reader, not color alone (WCAG 1.4.1). Applied to submissions list cell, dashboard recent-submissions, and the factor-breakdown rows in submission-detail/certificate/inventory-detail. Submissions/dashboard list cells also surface grade_tier as visible text (withLabel=false there to avoid redundancy). Overall-score circles already pair with an adjacent tier-text Badge, so left as-is. FlipDesk listings 0-100 readiness score is a numeric value (text), not a grade tier, so unchanged. Verified via tsc --noEmit, npm run build, and eslint (clean). Distinct icon silhouettes pass a color-blindness simulator audit.
+- Timestamp: 2026-06-12
+---

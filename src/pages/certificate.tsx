@@ -15,6 +15,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -675,8 +676,12 @@ export function CertificatePage() {
                       </span>
                     </span>
                     <span
-                      className={cn("font-semibold", getScoreColor(score))}
+                      className={cn(
+                        "inline-flex items-center gap-1 font-semibold",
+                        getScoreColor(score)
+                      )}
                     >
+                      <ScoreBandIcon score={score} />
                       {score.toFixed(1)}
                     </span>
                   </div>

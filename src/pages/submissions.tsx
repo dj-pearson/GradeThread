@@ -14,6 +14,7 @@ import {
   Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { ErrorState } from "@/components/ui/error-state";
@@ -611,11 +612,18 @@ export function SubmissionsPage() {
                           {sub.grade_report ? (
                             <span
                               className={cn(
-                                "font-semibold",
+                                "inline-flex items-center gap-1.5 font-semibold",
                                 getScoreColor(sub.grade_report.overall_score)
                               )}
                             >
+                              <ScoreBandIcon
+                                score={sub.grade_report.overall_score}
+                                withLabel={false}
+                              />
                               {sub.grade_report.overall_score.toFixed(1)}
+                              <span className="text-xs font-medium text-muted-foreground">
+                                {sub.grade_report.grade_tier}
+                              </span>
                             </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>

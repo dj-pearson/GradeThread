@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useRealtimeSubmission } from "@/hooks/use-realtime-submission";
 import { Button } from "@/components/ui/button";
+import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
@@ -856,8 +857,12 @@ export function SubmissionDetailPage() {
                           </span>
                         </span>
                         <span
-                          className={cn("font-semibold", getScoreColor(score))}
+                          className={cn(
+                            "inline-flex items-center gap-1 font-semibold",
+                            getScoreColor(score)
+                          )}
                         >
+                          <ScoreBandIcon score={score} />
                           {score.toFixed(1)}
                         </span>
                       </div>

@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
 import { PLANS } from "@/lib/constants";
@@ -444,10 +445,14 @@ export function DashboardPage() {
                     {sub.grade_report ? (
                       <span
                         className={cn(
-                          "min-w-[2.5rem] text-right text-sm font-semibold",
+                          "inline-flex min-w-[2.5rem] items-center justify-end gap-1 text-sm font-semibold",
                           getScoreColor(sub.grade_report.overall_score)
                         )}
+                        title={sub.grade_report.grade_tier}
                       >
+                        <ScoreBandIcon
+                          score={sub.grade_report.overall_score}
+                        />
                         {sub.grade_report.overall_score.toFixed(1)}
                       </span>
                     ) : (

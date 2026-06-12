@@ -7091,8 +7091,8 @@
         "Validated under a color-blindness simulator"
       ],
       "priority": 454,
-      "passes": false,
-      "notes": "[P3][A11y] Audit 2026-06-03. getScoreColor conveys grade via color alone in some cells."
+      "passes": true,
+      "notes": "[P3][A11y] Audit 2026-06-03. getScoreColor conveys grade via color alone in some cells. | DONE 2026-06-12: added ScoreBandIcon (distinct check/minus/triangle shapes + sr-only band label) paired with every color-coded grade numeral in submissions list, dashboard recents, and factor breakdowns (submission-detail, certificate, inventory-detail). Overall-score circles already pair with a tier-text Badge. List cells also show grade_tier text. Color is now redundant, not sole."
     },
     {
       "id": "US-455",
