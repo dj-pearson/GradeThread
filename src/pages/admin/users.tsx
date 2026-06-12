@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import type { UserRow, SubmissionRow } from "@/types/database";
+import type { UserRow } from "@/types/database";
+import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
 import { PLANS } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,23 @@ function formatDate(dateStr: string): string {
 
 const PAGE_SIZE = 20;
 
+type UserListColumns = Pick<
+  UserRow,
+  "id" | "email" | "full_name" | "plan" | "role" | "grades_used_this_month" | "created_at"
+>;
+
+interface UserListRow extends UserListColumns {
+  submission_count: number;
+  last_active: string;
+}
+
+// PostgREST `.or()` parses commas/parens as syntax — strip them from the raw
+// search term so a stray character can't break the filter (ilike still matches
+// the remaining substring).
+function sanitizeSearch(value: string): string {
+  return value.replace(/[,()*]/g, " ").trim();
+}
+
 export function AdminUsersPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -63,77 +81,56 @@ export function AdminUsersPage() {
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
 
+  // US-415: the users list paginates server-side via `.range()` + an exact
+  // count. Filters/search are pushed into the query, and the per-user
+  // submission stats are fetched only for the ~20 ids on the current page (the
+  // `admin_user_list_stats` RPC) instead of downloading the submissions table.
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-users"],
+    queryKey: ["admin-users", page, search, planFilter, roleFilter, dateFrom, dateTo],
     queryFn: async () => {
-      const [usersRes, subsRes] = await Promise.all([
-        supabase.from("users").select("*"),
-        supabase.from("submissions").select("id, user_id, created_at"),
-      ]);
-      if (usersRes.error) throw usersRes.error;
-      if (subsRes.error) throw subsRes.error;
+      let query = supabase
+        .from("users")
+        .select(
+          "id, email, full_name, plan, role, grades_used_this_month, created_at",
+          { count: "exact" },
+        );
 
-      const users = (usersRes.data ?? []) as UserRow[];
-      const submissions = (subsRes.data ?? []) as Pick<SubmissionRow, "id" | "user_id" | "created_at">[];
-
-      // Build submission counts and last active per user
-      const submissionCounts = new Map<string, number>();
-      const lastSubmission = new Map<string, string>();
-      for (const s of submissions) {
-        submissionCounts.set(s.user_id, (submissionCounts.get(s.user_id) ?? 0) + 1);
-        const existing = lastSubmission.get(s.user_id);
-        if (!existing || s.created_at > existing) {
-          lastSubmission.set(s.user_id, s.created_at);
-        }
+      const term = sanitizeSearch(search);
+      if (term) {
+        query = query.or(`full_name.ilike.%${term}%,email.ilike.%${term}%`);
       }
+      if (planFilter !== "all") query = query.eq("plan", planFilter);
+      if (roleFilter !== "all") query = query.eq("role", roleFilter);
+      if (dateFrom) query = query.gte("created_at", dateFrom);
+      if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
 
-      return users.map((u) => ({
+      query = query
+        .order("created_at", { ascending: false })
+        .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
+
+      const { data: rows, error, count } = await query;
+      if (error) throw error;
+
+      const userRows = (rows ?? []) as UserListColumns[];
+      const stats = await fetchAdminUserListStats(userRows.map((u) => u.id));
+
+      const enriched: UserListRow[] = userRows.map((u) => ({
         ...u,
-        submission_count: submissionCounts.get(u.id) ?? 0,
-        last_active: lastSubmission.get(u.id) ?? u.created_at,
+        submission_count: stats[u.id]?.count ?? 0,
+        last_active: stats[u.id]?.last ?? u.created_at,
       }));
+
+      return { rows: enriched, totalCount: count ?? 0 };
     },
     staleTime: 30 * 1000,
   });
 
-  const users = data ?? [];
+  const paginated = data?.rows ?? [];
+  const totalCount = data?.totalCount ?? 0;
 
-  // Apply filters
-  const filtered = users.filter((u) => {
-    // Search by name or email
-    if (search) {
-      const q = search.toLowerCase();
-      const nameMatch = u.full_name?.toLowerCase().includes(q);
-      const emailMatch = u.email.toLowerCase().includes(q);
-      if (!nameMatch && !emailMatch) return false;
-    }
-
-    // Plan filter
-    if (planFilter !== "all" && u.plan !== planFilter) return false;
-
-    // Role filter
-    if (roleFilter !== "all" && u.role !== roleFilter) return false;
-
-    // Date range filter
-    if (dateFrom) {
-      const signupDate = u.created_at.slice(0, 10);
-      if (signupDate < dateFrom) return false;
-    }
-    if (dateTo) {
-      const signupDate = u.created_at.slice(0, 10);
-      if (signupDate > dateTo) return false;
-    }
-
-    return true;
-  });
-
-  // Pagination
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Pagination (server-side)
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const paginated = filtered.slice(
-    (safePage - 1) * PAGE_SIZE,
-    safePage * PAGE_SIZE
-  );
 
   return (
     <div className="space-y-6">
@@ -142,7 +139,7 @@ export function AdminUsersPage() {
         <Users className="h-6 w-6 text-brand-red" />
         <h1 className="text-2xl font-bold">User Management</h1>
         <Badge variant="secondary" className="ml-2">
-          {filtered.length} user{filtered.length !== 1 ? "s" : ""}
+          {totalCount} user{totalCount !== 1 ? "s" : ""}
         </Badge>
       </div>
 
@@ -315,8 +312,8 @@ export function AdminUsersPage() {
             <div className="flex items-center justify-between border-t px-4 py-3">
               <p className="text-sm text-muted-foreground">
                 Showing {(safePage - 1) * PAGE_SIZE + 1}–
-                {Math.min(safePage * PAGE_SIZE, filtered.length)} of{" "}
-                {filtered.length}
+                {Math.min(safePage * PAGE_SIZE, totalCount)} of{" "}
+                {totalCount}
               </p>
               <div className="flex gap-2">
                 <button

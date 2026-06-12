@@ -6605,8 +6605,8 @@
         "Verified against a large seeded dataset"
       ],
       "priority": 415,
-      "passes": false,
-      "notes": "[P2][Performance] Audit 2026-06-03. admin/system.tsx, admin/ai-models.tsx use select('*') on growing tables."
+      "passes": true,
+      "notes": "[P2][Performance] DONE 2026-06-12. Added migration 00147_admin_aggregates.sql with three SECURITY DEFINER + is_admin()-guarded RPCs: admin_system_metrics() (all System Health dashboard numbers + hourly/daily/error buckets in one compact jsonb — replaces the 5 full-table select(*) fetches in admin/system.tsx), admin_user_list_stats(uuid[]) (per-page submission count + last-active, replaces the full submissions download in admin/users.tsx), and admin_audit_log_filter_options() (DISTINCT grouped filter options for admin/audit-log.tsx). admin/users.tsx and admin/audit-log.tsx now paginate server-side via .range() + count:exact with filters/search pushed into the query (US-404 inventory pattern); typed wrappers in src/lib/admin-aggregates.ts. Verified: npm run build + verify:db (db reset from zero) green. FOLLOW-UP (not in this story): admin/submissions.tsx (cross-table confidence/processing-time sort+filter + failed/overdue full-table sections) and admin/ai-models.tsx accuracy aggregation over full human_reviews+grade_reports warrant their own joined server-side endpoint, related to US-418."
     },
     {
       "id": "US-416",

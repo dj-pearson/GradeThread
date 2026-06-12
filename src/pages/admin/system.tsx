@@ -1,13 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type {
-  UserRow,
-  SubmissionRow,
-  SubmissionImageRow,
-  GradeReportRow,
-  SaleRow,
-} from "@/types/database";
+import { fetchAdminSystemMetrics, type AdminSystemMetrics } from "@/lib/admin-aggregates";
 import { PLANS } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -110,176 +104,92 @@ interface SystemData {
 }
 
 // ─── Data processing ────────────────────────────────────────────
+//
+// US-415: all heavy aggregation now happens server-side in the
+// `admin_system_metrics` RPC (migration 00147). This page no longer downloads
+// the users / submissions / submission_images / grade_reports / sales tables —
+// it receives a compact, size-independent summary and only formats bucket
+// labels (in local time) and computes MRR from the plan counts + PLANS pricing.
 
-function buildHourlyBuckets(hours: number) {
-  const now = new Date();
-  const buckets: Array<{ label: string; start: Date; end: Date }> = [];
-  for (let i = hours - 1; i >= 0; i--) {
-    const start = new Date(now.getTime() - i * 60 * 60 * 1000);
-    start.setMinutes(0, 0, 0);
-    const end = new Date(start.getTime() + 60 * 60 * 1000);
-    const label = `${start.getHours().toString().padStart(2, "0")}:00`;
-    buckets.push({ label, start, end });
-  }
-  return buckets;
-}
+const HOUR_LABEL = (iso: string) =>
+  `${new Date(iso).getHours().toString().padStart(2, "0")}:00`;
 
-function buildDailyBuckets(days: number) {
-  const now = new Date();
-  const buckets: Array<{ label: string; start: Date; end: Date }> = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-    const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-    buckets.push({
-      label: `${d.getMonth() + 1}/${d.getDate()}`,
-      start,
-      end,
-    });
-  }
-  return buckets;
-}
+const DAY_LABEL = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+};
 
-function processSystemData(
-  users: UserRow[],
-  submissions: SubmissionRow[],
-  images: SubmissionImageRow[],
-  gradeReports: GradeReportRow[],
-  sales: SaleRow[],
-  dbLatencyMs: number
-): SystemData {
-  const now = new Date();
-
+function buildSystemData(metrics: AdminSystemMetrics, dbLatencyMs: number): SystemData {
   // ── Health ──
   const health: HealthStatus = {
     database: dbLatencyMs < 500 ? "healthy" : dbLatencyMs < 2000 ? "degraded" : "down",
-    storage: "healthy", // If we got images data, storage is working
+    storage: "healthy", // submission_images count came back, so storage is working
     api: "healthy", // If this page loaded, API is working
     dbLatencyMs,
   };
 
-  // ── Queue metrics ──
-  const pendingCount = submissions.filter((s) => s.status === "pending").length;
-  const processingCount = submissions.filter((s) => s.status === "processing").length;
-
-  // Average processing time: completed submissions that have a grade report
-  const completedSubs = submissions.filter((s) => s.status === "completed");
-  let totalProcessingMs = 0;
-  let processedCount = 0;
-  for (const sub of completedSubs) {
-    const report = gradeReports.find((r) => r.submission_id === sub.id);
-    if (report) {
-      const diff = new Date(report.created_at).getTime() - new Date(sub.created_at).getTime();
-      if (diff > 0) {
-        totalProcessingMs += diff;
-        processedCount++;
-      }
-    }
-  }
-  const avgProcessingTimeMin = processedCount > 0
-    ? Math.round((totalProcessingMs / processedCount / 60000) * 10) / 10
-    : 0;
-
-  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const failedLast24h = submissions.filter(
-    (s) => s.status === "failed" && new Date(s.created_at) >= oneDayAgo
-  ).length;
-
-  const queue: QueueMetrics = { pendingCount, processingCount, avgProcessingTimeMin, failedLast24h };
+  // ── Queue ──
+  const queue: QueueMetrics = {
+    pendingCount: metrics.queue.pendingCount,
+    processingCount: metrics.queue.processingCount,
+    avgProcessingTimeMin: metrics.queue.avgProcessingTimeMin,
+    failedLast24h: metrics.queue.failedLast24h,
+  };
 
   // ── Storage ──
-  const totalImages = images.length;
+  const totalImages = metrics.storage.totalImages;
   // Estimate ~500KB per image average (compressed)
-  const estimatedSizeMB = Math.round((totalImages * 0.5 * 100)) / 100;
+  const estimatedSizeMB = Math.round(totalImages * 0.5 * 100) / 100;
   const storage: StorageMetrics = { totalImages, estimatedSizeMB };
 
-  // ── Subscription metrics ──
-  const planCounts: Record<string, number> = { free: 0, starter: 0, professional: 0, enterprise: 0 };
-  for (const u of users) {
-    if (u.plan in planCounts) {
-      planCounts[u.plan] = (planCounts[u.plan] ?? 0) + 1;
-    }
-  }
-
-  const planDistribution = Object.entries(planCounts).map(([key, value]) => ({
-    name: PLANS[key as keyof typeof PLANS].name,
-    value,
+  // ── Subscriptions ──
+  const planCounts = metrics.subscriptions.planCounts;
+  const planOrder: Array<keyof typeof PLANS> = ["free", "starter", "professional", "enterprise"];
+  const planDistribution = planOrder.map((key) => ({
+    name: PLANS[key].name,
+    value: planCounts[key] ?? 0,
     color: PLAN_COLORS[key] ?? "#94a3b8",
   }));
 
-  const totalPaid = users.filter((u) => u.plan !== "free").length;
+  const totalPaid = metrics.subscriptions.totalPaid;
 
-  // MRR = sum of monthly prices for all paid users. Legacy PLANS records
-  // priceMonthly as `number | null` (null = "Custom"); fall back to 0
-  // defensively even though the guard above already excludes the null cases.
+  // MRR = sum of monthly prices for all paid users. PLANS records priceMonthly
+  // as `number | null` (null = "Custom"); fall back to 0 for those. Enterprise
+  // is custom-priced, estimated at $499/mo.
   let mrr = 0;
-  for (const u of users) {
-    if (u.plan !== "free" && u.plan !== "enterprise") {
-      mrr += PLANS[u.plan].priceMonthly ?? 0;
-    }
+  for (const key of planOrder) {
+    if (key === "free" || key === "enterprise") continue;
+    mrr += (planCounts[key] ?? 0) * (PLANS[key].priceMonthly ?? 0);
   }
-  // Enterprise: estimate $499/mo
   mrr += (planCounts["enterprise"] ?? 0) * 499;
 
-  // Churn rate: users who downgraded to free in the last 30 days
-  // We can't directly detect churn from current data, so we approximate:
-  // If a user's plan is free but they have sales (were once paying), count as churned
-  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const recentUsers = users.filter((u) => new Date(u.created_at) < thirtyDaysAgo);
-  const freeWithActivity = recentUsers.filter(
-    (u) => u.plan === "free" && sales.some((s) => s.inventory_item_id && new Date(s.created_at) >= thirtyDaysAgo)
-  ).length;
-  const churnRatePercent = totalPaid > 0
+  const freeWithActivity = metrics.subscriptions.churnFreeWithActivity;
+  const churnRatePercent = totalPaid + freeWithActivity > 0
     ? Math.round((freeWithActivity / (totalPaid + freeWithActivity)) * 1000) / 10
     : 0;
 
   const subscriptions: SubscriptionMetrics = { mrr, totalPaid, planDistribution, churnRatePercent };
 
-  // ── Hourly traffic (last 24h) ──
-  const hourlyBuckets = buildHourlyBuckets(24);
-  const hourlyTraffic: TrafficPoint[] = hourlyBuckets.map((b) => {
-    const bucketSubs = submissions.filter((s) => {
-      const d = new Date(s.created_at);
-      return d >= b.start && d < b.end;
-    });
-    const uniqueUserIds = new Set(bucketSubs.map((s) => s.user_id));
-    return {
-      label: b.label,
-      submissions: bucketSubs.length,
-      uniqueUsers: uniqueUserIds.size,
-    };
-  });
+  // ── Time-bucketed series (labels formatted client-side, local time) ──
+  const hourlyTraffic: TrafficPoint[] = metrics.hourlyTraffic.map((b) => ({
+    label: HOUR_LABEL(b.start),
+    submissions: b.submissions,
+    uniqueUsers: b.uniqueUsers,
+  }));
 
-  // ── Daily unique users (last 30d) ──
-  const dailyBuckets = buildDailyBuckets(30);
-  const dailyUsers = dailyBuckets.map((b) => {
-    const bucketSubs = submissions.filter((s) => {
-      const d = new Date(s.created_at);
-      return d >= b.start && d < b.end;
-    });
-    return {
-      label: b.label,
-      uniqueUsers: new Set(bucketSubs.map((s) => s.user_id)).size,
-    };
-  });
+  const dailyUsers = metrics.dailyUsers.map((b) => ({
+    label: DAY_LABEL(b.start),
+    uniqueUsers: b.uniqueUsers,
+  }));
 
-  // ── Error rate (last 7 days, daily) ──
-  const errorBuckets = buildDailyBuckets(7);
-  const errorRate: ErrorRatePoint[] = errorBuckets.map((b) => {
-    const bucketSubs = submissions.filter((s) => {
-      const d = new Date(s.created_at);
-      return d >= b.start && d < b.end;
-    });
-    const failed = bucketSubs.filter((s) => s.status === "failed").length;
-    return {
-      label: b.label,
-      totalSubmissions: bucketSubs.length,
-      failedCount: failed,
-      failedRate: bucketSubs.length > 0
-        ? Math.round((failed / bucketSubs.length) * 1000) / 10
-        : 0,
-    };
-  });
+  const errorRate: ErrorRatePoint[] = metrics.errorRate.map((b) => ({
+    label: DAY_LABEL(b.start),
+    totalSubmissions: b.totalSubmissions,
+    failedCount: b.failedCount,
+    failedRate: b.totalSubmissions > 0
+      ? Math.round((b.failedCount / b.totalSubmissions) * 1000) / 10
+      : 0,
+  }));
 
   return { health, queue, storage, subscriptions, hourlyTraffic, dailyUsers, errorRate };
 }
@@ -333,37 +243,19 @@ export function AdminSystemPage() {
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ["admin-system"],
     queryFn: async () => {
-      // Measure DB latency with a simple query
+      // Measure DB latency with a simple ping (also serves as a cheap health probe).
       const dbStart = performance.now();
       const pingRes = await supabase.from("users").select("id", { count: "exact", head: true });
       const dbLatencyMs = Math.round(performance.now() - dbStart);
       if (pingRes.error) throw pingRes.error;
 
-      // Fetch all data in parallel
-      const [usersRes, subsRes, imagesRes, reportsRes, salesRes] = await Promise.all([
-        supabase.from("users").select("*"),
-        supabase.from("submissions").select("*"),
-        supabase.from("submission_images").select("*"),
-        supabase.from("grade_reports").select("*"),
-        supabase.from("sales").select("*"),
-      ]);
-
-      if (usersRes.error) throw usersRes.error;
-      if (subsRes.error) throw subsRes.error;
-      if (imagesRes.error) throw imagesRes.error;
-      if (reportsRes.error) throw reportsRes.error;
-      if (salesRes.error) throw salesRes.error;
+      // All aggregation happens server-side (US-415): one compact summary, no
+      // full-table downloads.
+      const metrics = await fetchAdminSystemMetrics();
 
       setLastRefresh(new Date());
 
-      return processSystemData(
-        (usersRes.data ?? []) as UserRow[],
-        (subsRes.data ?? []) as SubmissionRow[],
-        (imagesRes.data ?? []) as SubmissionImageRow[],
-        (reportsRes.data ?? []) as GradeReportRow[],
-        (salesRes.data ?? []) as SaleRow[],
-        dbLatencyMs
-      );
+      return buildSystemData(metrics, dbLatencyMs);
     },
     staleTime: 15 * 1000,
     refetchInterval: 30 * 1000, // Auto-refresh every 30 seconds

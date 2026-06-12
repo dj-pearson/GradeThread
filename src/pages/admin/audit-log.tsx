@@ -1,7 +1,8 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { AdminAuditLogRow, UserRow } from "@/types/database";
+import { fetchAdminAuditFilterOptions } from "@/lib/admin-aggregates";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Card,
@@ -39,9 +40,12 @@ import {
 
 const PAGE_SIZE = 25;
 
+type AuditAdmin = Pick<UserRow, "id" | "full_name" | "email" | "role">;
+
 interface AuditData {
   logs: AdminAuditLogRow[];
-  usersById: Map<string, UserRow>;
+  usersById: Map<string, AuditAdmin>;
+  totalCount: number;
 }
 
 function formatTimestamp(iso: string): string {
@@ -73,57 +77,78 @@ export function AdminAuditLogPage() {
   const [page, setPage] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // US-415: filter dropdown options come from a DISTINCT grouped query
+  // (admin_audit_log_filter_options) instead of scanning every row client-side.
+  const { data: filterOptions } = useQuery({
+    queryKey: ["admin-audit-filter-options"],
+    enabled: isSuperAdmin,
+    queryFn: fetchAdminAuditFilterOptions,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const adminOptions = filterOptions?.admins ?? [];
+  const actionOptions = filterOptions?.actions ?? [];
+  const targetTypeOptions = filterOptions?.targetTypes ?? [];
+
+  // US-415: the log paginates server-side (`.range()` + exact count). Filters
+  // and the date range are pushed into the query, and only the acting users on
+  // the current page are fetched (by id) rather than the whole users table.
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-audit-log"],
+    queryKey: [
+      "admin-audit-log",
+      page,
+      adminFilter,
+      actionFilter,
+      targetTypeFilter,
+      fromDate,
+      toDate,
+    ],
     enabled: isSuperAdmin,
     queryFn: async (): Promise<AuditData> => {
-      const [logsRes, usersRes] = await Promise.all([
-        supabase
-          .from("admin_audit_log")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase.from("users").select("*"),
-      ]);
-      if (logsRes.error) throw logsRes.error;
-      if (usersRes.error) throw usersRes.error;
+      let query = supabase
+        .from("admin_audit_log")
+        .select("*", { count: "exact" })
+        .order("created_at", { ascending: false });
 
-      const usersById = new Map<string, UserRow>();
-      for (const u of (usersRes.data ?? []) as UserRow[]) {
-        usersById.set(u.id, u);
+      if (adminFilter !== "all") query = query.eq("admin_user_id", adminFilter);
+      if (actionFilter !== "all") query = query.eq("action", actionFilter);
+      if (targetTypeFilter !== "all") {
+        query = query.eq("target_type", targetTypeFilter);
       }
-      return {
-        logs: (logsRes.data ?? []) as AdminAuditLogRow[],
-        usersById,
-      };
+      if (fromDate) query = query.gte("created_at", fromDate);
+      if (toDate) query = query.lte("created_at", `${toDate}T23:59:59.999Z`);
+
+      query = query.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+
+      const { data: logs, error, count } = await query;
+      if (error) throw error;
+
+      const logRows = (logs ?? []) as AdminAuditLogRow[];
+
+      const adminIds = [
+        ...new Set(
+          logRows
+            .map((l) => l.admin_user_id)
+            .filter((id): id is string => !!id),
+        ),
+      ];
+
+      const usersById = new Map<string, AuditAdmin>();
+      if (adminIds.length > 0) {
+        const { data: us, error: uErr } = await supabase
+          .from("users")
+          .select("id, full_name, email, role")
+          .in("id", adminIds);
+        if (uErr) throw uErr;
+        for (const u of (us ?? []) as AuditAdmin[]) {
+          usersById.set(u.id, u);
+        }
+      }
+
+      return { logs: logRows, usersById, totalCount: count ?? 0 };
     },
     staleTime: 30 * 1000,
   });
-
-  const adminOptions = useMemo(() => {
-    if (!data) return [];
-    const ids = new Set(
-      data.logs
-        .map((l) => l.admin_user_id)
-        .filter((id): id is string => !!id)
-    );
-    return Array.from(ids).map((id) => ({
-      id,
-      label:
-        data.usersById.get(id)?.full_name ||
-        data.usersById.get(id)?.email ||
-        id,
-    }));
-  }, [data]);
-
-  const actionOptions = useMemo(() => {
-    if (!data) return [];
-    return Array.from(new Set(data.logs.map((l) => l.action))).sort();
-  }, [data]);
-
-  const targetTypeOptions = useMemo(() => {
-    if (!data) return [];
-    return Array.from(new Set(data.logs.map((l) => l.target_type))).sort();
-  }, [data]);
 
   // An entry is super-admin-only if the acting role was super_admin. Prefer the
   // role stamped on the row at action time (actor_role); fall back to the
@@ -136,36 +161,10 @@ export function AdminAuditLogPage() {
     );
   }
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    const fromMs = fromDate ? new Date(fromDate).getTime() : null;
-    const toMs = toDate ? new Date(toDate).getTime() + 86400000 : null;
-    return data.logs.filter((log) => {
-      if (adminFilter !== "all" && log.admin_user_id !== adminFilter) {
-        return false;
-      }
-      if (actionFilter !== "all" && log.action !== actionFilter) {
-        return false;
-      }
-      if (
-        targetTypeFilter !== "all" &&
-        log.target_type !== targetTypeFilter
-      ) {
-        return false;
-      }
-      const ts = new Date(log.created_at).getTime();
-      if (fromMs !== null && ts < fromMs) return false;
-      if (toMs !== null && ts >= toMs) return false;
-      return true;
-    });
-  }, [data, adminFilter, actionFilter, targetTypeFilter, fromDate, toDate]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalCount = data?.totalCount ?? 0;
+  const pageRows = data?.logs ?? [];
+  const pageCount = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const pageRows = filtered.slice(
-    safePage * PAGE_SIZE,
-    safePage * PAGE_SIZE + PAGE_SIZE
-  );
 
   function resetFilters() {
     setAdminFilter("all");
@@ -334,7 +333,7 @@ export function AdminAuditLogPage() {
           <CardTitle className="text-base">
             {isLoading
               ? "Loading…"
-              : `${filtered.length} entr${filtered.length === 1 ? "y" : "ies"}`}
+              : `${totalCount} entr${totalCount === 1 ? "y" : "ies"}`}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -344,7 +343,7 @@ export function AdminAuditLogPage() {
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : totalCount === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
               No audit entries match the current filters.
             </p>
