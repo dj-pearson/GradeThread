@@ -8,6 +8,11 @@ import {
   howToLd,
   certificateLd,
 } from "../json-ld";
+import { SITE_URL } from "../public-routes";
+// US-425: the cert SSR Pages Function builds its Product JSON-LD from this shared
+// helper; the SPA route uses certificateLd above. The equivalence test below
+// pins the two shapes equal so the two code paths can't drift.
+import { certificateProductLd } from "../../../../functions/_shared/blog-render";
 
 describe("JSON-LD builders (US-298/299/300)", () => {
   it("organizationLd has the core entity fields", () => {
@@ -94,6 +99,45 @@ describe("JSON-LD builders (US-298/299/300)", () => {
     expect(rating.worstRating).toBe(1);
     expect(rating.alternateName).toBe("Excellent");
     expect((ld.brand as Record<string, unknown>).name).toBe("Levi's");
+  });
+
+  // US-425: the cert page renders from two code paths — the SPA route
+  // (certificateLd) and the cert SSR Pages Function (certificateProductLd).
+  // These must emit equivalent Product JSON-LD so crawler markup doesn't drift.
+  const CERT_INPUT = {
+    id: "abc123",
+    title: "Vintage Levi's 501",
+    overallScore: 8.5,
+    gradeTier: "Excellent",
+    category: "denim",
+    brand: "Levi's",
+    images: ["https://img.example/front.jpg"],
+    datePublished: "2026-01-01T00:00:00Z",
+  };
+
+  it("certificateLd includes the image field when images are provided", () => {
+    const ld = certificateLd(CERT_INPUT);
+    expect(ld.image).toEqual(["https://img.example/front.jpg"]);
+    // …and omits it entirely when there are none (graceful, not image: []).
+    const noImg = certificateLd({ ...CERT_INPUT, images: undefined });
+    expect("image" in noImg).toBe(false);
+  });
+
+  it("SPA certificateLd and SSR certificateProductLd emit identical markup", () => {
+    const spa = certificateLd(CERT_INPUT);
+    const ssr = certificateProductLd({ ...CERT_INPUT, siteUrl: SITE_URL });
+    expect(ssr).toEqual(spa);
+    // Pin the shared shape so an accidental field change on either path fails here.
+    expect(spa["@type"]).toBe("Product");
+    expect((spa.review as Record<string, unknown>).name).toBe(
+      "Condition grade: Excellent (8.5/10)",
+    );
+    expect((spa.review as Record<string, unknown>).author).toEqual({
+      "@type": "Organization",
+      name: "GradeThread",
+      url: SITE_URL,
+    });
+    expect(spa.itemCondition).toBe("https://schema.org/UsedCondition");
   });
 
   it("every builder is valid JSON (serializes without throwing)", () => {

@@ -11,6 +11,7 @@
 // report 404s there and therefore here too (US-268).
 
 import {
+  certificateProductLd,
   escape,
   fetchJson,
   notFoundResponse,
@@ -136,35 +137,20 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 </main>`;
 
   // Product + expert Review/Rating so the numeric grade is machine-readable and
-  // AI-citable (US-300). Mirrors src/lib/seo/json-ld.ts certificateLd().
-  const productLd = {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    "@id": canonical,
-    name: cert.title,
-    ...(cert.garment_category ? { category: cert.garment_category } : {}),
-    ...(cert.brand ? { brand: { "@type": "Brand", name: cert.brand } } : {}),
-    ...(cert.hero_image_url ? { image: [cert.hero_image_url] } : {}),
-    itemCondition: "https://schema.org/UsedCondition",
-    review: {
-      "@type": "Review",
-      name: `Condition grade: ${cert.grade_tier} (${score}/10)`,
-      reviewRating: {
-        "@type": "Rating",
-        ratingValue: cert.overall_score,
-        bestRating: 10,
-        worstRating: 1,
-        alternateName: cert.grade_tier,
-      },
-      author: {
-        "@type": "Organization",
-        name: "GradeThread",
-        url: base,
-      },
-      datePublished: cert.created_at,
-    },
-    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
-  };
+  // AI-citable (US-300). US-425: built from the single source-of-truth
+  // certificateProductLd() so this SSR path and the SPA route (certificateLd in
+  // src/lib/seo/json-ld.ts) can't drift — an equivalence test pins them equal.
+  const productLd = certificateProductLd({
+    id: cert.id,
+    title: cert.title,
+    overallScore: cert.overall_score,
+    gradeTier: cert.grade_tier,
+    category: cert.garment_category,
+    brand: cert.brand,
+    images: cert.hero_image_url ? [cert.hero_image_url] : null,
+    datePublished: cert.created_at,
+    siteUrl: base,
+  });
 
   const breadcrumbLd = {
     "@context": "https://schema.org",
@@ -181,6 +167,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       description,
       canonicalUrl: canonical,
       ogImage,
+      // US-425: og:type=product matches the Product primary entity (and the SPA).
+      ogType: "product",
       jsonLd: [productLd, breadcrumbLd],
       bodyHtml,
     }),

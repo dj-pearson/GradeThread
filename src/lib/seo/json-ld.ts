@@ -220,7 +220,10 @@ export function certificateLd(cert: {
     itemCondition: "https://schema.org/UsedCondition",
     review: {
       "@type": "Review",
-      name: `Condition grade: ${cert.gradeTier} (${cert.overallScore}/10)`,
+      // US-425: score formatted to one decimal so the SPA and the cert SSR
+      // Pages Function (functions/cert/[id].ts) emit a byte-identical Review
+      // name — see the SSR/SPA equivalence test in json-ld.test.ts.
+      name: `Condition grade: ${cert.gradeTier} (${cert.overallScore.toFixed(1)}/10)`,
       reviewRating: {
         "@type": "Rating",
         ratingValue: cert.overallScore,
@@ -228,7 +231,10 @@ export function certificateLd(cert: {
         worstRating: 1,
         alternateName: cert.gradeTier,
       },
-      author: { "@id": ORG_ID },
+      // US-425: inline Organization (not an @id graph reference). The cert page
+      // emits only the Product + Breadcrumb nodes, so a bare {"@id"} author
+      // would dangle; this keeps the node self-contained and matches the SSR.
+      author: { "@type": "Organization", name: "GradeThread", url: SITE_URL },
       ...(cert.datePublished ? { datePublished: cert.datePublished } : {}),
     },
     ...(cert.dateModified ? { dateModified: cert.dateModified } : {}),

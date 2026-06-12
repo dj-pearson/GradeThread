@@ -316,7 +316,10 @@ export function CertificatePage() {
       setMetaTag("og:title", `GradeThread Grade Certificate — ${report.grade_tier}`);
       setMetaTag("og:description", `Verified condition grade: ${report.overall_score.toFixed(1)}/10.0 (${report.grade_tier}). Graded by GradeThread AI.`);
       setMetaTag("og:url", `${window.location.origin}/cert/${id}`);
-      setMetaTag("og:type", "website");
+      // US-425: og:type=product matches the page's primary entity (a Product
+      // JSON-LD node) and the cert SSR Pages Function — keeps the two paths
+      // consistent so crawler markup doesn't drift.
+      setMetaTag("og:type", "product");
 
       // Fetch submission for garment info
       const { data: subData } = await supabase
@@ -423,12 +426,18 @@ export function CertificatePage() {
     (gradeReport.authenticity_manipulation_suspected ||
       gradeReport.authenticity_screenshot_or_watermark_detected);
 
+  // US-425: representative image for the Product JSON-LD — front shot, else the
+  // lowest display_order. Mirrors the cert SSR Pages Function's hero selection
+  // so both paths emit the same `image` field (both are short-lived signed URLs).
+  const heroImage = images.find((i) => i.image_type === "front") ?? images[0];
+  const heroImageUrl = heroImage ? imageUrls[heroImage.id] : undefined;
+
   return (
     <div className="min-h-screen bg-background">
       <SEO
         title={`Grade Certificate - ${gradeReport.grade_tier} (${gradeReport.overall_score}/10)`}
         description={`Verified GradeThread grade certificate for ${submission?.title ?? "garment"}. Grade: ${gradeReport.grade_tier} (${gradeReport.overall_score}/10).`}
-        ogType="article"
+        ogType="product"
         canonicalUrl={`https://gradethread.com/cert/${id}`}
         jsonLd={[
           certificateLd({
@@ -436,7 +445,9 @@ export function CertificatePage() {
             title: submission?.title ?? "Graded garment",
             overallScore: gradeReport.overall_score,
             gradeTier: gradeReport.grade_tier,
+            category: submission?.garment_category ?? null,
             brand: submission?.brand ?? null,
+            images: heroImageUrl ? [heroImageUrl] : undefined,
             datePublished: gradeReport.created_at,
           }),
           breadcrumbLd([

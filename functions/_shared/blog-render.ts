@@ -119,6 +119,10 @@ interface LayoutInput {
   jsonLd?: unknown[];
   bodyHtml: string;
   noindex?: boolean;
+  // US-425: Open Graph type. Defaults to "article" (the blog). The cert SSR
+  // passes "product" so og:type stays consistent with the page's primary
+  // entity (a Product JSON-LD node) and matches the SPA cert route.
+  ogType?: string;
   // US-255: when set, inject GA4 gtag.js (Consent Mode v2, all-denied default —
   // mirrors index.html). Pass ga4MeasurementId(env) from the Pages Function.
   gaMeasurementId?: string | null;
@@ -208,6 +212,7 @@ export function renderLayout(input: LayoutInput): string {
     )
     .join("");
   const robots = input.noindex ? "noindex, nofollow" : "index, follow";
+  const ogType = input.ogType ?? "article";
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -219,7 +224,7 @@ export function renderLayout(input: LayoutInput): string {
 <link rel="canonical" href="${escape(input.canonicalUrl)}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate" type="application/rss+xml" title="GradeThread Blog" href="/rss.xml">
-<meta property="og:type" content="article">
+<meta property="og:type" content="${escape(ogType)}">
 <meta property="og:title" content="${escape(input.title)}">
 <meta property="og:description" content="${escape(input.description)}">
 <meta property="og:url" content="${escape(input.canonicalUrl)}">
@@ -479,6 +484,57 @@ export function rewriteContentImages(html: string, resize = false): string {
     if (!/\bdecoding=/i.test(attrs)) extra += ` decoding="async"`;
     return extra ? `<img${attrs}${extra}>` : full;
   });
+}
+
+// ─── Certificate Product JSON-LD (US-300 / US-425) ────────────────────────
+// Single source-of-truth shape for the cert grade descriptor, shared by the
+// cert SSR Pages Function (functions/cert/[id].ts). It is a deliberate mirror
+// of src/lib/seo/json-ld.ts `certificateLd()` (the SPA route): an SSR↔SPA
+// equivalence test (src/lib/seo/__tests__/json-ld.test.ts) imports BOTH and
+// asserts they produce byte-identical output for the same input, so the two
+// code paths can't drift. Keep this pure (no Cloudflare globals) so it stays
+// unit-testable from the Vite/Vitest side.
+export interface CertProductLdInput {
+  id: string;
+  title: string;
+  overallScore: number;
+  gradeTier: string;
+  category?: string | null;
+  brand?: string | null;
+  images?: string[] | null;
+  datePublished?: string | null;
+  /** Public site origin without a trailing slash, e.g. https://gradethread.com */
+  siteUrl: string;
+}
+
+export function certificateProductLd(
+  cert: CertProductLdInput,
+): Record<string, unknown> {
+  const canonical = `${cert.siteUrl}/cert/${cert.id}`;
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    "@id": canonical,
+    name: cert.title,
+    ...(cert.category ? { category: cert.category } : {}),
+    ...(cert.brand ? { brand: { "@type": "Brand", name: cert.brand } } : {}),
+    ...(cert.images && cert.images.length ? { image: cert.images } : {}),
+    itemCondition: "https://schema.org/UsedCondition",
+    review: {
+      "@type": "Review",
+      name: `Condition grade: ${cert.gradeTier} (${cert.overallScore.toFixed(1)}/10)`,
+      reviewRating: {
+        "@type": "Rating",
+        ratingValue: cert.overallScore,
+        bestRating: 10,
+        worstRating: 1,
+        alternateName: cert.gradeTier,
+      },
+      author: { "@type": "Organization", name: "GradeThread", url: cert.siteUrl },
+      ...(cert.datePublished ? { datePublished: cert.datePublished } : {}),
+    },
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+  };
 }
 
 /** Article author node — a Person for E-E-A-T, else the GradeThread Team org. */

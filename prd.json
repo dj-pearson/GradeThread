@@ -6730,8 +6730,8 @@
         "A test pins the shared cert JSON-LD shape"
       ],
       "priority": 425,
-      "passes": false,
-      "notes": "[P2][SEO] Audit 2026-06-03. og:type=article while entity is Product; SPA omits images in LD."
+      "passes": true,
+      "notes": "[P2][SEO] Audit 2026-06-03. og:type=article while entity is Product; SPA omits images in LD. | DONE 2026-06-12: og:type now \"product\" on both SSR (functions/cert/[id].ts via renderLayout ogType param) and SPA (certificate.tsx). Extracted single source-of-truth certificateProductLd() in functions/_shared/blog-render.ts; SSR builds from it, SPA uses certificateLd() — both now emit images + identical Review (inline Organization author, score toFixed(1)). SSR<->SPA equivalence pinned by test in src/lib/seo/__tests__/json-ld.test.ts."
     },
     {
       "id": "US-426",
