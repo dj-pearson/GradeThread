@@ -3,6 +3,7 @@ import {
   DEFAULT_EBAY_FEE_RATE,
   DEFAULT_EBAY_FIXED_FEE,
   estimateListingProfit,
+  priceForMargin,
 } from "./listing-profit";
 
 describe("estimateListingProfit", () => {
@@ -61,5 +62,47 @@ describe("estimateListingProfit", () => {
     expect(DEFAULT_EBAY_FEE_RATE).toBeGreaterThan(0.1);
     expect(DEFAULT_EBAY_FEE_RATE).toBeLessThan(0.16);
     expect(DEFAULT_EBAY_FIXED_FEE).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("priceForMargin", () => {
+  it("returns a price whose forward margin matches the target", () => {
+    const price = priceForMargin({ targetMarginPct: 25, costBasis: 20 });
+    expect(price).not.toBeNull();
+    const { marginPct } = estimateListingProfit({ price: price!, costBasis: 20 });
+    expect(marginPct).toBeCloseTo(25, 4);
+  });
+
+  it("folds in grading + shipping costs", () => {
+    const price = priceForMargin({
+      targetMarginPct: 30,
+      costBasis: 10,
+      gradingCost: 3,
+      shippingCost: 6,
+    });
+    const { marginPct } = estimateListingProfit({
+      price: price!,
+      costBasis: 10,
+      gradingCost: 3,
+      shippingCost: 6,
+    });
+    expect(marginPct).toBeCloseTo(30, 4);
+  });
+
+  it("returns null when fee rate + margin meet or exceed 100%", () => {
+    expect(priceForMargin({ targetMarginPct: 90, feeRate: 0.1325 })).toBeNull();
+    expect(priceForMargin({ targetMarginPct: 100 })).toBeNull();
+  });
+
+  it("clamps nullish costs to zero", () => {
+    const price = priceForMargin({
+      targetMarginPct: 50,
+      costBasis: null,
+      feeRate: 0,
+      fixedFee: 0,
+    });
+    // With no costs/fees, any positive price yields 100% margin, so the floor
+    // for a 50% target is 0.
+    expect(price).toBeCloseTo(0, 6);
   });
 });

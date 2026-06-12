@@ -25,6 +25,7 @@ import { useEbayCategorySuggest } from "@/hooks/use-ebay";
 import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
+import { estimateListingProfit, priceForMargin } from "@/lib/listing-profit";
 import {
   aiAspect,
   aiPriceInput,
@@ -53,6 +54,9 @@ interface DraftRow {
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
   ai_generated_snapshot: ListingAiSnapshot | null;
+  // US-553: comp-derived price range (p25/p75) for the "median comp − X%" rule.
+  price_range_low_cents: number | null;
+  price_range_high_cents: number | null;
 }
 
 interface EditRow {
@@ -82,6 +86,9 @@ interface EditRow {
   // US-551: the AI's original draft, snapshotted at generation. Drives the
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
   ai: ListingAiSnapshot | null;
+  // US-553: comp-derived price range (dollars) for the "median comp − X%" rule.
+  compLow: number | null;
+  compHigh: number | null;
   // Server-side validation blockers (US-320) — populated by "Validate" actions.
   validationBlockers: string[] | null;
   dirty: boolean;
@@ -104,7 +111,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       const { data: rows, error: err } = await supabase
         .from("listings")
         .select(
-          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot",
+          "id, inventory_item_id, listing_title, listing_price, ebay_condition, quantity, best_offer_enabled, scheduled_publish_at, platform_category_id, item_specifics_override, ai_generated_snapshot, price_range_low_cents, price_range_high_cents",
         )
         .eq("batch_id", batchId!)
         .eq("listing_status", "draft");
@@ -125,6 +132,8 @@ export function FlipdeskAutolisterBulkEditPage() {
     brand: string;
     size: string;
     color: string;
+    // US-553: cost basis (acquired_price) backs the forward P&L / margin column.
+    cost: number | null;
   };
   const { data: itemAttrs = {} } = useQuery<Record<string, ItemAttrs>>({
     queryKey: ["autolister_bulk_item_attrs", batchId, itemIds.length],
@@ -132,7 +141,7 @@ export function FlipdeskAutolisterBulkEditPage() {
     queryFn: async () => {
       const { data: rows } = await supabase
         .from("inventory_items")
-        .select("id, title, brand, size, color")
+        .select("id, title, brand, size, color, acquired_price")
         .in("id", itemIds);
       const map: Record<string, ItemAttrs> = {};
       for (
@@ -143,6 +152,7 @@ export function FlipdeskAutolisterBulkEditPage() {
             brand: string | null;
             size: string | null;
             color: string | null;
+            acquired_price: number | null;
           }
         >
       ) {
@@ -151,6 +161,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           brand: r.brand ?? "",
           size: r.size ?? "",
           color: r.color ?? "",
+          cost: r.acquired_price,
         };
       }
       return map;
@@ -162,6 +173,9 @@ export function FlipdeskAutolisterBulkEditPage() {
   const [saving, setSaving] = useState(false);
   const [validating, setValidating] = useState(false);
   const [markupPct, setMarkupPct] = useState("");
+  // US-553: bulk price rules beyond markup/.99.
+  const [medianDiscountPct, setMedianDiscountPct] = useState("");
+  const [marginFloorPct, setMarginFloorPct] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
   const [bulkQty, setBulkQty] = useState("");
   const [bulkSchedule, setBulkSchedule] = useState("");
@@ -199,6 +213,12 @@ export function FlipdeskAutolisterBulkEditPage() {
           color: Color?.[0] ?? "",
           specifics: rest,
           ai: r.ai_generated_snapshot ?? null,
+          compLow:
+            r.price_range_low_cents != null ? r.price_range_low_cents / 100 : null,
+          compHigh:
+            r.price_range_high_cents != null
+              ? r.price_range_high_cents / 100
+              : null,
           validationBlockers: null,
           dirty: false,
         };
@@ -237,6 +257,74 @@ export function FlipdeskAutolisterBulkEditPage() {
       if (!Number.isFinite(base)) return {};
       return { price: roundTo99(base).toFixed(2) };
     });
+  }
+
+  // US-553: price = median comp − X%. The median is the midpoint of the stored
+  // p25/p75 comp range; rows without comps are left untouched and counted so the
+  // seller knows the rule didn't cover everything.
+  function applyMedianComp() {
+    const pct = Number.parseFloat(medianDiscountPct);
+    if (!Number.isFinite(pct)) return;
+    let skipped = 0;
+    applyToTargets((r) => {
+      if (r.compLow == null || r.compHigh == null) {
+        skipped++;
+        return {};
+      }
+      const median = (r.compLow + r.compHigh) / 2;
+      return { price: Math.max(0, median * (1 - pct / 100)).toFixed(2) };
+    });
+    if (skipped > 0) {
+      toast.info(
+        `${skipped} row${skipped === 1 ? "" : "s"} had no comps and kept their price.`,
+      );
+    }
+  }
+
+  // US-553: raise any price below the floor that yields at least X% net margin
+  // (cost basis + eBay fees factored in). Prices already above the floor are
+  // left alone — this only protects the downside.
+  function applyMarginFloor() {
+    const pct = Number.parseFloat(marginFloorPct);
+    if (!Number.isFinite(pct)) return;
+    let unreachable = 0;
+    applyToTargets((r) => {
+      const floor = priceForMargin({
+        targetMarginPct: pct,
+        costBasis: itemAttrs[r.itemId]?.cost ?? null,
+      });
+      if (floor == null) {
+        unreachable++;
+        return {};
+      }
+      const base = Number.parseFloat(r.price);
+      const next = Number.isFinite(base) ? Math.max(base, floor) : floor;
+      return { price: roundTo99(next).toFixed(2) };
+    });
+    if (unreachable > 0) {
+      toast.warning(
+        `${pct}% margin is unreachable with eBay fees for ${unreachable} row${unreachable === 1 ? "" : "s"}.`,
+      );
+    }
+  }
+
+  // US-553: reset price to the AI's original recommendation (snapshot). Rows
+  // with no AI snapshot (manually created) are skipped.
+  function applyMatchRecommended() {
+    let skipped = 0;
+    applyToTargets((r) => {
+      const cents = r.ai?.price_cents;
+      if (cents == null) {
+        skipped++;
+        return {};
+      }
+      return { price: (cents / 100).toFixed(2) };
+    });
+    if (skipped > 0) {
+      toast.info(
+        `${skipped} row${skipped === 1 ? "" : "s"} had no AI recommendation and kept their price.`,
+      );
+    }
   }
 
   async function saveAll() {
@@ -480,6 +568,54 @@ export function FlipdeskAutolisterBulkEditPage() {
             Round to .99
           </Button>
         </div>
+        {/* US-553: price rules beyond markup/.99. */}
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Median comp −%
+            </label>
+            <Input
+              type="number"
+              value={medianDiscountPct}
+              onChange={(e) => setMedianDiscountPct(e.target.value)}
+              className="h-8 w-24"
+              placeholder="e.g. 5"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!medianDiscountPct}
+            onClick={applyMedianComp}
+          >
+            Apply
+          </Button>
+        </div>
+        <div className="flex items-end gap-1.5">
+          <div>
+            <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
+              Floor at % margin
+            </label>
+            <Input
+              type="number"
+              value={marginFloorPct}
+              onChange={(e) => setMarginFloorPct(e.target.value)}
+              className="h-8 w-24"
+              placeholder="e.g. 30"
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!marginFloorPct}
+            onClick={applyMarginFloor}
+          >
+            Apply
+          </Button>
+          <Button size="sm" variant="secondary" onClick={applyMatchRecommended}>
+            Match recommended
+          </Button>
+        </div>
         <div className="flex items-end gap-1.5">
           <div>
             <label className="mb-1 block text-[10px] uppercase text-muted-foreground">
@@ -694,6 +830,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               </th>
               <th className="p-2">Title</th>
               <th className="w-28 p-2">Price</th>
+              <th className="w-32 p-2">Net / margin</th>
               <th className="w-44 p-2">Condition</th>
               <th className="w-48 p-2">Category</th>
               <th className="w-36 p-2">Department</th>
@@ -709,7 +846,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           <tbody>
             {paddingTop > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={13} style={{ height: paddingTop }} />
+                <td colSpan={14} style={{ height: paddingTop }} />
               </tr>
             )}
             {virtualRows.map((vr) => {
@@ -791,6 +928,13 @@ export function FlipdeskAutolisterBulkEditPage() {
                         className="mt-1"
                       />
                     )}
+                  </td>
+                  {/* US-553: forward net $ / margin %, live as price changes. */}
+                  <td className="p-2">
+                    <PnlCell
+                      price={r.price}
+                      cost={itemAttrs[r.itemId]?.cost ?? null}
+                    />
                   </td>
                   <td className="p-2">
                     <select
@@ -944,12 +1088,12 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {paddingBottom > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={13} style={{ height: paddingBottom }} />
+                <td colSpan={14} style={{ height: paddingBottom }} />
               </tr>
             )}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={13} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={14} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>
@@ -957,6 +1101,52 @@ export function FlipdeskAutolisterBulkEditPage() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// US-553: forward net profit + margin for one row, recomputed live from the
+// current price string and the item's cost basis. Mirrors the composer's
+// thresholds (red = loss, amber = thin margin, green = healthy). A missing cost
+// basis still shows fees-only net, with a hint so the number isn't trusted blind.
+function PnlCell({
+  price,
+  cost,
+}: {
+  price: string;
+  cost: number | null;
+}) {
+  const parsed = Number.parseFloat(price);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const { net, marginPct } = estimateListingProfit({
+    price: parsed,
+    costBasis: cost,
+  });
+  return (
+    <div className="text-xs tabular-nums">
+      <div
+        className={cn(
+          "font-semibold",
+          net < 0
+            ? "text-destructive"
+            : marginPct < 20
+              ? "text-amber-600 dark:text-amber-400"
+              : "text-emerald-600 dark:text-emerald-400",
+        )}
+      >
+        ${net.toFixed(2)}
+      </div>
+      <div className="text-muted-foreground">{marginPct.toFixed(0)}% margin</div>
+      {cost == null && (
+        <div
+          className="text-[10px] text-amber-600 dark:text-amber-400"
+          title="No cost basis on this item — margin excludes acquisition cost."
+        >
+          no cost
+        </div>
+      )}
     </div>
   );
 }

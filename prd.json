@@ -8362,8 +8362,8 @@
         "Updates live as price/comps change"
       ],
       "priority": 553,
-      "passes": false,
-      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. PnlPanel computes margin only after a recorded sale; comps panel shows price with no fee/margin math."
+      "passes": true,
+      "notes": "[P1][AutoLister/UX] Deep-dive 2026-06-03. PnlPanel computes margin only after a recorded sale; comps panel shows price with no fee/margin math. [DONE 2026-06-12] Composer already showed forward net/margin at the price input (estimateListingProfit). Added: P&L still live there; bulk grid now has a Net/margin column (PnlCell, cost basis = inventory_items.acquired_price) recomputed live per keystroke, plus three price rules — median comp − X% (midpoint of stored price_range_low/high_cents), floor at X% margin (new priceForMargin() inverse in listing-profit.ts), and match recommended (AI snapshot price). Tests added for priceForMargin."
     },
     {
       "id": "US-554",
