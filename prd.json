@@ -8284,8 +8284,8 @@
         "A dashboard shows prompt-version performance"
       ],
       "priority": 547,
-      "passes": false,
-      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03 — MOAT. Rails exist (ai_prompt_versions, eval gate, ai_enrichment_log) but acceptance data isn't captured/looped."
+      "passes": true,
+      "notes": "[P2][AutoLister/AI] Deep-dive 2026-06-03 — MOAT. Rails exist (ai_prompt_versions, eval gate, ai_enrichment_log) but acceptance data isn't captured/looped. | IMPLEMENTED 2026-06-12: migration 00155 adds listings.ai_generated_snapshot/ai_prompt_version + ai_prompt_versions.in_trial + listing_prompt_acceptance table. captureListingAcceptance (lib/listing-acceptance.ts) diffs AI snapshot vs published values per-field at publish; markListingPromptSold flips sell-through on completed orders sync. A/B: resolveListingPrompt does deterministic 50/50 champion-vs-in_trial-challenger split on item id; autoPromoteListingPrompt promotes (eval-gated) winners on combined keep-rate+sell-through via admin endpoints + cron POST /api/jobs/listing-prompt-promote. Dashboard: ListingPromptPerformancePanel in admin/ai-models. listing_gen added to create-prompt STAGES."
     },
     {
       "id": "US-548",

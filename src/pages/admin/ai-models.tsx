@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GradingMonitorPanel } from "@/components/admin/grading-monitor-panel";
 import { GradingEvalCandidatesPanel } from "@/components/admin/grading-eval-candidates-panel";
 import { GradingCalibrationPanel } from "@/components/admin/grading-calibration-panel";
+import { ListingPromptPerformancePanel } from "@/components/admin/listing-prompt-performance-panel";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import {
@@ -985,6 +986,9 @@ export function AdminAiModelsPage() {
 
       {/* Confidence calibration / reliability curve (US-331) */}
       <GradingCalibrationPanel />
+
+      {/* Listing-prompt acceptance + sell-through performance / A-B (US-547) */}
+      <ListingPromptPerformancePanel />
 
       {/* Accuracy Feedback Dashboard */}
       <Card>

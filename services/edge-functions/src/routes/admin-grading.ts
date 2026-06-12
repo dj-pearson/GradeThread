@@ -10,6 +10,10 @@ import {
   exportTrainingDataset,
 } from "../lib/accuracy-tracking.ts";
 import { activatePromptVersion, runEval } from "../lib/grading-eval.ts";
+import {
+  autoPromoteListingPrompt,
+  summarizeListingPromptPerformance,
+} from "../lib/listing-acceptance.ts";
 import { type ShadowRow, summarizeComparisons } from "../lib/grading-shadow.ts";
 import { runGradingRegressionScan } from "../lib/grading-monitor.ts";
 import { computeIrrReport, type ItemRatings } from "../lib/irr.ts";
@@ -64,7 +68,10 @@ function auditLog(
   return writeAuditLog(c, { action, targetType, targetId, details });
 }
 
-const STAGES = ["per_image", "composite"] as const;
+// US-547: listing_gen joins the grading stages so AutoLister listing prompts go
+// through the same create → eval-gate → activate flow. runEval routes
+// listing_gen to the listing eval (golden cases), not the grading eval.
+const STAGES = ["per_image", "composite", "listing_gen"] as const;
 type Stage = (typeof STAGES)[number];
 
 // Map a 1.0–10.0 score to its grade_tier (mirrors ai-grading.scoreToGradeTier).
@@ -243,6 +250,102 @@ adminGradingRoutes.post("/prompts/:id/deactivate", async (c) => {
   if (error) return c.json({ error: error.message }, 400);
   await auditLog(c, "deactivate_prompt_version", "ai_prompt_version", id, {});
   return c.json({ ok: true });
+});
+
+// ── US-547: AutoLister listing-prompt self-improvement ────────────────
+//
+// The listing_gen prompt learns from which AI fields sellers keep vs change
+// (captured at publish into listing_prompt_acceptance) paired with sell-through.
+// These endpoints power the admin dashboard (AC3) and the A/B auto-promotion
+// loop (AC2). Creating/eval-ing/activating a listing_gen candidate reuses the
+// generic /prompts endpoints above (stage="listing_gen").
+
+// GET /listing-prompts/performance — per-version keep-rate + sell-through.
+adminGradingRoutes.get("/listing-prompts/performance", async (c) => {
+  try {
+    const stats = await summarizeListingPromptPerformance();
+    return c.json({ stats });
+  } catch (err) {
+    return c.json(
+      { error: "Failed to load listing-prompt performance", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
+// PATCH /listing-prompts/:id/trial — start/stop an A/B trial for a listing_gen
+// candidate. A trialed (eval-passed, inactive) prompt takes ~50% of generations
+// until auto-promotion resolves it. Body: { in_trial: boolean }.
+adminGradingRoutes.patch("/listing-prompts/:id/trial", async (c) => {
+  const id = c.req.param("id");
+  let body: { in_trial?: boolean };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const inTrial = body.in_trial === true;
+
+  const { data: row, error: loadErr } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .select("id, stage, eval_passed, is_active")
+    .eq("id", id)
+    .maybeSingle();
+  if (loadErr) return c.json({ error: loadErr.message }, 500);
+  if (!row) return c.json({ error: "Prompt version not found" }, 404);
+  const v = row as { stage: string; eval_passed: boolean | null; is_active: boolean };
+  if (v.stage !== "listing_gen") {
+    return c.json({ error: "Only listing_gen prompts support A/B trials" }, 422);
+  }
+  if (inTrial && v.eval_passed !== true) {
+    return c.json({ error: "Run the eval gate (must pass) before starting a trial" }, 422);
+  }
+  if (inTrial && v.is_active) {
+    return c.json({ error: "The active champion cannot also be the trial challenger" }, 422);
+  }
+
+  // Only one challenger at a time: clear any other in-trial listing_gen row.
+  if (inTrial) {
+    await supabaseAdmin
+      .from("ai_prompt_versions")
+      .update({ in_trial: false })
+      .eq("stage", "listing_gen")
+      .eq("in_trial", true)
+      .neq("id", id);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("ai_prompt_versions")
+    .update({ in_trial: inTrial, trial_started_at: inTrial ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) return c.json({ error: error.message }, 400);
+  await auditLog(c, "set_listing_prompt_trial", "ai_prompt_version", id, { in_trial: inTrial });
+  return c.json({ ok: true, in_trial: inTrial });
+});
+
+// POST /listing-prompts/auto-promote — evaluate the in-trial challenger against
+// the champion and promote (eval-gated) / end the trial / hold. Idempotent;
+// safe to run on a schedule.
+adminGradingRoutes.post("/listing-prompts/auto-promote", async (c) => {
+  try {
+    const decision = await autoPromoteListingPrompt();
+    if (decision.action === "promoted" || decision.action === "trial_ended") {
+      await auditLog(c, "auto_promote_listing_prompt", "ai_prompt_version", null, {
+        action: decision.action,
+        challenger: decision.challenger ?? null,
+        champion: decision.champion ?? null,
+        challenger_score: decision.challengerScore ?? null,
+        champion_score: decision.championScore ?? null,
+        sample: decision.sample ?? null,
+      });
+    }
+    return c.json(decision);
+  } catch (err) {
+    return c.json(
+      { error: "Auto-promote failed", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
 });
 
 // ── Shadow / A-B grading (US-330) ────────────────────────────────────

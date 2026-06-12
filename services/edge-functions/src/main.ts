@@ -56,6 +56,7 @@ import { handleCertIntegrityBackfillCron } from "./lib/cert-integrity-backfill.t
 import { handleDataRetentionCron } from "./lib/data-retention.ts";
 import { handleConditionIndexRefreshCron } from "./lib/condition-index.ts";
 import { handleTrialExpiryCron } from "./routes/jobs-trial-expiry.ts";
+import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { announcementRoutes } from "./routes/announcements.ts";
@@ -546,6 +547,10 @@ app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefresh
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
+// US-547 AutoLister listing-prompt A/B auto-promotion. Compares the in-trial
+// challenger against the champion on seller keep-rate + sell-through and
+// promotes (eval-gated) / ends the trial. Handler enforces the job secret.
+app.post("/api/jobs/listing-prompt-promote", (c) => handleListingPromptPromoteCron(c));
 // US-472 eBay parked-webhook drain. Re-links payout/order/return events that
 // arrived before the connection's account_handle/external_account_id hydrated,
 // and dead-letters the ones that never link. Handler enforces the job secret.

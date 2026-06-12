@@ -54,6 +54,10 @@ import {
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
 import { compositeGradeBadge } from "../lib/grade-badge.ts";
 import {
+  captureListingAcceptance,
+  markListingPromptSold,
+} from "../lib/listing-acceptance.ts";
+import {
   type ExistingSaleRow,
   normalizeUnitCount,
   pickSaleRowForLine,
@@ -1764,6 +1768,11 @@ async function doListingsPull(
                   ...lifecyclePatch,
                 })
                 .eq("id", listingId);
+              // US-547: a completed sale is the sell-through signal for the
+              // listing_gen prompt that produced this draft.
+              if (saleStatus === "completed") {
+                await markListingPromptSold(listingId);
+              }
             } else {
               // No listings row at all (sold before we ever synced the live
               // listing) — create one so the item carries its eBay link.
@@ -3025,6 +3034,13 @@ export async function publishItemForOwner(
         );
       },
     });
+
+    // US-547: capture the seller-acceptance signal — diff the AI's generated
+    // snapshot against the now-published (post-edit) values, attributed to the
+    // listing_gen prompt version. Non-fatal; no-op for non-AI drafts.
+    if (listing?.id) {
+      await captureListingAcceptance(listing.id);
+    }
 
     return {
       ok: true,

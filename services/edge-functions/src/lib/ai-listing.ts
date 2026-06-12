@@ -145,6 +145,9 @@ export interface ListingGenInput {
   // this brand/category. Fed to the model to fold into the title/description
   // where they truthfully apply to THIS item. Ranked highest-demand first.
   demandTerms?: string[];
+  // US-547: deterministic A/B key (the item id). Decides champion-vs-challenger
+  // when a listing_gen challenger is in trial. Omit to force the champion.
+  promptSelectKey?: string | null;
 }
 
 export interface ListingGenResult {
@@ -280,43 +283,100 @@ export interface ResolvedListingPrompt {
   versionName: string;
 }
 
-const PROMPT_CACHE_TTL_MS = 60_000;
-let cached: { value: ResolvedListingPrompt; expiresAt: number } | null = null;
+// US-547: champion (active) + optional A/B challenger (eval-passed, in_trial).
+// When a challenger exists, ~50% of generations use it — split deterministically
+// on the item id so the SAME item always gets the SAME prompt (a re-generate
+// doesn't flip variants mid-flight, and the acceptance attribution stays stable).
+interface ListingPromptBundle {
+  champion: ResolvedListingPrompt;
+  challenger: ResolvedListingPrompt | null;
+}
 
-export async function resolveListingPrompt(): Promise<ResolvedListingPrompt> {
+const PROMPT_CACHE_TTL_MS = 60_000;
+let cachedBundle: { value: ListingPromptBundle; expiresAt: number } | null = null;
+
+function pickPromptText(promptText: string | null, fallback: string): string {
+  return promptText && promptText.trim().length > 0 ? promptText : fallback;
+}
+
+// FNV-1a → unit float in [0,1). Deterministic (no Math.random) so the same key
+// always lands the same side of the A/B split across calls and deploys.
+function hashKeyToUnit(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
+async function loadListingPromptBundle(): Promise<ListingPromptBundle> {
   const codeDefault: ResolvedListingPrompt = {
     text: LISTING_GEN_SYSTEM_PROMPT,
     versionName: LISTING_GEN_PROMPT_VERSION,
   };
   const now = Date.now();
-  if (cached && cached.expiresAt > now) return cached.value;
+  if (cachedBundle && cachedBundle.expiresAt > now) return cachedBundle.value;
 
-  let resolved = codeDefault;
+  let champion = codeDefault;
+  let challenger: ResolvedListingPrompt | null = null;
   try {
-    const { data, error } = await supabaseAdmin
+    const { data: activeData, error } = await supabaseAdmin
       .from("ai_prompt_versions")
       .select("version_name, prompt_text")
       .eq("stage", "listing_gen")
       .eq("is_active", true)
       .limit(1);
+    if (!error && Array.isArray(activeData) && activeData.length > 0) {
+      const picked = activeData[0] as { version_name: string; prompt_text: string | null };
+      champion = {
+        text: pickPromptText(picked.prompt_text, codeDefault.text),
+        versionName: picked.version_name,
+      };
+    }
 
-    if (!error && Array.isArray(data) && data.length > 0) {
-      const picked = data[0] as { version_name: string; prompt_text: string | null };
-      const text =
-        picked.prompt_text && picked.prompt_text.trim().length > 0
-          ? picked.prompt_text
-          : codeDefault.text;
-      resolved = { text, versionName: picked.version_name };
+    // The A/B challenger: an eval-passed, in_trial row that is NOT the active
+    // champion. activatePromptVersion clears in_trial when it promotes a winner.
+    const { data: trialData } = await supabaseAdmin
+      .from("ai_prompt_versions")
+      .select("version_name, prompt_text")
+      .eq("stage", "listing_gen")
+      .eq("in_trial", true)
+      .eq("eval_passed", true)
+      .eq("is_active", false)
+      .limit(1);
+    if (Array.isArray(trialData) && trialData.length > 0) {
+      const picked = trialData[0] as { version_name: string; prompt_text: string | null };
+      challenger = {
+        text: pickPromptText(picked.prompt_text, codeDefault.text),
+        versionName: picked.version_name,
+      };
     }
   } catch (err) {
     console.error(
-      "[AI Listing] resolveListingPrompt fallback:",
+      "[AI Listing] loadListingPromptBundle fallback:",
       err instanceof Error ? err.message : String(err),
     );
   }
 
-  cached = { value: resolved, expiresAt: now + PROMPT_CACHE_TTL_MS };
-  return resolved;
+  const value: ListingPromptBundle = { champion, challenger };
+  cachedBundle = { value, expiresAt: now + PROMPT_CACHE_TTL_MS };
+  return value;
+}
+
+/**
+ * Resolve the listing_gen prompt for this generation. `selectKey` (the item id)
+ * drives the deterministic 50/50 A/B split when a challenger is in trial; omit
+ * it (e.g. eval runs) to always get the champion.
+ */
+export async function resolveListingPrompt(
+  selectKey?: string | null,
+): Promise<ResolvedListingPrompt> {
+  const bundle = await loadListingPromptBundle();
+  if (bundle.challenger && selectKey && hashKeyToUnit(selectKey) < 0.5) {
+    return bundle.challenger;
+  }
+  return bundle.champion;
 }
 
 function clampConfidence(v: unknown): number {
@@ -355,7 +415,7 @@ export async function generateListingFields(
   const model = getDefaultModel(); // vision-capable
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
-  const prompt = await resolveListingPrompt();
+  const prompt = await resolveListingPrompt(input.promptSelectKey ?? null);
 
   const content: Anthropic.ContentBlockParam[] = [];
   input.photos.forEach((photo, i) => {
@@ -835,6 +895,8 @@ export async function generateListing(
     measurements,
     allowedAspects: aspectsAlreadyConstrained ? allowedAspects : undefined,
     demandTerms: demandTerms.length > 0 ? demandTerms : undefined,
+    // US-547: split this item between champion / A/B-challenger prompt.
+    promptSelectKey: itemId,
   });
   const listing = gen.listing;
 
@@ -1099,6 +1161,19 @@ export async function generateListing(
     title_variants: titleVariants,
     active_title_variant: "A",
     demand_terms: demandTerms.length > 0 ? demandTerms : null,
+    // US-547: attribute the draft to the prompt version that produced it and
+    // snapshot the AI's generated fields, so captureListingAcceptance can diff
+    // the seller's published edits against the model's output at publish time.
+    ai_prompt_version: gen.promptVersion,
+    ai_generated_snapshot: {
+      title: listing.title,
+      description: listingDescription,
+      price_cents: priceCents,
+      ebay_condition: listing.ebay_condition,
+      condition_description: conditionDescription,
+      category_id: categoryId,
+      item_specifics: itemSpecifics,
+    },
   };
 
   const { data: existing } = await supabaseAdmin
