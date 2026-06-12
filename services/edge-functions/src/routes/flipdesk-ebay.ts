@@ -3133,6 +3133,89 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
   });
 });
 
+// US-560: quantity-aware relist of a sold-out evergreen item. One call
+// replenishes the listing quantity, reuses the existing eBay offer for the SKU,
+// and republishes — so a seller never has to rebuild a listing from scratch.
+//   • Replenish: bumps listings.quantity to the requested value (default 1,
+//     floored at 1) so assemblePublishContext resolves availableQuantity > 0.
+//   • Reuse the offer: publishItemForOwner({ relist: true }) ends a still-live
+//     offer then re-publishes the SAME SKU offer via syncExistingOffer +
+//     publishOrAdoptOffer (no duplicate offer).
+//   • Never live at 0: the publish context floors quantity at 1, and we floor
+//     the replenish target at 1, so a previously-sold item can't go live empty.
+//   • Idempotent: publishOrAdoptOffer adopts an already-live listing and the
+//     quantity write is a fixed set, so a retry converges to the same state.
+flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+
+  let body: { quantity?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  // Respect an explicit replenish quantity; otherwise default to 1. Floor at 1
+  // (non-positive / non-integer requests clamp up) so a republished
+  // previously-sold item never goes live at quantity 0.
+  const requested = Number(body.quantity);
+  const replenishQty =
+    Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
+
+  const row = await loadListingOwned(listingId, userId);
+  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.listing.inventory_item_id) {
+    return c.json(
+      { error: "This listing is not linked to an inventory item; cannot relist." },
+      409,
+    );
+  }
+  const itemId = row.listing.inventory_item_id;
+
+  // Enforce the active-listing cap (mirrors /listings/push). A sold-out item is
+  // no longer in 'listed' status, so relisting re-occupies a slot (+1); skip the
+  // increment when this exact item is somehow still counted as listed.
+  const { data: existing } = await supabaseAdmin
+    .from("inventory_items")
+    .select("status")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  const alreadyListed = (existing as { status?: string } | null)?.status === "listed";
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "activeListings", delta: alreadyListed ? 0 : 1 },
+    userId,
+  });
+  if (capGate) return capGate;
+
+  // Replenish the quantity on the draft listing row BEFORE publishing so the
+  // publish context resolves the new availableQuantity for both the inventory
+  // PUT and the (reused) offer. Idempotent — a fixed set, safe under retry.
+  const { error: qtyErr } = await supabaseAdmin
+    .from("listings")
+    .update({ quantity: replenishQty })
+    .eq("id", listingId);
+  if (qtyErr) {
+    console.error("[flipdesk-ebay] relist: quantity replenish failed:", qtyErr);
+    return c.json({ error: "Could not replenish listing quantity." }, 500);
+  }
+
+  const result = await publishItemForOwner(userId, itemId, { relist: true });
+  if (!result.ok) return c.json(result.body, result.status);
+  return c.json({
+    ok: true,
+    listing_id: result.listing_id,
+    listing_url: result.listing_url,
+    offer_id: result.offer_id,
+    sku: result.sku,
+    quantity: replenishQty,
+    sync_pending: result.sync_pending ?? false,
+  });
+});
+
 // US-528: how long a publish claim is honored before it's considered stale and
 // reclaimable. Must exceed the realistic worst-case publish wall-time (eBay
 // latency + the bounded publishOffer retries) so a still-running publish is

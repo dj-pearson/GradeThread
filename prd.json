@@ -8451,8 +8451,8 @@
         "Idempotent under retry"
       ],
       "priority": 560,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Offer-reuse path doesn't refresh availableQuantity; no relist endpoint."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] DONE 2026-06-12. Added POST /listings/:id/relist in flipdesk-ebay.ts: ownership via loadListingOwned, replenishes listings.quantity (floored at 1), enforces active-listing cap, then publishItemForOwner({relist:true}) which reuses the SKU offer (syncExistingOffer refreshes availableQuantity) and re-publishes via publishOrAdoptOffer (idempotent). Publish context also floors quantity at 1 so a previously-sold item never goes live at qty 0."
     },
     {
       "id": "US-561",
