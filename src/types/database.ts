@@ -2061,6 +2061,8 @@ export type ContentStatus =
 export type TopicStatus = "queued" | "assigned" | "used" | "rejected";
 export type ContentGeneratedBy = "ai" | "human";
 export type ContentTopicSource = "research" | "manual" | "history_derived";
+/** Pre-publish safety review state (US-486, migration 00151). */
+export type ContentSafetyStatus = "unchecked" | "passed" | "held";
 
 export interface ContentTopicRow {
   id: string;
@@ -2132,6 +2134,10 @@ export interface BlogPostRow {
   author: string | null;
   key_takeaways: string[];
   faqs: BlogFaq[];
+  // Pre-publish safety review state (US-486).
+  safety_status: ContentSafetyStatus;
+  safety_notes: string | null;
+  safety_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -2188,6 +2194,10 @@ export interface SocialPostRow {
   model_used: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
+  // Pre-publish safety review state (US-486).
+  safety_status: ContentSafetyStatus;
+  safety_notes: string | null;
+  safety_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -2238,6 +2248,9 @@ export interface ContentSettingsRow {
   post_cadence_per_day_blog: number;
   post_cadence_per_day_social: number;
   public_site_url: string;
+  // US-486: kill-switch + weekly auto-publish ceiling.
+  publishing_paused: boolean;
+  max_auto_publishes_per_week: number;
   created_at: string;
   updated_at: string;
 }

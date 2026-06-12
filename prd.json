@@ -7501,8 +7501,8 @@
         "Published AI content is attributable and reversible"
       ],
       "priority": 486,
-      "passes": false,
-      "notes": "[P2][Content] Audit 2026-06-03. content-scheduler auto_publish publishes AI drafts live with only sanitizeHtml."
+      "passes": true,
+      "notes": "[P2][Content] Audit 2026-06-03. content-scheduler auto_publish publishes AI drafts live with only sanitizeHtml. | DONE 2026-06-12: migration 00151 adds content_safety_status enum + safety_status/safety_notes/safety_checked_at on blog_posts+social_posts, publishing_paused kill-switch + max_auto_publishes_per_week ceiling on content_settings. New lib content-safety.ts runs a Claude (lightweight model) claims/safety review before any autonomous publish; FAIL-CLOSED (API error/bad JSON => hold). Held posts stay draft with safety_status=held + reasons + system audit row (content.blog_held/social_held). Kill-switch stops the entire tick (incl. scheduled promotion); manual dashboard publish unaffected (human-in-loop IS the approval state, so scheduled/manual paths are ungated by design). Weekly ceiling counts generated_by=ai published rows last 7d across both surfaces; at ceiling drafts still generate but do not publish. Attribution: generated_by/model_used columns (existing) + writeSystemAuditLog now on ALL scheduler publish paths (auto blog/social + scheduled social; scheduled blog already had it). Reversal: existing blog archive endpoint w/ CF purge; social via PATCH status/DELETE (platform-side takedown is Make.com scope). UI: kill-switch toggle + weekly ceiling on content-settings page. Tests: content-safety_test.ts (verdict parsing fail-closed, html strip)."
     },
     {
       "id": "US-487",

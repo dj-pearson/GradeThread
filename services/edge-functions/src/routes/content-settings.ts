@@ -47,6 +47,9 @@ interface SettingsPatch {
   post_cadence_per_day_blog?: number;
   post_cadence_per_day_social?: number;
   public_site_url?: string;
+  // US-486: kill-switch + weekly auto-publish ceiling.
+  publishing_paused?: boolean;
+  max_auto_publishes_per_week?: number;
 }
 
 contentSettingsRoutes.patch("/", async (c) => {
@@ -68,6 +71,8 @@ contentSettingsRoutes.patch("/", async (c) => {
     "post_cadence_per_day_blog",
     "post_cadence_per_day_social",
     "public_site_url",
+    "publishing_paused",
+    "max_auto_publishes_per_week",
   ];
   const patch: Partial<SettingsPatch> = {};
   for (const k of allowed) {

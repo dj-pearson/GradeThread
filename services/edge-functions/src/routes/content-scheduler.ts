@@ -16,6 +16,7 @@ import {
 } from "../lib/cloudflare-purge.ts";
 import { writeSystemAuditLog } from "../lib/audit-log.ts";
 import { buildContentSummary } from "../lib/content-summary.ts";
+import { reviewContentSafety } from "../lib/content-safety.ts";
 
 // Autonomous scheduler endpoint. Make.com hits this on a cron; the
 // /tick handler decides what (if anything) to publish next.
@@ -66,6 +67,9 @@ interface SettingsRow {
   min_topics_in_bank: number;
   topics_refill_batch: number;
   public_site_url: string;
+  // US-486: kill-switch + weekly ceiling beyond per-day cadence.
+  publishing_paused: boolean;
+  max_auto_publishes_per_week: number;
 }
 
 type Surface = "blog" | "social";
@@ -77,7 +81,7 @@ interface TickResult {
   surface?: Surface;
   product_focus?: Product;
   post_id?: string;
-  status?: "draft" | "published";
+  status?: "draft" | "published" | "held";
   refilled_topics?: number;
   published_scheduled?: number; // count of scheduled drafts promoted this tick
 }
@@ -87,7 +91,8 @@ async function loadSettings(): Promise<SettingsRow | null> {
     .from("content_settings")
     .select(
       "auto_publish_blog, auto_publish_social, post_cadence_per_day_blog, " +
-        "post_cadence_per_day_social, min_topics_in_bank, topics_refill_batch, public_site_url",
+        "post_cadence_per_day_social, min_topics_in_bank, topics_refill_batch, public_site_url, " +
+        "publishing_paused, max_auto_publishes_per_week",
     )
     .eq("id", 1)
     .maybeSingle();
@@ -125,6 +130,29 @@ async function publishedTodayCounts(): Promise<Map<string, number>> {
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   return counts;
+}
+
+// US-486: hard weekly ceiling, independent of per-day cadence. Counts every
+// AI-generated post published in the last 7 days across both surfaces —
+// deliberately conservative (manual publishes of AI drafts count too) so a
+// cadence misconfiguration or a runaway tick loop can't flood the public site.
+async function aiPublishedLast7Days(): Promise<number> {
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const [{ count: blog }, { count: social }] = await Promise.all([
+    supabaseAdmin
+      .from("blog_posts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "published")
+      .eq("generated_by", "ai")
+      .gte("published_at", since),
+    supabaseAdmin
+      .from("social_posts")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "published")
+      .eq("generated_by", "ai")
+      .gte("published_at", since),
+  ]);
+  return (blog ?? 0) + (social ?? 0);
 }
 
 // "Which product needs the next slot?" — picks whichever (gt vs fd)
@@ -258,6 +286,16 @@ async function publishDueScheduledPosts(): Promise<number> {
         .select("*")
         .maybeSingle();
       if (!updated) continue;
+
+      // System-actor audit row, mirroring the blog scheduled path (US-486).
+      await writeSystemAuditLog({
+        action: "content.social_publish",
+        targetType: "social_post",
+        targetId: updated.id,
+        before: { status: "scheduled" },
+        after: { status: "published", published_at: nowIso },
+        details: { trigger: "scheduler_tick" },
+      });
 
       if (updated.topic_id) {
         await supabaseAdmin
@@ -447,6 +485,10 @@ async function runBlogTick(
     return { skipped: true, reason: `draft insert failed: ${insErr?.message}` };
   }
 
+  // Captured out of the try block so the safety gate below can review the
+  // exact text that would go live.
+  let generatedTitle = topic.title;
+  let generatedHtml = "";
   try {
     const { article, meta } = await generateBlogArticle({
       topic: {
@@ -459,6 +501,8 @@ async function runBlogTick(
       },
     });
     const cleanHtml = sanitizeHtml(article.body_html);
+    generatedTitle = article.title;
+    generatedHtml = cleanHtml;
     await supabaseAdmin
       .from("blog_posts")
       .update({
@@ -510,6 +554,46 @@ async function runBlogTick(
     };
   }
 
+  // US-486: safety/claims gate. The fully autonomous path is the only one
+  // with no human in the loop, so it must pass review before going live.
+  // Hold-on-fail: the post stays a draft (safety_status='held') for a human
+  // to fix or publish manually; the topic stays 'assigned' so it isn't
+  // silently re-picked.
+  const safety = await reviewContentSafety({
+    surface: "blog",
+    title: generatedTitle,
+    body: generatedHtml,
+    productFocus: product,
+  });
+  const checkedAt = new Date().toISOString();
+  if (safety.verdict !== "pass") {
+    await supabaseAdmin
+      .from("blog_posts")
+      .update({
+        safety_status: "held",
+        safety_notes: safety.reasons.join("; ").slice(0, 2000) || null,
+        safety_checked_at: checkedAt,
+      })
+      .eq("id", draft.id);
+    await writeSystemAuditLog({
+      action: "content.blog_held",
+      targetType: "blog_post",
+      targetId: draft.id,
+      details: {
+        trigger: "auto_publish_safety_gate",
+        reasons: safety.reasons,
+        model_used: safety.model_used,
+      },
+    });
+    return {
+      surface: "blog",
+      product_focus: product,
+      post_id: draft.id,
+      status: "held",
+      reason: `held by safety check: ${safety.reasons.join("; ")}`,
+    };
+  }
+
   // Auto-publish path: stamp published_at, mark topic used, append
   // to history, fire webhook, purge cache. Hero generation is best-
   // effort and intentionally skipped here — too expensive per tick.
@@ -517,7 +601,12 @@ async function runBlogTick(
   const now = new Date().toISOString();
   const { data: published } = await supabaseAdmin
     .from("blog_posts")
-    .update({ status: "published", published_at: now })
+    .update({
+      status: "published",
+      published_at: now,
+      safety_status: "passed",
+      safety_checked_at: checkedAt,
+    })
     .eq("id", draft.id)
     .select("*")
     .single();
@@ -527,6 +616,22 @@ async function runBlogTick(
     .eq("id", topic.id);
 
   if (published) {
+    // Attributable system audit row (US-486): records that the scheduler —
+    // not a human — published this AI post, and that it passed safety review.
+    await writeSystemAuditLog({
+      action: "content.blog_publish",
+      targetType: "blog_post",
+      targetId: published.id,
+      after: { status: "published", published_at: now, slug: published.slug },
+      details: {
+        trigger: "auto_publish",
+        safety: "passed",
+        safety_model: safety.model_used,
+        generated_by: "ai",
+        model_used: published.model_used,
+      },
+    });
+
     const { data: tagRows } = await supabaseAdmin
       .from("blog_post_tags")
       .select("tag")
@@ -600,6 +705,8 @@ async function runSocialTick(
     return { skipped: true, reason: `social draft insert failed: ${insErr?.message}` };
   }
 
+  // Captured out of the try block for the safety gate below.
+  let generatedBody = "";
   try {
     const result = await generateSocialPost({
       topic: {
@@ -609,6 +716,10 @@ async function runSocialTick(
         product_focus: product,
       },
     });
+    generatedBody =
+      `LONG FORMAT:\n${result.post.long_body}\n\n` +
+      `SHORT FORMAT:\n${result.post.short_body}\n\n` +
+      `HASHTAGS: ${result.post.hashtags.join(" ")}`;
     await supabaseAdmin
       .from("social_posts")
       .update({
@@ -644,10 +755,51 @@ async function runSocialTick(
     };
   }
 
+  // US-486: safety/claims gate before the autonomous publish (see blog path).
+  const safety = await reviewContentSafety({
+    surface: "social",
+    title: topic.title,
+    body: generatedBody,
+    productFocus: product,
+  });
+  const checkedAt = new Date().toISOString();
+  if (safety.verdict !== "pass") {
+    await supabaseAdmin
+      .from("social_posts")
+      .update({
+        safety_status: "held",
+        safety_notes: safety.reasons.join("; ").slice(0, 2000) || null,
+        safety_checked_at: checkedAt,
+      })
+      .eq("id", draft.id);
+    await writeSystemAuditLog({
+      action: "content.social_held",
+      targetType: "social_post",
+      targetId: draft.id,
+      details: {
+        trigger: "auto_publish_safety_gate",
+        reasons: safety.reasons,
+        model_used: safety.model_used,
+      },
+    });
+    return {
+      surface: "social",
+      product_focus: product,
+      post_id: draft.id,
+      status: "held",
+      reason: `held by safety check: ${safety.reasons.join("; ")}`,
+    };
+  }
+
   const now = new Date().toISOString();
   const { data: published } = await supabaseAdmin
     .from("social_posts")
-    .update({ status: "published", published_at: now })
+    .update({
+      status: "published",
+      published_at: now,
+      safety_status: "passed",
+      safety_checked_at: checkedAt,
+    })
     .eq("id", draft.id)
     .select("*")
     .single();
@@ -657,6 +809,21 @@ async function runSocialTick(
     .eq("id", topic.id);
 
   if (published) {
+    // Attributable system audit row (US-486) — mirrors the blog path.
+    await writeSystemAuditLog({
+      action: "content.social_publish",
+      targetType: "social_post",
+      targetId: published.id,
+      after: { status: "published", published_at: now },
+      details: {
+        trigger: "auto_publish",
+        safety: "passed",
+        safety_model: safety.model_used,
+        generated_by: "ai",
+        model_used: published.model_used,
+      },
+    });
+
     const summary =
       (published.short_body || published.long_body || "")
         .replace(/\s+/g, " ")
@@ -734,6 +901,16 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     return c.json({ error: "content_settings row missing" }, 500);
   }
 
+  // US-486 kill-switch: when paused, the tick does NOTHING — no scheduled-
+  // draft promotion, no generation, no auto-publish. One toggle stops the
+  // whole autonomous pipeline; manual dashboard publishes still work.
+  if (settings.publishing_paused) {
+    return c.json({
+      skipped: true,
+      reason: "publishing paused (kill-switch)",
+    } satisfies TickResult);
+  }
+
   // First: pick up anything the admin scheduled (status='scheduled' with
   // scheduled_for in the past). This runs every tick regardless of
   // cadence, so a scheduled post fires within the cron interval of its
@@ -776,10 +953,25 @@ contentSchedulerRoutes.post("/tick", async (c) => {
     settings.topics_refill_batch,
   );
 
-  const autoPublish =
+  let autoPublish =
     surface === "blog"
       ? settings.auto_publish_blog
       : settings.auto_publish_social;
+
+  // US-486 weekly ceiling: a hard cap on autonomous publishes that holds even
+  // if the per-day cadence is misconfigured. At the ceiling we still generate
+  // the draft (content keeps flowing) but demote to draft instead of
+  // publishing.
+  if (autoPublish) {
+    const weeklyCount = await aiPublishedLast7Days();
+    if (weeklyCount >= settings.max_auto_publishes_per_week) {
+      console.warn(
+        `[scheduler] weekly auto-publish ceiling reached ` +
+          `(${weeklyCount}/${settings.max_auto_publishes_per_week}) — generating as draft`,
+      );
+      autoPublish = false;
+    }
+  }
 
   const result =
     surface === "blog"

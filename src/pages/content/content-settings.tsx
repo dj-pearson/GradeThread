@@ -104,6 +104,20 @@ export function ContentSettingsPage() {
           <CardTitle>Autopilot</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-md border border-destructive/50 bg-destructive/5 p-3">
+            <div>
+              <p className="font-medium">Pause all publishing</p>
+              <p className="text-xs text-muted-foreground">
+                Kill-switch: the scheduler stops publishing entirely —
+                auto-publish AND scheduled drafts. Manual publishing still
+                works.
+              </p>
+            </div>
+            <Switch
+              checked={draft.publishing_paused ?? false}
+              onCheckedChange={(v) => setField("publishing_paused", v)}
+            />
+          </div>
           <div className="flex items-center justify-between rounded-md border p-3">
             <div>
               <p className="font-medium">Auto-publish blog</p>
@@ -192,6 +206,26 @@ export function ContentSettingsPage() {
                   )
                 }
               />
+            </div>
+            <div>
+              <Label htmlFor="max_weekly">Max auto-publishes per week</Label>
+              <Input
+                id="max_weekly"
+                type="number"
+                min={0}
+                max={100}
+                value={draft.max_auto_publishes_per_week ?? 10}
+                onChange={(e) =>
+                  setField(
+                    "max_auto_publishes_per_week",
+                    parseInt(e.target.value, 10) || 0,
+                  )
+                }
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Hard ceiling across blog + social, independent of daily
+                cadence. At the limit, new content stays in drafts.
+              </p>
             </div>
           </div>
         </CardContent>

@@ -949,3 +949,9 @@ Branch: ralph/gradethread-build
 - Notes: AC1 satisfied via the OR-branch ("cert made public only after flags evaluated") rather than a risky RPC transaction refactor. The grade_reports insert carries the certificate_id that makes the public cert resolvable, so the moderation flag is now written first — closing both the timing window and the permanent-leak-on-failed-update case. Extracted the withhold predicate into a pure isCertificateWithheld() so both endpoints share one gate and AC3 is unit-testable without a DB. deno lint/check clean; full edge suite 752 passed / 0 failed.
 - Timestamp: 2026-06-12
 ---
+## US-486: Gate content auto-publish behind approval/safety
+- Status: COMPLETE
+- Files changed: supabase/migrations/00151_content_safety_gate.sql, services/edge-functions/src/lib/content-safety.ts (new), services/edge-functions/src/tests/content-safety_test.ts (new), services/edge-functions/src/routes/content-scheduler.ts, services/edge-functions/src/routes/content-settings.ts, src/types/database.ts, src/pages/content/content-settings.tsx
+- Notes: Chose the "safety check with hold-on-fail" arm of AC1 (vs requiring human approval for every post) so autopilot stays useful. The reviewer is FAIL-CLOSED: any error -> hold, post stays draft with safety_status='held' + reasons, system audit row written. Kill-switch (publishing_paused) halts the entire tick including scheduled-draft promotion; manual publishes stay available since a human in the loop IS the approval state. Weekly ceiling (max_auto_publishes_per_week, default 10) counts generated_by='ai' published posts over the trailing 7 days across both surfaces and demotes auto-publish to draft-only at the limit — guards against cadence misconfiguration. Gotcha encountered: node_modules was out of sync with package.json (@tanstack/react-virtual from US-416), so `npm run build` failed pre-existing; fixed with npm install.
+- Timestamp: 2026-06-12
+---
