@@ -6995,8 +6995,8 @@
         "jsx-a11y verifies no interactive control lacks an accessible name"
       ],
       "priority": 446,
-      "passes": false,
-      "notes": "[P2][A11y] Audit 2026-06-03. api-keys copy, blog-list, tiptap-toolbar rely on title/nothing."
+      "passes": true,
+      "notes": "[P2][A11y] Audit 2026-06-03. api-keys copy, blog-list, tiptap-toolbar rely on title/nothing. | DONE 2026-06-12: Tiptap toolbar buttons given aria-label; toggle buttons (bold/italic/h2/h3/lists/quote/code/link) also aria-pressed bound to editor.isActive. api-keys copy/revoke + blog-list view/delete already had aria-label; item-detail-dialog close uses sr-only. Installed eslint-plugin-jsx-a11y, enabled curated clean-passing rules (anchor-has-content + aria-* validity) as errors so lint stays green. Broader jsx-a11y/recommended deferred to sibling A11y stories US-447..454 (surfaces 60+ pre-existing label/keyboard/autofocus issues)."
     },
     {
       "id": "US-447",

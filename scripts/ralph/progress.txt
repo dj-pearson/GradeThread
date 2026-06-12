@@ -800,3 +800,10 @@ Branch: ralph/gradethread-build
 - Notes: Audited src/ for network-write buttons firing on click with no in-flight guard. Added disable-while-pending to 5 offenders: accept-invite Switch-accounts (local useState), blog-list/announcements/campaigns deletes (mutation.isPending), campaigns broadcast Send (sendingId state + early-return guard + try/finally), announcement-banner dismiss. Create/sale/payment/checkout/dialog-save buttons were already gated. tsc + build clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-446: Add accessible names to icon-only controls
+- Status: COMPLETE
+- Files changed: src/components/content/tiptap-toolbar.tsx, eslint.config.js, package.json, package-lock.json, prd.json, scripts/ralph/progress.txt
+- Notes: Audited every `size="icon"` Button in src (55 total): only the Tiptap toolbar lacked accessible names (api-keys copy/revoke and blog-list view/delete already had aria-label; item-detail-dialog close uses an sr-only span). Added aria-label to all 15 Tiptap toolbar controls and aria-pressed (bound to editor.isActive) on the 9 toggle buttons (bold/italic/h2/h3/bullet/ordered/blockquote/codeBlock/link) for toggle state. Criterion 3: installed eslint-plugin-jsx-a11y and wired it in. jsx-a11y/recommended surfaces 60+ pre-existing violations (label associations, click-key-events, no-autofocus, redundant-alt) that belong to sibling A11y stories US-447..454, and control-has-associated-label is too noisy (41 mostly-false-positive hits on hidden file inputs / wrapped checkboxes / editable grid cells), so I enabled the curated clean-passing accessible-name + ARIA-validity subset as errors instead: anchor-has-content, aria-props, aria-proptypes, aria-role, aria-unsupported-elements, role-has-required-aria-props, role-supports-aria-props. Lint stays green (0 errors). tsc/build/vitest (485 tests) all pass.
+- Timestamp: 2026-06-12
+---

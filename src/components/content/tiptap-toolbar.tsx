@@ -119,6 +119,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("bold"))}
         onClick={() => editor.chain().focus().toggleBold().run()}
+        aria-label="Bold"
+        aria-pressed={editor.isActive("bold")}
         title="Bold (⌘B)"
       >
         <Bold className="h-4 w-4" />
@@ -129,6 +131,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("italic"))}
         onClick={() => editor.chain().focus().toggleItalic().run()}
+        aria-label="Italic"
+        aria-pressed={editor.isActive("italic")}
         title="Italic (⌘I)"
       >
         <Italic className="h-4 w-4" />
@@ -141,6 +145,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         onClick={() =>
           editor.chain().focus().toggleHeading({ level: 2 }).run()
         }
+        aria-label="Heading 2"
+        aria-pressed={editor.isActive("heading", { level: 2 })}
         title="Heading 2"
       >
         <Heading2 className="h-4 w-4" />
@@ -153,6 +159,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         onClick={() =>
           editor.chain().focus().toggleHeading({ level: 3 }).run()
         }
+        aria-label="Heading 3"
+        aria-pressed={editor.isActive("heading", { level: 3 })}
         title="Heading 3"
       >
         <Heading3 className="h-4 w-4" />
@@ -164,6 +172,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("bulletList"))}
         onClick={() => editor.chain().focus().toggleBulletList().run()}
+        aria-label="Bullet list"
+        aria-pressed={editor.isActive("bulletList")}
         title="Bullet list"
       >
         <List className="h-4 w-4" />
@@ -174,6 +184,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("orderedList"))}
         onClick={() => editor.chain().focus().toggleOrderedList().run()}
+        aria-label="Numbered list"
+        aria-pressed={editor.isActive("orderedList")}
         title="Numbered list"
       >
         <ListOrdered className="h-4 w-4" />
@@ -184,6 +196,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("blockquote"))}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
+        aria-label="Blockquote"
+        aria-pressed={editor.isActive("blockquote")}
         title="Blockquote"
       >
         <Quote className="h-4 w-4" />
@@ -194,6 +208,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("codeBlock"))}
         onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+        aria-label="Code block"
+        aria-pressed={editor.isActive("codeBlock")}
         title="Code block"
       >
         <Code className="h-4 w-4" />
@@ -205,6 +221,8 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className={btnClass(editor.isActive("link"))}
         onClick={addLink}
+        aria-label="Link"
+        aria-pressed={editor.isActive("link")}
         title="Link"
       >
         <LinkIcon className="h-4 w-4" />
@@ -215,6 +233,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className="h-8 w-8"
         onClick={addImage}
+        aria-label="Insert image"
         title="Insert image"
       >
         <ImageIcon className="h-4 w-4" />
@@ -225,6 +244,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className="h-8 w-8"
         onClick={addTable}
+        aria-label="Insert table"
         title="Insert table"
       >
         <TableIcon className="h-4 w-4" />
@@ -235,6 +255,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         size="icon"
         className="h-8 w-8"
         onClick={() => editor.chain().focus().setHorizontalRule().run()}
+        aria-label="Horizontal rule"
         title="Horizontal rule"
       >
         <Minus className="h-4 w-4" />
@@ -247,6 +268,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         className="h-8 w-8"
         onClick={() => editor.chain().focus().undo().run()}
         disabled={!editor.can().undo()}
+        aria-label="Undo"
         title="Undo (⌘Z)"
       >
         <Undo className="h-4 w-4" />
@@ -258,6 +280,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
         className="h-8 w-8"
         onClick={() => editor.chain().focus().redo().run()}
         disabled={!editor.can().redo()}
+        aria-label="Redo"
         title="Redo (⌘⇧Z)"
       >
         <Redo className="h-4 w-4" />
@@ -273,6 +296,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
                 size="sm"
                 className="h-8 gap-1.5 px-2"
                 disabled={ai.isStreaming}
+                aria-label="AI actions on the selected text"
                 title="AI actions on the selected text"
               >
                 <Sparkles className="h-4 w-4" />
