@@ -8,7 +8,7 @@ import {
   breadcrumbLd,
   type JsonLd,
 } from "@/lib/seo/json-ld";
-import { SITE_URL } from "@/lib/seo/public-routes";
+import { SITE_URL, ogImageForRoute } from "@/lib/seo/public-routes";
 
 interface MarketingLayoutProps {
   title: string;
@@ -42,12 +42,17 @@ export function MarketingLayout({
     { name: "GradeThread", url: `${SITE_URL}/` },
     { name: title, url: `${SITE_URL}${canonicalPath}` },
   ];
+  // US-427: use the route's distinct social image (matches the prerendered
+  // head-builder output) so the live SPA and crawlers agree on the OG image.
+  const og = ogImageForRoute(canonicalPath);
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <SEO
         title={title}
         description={description}
         canonicalUrl={`${SITE_URL}${canonicalPath}`}
+        ogImage={og.url}
+        ogImageAlt={og.alt}
         jsonLd={[organizationLd(), breadcrumbLd(trail), ...jsonLd]}
       />
 

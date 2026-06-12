@@ -1,6 +1,13 @@
 import { useEffect } from "react";
 import { Helmet } from "react-helmet-async";
-import { SITE_URL, normalizePath } from "@/lib/seo/public-routes";
+import {
+  SITE_URL,
+  normalizePath,
+  DEFAULT_OG_IMAGE_ALT,
+  OG_IMAGE_WIDTH,
+  OG_IMAGE_HEIGHT,
+  OG_IMAGE_TYPE,
+} from "@/lib/seo/public-routes";
 
 type JsonLdValue = Record<string, unknown>;
 
@@ -9,6 +16,8 @@ interface SEOProps {
   description?: string;
   ogType?: string;
   ogImage?: string;
+  /** Accessible description of the OG image (og:image:alt / twitter:image:alt). */
+  ogImageAlt?: string;
   canonicalUrl?: string;
   /** When true, emit noindex,nofollow (dashboard/admin/preview pages). */
   noindex?: boolean;
@@ -35,6 +44,7 @@ export function SEO({
   description = DEFAULT_DESCRIPTION,
   ogType = "website",
   ogImage = DEFAULT_OG_IMAGE,
+  ogImageAlt = DEFAULT_OG_IMAGE_ALT,
   canonicalUrl,
   noindex = false,
   jsonLd,
@@ -117,7 +127,14 @@ export function SEO({
       <meta property="og:description" content={description} />
       <meta property="og:site_name" content="GradeThread" />
       {resolvedCanonical && <meta property="og:url" content={resolvedCanonical} />}
+      {/* US-427: explicit image dimensions/type/alt so unfurls render the card
+          without a pre-fetch round-trip. Every OG image we ship is 1200×630 PNG. */}
       <meta property="og:image" content={ogImage} />
+      <meta property="og:image:secure_url" content={ogImage} />
+      <meta property="og:image:type" content={OG_IMAGE_TYPE} />
+      <meta property="og:image:width" content={String(OG_IMAGE_WIDTH)} />
+      <meta property="og:image:height" content={String(OG_IMAGE_HEIGHT)} />
+      <meta property="og:image:alt" content={ogImageAlt} />
 
       {/* Article metadata */}
       {article?.publishedTime && (
@@ -135,6 +152,7 @@ export function SEO({
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={ogImage} />
+      <meta name="twitter:image:alt" content={ogImageAlt} />
       {twitterSite && <meta name="twitter:site" content={twitterSite} />}
 
       {/* US-308: Search Console + Bing Webmaster verification tags. Values

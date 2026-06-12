@@ -30,6 +30,15 @@
 /fonts/*
   Cache-Control: public, max-age=31536000, immutable
 
+# US-427: per-route social share images (/social/*.png) and the default
+# /og-image.png are not content-hashed (the filename is stable so the OG <meta>
+# URL stays put), so cache for a day with background revalidation instead of
+# immutable — a brand/tagline regen then propagates within ~24h.
+/social/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+/og-image.png
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
 # US-575: the SPA shell (HTML) must always be revalidated so an open tab is not
 # stranded on a stale asset manifest after a deploy. The hashed /assets/* files
 # above stay immutable; only the entrypoint HTML is forced to revalidate.

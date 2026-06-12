@@ -214,6 +214,61 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...glossaryRoutes(),
 ];
 
+// US-427: per-route social share image (Open Graph / Twitter). High-value
+// marketing routes get a DISTINCT 1200×630 PNG with a route-specific headline,
+// built at deploy time by scripts/generate-og-image.mjs into public/social/<name>.png.
+// They live under /social/ (NOT /og/, which is the Functions-routed namespace for
+// the dynamic cert/blog/verified OG images) so they're always served as plain
+// static assets. Every entry's `file` MUST exist under public/ — enforced by
+// src/lib/seo/__tests__/og-images.test.ts so we never emit an og:image that 404s.
+// Routes not listed fall back to the site-wide /og-image.png. ALL images are
+// 1200×630, so OG_IMAGE_WIDTH/HEIGHT below apply to every variant.
+export const OG_IMAGE_WIDTH = 1200;
+export const OG_IMAGE_HEIGHT = 630;
+export const OG_IMAGE_TYPE = "image/png";
+export const DEFAULT_OG_IMAGE_PATH = "/og-image.png";
+export const DEFAULT_OG_IMAGE_ALT =
+  "GradeThread — objective AI condition grading and verifiable certificates for pre-owned clothing.";
+
+export const ROUTE_OG_IMAGES: Record<string, { file: string; alt: string }> = {
+  "/how-it-works": {
+    file: "/social/how-it-works.png",
+    alt: "How GradeThread grades pre-owned clothing across five weighted factors.",
+  },
+  "/pricing": {
+    file: "/social/pricing.png",
+    alt: "GradeThread pricing — a free plan, pay-per-grade tiers, and FlipDesk subscriptions.",
+  },
+  "/for-resellers": {
+    file: "/social/for-resellers.png",
+    alt: "GradeThread for resellers — standardized condition grades that build buyer trust.",
+  },
+  "/condition-grading": {
+    file: "/social/condition-grading.png",
+    alt: "A guide to clothing condition grading: the 1.0–10.0 scale, seven tiers, five factors.",
+  },
+  "/grading-standard": {
+    file: "/social/grading-standard.png",
+    alt: "The GradeThread grading standard — a published 1.0–10.0 rubric with confidence scoring.",
+  },
+  "/transparency": {
+    file: "/social/transparency.png",
+    alt: "GradeThread's published grading accuracy and AI-vs-human agreement report.",
+  },
+  "/faq": {
+    file: "/social/faq.png",
+    alt: "GradeThread FAQ — AI grading, the 1.0–10.0 scale, disputes, certificates, and the API.",
+  },
+};
+
+/** Absolute og:image URL + alt for a route (per-route image, else site default). */
+export function ogImageForRoute(path: string): { url: string; alt: string } {
+  const entry = ROUTE_OG_IMAGES[normalizePath(path)];
+  return entry
+    ? { url: `${SITE_URL}${entry.file}`, alt: entry.alt }
+    : { url: `${SITE_URL}${DEFAULT_OG_IMAGE_PATH}`, alt: DEFAULT_OG_IMAGE_ALT };
+}
+
 /** Normalize a pathname for lookup (strip trailing slash, keep root as "/"). */
 export function normalizePath(path: string): string {
   if (path === "/" || path === "") return "/";

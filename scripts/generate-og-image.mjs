@@ -1,16 +1,23 @@
-// Generates the 1200×630 social share image (public/og-image.png) used as the
-// default og:image / twitter:image for GradeThread links and certificates.
+// Generates the 1200×630 social share images for GradeThread (US-427):
+//   - public/og-image.png            site-wide default (links, certificates)
+//   - public/social/<route>.png          distinct per-route images for high-value
+//                                     marketing pages, with a route-specific
+//                                     headline/subline (see ROUTE_CARDS below)
 //
 // Run on demand to regenerate after a brand/tagline change:
 //   node scripts/generate-og-image.mjs
 //
 // @resvg/resvg-wasm (v2.x) cannot load custom fonts, so we vectorize every text
-// run to SVG <path> data with opentype.js first (using the Liberation Sans TTFs
-// on the build image). The resulting SVG has no font dependency, so the raster
-// is deterministic and needs no headless browser. The brand wordmark is
-// embedded as a base64 PNG so the mark is pixel-accurate.
+// run to SVG <path> data with opentype.js first. The resulting SVG has no font
+// dependency, so the raster is deterministic and needs no headless browser. The
+// brand wordmark is embedded as a base64 PNG so the mark is pixel-accurate.
+//
+// Font files differ per OS (Liberation Sans on the Linux build image, Arial on
+// Windows/macOS dev boxes) — we resolve the first available candidate so this
+// runs the same locally and in CI. Liberation Sans and Arial are metric-
+// compatible, so layout is identical either way.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
@@ -24,17 +31,42 @@ const NIGHT = "#1A1A2E";
 const RED = "#E94560";
 const SLATE = "#cbd5e1";
 
+function firstExisting(paths, label) {
+  const found = paths.find((p) => existsSync(p));
+  if (!found) {
+    throw new Error(
+      `[og-image] no ${label} font found. Tried:\n  ${paths.join("\n  ")}`,
+    );
+  }
+  return found;
+}
+
 function loadFont(p) {
   const buf = readFileSync(p);
   return opentype.parse(
     buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
   );
 }
+
 const bold = loadFont(
-  "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+  firstExisting(
+    [
+      "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+      "C:/Windows/Fonts/arialbd.ttf",
+      "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    ],
+    "bold",
+  ),
 );
 const regular = loadFont(
-  "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+  firstExisting(
+    [
+      "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+      "C:/Windows/Fonts/arial.ttf",
+      "/System/Library/Fonts/Supplemental/Arial.ttf",
+    ],
+    "regular",
+  ),
 );
 
 // Vectorize a text run to an SVG <path>. `anchor` "start" (x is left edge) or
@@ -53,7 +85,20 @@ const logoB64 = readFileSync(resolve(root, "public/logo_white.png")).toString(
 );
 
 // 1200×630 (1.91:1) — the canonical Open Graph / Twitter summary_large_image size.
-const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+// `headline` is 1–2 lines (≤ ~24 chars/line at 60px), `subline` 1–2 lines.
+// `badge`/`badgeLabel` fill the decorative top-right circle.
+function buildSvg({ headline, subline, badge, badgeLabel }) {
+  const h = headline;
+  const s = subline;
+  const headlineTags = h
+    .map((line, i) => textPath(bold, line, 80, 360 + i * 74, 60, "#ffffff"))
+    .join("\n  ");
+  const sublineTags = s
+    .map((line, i) => textPath(regular, line, 80, 520 + i * 40, 30, SLATE))
+    .join("\n  ");
+  // Underline sits just below the last headline line.
+  const underlineY = 360 + (h.length - 1) * 74 + 28;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="${NAVY}"/>
@@ -68,28 +113,122 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" v
 
   <!-- Decorative grade badge (top-right, clear of the headline) -->
   <circle cx="1040" cy="238" r="118" fill="${RED}" fill-opacity="0.10" stroke="${RED}" stroke-opacity="0.5" stroke-width="3"/>
-  ${textPath(bold, "9.5", 1040, 272, 92, "#ffffff", "middle")}
-  ${textPath(bold, "EXCELLENT", 1040, 322, 22, RED, "middle")}
+  ${textPath(bold, badge, 1040, 272, 92, "#ffffff", "middle")}
+  ${textPath(bold, badgeLabel, 1040, 322, 22, RED, "middle")}
 
   <!-- Headline -->
-  ${textPath(bold, "The Standard for Clothing", 80, 360, 60, "#ffffff")}
-  ${textPath(bold, "Condition Grading", 80, 434, 60, "#ffffff")}
-  <rect x="82" y="462" width="150" height="8" rx="4" fill="${RED}"/>
+  ${headlineTags}
+  <rect x="82" y="${underlineY}" width="150" height="8" rx="4" fill="${RED}"/>
 
   <!-- Subline -->
-  ${textPath(regular, "Objective AI condition grades and verifiable", 80, 520, 30, SLATE)}
-  ${textPath(regular, "certificates buyers trust.", 80, 560, 30, SLATE)}
+  ${sublineTags}
 
   ${textPath(bold, "gradethread.com", 80, 600, 26, RED)}
 </svg>`;
+}
+
+// The site-wide default + one card per high-value marketing route. The `file`
+// values MUST stay in sync with ROUTE_OG_IMAGES in src/lib/seo/public-routes.ts
+// (enforced by src/lib/seo/__tests__/og-images.test.ts).
+const DEFAULT_CARD = {
+  file: "public/og-image.png",
+  headline: ["The Standard for Clothing", "Condition Grading"],
+  subline: [
+    "Objective AI condition grades and verifiable",
+    "certificates buyers trust.",
+  ],
+  badge: "9.5",
+  badgeLabel: "EXCELLENT",
+};
+
+const ROUTE_CARDS = [
+  {
+    file: "public/social/how-it-works.png",
+    headline: ["How GradeThread Grades", "Pre-Owned Clothing"],
+    subline: [
+      "Upload photos. Get a 1.0–10.0 condition",
+      "grade across five weighted factors.",
+    ],
+    badge: "9.5",
+    badgeLabel: "EXCELLENT",
+  },
+  {
+    file: "public/social/pricing.png",
+    headline: ["Simple, Transparent", "Grading Pricing"],
+    subline: [
+      "A free plan, pay-per-grade tiers, credit",
+      "packs, and FlipDesk subscriptions.",
+    ],
+    badge: "9.5",
+    badgeLabel: "EXCELLENT",
+  },
+  {
+    file: "public/social/for-resellers.png",
+    headline: ["Condition Grades That", "Build Buyer Trust"],
+    subline: [
+      "Cut returns and sell faster on eBay,",
+      "Poshmark, Mercari, Depop & Grailed.",
+    ],
+    badge: "10",
+    badgeLabel: "NWT",
+  },
+  {
+    file: "public/social/condition-grading.png",
+    headline: ["What Is Clothing", "Condition Grading?"],
+    subline: [
+      "The 1.0–10.0 scale, seven tiers, and the",
+      "five weighted factors graders assess.",
+    ],
+    badge: "8.0",
+    badgeLabel: "VERY GOOD",
+  },
+  {
+    file: "public/social/grading-standard.png",
+    headline: ["The GradeThread", "Grading Standard"],
+    subline: [
+      "A published 1.0–10.0 rubric with five",
+      "weighted factors and confidence scoring.",
+    ],
+    badge: "9.0",
+    badgeLabel: "NWOT",
+  },
+  {
+    file: "public/social/transparency.png",
+    headline: ["Grading Accuracy &", "Transparency Report"],
+    subline: [
+      "Published AI-vs-human agreement, mean",
+      "error, confidence, and dispute rate.",
+    ],
+    badge: "9.5",
+    badgeLabel: "REPORT",
+  },
+  {
+    file: "public/social/faq.png",
+    headline: ["GradeThread", "Questions, Answered"],
+    subline: [
+      "AI grading, the 1.0–10.0 scale, disputes,",
+      "certificates, pricing, and the API.",
+    ],
+    badge: "FAQ",
+    badgeLabel: "ANSWERS",
+  },
+];
 
 const wasm = readFileSync(
   resolve(root, "node_modules/@resvg/resvg-wasm/index_bg.wasm"),
 );
 await initWasm(wasm);
 
-const resvg = new Resvg(svg, { fitTo: { mode: "width", value: 1200 } });
-const png = resvg.render().asPng();
-const out = resolve(root, "public/og-image.png");
-writeFileSync(out, png);
-console.log(`[og-image] wrote ${out} (${png.length} bytes, 1200×630)`);
+function render(card) {
+  const svg = buildSvg(card);
+  const resvg = new Resvg(svg, { fitTo: { mode: "width", value: 1200 } });
+  const png = resvg.render().asPng();
+  const out = resolve(root, card.file);
+  mkdirSync(dirname(out), { recursive: true });
+  writeFileSync(out, png);
+  console.log(`[og-image] wrote ${card.file} (${png.length} bytes, 1200×630)`);
+}
+
+render(DEFAULT_CARD);
+for (const card of ROUTE_CARDS) render(card);
+console.log(`[og-image] done — ${1 + ROUTE_CARDS.length} images`);

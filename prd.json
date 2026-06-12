@@ -6756,8 +6756,8 @@
         "Validated via the X card validator / Slack unfurl"
       ],
       "priority": 427,
-      "passes": false,
-      "notes": "[P2][SEO] Audit 2026-06-03. Single static og-image.png for all routes; no width/height/alt."
+      "passes": true,
+      "notes": "[P2][SEO] Audit 2026-06-03. Single static og-image.png for all routes; no width/height/alt. DONE 2026-06-12: og:image:width/height/type/alt + secure_url + twitter:image:alt now emitted in both head-builder.ts (prerender) and seo.tsx (SPA). Default og-image.png confirmed 1200x630. Distinct per-route 1200x630 cards generated for 7 high-value marketing routes into public/social/*.png (NOT /og/, which is the Functions-routed namespace) via cross-platform generate-og-image.mjs (Liberation Sans/Arial fallback). ROUTE_OG_IMAGES registry in public-routes.ts drives both prerender + MarketingLayout SPA; ogImageForRoute() helper. Cache headers added in _headers. Guard test og-images.test.ts asserts every advertised image exists at 1200x630. Live X/Slack validation is a manual post-deploy step."
     },
     {
       "id": "US-428",

@@ -11,6 +11,10 @@ import {
   PUBLIC_ROUTES,
   SITE_URL,
   absoluteUrl,
+  ogImageForRoute,
+  OG_IMAGE_WIDTH,
+  OG_IMAGE_HEIGHT,
+  OG_IMAGE_TYPE,
   type PublicRoute,
 } from "@/lib/seo/public-routes";
 import {
@@ -33,8 +37,6 @@ import {
   glossaryBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { getGlossaryEntryByPath } from "@/lib/seo/glossary";
-
-const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.png`;
 
 function escapeAttr(s: string): string {
   return s
@@ -132,6 +134,13 @@ export function buildHeadTags(route: PublicRoute): string {
   const verifyGoogle = process.env.VITE_GOOGLE_SITE_VERIFICATION ?? "";
   const verifyBing = process.env.VITE_BING_SITE_VERIFICATION ?? "";
 
+  // US-427: per-route distinct OG image (falls back to the site-wide default),
+  // with explicit dimensions/type/alt so unfurls render the card immediately
+  // (no pre-fetch round-trip) and stay accessible.
+  const og = ogImageForRoute(route.path);
+  const ogImage = escapeAttr(og.url);
+  const ogAlt = escapeAttr(og.alt);
+
   return [
     `<title>${title}</title>`,
     `<meta name="description" content="${desc}">`,
@@ -142,11 +151,17 @@ export function buildHeadTags(route: PublicRoute): string {
     `<meta property="og:description" content="${desc}">`,
     `<meta property="og:site_name" content="GradeThread">`,
     `<meta property="og:url" content="${escapeAttr(canonical)}">`,
-    `<meta property="og:image" content="${DEFAULT_OG_IMAGE}">`,
+    `<meta property="og:image" content="${ogImage}">`,
+    `<meta property="og:image:secure_url" content="${ogImage}">`,
+    `<meta property="og:image:type" content="${OG_IMAGE_TYPE}">`,
+    `<meta property="og:image:width" content="${OG_IMAGE_WIDTH}">`,
+    `<meta property="og:image:height" content="${OG_IMAGE_HEIGHT}">`,
+    `<meta property="og:image:alt" content="${ogAlt}">`,
     `<meta name="twitter:card" content="summary_large_image">`,
     `<meta name="twitter:title" content="${title}">`,
     `<meta name="twitter:description" content="${desc}">`,
-    `<meta name="twitter:image" content="${DEFAULT_OG_IMAGE}">`,
+    `<meta name="twitter:image" content="${ogImage}">`,
+    `<meta name="twitter:image:alt" content="${ogAlt}">`,
     verifyGoogle
       ? `<meta name="google-site-verification" content="${escapeAttr(verifyGoogle)}">`
       : "",
