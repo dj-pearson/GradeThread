@@ -700,6 +700,9 @@ export interface AiFieldSource {
 export interface ListingRow {
   id: string;
   inventory_item_id: string;
+  // Denormalized owning tenant (= inventory_items.user_id), kept in sync by the
+  // set_listings_tenant trigger (US-410, migration 00146).
+  user_id: string;
   platform: ListingPlatform;
   platform_listing_id: string | null;
   listing_url: string | null;
@@ -760,6 +763,9 @@ export interface ListingRow {
 export interface SaleRow {
   id: string;
   inventory_item_id: string;
+  // Denormalized owning tenant (= inventory_items.user_id), kept in sync by the
+  // set_sales_tenant trigger (US-410, migration 00146).
+  user_id: string;
   listing_id: string | null;
   sale_price: number;
   platform_fees: number;
@@ -1517,6 +1523,9 @@ export interface InventoryItemInsert {
 
 export interface ListingInsert {
   inventory_item_id: string;
+  // Optional: derived from inventory_item_id by the set_listings_tenant trigger
+  // when omitted (US-410).
+  user_id?: string;
   platform: ListingPlatform;
   platform_listing_id?: string | null;
   listing_url?: string | null;
@@ -1556,6 +1565,9 @@ export interface ListingInsert {
 
 export interface SaleInsert {
   inventory_item_id: string;
+  // Optional: derived from inventory_item_id by the set_sales_tenant trigger when
+  // omitted (US-410).
+  user_id?: string;
   listing_id?: string | null;
   sale_price: number;
   platform_fees?: number;

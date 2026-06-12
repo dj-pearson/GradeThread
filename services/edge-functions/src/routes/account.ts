@@ -185,19 +185,16 @@ accountRoutes.get("/export", async (c) => {
   ]);
 
   const submissionIds = (submissions.data ?? []).map((r) => (r as { id: string }).id);
-  const itemIds = (inventory.data ?? []).map((r) => (r as { id: string }).id);
 
-  // Children scoped through the owned parents (these tables have no user_id).
+  // grade_reports is still scoped through the owned submissions; listings/sales
+  // now carry a denormalized user_id (US-410), so they filter by the tenant key
+  // directly — index-backed, no inventory_items round-trip.
   const [gradeReports, listings, sales] = await Promise.all([
     submissionIds.length
       ? supabaseAdmin.from("grade_reports").select("*").in("submission_id", submissionIds)
       : Promise.resolve({ data: [] }),
-    itemIds.length
-      ? supabaseAdmin.from("listings").select("*").in("inventory_item_id", itemIds)
-      : Promise.resolve({ data: [] }),
-    itemIds.length
-      ? supabaseAdmin.from("sales").select("*").in("inventory_item_id", itemIds)
-      : Promise.resolve({ data: [] }),
+    supabaseAdmin.from("listings").select("*").eq("user_id", userId),
+    supabaseAdmin.from("sales").select("*").eq("user_id", userId),
   ]);
 
   const payload = {

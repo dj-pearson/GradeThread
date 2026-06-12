@@ -6544,8 +6544,8 @@
         "Finances/analytics queries filter by the tenant key server-side"
       ],
       "priority": 410,
-      "passes": false,
-      "notes": "[P1][Performance/DB] Audit 2026-06-03. sales/listings have no user_id; tenant scope is via inventory_items join (00002)."
+      "passes": true,
+      "notes": "[P1][Performance/DB] Audit 2026-06-03. sales/listings have no user_id; tenant scope is via inventory_items join (00002). DONE 2026-06-11: migration 00146 denormalizes user_id onto listings/sales (FK to users, ON DELETE CASCADE), backfilled from inventory_items, kept in sync by BEFORE INSERT/UPDATE trigger set_tenant_from_inventory_item (SECURITY DEFINER). Added (user_id, sale_date DESC) and (user_id, listing_status) indexes; set NOT NULL after backfill. Rewrote listings/sales RLS to filter the denormalized column via is_workspace_member_with_role(user_id, ...) — preserves exact owner+workspace semantics from 00002/00042 while dropping the inventory_items sub-join (finances_dashboard/finances_export are SECURITY INVOKER so their tenant scope now index-backs). account.ts /export now filters listings/sales by .eq(user_id) directly. Verified: tsc, build, vitest, deno check/lint, supabase db reset from zero."
     },
     {
       "id": "US-411",
@@ -12987,6 +12987,463 @@
       "priority": 880,
       "passes": false,
       "notes": "[EPIC: Content Authority Depth 2026-06-11] Wires the already-built GET /api/content/scheduler/summary to actually deliver + recommend. Closes the human-oversight side of the full-auto engine. Depends on US-852; consumes US-875/US-879 signals."
+    },
+    {
+      "id": "US-881",
+      "title": "Background jobs & scheduler console",
+      "description": "As an operator, I want one screen showing every scheduled/background job (the 16 Coolify cron tasks: token refresh, GSC sync, regression monitor, campaign dispatch, publish-due, eBay sync, repricing scans, etc.), its last run, outcome, duration and next due time, plus a manual 'run now' button, so I can see and fix the platform's automation without SSHing into Coolify or reading raw logs.",
+      "acceptanceCriteria": [
+        "New migration adds a job_runs table (job_key, started_at, finished_at, status enum(running,succeeded,failed,skipped), rows_processed, error, triggered_by) and every cron/job handler in the edge service records a row (wrap existing handlers; reuse job_locks for concurrency).",
+        "GET /api/admin/ops/jobs returns the job registry with last run + rolling success rate; results are server-side paginated.",
+        "POST /api/admin/ops/jobs/:key/run triggers a manual run of that job (super_admin + MFA step-up), guarded by job_locks so it can't collide with the scheduled run; the manual run is written to admin_audit_log.",
+        "New admin page src/pages/admin/ops-jobs.tsx lists jobs with status badges, last-run relative time, failures highlighted red, and a 'Run now' action; added to admin sidebar under a new 'Operations' group.",
+        "Failing jobs (>=N consecutive failures) surface a count badge on the sidebar nav item, polled like the Reviews badge.",
+        "All queries are tenant-agnostic platform reads gated by the /api/admin/* middleware; tests cover the run-now lock + audit write."
+      ],
+      "priority": 881,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Admin Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-882",
+      "title": "Unified webhook & email dead-letter queue console",
+      "description": "As an operator, I want a single dead-letter console for failed webhook deliveries (webhook_dead_letters) and failed transactional emails (email_deliveries in dead_letter state) across Stripe, eBay, content-scheduler and our own outbound, so I can inspect the payload/error, retry, or discard without writing SQL.",
+      "acceptanceCriteria": [
+        "GET /api/admin/ops/dead-letters lists rows from webhook_dead_letters and email_deliveries (status=dead_letter) unified by source, with payload preview, last error, attempt count and age; server-side paginated and filterable by source + provider.",
+        "POST /api/admin/ops/dead-letters/:source/:id/retry re-enqueues a single item through its normal handler with idempotency preserved (processed_webhook_events / email idempotency key respected); audited.",
+        "POST /api/admin/ops/dead-letters/:source/:id/discard marks an item permanently abandoned with a required reason; audited; super_admin + step-up.",
+        "Bulk retry/discard for a filtered selection runs as a durable server-side batch (bounded per tick, not a client loop).",
+        "New admin page src/pages/admin/ops-dead-letters.tsx with source tabs, payload/error drawer, and retry/discard actions under the Operations sidebar group.",
+        "Does NOT duplicate US-487 (content-scheduler retry); this is the general cross-provider DLQ surface — wire the content webhooks into it rather than re-implementing."
+      ],
+      "priority": 882,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Admin Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-883",
+      "title": "System health & infrastructure dashboard",
+      "description": "As an operator, I want a live health dashboard (DB table row counts/sizes, storage bucket usage, queue/DLQ depths, recent error rate, edge service uptime, slowest jobs) so I can spot a problem before customers report it.",
+      "acceptanceCriteria": [
+        "New RPC system_health() (SECURITY DEFINER, admin-gated) returns table sizes/row counts for the high-traffic tables, storage object counts+bytes per bucket, open dispute/review/DLQ counts, and the last 24h job failure count.",
+        "GET /api/admin/ops/health returns the RPC payload plus edge process uptime/version and a Supabase reachability check.",
+        "New admin page src/pages/admin/ops-health.tsx renders status tiles (green/amber/red thresholds) for each subsystem with sparkline-style recent trend where data exists.",
+        "Thresholds (e.g. DLQ depth, storage %, error rate) are read from the system settings registry so they're tunable without a deploy.",
+        "Page is read-only, gated by /api/admin/* middleware, added under the Operations sidebar group."
+      ],
+      "priority": 883,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Admin Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-884",
+      "title": "DB-backed system settings registry",
+      "description": "As an operator, I want a central, audited key-value settings registry (typed: number/bool/string/json, with description + default) so platform thresholds and toggles (review confidence cutoff, rate-limit caps, AI budgets, health thresholds) can be changed without a code deploy.",
+      "acceptanceCriteria": [
+        "New migration adds system_settings (key PK, value jsonb, value_type, description, default_value, updated_by, updated_at) seeded with the currently-hardcoded operational constants, plus an updated_at audit trigger.",
+        "Edge helper getSetting(key, fallback) reads through a short TTL cache that busts on write; service-role only.",
+        "GET /api/admin/settings lists all settings grouped by category; PUT /api/admin/settings/:key updates one with type validation; both audited; mutations require super_admin + step-up.",
+        "New admin page src/pages/admin/settings-registry.tsx renders grouped, type-aware editors (toggle/number/textarea/json) with inline validation and 'reset to default'.",
+        "At least the human-review confidence threshold and one rate-limit cap are migrated to read from the registry to prove the wiring end-to-end.",
+        "RLS: system_settings is service-role only; never exposed to anon/client."
+      ],
+      "priority": 884,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Platform Config] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-885",
+      "title": "Plans, pricing & grading-tier config editor",
+      "description": "As an operator, I want plan limits, credit-pack pricing and grading-tier costs (today hardcoded in src/lib/constants.ts and the edge) to be DB-driven and editable from admin, so I can run a price change or adjust a plan's included grades without shipping code.",
+      "acceptanceCriteria": [
+        "New migration adds plan_config and pricing_config tables capturing per-plan included grades / AI-action caps / feature entitlements and per-pack / per-grading-tier prices, seeded to exactly match today's constants.",
+        "Edge billing + grading code reads entitlements/pricing from these tables (with cache) instead of hardcoded maps; a parity test asserts seeded values equal the legacy constants so nothing changes on launch.",
+        "GET/PUT /api/admin/config/plans and /api/admin/config/pricing manage rows; Stripe price IDs are referenced (not overwritten) so admin edits never desync from Stripe; audited; super_admin + step-up.",
+        "New admin page src/pages/admin/config-pricing.tsx edits plan entitlements and price points with a 'these are display/entitlement values; Stripe is source of truth for charge amount' guardrail note.",
+        "Changing a plan's included-grade count takes effect on the next billing-period reset, not retroactively; covered by a test."
+      ],
+      "priority": 885,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Platform Config] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-886",
+      "title": "Feature flags v2: percentage rollout + plan/user targeting",
+      "description": "As an operator, I want feature flags to support gradual rollout (percent of users), per-plan and per-user overrides, and a scheduled enable/disable, beyond today's global on/off kill-switches, so I can canary a feature safely.",
+      "acceptanceCriteria": [
+        "Extend feature_flags (or add feature_flag_rules) with rollout_percentage, plan_targets[], user_overrides (allow/deny lists) and optional starts_at/ends_at, without breaking the existing global kill-switch semantics.",
+        "Edge helper isFeatureEnabled(key, {userId, plan}) deterministically buckets a user by stable hash for percentage rollout and honors overrides/schedule; existing kill-switch callers keep working unchanged.",
+        "Admin feature-flags page gains a rule editor (percentage slider, plan multiselect, user allow/deny, schedule) with a live 'who this resolves to' preview count; audited.",
+        "A global kill (enabled=false) always wins over any targeting rule — verified by test.",
+        "Backwards-compatible migration: existing flags load as 100% / no targeting."
+      ],
+      "priority": 886,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Platform Config] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-887",
+      "title": "Maintenance mode + scheduled maintenance windows",
+      "description": "As an operator, I want to put the platform (or a subsystem) into maintenance mode immediately or on a schedule, with a user-facing banner/notice and optional read-only/blocked state, so deploys and incidents are communicated and safe.",
+      "acceptanceCriteria": [
+        "New migration adds maintenance_windows (scope enum(platform,grading,flipdesk,checkout), mode enum(banner,read_only,blocked), message, starts_at, ends_at, is_active, created_by).",
+        "Edge middleware checks active windows: 'blocked' scopes return 503 with the message for non-admins (admins bypass); 'read_only' rejects writes; 'banner' is informational only.",
+        "Frontend reads an active-windows endpoint and shows a dismissible (banner) or non-dismissible (read_only/blocked) notice in the app shell, reusing the announcements banner styling.",
+        "GET/POST/PATCH/DELETE /api/admin/ops/maintenance manage windows; super_admin + step-up; audited.",
+        "New admin page (or a tab on ops-health) to schedule/activate windows; an 'end now' control immediately clears an active window.",
+        "Admins are never locked out of /admin by a window — covered by test."
+      ],
+      "priority": 887,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Platform Config] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-888",
+      "title": "Fraud & abuse signals console",
+      "description": "As an operator, I want a console surfacing fraud/abuse signals — duplicate-photo (phash) reuse across accounts, abnormal submission/grade velocity, many accounts on one payment method, disposable-email signups — so I can investigate and act before chargebacks or grade-laundering.",
+      "acceptanceCriteria": [
+        "New migration adds an abuse_signals table (or a view) aggregating signals with type, severity, subject_user_id, evidence jsonb, status enum(open,reviewing,actioned,dismissed); a scheduled job populates phash-collision and velocity signals using existing phash data.",
+        "GET /api/admin/safety/signals lists signals filterable by type/severity/status, server-side paginated, each linking to the implicated user(s)/submission(s).",
+        "Actions from a signal (suspend user, refund/void grade, dismiss with reason) reuse existing moderation endpoints and are audited; super_admin + step-up for suspend.",
+        "phash duplicate detection compares across tenants safely on the service-role client and never leaks one tenant's image bytes to another (only the collision fact + ids).",
+        "New admin page src/pages/admin/safety-signals.tsx under a 'Trust & Safety' sidebar group with a signal detail drawer.",
+        "Tenant-isolation regression test confirms cross-tenant signal reads don't expose protected fields."
+      ],
+      "priority": 888,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Trust & Safety] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-889",
+      "title": "Cross-tenant listing & photo moderation",
+      "description": "As an operator, I want to review and take down listings and uploaded item photos across all tenants (today moderation only covers grading submissions), so I can remove prohibited/abusive content that ships to public certificates and marketplaces.",
+      "acceptanceCriteria": [
+        "GET /api/admin/moderation/listings and /photos return flagged or recently-changed cross-tenant rows with image previews via short-TTL signed URLs (item-photos public bucket; submission-images via createSignedUrl <=900s), server-side paginated.",
+        "POST takedown actions (unpublish listing, hide photo, notify owner) on these rows are explicitly id->ownership resolved before mutating, are audited, and require step-up for destructive takedown.",
+        "A reusable flag mechanism lets the fraud console and user reports enqueue listings/photos for moderation.",
+        "New tab(s) on the existing admin moderation page reuse its approve/reject UX.",
+        "Cross-tenant regression tests assert the moderation endpoints can read any tenant (by design) but every write path is logged and reversible."
+      ],
+      "priority": 889,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Trust & Safety] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-890",
+      "title": "Rate-limit administration & temporary throttles",
+      "description": "As an operator, I want to view current rate-limit counters per user/action and set temporary per-user overrides or blocks, so I can throttle an abusive caller or lift a limit for a trusted high-volume seller without a deploy.",
+      "acceptanceCriteria": [
+        "GET /api/admin/safety/rate-limits/:userId shows current counters (from rate_limit_counters) and any active override; a top-N 'noisiest callers' list is available.",
+        "POST /api/admin/safety/rate-limits/:userId/override sets a temporary multiplier/cap or a hard block with an expiry and reason; the rate-limit check honors overrides; audited; step-up.",
+        "Overrides auto-expire; an expired override is ignored without a cleanup job (checked at read time).",
+        "Surfaced from the user-detail admin page (a 'Limits' section) plus the Trust & Safety group.",
+        "Caps and defaults come from the system settings registry."
+      ],
+      "priority": 890,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Trust & Safety] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-891",
+      "title": "Revenue & MRR analytics dashboard",
+      "description": "As an operator, I want an MRR/ARR dashboard — recurring revenue, plan distribution, new vs churned vs expansion MRR, trial-to-paid conversion, and credit-pack one-time revenue — so I understand business health without exporting Stripe.",
+      "acceptanceCriteria": [
+        "New RPC revenue_dashboard(period) aggregates MRR/ARR from active subscriptions, plan mix, trial conversion, churn, and credit-pack revenue from grade_credit_transactions; admin-gated.",
+        "GET /api/admin/revenue/summary returns the rollup with a daily/weekly time series and period filtering (MTD, QTD, YTD, custom).",
+        "New admin page src/pages/admin/revenue.tsx renders KPI cards + charts (reusing the dashboard chart components) under a 'Revenue' sidebar group.",
+        "Figures reconcile with Stripe within a documented tolerance; a note states Stripe remains source of truth.",
+        "Read-only; server-side aggregated (no per-row client math)."
+      ],
+      "priority": 891,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Revenue Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-892",
+      "title": "Credit ledger & refund/adjustment console",
+      "description": "As an operator, I want to inspect any user's grade-credit ledger (grade_credit_transactions, append-only) and issue an audited manual credit, debit, or refund with a reason, so support adjustments are traceable and the balance stays consistent.",
+      "acceptanceCriteria": [
+        "GET /api/admin/billing/users/:id/ledger returns the append-only transactions with running balance_after, server-side paginated.",
+        "POST /api/admin/billing/users/:id/adjust writes a new ledger row (reason in admin_grant/refund/correction) updating grade_credit_balance atomically; never mutates historical rows; audited; step-up.",
+        "A Stripe refund path (for a pack purchase) creates the Stripe refund AND the offsetting ledger row in one flow, with idempotency so a retry can't double-refund.",
+        "Surfaced on the admin user-detail page as a 'Credits & Ledger' section, extending the existing grant/revoke endpoints rather than replacing them.",
+        "Ledger invariant test: sum of deltas equals balance_after on every row."
+      ],
+      "priority": 892,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Revenue Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-893",
+      "title": "Stripe reconciliation & dunning console",
+      "description": "As an operator, I want a console for past-due/failed-payment accounts and Stripe-vs-DB mismatches (flipdesk_subscription_events), with retry-payment and recovery actions, so revenue leaks and webhook gaps get caught.",
+      "acceptanceCriteria": [
+        "GET /api/admin/billing/reconciliation lists accounts in past_due/paused, recent failed invoices, and rows where our subscription_status diverges from the latest Stripe event; server-side paginated.",
+        "Actions: re-sync a user from Stripe (pull live subscription state), send a dunning email (reuse US-582 messaging once available), or mark resolved; audited; step-up for state changes.",
+        "A scheduled reconciliation job flags divergences into the list rather than recomputing on every page load.",
+        "New tab on the revenue page or a dedicated page under the Revenue group.",
+        "Re-sync is idempotent and never double-applies a webhook already in processed_webhook_events."
+      ],
+      "priority": 893,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Revenue Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-894",
+      "title": "AI spend & token-usage dashboard",
+      "description": "As an operator, I want visibility into AI cost — tokens and estimated $ by model, by feature (grading, autolister, content, repricing) and by day — so I can see what Claude usage costs and catch a runaway loop.",
+      "acceptanceCriteria": [
+        "Ensure every AI call path records model, feature, prompt_hash, input/output tokens and latency to ai_log (extend the table/inserts where a feature isn't yet logging).",
+        "New RPC ai_spend(period, groupBy) aggregates tokens and estimated cost (cost-per-model from the pricing/settings registry) by model/feature/day; admin-gated.",
+        "GET /api/admin/ai/spend returns the rollup with period + groupBy filters; New admin page src/pages/admin/ai-spend.tsx charts it under the existing AI sidebar area.",
+        "A 'top spending features today' and 'cost vs yesterday' delta are shown to make spikes obvious.",
+        "Read-only; cost model is config-driven so price changes don't need a deploy."
+      ],
+      "priority": 894,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / AI Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-895",
+      "title": "AI cost budget guardrails + auto-throttle",
+      "description": "As an operator, I want per-feature daily/monthly AI spend budgets that, when exceeded, alert and automatically flip the relevant feature kill-switch, so a bug or abuse can't run up an unbounded Claude bill.",
+      "acceptanceCriteria": [
+        "New migration adds ai_budgets (feature, period enum(day,month), limit_usd, action enum(alert,throttle,kill)) editable from admin.",
+        "A scheduled job (and/or inline check) evaluates spend from ai_log against budgets; on breach it records an alert and, for action=kill, sets the matching feature_flag off via the existing kill-switch mechanism; audited automatically.",
+        "Breaching/auto-killing emits an ops alert (reused critical-event alerting) and shows on the AI spend page with a one-click re-enable (super_admin + step-up) after investigation.",
+        "Budgets and the cost-per-model table live in config (settings/pricing registry).",
+        "Test: a simulated over-budget feature gets killed and the event is audited."
+      ],
+      "priority": 895,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / AI Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-896",
+      "title": "Staged prompt rollout manager (canary %)",
+      "description": "As an operator, I want to promote a new grading prompt to a percentage of live traffic (canary) and watch its accuracy/confidence/dispute signals before full promotion, extending today's all-or-nothing activate, so prompt changes ship safely.",
+      "acceptanceCriteria": [
+        "ai_prompt_versions (or a companion table) gains rollout_percentage; the grading path selects the active vs canary prompt by stable per-submission hash bucketing.",
+        "GET /api/admin/grading/prompts/:id/canary shows live canary vs active metrics (mean score delta, confidence, human-review rate, early dispute rate) side by side.",
+        "Admin AI Models page gains a canary slider and 'promote to 100%' / 'roll back' controls; changes are audited; step-up to promote.",
+        "Canary respects the global grading kill-switch and never routes traffic to a deactivated version.",
+        "Builds on the existing shadow/eval infra (US-331 etc.) rather than replacing it — shadow = offline, canary = live-percentage."
+      ],
+      "priority": 896,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / AI Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-897",
+      "title": "Marketplace connection health console (all tenants)",
+      "description": "As an operator, I want a cross-tenant view of every marketplace_connection's health — token expiry, last refresh attempt/error, last sync, active state — so I can proactively tell a seller to reconnect before their listings stop syncing.",
+      "acceptanceCriteria": [
+        "GET /api/admin/marketplace/connections lists all connections with marketplace, account_handle, token_expires_at, last_refresh_error, last_synced_at and a derived health (healthy/expiring/error); server-side paginated and filterable by health.",
+        "Encrypted tokens are NEVER returned to the client — only health/expiry metadata; verified by test.",
+        "Action: trigger a token refresh or flag-for-reconnect (which notifies the owner via the messaging system); audited; step-up.",
+        "New admin page src/pages/admin/marketplace-connections.tsx under a 'Marketplace' sidebar group, with error reasons grouped so a provider-wide outage is obvious.",
+        "Reuses the existing AES-GCM refresh logic in flipdesk-ebay.ts; does not reimplement crypto."
+      ],
+      "priority": 897,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Marketplace Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-898",
+      "title": "eBay sync & conflict resolution console",
+      "description": "As an operator, I want to monitor eBay sync runs (flipdesk_sync_runs), inspect sync_conflicts and orphan sales (flipdesk_ebay_orphan_sales), and resolve them, so reconciliation failures don't silently lose sales or desync inventory.",
+      "acceptanceCriteria": [
+        "GET /api/admin/marketplace/sync-runs and /conflicts and /orphan-sales list cross-tenant rows with status, error and the affected items; server-side paginated.",
+        "Resolution actions (re-run a failed sync, accept eBay-or-FlipDesk side of a conflict, manually match an orphan sale to an inventory item) reuse existing FlipDesk reconcile helpers, are ownership-resolved before writing, and are audited.",
+        "A 'stuck' detector flags sync runs running longer than a configurable threshold (settings registry).",
+        "New tabs on the Marketplace admin page; conflict/orphan counts can badge the sidebar.",
+        "Tenant-isolation tests confirm a manual orphan-match can't attach a sale to another tenant's item."
+      ],
+      "priority": 898,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Marketplace Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-899",
+      "title": "Cross-tenant listing pipeline oversight",
+      "description": "As an operator, I want a platform-wide view of the listing/autolister pipeline — failed generation jobs (listing_generation_jobs), stuck batches (listing_generation_batches), failed publishes and listings stuck in 'sending' — so I can unstick the bulk-listing flow for any seller.",
+      "acceptanceCriteria": [
+        "GET /api/admin/marketplace/pipeline aggregates failed/stuck rows across listing_generation_batches, listing_generation_jobs and listings (status sending/failed) with error and age; server-side paginated.",
+        "Actions: retry a failed generation job or publish, or cancel a stuck batch, reusing the durable server-side batch endpoints (US-559); ownership-resolved; audited.",
+        "Counts feed the ops-health dashboard so pipeline backlog is visible system-wide.",
+        "New tab on the Marketplace admin page.",
+        "Retry is idempotent and respects the eBay offer fan-out bounds (US-406)."
+      ],
+      "priority": 899,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Marketplace Ops] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-900",
+      "title": "Lightweight support ticket inbox",
+      "description": "As an operator, I want a simple in-app ticket/inbox (users can open a request; admins triage, reply, resolve) tied to the user record, so support lives in the platform instead of a separate email tool. Builds on (does not duplicate) the ad-hoc message in US-582.",
+      "acceptanceCriteria": [
+        "New migration adds support_tickets (user_id, subject, status enum(open,pending,resolved,closed), priority, assigned_admin_id) and support_messages (ticket_id, author_user_id, body, is_internal_note, created_at) with RLS so users see only their own tickets and admins see all.",
+        "User-facing: a 'Contact support' surface (reuse the US-606 help launcher if present) creates a ticket; users see their thread and replies.",
+        "Admin: GET/PATCH /api/admin/support/tickets manage the queue (filter by status/assignee), reply (reuses the US-582 email delivery so the user is notified), add internal notes, and resolve; audited.",
+        "New admin page src/pages/admin/support.tsx with a queue + thread view under a 'Support' sidebar group; open-ticket count badges the nav.",
+        "Tenant isolation test: a user can never read another user's ticket or internal notes."
+      ],
+      "priority": 900,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-901",
+      "title": "Global admin search / command palette",
+      "description": "As an operator, I want a global search (Cmd/Ctrl-K) across users (email/name/id), submissions, certificates, listings, sales and tickets, so I can jump to any record in two keystrokes instead of guessing the right list page.",
+      "acceptanceCriteria": [
+        "GET /api/admin/search?q= performs a unified, ranked lookup across the key entities (users, submissions/certificates, listings, sales, tickets) returning typed results with deep links; bounded result count per type.",
+        "A command-palette component (Cmd/Ctrl-K) in the admin layout shows grouped results as you type, debounced, keyboard-navigable.",
+        "Lookups are exact/prefix on indexed columns (email, sku, certificate_id, platform_listing_id, ids) to stay fast; no full-table scans without an index.",
+        "Selecting a result routes to the relevant admin detail page.",
+        "Search is admin-gated; results never leak fields the admin pages don't already show."
+      ],
+      "priority": 901,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-902",
+      "title": "User 360 activity timeline",
+      "description": "As an operator, I want a unified chronological timeline on the admin user-detail page — signups, submissions, grades, payments, plan changes, disputes, tickets, admin actions taken on them — so I can understand a customer's whole history at a glance (complements the US-581 impersonation/view-as).",
+      "acceptanceCriteria": [
+        "GET /api/admin/users/:id/timeline merges events from submissions, grade_reports, grade_credit_transactions, flipdesk_subscription_events, disputes, support_tickets and admin_audit_log (actions targeting this user) into one time-ordered, server-side paginated feed.",
+        "Each event has a type, timestamp, summary and a deep link to the underlying record.",
+        "Rendered as a vertical timeline section on src/pages/admin/user-detail.tsx with type filters.",
+        "Strictly scoped to the one user id (already-verified target); no cross-user leakage.",
+        "Pagination is cursor/time-based so a long-lived account still loads quickly."
+      ],
+      "priority": 902,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Support] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-903",
+      "title": "Data subject request (export / delete) workflow",
+      "description": "As an operator, I want a GDPR/CCPA-style workflow to export or delete a user's data on request, with an audited, reversible-where-required process, so we can honor privacy obligations defensibly.",
+      "acceptanceCriteria": [
+        "New migration adds data_requests (user_id, type enum(export,delete), status enum(received,processing,completed,rejected), requested_at, completed_at, file_path, requested_by) building on the existing account_deletion_log.",
+        "Export assembles the user's rows + their storage objects into a downloadable archive delivered via a short-TTL signed URL; never includes other tenants' data.",
+        "Delete performs a staged anonymize/erase across owned tables and storage with a grace/confirm step, writes to account_deletion_log, and is super_admin + step-up; financial/audit records are retained per policy (documented) rather than hard-deleted.",
+        "GET/POST /api/admin/compliance/data-requests manage the queue; all actions audited.",
+        "New admin page under a 'Compliance' sidebar group; a self-serve user request entrypoint creates the row.",
+        "Test: export of user A contains zero rows belonging to user B."
+      ],
+      "priority": 903,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Compliance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-904",
+      "title": "Legal/ToS version manager with forced re-acceptance",
+      "description": "As an operator, I want to publish a new Terms/Privacy version and require users to re-accept on next login, tracking who accepted which version when (legal_acceptance), so consent is current and auditable.",
+      "acceptanceCriteria": [
+        "New migration adds legal_documents (kind enum(tos,privacy), version, effective_date, url/body, requires_reacceptance bool, published_by) referenced by the existing legal_acceptance table.",
+        "Publishing a version with requires_reacceptance flips users to 'must re-accept'; the app shell shows a blocking accept modal until accepted, writing legal_acceptance.",
+        "GET/POST /api/admin/compliance/legal manage versions; publishing is super_admin + step-up; audited.",
+        "Admin view shows acceptance coverage (% of active users on the current version).",
+        "Users who haven't re-accepted are not silently treated as accepted — verified by test; existing tos_accepted_version/privacy_accepted_at fields stay consistent."
+      ],
+      "priority": 904,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Compliance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-905",
+      "title": "Audit log search, export & anomaly alerting",
+      "description": "As an operator, I want the admin audit log to be full-text searchable, filterable and exportable, with alerts on suspicious patterns (burst of role changes, mass refunds, off-hours destructive actions), so the append-only trail is actually useful for investigations.",
+      "acceptanceCriteria": [
+        "Extend the audit-log admin page with server-side search across action/target/details and filters for actor, action, target_type and date range, with CSV/JSON export of the filtered set.",
+        "Add coverage so every admin mutation endpoint added in these epics writes a structured admin_audit_log row (actor, ip, user_agent, before/after) — fill any gaps in existing handlers.",
+        "A scheduled anomaly check flags configurable patterns (e.g. >N role changes/hour, mass refunds, destructive action outside business hours) and raises an ops alert; thresholds in the settings registry.",
+        "Export is gated to super_admin and itself audited (who exported what range).",
+        "audit log remains append-only (no UPDATE/DELETE) — re-asserted by RLS test."
+      ],
+      "priority": 905,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Compliance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-906",
+      "title": "Real-time ops activity feed + critical-event alerting",
+      "description": "As an operator, I want a live activity feed of significant platform events and a routing layer that pushes critical events (job failures, budget kills, fraud signals, payment failures, maintenance toggles) to an external channel (email/Slack webhook), so I find out about incidents immediately.",
+      "acceptanceCriteria": [
+        "A central emitOpsEvent(type, severity, payload) helper records events and, for severity>=warning, fans out to configured channels (email + generic webhook URL from the settings registry).",
+        "GET /api/admin/ops/events returns the recent feed, filterable by type/severity, server-side paginated.",
+        "New admin page (or panel on ops-health) shows the live feed; admin notification center badges unread critical events.",
+        "The jobs console, AI budget kills, fraud signals, billing reconciliation and maintenance toggles all emit through this helper (wire them, don't duplicate).",
+        "Channel config and per-type routing are editable from admin; a 'send test event' button verifies the webhook.",
+        "Alert fan-out is best-effort and never blocks the originating action; failures land in the DLQ."
+      ],
+      "priority": 906,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Observability] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-907",
+      "title": "Product funnel & retention analytics",
+      "description": "As an operator, I want funnel and retention analytics — signup -> first submission -> first paid grade -> subscription, plus weekly cohort retention — so I can see where users drop off and whether changes improve activation.",
+      "acceptanceCriteria": [
+        "New RPC funnel_metrics(period) and retention_cohorts() compute the activation funnel and weekly retention cohorts from users/submissions/grade_reports/subscription data; admin-gated.",
+        "GET /api/admin/analytics/funnel and /retention return the rollups with period filtering.",
+        "New admin page src/pages/admin/analytics.tsx renders the funnel (with step conversion %) and a cohort retention grid under an 'Analytics' sidebar group.",
+        "Definitions of each funnel step are documented in-page so the numbers are interpretable.",
+        "Read-only, server-side aggregated; complements (does not replace) the PostHog product analytics."
+      ],
+      "priority": 907,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Observability] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-908",
+      "title": "Granular RBAC permission scopes + scoped admin roles",
+      "description": "As an operator, I want admin permissions to be scope-based (e.g. billing:write, grading:review, users:role, content:publish) assignable to roles, beyond the four fixed roles, so I can grant a support agent grading+support access without making them super_admin.",
+      "acceptanceCriteria": [
+        "New migration adds permission_scopes and role_scopes (and optional per-user scope grants), seeded so the existing user/reviewer/admin/super_admin roles map to exactly their current effective permissions (no behavior change at launch).",
+        "Edge middleware gains requireScope('billing:write') used alongside the existing role checks; super_admin implicitly has all scopes.",
+        "Sensitive endpoints adopt requireScope in addition to (not instead of) role+MFA, starting with billing, role-grant, and moderation.",
+        "Admin UI to view/edit which scopes a role (and optionally a specific admin) holds; changes are super_admin + step-up and audited.",
+        "Parity test: the seeded scope mapping yields identical authorization decisions to today's role checks for every protected endpoint."
+      ],
+      "priority": 908,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Admin Governance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-909",
+      "title": "Admin saved views, bulk-safe filters & notification center",
+      "description": "As an operator, I want to save filtered views of admin lists (e.g. 'past-due business accounts', 'open high-severity signals'), and a notification center for admin-relevant events (assigned tickets, critical alerts, jobs needing attention), so my recurring workflows are one click and I don't miss things.",
+      "acceptanceCriteria": [
+        "New migration adds admin_saved_views (admin_user_id, surface, name, filter jsonb) and admin_notifications (admin_user_id, type, body, link, is_read).",
+        "List pages (users, signals, tickets, reconciliation) can save the current filter set as a named view and reload it; views are private to the admin.",
+        "An admin notification bell in the admin layout shows unread items (assigned ticket, critical ops event, job failure) with mark-read; fed by emitOpsEvent and ticket assignment.",
+        "GET/POST/DELETE /api/admin/views and GET/PATCH /api/admin/notifications back these; scoped to the calling admin.",
+        "Notification routing reuses the ops event system rather than a parallel pipeline."
+      ],
+      "priority": 909,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Admin Governance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-910",
+      "title": "Admin runbook / internal operations docs surface",
+      "description": "As an operator, I want the operational runbooks (deploy order, rollback, restore drill, how each cron works, what each kill-switch does, incident steps) accessible inside the admin app, so on-call has the playbook where the controls are, not buried in repo markdown.",
+      "acceptanceCriteria": [
+        "A docs surface in the admin app renders curated operational runbooks (sourced from DEPLOY.md, LAUNCH_CHECKLIST.md, COOLIFY.md and the jobs registry) as searchable in-app pages.",
+        "Each runbook page can deep-link to the relevant admin control (e.g. the restore-drill doc links to ops-health; the kill-switch doc links to feature-flags).",
+        "Content is build-time bundled or stored in a docs table editable by super_admin; either way it's versioned and audited if editable.",
+        "Added under an 'Operations' or 'Help' sidebar entry; searchable from the global command palette.",
+        "No secrets/credentials are rendered in these docs — verified by a content check."
+      ],
+      "priority": 910,
+      "passes": false,
+      "notes": "[Platform Admin Command Center / Admin Governance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
     }
   ]
 }
