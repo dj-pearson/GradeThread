@@ -6665,8 +6665,8 @@
         "Prerender duration measured and kept flat as routes grow"
       ],
       "priority": 420,
-      "passes": false,
-      "notes": "[P3][Performance] Audit 2026-06-03. scripts/prerender.mjs renders routes sequentially."
+      "passes": true,
+      "notes": "[P3][Performance] Audit 2026-06-03. scripts/prerender.mjs renders routes sequentially. DONE: scripts/prerender.mjs now renders routes via chunkedMap() with bounded concurrency (PRERENDER_CONCURRENCY env, default 8) and logs total/per-route duration. Synchronous SSR render so wall-clock gain is modest, but the chunked-Promise.all structure caps in-flight work and the timing log keeps regressions visible."
     },
     {
       "id": "US-421",

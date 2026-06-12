@@ -688,3 +688,10 @@ Branch: ralph/gradethread-build
 - Notes: Finances + Analytics already use single-endpoint RPCs (US-403/US-418). The real dedup target was the heavy items_full read: 6 routes + ebay-sku-match each re-declared the SAME ["items_full", user.id] key with divergent queryFns (different .order) and inconsistent staleTime (5min vs 15min) — a React Query foot-gun where the first-mounted consumer wins and per-call overrides are redundant. Extracted one source-of-truth hook useItemsFull() (canonical created_at desc, select *) with deliberate staleTime 15min + gcTime 30min set in one place; all 7 consumers import it. prep sorts oldest-first client-side off the shared array. Fixed a latent collision: listings.tsx shared the bare key while projecting a narrower LISTINGS_COLUMNS subset (drops photo_count/has_required_photos/ai_*) — re-keyed to ["items_full","listings",user.id] so its partial-column cache can't starve full-row consumers (prefix still covered by existing invalidations). Removed now-unused supabase/useQuery/useAuthStore/user/ItemFullRow imports per file. tsc -b + npm run build + lint all pass.
 - Timestamp: 2026-06-12
 ---
+
+## US-420: Parallelize the build-time prerender
+- Status: COMPLETE
+- Files changed: scripts/prerender.mjs, prd.json, scripts/ralph/progress.txt
+- Notes: Replaced the sequential `for...of` prerender loop with a `chunkedMap(items, limit, worker)` helper that awaits one bounded chunk before starting the next (chunked Promise.all). Concurrency defaults to 8, overridable via PRERENDER_CONCURRENCY. Added perf_hooks timing — logs total render ms, concurrency, and ~ms/route so duration stays visible as routes grow. SSR render/head-build/write are synchronous so the real wall-clock win is modest, but the structure caps in-flight work and the timing log guards against regressions. Verified via full `npm run build`: 28 routes rendered in ~297ms, head-integrity guard + CSP hash + trailing-slash 301s all still pass.
+- Timestamp: 2026-06-12
+---

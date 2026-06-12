@@ -18,6 +18,7 @@ import { createServer } from "vite";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
 import { syncCspHash } from "./csp-hash.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,26 @@ const templatePath = join(distDir, "index.html");
 const HEAD_START = "<!-- prerender:head:start";
 const HEAD_END = "prerender:head:end -->";
 const BODY_MARKER = "<!--prerender:body-->";
+
+// US-420: render routes with bounded concurrency so build time stays flat as
+// marketing/GEO pages multiply. Each route's SSR render + head build + write is
+// independent, so we chunk the route list and await one chunk before starting
+// the next (chunked Promise.all). Override with PRERENDER_CONCURRENCY.
+const CONCURRENCY = Math.max(
+  1,
+  Number.parseInt(process.env.PRERENDER_CONCURRENCY ?? "", 10) || 8,
+);
+
+// Run an async worker over `items` with at most `limit` in flight at once.
+async function chunkedMap(items, limit, worker) {
+  const results = [];
+  for (let i = 0; i < items.length; i += limit) {
+    const chunk = items.slice(i, i + limit);
+    const settled = await Promise.all(chunk.map((item) => worker(item)));
+    results.push(...settled);
+  }
+  return results;
+}
 
 function fail(msg) {
   console.error(`\n[prerender] ERROR: ${msg}\n`);
@@ -119,7 +140,10 @@ try {
   const beforeHead = template.slice(0, headStartIdx);
   const afterHead = template.slice(headEndIdx);
 
-  for (const route of PUBLIC_ROUTES) {
+  // US-420: measure prerender duration so we can keep it flat as routes grow.
+  const renderStart = performance.now();
+
+  const renderOne = async (route) => {
     const body = stripHeadTagsFromBody(renderRoute(route.path));
     const head = buildHeadTags(route);
 
@@ -140,11 +164,19 @@ try {
         : join(distDir, route.path.replace(/^\//, ""), "index.html");
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, html);
-    written += 1;
     console.log(
       `[prerender] ${route.path.padEnd(18)} → ${outPath.replace(root + "/", "")} (${body.length} body bytes)`,
     );
-  }
+  };
+
+  await chunkedMap(PUBLIC_ROUTES, CONCURRENCY, renderOne);
+  written = PUBLIC_ROUTES.length;
+
+  const renderMs = Math.round(performance.now() - renderStart);
+  console.log(
+    `[prerender] rendered ${PUBLIC_ROUTES.length} route(s) in ${renderMs}ms ` +
+      `(concurrency ${CONCURRENCY}, ~${Math.round(renderMs / Math.max(1, PUBLIC_ROUTES.length))}ms/route).`,
+  );
 } catch (e) {
   console.error(e);
   fail(`prerender failed: ${e?.message ?? e}`);
