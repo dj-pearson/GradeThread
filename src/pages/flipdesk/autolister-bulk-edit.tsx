@@ -12,10 +12,15 @@ import {
   Replace,
   Wand2,
   LayoutTemplate,
+  FileText,
+  Tags,
+  Plus,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import {
   Popover,
@@ -49,6 +54,10 @@ import {
 // actions, then save everything at once. Scoped to one batch's drafts.
 
 const TITLE_MAX = 80;
+
+// Aspects that have their own dedicated grid columns — excluded from the generic
+// Specifics popover so they aren't edited in two places (US-556).
+const DEDICATED_ASPECTS = ["Department", "Brand", "Size", "Color"];
 
 interface DraftRow {
   id: string;
@@ -92,8 +101,8 @@ interface EditRow {
   id: string;
   itemId: string;
   title: string;
-  // US-555: listing body. Not shown as an editable cell here (that's US-556),
-  // but loaded so bulk find/replace can rewrite it and templates can seed it.
+  // US-556: listing body, editable inline via the Description popover cell. Also
+  // rewritten by bulk find/replace and seeded by templates.
   description: string;
   price: string;
   condition: string;
@@ -108,8 +117,9 @@ interface EditRow {
   // eBay item specifics edited inline. Department/Brand/Size/Color are the
   // required clothing aspects that most often block publish; they're merged into
   // item_specifics_override on save. A blank value falls back to the item's
-  // derived column server-side. `specifics` holds the rest of the override
-  // verbatim so the merge stays lossless.
+  // derived column server-side. `specifics` holds the rest of the override —
+  // editable inline via the Specifics popover cell (US-556) and merged back
+  // losslessly on save.
   department: string;
   brand: string;
   size: string;
@@ -715,7 +725,13 @@ export function FlipdeskAutolisterBulkEditPage() {
             // Re-merge the inline aspects back into the rest of the specifics. A
             // blank value drops the key (server re-derives it from the item's
             // column); null the whole column when nothing's left.
-            const mergedSpecifics: Record<string, string[]> = { ...r.specifics };
+            const mergedSpecifics: Record<string, string[]> = {};
+            // Carry the arbitrary specifics, dropping any key the user left with
+            // no non-blank values (US-556: the popover can stage an empty key).
+            for (const [k, vals] of Object.entries(r.specifics)) {
+              const cleaned = (vals ?? []).map((v) => v.trim()).filter(Boolean);
+              if (cleaned.length > 0) mergedSpecifics[k] = cleaned;
+            }
             const setOrDrop = (key: string, value: string) => {
               const v = value.trim();
               if (v) mergedSpecifics[key] = [v];
@@ -1391,6 +1407,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                 />
               </th>
               <th className="p-2">Title</th>
+              <th className="w-44 p-2">Description</th>
               <th className="w-28 p-2">Price</th>
               <th className="w-32 p-2">Net / margin</th>
               <th className="w-44 p-2">Condition</th>
@@ -1399,6 +1416,7 @@ export function FlipdeskAutolisterBulkEditPage() {
               <th className="w-28 p-2">Brand</th>
               <th className="w-24 p-2">Size</th>
               <th className="w-28 p-2">Color</th>
+              <th className="w-32 p-2">Specifics</th>
               <th className="w-16 p-2">Qty</th>
               <th className="w-20 p-2">Best Offer</th>
               <th className="w-52 p-2">Schedule</th>
@@ -1409,7 +1427,7 @@ export function FlipdeskAutolisterBulkEditPage() {
           <tbody>
             {paddingTop > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={15} style={{ height: paddingTop }} />
+                <td colSpan={17} style={{ height: paddingTop }} />
               </tr>
             )}
             {virtualRows.map((vr) => {
@@ -1470,6 +1488,15 @@ export function FlipdeskAutolisterBulkEditPage() {
                         className="mt-1"
                       />
                     )}
+                  </td>
+                  {/* US-556: description editable inline via an expandable
+                      popover; revert-to-AI mirrors the composer. */}
+                  <td className="p-2">
+                    <DescriptionCell
+                      value={r.description}
+                      aiDescription={r.ai?.description ?? null}
+                      onChange={(v) => patchRow(r.id, { description: v })}
+                    />
                   </td>
                   <td className="p-2">
                     <Input
@@ -1614,6 +1641,19 @@ export function FlipdeskAutolisterBulkEditPage() {
                       />
                     )}
                   </td>
+                  {/* US-556: arbitrary item specifics (beyond the dedicated
+                      Department/Brand/Size/Color columns) editable inline. */}
+                  <td className="p-2">
+                    <SpecificsCell
+                      specifics={r.specifics}
+                      requiredNames={(
+                        requiredAspectsByCategory[r.categoryId] ?? []
+                      ).filter(
+                        (n) => !DEDICATED_ASPECTS.includes(n),
+                      )}
+                      onChange={(next) => patchRow(r.id, { specifics: next })}
+                    />
+                  </td>
                   <td className="p-2">
                     <Input
                       type="number"
@@ -1661,12 +1701,12 @@ export function FlipdeskAutolisterBulkEditPage() {
             })}
             {paddingBottom > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={15} style={{ height: paddingBottom }} />
+                <td colSpan={17} style={{ height: paddingBottom }} />
               </tr>
             )}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={15} className="p-6 text-center text-sm text-muted-foreground">
+                <td colSpan={17} className="p-6 text-center text-sm text-muted-foreground">
                   No drafts in this batch.
                 </td>
               </tr>
@@ -1675,6 +1715,226 @@ export function FlipdeskAutolisterBulkEditPage() {
         </table>
       </div>
     </div>
+  );
+}
+
+// US-556: edit the listing description inline. The cell trigger shows a one-line
+// snippet; the popover holds a full textarea. Writes the same `description`
+// field the composer's textarea does, so it flows through the shared save path
+// (listing_description) untouched. A revert-to-AI chip mirrors the composer when
+// an AI snapshot exists.
+function DescriptionCell({
+  value,
+  aiDescription,
+  onChange,
+}: {
+  value: string;
+  aiDescription: string | null;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const snippet = value.replace(/\s+/g, " ").trim();
+  return (
+    <div>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex h-8 w-full items-center gap-1.5 truncate rounded-md border border-input bg-transparent px-2 text-left text-xs",
+              !snippet && "text-muted-foreground",
+            )}
+            title={snippet || "Edit description"}
+          >
+            <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="truncate">{snippet || "Add description…"}</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[28rem] p-2">
+          <Textarea
+            autoFocus
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            rows={12}
+            placeholder="Listing description…"
+            className="text-sm"
+          />
+          <div className="mt-1 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">
+              {value.length} chars
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setOpen(false)}
+            >
+              Done
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      {aiDescription != null && (
+        <AiDiffChip
+          changed={textChanged(aiDescription, value)}
+          aiDisplay={aiDescription}
+          onRevert={() => onChange(aiDescription)}
+          className="mt-1"
+        />
+      )}
+    </div>
+  );
+}
+
+// US-556: edit the arbitrary item specifics (every aspect except the dedicated
+// Department/Brand/Size/Color columns) inline. Each entry is a name + a
+// comma-separated value list, matching how eBay aspects accept multiple values.
+// Required-but-missing aspects for the row's category are surfaced as one-click
+// add chips so the same publish blockers the grid already flags can be cleared
+// here. Writes back into the row's `specifics`, which the shared save path
+// merges into item_specifics_override losslessly.
+function SpecificsCell({
+  specifics,
+  requiredNames,
+  onChange,
+}: {
+  specifics: Record<string, string[]>;
+  requiredNames: string[];
+  onChange: (next: Record<string, string[]>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const entries = Object.entries(specifics);
+  const filledCount = entries.filter(([, v]) =>
+    (v ?? []).some((x) => x.trim()),
+  ).length;
+  const missingRequired = requiredNames.filter(
+    (n) => !(specifics[n] ?? []).some((x) => x.trim()),
+  );
+
+  function setValues(key: string, raw: string) {
+    const values = raw.split(",").map((v) => v.trimStart());
+    onChange({ ...specifics, [key]: values });
+  }
+  function removeKey(key: string) {
+    const next = { ...specifics };
+    delete next[key];
+    onChange(next);
+  }
+  function addKey(name: string) {
+    const k = name.trim();
+    if (!k || specifics[k]) return;
+    onChange({ ...specifics, [k]: [] });
+    setNewKey("");
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex h-8 w-full items-center gap-1.5 truncate rounded-md border bg-transparent px-2 text-left text-xs",
+            missingRequired.length > 0
+              ? "border-amber-400 text-amber-700 dark:text-amber-300"
+              : "border-input",
+            filledCount === 0 && missingRequired.length === 0 &&
+              "text-muted-foreground",
+          )}
+          title={
+            missingRequired.length > 0
+              ? `Missing required: ${missingRequired.join(", ")}`
+              : "Edit item specifics"
+          }
+        >
+          <Tags className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <span className="truncate">
+            {filledCount > 0
+              ? `${filledCount} specific${filledCount === 1 ? "" : "s"}`
+              : "Add specifics…"}
+            {missingRequired.length > 0 ? ` · ${missingRequired.length} req` : ""}
+          </span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-2">
+        <div className="max-h-72 space-y-1.5 overflow-y-auto">
+          {entries.length === 0 && (
+            <p className="px-1 py-2 text-xs text-muted-foreground">
+              No extra item specifics yet. Add one below, or use a required-aspect
+              chip.
+            </p>
+          )}
+          {entries.map(([name, values]) => (
+            <div key={name} className="flex items-center gap-1.5">
+              <span
+                className="w-28 shrink-0 truncate text-xs font-medium"
+                title={name}
+              >
+                {name}
+              </span>
+              <Input
+                value={(values ?? []).join(", ")}
+                onChange={(e) => setValues(name, e.target.value)}
+                placeholder="value(s), comma-separated"
+                className="h-7 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => removeKey(name)}
+                aria-label={`Remove ${name}`}
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        {missingRequired.length > 0 && (
+          <div className="mt-2 border-t pt-2">
+            <p className="mb-1 text-[10px] uppercase text-muted-foreground">
+              Required for this category
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {missingRequired.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => addKey(n)}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300"
+                >
+                  <Plus className="h-2.5 w-2.5" />
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="mt-2 flex items-center gap-1.5 border-t pt-2">
+          <Input
+            value={newKey}
+            onChange={(e) => setNewKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addKey(newKey);
+              }
+            }}
+            placeholder="New aspect name"
+            className="h-7 text-xs"
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 shrink-0 text-xs"
+            disabled={!newKey.trim() || !!specifics[newKey.trim()]}
+            onClick={() => addKey(newKey)}
+          >
+            <Plus className="mr-1 h-3 w-3" />
+            Add
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 

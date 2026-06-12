@@ -8400,8 +8400,8 @@
         "Edits respect the same validation and save path as the composer"
       ],
       "priority": 556,
-      "passes": false,
-      "notes": "[P3][AutoLister/UX] Deep-dive 2026-06-03. Bulk grid edits only 7 scalar columns; description/aspects are composer-only."
+      "passes": true,
+      "notes": "[P3][AutoLister/UX] Deep-dive 2026-06-03. Bulk grid edits only 7 scalar columns; description/aspects are composer-only. DONE 2026-06-12: added DescriptionCell (popover textarea + revert-to-AI) and SpecificsCell (popover key/value editor for arbitrary aspects, with required-aspect quick-add chips) columns to the bulk grid. Both write into the existing EditRow.description / EditRow.specifics state and flow through the shared saveAll path (listing_description / item_specifics_override) — same columns the composer writes. saveAll now strips blank-valued specifics keys."
     },
     {
       "id": "US-557",
