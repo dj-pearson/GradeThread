@@ -11,6 +11,7 @@ import {
 import { decodeBase64Image } from "../lib/validation.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { assertPublicUrl, safeFetch, SsrfError } from "../lib/ssrf.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { logEvent, recordMetric } from "../lib/observability.ts";
@@ -266,6 +267,7 @@ apiV1Routes.post("/grades", async (c) => {
     image_type: string;
     storage_path: string;
     display_order: number;
+    phash: string | null;
   }> = [];
 
   for (let i = 0; i < images!.length; i++) {
@@ -335,6 +337,9 @@ apiV1Routes.post("/grades", async (c) => {
       );
     }
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+    // US-480: server-side reuse hash from the stored bytes (never the client),
+    // so public-API submissions are covered by photo-reuse detection too.
+    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
     const storagePath = `${userId}/${submissionId}/${img.image_type}_${timestamp}.${verdict.ext}`;
 
     const { error: uploadError } = await supabaseAdmin.storage
@@ -357,6 +362,7 @@ apiV1Routes.post("/grades", async (c) => {
       image_type: img.image_type,
       storage_path: storagePath,
       display_order: i,
+      phash: serverPhash,
     });
   }
 

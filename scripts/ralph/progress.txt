@@ -924,3 +924,21 @@ Branch: ralph/gradethread-build
   * Verification: deno check (grading-pipeline, admin-grading, grade, api-v1) clean; deno lint 5 files clean; full edge suite 742 passed/0 failed (after schema-version bump); frontend npx tsc -b + npm run build clean; eslint 6 changed web files clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-480: Compute the photo-reuse perceptual hash server-side
+- Status: COMPLETE
+- Files changed:
+  * services/edge-functions/src/lib/perceptual-hash.ts (NEW) — dHashFromRgba (pure) + computePhashFromImage (decode + hash)
+  * services/edge-functions/src/routes/grade.ts — stop trusting client "phashes"; recompute from stored cleanBytes
+  * services/edge-functions/src/routes/api-v1.ts — compute + store server phash (public API now covered by reuse detection too)
+  * services/edge-functions/deno.json + deno.lock — add @jsquash/webp for WebP decode
+  * services/edge-functions/src/tests/perceptual-hash_test.ts (NEW) — 7 tests
+- Notes:
+  * Threat: submission_images.phash was a client-submitted field (grade.ts), trivially spoofable to dodge a match against a stolen/stock photo. Now the dHash is recomputed server-side from the validated/stored upload bytes; the client value is ignored (and the parsing removed). computePhashFromImage takes no client-hash param, so client influence is structurally impossible.
+  * Decode: imagescript (already a dep) handles JPEG/PNG; @jsquash/webp (lazy dynamic import) handles WebP — the dominant client output (canvas.toBlob image/webp). magick_wasm needed explicit wasm wiring; jsquash decodes cleanly in Deno.
+  * Algorithm mirrors the browser dHash (src/lib/image-utils.ts) exactly — 9x8 area-downscale, Rec.601 luma (0.299/0.587/0.114), horizontal-neighbour compare, MSB-first, 16 hex — so server hashes stay comparable to the client-computed hashes already stored. Pixel decode → pure dHashFromRgba (own area-average downscale), fully unit-testable without a decoder.
+  * Best-effort: any decode/hash failure → null (matches the browser "" fallback), so hashing never blocks an upload; reuse detection simply skips that image.
+  * Dockerfile pre-caches main.ts (static graph); jsquash is lazy/dynamic so it resolves at runtime on first WebP (consistent with imagescript's runtime wasm fetch). deno.lock updated; `deno cache --frozen src/main.ts` passes.
+- Verification: deno test perceptual-hash_test.ts 7 passed/0 failed; deno check (grade, api-v1, perceptual-hash, test, main.ts) clean; deno lint 4 files clean; deno cache --frozen clean; frontend npx tsc --noEmit clean.
+- Timestamp: 2026-06-12
+---

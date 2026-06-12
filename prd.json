@@ -7424,8 +7424,8 @@
         "Test: identical image bytes from two accounts are flagged regardless of submitted phash"
       ],
       "priority": 480,
-      "passes": false,
-      "notes": "[P1][Grading/Fraud] Audit 2026-06-03. submission_images.phash is a client-submitted field (grade.ts), trivially spoofable."
+      "passes": true,
+      "notes": "[P1][Grading/Fraud] Audit 2026-06-03. submission_images.phash is a client-submitted field (grade.ts), trivially spoofable. DONE: phash recomputed server-side from validated/stored bytes via lib/perceptual-hash.ts (computePhashFromImage); imagescript decodes JPEG/PNG, @jsquash/webp (lazy) decodes WebP, dHash mirrors the client algo (9x8 area-downscale, Rec.601 luma, MSB-first 16-hex) so server hashes stay comparable to existing client hashes. Wired into grade.ts + api-v1.ts; client \"phashes\" field no longer trusted/stored. Tests in tests/perceptual-hash_test.ts prove identical bytes from two accounts → distance 0 (flagged) regardless of any submitted phash, distinct images diverge, corrupt/degenerate → null (never blocks upload)."
     },
     {
       "id": "US-481",

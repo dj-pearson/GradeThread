@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import {
   GRADE_TIERS,
   type GradeTier,
@@ -236,15 +237,14 @@ gradeRoutes.post("/submit", async (c) => {
 
   const imageFiles: File[] = [];
   const imageTypes: string[] = [];
-  // Parallel to imageFiles: client-computed perceptual hash (US-337). 16 hex
-  // chars when present; "" / invalid is stored as null and simply skipped by
-  // reuse detection.
-  const imagePhashes: (string | null)[] = [];
+  // US-480: the perceptual hash is recomputed server-side from the validated
+  // upload bytes below (computePhashFromImage) — the client "phashes" field is
+  // NO LONGER trusted for reuse detection, since a forged hash could otherwise
+  // dodge a match against a stolen/stock photo already on file.
   // US-339: provenance EXIF per image, aligned to imageFiles by push order.
   const imageExif: (Record<string, unknown> | null)[] = [];
   const allEntries = formData.getAll("images");
   const allTypes = formData.getAll("image_types");
-  const allPhashes = formData.getAll("phashes");
   const allExif = formData.getAll("exif_metadata");
   // US-339: optional uncompressed originals, sent (in image order) only when
   // the client opted in. Consumed only if RETAIN_ORIGINAL_IMAGES is set.
@@ -259,8 +259,6 @@ gradeRoutes.post("/submit", async (c) => {
       } else {
         imageFiles.push(entry);
         imageTypes.push(type);
-        const ph = typeof allPhashes[i] === "string" ? (allPhashes[i] as string).trim() : "";
-        imagePhashes.push(/^[0-9a-f]{16}$/i.test(ph) ? ph.toLowerCase() : null);
         imageExif.push(sanitizeExif(allExif[i]));
       }
     }
@@ -359,6 +357,10 @@ gradeRoutes.post("/submit", async (c) => {
       );
     }
     const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+    // US-480: recompute the reuse-detection hash from the bytes we actually
+    // store (never the client). null on a decode/hash failure → image is simply
+    // skipped by reuse detection, never blocked.
+    const serverPhash = await computePhashFromImage(cleanBytes, verdict.format);
     const storagePath =
       `${ownerId}/${submissionId}/${imageType}_${timestamp}.${verdict.ext}`;
 
@@ -416,7 +418,7 @@ gradeRoutes.post("/submit", async (c) => {
       image_type: imageType,
       storage_path: storagePath,
       display_order: i,
-      phash: imagePhashes[i] ?? null,
+      phash: serverPhash,
       exif: imageExif[i] ?? null,
       original_storage_path: originalStoragePath,
     });
