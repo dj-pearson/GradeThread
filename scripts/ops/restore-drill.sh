@@ -39,6 +39,7 @@ select count(*) from public.submissions;
 select count(*) from public.grade_reports;
 select count(*) from public.inventory_items;
 select count(*) from storage.objects;
+select count(*) from pg_policies;
 "
 
 cleanup() {
@@ -63,10 +64,10 @@ SRC_COUNTS="$(docker exec -e PGPASSWORD="$PGPASSWORD" "$SOURCE_CONTAINER" psql -
 
 echo "[drill] 1/4 pg_dump (custom format, as backup-postgres.sh does)"
 T0=$(date +%s)
+# Streamed over stdout (not --file) so no container paths are involved —
+# Git-for-Windows would rewrite a /tmp argument into a Windows path.
 docker exec -e PGPASSWORD="$PGPASSWORD" "$SOURCE_CONTAINER" pg_dump -U supabase_admin -d postgres \
-  --format=custom --compress=6 --no-owner --file="/tmp/$DUMP_NAME"
-docker cp "$SOURCE_CONTAINER:/tmp/$DUMP_NAME" "$WORK_DIR/$DUMP_NAME"
-docker exec "$SOURCE_CONTAINER" rm -f "/tmp/$DUMP_NAME"
+  --format=custom --compress=6 --no-owner > "$WORK_DIR/$DUMP_NAME"
 T_DUMP=$(( $(date +%s) - T0 ))
 echo "[drill] dump ok: $(du -h "$WORK_DIR/$DUMP_NAME" | cut -f1) in ${T_DUMP}s"
 
@@ -87,16 +88,15 @@ sleep 5
 
 echo "[drill] 3/4 pg_restore into scratch (flags match restore-postgres.sh)"
 T0=$(date +%s)
-docker cp "$WORK_DIR/$DUMP_NAME" "$SCRATCH_CONTAINER:/tmp/$DUMP_NAME"
-docker exec -e PGPASSWORD="$PGPASSWORD" "$SCRATCH_CONTAINER" pg_restore -U supabase_admin -d postgres \
-  --no-owner --no-privileges --clean --if-exists "/tmp/$DUMP_NAME" || true
+docker exec -i -e PGPASSWORD="$PGPASSWORD" "$SCRATCH_CONTAINER" pg_restore -U supabase_admin -d postgres \
+  --no-owner --no-privileges --clean --if-exists < "$WORK_DIR/$DUMP_NAME" || true
 T_RESTORE=$(( $(date +%s) - T0 ))
 echo "[drill] pg_restore finished in ${T_RESTORE}s (\"errors ignored\" for pre-existing scaffolding are expected)"
 
 echo "[drill] 4/4 verifying restored copy against source"
 DST_COUNTS="$(docker exec -e PGPASSWORD="$PGPASSWORD" "$SCRATCH_CONTAINER" psql -U supabase_admin -d postgres -At -c "$SANITY_SQL")"
 
-LABELS="latest_migration users submissions grade_reports inventory_items storage.objects"
+LABELS="latest_migration users submissions grade_reports inventory_items storage.objects rls_policies"
 FAIL=0
 i=1
 for label in $LABELS; do

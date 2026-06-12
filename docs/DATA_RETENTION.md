@@ -41,8 +41,9 @@ which also handles the external resources below.
 - **Active account data** is retained while the account exists.
 - **On deletion**, DB data is removed immediately via the cascade; external
   cleanup (above) should run in the same flow.
-- **Backups**: any database backups age out per the backup rotation policy;
-  deleted data is purged from backups on that cycle.
+- **Backups**: database and storage backups age out per the retention policy
+  in `BACKUPS.md` (7 days local, 30 days offsite); deleted data is therefore
+  purged from all backups within 30 days.
 - **A minimal, non-PII record of the deletion request** (timestamp + opaque
   id) may be retained for compliance evidence.
 

@@ -142,16 +142,25 @@ dropped out of the environment).
 ## 5. Backup + restore drill
 
 Do a REAL restore drill before launch (not just "backups are configured"). Full
-procedure: **`BACKUPS.md`**. Record the result here so the drill has a home.
+procedure: **`BACKUPS.md`**; mechanism: `scripts/ops/backup-postgres.sh`,
+`backup-storage.sh`, `restore-postgres.sh`. The procedure itself is verified —
+`scripts/ops/restore-drill.sh` ran PASS on 2026-06-12 against the local stack
+(BACKUPS.md drill log). This section is the **prod** drill: restore a real
+offsite dump on a scratch host. Record the result here so the drill has a home.
 
 | Drill date | Backup restored (timestamp) | Restore target | Result (ok/fail) | By |
 |---|---|---|---|---|
 |  |  |  |  |  |
 |  |  |  |  |  |
 
-- ☐ Automated backups confirmed running (schedule + retention per `BACKUPS.md`)
-- ☐ A backup restored to a scratch DB and sanity-queried (row counts plausible)
-- ☐ Restore runtime recorded (informs RTO)
+- ☐ Backup cron installed on the DB host (`BACKUPS.md` §Schedule) and the first
+  nightly dump confirmed in the offsite bucket (with `.sha256` sidecar)
+- ☐ R2 lifecycle rules created (30d on `pg/` and `storage-deleted/`)
+- ☐ A prod offsite dump restored to a scratch Supabase Postgres via
+  `restore-postgres.sh` and sanity-queried (row counts plausible)
+- ☐ Restore runtime recorded above (informs RTO; targets in `BACKUPS.md`)
+- ☐ `ALERT_WEBHOOK_URL` on both backup crons verified (break one on purpose,
+  see the alert)
 
 ---
 

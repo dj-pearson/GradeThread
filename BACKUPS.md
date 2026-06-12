@@ -19,9 +19,9 @@ wires it to a schedule and records the verified restore procedure.
   WAL archiving (below) is enabled — required before the paid revenue path
   carries meaningful volume.
 - **RTO (max downtime to restore):** ≤ 2h. The drill on 2026-06-12 measured
-  dump + restore of the full schema in **under 2 minutes** (empty-ish data);
-  budget the rest for provisioning a replacement host, repointing DNS/secrets,
-  and the storage `rclone sync` back.
+  dump 1s + restore 11s for the full schema (near-empty data — scale with
+  volume); budget the rest for provisioning a replacement host, repointing
+  DNS/secrets, and the storage `rclone sync` back.
 
 ## What to back up
 
@@ -126,7 +126,7 @@ bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 
 | Date | What was restored | Result | Timing | Operator |
 |---|---|---|---|---|
-| 2026-06-12 | Full pg dump (schema 00152 + seeded auth/users/submissions/grade_reports/inventory/storage.objects rows) → fresh `supabase/postgres:17.6.1.106` scratch container via `restore-drill.sh` | PASS — all source/restored counts + latest migration matched | dump + restore < 2 min total | Ralph (US-494) |
+| 2026-06-12 | Full pg dump (schema at migration 00151 + seeded auth user/submission/grade_report/inventory_item/storage.object rows) → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container via `restore-drill.sh` | PASS — latest migration, all row counts, and all 270 RLS policies matched source | dump 1s, restore 11s | Ralph (US-494) |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
 > **LAUNCH GATE:** the local drill proves the *procedure*; §5 of

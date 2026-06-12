@@ -7604,8 +7604,8 @@
         "A restore is actually tested and the runbook records the verified procedure"
       ],
       "priority": 494,
-      "passes": false,
-      "notes": "[P0][Data/Ops] Audit 2026-06-03. DATA_RETENTION.md only references a 'backup rotation' with no mechanism/restore test."
+      "passes": true,
+      "notes": "[P0][Data/Ops] Audit 2026-06-03. DATA_RETENTION.md only references a 'backup rotation' with no mechanism/restore test. | DONE 2026-06-12: mechanism in scripts/ops/ (backup-postgres.sh nightly pg_dump+sha256+rclone offsite+prune, backup-storage.sh rclone sync with dated storage-deleted/ rollback prefixes, restore-postgres.sh prod-guarded restore+sanity queries, restore-drill.sh automated end-to-end drill). BACKUPS.md rewritten as runbook: cron schedule on DB host, R2 offsite, retention table (7d local/30d offsite, satisfies DATA_RETENTION 30d purge), RPO 24h now / 5min after wal-g PITR (config steps documented), RTO <=2h. Restore TESTED 2026-06-12: drill PASS on local stack at migration 00151 with seeded rows - latest migration, row counts, and 270 RLS policies all matched source after restore into fresh supabase/postgres:17.6.1.106 scratch container (dump 1s, restore 11s). Prod-dump drill remains a launch gate in LAUNCH_CHECKLIST section 5 (expanded checklist)."
     },
     {
       "id": "US-495",
