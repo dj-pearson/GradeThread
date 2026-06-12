@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -139,8 +140,10 @@ function BankTab({
 
       {isLoading ? (
         <Card>
-          <CardContent className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            Loading…
+          <CardContent className="p-4">
+            <LoadingRegion label="Loading topics">
+              <SkeletonRows rows={6} />
+            </LoadingRegion>
           </CardContent>
         </Card>
       ) : topics.length === 0 ? (

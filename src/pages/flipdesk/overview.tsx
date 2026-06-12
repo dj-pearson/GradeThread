@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion } from "@/components/ui/skeletons";
 import {
   ITEM_STATUS_LABELS,
   FLIPDESK_PIPELINE,
@@ -262,9 +264,16 @@ export function FlipdeskOverviewPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              Loading…
-            </div>
+            <LoadingRegion label="Loading pipeline">
+              <div
+                className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
+                aria-hidden="true"
+              >
+                {FLIPDESK_PIPELINE.map((step) => (
+                  <Skeleton key={step.status} className="h-16 w-full rounded-lg" />
+                ))}
+              </div>
+            </LoadingRegion>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {FLIPDESK_PIPELINE.map((step) => {

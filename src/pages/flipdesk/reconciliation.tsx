@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   Table,
   TableBody,
@@ -288,8 +289,10 @@ export function FlipdeskReconciliationPage() {
                   <TableBody>
                     {payoutsLoading ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center py-6">
-                          Loading…
+                        <TableCell colSpan={5} className="py-3">
+                          <LoadingRegion label="Loading payouts">
+                            <SkeletonRows rows={4} />
+                          </LoadingRegion>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -535,9 +538,9 @@ function SyncHistoryCard() {
       </CardHeader>
       <CardContent className="px-0">
         {isLoading ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            Loading…
-          </div>
+          <LoadingRegion label="Loading sync history" className="px-4">
+            <SkeletonRows rows={5} />
+          </LoadingRegion>
         ) : runs.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-1 py-8 text-center text-sm text-muted-foreground">
             <History className="h-5 w-5 opacity-50" />

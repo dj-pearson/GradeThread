@@ -6920,8 +6920,8 @@
         "Consistent treatment within each page type"
       ],
       "priority": 440,
-      "passes": false,
-      "notes": "[P2][UX] Audit 2026-06-03. Bare 'Loading…' across flipdesk/*, content/*, admin/audit-log, ebay-sku-match."
+      "passes": true,
+      "notes": "[P2][UX] Audit 2026-06-03. Bare 'Loading…' across flipdesk/*, content/*, admin/audit-log, ebay-sku-match. DONE: Added LoadingRegion (role=status + aria-busy + sr-only label) and SkeletonRows to components/ui/skeletons.tsx; replaced bare Loading… across content/{blog-list,social-list,topic-bank,knowledge,content-settings}, flipdesk/{analytics,overview,listing-performance,reconciliation}, flipdesk/ebay-sku-match, admin/audit-log with skeletons wrapped in accessible loading regions."
     },
     {
       "id": "US-441",

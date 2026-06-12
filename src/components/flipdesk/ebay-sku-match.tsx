@@ -22,6 +22,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -509,9 +510,9 @@ export function EbaySkuMatch() {
       </Card>
 
       {loading ? (
-        <div className="py-12 text-center text-sm text-muted-foreground">
-          Loading…
-        </div>
+        <LoadingRegion label="Loading listings">
+          <SkeletonRows rows={5} />
+        </LoadingRegion>
       ) : listings.length === 0 ? (
         <div className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">
           No eBay listings imported yet. Upload your Active Listings CSV to run

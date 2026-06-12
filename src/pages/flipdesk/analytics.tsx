@@ -32,7 +32,7 @@ import {
   fetchSellThrough,
   fetchGradingRoi,
 } from "@/lib/flipdesk-analytics-server";
-import { ChartSkeleton } from "@/components/ui/skeletons";
+import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -111,9 +111,9 @@ export function FlipdeskAnalyticsPage() {
 
 function Loading() {
   return (
-    <div className="py-12 text-center text-sm text-muted-foreground">
-      Loading…
-    </div>
+    <LoadingRegion label="Loading report" className="py-4">
+      <ChartSkeleton />
+    </LoadingRegion>
   );
 }
 

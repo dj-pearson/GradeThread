@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -254,7 +255,9 @@ function RecentDeliveries() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading…</p>
+          <LoadingRegion label="Loading webhook deliveries">
+            <SkeletonRows rows={5} />
+          </LoadingRegion>
         ) : deliveries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No webhooks have been dispatched yet.

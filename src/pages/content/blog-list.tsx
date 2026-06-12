@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Badge } from "@/components/ui/badge";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import {
@@ -118,8 +119,10 @@ export function BlogListPage() {
 
       {isLoading ? (
         <Card>
-          <CardContent className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            Loading…
+          <CardContent className="p-4">
+            <LoadingRegion label="Loading posts">
+              <SkeletonRows rows={6} />
+            </LoadingRegion>
           </CardContent>
         </Card>
       ) : posts.length === 0 ? (

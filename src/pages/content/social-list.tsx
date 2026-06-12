@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -91,8 +92,10 @@ export function SocialListPage() {
 
       {isLoading ? (
         <Card>
-          <CardContent className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            Loading…
+          <CardContent className="p-4">
+            <LoadingRegion label="Loading social posts">
+              <SkeletonRows rows={6} />
+            </LoadingRegion>
           </CardContent>
         </Card>
       ) : posts.length === 0 ? (

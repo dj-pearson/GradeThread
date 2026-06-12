@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   Select,
   SelectContent,
@@ -332,17 +332,15 @@ export function AdminAuditLogPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base">
             {isLoading
-              ? "Loading…"
+              ? "Audit log"
               : `${totalCount} entr${totalCount === 1 ? "y" : "ies"}`}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="space-y-2">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
+            <LoadingRegion label="Loading audit log">
+              <SkeletonRows rows={6} />
+            </LoadingRegion>
           ) : totalCount === 0 ? (
             <p className="py-12 text-center text-sm text-muted-foreground">
               No audit entries match the current filters.

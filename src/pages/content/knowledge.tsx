@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { SEED_KNOWLEDGE_KEYS } from "@/lib/constants";
 import {
   useKnowledgeDoc,
@@ -47,7 +48,9 @@ export function KnowledgePage() {
           </CardHeader>
           <CardContent className="space-y-1 p-2">
             {isLoading && (
-              <p className="p-2 text-sm text-muted-foreground">Loading…</p>
+              <LoadingRegion label="Loading docs" className="p-2">
+                <SkeletonRows rows={5} />
+              </LoadingRegion>
             )}
             {(docs ?? []).map((d) => (
               <button
@@ -103,8 +106,10 @@ function KnowledgeEditor({ docKey }: { docKey: string }) {
   if (isLoading || !doc) {
     return (
       <Card>
-        <CardContent className="flex h-64 items-center justify-center text-sm text-muted-foreground">
-          Loading…
+        <CardContent className="p-4">
+          <LoadingRegion label="Loading document">
+            <SkeletonRows rows={6} />
+          </LoadingRegion>
         </CardContent>
       </Card>
     );

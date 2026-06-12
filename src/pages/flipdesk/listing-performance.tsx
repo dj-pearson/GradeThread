@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { LoadingRegion, TableLoadingSkeleton } from "@/components/ui/skeletons";
 import {
   Table,
   TableBody,
@@ -284,9 +285,9 @@ export function FlipdeskListingPerformancePage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              Loading…
-            </div>
+            <LoadingRegion label="Loading listing performance">
+              <TableLoadingSkeleton rows={6} columns={5} />
+            </LoadingRegion>
           ) : rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               {noViewDays
