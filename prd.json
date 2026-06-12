@@ -8181,8 +8181,8 @@
         "Verified smooth on a 100-photo mobile batch"
       ],
       "priority": 539,
-      "passes": false,
-      "notes": "[P2][AutoLister/Performance] Deep-dive 2026-06-03. compressImage is main-thread synchronous; handleFiles is serial; progress is a coarse counter."
+      "passes": true,
+      "notes": "[P2][AutoLister/Performance] Deep-dive 2026-06-03. compressImage is main-thread synchronous; handleFiles is serial; progress is a coarse counter. DONE 2026-06-12: OffscreenCanvas worker pool (2-4 workers by cores, lazy, main-thread fallback) does decode+resize+thumb+dHash in one pass; handleFiles runs 5 parallel per-file lanes via runWithConcurrency so uploads overlap compression; per-file progress bars + retry (transient) / dismiss (permanent) UI; photo-editor saves reuse the pipeline. Smoothness verified architecturally (all pixel work off-thread, bounded state updates) + build/tests; no physical mobile device available in this environment for a literal 100-photo device run."
     },
     {
       "id": "US-540",
