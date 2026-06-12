@@ -39,6 +39,7 @@ import { ConditionGradingPage } from "@/pages/marketing/condition-grading";
 import { GradingStandardPage } from "@/pages/marketing/grading-standard";
 import { TransparencyPage } from "@/pages/marketing/transparency";
 import { GradingGlossaryPage } from "@/pages/marketing/grading-glossary";
+import { StatusPage } from "@/pages/status";
 import { GLOSSARY_ENTRIES } from "@/lib/seo/glossary";
 
 // Static map of prerenderable routes → page element.
@@ -59,6 +60,9 @@ const PAGES: Record<string, React.ReactNode> = {
   "/subprocessors": <SubprocessorsPage />,
   "/dmca": <DmcaPage />,
   "/accessibility": <AccessibilityPage />,
+  // US-500: probes run client-side only (useEffect); SSR emits the checking
+  // shell, which the live SPA re-renders over with real component health.
+  "/status": <StatusPage />,
   // Glossary hub (US-303): the /grading/:slug route resolves its slug from
   // useParams at runtime; here we render each entry with an explicit slug prop
   // since the prerender renders a path directly with no router param match.

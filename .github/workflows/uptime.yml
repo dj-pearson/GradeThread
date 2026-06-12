@@ -1,0 +1,50 @@
+name: Uptime
+
+# US-500: external synthetic uptime monitor. GitHub-hosted runners are external
+# to ALL production infrastructure (Cloudflare Pages SPA, Coolify edge service,
+# self-hosted Supabase), so this detects a total outage that in-prod monitors
+# can't see. scripts/ops/uptime-check.mjs probes each target, confirms any
+# failure with a second check 30s later, then alerts via:
+#   - UPTIME_ALERT_WEBHOOK secret (Slack-compatible; wire to the on-call
+#     channel — same destination as MONITOR_ALERT_WEBHOOK), and
+#   - a GitHub issue labeled `uptime` (always-on fallback channel: opened on
+#     confirmed failure, commented while ongoing, auto-closed on recovery).
+#
+# Cadence: every 10 minutes. GitHub cron is best-effort (runs may start a few
+# minutes late under load) — acceptable as the launch baseline; the upgrade
+# path to 1-minute vendor checks is documented in UPTIME_MONITORING.md.
+# Thresholds + escalation: docs/INCIDENT_RESPONSE.md.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    name: Probe SPA, edge & Supabase
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Only the monitor script is needed — keep the checkout minimal.
+          sparse-checkout: scripts/ops
+      - name: Run uptime checks
+        run: node scripts/ops/uptime-check.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: Slack-compatible incoming webhook for the on-call channel.
+          UPTIME_ALERT_WEBHOOK: ${{ secrets.UPTIME_ALERT_WEBHOOK }}
+          # Optional: lets the Supabase Auth check assert a real 200 from
+          # GoTrue (without it, Kong's 401 is accepted as "gateway up"). The
+          # anon key is public by design (shipped in the SPA bundle).
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}

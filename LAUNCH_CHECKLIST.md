@@ -182,7 +182,10 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
 ## 7. Final go/no-go
 
 - ☐ Sentry receiving events (edge + frontend); alert routing confirmed
-- ☐ Uptime monitor hitting `/health` (see `UPTIME_MONITORING.md`)
+- ☐ Uptime monitor live (US-500): `UPTIME_ALERT_WEBHOOK` + `SUPABASE_ANON_KEY`
+  Actions secrets set, "Uptime" workflow green on manual dispatch, on-call
+  watching the repo, `/status` page reachable — then run the failure drill in
+  `docs/INCIDENT_RESPONSE.md` (see `UPTIME_MONITORING.md`). Drill date: ______
 - ☐ Incident runbook reachable by on-call (`INCIDENT_RESPONSE.md`)
 - ☐ Pre-launch banner / `VITE_LAUNCH_DATE` set to self-expire (US-785)
 - ☐ Reseller feature scope confirmed — Best Offer responses and returns/

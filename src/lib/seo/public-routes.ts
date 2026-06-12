@@ -70,6 +70,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/subprocessors": "2026-04-01",
   "/dmca": "2026-04-01",
   "/accessibility": "2026-04-01",
+  "/status": "2026-06-12",
 };
 
 /** Stable content-change date for a route's sitemap <lastmod>. */
@@ -206,6 +207,16 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "Accessibility Statement",
     description: "GradeThread's commitment to WCAG 2.1 AA accessibility and how to report barriers.",
     changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    // US-500: live component health is probed client-side after mount; the
+    // prerendered shell just carries the page chrome + metadata.
+    path: "/status",
+    title: "System Status",
+    description:
+      "Live operational status of GradeThread's web app, grading API, database and authentication.",
+    changefreq: "always",
     priority: 0.3,
   },
   // Condition-grading glossary hub (US-303): one page per grade tier + factor,

@@ -1,44 +1,65 @@
 # Uptime Monitoring, Alerting & Status Page (US-500)
 
-Outages must page us and be visible to customers, so we find out before users do.
+Outages must page us and be visible to customers, so we find out before users
+do. All three pieces are implemented in-repo:
 
-## Synthetic monitors
+## 1. External synthetic monitor — `.github/workflows/uptime.yml`
 
-Configure external uptime checks (e.g. UptimeRobot, Better Stack, Pingdom, or
-Cloudflare Health Checks) against:
+Runs `scripts/ops/uptime-check.mjs` every 10 minutes from GitHub-hosted
+runners, which are **external to all production infrastructure** (Cloudflare
+Pages, Coolify, self-hosted Supabase) — a total prod outage is still detected.
 
-| Target | URL | Expect | Interval |
-|---|---|---|---|
-| SPA | `https://gradethread.com/` | 200, body contains the hero text | 1 min |
-| Edge liveness | `https://functions.gradethread.com/health` | 200, JSON `status:ok` | 1 min |
-| Edge readiness | `https://functions.gradethread.com/health/ready` | 200 (503 = degraded) | 1 min |
-| Supabase | `https://api.gradethread.com/auth/v1/health` | 200 | 1 min |
+| Target | URL | Expect |
+|---|---|---|
+| SPA | `https://gradethread.com/` | 200 |
+| Edge liveness | `https://functions.gradethread.com/health` | 200 |
+| Edge readiness (DB) | `https://functions.gradethread.com/health/ready` | 200 (503 = DB/env down) |
+| Supabase Auth | `https://api.gradethread.com/auth/v1/health` | 200 with anon key (non-5xx without) |
 
-`/health/ready` already probes the DB + critical env and returns 503 when a hard
-dependency is down — point the readiness monitor at it so a DB outage pages even
-while the process is "up".
+A failure is confirmed by a second check 30s later before alerting (no paging
+on a single blip). On confirmed failure the run exits non-zero and alerts via:
 
-## Alerting → on-call
+- **`UPTIME_ALERT_WEBHOOK`** (repo Actions secret) — Slack-compatible webhook;
+  point it at the same on-call channel as the edge service's
+  `MONITOR_ALERT_WEBHOOK` so all alerts converge.
+- **GitHub issue labeled `uptime`** — always-on fallback that needs zero
+  secrets: opened on failure, commented while ongoing, auto-closed on
+  recovery. Repo watchers get email/mobile notifications.
 
-- Route monitor alerts to a **real on-call channel** (PagerDuty/Opsgenie or a
-  Slack channel with notifications), not just email.
-- The edge app's own alarms (grading regression, stuck submissions, fail-open
-  webhooks, breaker trips) flow through the error tracker (Sentry, `SENTRY_DSN`)
-  and `MONITOR_ALERT_WEBHOOK` — wire both into the same on-call channel.
-- Thresholds + escalation are defined in `INCIDENT_RESPONSE.md`.
+Manual run / drill: GitHub → Actions → **Uptime** → *Run workflow*.
 
-## Status page
+GitHub cron is best-effort (a run can start a few minutes late); 10-minute
+cadence is the launch baseline. Upgrade path below.
 
-Stand up a public status page (Better Stack / Instatus / a static Cloudflare
-Pages site) reflecting: SPA, Edge API, Grading, Payments, Database. Drive it from
-the synthetic monitors above.
+## 2. Status page — `gradethread.com/status`
 
-> **MANUAL / LAUNCH-BLOCKER:** create the monitors, connect them to the on-call
-> channel, and publish the status page URL. Record the chosen vendor + the status
-> page URL here once live.
+`src/pages/status.tsx` (route `/status`, linked from the site footers) probes
+Edge liveness, Edge readiness (database) and Supabase Auth **live from the
+visitor's browser**, refreshing every 60s. Because checks are client-side, the
+page stays accurate during an edge/Supabase outage with no manual updates —
+its only shared dependency is Cloudflare Pages serving the SPA itself.
 
-## Verification
+## 3. Thresholds, escalation & on-call
 
-After setup: force a failure (stop the edge container briefly in staging) and
-confirm an alert reaches the on-call channel and the status page flips the
-component to "down".
+Defined in `docs/INCIDENT_RESPONSE.md` →
+"Availability monitoring, thresholds & escalation": monitor inventory,
+2-consecutive-failures threshold, severity mapping (SEV-1 = SPA/edge/DB down),
+escalation ladder and the end-to-end alert drill.
+
+## Remaining setup (launch checklist)
+
+> **MANUAL:** in GitHub repo settings → Secrets and variables → Actions, set
+> `UPTIME_ALERT_WEBHOOK` (Slack incoming webhook for the on-call channel) and
+> `SUPABASE_ANON_KEY` (lets the auth check assert a real 200 from GoTrue).
+> Everyone on call must watch the repo with issue notifications on. Then run
+> the failure drill in `docs/INCIDENT_RESPONSE.md` and tick it off in
+> `LAUNCH_CHECKLIST.md`.
+
+## Optional upgrade: 1-minute vendor checks + hosted status page
+
+For tighter detection than GitHub's 10-minute best-effort cron, add a vendor
+(Better Stack / UptimeRobot / Cloudflare Health Checks) pointing at the same
+four URLs with the same expectations, alerting into the same channel, and
+optionally a vendor-hosted status page (independent of Cloudflare Pages).
+Record the vendor + status page URL here once live. The in-repo monitor stays
+on as the zero-cost backstop.

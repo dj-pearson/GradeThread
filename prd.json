@@ -7681,8 +7681,8 @@
         "A status page reflecting component health"
       ],
       "priority": 500,
-      "passes": false,
-      "notes": "[P1][Ops] Audit 2026-06-03. No synthetic monitors/paging/status page."
+      "passes": true,
+      "notes": "[P1][Ops] Audit 2026-06-03. IMPLEMENTED 2026-06-12: (1) External synthetic monitor: .github/workflows/uptime.yml (every 10 min from GitHub-hosted runners, external to all prod infra) runs scripts/ops/uptime-check.mjs probing SPA /, edge /health, edge /health/ready (DB), Supabase /auth/v1/health; failures confirmed by a 2nd check 30s later, then alert via UPTIME_ALERT_WEBHOOK secret (Slack-compatible, same shape as MONITOR_ALERT_WEBHOOK) + a deduped GitHub issue labeled uptime (always-on zero-secret channel; auto-closes on recovery). Verified live against prod (all 4 up) and via forced-failure path (confirm retry -> exit 1). (2) Thresholds + escalation: INCIDENT_RESPONSE.md new Availability section (monitor inventory, 2-consecutive-failure threshold, SEV mapping, escalation ladder, drill procedure). (3) Status page: /status (src/pages/status.tsx, registered in PUBLIC_ROUTES + prerendered, footer-linked) probes edge liveness/readiness + Supabase Auth live from the visitor browser every 60s, so it stays accurate during an edge/Supabase outage. MANUAL residue in UPTIME_MONITORING.md + LAUNCH_CHECKLIST go/no-go: set UPTIME_ALERT_WEBHOOK + SUPABASE_ANON_KEY Actions secrets, on-call watches repo, run the failure drill. Optional 1-min vendor checks documented as upgrade path."
     },
     {
       "id": "US-501",

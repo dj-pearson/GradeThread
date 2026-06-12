@@ -168,6 +168,9 @@ export function MarketingLayout({
               <Link to="/dpa" className="hover:text-foreground">
                 DPA
               </Link>
+              <Link to="/status" className="hover:text-foreground">
+                Status
+              </Link>
             </nav>
             <p className="text-xs text-muted-foreground">
               &copy; {new Date().getFullYear()} Pearson Media LLC. All rights

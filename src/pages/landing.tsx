@@ -687,6 +687,9 @@ export function LandingPage() {
               <Link to="/acceptable-use" className="hover:text-foreground">
                 Acceptable Use
               </Link>
+              <Link to="/status" className="hover:text-foreground">
+                Status
+              </Link>
             </nav>
             <p className="text-xs text-muted-foreground">
               &copy; {new Date().getFullYear()} Pearson Media LLC. All rights reserved.

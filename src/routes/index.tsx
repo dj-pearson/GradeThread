@@ -71,6 +71,9 @@ const PriceSuggestionsPage = lazy(() => import("@/pages/price-suggestions").then
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m => ({ default: m.VerifiedSellerPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
+// Public status page (US-500) — live component health probed from the
+// visitor's browser. Dynamic, NOT registered in PUBLIC_ROUTES (no prerender).
+const StatusPage = lazy(() => import("@/pages/status").then(m => ({ default: m.StatusPage })));
 const PrivacyPage = lazy(() => import("@/pages/legal/privacy").then(m => ({ default: m.PrivacyPage })));
 const TermsPage = lazy(() => import("@/pages/legal/terms").then(m => ({ default: m.TermsPage })));
 const CookiesPage = lazy(() => import("@/pages/legal/cookies").then(m => ({ default: m.CookiesPage })));
@@ -219,6 +222,9 @@ export const router = createBrowserRouter([
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.
       { path: "/grading/:slug", element: <SuspenseWrapper><GradingGlossaryPage /></SuspenseWrapper> },
+
+      // System status (public, US-500)
+      { path: "/status", element: <SuspenseWrapper><StatusPage /></SuspenseWrapper> },
 
       // Legal pages (public)
       { path: "/privacy", element: <SuspenseWrapper><PrivacyPage /></SuspenseWrapper> },
