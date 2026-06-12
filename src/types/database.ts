@@ -1217,6 +1217,9 @@ export type EbayListingUpdate = Partial<
 export interface FlipdeskSettingsRow {
   user_id: string;
   auto_end_cross_listings: boolean;
+  // Global default (migration 00145): burn the grade badge onto the hero photo
+  // and append the certificate link to the description for graded listings.
+  auto_grade_badge: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -1224,6 +1227,7 @@ export interface FlipdeskSettingsRow {
 export interface FlipdeskSettingsInsert {
   user_id: string;
   auto_end_cross_listings?: boolean;
+  auto_grade_badge?: boolean;
 }
 
 export type FlipdeskSettingsUpdate = Partial<

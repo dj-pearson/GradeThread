@@ -52,6 +52,7 @@ import {
   type SourceObservation,
 } from "../lib/sync-conflicts.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
+import { compositeGradeBadge } from "../lib/grade-badge.ts";
 import {
   type ExistingSaleRow,
   normalizeUnitCount,
@@ -2740,6 +2741,19 @@ export async function publishItemForOwner(
 
   const { item, listing, photos, policies, sku } = ctx;
 
+  // Grade-badge + certificate-link promotion (00145). Runs ONLY on the real
+  // publish path — not the frequently-hit /listings/validate, which also calls
+  // assemblePublishContext — so the (expensive) compositing happens once per
+  // publish. Mutates photos[0].public_url (badged hero) and the description
+  // (cert link) in place before the reachability probe + eBay payload below.
+  ctx.summary.description = await applyGradeBadgePromotion(
+    ownerId,
+    item,
+    listing,
+    photos,
+    ctx.summary.description,
+  );
+
   // US-473: pre-publish image reachability. eBay fetches imageUrls server-side
   // at publish; an unreachable URL fails the whole publish with an opaque error
   // (and our proxy can surface a 502). HEAD-probe the URLs first and turn a
@@ -3584,6 +3598,9 @@ interface PublishItem {
   target_price: number | null;
   grade_value: number | null;
   grade_label: string | null;
+  // Public certificate URL, populated when a FlipDesk item is graded
+  // (grading-pipeline.ts). Drives the grade-badge + cert-link promotion.
+  certificate_url: string | null;
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
   item_category: string | null;
@@ -3607,6 +3624,8 @@ interface PublishListing {
   platform_category_id: string | null;
   item_specifics_override: Record<string, string[]> | null;
   scheduled_publish_at: string | null;
+  // Per-listing opt-in for the grade-badge + cert-link promotion (00027).
+  badge_enabled: boolean | null;
 }
 
 interface PublishContextOk {
@@ -3744,6 +3763,110 @@ function deriveAspectsFromItem(
   return out;
 }
 
+// Per-user GLOBAL default for the grade-badge + cert-link promotion (00145).
+// Absent settings row ⇒ false.
+async function autoGradeBadgeDefault(userId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("flipdesk_settings")
+    .select("auto_grade_badge")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as { auto_grade_badge: boolean } | null)?.auto_grade_badge === true;
+}
+
+// Phrasing kept in sync with the client template (src/lib/listing-templates.ts
+// gradeBlock) so a template-built description and a forced append read alike.
+const CERT_LINK_PREFIX = "View the full condition certificate:";
+
+// A storage object is an already-badged derivative if it lives under a /badge/
+// folder (this function) or carries the legacy composer "badged_" filename.
+function isBadgedUrl(url: string): boolean {
+  return url.includes("/badge/") || url.includes("badged_");
+}
+
+// Renders (or reuses a cached) badged copy of the hero photo in the public
+// item-photos bucket and returns its public URL. The path is deterministic in
+// (item, hero photo, grade) so relists/re-publishes reuse the same object
+// instead of re-compositing. Returns null on any failure so the caller falls
+// back to the original hero — a badge problem must never block a publish.
+async function ensureBadgedHero(
+  userId: string,
+  item: PublishItem,
+  hero: PublishPhoto,
+): Promise<string | null> {
+  const grade = item.grade_value;
+  if (grade == null) return null;
+
+  const bucket = supabaseAdmin.storage.from("item-photos");
+  const safeGrade = grade.toFixed(1).replace(".", "_");
+  const path = `${userId}/${item.id}/badge/${hero.id}_${safeGrade}.jpg`;
+  const badgedUrl = bucket.getPublicUrl(path).data.publicUrl;
+
+  // Cache hit: a prior publish already rendered this exact badge.
+  const head = await fetchWithTimeout(badgedUrl, { method: "HEAD" }, 5_000)
+    .catch(() => null);
+  if (head?.ok) return badgedUrl;
+
+  const res = await fetchWithTimeout(hero.public_url, {}, 15_000);
+  if (!res.ok) {
+    console.warn(`[flipdesk-ebay] grade-badge: hero fetch ${res.status}`);
+    return null;
+  }
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const badged = await compositeGradeBadge(bytes, grade, item.grade_label);
+
+  const { error } = await bucket.upload(path, badged, {
+    contentType: "image/jpeg",
+    upsert: true,
+  });
+  if (error) {
+    console.error("[flipdesk-ebay] grade-badge upload:", error.message);
+    return null;
+  }
+  return badgedUrl;
+}
+
+// When the grade-badge promotion is active for this publish, (1) burn the badge
+// onto the hero photo (mutates photos[0].public_url) and (2) force the cert link
+// into the description. Effective toggle = per-listing badge_enabled OR the
+// user's global default. Gated on a graded item that has a certificate URL.
+// Returns the (possibly updated) description.
+async function applyGradeBadgePromotion(
+  userId: string,
+  item: PublishItem,
+  listing: PublishListing | null,
+  photos: PublishPhoto[],
+  description: string,
+): Promise<string> {
+  const enabled =
+    listing?.badge_enabled === true || (await autoGradeBadgeDefault(userId));
+  if (!enabled || item.grade_value == null || !item.certificate_url) {
+    return description;
+  }
+
+  // (1) Always append the certificate link if it isn't already in the copy.
+  let next = description;
+  if (!next.includes(item.certificate_url)) {
+    const line = `${CERT_LINK_PREFIX} ${item.certificate_url}`;
+    next = next.trim() ? `${next.trim()}\n\n${line}` : line;
+  }
+
+  // (2) Burn the hero (first by sort_order). Skip an already-badged image.
+  const hero = photos[0];
+  if (hero?.public_url && !isBadgedUrl(hero.public_url)) {
+    try {
+      const badged = await ensureBadgedHero(userId, item, hero);
+      if (badged) hero.public_url = badged;
+    } catch (err) {
+      console.error(
+        "[flipdesk-ebay] grade-badge burn failed (non-blocking):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return next;
+}
+
 async function assemblePublishContext(
   userId: string,
   itemId: string
@@ -3784,7 +3907,7 @@ async function assemblePublishContext(
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, ebay_category_id, ebay_aspects, item_category, color, material, style, status"
+      "id, user_id, title, brand, sku, size, description, condition_notes, target_price, grade_value, grade_label, certificate_url, ebay_category_id, ebay_aspects, item_category, color, material, style, status"
     )
     .eq("id", itemId)
     .maybeSingle();
@@ -3820,7 +3943,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")

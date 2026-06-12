@@ -45,7 +45,6 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
-import { useWorkspace } from "@/hooks/use-workspace";
 import {
   DESCRIPTION_TEMPLATES,
   interpolateDescription,
@@ -53,7 +52,6 @@ import {
   titleKeywords,
   templateGroupFor,
 } from "@/lib/listing-templates";
-import { compositeGradeBadge } from "@/lib/grade-badge";
 import {
   CROSS_LISTING_PLATFORMS,
   EBAY_CONDITION_OPTIONS,
@@ -88,7 +86,6 @@ export function FlipdeskComposerPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const { workspaceOwnerId } = useWorkspace();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -100,7 +97,6 @@ export function FlipdeskComposerPage() {
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   const [primaryPhotoId, setPrimaryPhotoId] = useState<string | null>(null);
   const [badgeEnabled, setBadgeEnabled] = useState(false);
-  const [badgeBusy, setBadgeBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
   // Lifted from the category picker so the comps panel reacts to a pick
@@ -347,59 +343,14 @@ export function FlipdeskComposerPage() {
     void persistOrder(next);
   }
 
-  // Composite the grade badge onto the primary photo and store it as a
-  // separate, not-yet-uploaded item_photos row, then make it the primary.
-  async function toggleBadge(next: boolean) {
-    if (!next) {
-      setBadgeEnabled(false);
-      return;
-    }
-    if (!item || !user || item.grade_value == null || !primaryPhoto) return;
-    setBadgeBusy(true);
-    try {
-      const blob = await compositeGradeBadge(
-        primaryPhoto.photo_url,
-        item.grade_value,
-        item.grade_label,
-      );
-      const path = `${workspaceOwnerId ?? user.id}/${item.id}/badged_${Date.now()}.jpg`;
-      const { error: upErr } = await supabase.storage
-        .from("item-photos")
-        .upload(path, blob, { upsert: false, contentType: "image/jpeg" });
-      if (upErr) throw upErr;
-
-      const { data: pub } = supabase.storage
-        .from("item-photos")
-        .getPublicUrl(path);
-
-      const { data: inserted, error: insErr } = await supabase
-        .from("item_photos")
-        .insert({
-          inventory_item_id: item.id,
-          photo_url: pub.publicUrl,
-          storage_path: path,
-          photo_type: primaryPhoto.photo_type,
-          sort_order: order.length,
-          ebay_uploaded: false,
-        } as never)
-        .select()
-        .single();
-      if (insErr) throw insErr;
-
-      const newRow = inserted as ItemPhotoRow;
-      await qc.invalidateQueries({ queryKey: ["item_photos", id] });
-      setPrimaryPhotoId(newRow.id);
-      setBadgeEnabled(true);
-      toast.success("Badged photo added — set as the primary image.");
-    } catch (err) {
-      toast.error(
-        `Couldn't create the badged photo: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    } finally {
-      setBadgeBusy(false);
-    }
+  // Per-listing opt-in for the grade-badge + certificate-link promotion. The
+  // badge is now burned SERVER-SIDE at publish (flipdesk-ebay.ts) onto the hero
+  // photo, and the certificate link is appended to the description — so the
+  // toggle just records the choice (persisted via badge_enabled on save) and the
+  // preview column shows an approximation. No upload happens here, which also
+  // avoids double-badging the image the server later badges.
+  function toggleBadge(next: boolean) {
+    setBadgeEnabled(next);
   }
 
   // Persists the draft. Returns the listing row's id on success (so the
@@ -642,8 +593,9 @@ export function FlipdeskComposerPage() {
           <Award className="h-4 w-4 text-brand-navy" />
           <span>
             Graded {item.grade_value.toFixed(1)}/10
-            {item.grade_label ? ` · ${item.grade_label}` : ""}. The grade and
-            certificate link are embedded when you apply a template.
+            {item.grade_label ? ` · ${item.grade_label}` : ""}. Enable the grade
+            badge below to publish with the badge on the hero photo and a
+            certificate link in the description.
           </span>
         </div>
       )}
@@ -984,27 +936,23 @@ export function FlipdeskComposerPage() {
                     htmlFor="badge-toggle"
                     className="text-sm font-medium"
                   >
-                    Add grade badge to primary photo
+                    Add grade badge + certificate link
                   </Label>
                   <p className="text-xs text-muted-foreground">
                     {item.grade_value == null
                       ? "Grade this item first to enable the badge."
-                      : "Composites a GradeThread badge into the corner and saves it as a new photo."}
+                      : "On publish, burns the GradeThread badge onto the hero photo and adds a certificate link to the description."}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {badgeBusy && (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
                   <Switch
                     id="badge-toggle"
                     checked={badgeEnabled}
                     disabled={
-                      badgeBusy ||
                       item.grade_value == null ||
                       order.length === 0
                     }
-                    onCheckedChange={(v) => void toggleBadge(v)}
+                    onCheckedChange={(v) => toggleBadge(v)}
                   />
                 </div>
               </div>

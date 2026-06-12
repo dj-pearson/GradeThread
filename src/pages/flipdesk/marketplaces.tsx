@@ -766,26 +766,37 @@ export function FlipdeskMarketplacesPage() {
 
   const syncing = syncListings.isPending || syncSince != null;
 
-  // US-149: per-user cross-listing behavior. Absent row = enabled (the
-  // migration default), so the toggle reads true until the user opts out.
+  // Per-user FlipDesk behavior settings (migrations 00134/00145). Absent row =
+  // defaults (auto-end ON, grade-badge OFF), so the toggles read those until the
+  // user changes them. One query, one cache entry — both toggles share it.
   const user = useAuthStore((s) => s.user);
-  const { data: autoEndSetting } = useQuery({
+  const { data: fdSettings } = useQuery({
     queryKey: ["flipdesk_settings", user?.id],
     enabled: !!user,
-    queryFn: async (): Promise<boolean> => {
+    queryFn: async () => {
       const { data, error } = await supabase
         .from("flipdesk_settings")
-        .select("auto_end_cross_listings")
+        .select("auto_end_cross_listings, auto_grade_badge")
         .eq("user_id", user!.id)
         .maybeSingle();
       if (error) throw error;
       return (
-        (data as { auto_end_cross_listings: boolean } | null)
-          ?.auto_end_cross_listings ?? true
+        data as
+          | { auto_end_cross_listings: boolean; auto_grade_badge: boolean }
+          | null
       );
     },
   });
+  // `undefined` while loading (disables the switch); resolved → boolean default.
+  const settingsLoaded = fdSettings !== undefined;
+  const autoEndSetting = !settingsLoaded
+    ? undefined
+    : fdSettings?.auto_end_cross_listings ?? true;
+  const autoGradeBadge = !settingsLoaded
+    ? undefined
+    : fdSettings?.auto_grade_badge ?? false;
   const [autoEndSaving, setAutoEndSaving] = useState(false);
+  const [gradeBadgeSaving, setGradeBadgeSaving] = useState(false);
 
   async function toggleAutoEnd(next: boolean) {
     if (!user) return;
@@ -810,6 +821,32 @@ export function FlipdeskMarketplacesPage() {
       );
     } finally {
       setAutoEndSaving(false);
+    }
+  }
+
+  async function toggleGradeBadge(next: boolean) {
+    if (!user) return;
+    setGradeBadgeSaving(true);
+    try {
+      const { error } = await supabase
+        .from("flipdesk_settings")
+        .upsert(
+          { user_id: user.id, auto_grade_badge: next } as never,
+          { onConflict: "user_id" },
+        );
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["flipdesk_settings", user.id] });
+      toast.success(
+        next
+          ? "Graded listings will publish with the grade badge + certificate link."
+          : "Grade badge disabled by default — turn it on per listing in the composer.",
+      );
+    } catch (err) {
+      toast.error(
+        `Couldn't save the setting: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      setGradeBadgeSaving(false);
     }
   }
 
@@ -919,6 +956,32 @@ export function FlipdeskMarketplacesPage() {
             checked={autoEndSetting ?? true}
             disabled={autoEndSaving || autoEndSetting === undefined}
             onCheckedChange={(v) => void toggleAutoEnd(v)}
+          />
+        </div>
+      </section>
+
+      {/* Grade-badge + certificate-link promotion (00145) */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Promotion
+        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div className="space-y-0.5">
+            <Label htmlFor="auto-grade-badge" className="text-sm font-medium">
+              Show grade badge + certificate link on graded listings
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Burns the GradeThread grade badge onto the hero photo and adds a
+              certificate link to the description when a graded item is
+              published. Applies to all publishes by default — you can still
+              toggle it per listing in the composer.
+            </p>
+          </div>
+          <Switch
+            id="auto-grade-badge"
+            checked={autoGradeBadge ?? false}
+            disabled={gradeBadgeSaving || autoGradeBadge === undefined}
+            onCheckedChange={(v) => void toggleGradeBadge(v)}
           />
         </div>
       </section>
