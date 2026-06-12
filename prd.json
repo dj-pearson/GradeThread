@@ -6982,8 +6982,8 @@
         "Spot-check create/list/sale/payment actions for idempotency on rapid double-click"
       ],
       "priority": 445,
-      "passes": false,
-      "notes": "[P2][UX] Audit 2026-06-03. Disable-while-pending coverage is partial; several inline onClick handlers fire immediately."
+      "passes": true,
+      "notes": "[P2][UX] Audit 2026-06-03. Disable-while-pending coverage is partial; several inline onClick handlers fire immediately. DONE 2026-06-12: Swept src/ for network-write buttons firing on click with no in-flight guard and added disable-while-pending to the 5 offenders. (1) accept-invite.tsx 'Switch accounts' (supabase.auth.signOut) — added local switchingAccounts useState + 'Switching…' label. (2) content/blog-list.tsx delete — disabled={del.isPending} (useDeleteBlogPost mutation). (3) admin/growth/announcements.tsx delete — disabled={del.isPending}. (4) admin/growth/campaigns.tsx broadcast Send (doSend edge POST) — added sendingId state + early-return guard + try/finally reset, disabled={sendingId===c.id}; delete — disabled={del.isPending}. (5) announcements/announcement-banner.tsx dismiss <button> — disabled={dismiss.isPending} + disabled:opacity-40. Spot-checked: create/submit/sale/payment/checkout buttons (garment-info-form, billing, record-sale, settings, api-keys create, all dialog Save/Submit) already gate on isPending/local busy — confirmed compliant. tsc --noEmit + npm run build clean."
     },
     {
       "id": "US-446",

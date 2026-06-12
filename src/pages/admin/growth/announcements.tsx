@@ -281,6 +281,7 @@ export function GrowthAnnouncementsPage() {
                     variant="ghost"
                     size="sm"
                     className="text-destructive"
+                    disabled={del.isPending}
                     onClick={() => { if (confirm(`Delete "${a.title}"?`)) del.mutate(a.id); }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />

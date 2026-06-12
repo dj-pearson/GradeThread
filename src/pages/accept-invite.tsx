@@ -32,6 +32,7 @@ export function AcceptInvitePage() {
   const [peekLoading, setPeekLoading] = useState(true);
   const [peekError, setPeekError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
+  const [switchingAccounts, setSwitchingAccounts] = useState(false);
   // Bumped by "Try again" to re-run the lookup effect.
   const [retryKey, setRetryKey] = useState(0);
 
@@ -233,12 +234,14 @@ export function AcceptInvitePage() {
           <CardContent className="flex justify-center gap-2">
             <Button
               variant="outline"
+              disabled={switchingAccounts}
               onClick={async () => {
+                setSwitchingAccounts(true);
                 await supabase.auth.signOut();
                 navigate(`/login?email=${encodeURIComponent(peek.email)}&invite=${token}`);
               }}
             >
-              Switch accounts
+              {switchingAccounts ? "Switching…" : "Switch accounts"}
             </Button>
           </CardContent>
         </Card>

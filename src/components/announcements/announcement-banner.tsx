@@ -76,7 +76,8 @@ export function AnnouncementBanner() {
         <button
           aria-label="Dismiss"
           onClick={() => dismiss.mutate(top.id)}
-          className="flex-shrink-0 rounded p-1 opacity-60 transition-opacity hover:opacity-100"
+          disabled={dismiss.isPending}
+          className="flex-shrink-0 rounded p-1 opacity-60 transition-opacity hover:opacity-100 disabled:opacity-40"
         >
           <X className="h-4 w-4" />
         </button>

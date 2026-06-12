@@ -216,6 +216,7 @@ export function GrowthCampaignsPage() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [pendingSendId, setPendingSendId] = useState<string | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["growth-campaigns"],
@@ -237,6 +238,9 @@ export function GrowthCampaignsPage() {
   });
 
   async function doSend(id: string) {
+    if (sendingId) return;
+    setSendingId(id);
+    try {
     const res = await edgeFetch(`/api/admin/growth/campaigns/${id}/send`, {
       method: "POST",
       json: {},
@@ -262,6 +266,9 @@ export function GrowthCampaignsPage() {
       `Sent — email ${s.sent_email ?? 0}, in-app ${s.sent_in_app ?? 0}, push ${s.sent_push ?? 0}`,
     );
     qc.invalidateQueries({ queryKey: ["growth-campaigns"] });
+    } finally {
+      setSendingId(null);
+    }
   }
 
   const del = useMutation({
@@ -344,6 +351,7 @@ export function GrowthCampaignsPage() {
                           <Button
                             size="sm"
                             className="mr-1"
+                            disabled={sendingId === c.id}
                             onClick={() => {
                               if (confirm(`Send "${c.name}" now?`)) void doSend(c.id);
                             }}
@@ -356,6 +364,7 @@ export function GrowthCampaignsPage() {
                             size="sm"
                             variant="ghost"
                             className="text-destructive"
+                            disabled={del.isPending}
                             onClick={() => { if (confirm(`Delete "${c.name}"?`)) del.mutate(c.id); }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />

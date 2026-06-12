@@ -207,6 +207,7 @@ export function BlogListPage() {
                         className="h-7 w-7 text-destructive"
                         title="Delete"
                         aria-label="Delete post"
+                        disabled={del.isPending}
                         onClick={async () => {
                           if (
                             await confirm({

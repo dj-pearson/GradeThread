@@ -793,3 +793,10 @@ Branch: ralph/gradethread-build
 - Notes: Reused the existing FieldError component (src/components/ui/form-feedback.tsx) and the focus-first-invalid pattern already established in garment-info-form.tsx, rather than inventing new helpers. Added shared client validators (validateEmail, validateRequired) in src/lib/validation.ts. Auth forms (login, signup, reset-password request + update password) now: render inline errors with aria-invalid + aria-describedby that persist until the field is edited; move focus to the first invalid field on submit via document.getElementById; set noValidate on the <form> so JS validation is authoritative (native bubbles no longer pre-empt the inline errors). Password field on signup/update keeps the PASSWORD_HINT associated via aria-describedby when no error. tsc/build/eslint all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-445: Prevent double-submit on mutation buttons
+- Status: COMPLETE
+- Files changed: src/pages/accept-invite.tsx, src/pages/content/blog-list.tsx, src/pages/admin/growth/announcements.tsx, src/pages/admin/growth/campaigns.tsx, src/components/announcements/announcement-banner.tsx, prd.json
+- Notes: Audited src/ for network-write buttons firing on click with no in-flight guard. Added disable-while-pending to 5 offenders: accept-invite Switch-accounts (local useState), blog-list/announcements/campaigns deletes (mutation.isPending), campaigns broadcast Send (sendingId state + early-return guard + try/finally), announcement-banner dismiss. Create/sale/payment/checkout/dialog-save buttons were already gated. tsc + build clean.
+- Timestamp: 2026-06-12
+---
