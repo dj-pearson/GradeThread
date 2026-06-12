@@ -1,16 +1,7 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart3, TrendingUp, Award } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 import {
   Card,
   CardContent,
@@ -45,13 +36,16 @@ import {
   type DateRange,
 } from "@/lib/flipdesk-analytics";
 import type { ItemFullRow } from "@/types/database";
+import { ChartSkeleton } from "@/components/ui/skeletons";
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "hsl(var(--card))",
-  border: "1px solid hsl(var(--border))",
-  borderRadius: "var(--radius)",
-  fontSize: 12,
-};
+// Lazy-load the Recharts bar chart at the chart boundary so the route-entry
+// chunk stays light and the page shell + table paint before Recharts streams
+// in (US-408).
+const SellThroughChart = lazy(() =>
+  import("@/components/flipdesk/sell-through-chart").then((m) => ({
+    default: m.SellThroughChart,
+  })),
+);
 
 const usd = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`;
@@ -233,44 +227,9 @@ function SellThroughReport({ items }: { items: ItemFullRow[] }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={Math.max(220, chartData.length * 34)}>
-                <BarChart
-                  data={chartData}
-                  layout="vertical"
-                  margin={{ top: 5, right: 16, bottom: 5, left: 10 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    className="stroke-muted"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    domain={[0, 100]}
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                    unit="%"
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    width={120}
-                    fontSize={11}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={TOOLTIP_STYLE}
-                    formatter={(value) => [`${value ?? 0}%`, "Sell-through"]}
-                  />
-                  <Bar
-                    dataKey="rate"
-                    fill="#0F3460"
-                    radius={[0, 4, 4, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<ChartSkeleton />}>
+                <SellThroughChart data={chartData} />
+              </Suspense>
             </CardContent>
           </Card>
 

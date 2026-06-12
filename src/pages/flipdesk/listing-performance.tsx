@@ -11,7 +11,6 @@ import {
   Info,
   RefreshCw,
 } from "lucide-react";
-import { LineChart, Line, ResponsiveContainer, YAxis } from "recharts";
 import {
   Card,
   CardContent,
@@ -450,6 +449,10 @@ function SortHead({
   );
 }
 
+// A 100×32 inline-SVG sparkline. This is a single simple polyline, so rather
+// than pull the entire Recharts library (~346KB) into the listing-performance
+// route just for a table-row trend, we draw it by hand (US-408 AC: "consider a
+// lighter lib for simple bar/line").
 function Sparkline({
   trend,
 }: {
@@ -461,21 +464,44 @@ function Sparkline({
   }
   // Rising trend reads positive (navy), flat/falling stays muted.
   const rising = data[data.length - 1]!.views >= data[0]!.views;
+
+  const W = 100;
+  const H = 32;
+  const PAD = 3; // keep the 2px stroke off the top/bottom edges
+  const views = data.map((d) => d.views);
+  const min = Math.min(...views);
+  const max = Math.max(...views);
+  const span = max - min || 1; // flat series → centered line
+  const stepX = W / (data.length - 1);
+  const points = data
+    .map((d, i) => {
+      const x = i * stepX;
+      // Invert: higher views sit nearer the top (smaller y).
+      const y = PAD + (1 - (d.views - min) / span) * (H - PAD * 2);
+      return `${x.toFixed(2)},${y.toFixed(2)}`;
+    })
+    .join(" ");
+
   return (
     <div className="h-8 w-[100px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data}>
-          <YAxis hide domain={["dataMin", "dataMax"]} />
-          <Line
-            type="monotone"
-            dataKey="views"
-            stroke={rising ? "#0F3460" : "#94a3b8"}
-            strokeWidth={2}
-            dot={false}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        height="100%"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="7-day view trend"
+      >
+        <polyline
+          points={points}
+          fill="none"
+          stroke={rising ? "#0F3460" : "#94a3b8"}
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
     </div>
   );
 }

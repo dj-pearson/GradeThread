@@ -6519,8 +6519,8 @@
         "Finances route initial JS drops materially; consider a lighter lib for simple bar/line"
       ],
       "priority": 408,
-      "passes": false,
-      "notes": "[P1][Performance] Audit 2026-06-03. recharts (~346KB) statically imported in 8+ finance components."
+      "passes": true,
+      "notes": "[P1][Performance] Audit 2026-06-03. recharts (~346KB) statically imported in 8+ finance components. IMPLEMENTED: the Finances route's six chart panels + the dashboard GradeCharts were already moved behind React.lazy+Suspense with a ChartSkeleton fallback in US-734 (commit 52448e1) — recharts no longer ships in those route-entry chunks (verified: separate recharts/CartesianChart chunks). Closed the remaining user-facing FlipDesk gaps 2026-06-11: (1) listing-performance.tsx's table sparkline was a single trivial line — replaced the Recharts LineChart with a hand-drawn inline-SVG polyline (AC2 'lighter lib for simple bar/line'), removing recharts from that route's chunk entirely (verified 0 recharts refs in listing-performance-*.js). (2) flipdesk/analytics.tsx's sell-through BarChart extracted to components/flipdesk/sell-through-chart.tsx and lazy()+Suspense-loaded with ChartSkeleton, so the analytics page shell+table paint before recharts streams in (verified: page chunk has 0 BarChart refs, sell-through-chart-*.js is its own chunk). Remaining recharts importers (admin dashboard/ai-models/growth/system, platform-analytics) are super-admin-only internal pages whose entire route is already lazy-loaded, so recharts is isolated to those admin chunks and never reaches the entry/landing/dashboard initial JS — left as-is intentionally."
     },
     {
       "id": "US-409",
