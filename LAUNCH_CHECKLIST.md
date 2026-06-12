@@ -165,6 +165,9 @@ procedure: **`BACKUPS.md`**. Record the result here so the drill has a home.
 - ☐ Uptime monitor hitting `/health` (see `UPTIME_MONITORING.md`)
 - ☐ Incident runbook reachable by on-call (`INCIDENT_RESPONSE.md`)
 - ☐ Pre-launch banner / `VITE_LAUNCH_DATE` set to self-expire (US-785)
+- ☐ Reseller feature scope confirmed — Best Offer responses and returns/
+  cancellations are **out of scope** for launch (handled in eBay Seller Hub);
+  see `FLIPDESK_RESELLER_GAPS.md` (US-469)
 - ☐ All blockers in `prd.json` (US-772…US-785) marked `passes:true`
 
 **Launch approved by:** ________________  **Date:** ____________

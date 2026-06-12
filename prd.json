@@ -7284,8 +7284,8 @@
         "Deferred features documented as out-of-scope for launch"
       ],
       "priority": 469,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. No best-offer respond, messages, returns workflow, promoted listings, send-offer-to-watchers."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. No best-offer respond, messages, returns workflow, promoted listings, send-offer-to-watchers. | DONE 2026-06-12: Triaged into FLIPDESK_RESELLER_GAPS.md — prioritized gap list; Best Offer responses + returns/cancellations scoped OUT for launch (use Seller Hub). UI-honesty audit confirms no element implies unhandled features (promoted-rate disclaimed, returned tab read-only, best_offer is enable-only, no messages/send-to-watchers controls). Launch checklist references the scope decision."
     },
     {
       "id": "US-470",

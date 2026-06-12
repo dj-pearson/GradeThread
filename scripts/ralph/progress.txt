@@ -858,3 +858,10 @@ Branch: ralph/gradethread-build
 - Notes: Took AC1 option A (correct plan copy/marketplacesCap to eBay-only for launch) instead of building a second integration. All FLIPDESK_PLANS marketplacesCap -> 1 (was starter:2, pro/business:-1); replaced "eBay + 1 additional marketplace"/"All marketplaces" bullets with "eBay listings & sync (more marketplaces coming soon)". Added formatMarketplacesCap() helper (cap 1 -> "eBay", -1 -> "All") used in the two plan-stat render sites. AC2 already met (Marketplaces UI exposes only eBay connect; others under muted "Coming soon"; composer tags non-eBay "saved locally — publish coming soon"). AC3 already met (edge marketplace-adapters registry returns structured 501 for every non-eBay platform via notImplemented(); no coercion to eBay; covered by marketplace-adapters_test.ts). usage-meter already drops the marketplace meter at cap===1. Verified: tsc --noEmit, npm run build, eslint all clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-469: Triage missing reseller features
+- Status: COMPLETE
+- Files changed: FLIPDESK_RESELLER_GAPS.md (new), LAUNCH_CHECKLIST.md, prd.json, scripts/ralph/progress.txt
+- Notes: Doc/triage story (no code change needed). Created FLIPDESK_RESELLER_GAPS.md with a prioritized gap table and explicit launch-scope decisions: Best Offer responses and returns/cancellations are OUT of scope for launch (handled in eBay Seller Hub; FlipDesk reflects returns in P&L). UI-honesty audit (AC#2) confirmed nothing implies unhandled features: promoted-rate automation already disclaims it's not pushed to eBay, `returned` tab is read-only, best_offer is enable-only at publish, no buyer-messages or send-offer-to-watchers controls exist. Added a go/no-go line in LAUNCH_CHECKLIST.md pointing at the scope doc. tsc --noEmit clean.
+- Timestamp: 2026-06-12
+---
