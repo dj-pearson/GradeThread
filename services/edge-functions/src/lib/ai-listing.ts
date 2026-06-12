@@ -48,6 +48,10 @@ import {
 } from "./marketplace-specs.ts";
 import { resolveSeededCategory } from "./marketplace-category.ts";
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
+import {
+  getEbaySearchDemandTerms,
+  type TitleVariant,
+} from "./demand-terms.ts";
 import { getRealizedComps } from "./sold-comps.ts";
 import {
   extractTagGroundTruth,
@@ -100,6 +104,10 @@ export type EbayCondition = (typeof EBAY_CONDITION_VALUES)[number];
 // category's allowed aspects on a second pass.
 export interface GeneratedListing {
   title: string;
+  // US-546 (AC3): an OPTIONAL alternate title (variant "B") the model returns in
+  // the same tool call (zero extra cost). Empty when the model didn't supply a
+  // distinct variant. The primary `title` is variant "A".
+  title_variant: string;
   description: string;
   // A short query (e.g. "men's denim jeans") resolved to a real eBay leaf
   // category via the Taxonomy API in US-312 — the model does NOT invent ids.
@@ -133,6 +141,10 @@ export interface ListingGenInput {
   // item_specifics on a constrained second pass (US-312). Aspect name ->
   // allowed values ([] = free text).
   allowedAspects?: Record<string, string[]>;
+  // US-546 (AC2): high-demand eBay SEARCH terms mined from current listings for
+  // this brand/category. Fed to the model to fold into the title/description
+  // where they truthfully apply to THIS item. Ranked highest-demand first.
+  demandTerms?: string[];
 }
 
 export interface ListingGenResult {
@@ -157,6 +169,16 @@ Hard rules:
 - title: <= 80 characters (eBay's hard limit). Lead with brand, then item type,
   then the most search-relevant attributes (size, color, model, style code).
   No ALL-CAPS spam, no emoji, no keyword stuffing of unrelated terms.
+- HIGH-DEMAND SEARCH TERMS (when supplied) are the words buyers actually search
+  for this brand/category, mined from live eBay listings. Prefer them in the
+  title and description WHERE THEY TRUTHFULLY DESCRIBE THIS ITEM — they rank and
+  convert. Never add a term that doesn't match the item just because it's
+  popular (that's keyword stuffing and causes returns).
+- title_variant: OPTIONAL. A second, meaningfully DIFFERENT <=80-char title for
+  the same item (e.g. lead with a different high-demand term or reorder the
+  keywords) so its sell-through can be compared against the primary title. Leave
+  it empty only if you genuinely cannot phrase a distinct, equally-accurate
+  alternative. Must obey every title rule above.
 - suggested_category_query: a short natural-language category for this item
   (e.g. "men's athletic shoes", "vintage advertising sign"). Do NOT invent an
   eBay category id — the system resolves the real leaf category from this query.
@@ -192,6 +214,11 @@ const LISTING_GEN_TOOL: Anthropic.Tool = {
       title: {
         type: "string",
         description: "Search-friendly eBay title, <= 80 characters",
+      },
+      title_variant: {
+        type: "string",
+        description:
+          "Optional second <=80-char title (a distinct keyword ordering/lead term) for A/B sell-through comparison. Empty if none.",
       },
       description: {
         type: "string",
@@ -360,6 +387,15 @@ export async function generateListingFields(
         JSON.stringify(input.allowedAspects, null, 2),
     );
   }
+  if (input.demandTerms && input.demandTerms.length > 0) {
+    lines.push(
+      "HIGH-DEMAND eBAY SEARCH TERMS (mined from live eBay listings for this " +
+        "brand/category, highest demand first — fold the ones that TRUTHFULLY " +
+        "describe this item into the title and description; never force an " +
+        "irrelevant term):\n" +
+        input.demandTerms.map((t) => `- ${t}`).join("\n"),
+    );
+  }
   lines.push("Call create_ebay_listing with the finished listing.");
   content.push({ type: "text", text: lines.join("\n\n") });
 
@@ -405,6 +441,15 @@ export async function generateListingFields(
     throw new Error("AI returned an incomplete listing (missing title/description)");
   }
 
+  // US-546 (AC3): the optional alternate title, also keyword-priority trimmed.
+  // Only keep it when it's distinct from the primary (a duplicate is no A/B).
+  const rawVariant =
+    typeof raw.title_variant === "string"
+      ? trimTitleToLimit(raw.title_variant, EBAY_TITLE_MAX)
+      : "";
+  const titleVariant =
+    rawVariant && rawVariant.toLowerCase() !== title.toLowerCase() ? rawVariant : "";
+
   const condition = EBAY_CONDITION_VALUES.includes(raw.ebay_condition as EbayCondition)
     ? (raw.ebay_condition as EbayCondition)
     : "USED_GOOD";
@@ -417,6 +462,7 @@ export async function generateListingFields(
 
   const listing: GeneratedListing = {
     title,
+    title_variant: titleVariant,
     description,
     suggested_category_query:
       typeof raw.suggested_category_query === "string"
@@ -759,6 +805,28 @@ export async function generateListing(
     }
   }
 
+  // 3b. US-546 (AC2): mine high-demand eBay search terms for this item's
+  // brand/category from live comp titles and feed them into the generation
+  // prompt so the title/description lead with words buyers actually search.
+  // NON-THROWING (returns [] on any failure) and free of Anthropic cost — one
+  // Browse (app-token) call keyed on the normalized brand + category. The query
+  // hint folds in the item's existing title and any resolved style code.
+  const demandQueryHint = [
+    item.title,
+    styleResolution?.compQuery && styleResolution.compQuery !== normalizedBrand
+      ? styleResolution.compQuery
+      : null,
+  ]
+    .filter((v): v is string => !!v && v.trim().length > 0)
+    .join(" ")
+    .trim();
+  const demandTerms = await getEbaySearchDemandTerms({
+    brand: normalizedBrand,
+    categoryId,
+    query: demandQueryHint || null,
+    size: item.size,
+  });
+
   // 4. Generate (on the cost-disciplined photo subset).
   const gen = await generateListingFields({
     photos: visionPhotos,
@@ -766,6 +834,7 @@ export async function generateListing(
     tagGroundTruth,
     measurements,
     allowedAspects: aspectsAlreadyConstrained ? allowedAspects : undefined,
+    demandTerms: demandTerms.length > 0 ? demandTerms : undefined,
   });
   const listing = gen.listing;
 
@@ -994,6 +1063,17 @@ export async function generateListing(
   // US-541: route low-confidence drafts to review.
   const needsReview = listingNeedsReview(listing.confidence, fieldConfidence);
 
+  // US-546 (AC3): record the A/B title variants. Variant "A" is the chosen,
+  // published title; "B" is the model's optional alternate (omitted when it
+  // didn't supply a distinct one). "A" is active by default — promotion of "B"
+  // is driven by the sell-through summary (summarizeTitleVariantSellThrough).
+  const titleVariants: TitleVariant[] = [
+    { label: "A", title: listing.title, active: true },
+  ];
+  if (listing.title_variant) {
+    titleVariants.push({ label: "B", title: listing.title_variant, active: false });
+  }
+
   // 8. Upsert the eBay draft listing for this item (tenant-safe: item owned).
   const draftFields = {
     listing_title: listing.title,
@@ -1014,6 +1094,11 @@ export async function generateListing(
     ai_confidence: listing.confidence,
     ai_field_confidence: Object.keys(fieldConfidence).length > 0 ? fieldConfidence : null,
     needs_review: needsReview,
+    // US-546: A/B title variants (AC3) + the demand terms fed to the prompt (AC2)
+    // for transparency/debug. active_title_variant tracks the live label.
+    title_variants: titleVariants,
+    active_title_variant: "A",
+    demand_terms: demandTerms.length > 0 ? demandTerms : null,
   };
 
   const { data: existing } = await supabaseAdmin

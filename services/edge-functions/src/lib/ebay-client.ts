@@ -2482,7 +2482,10 @@ export interface BrowseComp {
 }
 
 export interface BrowseCompsArgs {
-  categoryId: string;
+  // Optional: Browse accepts a search by `q` alone (no category). Demand-term
+  // mining (US-546) searches by brand/query before a leaf category is resolved,
+  // so this is optional; the comp-pricing callers always pass it.
+  categoryId?: string;
   q?: string;
   brand?: string;
   size?: string;
@@ -2531,10 +2534,11 @@ export async function searchBrowseComps(
   if (args.size) aspectFilters.push(`Size:{${args.size}}`);
 
   const params = new URLSearchParams();
-  params.set("category_ids", args.categoryId);
+  if (args.categoryId) params.set("category_ids", args.categoryId);
   if (args.q && args.q.trim()) params.set("q", args.q.trim());
   params.set("filter", filters.join(","));
-  if (aspectFilters.length > 0) {
+  // aspect_filter requires a categoryId scope; only emit it when present.
+  if (args.categoryId && aspectFilters.length > 0) {
     params.set(
       "aspect_filter",
       `categoryId:${args.categoryId},${aspectFilters.join(",")}`
@@ -2642,10 +2646,10 @@ export async function searchSoldComps(
     if (args.size) aspectFilters.push(`Size:{${args.size}}`);
 
     const params = new URLSearchParams();
-    params.set("category_ids", args.categoryId);
+    if (args.categoryId) params.set("category_ids", args.categoryId);
     if (args.q && args.q.trim()) params.set("q", args.q.trim());
     params.set("filter", filters.join(","));
-    if (aspectFilters.length > 0) {
+    if (args.categoryId && aspectFilters.length > 0) {
       params.set(
         "aspect_filter",
         `categoryId:${args.categoryId},${aspectFilters.join(",")}`,
