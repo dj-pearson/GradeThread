@@ -148,7 +148,9 @@
       "Bash(grep -E \"\\\\.swift$\")",
       "Bash(xargs grep -l \"paywall\\\\|upgrade.*prompt\\\\|free.*trial\\\\|SignInWithApple\")",
       "Bash(xargs grep -l \"plan.*limit\\\\|grade.*cap\\\\|free.*tier\")",
-      "PowerShell(curl.exe -s https://api.gradethread.com/auth/v1/settings)"
+      "PowerShell(curl.exe -s https://api.gradethread.com/auth/v1/settings)",
+      "Bash(sort -t'-' -k2 -n)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\pears\\\\Documents\\\\GradeThread\\\\GradeThread\\\\supabase\\\\migrations\" -File | Sort-Object Name | Select-Object -Last 10 | ForEach-Object { $_.Name })"
     ]
   },
   "hooks": {

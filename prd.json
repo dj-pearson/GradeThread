@@ -12433,6 +12433,560 @@
       "priority": 844,
       "passes": false,
       "notes": "[EPIC: AI Support Assistant 2026-06-11] Final story. Tier policy referenced by US-834 gate + US-838 widget. Keep flag OFF by default so partial merges never expose the bot in prod."
+    },
+    {
+      "id": "US-845",
+      "title": "Make the Condition Index catalog data-driven and expand it 8 -> 50+",
+      "description": "As the platform, our resale-authority moat (the Condition Index) only covers 8 hardcoded items in CURATED_INDEX (services/edge-functions/src/lib/condition-index.ts), capping our SEO/GEO surface. Move the catalog into a DB table (e.g. condition_index_seeds: slug, label, brand, category_id, q, enabled, priority) so it can grow without a deploy, backfill the existing 8, and seed 40+ additional high-traffic brand/category entries (e.g. Patagonia/Arcteryx/Carhartt/Levis/Nike/Adidas/Lululemon/North Face/Ralph Lauren/Dr Martens across jackets, jeans, tees, fleece, knit, boots, dresses). The refresh cron and IndexCurveDto/IndexHubItem readers must source the seed list from the table (falling back to CURATED_INDEX if empty). Keep the MIN_INDEX_TOTAL_SAMPLE suppression (US-622) so thin curves never publish.",
+      "acceptanceCriteria": [
+        "A migration adds a condition_index_seeds table (or equivalent) with RLS limited to service-role/admin",
+        "The existing 8 CURATED_INDEX entries are backfilled and 40+ new high-traffic entries are seeded",
+        "condition-index.ts reads the catalog from the table (CURATED_INDEX kept only as a fallback when the table is empty)",
+        "The refresh cron builds curves for every enabled seed; thin-curve suppression (MIN_INDEX_TOTAL_SAMPLE) is preserved",
+        "The /condition-index hub lists all published items and each /condition-index/<slug> renders its curve",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 845,
+      "passes": false,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Builds on condition-index.ts / condition-curve.ts / public-grading.ts (/condition-index) and functions/condition-index/[[path]].ts. This is the single biggest authority lever. Foundation for US-846/847/848/849."
+    },
+    {
+      "id": "US-846",
+      "title": "Admin UI to curate Condition Index entries and trigger refresh",
+      "description": "As the owner, I need to manage the Condition Index catalog without code. Build an admin surface (e.g. /admin/seo or a new /admin/condition-index) to list/create/edit/disable condition_index_seeds (slug, label, brand, eBay category_id, query), see each entry's current total comp sample depth and refreshed_at, and trigger an on-demand refresh for one or all entries. Surfacing sample depth lets the team prune entries that can never clear the suppression threshold. Endpoints are admin-MFA-gated like the rest of /admin.",
+      "acceptanceCriteria": [
+        "Admin page lists seeds with current sample depth + last refreshed_at and supports create/edit/disable",
+        "An on-demand 'refresh now' action exists for a single entry and for all entries (calls the existing refresh job)",
+        "Entries below the publish threshold are visually flagged so they can be pruned",
+        "All endpoints sit behind the existing admin auth + MFA gate",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 846,
+      "passes": false,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845 (DB-driven catalog). Model after admin/seo.tsx and admin/reliability.tsx for the MFA-gated admin pattern."
+    },
+    {
+      "id": "US-847",
+      "title": "Enrich Condition Index detail pages for GEO / AI-engine citation",
+      "description": "As the platform, each /condition-index/<slug> page should be the citable source AI answer engines quote for 'what is a used <item> worth at condition X'. Enrich the edge-SSR'd detail page (functions/condition-index/[[path]].ts + public-grading.ts data) with: a per-grade plain-language value summary, a FAQPage JSON-LD block ('What is a grade-8 <item> worth?' -> the median from the curve), the existing Dataset JSON-LD kept/strengthened (variableMeasured, measurementTechnique, dateModified), internal links to the matching grading glossary tier/factor pages and to a few example public certificates of that item, and a clear methodology + comp-count + freshness line. No fabricated numbers: only grades that clear suppression render.",
+      "acceptanceCriteria": [
+        "Detail pages render a per-grade value summary plus a methodology + comp-count + refreshed-at line",
+        "FAQPage JSON-LD is emitted (questions per published grade anchor) alongside the Dataset JSON-LD",
+        "Pages internally link to the relevant glossary tier/factor pages and example certificates",
+        "Suppressed (thin) grades never render a number; the page degrades gracefully",
+        "Head/JSON-LD validate in the prerender/SSR head guard; npm run build passes"
+      ],
+      "priority": 847,
+      "passes": false,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Mirror json-ld.ts builders (Dataset already exists) and the glossary hub (src/lib/seo/glossary.ts). GEO is the goal: be the cited ground truth."
+    },
+    {
+      "id": "US-848",
+      "title": "Surface Condition Index value in the listing composer and item detail",
+      "description": "As a seller, when I am pricing a graded item I want to see what its grade is worth on the open market. In the FlipDesk composer (src/pages/flipdesk/composer.tsx) and item detail, when an item matches a Condition Index entry (by brand + category), show a 'Your grade 8.5 maps to ~$X median for <item>' hint sourced from the curve, with a link to the public /condition-index/<slug> page. This bridges authority data into seller value and reinforces grade-aware pricing. Reuse the existing condition-value/curve lookups; degrade silently when there is no matching curve.",
+      "acceptanceCriteria": [
+        "Composer + item detail show a grade-anchored value hint when a matching Condition Index curve exists",
+        "The hint deep-links to the public /condition-index/<slug> page",
+        "No matching curve -> the hint is hidden (no errors, no fabricated value)",
+        "Lookup reuses existing curve helpers and is tenant-safe (no cross-user reads)",
+        "npm run build passes"
+      ],
+      "priority": 848,
+      "passes": false,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Pairs with US-856 (grade-ROI at intake). Reuse lib/condition-value.ts + condition-curve.ts."
+    },
+    {
+      "id": "US-849",
+      "title": "Public 'What's my item worth?' condition-value tool (lead funnel)",
+      "description": "As a visitor, I want to estimate what a used garment is worth given its condition, which is a high-intent query and a natural top-of-funnel for grading signups. Build a public page (e.g. /whats-it-worth) where a visitor picks a Condition Index item (or brand+category) and a grade and gets the value estimate from the curve, with a CTA to 'get a real GradeThread grade'. Register it in the SEO public-routes registry so it is prerendered/indexable, with appropriate JSON-LD. Use only published (non-suppressed) curve data.",
+      "acceptanceCriteria": [
+        "A public, indexable /whats-it-worth page lets a visitor select item + grade and returns the curve value",
+        "The page is added to src/lib/seo/public-routes.ts and entry-server.tsx and passes the prerender sync guard",
+        "A clear signup/grade CTA is present; estimates show comp-count + freshness and never fabricate numbers",
+        "Only published curve grades are selectable; unknown combos show a graceful empty state",
+        "npm run build passes (prerender + CI public-routes guard green)"
+      ],
+      "priority": 849,
+      "passes": false,
+      "notes": "[EPIC: Condition Index Authority 2026-06-11] Depends on US-845. Follow the SEO registry rules in CLAUDE.md (public-routes.ts + entry-server.tsx + guard test)."
+    },
+    {
+      "id": "US-850",
+      "title": "Seed the content knowledge base so generation is on-brand",
+      "description": "As the platform, the AI blog/social generators read content_knowledge keys to stay on brand, but the corpus is unseeded so output drifts. Author and seed the keys the generators actually read (confirmed in content-ai-blog.ts / content-ai-social.ts / content-ai-research.ts): brand.voice, seo.pillars, blog.gradethread.style, blog.flipdesk.style, social.long.style, social.short.style. Seed via the admin Knowledge page (src/pages/content/knowledge.tsx -> /admin/content/knowledge) or a migration, with real GradeThread brand voice, the SEO pillar map (condition grading, return reduction, reselling authority, resale value-by-condition), and per-surface style rules.",
+      "acceptanceCriteria": [
+        "All six content_knowledge keys exist with substantive, on-brand body_md",
+        "The knowledge admin page renders/edits them and edits take effect on the next generation",
+        "A generated sample blog draft + social draft visibly reflect the seeded voice/pillars",
+        "Seeding is idempotent (re-running does not duplicate keys)",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 850,
+      "passes": false,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Keys verified in content-ai-*.ts. Prereq for US-851/852 producing quality output."
+    },
+    {
+      "id": "US-851",
+      "title": "Seed the topic bank and verify autonomous refill",
+      "description": "As the platform, the content scheduler picks from content_topics, but the bank is empty so nothing generates. Seed 20-30 prioritized candidate topics targeting high-intent queries GradeThread uniquely answers (how to grade jeans/denim distressing vs damage, NWT vs NWOT, reducing eBay returns with condition proof, reseller pricing by condition, what affects a clothing condition grade, etc.), split across product_focus gradethread/flipdesk/both. Confirm the research refill endpoint (POST /topics/research) tops the bank back up to min_topics_in_bank and dedupes against content_history.",
+      "acceptanceCriteria": [
+        "20-30 candidate content_topics are seeded with title/angle/primary_keyword/search_intent/product_focus",
+        "POST /topics/research refills the bank toward min_topics_in_bank and dedupes via the history index",
+        "Topics are visible/manageable on the admin topic-bank page",
+        "Seeding is idempotent and does not create duplicate topics",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 851,
+      "passes": false,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Builds on content-topics.ts + content-ai-research.ts + topic-bank.tsx. Depends on US-850 for brand-aligned research."
+    },
+    {
+      "id": "US-852",
+      "title": "Activate the autonomous content scheduler with a safe rollout",
+      "description": "As the owner, I want hands-off, on-brand publishing once the knowledge base + topic bank are seeded. Configure content_settings (cadence per day for blog/social, min_topics_in_bank, models) and turn on auto_publish_blog/auto_publish_social at a LOW cadence first; verify the scheduler tick (POST /scheduler/tick) generates -> publishes -> fires webhooks -> appends history -> refills topics. Add an admin view confirming what published and when, and document the cron wiring (Make.com or internal job secret).",
+      "acceptanceCriteria": [
+        "content_settings cadence/min-topics/models are set; auto_publish flags can be toggled from the content-settings admin page",
+        "A scheduler tick end-to-end: generates (if needed) -> publishes -> webhook dispatch -> history append -> topic refill",
+        "An admin view shows recent published items per surface/product_focus with timestamps",
+        "Cron/trigger wiring is documented; cadence starts low and is easily tunable",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 852,
+      "passes": false,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Depends on US-850/851. content-scheduler.ts already implements quota/refill. Be careful: low cadence first to avoid spamming live channels."
+    },
+    {
+      "id": "US-853",
+      "title": "Blog hero image generation pipeline",
+      "description": "As the platform, blog posts store a hero_prompt but there is no pipeline to turn it into an image, so posts publish without hero art (weaker OG/SERP presence). Wire a hero-image generation step using the configured default_image_model (via the shared ai-config) that runs on generate/publish: render from hero_prompt, store to a public bucket, set hero_image_url. Make it best-effort (a generation failure never blocks publish) and idempotent (do not regenerate if a hero already exists).",
+      "acceptanceCriteria": [
+        "On generate/publish, a hero image is produced from hero_prompt and hero_image_url is set",
+        "The image is stored in a public bucket with stripped metadata and a stable path",
+        "Failure is non-blocking (post still publishes) and generation is skipped when a hero already exists",
+        "The model is read from the shared ai-config (DEFAULT/IMAGE model), not hardcoded",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 853,
+      "passes": false,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Reuse ai-config (see memory: AI config via Coolify shared vars) + upload-validation/image-metadata. Feeds functions/og/blog OG images."
+    },
+    {
+      "id": "US-854",
+      "title": "Wire and document social fan-out for published content",
+      "description": "As the owner, blog.published and social.published webhooks already fire to a downstream automation (Make.com), but the receiving scenario is undefined so nothing reaches social channels. Define and document the downstream contract (payload shapes, per-channel UTM rewrite, long vs short format routing) and verify at least one live channel end-to-end from a published post. Add a CONTENT_PUBLISHING.md describing the webhook events, payloads, secrets, and how to add a channel.",
+      "acceptanceCriteria": [
+        "The webhook payloads for blog.published and social.published (long + short) are documented with field-by-field contracts",
+        "At least one social channel receives a post end-to-end from a real publish",
+        "Per-channel UTM source rewriting is documented and applied downstream",
+        "CONTENT_PUBLISHING.md documents events, payloads, secret/auth, and how to add a channel",
+        "npm run build passes"
+      ],
+      "priority": 854,
+      "passes": false,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] content-blog.ts/content-social.ts already dispatch webhooks + log to content_webhook_log. This closes the last mile to real distribution."
+    },
+    {
+      "id": "US-855",
+      "title": "Author cornerstone pillar pages for topical authority (E-E-A-T)",
+      "description": "As the platform, the AI engine produces ongoing posts but we lack durable, hand-curated cornerstone pages that establish topical depth and earn links. Author 4-6 cornerstone pillar pages on the queries GradeThread uniquely owns (the standardized 1.0-10.0 condition scale and methodology; reducing returns/disputes with condition proof; a reseller's guide to condition grading; intentional design vs damage; resale value by condition tied to the Condition Index). Register them in the SEO public-routes registry, cross-link to glossary spokes + Condition Index + transparency report, and add appropriate Article/FAQ JSON-LD.",
+      "acceptanceCriteria": [
+        "4-6 cornerstone pages exist, are registered in public-routes.ts + entry-server.tsx, and pass the prerender guard",
+        "Each cross-links to relevant glossary tier/factor pages, the Condition Index, and the transparency report",
+        "Article and/or FAQPage JSON-LD is emitted and validates in the head guard",
+        "Content is substantive (not thin) and reflects the seeded brand voice",
+        "npm run build passes (prerender + public-routes CI guard green)"
+      ],
+      "priority": 855,
+      "passes": false,
+      "notes": "[EPIC: Content Engine Activation 2026-06-11] Depends on US-850 (voice). Complements US-847 (Condition Index) for an interlinked authority hub. Follow CLAUDE.md SEO registry rules."
+    },
+    {
+      "id": "US-856",
+      "title": "Grade-ROI recommendation at intake ('grade this -> +$X')",
+      "description": "As a seller cataloging an item, I want a proactive recommendation on whether grading is worth it, instead of discovering ROI retroactively in analytics. At intake/item detail, when brand+category have enough signal, show an estimate like 'Graded items in this category sell ~$X higher and ~N days faster' using the existing gradingRoiBuckets/sell-through analytics (src/lib/flipdesk-analytics.ts) and comp/forecast data (flipdesk-pricing.ts). Show the estimate's basis (sample size) and suppress it when n is too low. This directly drives grading volume.",
+      "acceptanceCriteria": [
+        "Intake/item detail shows a grade-vs-ungraded lift estimate (price and/or days-to-sell) for the item's category band when data supports it",
+        "The estimate displays its sample basis and is suppressed for low-n buckets (no false precision)",
+        "Computation reuses gradingRoiBuckets / sell-through helpers and is tenant-scoped",
+        "A clear 'grade this item' CTA routes into the existing grading submission flow",
+        "npm run build passes"
+      ],
+      "priority": 856,
+      "passes": false,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Reuse src/lib/flipdesk-analytics.ts (gradingRoiBuckets) + grade_outcomes (00036). Pairs with US-848 (Condition Index value)."
+    },
+    {
+      "id": "US-857",
+      "title": "Per-item grade -> sale-outcome feedback on item detail",
+      "description": "As a seller, after an item sells I want to see how its grade related to the outcome, closing the loop on grading value. On item detail (and the grade card), when a graded item has sold, surface the captured grade_outcomes data: 'Graded 7.5 -> sold in 12 days for $42 net'. Add an account-level rollup ('your graded items sell N days faster / $X higher on average; grading paid for itself in M sales') gated on the existing opt-in (users.share_sale_outcomes) and low-n suppression.",
+      "acceptanceCriteria": [
+        "A sold graded item shows its grade alongside days-to-sell and net sale outcome from grade_outcomes",
+        "An account-level graded-vs-ungraded rollup is shown when the seller has opted in and has sufficient data",
+        "Low-sample states are suppressed or clearly labeled; nothing is fabricated",
+        "Reads are tenant-scoped and respect the share_sale_outcomes opt-in",
+        "npm run build passes"
+      ],
+      "priority": 857,
+      "passes": false,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] grade_outcomes table exists (00036) but is only used for model refinement today. Surface it to sellers."
+    },
+    {
+      "id": "US-858",
+      "title": "Elevate the Grading-ROI analytics into a first-class proof view",
+      "description": "As a seller deciding whether to keep grading, I want clear cohort proof that grading pays. Upgrade the FlipDesk Grading-ROI report (src/pages/flipdesk/analytics.tsx + flipdesk-analytics.ts) into a prominent view: graded-vs-ungraded sell-through %, median days-to-sell, and net-profit lift per category/price band, with statistically-meaningful buckets flagged and a headline summary. Add an opt-in toggle for share_sale_outcomes from this view so more data flows back.",
+      "acceptanceCriteria": [
+        "The Grading-ROI view headlines the overall graded-vs-ungraded lift and breaks it down by category/price band",
+        "Statistically-meaningful buckets are flagged; low-n buckets are de-emphasized",
+        "The share_sale_outcomes opt-in is toggleable from this view",
+        "Queries stay fast on large accounts (use the slim items_full projection)",
+        "npm run build passes"
+      ],
+      "priority": 858,
+      "passes": false,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Builds directly on existing gradingRoiBuckets()/sellThroughByGroup(). Feeds the public proof in US-865."
+    },
+    {
+      "id": "US-859",
+      "title": "Stale-listing 'grade to boost trust' nudges",
+      "description": "As a seller, I want actionable next steps on stalled inventory. On the FlipDesk overview (src/pages/flipdesk/overview.tsx), for active listings that are stale (e.g. 0 watchers after 14+ days) AND ungraded, show a 'grade this item to add a verified condition badge + certificate' nudge that links into the grading flow; for already-graded stale items, show a reprice/relist nudge. This turns the existing stale-listing detection into a conversion + grading-volume driver.",
+      "acceptanceCriteria": [
+        "Stale ungraded listings show a 'grade to boost trust' nudge that links into the grading submission flow",
+        "Stale graded listings show a reprice/relist nudge (reusing existing repricing suggestions where available)",
+        "Nudges reuse the existing stale/aging detection and are tenant-scoped",
+        "Nudges are dismissible and do not overwhelm the overview",
+        "npm run build passes"
+      ],
+      "priority": 859,
+      "passes": false,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Overview already computes stale (0 watchers, 14+ days) + aging. Ties grading to the moment of need."
+    },
+    {
+      "id": "US-860",
+      "title": "Embeddable certificate trust badge/widget for external sites",
+      "description": "As a seller listing off-platform (Shopify, a personal store, marketplaces that allow embeds), I want to show my GradeThread-verified grade and link buyers to the live certificate, which also distributes the brand and earns backlinks. Ship an embeddable badge: a tiny script or iframe snippet (and a static image fallback) that renders the grade + 'Verified by GradeThread' and links to /cert/:id, generated from the existing certificate share UI (cert-share-actions.tsx). Provide copy-paste embed code on the certificate page with share-source tracking (?s=embed).",
+      "acceptanceCriteria": [
+        "A public embed endpoint/asset renders a verified grade badge for a given certificate_id and links to /cert/:id",
+        "The certificate page offers copy-paste embed code (script/iframe) plus an <img> fallback",
+        "Embedded badge clicks carry ?s=embed for share-source attribution",
+        "The embed only renders for public, non-flagged certificates (404/blank otherwise)",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 860,
+      "passes": false,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Extends cert-share-actions.tsx + content-public.ts certificates. Every placement is a branded backlink. Pairs with the burned-in eBay badge (00145)."
+    },
+    {
+      "id": "US-861",
+      "title": "'Original photos verified' anti-fraud badge (positive phash signal)",
+      "description": "As a buyer, I want assurance a listing uses the seller's own photos, not stock or stolen images. We already compute perceptual hashes and detect cross-account photo reuse (services/edge-functions/src/lib/photo-reuse.ts). Expose the POSITIVE case as a buyer-trust signal: when a graded submission's images show no cross-account reuse, display an 'Original photos verified' badge on the certificate (and optionally make it available to the listing/disclosure). Keep it a positive-only signal (absence never publicly shames a seller); flagged/uncleared items stay withheld per existing moderation.",
+      "acceptanceCriteria": [
+        "Certificates for submissions with no cross-account photo reuse show an 'Original photos verified' badge",
+        "The signal is positive-only: missing/uncertain never renders a negative public claim",
+        "Flagged/uncleared submissions remain withheld (existing moderation gate respected)",
+        "The public surface exposes only a boolean (no hashes or match details leak)",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 861,
+      "passes": false,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] photo-reuse.ts already does the detection for moderation. This is a differentiator no competitor exposes."
+    },
+    {
+      "id": "US-862",
+      "title": "Viral share + referral CTAs across the app",
+      "description": "As a user, I should be nudged to share grades and invite peers at natural moments, feeding the (already wired) referral program. Add: a post-grade 'share your certificate' prompt (deep-links to /cert/:id share with ?s=share), an 'Invite a friend' card on the dashboard wired to the existing /api/referrals/me share link, and a 'share your store' action on the verified-seller profile. These reuse the existing referral backend (referrals.ts, /signup?ref=CODE) and certificate share UI; no new program logic needed.",
+      "acceptanceCriteria": [
+        "A post-grade-completion prompt invites the user to share their certificate (carries ?s=share)",
+        "A dashboard 'Invite a friend' card surfaces the user's existing referral share link with copy/share actions",
+        "The verified-seller profile has a 'share your store' action",
+        "All CTAs reuse existing referral + share endpoints (no duplicate program logic)",
+        "npm run build passes"
+      ],
+      "priority": 862,
+      "passes": false,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Referral core already exists (referrals.tsx -> /api/referrals/me|redeem, /signup?ref=). This is amplification/placement only."
+    },
+    {
+      "id": "US-863",
+      "title": "Public verified-seller directory + leaderboard",
+      "description": "As a buyer or prospective seller, I want to browse trusted GradeThread sellers, which provides social proof and an indexable authority surface. Build a public, indexable directory of verified sellers (opt-in only, verified_enabled) ranked by volume / average grade / recency, linking to existing /verified/:handle profiles. Reuse the existing public seller feed (/api/content/public/sellers.json) for data and add the directory route to the SEO registry + sitemap.",
+      "acceptanceCriteria": [
+        "A public /verified (directory) page lists opt-in verified sellers with key stats and links to each profile",
+        "Sortable/rankable by volume, average grade, and recency; only verified_enabled sellers appear",
+        "The route is registered for prerender/index and included in the sellers sitemap",
+        "No private data leaks (reuses the public sellers projection)",
+        "npm run build passes (public-routes guard green)"
+      ],
+      "priority": 863,
+      "passes": false,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Builds on content-public.ts sellers + verified-seller.tsx + functions/sitemap-sellers.xml.ts."
+    },
+    {
+      "id": "US-864",
+      "title": "Close the referral reward loop (credit application + public leaderboard)",
+      "description": "As a referrer, I want to see and actually receive my rewards, and a little public competition increases participation. Verify and complete the referral reward loop: ensure qualified referrals grant credits that are actually applied to billing/usage for both parties, surface the user's pending/earned referral credits in the referrals/account UI, and add an opt-in public 'top referrers' leaderboard (display name/handle only). If grant currently requires manual admin action, add the automated qualification + grant path with the existing safeguards.",
+      "acceptanceCriteria": [
+        "Qualified referrals grant credits that are applied to billing/usage for referrer and referred (verified end-to-end)",
+        "The user can see pending vs earned referral credits in the referrals/account UI",
+        "An opt-in public top-referrers leaderboard renders display name/handle only (no PII)",
+        "Automated qualification/grant respects existing fraud/abuse safeguards (and admin override remains)",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 864,
+      "passes": false,
+      "notes": "[EPIC: Trust Distribution & Network Effects 2026-06-11] Builds on referrals.ts + admin-growth.ts. Verify whether credits already apply to billing before adding the path (avoid double-grant)."
+    },
+    {
+      "id": "US-865",
+      "title": "Public platform stat counters (authority social proof)",
+      "description": "As a visitor, seeing scale builds trust. Add live, cached stat counters to the homepage and key marketing pages: items graded, verified sellers, average measured accuracy/agreement, graded sales tracked. Source from the existing public transparency aggregation (accuracy-tracking.ts computePublicTransparency via /api/grading/public/transparency) plus the public sellers/certs counts. Cache aggressively (these move slowly) and degrade gracefully to 'thousands of' style copy when a metric is below a display threshold.",
+      "acceptanceCriteria": [
+        "Homepage (and relevant marketing pages) render live stat counters sourced from the public transparency + public feeds",
+        "Values are cached (edge or query-level) and never block render; a stale/empty state degrades gracefully",
+        "No per-tenant or private data is exposed; only published aggregates",
+        "Counters are reflected in prerendered HTML where feasible (or hydrate cleanly)",
+        "npm run build passes"
+      ],
+      "priority": 865,
+      "passes": false,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] transparency endpoint already returns items_graded/human_reviews/graded_sales + agreement/MAE. This just surfaces them prominently."
+    },
+    {
+      "id": "US-866",
+      "title": "Per-category accuracy + published reliability baseline on /transparency",
+      "description": "As a skeptical buyer/seller, category-level accuracy and a human-vs-human reliability baseline make the accuracy claim concrete and rare. Extend the public transparency report (src/pages/marketing/transparency.tsx + public-grading.ts + accuracy-tracking.ts) to (a) show per-category accuracy/MAE (e.g. Jeans vs Tees), and (b) publish closed reliability-study results (Krippendorff's alpha + human MAE + AI-vs-human agreement) from the admin reliability studies (reliability_studies, US-334) when a study is published. Keep aggregates public-safe (no per-tenant rows) and strengthen the Dataset JSON-LD with the added variables.",
+      "acceptanceCriteria": [
+        "The transparency report shows a per-category accuracy/MAE breakdown",
+        "Published reliability-study results (alpha, human MAE, AI-vs-human agreement) appear when a study is published; otherwise a clean 'baseline pending' state",
+        "Only aggregate, public-safe data is exposed; the Dataset JSON-LD includes the new variablesMeasured",
+        "Admin can mark a reliability study as 'published to transparency'",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 866,
+      "passes": false,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] accuracy-tracking.ts already computes per-category accuracy; reliability.tsx/reliability_studies (00070/US-334) exist but results are not auto-published. This closes that gap."
+    },
+    {
+      "id": "US-867",
+      "title": "Condition-backed buyer trust guarantee + mediation policy",
+      "description": "As a buyer, a backed guarantee makes a GradeThread grade financially meaningful and is the strongest authority signal; as a seller, it differentiates my listings. Productize a 'GradeThread-Verified' trust promise: a public policy page defining what 'materially not as graded' means (driven by the existing structured defects + auto-disclosure, disclosure.ts), a buyer-initiated mediation/claim intake tied to a certificate, and an admin workflow to review claims against the certified disclosure. Scope v1 as policy + claim intake + admin review (not automated payouts).",
+      "acceptanceCriteria": [
+        "A public policy page defines the guarantee, eligibility, and 'materially not as graded' using the certified disclosure as the reference",
+        "A buyer can file a claim referencing a certificate_id; the claim captures evidence and is tenant/PII-safe",
+        "An admin workflow lists/reviews claims against the certificate's defects/disclosure with a decision + audit log",
+        "v1 explicitly excludes automated payouts (manual resolution); scope is documented",
+        "npm run build passes and edge deno check/tests pass"
+      ],
+      "priority": 867,
+      "passes": false,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] LARGER story - consider splitting (policy page / claim intake / admin review) if a single loop is too big. Backed by disclosure.ts + grade_report_defects (00058). Coordinate with existing disputes admin."
+    },
+    {
+      "id": "US-868",
+      "title": "Strengthen Organization entity authority (sameAs, about/press)",
+      "description": "As the platform, entity-level authority helps search and AI engines recognize GradeThread as the condition-grading authority. Enrich the Organization JSON-LD (src/lib/seo/json-ld.ts) with sameAs links to real social/press profiles, ensure knowsAbout reflects current pillars, and add an authoritative About/Company page (Pearson Media LLC, mission, methodology links, founder/expertise for E-E-A-T) registered in the SEO routes. Add BreadcrumbList to top-level marketing pages (currently only on glossary) for hierarchy signals.",
+      "acceptanceCriteria": [
+        "Organization JSON-LD includes real sameAs profiles and an accurate knowsAbout list",
+        "An About/Company page exists, is registered in public-routes.ts + entry-server.tsx, and passes the prerender guard",
+        "Top-level marketing pages emit BreadcrumbList JSON-LD",
+        "All structured data validates in the head guard with no duplicate title/canonical/description",
+        "npm run build passes (prerender + public-routes guard green)"
+      ],
+      "priority": 868,
+      "passes": false,
+      "notes": "[EPIC: Public Authority Signals 2026-06-11] json-ld.ts already has Organization/knowsAbout + correctly gates SearchAction (do NOT claim it without a real search endpoint). Pure SEO/authority polish."
+    },
+    {
+      "id": "US-869",
+      "title": "Scheduler + webhook observability and stall/failure alerting",
+      "description": "As the owner, once the content engine is auto-publishing (US-852) I need to know the moment it silently stops or its publish webhooks start failing, because a hands-off engine is dangerous without a heartbeat. Add a per-tick run log plus a watchdog that alerts on a stalled tick or an elevated webhook failure rate.",
+      "acceptanceCriteria": [
+        "New migration (next unused number, suggested supabase/migrations/00146_content_scheduler_runs.sql; bump if a concurrent migration claimed it) creates public.content_scheduler_runs (id, ran_at, surface, product_focus, outcome text, post_id uuid null, refilled_topics int, published_scheduled int, error text) with RLS admin-read / service-role-write and an index on ran_at",
+        "content-scheduler.ts writes one content_scheduler_runs row per tick (success, skip, or error) as a durable heartbeat",
+        "New job POST /api/jobs/content-watchdog (X-Internal-Job-Secret auth, registered in main.ts) flags (a) no successful tick in the last 3 hours and (b) content_webhook_log failure rate over the trailing 24h above a threshold (e.g. >25% of attempts with succeeded=false)",
+        "On a flagged condition the watchdog notifies the owner via the existing broadcast/notification email path (not a silent log)",
+        "content-watchdog added to LAUNCH_CHECKLIST.md section 3 (suggested 0 */3 * * *) and COOLIFY.md",
+        "A test simulates a stale heartbeat and a high failure rate and asserts the watchdog flags both; npm run verify passes"
+      ],
+      "priority": 869,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Depends on US-852 (scheduler activated). Reuses content_webhook_log (populated by content-webhook.ts) + the existing email sender. Makes full-auto safe to leave running."
+    },
+    {
+      "id": "US-870",
+      "title": "Per-platform social variants (X, LinkedIn, Facebook, Threads, Pinterest, Instagram)",
+      "description": "As the owner, I need each social post tailored to the platform it lands on instead of a single long/short split, because a LinkedIn post, an X thread, a Pinterest pin description, and an Instagram caption have different length, tone, hashtag, and link conventions. Extend the schema, the AI generation, and the webhook fan-out (US-854) to be platform-aware.",
+      "acceptanceCriteria": [
+        "New migration (suggested 00147_social_platform_variants.sql) adds a public.social_platform_variants child table (id, social_post_id FK, platform, body, hashtags text[], image_field text, char_limit int, timestamps) OR an equivalent jsonb variants column on social_posts, chosen for clean RLS (admin write, anon read of published) and documented",
+        "platform constrained to ('x','linkedin','facebook','threads','pinterest','instagram')",
+        "content-ai-social.ts generates a tailored variant per enabled platform in one structured call: X <=280 thread-friendly, LinkedIn 800-1500 professional, Facebook/Threads conversational, Pinterest keyword-rich description with destination link, Instagram caption with line breaks + grouped hashtags",
+        "content_settings gains a per-platform enable list so the owner controls fan-out from the admin UI (default: all six on)",
+        "content-webhook.ts fires one social.published webhook per enabled platform, each carrying platform, body, hashtags, cta_url, and the correct image field (US-871/US-872) so a Make router can dispatch by platform; CONTENT_PUBLISHING.md (US-854) updated with the platform field",
+        "src/pages/content/social-editor.tsx shows per-platform variants with per-platform character counters and lets the editor tweak each before publish",
+        "Cross-tenant/RLS rules preserved; npm run verify passes"
+      ],
+      "priority": 870,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Today only long/short exist (content-ai-social.ts, social_posts long_body/short_body). Platforms chosen at planning: X, LinkedIn, Pinterest, Instagram, Facebook, Threads. Depends on US-852/US-854 (engine on + fan-out documented)."
+    },
+    {
+      "id": "US-871",
+      "title": "Auto social-card image generation (branded cards in every aspect ratio)",
+      "description": "As the owner, I need every social post to ship with an on-brand image even when no asset exists, because image-less social posts get a fraction of the reach and fashion-resale networks are visual-first. Generate branded cards (quote/stat/title) server-side via the existing Satori/workers-og pipeline in the aspect ratios each network needs.",
+      "acceptanceCriteria": [
+        "New templates in functions/_shared/og-template.ts (or a sibling) produce a branded social card from a post: title or pull-quote or key stat, GradeThread wordmark, product badge, brand colors (#0F3460 / #E94560)",
+        "Dynamic endpoints render the card in 1200x630 (X/LinkedIn/Facebook), 1080x1080 (IG square), 1080x1350 (IG portrait), and 1000x1500 (Pinterest vertical) via a ratio/size param",
+        "When a social post lacks asset_image_url, the publish/generate path auto-fills a per-platform card URL so the webhook payload always includes an image",
+        "An admin can regenerate or override the card from the social editor (reuses the content-images POST /hero pattern; uploads honor validateImageUpload/stripImageMetadata)",
+        "Cards are edge-cached (24h) like /og/blog and have a deterministic fallback on render error",
+        "npm run verify passes and a smoke fetch of each ratio returns a valid PNG"
+      ],
+      "priority": 871,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on the proven Satori pipeline (functions/og/blog/[slug].ts, functions/_shared/og-template.ts, scripts/generate-og-image.mjs) and the blog hero pipeline (US-853). Image fields feed US-870 payloads."
+    },
+    {
+      "id": "US-872",
+      "title": "Pinterest rich pins + vertical pin pipeline (fashion-resale channel)",
+      "description": "As the owner, I need first-class Pinterest support because Pinterest is a primary discovery channel for clothing and reselling and drives durable referral traffic. Emit the metadata Pinterest needs to validate rich pins and produce vertical pin creative for every published blog post worth pinning.",
+      "acceptanceCriteria": [
+        "Blog SSR (functions/blog/[[path]].ts) emits the OG/article tags Pinterest reads for rich pins (verify title, description, og:image, article:published_time, article:author are present and valid)",
+        "A vertical 1000x1500 pin image is available per post via the US-871 card pipeline, and the blog page exposes a Pinterest-friendly image (data-pin-url / data-pin-description or a dedicated pin link)",
+        "The social engine can queue a Pinterest variant (US-870) whose payload carries the vertical pin image, a keyword-rich description, and the destination blog URL with UTM params",
+        "CONTENT_AUTOMATION/CONTENT_PUBLISHING docs cover the Pinterest Make scenario: rich-pin validation + create-pin module mapping (board, image, title, description, link)",
+        "A representative published post passes the Pinterest rich-pin validator (documented in the verification checklist)",
+        "npm run verify passes"
+      ],
+      "priority": 872,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Depends on US-870 (variant) + US-871 (vertical card). Pinterest chosen explicitly at planning for the fashion-resale audience."
+    },
+    {
+      "id": "US-873",
+      "title": "Automated internal topic-cluster interlinking at publish (topical authority)",
+      "description": "As the owner, I need published posts to automatically interlink within their pillar/cluster, because internal linking around topic clusters is one of the strongest topical-authority signals and today it happens only by hand (US-855 cornerstone pages). Use the seeded pillar map and history index to insert relevant, non-spammy internal links at publish.",
+      "acceptanceCriteria": [
+        "At publish (content-blog.ts publish path) the engine selects 3-6 of the most semantically related published posts using the pillar map (content_knowledge seo.pillars, seeded US-850) + content_history_index (shared keyword + product_focus) and links them contextually",
+        "Links are inserted as a curated related-links block and/or contextual anchors, deduped, never self-linking, and respect the content-sanitize.ts allowlist",
+        "Each cornerstone/pillar page links down to its cluster posts and each cluster post links up to its pillar (hub-and-spoke), tracked so the structure is queryable",
+        "The SSR related-posts block (functions/_shared/blog-render.ts renderRelatedPosts) is reconciled with these editorial links so they do not duplicate",
+        "Re-publishing an updated post refreshes the link set without duplicates",
+        "A test asserts a generated post links only to existing published slugs; npm run verify passes"
+      ],
+      "priority": 873,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Depends on US-850 (seo.pillars seeded). Leverages content_history_index + renderRelatedPosts. Strengthens SEO and GEO together."
+    },
+    {
+      "id": "US-874",
+      "title": "Author entities + E-E-A-T author pages (Person schema, real bylines)",
+      "description": "As the owner, I need named authors with real profile pages and Person structured data, because Google E-E-A-T and AI answer engines weight author expertise, and today the author is byline text only (US-051/US-304) with no entity behind it. Model authors, give them indexable bio pages, and wire Person JSON-LD through the Article schema.",
+      "acceptanceCriteria": [
+        "New migration (suggested 00148_content_authors.sql) creates public.content_authors (id, slug unique, name, title, bio_md, avatar_url, credentials text[], sameAs text[], timestamps) with RLS admin-write / anon-read; blog_posts.author_id FK added (keep legacy author text for backfill)",
+        "Indexable author pages at /authors/:slug are prerendered or edge-SSR'd with bio, avatar, credentials, and that author's posts, registered in the SEO route system (PUBLIC_ROUTES / sitemap) so they are crawlable",
+        "Article JSON-LD sets author to a Person node (name, url=/authors/:slug, sameAs, jobTitle) from content_authors, replacing the byline-only string (blog-render.ts articleAuthorLd + src/lib/seo/json-ld.ts)",
+        "A ProfilePage/Person JSON-LD is emitted on the author page itself",
+        "The blog editor lets an admin pick the author from content_authors; a default house author row is seeded",
+        "Author pages added to the sitemap + llms.txt; npm run verify passes including the public-routes registry guard"
+      ],
+      "priority": 874,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Complements US-855 (cornerstone pages) + US-868 (Organization entity). Must satisfy the public-routes CI guard (src/lib/seo/public-routes.ts + __tests__) and entry-server prerender sync per CLAUDE.md."
+    },
+    {
+      "id": "US-875",
+      "title": "Content freshness loop (auto-detect + refresh stale top posts)",
+      "description": "As the owner, I need the engine to keep high-value posts fresh automatically, because content decay quietly loses rankings and Google rewards genuine updates. Detect stale, important posts and regenerate/augment them on a schedule, bumping dateModified and re-pinging crawlers.",
+      "acceptanceCriteria": [
+        "New migration (suggested 00149_content_freshness.sql) adds blog_posts.last_refreshed_at + freshness/needs_refresh signals (or a view) and an index to find stale-but-important posts",
+        "A selector ranks posts by age since published_at/last_refreshed_at weighted by importance (GSC impressions/clicks from US-879 when available, else pillar priority)",
+        "A new POST /api/jobs/content-refresh job (registered + in LAUNCH_CHECKLIST/COOLIFY) refreshes the top stale post per run: regenerates/expands sections, updates excerpt/FAQs/key_takeaways as warranted, and only writes if the change is material",
+        "A material refresh sets updated_at + last_refreshed_at so dateModified and the visible Updated date move (blog-render.ts wasUpdatedAfterPublish), purges Cloudflare cache, and re-pings IndexNow",
+        "A thrash guard prevents refreshing a post more than once per configurable window (e.g. 30 days); trivial diffs are skipped",
+        "Refresh activity is logged (content_scheduler_runs) and counted in the weekly digest; npm run verify passes"
+      ],
+      "priority": 875,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Owner chose full-auto. Reuses content-ai-blog.ts regenerate-section + the existing publish cache-purge/IndexNow path. GSC signal (US-879) is optional input; degrade gracefully without it."
+    },
+    {
+      "id": "US-876",
+      "title": "Image SEO: AI alt-text, ImageObject schema, descriptive filenames/captions",
+      "description": "As the owner, I need every content image to carry descriptive alt text, structured ImageObject data, and meaningful filenames, because image SEO drives Google Images + Discover traffic and is missing for the AI-generated hero (US-853) and inline images. Generate accessible, keyword-aware image metadata automatically.",
+      "acceptanceCriteria": [
+        "New migration (suggested 00150_content_image_seo.sql) adds alt/caption/credit columns for the hero (blog_posts) and an inline-images table or jsonb for body images with alt+caption+dimensions",
+        "When a hero or inline image is generated/uploaded (content-images.ts), AI produces concise, descriptive, keyword-aware alt text (and optional caption) from the post topic + image prompt; alt text is stored, not regenerated per render",
+        "Blog SSR (blog-render.ts renderHeroImage + rewriteContentImages) emits alt on every img and a figure/figcaption where a caption exists; no img ships with empty alt",
+        "ImageObject JSON-LD is added for the hero/primary image (contentUrl, width, height, caption) and referenced from the Article image field",
+        "Generated images use descriptive, slug-based filenames (e.g. {post-slug}-hero.png) where the storage path convention allows",
+        "A test asserts SSR blog HTML has no img without alt; npm run verify passes"
+      ],
+      "priority": 876,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on US-853 (hero pipeline). Hooks content-images.ts + blog-render.ts. Keep alt text stored (not per-render) to stay cheap. Complements US-871 social cards."
+    },
+    {
+      "id": "US-877",
+      "title": "GEO: blog posts in llms.txt + clean per-post Markdown endpoint for AI engines",
+      "description": "As the owner, I need AI answer engines (ChatGPT, Claude, Perplexity, Google AI) to find and cite our content cleanly, because discovery is moving to generative engines and today llms.txt lists routes/certs/sellers but NOT blog posts, and there is no clean-markdown representation of an article for an LLM to ingest.",
+      "acceptanceCriteria": [
+        "functions/llms.txt.ts includes a Content/Articles section listing recent published posts (title + one-line summary from content_history_index + URL), bounded to a sane count, registry/edge-driven like the existing sections",
+        "A clean-markdown endpoint serves each article as text/markdown at a stable URL (e.g. /blog/:slug.md or /api/content/public/posts/:slug.md): title, byline, updated date, key takeaways, body as Markdown (HTML-stripped), FAQs, canonical link back",
+        "The markdown view is discoverable (a <link rel=alternate type=text/markdown> on the HTML post and/or a reference from llms.txt)",
+        "AI crawlers stay explicitly allowed in robots.txt (GPTBot, OAI-SearchBot, ClaudeBot, PerplexityBot, Google-Extended, Applebot — already in _shared/seo-config.ts; verify posts are not disallowed)",
+        "The markdown endpoint is edge-cached and returns only published posts (no drafts/previews)",
+        "npm run verify passes"
+      ],
+      "priority": 877,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Extends functions/llms.txt.ts (currently certs+sellers only) and reuses content_history_index summaries + content-sanitize for HTML->MD. Pure GEO play for AI citeability."
+    },
+    {
+      "id": "US-878",
+      "title": "GEO: deepen per-post structured answers (Speakable, HowTo, entity consistency)",
+      "description": "As the owner, I need richer machine-readable structure on posts so AI engines and assistant surfaces can extract precise answers, building on the existing FAQPage + key takeaways (US-304). Add Speakable and HowTo where applicable and keep entities consistent with the grading glossary so canonical terms reinforce authority.",
+      "acceptanceCriteria": [
+        "For procedural (how-to) posts, HowTo JSON-LD (howToLd in src/lib/seo/json-ld.ts) is emitted in the SSR head with ordered steps derived from the post; non-procedural posts skip it",
+        "Speakable structured data marks the key-takeaways/answer-first block",
+        "Entity consistency: post bodies and JSON-LD use the canonical grading terms from the condition-grading glossary (knowsAbout / glossary routes) and link relevant terms to their glossary pages",
+        "The generator (content-ai-blog.ts / prompts) is nudged to produce an answer-first opening and explicit step lists for how-to topics so the structured data has real source content",
+        "No schema for data that does not exist (no fake ratings/SearchAction) per the SEO policy; head-builder.ts jsonLdForRoute mirror stays in sync where applicable",
+        "npm run verify passes including SEO tests"
+      ],
+      "priority": 878,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Builds on US-304 FAQPage/key_takeaways + existing json-ld.ts builders (howToLd already exists). Respect the no-fake-markup gotcha in CLAUDE.md."
+    },
+    {
+      "id": "US-879",
+      "title": "Closed loop: GSC search data feeds topic selection + refresh priority",
+      "description": "As the owner, I need the engine to write what people actually search for and to prioritize refreshing posts that are almost ranking, because a content engine that ignores performance data plateaus. The gsc-sync job already pulls Search Console data; route that signal into topic research (US-851) and the freshness selector (US-875).",
+      "acceptanceCriteria": [
+        "New migration (suggested 00151_content_search_signals.sql) stores per-query/per-page GSC metrics (query, page, impressions, clicks, ctr, avg_position, date) that the gsc-sync job (/api/jobs/gsc-sync) can populate, with admin-read RLS",
+        "Topic research (content-ai-research.ts) consumes these signals to (a) surface high-impression/low-CTR queries (title/meta improvement opportunities) and (b) find high-impression queries with no matching post (content gaps), queuing them into content_topics with source tagged",
+        "The freshness selector (US-875) prioritizes posts ranking positions ~5-20 with rising impressions (striking distance)",
+        "A dedup gate prevents queuing a topic overlapping an existing published post (reuse content_history_index keyword match)",
+        "The weekly digest reports top opportunities (striking-distance pages, content gaps)",
+        "Degrades gracefully if GSC data is absent (engine still runs on the pillar map); npm run verify passes"
+      ],
+      "priority": 879,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] gsc-sync job already exists in the scheduled-tasks list but its data is not consumed by the content engine. Feeds US-875 + the US-851 topic bank. Closes the optimize loop the owner asked for."
+    },
+    {
+      "id": "US-880",
+      "title": "Weekly content digest delivery + auto-tuning recommendations",
+      "description": "As the owner, I need a delivered weekly readout of the autonomous engine plus concrete tuning suggestions, because the summary endpoint already computes the data but nothing sends it or acts on it. Deliver the digest and turn its findings into actionable settings/knowledge adjustments.",
+      "acceptanceCriteria": [
+        "The content-summary job (GET /api/content/scheduler/summary, scheduled in US-852) emails the owner a weekly digest: posts published per surface/product, topics added/used, webhook success rate, bank levels, top GSC opportunities (US-879), and refresh activity (US-875)",
+        "The digest includes specific recommendations: cadence up/down based on output vs. quality, knowledge-doc edits when generations drift, underperforming platforms, and posts flagged for refresh",
+        "Recommendations link into the admin content settings/knowledge UI so the owner can apply them in one place (adjust cadence, edit voice/style docs, toggle platforms)",
+        "Delivery reuses the existing broadcast/notification email path; failures are logged, not silent",
+        "An admin can trigger the digest on demand from the dashboard for verification",
+        "npm run verify passes"
+      ],
+      "priority": 880,
+      "passes": false,
+      "notes": "[EPIC: Content Authority Depth 2026-06-11] Wires the already-built GET /api/content/scheduler/summary to actually deliver + recommend. Closes the human-oversight side of the full-auto engine. Depends on US-852; consumes US-875/US-879 signals."
     }
   ]
 }
