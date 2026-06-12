@@ -23,6 +23,8 @@ import {
   type ReconcileItemRow,
   type ReconcileListingRow,
 } from "../lib/reconcile-fields.ts";
+import { validateImageUpload } from "../lib/upload-validation.ts";
+import { stripImageMetadata } from "../lib/image-metadata.ts";
 
 // Columns the template overlay needs to patch a generated draft (US-674).
 const TEMPLATE_OVERLAY_COLUMNS =
@@ -328,6 +330,114 @@ async function processBatch(
     );
   }
 }
+
+// ── US-529: validated staging upload ────────────────────────────────
+// POST /staging/upload — multipart { session_id, full, thumb? }.
+//
+// AutoLister photos used to be uploaded by the browser straight into the
+// item-photos bucket, bypassing the US-276 upload hardening. This endpoint is
+// now the only upload path the AutoLister page uses: it sniffs the real magic
+// bytes (allowlist jpeg/png/webp — HEIC is transcoded client-side), caps byte
+// size + pixel dimensions, rejects unusably small images (eBay's 500px
+// long-side floor), and strips EXIF/GPS before the bytes land in storage —
+// including the client's compress-failure fallback, which previously shipped
+// the raw original with metadata intact.
+
+const STAGING_THUMB_MAX_BYTES = 2 * 1024 * 1024;
+// eBay rejects pictures under 500px on the longest side — anything smaller is
+// unusable as a listing photo, so reject it before storage + AI spend.
+const STAGING_MIN_LONG_SIDE = 500;
+
+flipdeskAutolisterRoutes.post("/staging/upload", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json(
+      { error: "Invalid form data. Expected multipart/form-data." },
+      400,
+    );
+  }
+
+  // The staging session id becomes a storage path segment — accept only a
+  // UUID-ish token so it can't traverse or inject path separators.
+  const sessionId = form.get("session_id");
+  if (
+    typeof sessionId !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(sessionId)
+  ) {
+    return c.json({ error: "Invalid session_id" }, 400);
+  }
+
+  const full = form.get("full");
+  if (!(full instanceof File) || full.size === 0) {
+    return c.json({ error: "Missing image file" }, 400);
+  }
+
+  const rawBytes = new Uint8Array(await full.arrayBuffer());
+  const verdict = validateImageUpload(rawBytes, {
+    allow: ["jpeg", "png", "webp"],
+    minDimension: STAGING_MIN_LONG_SIDE,
+  });
+  if (!verdict.ok) {
+    return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
+  }
+  const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
+
+  const id = crypto.randomUUID();
+  const base = `${ownerId}/_staging/${sessionId}/${id}`;
+  const path = `${base}.${verdict.ext}`;
+  const { error: upErr } = await supabaseAdmin.storage
+    .from("item-photos")
+    .upload(path, cleanBytes, {
+      upsert: false,
+      contentType: verdict.contentType,
+    });
+  if (upErr) {
+    return c.json({ error: `Upload failed: ${upErr.message}` }, 500);
+  }
+  const url = supabaseAdmin.storage.from("item-photos").getPublicUrl(path)
+    .data.publicUrl;
+
+  // Thumbnail: optional + best-effort (the UI falls back to the full image).
+  // Same sniff/strip pipeline; no min-resolution gate (it's deliberately tiny).
+  let thumbnailStoragePath: string | null = null;
+  let thumbnailUrl: string | null = null;
+  const thumb = form.get("thumb");
+  if (thumb instanceof File && thumb.size > 0) {
+    const thumbBytes = new Uint8Array(await thumb.arrayBuffer());
+    const thumbVerdict = validateImageUpload(thumbBytes, {
+      allow: ["jpeg", "png", "webp"],
+      maxBytes: STAGING_THUMB_MAX_BYTES,
+    });
+    if (thumbVerdict.ok) {
+      const cleanThumb = stripImageMetadata(thumbBytes, thumbVerdict.format);
+      const tpath = `${base}_thumb.${thumbVerdict.ext}`;
+      const { error: tErr } = await supabaseAdmin.storage
+        .from("item-photos")
+        .upload(tpath, cleanThumb.bytes, {
+          upsert: false,
+          contentType: thumbVerdict.contentType,
+        });
+      if (!tErr) {
+        thumbnailStoragePath = tpath;
+        thumbnailUrl = supabaseAdmin.storage.from("item-photos")
+          .getPublicUrl(tpath).data.publicUrl;
+      }
+    }
+  }
+
+  return c.json({
+    storage_path: path,
+    url,
+    thumbnail_storage_path: thumbnailStoragePath,
+    thumbnail_url: thumbnailUrl,
+    width: verdict.width,
+    height: verdict.height,
+    bytes: cleanBytes.length,
+  });
+});
 
 // POST /batch  Body: { item_ids: string[], use_comps?: boolean }
 flipdeskAutolisterRoutes.post("/batch", async (c) => {

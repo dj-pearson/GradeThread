@@ -346,9 +346,20 @@ app.use("/api/flipdesk/scout/*", rateLimiter(6, 60_000, "flipdesk-scout"));
 // budget below: the queue view polls every 1.5s (~40/min) for the minutes a
 // batch generates, which would otherwise drain this write budget and 429 the
 // poll mid-run (a batch DoS-ing its own status view).
+// US-529: the validated staging-photo upload gets its own roomy budget — a
+// bulk dump stages up to ~100 photos in a couple of minutes, which would
+// instantly drain the 20/min write cap below (so that limiter bypasses this
+// path). Uploads are cheap (sniff + strip + storage PUT), no AI cost.
+app.use(
+  "/api/flipdesk/autolister/staging/upload",
+  rateLimiter(120, 60_000, "autolister-upload", undefined, { methods: ["POST"] }),
+);
 app.use(
   "/api/flipdesk/autolister/*",
-  rateLimiter(20, 60_000, "flipdesk-autolister", undefined, { methods: ["POST"] }),
+  rateLimiter(20, 60_000, "flipdesk-autolister", undefined, {
+    methods: ["POST"],
+    bypass: (c) => c.req.path === "/api/flipdesk/autolister/staging/upload",
+  }),
 );
 app.use(
   "/api/flipdesk/autolister/*",

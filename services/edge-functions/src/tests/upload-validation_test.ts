@@ -154,6 +154,111 @@ Deno.test("validate enforces the max-dimension cap", () => {
   if (!r.ok) assert(r.reason.includes("too large"));
 });
 
+// ── US-529: WebP dimensions + min-resolution gate ──────────────────
+
+// RIFF/WEBP container around a single chunk.
+function webpContainer(fourcc: string, data: number[]): Uint8Array {
+  const t = [...fourcc].map((c) => c.charCodeAt(0));
+  const sz = data.length;
+  const body = [
+    0x57,
+    0x45,
+    0x42,
+    0x50, // WEBP
+    ...t,
+    sz & 0xff,
+    (sz >> 8) & 0xff,
+    (sz >> 16) & 0xff,
+    (sz >> 24) & 0xff,
+    ...data,
+  ];
+  const full = new Uint8Array(8 + body.length);
+  full.set([0x52, 0x49, 0x46, 0x46], 0); // RIFF
+  full[4] = body.length & 0xff;
+  full[5] = (body.length >> 8) & 0xff;
+  full.set(body, 8);
+  return full;
+}
+
+function webpLossy(width: number, height: number): Uint8Array {
+  // 3-byte frame tag + sync code 9D 01 2A + 14-bit LE width/height.
+  return webpContainer("VP8 ", [
+    0x00,
+    0x00,
+    0x00,
+    0x9d,
+    0x01,
+    0x2a,
+    width & 0xff,
+    (width >> 8) & 0x3f,
+    height & 0xff,
+    (height >> 8) & 0x3f,
+  ]);
+}
+
+Deno.test("validate parses lossy VP8 webp dimensions", () => {
+  const r = validateImageUpload(webpLossy(800, 600));
+  assert(r.ok);
+  if (r.ok) assertEquals([r.width, r.height], [800, 600]);
+});
+
+Deno.test("validate parses VP8L webp dimensions", () => {
+  const bits = ((800 - 1) | ((600 - 1) << 14)) >>> 0;
+  const r = validateImageUpload(
+    webpContainer("VP8L", [
+      0x2f,
+      bits & 0xff,
+      (bits >> 8) & 0xff,
+      (bits >> 16) & 0xff,
+      (bits >> 24) & 0xff,
+      0x00,
+    ]),
+  );
+  assert(r.ok);
+  if (r.ok) assertEquals([r.width, r.height], [800, 600]);
+});
+
+Deno.test("validate parses VP8X webp canvas dimensions", () => {
+  const w = 800 - 1;
+  const h = 600 - 1;
+  const r = validateImageUpload(
+    webpContainer("VP8X", [
+      0x00, // flags
+      0x00,
+      0x00,
+      0x00, // reserved
+      w & 0xff,
+      (w >> 8) & 0xff,
+      (w >> 16) & 0xff,
+      h & 0xff,
+      (h >> 8) & 0xff,
+      (h >> 16) & 0xff,
+    ]),
+  );
+  assert(r.ok);
+  if (r.ok) assertEquals([r.width, r.height], [800, 600]);
+});
+
+Deno.test("minDimension rejects an unusably small image", () => {
+  const r = validateImageUpload(pngWithExif(), { minDimension: 500 }); // 2x2
+  assert(!r.ok);
+  if (!r.ok) assert(r.reason.includes("too small"));
+});
+
+Deno.test("minDimension passes when the longest side clears the floor", () => {
+  // 800x600: longest side 800 >= 500 even though the short side is over 500 too;
+  // also check a portrait crop where only ONE side clears the floor (600x300).
+  assert(validateImageUpload(webpLossy(800, 600), { minDimension: 500 }).ok);
+  assert(validateImageUpload(webpLossy(600, 300), { minDimension: 500 }).ok);
+  assert(!validateImageUpload(webpLossy(400, 300), { minDimension: 500 }).ok);
+});
+
+Deno.test("minDimension fails open when dimensions aren't parseable", () => {
+  // Truncated VP8 chunk (no sync code window) → dims unknown → size caps only.
+  const r = validateImageUpload(webpHeader(), { minDimension: 500 });
+  assert(r.ok);
+});
+
 // ── metadata stripping ─────────────────────────────────────────────
 
 function contains(haystack: Uint8Array, needle: string): boolean {

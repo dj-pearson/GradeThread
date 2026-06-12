@@ -110,6 +110,60 @@ function extForBlobType(mimeType: string): string {
   return "webp";
 }
 
+// US-529: every staged upload goes through the edge's validated path
+// (magic-byte sniff, size/dimension caps, min-resolution gate, EXIF/GPS strip
+// — the US-276 hardening) instead of writing to storage directly from the
+// browser. This also covers the compress-failure fallback: the server strips
+// metadata, so a raw original never lands with GPS intact.
+interface StagedUploadResult {
+  storagePath: string;
+  url: string;
+  thumbnailStoragePath: string | null;
+  thumbnailUrl: string | null;
+  width: number | null;
+  height: number | null;
+  bytes: number;
+}
+
+async function uploadStagingPhoto(
+  session: string,
+  full: Blob,
+  thumb: Blob | null,
+): Promise<StagedUploadResult> {
+  const form = new FormData();
+  form.append("session_id", session);
+  form.append("full", full, `photo.${extForBlobType(full.type)}`);
+  if (thumb) {
+    form.append("thumb", thumb, `thumb.${extForBlobType(thumb.type)}`);
+  }
+  const res = await edgeFetch("/api/flipdesk/autolister/staging/upload", {
+    method: "POST",
+    body: form,
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    storage_path?: string;
+    url?: string;
+    thumbnail_storage_path?: string | null;
+    thumbnail_url?: string | null;
+    width?: number | null;
+    height?: number | null;
+    bytes?: number;
+  };
+  if (!res.ok || !data.storage_path || !data.url) {
+    throw new Error(data.error ?? `Upload failed (HTTP ${res.status})`);
+  }
+  return {
+    storagePath: data.storage_path,
+    url: data.url,
+    thumbnailStoragePath: data.thumbnail_storage_path ?? null,
+    thumbnailUrl: data.thumbnail_url ?? null,
+    width: data.width ?? null,
+    height: data.height ?? null,
+    bytes: data.bytes ?? full.size,
+  };
+}
+
 function looksHeic(file: File): boolean {
   const lc = file.name.toLowerCase();
   return (
@@ -336,23 +390,19 @@ export function FlipdeskAutolisterPage() {
 
         const id = crypto.randomUUID();
         let body: Blob = workFile;
-        let bodyType = workFile.type || "image/webp";
         let width: number | null = null;
         let height: number | null = null;
         let phash = "";
         let thumbBlob: Blob | null = null;
-        let thumbType = "image/webp";
         let compressed = false;
         try {
           const main = await compressImage(workFile, 2400, 0.85);
           body = main.blob;
-          bodyType = main.blob.type || "image/webp";
           width = main.width;
           height = main.height;
           phash = main.phash; // US-532: dHash for the visual grouping pass
           const thumb = await compressImage(workFile, 320, 0.7);
           thumbBlob = thumb.blob;
-          thumbType = thumb.blob.type || "image/webp";
           compressed = true;
         } catch (compErr) {
           if (import.meta.env.DEV) console.warn("[autolister] compress failed, using original:", compErr);
@@ -366,39 +416,20 @@ export function FlipdeskAutolisterPage() {
           continue;
         }
 
-        const base = `${ownerId}/_staging/${sessionId.current}/${id}`;
-        const path = `${base}.${extForBlobType(bodyType)}`;
-        const { error: upErr } = await supabase.storage
-          .from("item-photos")
-          .upload(path, body, { upsert: false, contentType: bodyType });
-        if (upErr) throw upErr;
-        const url = supabase.storage.from("item-photos").getPublicUrl(path).data
-          .publicUrl;
-
-        let thumbnailUrl: string | null = null;
-        let thumbnailStoragePath: string | null = null;
-        if (thumbBlob) {
-          const tpath = `${base}_thumb.${extForBlobType(thumbType)}`;
-          const { error: tErr } = await supabase.storage
-            .from("item-photos")
-            .upload(tpath, thumbBlob, { upsert: false, contentType: thumbType });
-          if (!tErr) {
-            thumbnailStoragePath = tpath;
-            thumbnailUrl = supabase.storage.from("item-photos").getPublicUrl(
-              tpath,
-            ).data.publicUrl;
-          }
-        }
+        // US-529: server-side validated upload (sniff + caps + EXIF strip). On
+        // the compress-failure fallback `body` is the raw original — the
+        // server's metadata strip guarantees no GPS EXIF lands in storage.
+        const up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
 
         added.push({
           id,
-          url,
-          storagePath: path,
-          thumbnailUrl,
-          thumbnailStoragePath,
-          width,
-          height,
-          bytes: body.size,
+          url: up.url,
+          storagePath: up.storagePath,
+          thumbnailUrl: up.thumbnailUrl,
+          thumbnailStoragePath: up.thumbnailStoragePath,
+          width: width ?? up.width,
+          height: height ?? up.height,
+          bytes: up.bytes,
           capturedAtMs: capturedAt ? capturedAt.getTime() : null,
           phash,
         });
@@ -591,32 +622,18 @@ export function FlipdeskAutolisterPage() {
     const existing = stagedById.get(photoId);
     if (!existing) return false;
 
-    const editId = crypto.randomUUID();
-    const base = `${ownerId}/_staging/${sessionId.current}/${editId}`;
-    const path = `${base}.${processed.ext}`;
-    const { error: upErr } = await supabase.storage
-      .from("item-photos")
-      .upload(path, processed.full, {
-        upsert: false,
-        contentType: processed.contentType,
-      });
-    if (upErr) return false;
-
-    const url = supabase.storage.from("item-photos").getPublicUrl(path).data
-      .publicUrl;
-    let thumbnailUrl: string | null = null;
-    let thumbnailStoragePath: string | null = null;
-    const tpath = `${base}_thumb.${processed.ext}`;
-    const { error: tErr } = await supabase.storage
-      .from("item-photos")
-      .upload(tpath, processed.thumb, {
-        upsert: false,
-        contentType: processed.contentType,
-      });
-    if (!tErr) {
-      thumbnailStoragePath = tpath;
-      thumbnailUrl = supabase.storage.from("item-photos").getPublicUrl(tpath).data
-        .publicUrl;
+    // US-529: re-staged (enhanced/bg-removed) images go through the same
+    // validated server upload as fresh ones.
+    let up: StagedUploadResult;
+    try {
+      up = await uploadStagingPhoto(
+        sessionId.current,
+        processed.full,
+        processed.thumb,
+      );
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("[autolister] restage upload failed:", err);
+      return false;
     }
 
     const original = existing.original ?? {
@@ -639,13 +656,13 @@ export function FlipdeskAutolisterPage() {
         p.id === photoId
           ? {
               ...p,
-              url,
-              storagePath: path,
-              thumbnailUrl,
-              thumbnailStoragePath,
+              url: up.url,
+              storagePath: up.storagePath,
+              thumbnailUrl: up.thumbnailUrl,
+              thumbnailStoragePath: up.thumbnailStoragePath,
               width: processed.width,
               height: processed.height,
-              bytes: processed.full.size,
+              bytes: up.bytes,
               phash: "",
               original,
             }
@@ -771,50 +788,32 @@ export function FlipdeskAutolisterPage() {
     const file = new File([blob], "edited.jpg", { type: blob.type || "image/jpeg" });
 
     let body: Blob = file;
-    let bodyType = file.type || "image/jpeg";
     let width: number | null = null;
     let height: number | null = null;
     let phash = "";
     let thumbBlob: Blob | null = null;
-    let thumbType = "image/webp";
     try {
       const main = await compressImage(file, 2400, 0.85);
       body = main.blob;
-      bodyType = main.blob.type || "image/webp";
       width = main.width;
       height = main.height;
       phash = main.phash;
       const thumb = await compressImage(file, 320, 0.7);
       thumbBlob = thumb.blob;
-      thumbType = thumb.blob.type || "image/webp";
     } catch (compErr) {
       if (import.meta.env.DEV) console.warn("[autolister] edit compress failed, using edited blob:", compErr);
     }
 
-    const editId = crypto.randomUUID();
-    const base = `${ownerId}/_staging/${sessionId.current}/${editId}`;
-    const path = `${base}.${extForBlobType(bodyType)}`;
-    const { error: upErr } = await supabase.storage
-      .from("item-photos")
-      .upload(path, body, { upsert: false, contentType: bodyType });
-    if (upErr) {
-      toast.error(`Could not save edit: ${upErr.message}`);
-      throw upErr;
-    }
-    const url = supabase.storage.from("item-photos").getPublicUrl(path).data.publicUrl;
-
-    let thumbnailUrl: string | null = null;
-    let thumbnailStoragePath: string | null = null;
-    if (thumbBlob) {
-      const tpath = `${base}_thumb.${extForBlobType(thumbType)}`;
-      const { error: tErr } = await supabase.storage
-        .from("item-photos")
-        .upload(tpath, thumbBlob, { upsert: false, contentType: thumbType });
-      if (!tErr) {
-        thumbnailStoragePath = tpath;
-        thumbnailUrl = supabase.storage.from("item-photos").getPublicUrl(tpath).data
-          .publicUrl;
-      }
+    // US-529: edits re-land through the validated server upload too — even the
+    // compress-failure fallback gets its metadata stripped server-side.
+    let up: StagedUploadResult;
+    try {
+      up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
+    } catch (err) {
+      toast.error(
+        `Could not save edit: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
     }
 
     const orphans = [existing.storagePath, existing.thumbnailStoragePath].filter(
@@ -825,13 +824,13 @@ export function FlipdeskAutolisterPage() {
         p.id === photoId
           ? {
               ...p,
-              url,
-              storagePath: path,
-              thumbnailUrl,
-              thumbnailStoragePath,
-              width,
-              height,
-              bytes: body.size,
+              url: up.url,
+              storagePath: up.storagePath,
+              thumbnailUrl: up.thumbnailUrl,
+              thumbnailStoragePath: up.thumbnailStoragePath,
+              width: width ?? up.width,
+              height: height ?? up.height,
+              bytes: up.bytes,
               phash,
             }
           : p,

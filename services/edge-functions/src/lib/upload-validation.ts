@@ -30,6 +30,10 @@ export const DEFAULT_MAX_DIMENSION = 12_000;
 export interface ValidateOptions {
   maxBytes?: number;
   maxDimension?: number;
+  // US-529: reject images whose LONGEST side is below this when dimensions are
+  // parseable (fail-open when they aren't — the byte caps still apply). Gates
+  // unusably small uploads (eBay won't accept pictures under 500px long-side).
+  minDimension?: number;
   // Restrict to a subset of formats (e.g. the private bucket allows no HEIC).
   allow?: ImageFormat[];
 }
@@ -145,13 +149,49 @@ function jpegDimensions(
   return null;
 }
 
+// WebP: read the canvas/frame size from the first chunk after the RIFF
+// header. Covers all three container layouts: VP8X (extended), "VP8 " (lossy),
+// VP8L (lossless) — canvas.toBlob("image/webp") emits lossy VP8 or VP8X.
+function webpDimensions(
+  b: Uint8Array,
+): { width: number; height: number } | null {
+  if (b.length < 20) return null;
+  const fourcc = ascii(b, 12, 4);
+  const d = 20; // chunk data starts after fourcc(4) + size(4)
+  if (fourcc === "VP8X" && b.length >= d + 10) {
+    // flags(1) + reserved(3), then 24-bit little-endian width-1 / height-1.
+    const width = 1 + (b[d + 4]! | (b[d + 5]! << 8) | (b[d + 6]! << 16));
+    const height = 1 + (b[d + 7]! | (b[d + 8]! << 8) | (b[d + 9]! << 16));
+    return { width, height };
+  }
+  if (fourcc === "VP8 " && b.length >= d + 10) {
+    // Key-frame: 3-byte frame tag, sync code 9D 01 2A, then 14-bit dims.
+    if (b[d + 3] !== 0x9d || b[d + 4] !== 0x01 || b[d + 5] !== 0x2a) {
+      return null;
+    }
+    const width = (b[d + 6]! | (b[d + 7]! << 8)) & 0x3fff;
+    const height = (b[d + 8]! | (b[d + 9]! << 8)) & 0x3fff;
+    return { width, height };
+  }
+  if (fourcc === "VP8L" && b.length >= d + 5) {
+    if (b[d] !== 0x2f) return null; // VP8L signature byte
+    const bits = (b[d + 1]! | (b[d + 2]! << 8) | (b[d + 3]! << 16) |
+      (b[d + 4]! << 24)) >>> 0;
+    const width = (bits & 0x3fff) + 1;
+    const height = ((bits >> 14) & 0x3fff) + 1;
+    return { width, height };
+  }
+  return null;
+}
+
 function dimensionsFor(
   format: ImageFormat,
   b: Uint8Array,
 ): { width: number; height: number } | null {
   if (format === "png") return pngDimensions(b);
   if (format === "jpeg") return jpegDimensions(b);
-  // WebP/HEIC dimension parsing is format-heavy; the byte-size cap still
+  if (format === "webp") return webpDimensions(b);
+  // HEIC dimension parsing is format-heavy; the byte-size cap still
   // applies and we don't block on unknown dimensions.
   return null;
 }
@@ -192,6 +232,16 @@ export function validateImageUpload(
         ok: false,
         reason:
           `Image too large (${dims.width}x${dims.height}; max ${maxDim}px/side)`,
+      };
+    }
+    if (
+      opts.minDimension !== undefined &&
+      Math.max(dims.width, dims.height) < opts.minDimension
+    ) {
+      return {
+        ok: false,
+        reason:
+          `Image too small (${dims.width}x${dims.height}; the longest side must be at least ${opts.minDimension}px)`,
       };
     }
   }
