@@ -1806,7 +1806,7 @@ export function AdminAiModelsPage() {
       <AlertDialog open={!!activateTarget} onOpenChange={() => setActivateTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Activate Prompt Version</AlertDialogTitle>
+            <AlertDialogTitle>Activate prompt version</AlertDialogTitle>
             <AlertDialogDescription>
               This will activate <strong>{activateTarget?.version_name}</strong> and deactivate
               all other prompt versions. Only one version can be active for production grading
@@ -1837,7 +1837,7 @@ export function AdminAiModelsPage() {
       <AlertDialog open={!!deactivateTarget} onOpenChange={() => setDeactivateTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Deactivate Prompt Version</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate prompt version</AlertDialogTitle>
             <AlertDialogDescription>
               This will deactivate <strong>{deactivateTarget?.version_name}</strong>.
               No prompt version will be active for production grading until another is activated.
@@ -1861,7 +1861,7 @@ export function AdminAiModelsPage() {
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Prompt Version</AlertDialogTitle>
+            <AlertDialogTitle>Delete prompt version</AlertDialogTitle>
             <AlertDialogDescription>
               This will permanently delete <strong>{deleteTarget?.version_name}</strong>.
               This action cannot be undone.
@@ -1881,7 +1881,7 @@ export function AdminAiModelsPage() {
               className="bg-red-600 hover:bg-red-700"
             >
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Delete
+              Delete version
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

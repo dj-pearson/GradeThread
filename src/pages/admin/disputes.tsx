@@ -1157,7 +1157,7 @@ export function AdminDisputesPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reject Dispute</AlertDialogTitle>
+            <AlertDialogTitle>Reject dispute</AlertDialogTitle>
             <AlertDialogDescription>
               This will reject the user&apos;s dispute and keep the original grade. The
               submission status will return to &ldquo;completed&rdquo;.
@@ -1190,7 +1190,7 @@ export function AdminDisputesPage() {
               className="bg-red-600 hover:bg-red-700"
             >
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Reject Dispute
+              Reject dispute
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

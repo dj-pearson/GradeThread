@@ -495,7 +495,7 @@ export function TeamPage() {
                 setRemoveMemberId(null);
               }}
             >
-              Remove
+              Remove member
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

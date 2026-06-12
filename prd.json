@@ -7079,8 +7079,8 @@
         "A small copy style guide (sentence case, action-first); confirm/cancel labels describe the action"
       ],
       "priority": 453,
-      "passes": false,
-      "notes": "[P3][UX] Audit 2026-06-03."
+      "passes": true,
+      "notes": "[P3][UX] Audit 2026-06-03. Added docs/COPY_STYLE_GUIDE.md (sentence case, action-first, confirm/cancel + tooltip guidance). Made direct <AlertDialog> confirm labels action-first + sentence case across admin (user-detail plan/role/suspend, submissions re-trigger/mark-failed, reviews send-back, ai-models prompt-version activate/deactivate/delete, disputes reject, tasks/task-board delete) and FlipDesk (sources delete) and team (remove member); useConfirm() call sites already complied from US-437. Removed the redundant per-link sidebar tooltip that just repeated each nav label + a global ⌘K hint."
     },
     {
       "id": "US-454",

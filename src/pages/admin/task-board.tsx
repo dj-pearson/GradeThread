@@ -792,7 +792,7 @@ function TaskDetailDialog({
                   )
                 }
               >
-                Delete
+                Delete task
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

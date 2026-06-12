@@ -685,7 +685,7 @@ export function AdminUserDetailPage() {
       <AlertDialog open={planDialogOpen} onOpenChange={setPlanDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Change User Plan</AlertDialogTitle>
+            <AlertDialogTitle>Change user plan</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to change{" "}
               <strong>{targetUser.full_name || targetUser.email}</strong>'s plan
@@ -698,7 +698,7 @@ export function AdminUserDetailPage() {
             <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handlePlanChange} disabled={actionLoading}>
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirm Change
+              Change plan
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -708,7 +708,7 @@ export function AdminUserDetailPage() {
       <AlertDialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Change User Role</AlertDialogTitle>
+            <AlertDialogTitle>Change user role</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to change{" "}
               <strong>{targetUser.full_name || targetUser.email}</strong>'s role
@@ -723,7 +723,7 @@ export function AdminUserDetailPage() {
             <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleRoleChange} disabled={actionLoading}>
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Confirm Change
+              Change role
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -734,7 +734,7 @@ export function AdminUserDetailPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {targetUser.plan === "free" ? "Unsuspend User" : "Suspend User"}
+              {targetUser.plan === "free" ? "Unsuspend user" : "Suspend user"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {targetUser.plan === "free" ? (

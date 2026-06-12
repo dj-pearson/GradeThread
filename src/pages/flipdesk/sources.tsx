@@ -331,7 +331,7 @@ export function FlipdeskSourcesPage() {
               onClick={performDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete
+              Delete source
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

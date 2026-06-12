@@ -357,7 +357,7 @@ function ProjectCard({
                 })
               }
             >
-              Delete
+              Delete project
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

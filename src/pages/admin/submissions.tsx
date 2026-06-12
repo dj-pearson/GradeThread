@@ -832,7 +832,7 @@ export function AdminSubmissionsPage() {
       <AlertDialog open={!!retriggerTarget} onOpenChange={() => setRetriggerTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Re-trigger Grading</AlertDialogTitle>
+            <AlertDialogTitle>Re-trigger grading</AlertDialogTitle>
             <AlertDialogDescription>
               This will reset the submission status to &ldquo;processing&rdquo; and queue it for
               re-grading. The existing grade report (if any) will remain until a new one is generated.
@@ -847,7 +847,7 @@ export function AdminSubmissionsPage() {
               disabled={actionLoading}
             >
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Re-trigger
+              Re-trigger grading
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -857,7 +857,7 @@ export function AdminSubmissionsPage() {
       <AlertDialog open={!!markFailedTarget} onOpenChange={() => setMarkFailedTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Mark as Failed</AlertDialogTitle>
+            <AlertDialogTitle>Mark as failed</AlertDialogTitle>
             <AlertDialogDescription>
               This will mark the submission as failed. The user will see the submission in a failed
               state. You can re-trigger grading later if needed.
@@ -873,7 +873,7 @@ export function AdminSubmissionsPage() {
               className="bg-red-600 hover:bg-red-700"
             >
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Mark as Failed
+              Mark as failed
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

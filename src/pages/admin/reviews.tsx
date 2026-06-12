@@ -899,7 +899,7 @@ export function AdminReviewsPage() {
               className="bg-red-600 hover:bg-red-700"
             >
               {actionLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Send Back
+              Send back
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
