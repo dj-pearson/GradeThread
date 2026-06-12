@@ -657,6 +657,8 @@ export function AdminReviewsPage() {
                           <img
                             src={img.signed_url}
                             alt={img.image_type}
+                            loading="lazy"
+                            decoding="async"
                             className="aspect-square rounded-lg border object-cover"
                           />
                         ) : (

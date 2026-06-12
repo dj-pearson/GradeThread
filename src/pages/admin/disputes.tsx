@@ -945,6 +945,8 @@ export function AdminDisputesPage() {
                           <img
                             src={photoUrls[img.id]}
                             alt={img.image_type}
+                            loading="lazy"
+                            decoding="async"
                             className="aspect-square rounded-lg border object-cover"
                           />
                         ) : (

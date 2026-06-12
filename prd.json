@@ -6580,8 +6580,8 @@
         "Listing/grid pages verified to not download originals for off-screen cards"
       ],
       "priority": 413,
-      "passes": false,
-      "notes": "[P2][Performance] Audit 2026-06-03. CF Image Resizing disabled; some paths fall back to full-res photo_url."
+      "passes": true,
+      "notes": "[P2][Performance] Audit 2026-06-03. CF Image Resizing disabled; some paths fall back to full-res photo_url. DONE 2026-06-12: CF Image Resizing stays disabled, so went with AC option (b). Audited every grid/card <img> in src/. item_photos grids (photo-manager, photo-uploader, autolister, composer) already use thumbnail_url ?? photo_url + lazy; storefront photo_url field is served as thumbnail_url by content-public.ts. Added loading=lazy + decoding=async to the 5 remaining grids that fetched full-res signed URLs for off-screen cards (submission-detail, certificate, admin/disputes, admin/moderation, admin/reviews — submission-images bucket has no thumbnails). New regression guard src/test/grid-image-lazy.test.ts scans grid <img> tags for loading=lazy and thumbnail-first src."
     },
     {
       "id": "US-414",
@@ -13444,6 +13444,342 @@
       "priority": 910,
       "passes": false,
       "notes": "[Platform Admin Command Center / Admin Governance] Added 2026-06-11. New admin capability filling a platform-management gap; follow admin conventions: /api/admin/* middleware (admin JWT + AAL2), MFA step-up + admin_audit_log on destructive writes, explicit tenant-scoping per CLAUDE.md US-268, server-side pagination."
+    },
+    {
+      "id": "US-911",
+      "title": "Dedicated newsletter consent + self-serve preference center",
+      "description": "As a user, I want clear, granular control over marketing/newsletter email separate from transactional mail, so I get the weekly curated emails I opted into and can fine-tune or fully unsubscribe without losing account-critical mail. As the platform, consent must be honored correctly on every send.",
+      "acceptanceCriteria": [
+        "Fix the consent-key mismatch: marketingOptedOut() in admin-growth.ts checks prefs['marketing'] but the unsubscribe endpoint (routes/notifications.ts) writes prefs['product_updates'].email — reconcile on ONE canonical key and add a regression test proving an unsubscribe actually suppresses a broadcast send.",
+        "Add a dedicated 'weekly_newsletter' category to notification-preferences.ts (DEFAULT_NOTIFICATION_PREFERENCES) + a migration backfill, distinct from transactional product_updates; the autonomous newsletter sends only to users with this category enabled.",
+        "New public preference-center page (no-login, HMAC-token gated like the existing unsubscribe) where a recipient can toggle individual marketing categories or unsubscribe-all, extending unsubscribe.ts token signing; transactional categories are not suppressible and are clearly labeled as such.",
+        "The in-app settings.tsx notification panel exposes the same newsletter toggle.",
+        "Every marketing/newsletter email footer links to the preference center AND a one-click unsubscribe (CAN-SPAM), reusing emailLayout's marketing footer.",
+        "An unsubscribe/consent-change audit row is written so opt-out history is traceable."
+      ],
+      "priority": 911,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Consent & Deliverability] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-912",
+      "title": "Standalone email subscriber list (non-user leads)",
+      "description": "As a marketer, I want to capture and email people who signed up for the newsletter from the landing page but haven't created an account, so the funnel starts before signup — while keeping consent and suppression unified with registered users.",
+      "acceptanceCriteria": [
+        "New migration adds email_subscribers (email unique, source, status enum(pending,confirmed,unsubscribed,bounced), confirmed_at, consent_token, user_id nullable, created_at) for non-user leads.",
+        "Public POST /api/newsletter/subscribe accepts an email from a landing-page form, creates a pending row, and sends a double-opt-in confirmation email; GET confirm endpoint flips to confirmed (CAN-SPAM/anti-abuse: rate-limited, no enumeration).",
+        "When a subscriber later registers, their email_subscribers row links to the new users row (by email) so they aren't emailed twice; segment/send logic treats the union de-duplicated by email.",
+        "Suppression + bounce handling (other stories) apply to email_subscribers identically to users.",
+        "Landing page gains a newsletter signup component posting to the endpoint with success/error toast.",
+        "Admin can view/export the subscriber list; confirmed-only are emailable."
+      ],
+      "priority": 912,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Consent & Deliverability] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-913",
+      "title": "Email engagement tracking: open pixel + click redirect",
+      "description": "As a marketer, I want to know who opened and clicked each email so the system can measure engagement and self-tune, populating the campaign_recipients.opened_at/clicked_at columns that exist but are never written.",
+      "acceptanceCriteria": [
+        "New public GET /api/email/o/:token returns a 1x1 transparent GIF and records opened_at on the matching campaign_recipients row; token is signed (campaign_id+user_id) and non-enumerable.",
+        "New public GET /api/email/c/:token records clicked_at (and implies open) then 302-redirects to the original URL; a link-rewriter wraps every href in marketing email HTML at render time with a per-link signed token.",
+        "Writes are idempotent (first open/click wins) and tolerant of prefetch/proxy opens (record but flag bot-likely opens where detectable).",
+        "Tracking is only applied to marketing/newsletter email, never transactional; respects a 'no-track' setting.",
+        "campaign_recipients gains any needed columns (e.g. click count, last_clicked_url); the growth analytics dashboard now shows real open/click rates instead of zeros.",
+        "Tokens never leak another recipient's identity; covered by test."
+      ],
+      "priority": 913,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Consent & Deliverability] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-914",
+      "title": "SES bounce/complaint suppression loop",
+      "description": "As the platform, I want hard bounces and spam complaints to automatically suppress an address so the autonomous sender never repeatedly mails bad/angry recipients — the safety mechanism that makes hands-off sending viable and protects sender reputation.",
+      "acceptanceCriteria": [
+        "New migration adds email_suppressions (email unique, reason enum(hard_bounce,complaint,manual,unsubscribe_all), source, created_at, notes).",
+        "New public POST /api/email/ses-notifications endpoint receives SES bounce/complaint notifications via SNS (verify the SNS signature; auto-confirm the subscription), classifying hard bounces and complaints and inserting suppressions; transient/soft bounces do NOT suppress.",
+        "Every send path (transactional outbox AND marketing) checks email_suppressions first and skips suppressed addresses, recording status='skipped' with reason; a complaint also flips the user's marketing consent off.",
+        "A complaint additionally raises an ops alert if the rolling complaint rate exceeds a configurable threshold (settings registry) — over-threshold can auto-pause the newsletter program.",
+        "Admin can view suppressions and manually remove a false-positive suppression (audited, super_admin).",
+        "Test: a hard-bounce notification suppresses the address and the next campaign skips it."
+      ],
+      "priority": 914,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Consent & Deliverability] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-915",
+      "title": "Email deliverability hardening (SES config set, auth, warmup)",
+      "description": "As the platform, I want production-grade deliverability — proper authentication, a dedicated marketing identity, and rate-limited warmup — so autonomous weekly sends land in inboxes, not spam.",
+      "acceptanceCriteria": [
+        "Document and configure SPF, DKIM and a DMARC policy for the sending domain; use a dedicated marketing subdomain/identity (e.g. news.gradethread.com) separate from transactional, so a marketing reputation hit can't harm account-critical mail. Capture this in LAUNCH_CHECKLIST.md / a DELIVERABILITY.md.",
+        "Wire an SES Configuration Set (event publishing to the SNS endpoint above) and select it on marketing sends; the email transport in email.ts supports choosing SES API vs raw SMTP via env, defaulting to the SES path for marketing volume.",
+        "Implement a send-rate throttle honoring SES max-send-rate and a warmup ramp (configurable daily caps in the settings registry) so a large list is sent in paced batches, not a burst.",
+        "Marketing 'From'/'Reply-To', List-Unsubscribe and List-Unsubscribe-Post headers are set on every marketing message for one-click unsubscribe support in Gmail/Apple Mail.",
+        "A pre-flight check warns if DKIM/SPF/DMARC or the config set is misconfigured at boot.",
+        "No transactional mail is moved to the marketing identity (verified by category routing test)."
+      ],
+      "priority": 915,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Consent & Deliverability] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-916",
+      "title": "Product 'What's New' changelog feed",
+      "description": "As the platform, I want a structured changelog of shipped features/improvements so the autonomous newsletter can truthfully tell users what's new — without a human writing release notes each week.",
+      "acceptanceCriteria": [
+        "New migration adds changelog_entries (title, summary, body, category enum(feature,improvement,fix,announcement), audience enum(all,grading,flipdesk,verified), image_url nullable, status enum(draft,published), published_at, source enum(manual,auto)).",
+        "An optional auto-capture path drafts changelog entries from signals already in the system (e.g. newly published blog posts, notable shipped work) for human-light curation; entries can also be created manually in admin.",
+        "GET /api/admin/changelog CRUD (admin) and a public GET /api/changelog feed of published entries (also usable for an in-app 'What's New' panel and a public /changelog page).",
+        "The newsletter assembler pulls unsent published entries since the last issue to build the 'what's new' section, marking them as featured so they aren't repeated next week.",
+        "Entries carry an audience tag so a grading-only user doesn't get FlipDesk-only feature news.",
+        "Admin changelog page under the existing content/admin nav."
+      ],
+      "priority": 916,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Content Sources] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-917",
+      "title": "Newsletter knowledge base + evergreen educational topic bank",
+      "description": "As the platform, I want curated brand/voice docs and an evergreen bank of educational angles (benefits of grading clothing, accurate listing management, condition-grading know-how, reseller tips) so every weekly email teaches something valuable and stays on-brand, reusing the content_knowledge pattern.",
+      "acceptanceCriteria": [
+        "Seed new content_knowledge docs for the email surface: 'email.voice' (newsletter tone — helpful, concise, skimmable), 'email.structure' (sections: what's new, teach-something, tip, CTA), and 'email.value_props' (why grading + accurate listings matter, with concrete numbers).",
+        "New migration adds an evergreen email_topic_bank (or reuses content_topics with surface='email') seeded with educational angles across pillars: grading benefits, listing accuracy, condition standards, pricing/comps, photography, reseller workflow, trust/authenticity.",
+        "Topic selection for each issue dedups against content_history_index + previously-sent issues so the same lesson isn't repeated within a configurable window.",
+        "A refill job tops up the email topic bank below a min threshold using the existing topic-research model (Haiku) constrained to email-appropriate, evergreen angles.",
+        "Knowledge docs are editable by admins (reuse the content knowledge admin surface).",
+        "Educational sections cite real platform capabilities/links (no invented claims), enforced in the prompt."
+      ],
+      "priority": 917,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Content Sources] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-918",
+      "title": "AI newsletter copywriter (new email content surface)",
+      "description": "As the platform, I want Claude to autonomously write a complete weekly newsletter — subject line(s), preheader, and the section copy (what's new, teach-something, tip, CTA) — reusing the content-ai prompt architecture, so no human writes the email.",
+      "acceptanceCriteria": [
+        "New lib/content-ai-email.ts generates a structured JSON issue (subject + 2-3 subject variants, preheader, intro, sections[] each with heading/body/optional image_prompt/optional cta, footer note) via getAnthropicClient() through ai-limiter, with a versioned prompt (email_issue_v1) in content-ai-prompts.ts.",
+        "The system prompt assembles the email.voice/structure/value_props knowledge docs + the issue's inputs (changelog entries, chosen educational topic, KB tip) + compact history context, mirroring content-ai-blog.ts.",
+        "Output is validated/normalized (lengths: subject <=60 chars, preheader <=110 chars), sanitized, and persisted to a newsletter_issues table (migration) with status draft, model_used and token counts recorded.",
+        "Copy is grounded strictly in the provided inputs — no fabricated features, stats, or links (negative test asserts the model can't invent a feature not in the changelog input).",
+        "Dedup: the chosen topic + a distilled summary append to content_history_index on send so future issues don't repeat.",
+        "Generation is idempotent per issue id and safe to retry."
+      ],
+      "priority": 918,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / AI Generation] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-919",
+      "title": "Email-safe modular HTML rendering engine",
+      "description": "As the platform, I want the generated issue JSON rendered into bulletproof, email-client-safe HTML (table layout, inline CSS, dark-mode aware, Outlook/MSO compatible, mobile responsive) using branded components, so emails look right everywhere without a human touching HTML.",
+      "acceptanceCriteria": [
+        "New lib/email-render.ts turns issue JSON into HTML using table-based, inline-CSS components (header/logo, hero, article-card section, tip callout, CTA button, divider, footer) in the GradeThread brand palette, replacing reliance on the minimal emailLayout for marketing.",
+        "Output passes email-client constraints: all CSS inline, no <style>/JS reliance, MSO conditional comments for Outlook buttons, max-width 600px, fluid/responsive, prefers-color-scheme dark handling, and web-safe/Inter fallback fonts.",
+        "A plaintext multipart alternative is auto-generated from the issue (deliverability + accessibility).",
+        "Every image has alt text and explicit width/height; every link is absolute and gets wrapped by the click-tracker at render time; the CAN-SPAM footer + preference-center + List-Unsubscribe are always present.",
+        "A render-snapshot test asserts stable, valid HTML for a sample issue and that no relative URLs or <script> survive.",
+        "Components are reusable so lifecycle/drip emails share the same look."
+      ],
+      "priority": 919,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / AI Generation] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-920",
+      "title": "AI-generated, email-safe imagery",
+      "description": "As the platform, I want each issue to have on-brand hero/section images generated and hosted automatically, so emails are visual without a designer — and the images render in email clients (hosted PNGs, absolute URLs, alt text).",
+      "acceptanceCriteria": [
+        "Reuse openai-images.ts (gpt-image-1) for a photographic/editorial hero from the issue's image_prompt, and/or Satori (functions/_shared/og-template.ts pattern) for deterministic branded banner cards (title + brand), choosing per section type.",
+        "Generated images upload to a public bucket (content-images or a new email-assets bucket) with long cache headers and absolute URLs; email never references private/signed-URL images (they break in clients).",
+        "Images are sized/compressed for email (retina-friendly but weight-bounded), have descriptive alt text, and fall back gracefully when blocked (bg color + alt).",
+        "An image-generation failure degrades to a text/branded-card section rather than blocking the whole issue.",
+        "Cost is bounded per issue (configurable max images) and counts toward the AI spend dashboard / budget guardrails.",
+        "Generated assets are linked to the issue id for reuse and cleanup."
+      ],
+      "priority": 920,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / AI Generation] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-921",
+      "title": "Per-recipient personalization blocks",
+      "description": "As a user, I want the weekly email to feel relevant to me — a quick recap of my own activity (items graded, listed, sold this week) and a tailored next-best-action — so the newsletter drives me back into the product, not just generic news.",
+      "acceptanceCriteria": [
+        "A personalization resolver computes per-recipient dynamic blocks at send time from existing data (grades used this week, items listed, sales, slow-movers, trial days left, credits balance) without N+1 — a single batched query per send batch.",
+        "The renderer injects an optional 'your week on GradeThread' block and a tailored CTA (e.g. 'you have 3 ungraded items', 'your trial ends in 2 days'); recipients with no activity get an evergreen variant.",
+        "Personalization respects privacy/consent and never leaks another user's data; merge fields have safe fallbacks so a missing value never renders 'undefined'.",
+        "Personalized blocks are token-substituted into the pre-rendered template (not re-generated by AI per user) to keep cost O(1) per issue.",
+        "A test renders the issue for a high-activity and a zero-activity user and asserts correct, non-leaky output.",
+        "Personalization can be toggled per issue (some broadcasts are non-personalized)."
+      ],
+      "priority": 921,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / AI Generation] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-922",
+      "title": "Autonomous weekly issue assembler",
+      "description": "As the platform, I want a single orchestrator that autonomously builds the week's issue — gather new changelog entries, pick a fresh educational topic + KB tip, call the copywriter, generate imagery, render HTML — producing a ready-to-QA issue with zero human input.",
+      "acceptanceCriteria": [
+        "New lib/newsletter-assembler.ts orchestrates: select audience-appropriate unsent changelog entries -> pick a deduped educational topic from the bank -> generate copy (content-ai-email) -> generate imagery -> render HTML+plaintext -> persist a complete newsletter_issues row (status='ready_for_qa').",
+        "Cadence + balancing: at most one issue per configured interval; product-focus/audience balancing so grading-only vs FlipDesk users get relevant content (reuse the content-scheduler balancing approach).",
+        "Graceful degradation: if there's no fresh 'what's new', the issue leans on evergreen educational content rather than skipping or inventing news.",
+        "The assembler is idempotent (one issue per period key) and resumable if a sub-step fails, with each step's status recorded on the issue.",
+        "All AI calls route through ai-limiter and count toward AI spend/budget.",
+        "Config (cadence, audiences, max images, sections) lives in a newsletter settings singleton (mirrors content_settings)."
+      ],
+      "priority": 922,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Orchestration] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-923",
+      "title": "Make.com kickoff trigger + webhook contract",
+      "description": "As the operator, I want the ONE allowed external touchpoint — a Make.com (or cron) trigger that kicks off issue creation — wired with a signed contract, so the autonomous pipeline starts on schedule but everything after the trigger is automated.",
+      "acceptanceCriteria": [
+        "New POST /api/newsletter/scheduler/tick (mirrors content-scheduler.ts auth: X-Internal-Job-Secret OR admin JWT, constant-time compare) that, when due, invokes the assembler and advances issues through their lifecycle.",
+        "A Make.com-friendly trigger contract is documented (request shape, signature header, idempotency) so a single Make scenario can start the weekly run; re-triggers within the same period are no-ops.",
+        "On issue lifecycle events (created, sent), fire a signed content-webhook-style notification to a configurable Make webhook URL (reuse content-webhook.ts HMAC signing + retry + content_webhook_log-style logging) for any downstream automation.",
+        "The endpoint is safe to call more often than weekly (it self-gates on cadence) so the Make schedule can be simple.",
+        "Job-lock prevents overlapping runs; the run is recorded to the jobs console (US-881).",
+        "Secrets are env-config (NEWSLETTER_INTERNAL_JOB_SECRET / webhook signing secret), never hardcoded."
+      ],
+      "priority": 923,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Orchestration] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-924",
+      "title": "Autonomous pre-send QA / guardrail gate",
+      "description": "As the platform, I want every issue to pass automated quality and safety checks before it can send, so a fully autonomous pipeline never ships a broken, off-brand, or non-compliant email.",
+      "acceptanceCriteria": [
+        "A QA gate runs on each issue before send and blocks on failure: all links resolve (no 404/relative), all images load and have alt text, unsubscribe + preference-center + postal address present, plaintext alternative exists, subject/preheader within length, no spammy-words/ALL-CAPS/excessive punctuation beyond a configurable spam score, and no leftover template/merge-field placeholders.",
+        "An AI 'editor' pass (cheap model) checks brand-voice + factual grounding against the issue inputs and flags hallucinated claims; a hard flag blocks send.",
+        "Outcome: pass -> issue becomes 'approved' (auto-send) OR 'awaiting_review' when the settings 'require_human_approval' toggle is on; fail -> 'blocked' with reasons + an ops alert.",
+        "Results (each check, pass/fail, details) are stored on the issue and shown in the admin console.",
+        "A seed-corpus regression test feeds known-bad issues (broken link, missing unsubscribe, hallucinated feature) and asserts each is blocked.",
+        "Thresholds live in the settings registry so they're tunable without deploy."
+      ],
+      "priority": 924,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Orchestration] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-925",
+      "title": "Durable segmented marketing send via outbox",
+      "description": "As the platform, I want approved issues delivered to the right segment reliably — through the durable email_deliveries outbox with retry, honoring suppression and consent, idempotently — so sends survive transient failures and never double-mail.",
+      "acceptanceCriteria": [
+        "Sending an approved issue enqueues per-recipient rows that flow through the email_deliveries outbox (category='newsletter') so marketing mail gets the same retry/backoff/dead-letter durability as transactional (closes the US-627 gap where broadcasts had no durable retry).",
+        "Recipient resolution = target segment (segments.ts iterateSegmentUsers) UNION confirmed email_subscribers, de-duped by email, MINUS suppressions MINUS users without newsletter consent; each decision recorded as sent/skipped(reason) in campaign_recipients with the UNIQUE(campaign_id,user_id,channel) idempotency guard.",
+        "The send is a durable, resumable server-side batch bounded per tick (reuse the bounded-batch pattern from US-407/US-559), honoring the SES warmup rate limiter; a re-run never re-sends an already-sent recipient.",
+        "Per-recipient personalization + click-tracking rewriting happen at enqueue/render time.",
+        "Each issue links to its campaign_recipients ledger for analytics.",
+        "Tenant/consent test: a suppressed or opted-out address is skipped and recorded, never sent."
+      ],
+      "priority": 925,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Orchestration] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-926",
+      "title": "Weekly scheduler + send-time optimization",
+      "description": "As the platform, I want the issue to send on a sensible weekly cadence at a good time, automatically, so engagement is maximized without manual scheduling.",
+      "acceptanceCriteria": [
+        "A scheduling step sets each approved issue's send window (default a configured weekday/hour in the settings singleton) and the dispatch cron releases it through the outbox sender when due.",
+        "Optional per-recipient send-time optimization: stagger sends toward a recipient's historically-best open hour (from engagement data) within the send window, with a safe default when no history exists.",
+        "Cadence guard ensures no recipient gets more than one newsletter per period even across re-runs.",
+        "The weekly schedule, timezone handling, and per-period cadence are config-driven (no code change to move the send day).",
+        "Wired into the jobs console (US-881) with last-run/next-due visibility.",
+        "A holiday/quiet-period pause toggle can skip a week without breaking the cadence counter."
+      ],
+      "priority": 926,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Orchestration] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-927",
+      "title": "Subject-line & content A/B testing with auto-winner",
+      "description": "As a marketer, I want the system to A/B test subject lines (and optionally hero/CTA) on a holdout, pick the winner by open/click, and send the winner to the rest — automatically — so emails keep improving without manual experiments.",
+      "acceptanceCriteria": [
+        "Each issue can carry 2-3 subject variants (already produced by the copywriter); the sender allocates a configurable test fraction across variants, waits a configured measurement window, then sends the winning variant (by open, or click for CTA tests) to the remainder.",
+        "Variant assignment + per-variant open/click are recorded on campaign_recipients (variant column) and rolled up per issue.",
+        "Winner selection requires a minimum sample size, else falls back to a default variant (no spurious winners on tiny lists).",
+        "The whole flow is autonomous (no human picks the winner) but visible/overridable in the admin console.",
+        "A test simulates opens across variants and asserts the higher-performing subject is chosen and sent to the holdout.",
+        "Works through the same durable outbox + idempotency guarantees."
+      ],
+      "priority": 927,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Optimization & Admin] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-928",
+      "title": "Closed-loop self-tuning from engagement",
+      "description": "As the platform, I want open/click/unsubscribe signals to feed back into what we send — favoring topics, subject styles, and send times that engage — so the autonomous program gets smarter over time.",
+      "acceptanceCriteria": [
+        "An analysis job aggregates per-issue and per-topic engagement (open rate, CTR, unsub rate) and per-subject-style and per-send-hour performance.",
+        "Topic selection in the assembler is biased toward higher-engaging pillars/angles (and away from high-unsub ones) via a weighting it reads from the aggregates; subject-variant generation is nudged toward winning styles; send-time optimization consumes the per-hour stats.",
+        "Guardrails prevent runaway narrowing: exploration floor so under-tested topics still get airtime; unsub-rate ceiling that pauses a topic.",
+        "Recommendations + the current weights are surfaced in the admin console for transparency/override.",
+        "All tuning is data-driven from the engagement tables (no manual inputs required) and documented.",
+        "A test asserts a topic with a high unsub rate is down-weighted in the next selection."
+      ],
+      "priority": 928,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Optimization & Admin] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-929",
+      "title": "Lifecycle drip series (welcome, trial-nurture, win-back)",
+      "description": "As the platform, I want automated lifecycle email series triggered by user state — onboarding welcome, trial-ending nurture, and win-back for inactive users — reusing the same generation/rendering/send stack, so engagement isn't only the weekly broadcast.",
+      "acceptanceCriteria": [
+        "New migration adds email_journeys + email_journey_steps (trigger enum(signup,trial_ending,inactivity,first_grade,first_sale), step offset days, template ref) and enrollment tracking so each user advances through a series once.",
+        "A daily evaluation job enrolls users whose state matches a trigger (e.g. signup -> welcome series; trial_ends_at within N days -> nurture; no activity for N days -> win-back) and sends the due step via the durable outbox, honoring consent + suppression.",
+        "Step content reuses the email-render components and may be AI-personalized; transactional vs marketing classification is correct (welcome can be lifecycle-transactional; win-back is marketing and respects opt-out).",
+        "Enrollment is idempotent and exit conditions stop the series when the goal is met (e.g. user converts -> stop trial-nurture).",
+        "Trial-ending nurture finally closes the long-standing gap where the trial-expiry cron downgrades users without warning them.",
+        "Admin can view/enable each journey; metrics roll up per step."
+      ],
+      "priority": 929,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Optimization & Admin] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-930",
+      "title": "Newsletter admin console",
+      "description": "As an operator, I want one place to see the autonomous program, preview/test-send issues, toggle approval mode, and pause/kill the whole thing, so I have oversight and a safety brake over an otherwise hands-off system.",
+      "acceptanceCriteria": [
+        "New admin page src/pages/admin/newsletter.tsx (under a 'Newsletter' or the Growth/content nav) listing issues with status (draft/ready_for_qa/approved/awaiting_review/sending/sent/blocked), schedule, audience, and QA results.",
+        "Actions: preview rendered HTML, send a test email to an admin address, manually approve/reject an awaiting-review issue, edit subject/sections before send, and a master 'pause program' + 'require human approval' toggle (settings singleton); destructive actions audited + step-up.",
+        "A kill-switch integrates with the feature-flags system so the newsletter can be halted instantly platform-wide.",
+        "Per-issue drill-in shows recipients resolved, skipped (with reasons), and live send progress.",
+        "Surfaces the next scheduled run and lets the operator trigger 'build next issue now'.",
+        "All gated by /api/admin/* (admin JWT + AAL2)."
+      ],
+      "priority": 930,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Optimization & Admin] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
+    },
+    {
+      "id": "US-931",
+      "title": "Email program analytics & deliverability dashboard",
+      "description": "As an operator, I want a dashboard of program health — opens, clicks, CTR, conversions, bounces, complaints, unsubscribes, and list growth/health — so I can prove the newsletter drives engagement and catch deliverability problems early.",
+      "acceptanceCriteria": [
+        "New RPC newsletter_analytics(period) aggregates per-issue and program-level open rate, CTR, unsub rate, bounce rate, complaint rate, list size/growth, and confirmed-subscriber counts from campaign_recipients + email_suppressions + email_subscribers.",
+        "GET /api/admin/newsletter/analytics returns the rollup with period filtering; a page (or tab on the console) charts trends and flags any metric crossing a deliverability threshold (e.g. complaint rate > 0.1%).",
+        "Engagement is tied back to product outcomes where possible (e.g. clicked -> returned/graded) reusing the closed-loop signals.",
+        "Bounce/complaint spikes raise an ops alert and can auto-pause via the suppression-loop threshold.",
+        "Read-only, server-side aggregated; complements PostHog rather than duplicating it.",
+        "Numbers reconcile with the campaign_recipients ledger (documented definitions)."
+      ],
+      "priority": 931,
+      "passes": false,
+      "notes": "[Autonomous Email Marketing Engine / Optimization & Admin] Added 2026-06-11. Reuses existing infra: content-ai-* pipeline + content_knowledge + content_history_index (dedup), ai-config/ai-limiter, email.ts SMTP/SES + email_deliveries outbox + unsubscribe.ts, segments.ts + campaign_recipients, content-scheduler/content-webhook (Make.com) pattern, openai-images.ts/Satori. Follow conventions: tenant-scoping (US-268), /api/admin/* (admin JWT + AAL2) for admin endpoints, job-lock + bounded durable batches for crons, CAN-SPAM footer + consent + suppression on every marketing send."
     }
   ]
 }

@@ -557,6 +557,8 @@ export function CertificatePage() {
                         <img
                           src={imageUrls[img.id]}
                           alt={`${img.image_type} photo`}
+                          loading="lazy"
+                          decoding="async"
                           className="h-full w-full object-cover"
                         />
                       </button>

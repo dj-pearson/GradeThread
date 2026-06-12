@@ -386,6 +386,8 @@ export function AdminModerationPage() {
                           <img
                             src={img.url}
                             alt="Flagged submission"
+                            loading="lazy"
+                            decoding="async"
                             className="h-full w-full object-cover"
                           />
                         </div>
