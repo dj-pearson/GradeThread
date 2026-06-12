@@ -7309,8 +7309,8 @@
         "Unhandled topics are tracked as a metric, not only console-logged"
       ],
       "priority": 471,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. processEbayWebhookEvent handles only FINANCES_PAYOUT topics."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. processEbayWebhookEvent handles only FINANCES_PAYOUT topics. DONE 2026-06-12: webhook classifies topics (lib/ebay-webhook-topics.ts); order/sale + return/cancel topics resolve seller and fire triggerEbaySyncForUser (incremental doListingsPull, which flips sold + reverses cancelled/refunded). Unhandled topics emit webhook.unhandled_topic metric; webhook.received/sync_triggered/unmatched_seller also metered. Test: ebay-webhook-topics_test.ts."
     },
     {
       "id": "US-472",

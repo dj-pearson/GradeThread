@@ -2235,6 +2235,53 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
   return c.json({ ok: true, message: "Sync started in background." }, 202);
 });
 
+// US-471: targeted incremental sync used by the eBay Notification webhook when
+// an order/sale/return topic arrives, so sold/returned state updates in
+// near-real-time instead of waiting for the next manual or scheduled pull.
+// Mirrors the /listings/pull handler (validate connection → claim the in-flight
+// lock → fire doListingsPull incrementally) but takes no Context: it's invoked
+// from processEbayWebhookEvent after the seller has been resolved from the
+// verified payload. Always incremental (never a backfill) and best-effort —
+// returns a status string instead of throwing so a webhook ack is never blocked.
+export async function triggerEbaySyncForUser(
+  userId: string,
+): Promise<"started" | "already_running" | "no_connection" | "not_configured"> {
+  if (!isEbayConfigured()) return "not_configured";
+
+  const { data: conn } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("id, last_synced_at")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!conn) return "no_connection";
+
+  const connId = (conn as { id: string; last_synced_at: string | null }).id;
+  const lastSyncedAt =
+    (conn as { id: string; last_synced_at: string | null }).last_synced_at ?? null;
+
+  // Reuse the same per-tenant lock the manual pull uses: if a sync is already
+  // running (manual, scheduled, or a prior webhook), don't race — the in-flight
+  // run will pick up the just-changed order. claimSyncRun reaps dead runs.
+  const claim = await claimSyncRun(userId, "ebay");
+  if (claim.status === "already_running") return "already_running";
+  const runId = claim.status === "claimed" ? claim.runId : null;
+
+  void doListingsPull(userId, connId, lastSyncedAt, false, runId).catch(
+    async (err) => {
+      console.error("[flipdesk-ebay] webhook-triggered sync crashed:", err);
+      if (runId) {
+        await failSyncRun(runId, err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+  return "started";
+}
+
 // GET /sync-runs — recent sync-run history for the Reconciliation page.
 // Tenant-scoped to the workspace owner (the account the sync runs on behalf
 // of). Returns the freshest runs first; default 20, capped at 50.

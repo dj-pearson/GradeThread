@@ -7,6 +7,8 @@ import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
+import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
+import { classifyEbayTopic } from "../lib/ebay-webhook-topics.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -110,11 +112,61 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
 // unit-tested (with an injected key fixture) without importing this route
 // module (and its service-role client).
 
-// Dispatches a verified eBay notification by topic. Currently handles the
-// FINANCES_PAYOUT_* family — initiated, paid, failed. All other topics
-// are logged and dropped (order events still flow through the polling
-// sync). Future topics can be added incrementally without touching the
-// receiver or signature-verify path.
+// US-471: resolve the GradeThread user behind an eBay notification from the
+// fields eBay commonly carries on order/sale/return payloads. Prefers the
+// stable, signature-verified seller userId (stored as external_account_id) and
+// falls back to the seller username (account_handle). Returns null when no
+// active connection matches — the caller meters + drops.
+async function resolveEbayUserId(
+  data: Record<string, unknown>,
+): Promise<string | null> {
+  const seller = (data.seller ?? data.user) as
+    | { username?: unknown; userId?: unknown }
+    | undefined;
+  const username =
+    (typeof data.username === "string" && data.username) ||
+    (typeof seller?.username === "string" && seller.username) ||
+    null;
+  const ebayUserId =
+    (typeof data.sellerId === "string" && data.sellerId) ||
+    (typeof data.userId === "string" && data.userId) ||
+    (typeof seller?.userId === "string" && seller.userId) ||
+    null;
+
+  if (ebayUserId) {
+    const { data: row } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("user_id")
+      .eq("marketplace", "ebay")
+      .eq("external_account_id", ebayUserId)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    const uid = (row as { user_id?: string } | null)?.user_id ?? null;
+    if (uid) return uid;
+  }
+  if (username) {
+    const { data: row } = await supabaseAdmin
+      .from("marketplace_connections")
+      .select("user_id")
+      .eq("marketplace", "ebay")
+      .eq("account_handle", username)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle();
+    const uid = (row as { user_id?: string } | null)?.user_id ?? null;
+    if (uid) return uid;
+  }
+  return null;
+}
+
+// Dispatches a verified eBay notification by topic. Handles:
+//   • FINANCES_PAYOUT_*  → payout dedup/ingest (handlePayoutEvent)
+//   • order/sale topics  → targeted incremental sync (sold-state detection)
+//   • return/cancel/refund topics → same targeted sync, which reverses
+//     cancelled/refunded sales and re-activates the item (doListingsPull)
+// Everything else is metered (webhook.unhandled_topic) AND logged, so we have a
+// dashboard signal for what's arriving — not just a buried console line.
 async function processEbayWebhookEvent(
   event: Record<string, unknown>,
 ): Promise<void> {
@@ -158,12 +210,48 @@ async function processEbayWebhookEvent(
     }
   }
 
-  if (topic.startsWith("FINANCES_PAYOUT")) {
+  const bucket = classifyEbayTopic(topic);
+  recordMetric("webhook.received", 1, { provider: "ebay", topic, bucket });
+
+  if (bucket === "payout") {
     await handlePayoutEvent(notif?.data ?? {}, topic);
     return;
   }
 
-  // Known but unhandled — log so we know what's arriving when we add more.
+  // Order/sale and return/cancellation topics both drive a targeted incremental
+  // sync: doListingsPull pulls orders modified since last_synced_at, flips newly
+  // sold items to 'sold', and reverses cancelled/refunded line items back to
+  // 'listed' (US-459). One code path serves both buckets — the difference is
+  // only which line items the sync finds changed.
+  if (bucket === "order" || bucket === "return") {
+    const userId = await resolveEbayUserId(notif?.data ?? {});
+    if (!userId) {
+      recordMetric("webhook.unmatched_seller", 1, {
+        provider: "ebay",
+        topic,
+        bucket,
+      });
+      console.warn(
+        `[flipdesk-webhooks] no active eBay connection matches topic=${topic} id=${notifId} — dropping`,
+      );
+      return;
+    }
+    const result = await triggerEbaySyncForUser(userId);
+    recordMetric("webhook.sync_triggered", 1, {
+      provider: "ebay",
+      topic,
+      bucket,
+      result,
+    });
+    console.log(
+      `[flipdesk-webhooks] eBay ${bucket} event topic=${topic} → sync ${result} for user=${userId}`,
+    );
+    return;
+  }
+
+  // Unhandled: meter it so the rate of unknown topics is visible on a dashboard
+  // (US-471), not only discoverable by grepping logs.
+  recordMetric("webhook.unhandled_topic", 1, { provider: "ebay", topic });
   console.log(
     `[flipdesk-webhooks] dropping eBay event with unhandled topic: ${topic}`,
   );
