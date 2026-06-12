@@ -36,6 +36,7 @@ import { CrossSourceConflicts } from "@/components/flipdesk/cross-source-conflic
 import { useSyncConflicts } from "@/hooks/use-sync-conflicts";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useItemsFull } from "@/hooks/use-items-full";
 import { detectDiscrepancies } from "@/lib/pnl";
 import {
   useImportPayoutsCsv,
@@ -52,7 +53,7 @@ import {
   useSyncEbayListings,
   type EbaySyncRun,
 } from "@/hooks/use-ebay";
-import type { SaleRow, ItemFullRow } from "@/types/database";
+import type { SaleRow } from "@/types/database";
 
 const STEPS = [
   {
@@ -145,30 +146,9 @@ export function FlipdeskReconciliationPage() {
     },
   });
 
-  // Cached items_full gives us titles without another round-trip.
-  const { data: items = [] } = useQuery({
-    queryKey: ["items_full", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  // Cached items_full gives us titles without another round-trip — shared
+  // single source of truth across FlipDesk (US-419).
+  const { data: items = [] } = useItemsFull();
 
   const titleById = useMemo(() => {
     const m = new Map<string, string>();

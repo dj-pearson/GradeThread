@@ -44,7 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
+import { useItemsFull } from "@/hooks/use-items-full";
 import {
   DESCRIPTION_TEMPLATES,
   interpolateDescription,
@@ -73,7 +73,6 @@ import { useEbayConnection } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
-  ItemFullRow,
   ItemPhotoRow,
   ListingInsert,
   ListingRow,
@@ -85,7 +84,6 @@ export function FlipdeskComposerPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const user = useAuthStore((s) => s.user);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -116,29 +114,8 @@ export function FlipdeskComposerPage() {
   const { data: ebayConnection } = useEbayConnection();
   const crossPush = useCrossPush();
 
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  // Shared items_full read — single source of truth across FlipDesk (US-419).
+  const { data: items = [], isLoading } = useItemsFull();
 
   const item = useMemo(
     () => items.find((it) => it.id === id) ?? null,

@@ -485,8 +485,15 @@ export function FlipdeskListingsPage() {
     setPage(1);
   }, [search, pageSize, soldFilter]);
 
+  // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
+  // ["items_full", user.id] the full-row consumers (pipeline/overview/prep/etc.,
+  // now the shared useItemsFull hook) use. This query projects a narrower
+  // LISTINGS_COLUMNS subset, so sharing the canonical key would let a
+  // partial-column cache entry win and starve those consumers of fields like
+  // photo_count/has_required_photos. The "items_full" prefix keeps it covered by
+  // the existing invalidateQueries({ queryKey: ["items_full"] }) calls.
   const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", user?.id],
+    queryKey: ["items_full", "listings", user?.id],
     enabled: !!user,
     // 15-min freshness — mutations invalidate items_full explicitly, so a
     // longer window only skips redundant passive refetches (US-735).

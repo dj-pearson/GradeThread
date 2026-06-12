@@ -8,42 +8,19 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
+import { useItemsFull } from "@/hooks/use-items-full";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
-import type { ItemFullRow } from "@/types/database";
 
 // Deep-linkable item detail page. The canvas itself is shared with the
 // quick-look dialog opened from list rows.
 export function FlipdeskItemPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
 
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  // Shared items_full read — single source of truth across FlipDesk (US-419).
+  const { data: items = [], isLoading } = useItemsFull();
 
   const item = useMemo(
     () => items.find((it) => it.id === id) ?? null,

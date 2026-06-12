@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   Hammer,
@@ -26,7 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
-import { useAuthStore } from "@/stores/auth-store";
+import { useItemsFull } from "@/hooks/use-items-full";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import { MeasurementForm } from "@/components/flipdesk/measurement-form";
 import { CompEditor } from "@/components/flipdesk/comp-editor";
@@ -44,44 +44,25 @@ interface PrepState {
 }
 
 export function FlipdeskPrepPage() {
-  const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [index, setIndex] = useState(0);
   const [draft, setDraft] = useState<PrepState | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", user?.id],
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: true }); // oldest first
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  // Shared items_full read — single source of truth across FlipDesk (US-419).
+  const { data: items = [], isLoading } = useItemsFull();
 
-  // Items still in the prep phase (before drafted), oldest first.
+  // Items still in the prep phase (before drafted), oldest first. The shared
+  // cache is ordered newest-first, so sort to oldest-first here.
   const queue = useMemo(
     () =>
-      items.filter((it) => {
-        const r = rankOf(it.status);
-        return r >= 0 && r < DRAFTED_RANK;
-      }),
+      items
+        .filter((it) => {
+          const r = rankOf(it.status);
+          return r >= 0 && r < DRAFTED_RANK;
+        })
+        .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? "")),
     [items],
   );
 

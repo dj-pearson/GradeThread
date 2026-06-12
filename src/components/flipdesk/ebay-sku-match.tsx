@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useItemsFull } from "@/hooks/use-items-full";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { parseEbayListingsCsv, normalizeSku } from "@/lib/ebay-csv";
 import { reconcile, autoMatch } from "@/lib/ebay-reconcile";
@@ -101,34 +102,6 @@ function useEbayListings() {
         .order("imported_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as EbayListingRow[];
-    },
-  });
-}
-
-function useItemsFull() {
-  const user = useAuthStore((s) => s.user);
-  return useQuery({
-    queryKey: ["items_full", user?.id],
-    enabled: !!user,
-    // 15-min freshness — mutations invalidate items_full explicitly (US-735).
-    staleTime: 15 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
     },
   });
 }

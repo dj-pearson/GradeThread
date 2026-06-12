@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
   type DragEndEvent,
@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useItemsFull } from "@/hooks/use-items-full";
 import {
   FLIPDESK_PIPELINE,
   ITEM_CATEGORIES,
@@ -145,30 +146,8 @@ export function FlipdeskPipelinePage() {
     }),
   );
 
-  const { data: items = [], isLoading } = useQuery({
-    queryKey: ["items_full", user?.id],
-    enabled: !!user,
-    // 15-min freshness — mutations invalidate items_full explicitly (US-735).
-    staleTime: 15 * 60 * 1000,
-    queryFn: async (): Promise<ItemFullRow[]> => {
-      const { data, error } = await (
-        supabase.from as unknown as (
-          name: "items_full",
-        ) => {
-          select: (cols: string) => {
-            order: (
-              col: string,
-              opts?: { ascending?: boolean },
-            ) => Promise<{ data: ItemFullRow[] | null; error: Error | null }>;
-          };
-        }
-      )("items_full")
-        .select("*")
-        .order("updated_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  // Shared items_full read — single source of truth across FlipDesk (US-419).
+  const { data: items = [], isLoading } = useItemsFull();
 
   const brands = useMemo(() => {
     const set = new Set<string>();

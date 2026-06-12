@@ -6653,8 +6653,8 @@
         "gcTime/staleTime set deliberately for large payloads; no redundant per-call overrides"
       ],
       "priority": 419,
-      "passes": false,
-      "notes": "[P3][Performance] Audit 2026-06-03. items_full/sales loaded under different keys across routes."
+      "passes": true,
+      "notes": "[P3][Performance] DONE 2026-06-12. Finances + Analytics already moved to single-endpoint RPCs (US-403/US-418), so the remaining dedup work was the heavy items_full read: 6 routes (pipeline, prep, item, overview, composer, reconciliation) plus ebay-sku-match each re-declared the SAME ['items_full', user.id] key with DIVERGENT queryFns (order updated_at vs created_at asc/desc) and inconsistent staleTime (5min vs 15min) — a React Query foot-gun where whichever consumer mounts first silently wins and the per-call overrides are redundant/non-deterministic. AC1: extracted a single source-of-truth hook src/hooks/use-items-full.ts (useItemsFull) — one canonical query key + one queryFn (created_at desc, select *); all 7 consumers now import it (ebay-sku-match's private copy promoted). prep needs oldest-first so it sorts client-side off the one cached array. AC2: gcTime (30min, keep big payload warm across route hops) + staleTime (15min) set deliberately in ONE place; removed all 7 redundant per-call staleTime overrides. Also fixed a latent collision: listings.tsx shared the bare ['items_full', user.id] key while projecting a NARROWER LISTINGS_COLUMNS subset (drops photo_count/has_required_photos/ai_*) — re-keyed to ['items_full','listings',user.id] so its partial-column cache can't starve full-row consumers; the 'items_full' prefix keeps it covered by existing invalidateQueries. tsc -b + npm run build + lint clean."
     },
     {
       "id": "US-420",
