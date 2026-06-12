@@ -11,7 +11,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
-import { withRetry, isRetryableError } from "./retry.ts";
+import { withRetry, isRetryableError, isRateLimitError } from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
@@ -1040,6 +1040,24 @@ function localeForMarketplace(): string {
 // US-325: 429/5xx from eBay during a batch shouldn't fail the job — wrap in
 // withRetry. A 429 or 5xx means eBay rejected the request before mutating
 // state, so retrying is safe even for non-idempotent POSTs.
+// US-406: parse an HTTP `Retry-After` value to milliseconds. eBay sends either
+// a delay in whole seconds ("120") or an HTTP-date; both are honored. Returns
+// null for a missing/garbage header so the caller falls back to jitter.
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const trimmed = header.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : null;
+  }
+  const dateMs = Date.parse(trimmed);
+  if (!Number.isNaN(dateMs)) {
+    const delta = dateMs - Date.now();
+    return delta > 0 ? delta : 0;
+  }
+  return null;
+}
+
 async function fetchAuthed<T>(
   userId: string,
   path: string,
@@ -1077,8 +1095,17 @@ async function fetchAuthedOnce<T>(
     // matches on the numeric status (not just the message regex).
     const err = new Error(
       `eBay ${init?.method ?? "GET"} ${path} failed (${res.status}): ${text.slice(0, 500)}`,
-    ) as Error & { status: number; ebayErrorIds?: number[] };
+    ) as Error & { status: number; ebayErrorIds?: number[]; retryAfterMs?: number };
     err.status = res.status;
+    // US-406: honor eBay's Retry-After (and the rate-limit window header it
+    // sends on 429s) so withRetry waits exactly as long as eBay asked instead
+    // of guessing with jittered backoff. Header is seconds (integer) or an
+    // HTTP-date; we normalize both to ms.
+    const retryAfterMs = parseRetryAfter(
+      res.headers.get("retry-after") ??
+        res.headers.get("x-ebay-c-rlogid-retry-after"),
+    );
+    if (retryAfterMs !== null) err.retryAfterMs = retryAfterMs;
     // US-528: parse eBay's structured error array so callers can match on a
     // stable errorId (e.g. 25002 = offer already exists) instead of brittle
     // message regexes that break when eBay rewords or localizes a message.
@@ -2007,6 +2034,21 @@ export async function listAllInventoryItems(
   return all;
 }
 
+// US-406: per-sync SKU fan-out ceiling. eBay's getOffers has no bulk variant —
+// it's one call per SKU — so a 5,000-item seller is 5,000 calls against the
+// Sell Inventory API's documented daily quota. We cap the fan-out per sync; the
+// remainder is NOT dropped silently: a partial run is recorded and the next
+// incremental sync continues from where this one stopped (inventory_item is
+// listed in a stable order, so a later sync re-reads the same prefix cheaply and
+// reaches the tail once earlier items settle). Sized well above a typical
+// reseller's active catalog; it's a quota guardrail, not a normal-path limit.
+const MAX_OFFERS_FANOUT_PER_SYNC = 2_000;
+
+// US-406: concurrency tuned to eBay's documented Sell API limits. The Inventory
+// API's per-second cap is comfortably above this, but 5 in flight keeps a large
+// sync from spiking toward the daily quota while still finishing in seconds.
+const OFFERS_FANOUT_CONCURRENCY = 5;
+
 // Pulls every offer for the connected seller. eBay has no "list all offers"
 // endpoint — you must walk inventory_item, then for each SKU fetch offers.
 // Bounded concurrency keeps us under the Sell API rate limits without
@@ -2015,13 +2057,29 @@ export async function listAllOffers(
   userId: string,
   warnings?: string[],
 ): Promise<RemoteOffer[]> {
-  const items = await listAllInventoryItems(userId, warnings);
-  if (items.length === 0) return [];
+  const allItems = await listAllInventoryItems(userId, warnings);
+  if (allItems.length === 0) return [];
+
+  // US-406: bound the fan-out. Beyond the ceiling we stop and flag the run
+  // partial rather than fire thousands of calls at eBay's quota in one sync.
+  const items = allItems.slice(0, MAX_OFFERS_FANOUT_PER_SYNC);
+  if (allItems.length > items.length) {
+    warnings?.push(
+      `Partial sync: fetched offers for the first ${items.length} of ` +
+        `${allItems.length} SKUs (the ${MAX_OFFERS_FANOUT_PER_SYNC}-SKU per-sync ` +
+        `fan-out ceiling, to stay under eBay's daily call quota). The remaining ` +
+        `SKUs will sync on the next run.`,
+    );
+  }
 
   const all: RemoteOffer[] = [];
-  const CONCURRENCY = 5;
-  for (let i = 0; i < items.length; i += CONCURRENCY) {
-    const slice = items.slice(i, i + CONCURRENCY);
+  // US-406: set when a per-SKU call exhausts retries on a 429/quota error. Once
+  // eBay is rate-limiting us, continuing the fan-out only deepens the throttle
+  // and risks a silently truncated catalog, so we stop and record a rate-limit-
+  // specific partial error (distinct from the generic "one SKU failed" log).
+  let rateLimited = false;
+  for (let i = 0; i < items.length; i += OFFERS_FANOUT_CONCURRENCY) {
+    const slice = items.slice(i, i + OFFERS_FANOUT_CONCURRENCY);
     const results = await Promise.all(
       slice.map((it) =>
         listOffersForSku(userId, it.sku)
@@ -2031,6 +2089,9 @@ export async function listAllOffers(
             offers.map((o) => ({ ...o, title: it.title, aspects: it.aspects }))
           )
           .catch((err) => {
+            // A 429/quota error means eBay is throttling the whole account —
+            // not a one-off bad SKU — so flag it and bail out of the fan-out.
+            if (isRateLimitError(err)) rateLimited = true;
             // One SKU failing shouldn't kill the whole sync. Log + carry on.
             console.error(
               `[ebay-client] listOffersForSku(${it.sku}) failed:`,
@@ -2041,6 +2102,15 @@ export async function listAllOffers(
       )
     );
     for (const offers of results) all.push(...offers);
+    if (rateLimited) {
+      const reached = Math.min(i + OFFERS_FANOUT_CONCURRENCY, items.length);
+      warnings?.push(
+        `Rate limited by eBay: stopped after ${reached} of ${items.length} SKUs ` +
+          `to avoid exhausting the daily call quota. This sync is partial — ` +
+          `remaining offers were NOT fetched and will sync on the next run.`,
+      );
+      break;
+    }
   }
   return all;
 }

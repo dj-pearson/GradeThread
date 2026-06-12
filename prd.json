@@ -6494,8 +6494,8 @@
         "A run that hit limits is marked partial with a rate-limit-specific error, not a silently truncated catalog"
       ],
       "priority": 406,
-      "passes": false,
-      "notes": "[P1][Performance] Audit 2026-06-03. listAllOffers fans out one listOffersForSku per SKU up to 5,000 with no cap/backoff."
+      "passes": true,
+      "notes": "[P1][Performance] Audit 2026-06-03. listAllOffers fans out one listOffersForSku per SKU up to 5,000 with no cap/backoff. IMPLEMENTED 2026-06-11: retry.ts now honors Retry-After (parsed in ebay-client fetchAuthedOnce, capped at maxRetryAfterMs) and exports isRateLimitError/retryAfterMs. listAllOffers bounds fan-out at MAX_OFFERS_FANOUT_PER_SYNC=2000 SKUs (concurrency 5, tuned to Sell-API limits), records a documented partial-continuation warning when capped, and stops + records a rate-limit-specific partial error on a 429 instead of silently truncating. Tests in retry_test.ts."
     },
     {
       "id": "US-407",

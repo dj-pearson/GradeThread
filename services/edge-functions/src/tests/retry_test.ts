@@ -2,7 +2,12 @@
 // timers — `sleep` and `random` are injected so the suite runs instantly.
 
 import { assert, assertEquals } from "@std/assert";
-import { isRetryableError, withRetry } from "../lib/retry.ts";
+import {
+  isRateLimitError,
+  isRetryableError,
+  retryAfterMs,
+  withRetry,
+} from "../lib/retry.ts";
 
 const noSleep = () => Promise.resolve();
 const fixedRandom = () => 0; // delay = 0, fully deterministic
@@ -79,6 +84,71 @@ Deno.test("withRetry: does NOT retry a non-retryable error", async () => {
     // expected
   }
   assertEquals(calls, 1);
+});
+
+// ─── US-406: rate-limit classification + Retry-After honoring ───────
+
+Deno.test("isRateLimitError: 429 and quota messages, not generic 5xx", () => {
+  assert(isRateLimitError(http(429)));
+  assert(isRateLimitError(new Error("eBay GET /offer failed (429): rate limit")));
+  assert(isRateLimitError(new Error("Daily call limit exceeded")));
+  assertEquals(isRateLimitError(http(503, "service unavailable")), false);
+  assertEquals(isRateLimitError(http(500)), false);
+  assertEquals(isRateLimitError(new Error("ECONNRESET")), false);
+});
+
+Deno.test("retryAfterMs: reads a positive numeric hint, else null", () => {
+  const withHint = Object.assign(http(429), { retryAfterMs: 1500 });
+  assertEquals(retryAfterMs(withHint), 1500);
+  assertEquals(retryAfterMs(http(429)), null); // no hint attached
+  assertEquals(retryAfterMs(Object.assign(http(429), { retryAfterMs: 0 })), null);
+  assertEquals(retryAfterMs(Object.assign(http(429), { retryAfterMs: -5 })), null);
+  assertEquals(retryAfterMs(new Error("plain")), null);
+});
+
+Deno.test("withRetry: honors Retry-After hint over jittered backoff", async () => {
+  let calls = 0;
+  const delays: number[] = [];
+  const err = Object.assign(http(429), { retryAfterMs: 2000 });
+  await withRetry(
+    () => {
+      calls++;
+      if (calls < 2) throw err;
+      return Promise.resolve("ok");
+    },
+    {
+      maxAttempts: 3,
+      sleep: (ms) => {
+        delays.push(ms);
+        return Promise.resolve();
+      },
+      // fixedRandom would make jitter 0; the hint must win regardless.
+      random: fixedRandom,
+    },
+  );
+  assertEquals(delays, [2000]); // waited exactly what eBay asked, not 0
+});
+
+Deno.test("withRetry: caps an oversized Retry-After at maxRetryAfterMs", async () => {
+  const delays: number[] = [];
+  const err = Object.assign(http(429), { retryAfterMs: 3_600_000 }); // 1h
+  try {
+    await withRetry(
+      () => Promise.reject(err),
+      {
+        maxAttempts: 2,
+        maxRetryAfterMs: 30_000,
+        sleep: (ms) => {
+          delays.push(ms);
+          return Promise.resolve();
+        },
+        random: fixedRandom,
+      },
+    );
+  } catch {
+    // expected to exhaust
+  }
+  assertEquals(delays, [30_000]); // clamped, never the full hour
 });
 
 Deno.test("withRetry: onRetry fires once per backoff", async () => {
