@@ -107,6 +107,18 @@ const ALLOWED_ORIGINS = new Set<string>([
   ...(isProduction() ? [] : ["http://localhost:5173"]),
 ]);
 
+// US-520: staging frontend + Cloudflare Pages PR-preview origins
+// (https://<hash>.<project>.pages.dev). Honored ONLY off-production — the prod
+// deploy (EDGE_ENV=production) never trusts a staging or preview origin.
+const STAGING_ORIGIN = "https://staging.gradethread.com";
+const PAGES_PREVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.gradethread\.pages\.dev$/;
+
+function isAllowedOrigin(origin: string): boolean {
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  if (isProduction()) return false;
+  return origin === STAGING_ORIGIN || PAGES_PREVIEW_ORIGIN_RE.test(origin);
+}
+
 const ALLOWED_HEADERS = [
   "Content-Type",
   "Authorization",
@@ -125,7 +137,7 @@ app.use("*", async (c, next) => {
     return;
   }
   const origin = c.req.header("Origin") ?? "";
-  const allowed = ALLOWED_ORIGINS.has(origin) ? origin : "";
+  const allowed = isAllowedOrigin(origin) ? origin : "";
   if (allowed) {
     c.header("Access-Control-Allow-Origin", allowed);
     c.header("Vary", "Origin");
@@ -149,7 +161,7 @@ app.use("*", accessLogger);
 app.use(
   "*",
   cors({
-    origin: (origin) => (ALLOWED_ORIGINS.has(origin) ? origin : null),
+    origin: (origin) => (isAllowedOrigin(origin) ? origin : null),
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ALLOWED_HEADERS,
     maxAge: 86400,

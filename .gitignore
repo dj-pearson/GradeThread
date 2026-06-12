@@ -13,6 +13,8 @@ build-meta/
 .env
 .env.*
 !.env.example
+# Placeholder template for the staging edge env (US-520) — no real values.
+!.env.staging.example
 # EXCEPTION: .env.production is committed on purpose — it holds the React app's
 # build-time VITE_* vars for the Cloudflare Pages build (Pages can't read them
 # from wrangler.toml). Every VITE_* value is PUBLIC by design (it's baked into

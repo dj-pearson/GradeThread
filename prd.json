@@ -7937,8 +7937,8 @@
         "E2E/smoke tests run against staging before promotion to main"
       ],
       "priority": 520,
-      "passes": false,
-      "notes": "[P2][DevOps] Audit 2026-06-03. Only production exists; changes ship straight to prod."
+      "passes": true,
+      "notes": "[P2][DevOps] Audit 2026-06-03. DONE 2026-06-12: repo side fully wired — docker-compose.staging.yml (Coolify staging edge, EDGE_ENV=staging, functions-staging.gradethread.com), .env.staging.example (all values that must differ from prod), /health now reports env so smoke can assert staging vs prod, app CORS accepts staging.gradethread.com + *.gradethread.pages.dev OFF-PRODUCTION ONLY, scripts/smoke-staging.mjs (npm run smoke:staging; separation guard + edge/supabase/frontend checks), playwright E2E_BASE_URL remote mode, .github/workflows/staging-smoke.yml (push to staging branch / dispatch / nightly; skips with notice until repo vars set). STAGING.md documents provisioning steps + the documented gaps (operator must stand up staging Supabase/Coolify/DNS/Stripe-test/Pages branch; no per-PR edge preview by design — shared staging edge keeps webhook registrations stable)."
     },
     {
       "id": "US-521",

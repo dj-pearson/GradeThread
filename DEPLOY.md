@@ -3,7 +3,8 @@
 How a change reaches production, in what order, and how to roll back each layer.
 For the *is-everything-configured* gate see **`LAUNCH_CHECKLIST.md`**; for
 incidents see **`INCIDENT_RESPONSE.md`**; for schema specifics see
-**`MIGRATIONS.md`**.
+**`MIGRATIONS.md`**; for the staging stack + pre-promotion smoke gate see
+**`STAGING.md`**.
 
 GradeThread has three independently-deployed layers:
 

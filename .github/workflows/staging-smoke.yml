@@ -1,0 +1,82 @@
+name: Staging smoke
+
+# US-520: run smoke + e2e against the STAGING stack before promotion to main.
+# Triggers:
+#   - push to the `staging` branch (the promotion flow in STAGING.md)
+#   - manual dispatch (e.g. after a manual staging deploy of a PR branch)
+#   - nightly, to catch staging drift (expired certs, dead containers)
+#
+# Configuration lives in repo VARIABLES (Settings → Secrets and variables →
+# Actions → Variables — they're URLs, not secrets):
+#   STAGING_EDGE_URL      e.g. https://functions-staging.gradethread.com  (required)
+#   STAGING_WEB_URL       e.g. https://staging.gradethread.com
+#   STAGING_SUPABASE_URL  e.g. https://api-staging.gradethread.com
+#
+# Until the staging stack is provisioned (STAGING.md §"Standing it up"), the
+# vars are unset and this workflow SKIPS with a notice — that is the
+# documented gap, not a green-washed pass.
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *" # nightly drift check (09:17 UTC)
+
+concurrency:
+  group: staging-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke + E2E against staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check staging is configured
+        id: cfg
+        env:
+          STAGING_EDGE_URL: ${{ vars.STAGING_EDGE_URL }}
+        run: |
+          if [ -z "$STAGING_EDGE_URL" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::STAGING_EDGE_URL repo variable is not set — staging stack not provisioned yet (see STAGING.md). Skipping smoke."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Staging smoke (edge + supabase + frontend)
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          STAGING_EDGE_URL: ${{ vars.STAGING_EDGE_URL }}
+          STAGING_WEB_URL: ${{ vars.STAGING_WEB_URL }}
+          STAGING_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+        run: node scripts/smoke-staging.mjs
+      # Browser e2e against the LIVE staging frontend (no local vite preview —
+      # playwright.config.ts skips its webServer when E2E_BASE_URL is set).
+      # Runs only when a staging web URL exists; the smoke spec covers public
+      # pages, auth covers the login flow with in-browser mocks.
+      - name: Install deps + Playwright browser
+        if: steps.cfg.outputs.configured == 'true' && vars.STAGING_WEB_URL != ''
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: E2E against staging
+        if: steps.cfg.outputs.configured == 'true' && vars.STAGING_WEB_URL != ''
+        env:
+          E2E_BASE_URL: ${{ vars.STAGING_WEB_URL }}
+        run: npx playwright test e2e/smoke.spec.ts e2e/auth.spec.ts
+      - name: Upload report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-playwright-report
+          path: playwright-report/
+          retention-days: 7

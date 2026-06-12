@@ -1,0 +1,77 @@
+# US-520: Coolify compose for the STAGING edge service.
+# Same image/Dockerfile as production (docker-compose.coolify.yml) — only the
+# hostname, EDGE_ENV, CORS allow-list, and the env file differ. Staging talks
+# to the staging Supabase, Stripe TEST mode, and eBay sandbox; it must share
+# NO state (DB, buckets, secrets) with production.
+#
+# In Coolify:
+#   1. New Resource → Docker Compose → same repo, but THIS file
+#      (services/edge-functions/docker-compose.staging.yml).
+#   2. Set environment variables from .env.staging.example (staging Supabase,
+#      sk_test_… Stripe keys, EBAY_ENV=sandbox, fresh secrets).
+#   3. Point the resource at the `staging` branch (or deploy a PR branch
+#      manually for an edge preview) — NOT main, or staging will just mirror
+#      prod timing.
+#   4. DNS: functions-staging.gradethread.com → the Coolify host; Coolify
+#      reads `coolify.fqdn` and provisions the Traefik route + cert.
+
+services:
+  edge-functions-staging:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8787"
+    environment:
+      - PORT=8787
+      # Staging runtime. NOT "production": boot env-validation is warn-only
+      # instead of crash, security debug flags are honored, and /health
+      # reports env:"staging" so the smoke test can assert it isn't prod.
+      - EDGE_ENV=staging
+    env_file:
+      - .env
+    healthcheck:
+      test:
+        - CMD
+        - deno
+        - eval
+        - "fetch('http://127.0.0.1:8787/health').then(r => r.ok ? Deno.exit(0) : Deno.exit(1)).catch(() => Deno.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    labels:
+      - coolify.managed=true
+      - coolify.name=gradethread-edge-functions-staging
+      - coolify.fqdn=${COOLIFY_FQDN:-https://functions-staging.gradethread.com}
+      - coolify.port=8787
+      - coolify.healthcheckPath=/health
+      - traefik.enable=true
+      - traefik.http.routers.edge-functions-staging.rule=Host(`functions-staging.gradethread.com`)
+      - traefik.http.routers.edge-functions-staging.entrypoints=https
+      - traefik.http.routers.edge-functions-staging.tls=true
+      - traefik.http.routers.edge-functions-staging.tls.certresolver=letsencrypt
+      - traefik.http.services.edge-functions-staging.loadbalancer.server.port=8787
+      # CORS: the staging frontend + Cloudflare Pages PR previews
+      # (https://<hash>.<project>.pages.dev). Regex instead of a fixed list so
+      # every preview deploy can call the staging edge without label edits.
+      - traefik.http.middlewares.edge-staging-cors.headers.accesscontrolallowmethods=GET,POST,PUT,PATCH,DELETE,OPTIONS
+      - traefik.http.middlewares.edge-staging-cors.headers.accesscontrolallowheaders=Content-Type,Authorization,X-API-Key,X-Internal-Job-Secret
+      - traefik.http.middlewares.edge-staging-cors.headers.accesscontrolalloworiginlistregex=^https://staging\.gradethread\.com$$|^https://[a-z0-9-]+\.gradethread\.pages\.dev$$
+      - traefik.http.middlewares.edge-staging-cors.headers.accesscontrolmaxage=86400
+      - traefik.http.middlewares.edge-staging-cors.headers.addvaryheader=true
+      - traefik.http.services.edge-functions-staging.loadbalancer.responseforwarding.flushinterval=100ms
+      # Same edge-of-network body cap as prod (16 MiB; see coolify compose).
+      - traefik.http.middlewares.edge-staging-bodylimit.buffering.maxRequestBodyBytes=16777216
+      - traefik.http.middlewares.edge-staging-bodylimit.buffering.memRequestBodyBytes=2097152
+      - traefik.http.routers.edge-functions-staging.middlewares=edge-staging-cors,edge-staging-bodylimit
+    deploy:
+      resources:
+        # Staging gets a smaller slice than prod — it serves the team, not users.
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M

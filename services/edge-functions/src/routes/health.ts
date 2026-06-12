@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
+import { edgeEnv } from "../lib/env.ts";
 
 export const healthRoutes = new Hono();
 
@@ -73,10 +74,14 @@ export function summarizeReadiness(
 // US-491/513: also reports the deployed commit SHA and whether the exception
 // tracker is wired up, so a deploy's running version and observability posture
 // are visible without leaking the DSN.
+// US-520: `env` (production/staging/development) lets the staging smoke test
+// assert it is talking to a staging deploy — and, inversely, that the prod
+// host never reports anything but "production". Reveals no secret.
 healthRoutes.get("/", (c) => {
   return c.json({
     status: "ok",
     service: "gradethread-edge-functions",
+    env: edgeEnv(),
     release: releaseSha(),
     errorTracking: isErrorTrackingConfigured() ? "enabled" : "disabled",
     timestamp: new Date().toISOString(),
