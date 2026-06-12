@@ -25,6 +25,8 @@ import {
   listRecentOrders,
   listRecentTransactions,
   publishOrAdoptOffer,
+  createOrReplaceInventoryItemGroup,
+  publishItemGroupOrAdopt,
   resolveCachedDefaults,
   revokeEbayUserToken,
   searchBrowseComps,
@@ -39,6 +41,7 @@ import {
   findEligibleNegotiationItems,
   sendOfferToInterestedBuyers,
   type BestOfferTerms,
+  type PricingSummary,
   type PolicySet,
   type RemoteOffer,
   type RemoteOrder,
@@ -2939,6 +2942,24 @@ export async function publishItemForOwner(
   }
 
   try {
+    // US-568: multi-variant listings take a separate publish path — each variant
+    // is its own inventory_item (SKU) grouped into an inventory_item_group, then
+    // published as ONE multi-variation listing. Returns early; the single-SKU
+    // flow below never runs for variation listings.
+    if (ctx.summary.variations) {
+      return await publishVariationListing({
+        ownerId,
+        itemId,
+        baseSku: sku,
+        ctx,
+        item,
+        listing,
+        photos,
+        policies,
+        variations: ctx.summary.variations,
+      });
+    }
+
     // 2. Push inventory_item (idempotent PUT). Quantity, aspects, and
     //    condition all come from the publish context, which already resolved
     //    listing-row edits ahead of inventory defaults (US-319/320/321).
@@ -2968,9 +2989,10 @@ export async function publishItemForOwner(
 
     // US-562: build the shared bestOfferTerms once so the create and re-sync
     // paths send identical auto-accept/decline thresholds. Omitted entirely
-    // when Best Offer is off.
+    // when Best Offer is off. US-568: eBay does not allow Best Offer on auction
+    // offers, so it's suppressed unless the format is FIXED_PRICE.
     const bestOfferTerms: BestOfferTerms | undefined = ctx.summary
-      .bestOfferEnabled
+      .bestOfferEnabled && ctx.summary.format === "FIXED_PRICE"
       ? {
           bestOfferEnabled: true,
           ...(ctx.summary.bestOfferAutoAccept
@@ -2992,28 +3014,60 @@ export async function publishItemForOwner(
         }
       : undefined;
 
+    // US-568: build the pricingSummary for the resolved format. FIXED_PRICE
+    // sends `price`; AUCTION sends `auctionStartPrice` (+ optional reserve and a
+    // Buy It Now `price`). listingDuration is GTC for fixed-price, DAYS_n for
+    // auctions (resolved in assemblePublishContext).
+    const pricingSummary: PricingSummary =
+      ctx.summary.format === "AUCTION"
+        ? {
+            auctionStartPrice: {
+              value: ctx.summary.auctionStartPrice ?? ctx.summary.priceValue,
+              currency: ctx.summary.currency,
+            },
+            ...(ctx.summary.auctionReservePrice
+              ? {
+                  auctionReservePrice: {
+                    value: ctx.summary.auctionReservePrice,
+                    currency: ctx.summary.currency,
+                  },
+                }
+              : {}),
+            ...(ctx.summary.auctionBuyItNowPrice
+              ? {
+                  price: {
+                    value: ctx.summary.auctionBuyItNowPrice,
+                    currency: ctx.summary.currency,
+                  },
+                }
+              : {}),
+          }
+        : {
+            price: {
+              value: ctx.summary.priceValue,
+              currency: ctx.summary.currency,
+            },
+          };
+    const listingDuration = ctx.summary.auctionDuration;
+
     // 3. Create or reuse an offer for this SKU.
     let offerId: string;
     try {
       const created = await createOffer(ownerId, {
         sku,
         marketplaceId: getMarketplaceId(),
-        format: "FIXED_PRICE",
+        format: ctx.summary.format,
         availableQuantity: ctx.summary.quantity,
         categoryId: ctx.summary.categoryId,
         listingDescription: ctx.summary.description,
+        listingDuration,
         listingPolicies: {
           fulfillmentPolicyId: policies.fulfillmentPolicyId,
           paymentPolicyId: policies.paymentPolicyId,
           returnPolicyId: policies.returnPolicyId,
           ...(bestOfferTerms ? { bestOfferTerms } : {}),
         },
-        pricingSummary: {
-          price: {
-            value: ctx.summary.priceValue,
-            currency: ctx.summary.currency,
-          },
-        },
+        pricingSummary,
         merchantLocationKey: policies.merchantLocationKey,
       });
       offerId = created.offerId;
@@ -3031,18 +3085,14 @@ export async function publishItemForOwner(
         availableQuantity: ctx.summary.quantity,
         categoryId: ctx.summary.categoryId,
         listingDescription: ctx.summary.description,
+        listingDuration,
         listingPolicies: {
           fulfillmentPolicyId: policies.fulfillmentPolicyId,
           paymentPolicyId: policies.paymentPolicyId,
           returnPolicyId: policies.returnPolicyId,
           ...(bestOfferTerms ? { bestOfferTerms } : {}),
         },
-        pricingSummary: {
-          price: {
-            value: ctx.summary.priceValue,
-            currency: ctx.summary.currency,
-          },
-        },
+        pricingSummary,
         merchantLocationKey: policies.merchantLocationKey,
       });
     }
@@ -3198,6 +3248,245 @@ export async function publishItemForOwner(
       },
     };
   }
+}
+
+// US-568: publish a multi-variant (size/color) listing. Each variant becomes
+// its own inventory_item (SKU) carrying the variation aspects; they're tied
+// together by an inventory_item_group and published as ONE listing via
+// publish_by_inventory_item_group. Mirrors publishItemForOwner's persistence so
+// the local listings/inventory rows end up identical to a single-SKU publish.
+async function publishVariationListing(args: {
+  ownerId: string;
+  itemId: string;
+  baseSku: string;
+  ctx: PublishContextOk;
+  item: PublishItem;
+  listing: PublishListing | null;
+  photos: PublishPhoto[];
+  policies: PolicySet;
+  variations: ListingVariations;
+}): Promise<PublishItemResult> {
+  const { ownerId, itemId, baseSku, ctx, item, listing, photos, policies, variations } =
+    args;
+  const imageUrls = toEbayImageUrls(photos.map((p) => p.public_url));
+  const brand =
+    typeof item.brand === "string" && item.brand.trim()
+      ? item.brand.trim()
+      : "Unbranded";
+
+  // Build the varies-by specification → value-set map from the variant matrix.
+  const specValues = new Map<string, Set<string>>();
+  for (const spec of variations.specifications) specValues.set(spec, new Set());
+  for (const v of variations.variants) {
+    for (const spec of variations.specifications) {
+      const val = v.aspects[spec];
+      if (val) specValues.get(spec)!.add(val);
+    }
+  }
+
+  // 1. Create each variant inventory item. Its aspects = the shared aspects plus
+  //    this variant's variation values (eBay needs the varies-by aspect present
+  //    on every member item). availability = the per-variant quantity.
+  const variantSkus: string[] = [];
+  for (const variant of variations.variants) {
+    const vSku = variantSku(baseSku, variant);
+    variantSkus.push(vSku);
+    const aspects: Record<string, string[]> = { ...ctx.summary.aspects };
+    for (const [name, value] of Object.entries(variant.aspects)) {
+      aspects[name] = [value];
+    }
+    await createOrReplaceInventoryItem(ownerId, vSku, {
+      product: {
+        title: ctx.summary.title,
+        description: ctx.summary.description,
+        aspects,
+        imageUrls,
+        brand,
+        mpn: "Does Not Apply",
+      },
+      condition: ctx.summary.condition,
+      conditionDescription: ctx.summary.conditionDescription || undefined,
+      availability: {
+        shipToLocationAvailability: { quantity: variant.quantity },
+      },
+    });
+  }
+
+  // 2. Group the variants. variesBy declares the buyer-selectable specs; we let
+  //    the photo vary by "Color" when it's one of the specs.
+  const specifications = variations.specifications.map((name) => ({
+    name,
+    values: [...(specValues.get(name) ?? [])],
+  }));
+  const colorSpec = variations.specifications.find((s) => /colou?r/i.test(s));
+  await createOrReplaceInventoryItemGroup(ownerId, baseSku, {
+    title: ctx.summary.title,
+    description: ctx.summary.description,
+    imageUrls,
+    aspects: ctx.summary.aspects,
+    variantSKUs: variantSkus,
+    variesBy: {
+      specifications,
+      ...(colorSpec ? { aspectsImageVariesBy: [colorSpec] } : {}),
+    },
+  });
+
+  // US-568: Best Offer terms are valid for variation (fixed-price) listings.
+  const bestOfferTerms: BestOfferTerms | undefined = ctx.summary.bestOfferEnabled
+    ? {
+        bestOfferEnabled: true,
+        ...(ctx.summary.bestOfferAutoAccept
+          ? {
+              autoAcceptPrice: {
+                value: ctx.summary.bestOfferAutoAccept,
+                currency: ctx.summary.currency,
+              },
+            }
+          : {}),
+        ...(ctx.summary.bestOfferAutoDecline
+          ? {
+              autoDeclinePrice: {
+                value: ctx.summary.bestOfferAutoDecline,
+                currency: ctx.summary.currency,
+              },
+            }
+          : {}),
+      }
+    : undefined;
+
+  // 3. One offer per variant SKU (price = per-variant override, else the base
+  //    price). Reuse an existing offer on retry (offer-already-exists → sync).
+  for (const variant of variations.variants) {
+    const vSku = variantSku(baseSku, variant);
+    const value =
+      variant.price_cents != null
+        ? centsToMoneyString(variant.price_cents)
+        : ctx.summary.priceValue;
+    const offerFields = {
+      availableQuantity: variant.quantity,
+      categoryId: ctx.summary.categoryId,
+      listingDescription: ctx.summary.description,
+      listingPolicies: {
+        fulfillmentPolicyId: policies.fulfillmentPolicyId,
+        paymentPolicyId: policies.paymentPolicyId,
+        returnPolicyId: policies.returnPolicyId,
+        ...(bestOfferTerms ? { bestOfferTerms } : {}),
+      },
+      pricingSummary: { price: { value, currency: ctx.summary.currency } },
+      merchantLocationKey: policies.merchantLocationKey,
+    };
+    try {
+      await createOffer(ownerId, {
+        sku: vSku,
+        marketplaceId: getMarketplaceId(),
+        format: "FIXED_PRICE",
+        ...offerFields,
+      });
+    } catch (err) {
+      if (!isOfferAlreadyExistsError(err)) throw err;
+      const existing = await listOffersForSku(ownerId, vSku);
+      const found = existing.find((o) => !!o.offerId);
+      if (!found) throw err;
+      await syncExistingOffer(ownerId, found.offerId, offerFields);
+    }
+  }
+
+  // 4. Publish the whole group as one multi-variation listing (adopt on retry).
+  const published = await publishItemGroupOrAdopt(
+    ownerId,
+    baseSku,
+    variantSkus,
+    getMarketplaceId(),
+  );
+  const listingId = published.listingId;
+  const url = ebayListingUrl(listingId);
+
+  // 5. Persist. Quantity is the total across variants; price is the base price.
+  const totalQuantity = variations.variants.reduce(
+    (sum, v) => sum + v.quantity,
+    0,
+  );
+  const listingPayload = {
+    inventory_item_id: itemId,
+    platform: "ebay" as const,
+    platform_listing_id: listingId,
+    platform_category_id: ctx.summary.categoryId,
+    listing_url: url,
+    listing_price: Number(ctx.summary.priceValue),
+    listing_title: ctx.summary.title,
+    listing_description: ctx.summary.description,
+    listing_status: "active" as const,
+    is_active: true,
+    quantity: totalQuantity,
+    listed_at: new Date().toISOString(),
+    synced_to_ebay_at: new Date().toISOString(),
+    publish_error: null,
+    publish_failed_at: null,
+  };
+
+  const { syncPending } = await finalizePublishedListing({
+    persist: async () => {
+      if (listing?.id) {
+        const { error } = await supabaseAdmin
+          .from("listings")
+          .update(listingPayload)
+          .eq("id", listing.id);
+        if (error) throw new Error(`listings update: ${error.message}`);
+      } else {
+        const { error } = await supabaseAdmin.from("listings").insert(listingPayload);
+        if (error) throw new Error(`listings insert: ${error.message}`);
+      }
+      const { error: itemErr } = await supabaseAdmin
+        .from("inventory_items")
+        .update({ status: "listed" })
+        .eq("id", itemId);
+      if (itemErr) throw new Error(`inventory_items update: ${itemErr.message}`);
+    },
+    recordReconcile: async () => {
+      await supabaseAdmin.from("flipdesk_ebay_listings").upsert(
+        {
+          user_id: ownerId,
+          ebay_item_id: listingId,
+          custom_label: baseSku,
+          title: ctx.summary.title,
+          current_price: Number(ctx.summary.priceValue),
+          listing_url: url,
+          raw: {
+            source: "publish_orphan_variation",
+            inventory_item_id: itemId,
+            group_key: baseSku,
+          },
+          match_status: "unmatched",
+          imported_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,ebay_item_id" },
+      );
+      console.error(
+        `[flipdesk-ebay] variation publish ${listingId} is LIVE but local write ` +
+          `failed — recorded reconcile marker; pull-sync will adopt it`,
+      );
+    },
+  });
+
+  if (ctx.summary.promotedAdRate != null && ctx.summary.promotedAdRate > 0) {
+    await attachPromotionAtPublish({
+      userId: ownerId,
+      listingRowId: listing?.id ?? null,
+      ebayListingId: listingId,
+      ratePct: ctx.summary.promotedAdRate,
+    });
+  }
+
+  if (listing?.id) await captureListingAcceptance(listing.id);
+
+  return {
+    ok: true,
+    listing_id: listingId,
+    listing_url: url,
+    offer_id: variantSkus[0] ?? baseSku,
+    sku: baseSku,
+    sync_pending: syncPending,
+  };
 }
 
 flipdeskEbayRoutes.post("/listings/push", async (c) => {
@@ -3907,6 +4196,82 @@ interface PublishItem {
   status: string;
 }
 
+// US-568: multi-variant matrix persisted in listings.variations (migration
+// 00160). Mirrors src/types/database.ts ListingVariation(s).
+interface ListingVariation {
+  aspects: Record<string, string>;
+  quantity: number;
+  price_cents?: number | null;
+  sku_suffix?: string | null;
+}
+interface ListingVariations {
+  specifications: string[];
+  variants: ListingVariation[];
+}
+
+// US-568: defensively coerce the persisted JSON into a usable variation matrix.
+// Returns null when there is nothing publishable (no specs, fewer than 2
+// variants, or every variant out of stock) so the publish path stays on the
+// single-SKU flow. Drops malformed variants rather than failing the publish.
+export function normalizeVariations(
+  raw: ListingVariations | null | undefined,
+): ListingVariations | null {
+  if (!raw || typeof raw !== "object") return null;
+  const specs = Array.isArray(raw.specifications)
+    ? raw.specifications
+      .filter((s): s is string => typeof s === "string" && s.trim() !== "")
+      .map((s) => s.trim())
+    : [];
+  if (specs.length === 0) return null;
+  const variants = Array.isArray(raw.variants)
+    ? raw.variants
+      .map((v): ListingVariation | null => {
+        if (!v || typeof v !== "object" || !v.aspects) return null;
+        const aspects: Record<string, string> = {};
+        for (const spec of specs) {
+          const val = v.aspects[spec];
+          if (typeof val === "string" && val.trim() !== "") {
+            aspects[spec] = val.trim();
+          }
+        }
+        // Every varies-by spec must have a value for this combination.
+        if (Object.keys(aspects).length !== specs.length) return null;
+        const quantity =
+          typeof v.quantity === "number" && v.quantity > 0
+            ? Math.floor(v.quantity)
+            : 0;
+        return {
+          aspects,
+          quantity,
+          price_cents:
+            typeof v.price_cents === "number" && v.price_cents > 0
+              ? v.price_cents
+              : null,
+          sku_suffix:
+            typeof v.sku_suffix === "string" && v.sku_suffix.trim() !== ""
+              ? v.sku_suffix.trim()
+              : null,
+        };
+      })
+      .filter((v): v is ListingVariation => v !== null && v.quantity > 0)
+    : [];
+  // A "variation" listing needs at least two purchasable combinations.
+  if (variants.length < 2) return null;
+  return { specifications: specs, variants };
+}
+
+// US-568: derive a stable, eBay-safe SKU for one variant from the base SKU. Uses
+// the explicit suffix when present, else a slug of the variation values.
+export function variantSku(baseSku: string, variant: ListingVariation): string {
+  const suffix =
+    variant.sku_suffix ??
+    Object.values(variant.aspects)
+      .join("-")
+      .replace(/[^a-zA-Z0-9-]+/g, "")
+      .toUpperCase();
+  return `${baseSku}-${suffix || "V"}`.slice(0, 50);
+}
+
 interface PublishListing {
   id: string;
   listing_title: string | null;
@@ -3942,6 +4307,13 @@ interface PublishListing {
   // off for this listing entirely.
   promo_rate_pct: number | null;
   promo_opt_out: boolean | null;
+  // US-568: format + auction terms + variation matrix (migration 00160).
+  listing_format: string | null;
+  auction_start_price_cents: number | null;
+  auction_reserve_price_cents: number | null;
+  auction_buy_it_now_price_cents: number | null;
+  auction_duration: string | null;
+  variations: ListingVariations | null;
 }
 
 interface PublishContextOk {
@@ -3972,6 +4344,16 @@ interface PublishContextOk {
     // US-561: effective Promoted Listings ad rate (%) to attach at publish, or
     // null when the seller opted out. Defaults to the category suggestion.
     promotedAdRate: number | null;
+    // US-568: listing format + auction terms (money as eBay strings) + the
+    // variation matrix. format is "FIXED_PRICE" (default) or "AUCTION"; the
+    // auction* values are only meaningful for AUCTION. variations is null for a
+    // single-SKU listing.
+    format: "FIXED_PRICE" | "AUCTION";
+    auctionStartPrice: string | null;
+    auctionReservePrice: string | null;
+    auctionBuyItNowPrice: string | null;
+    auctionDuration: string;
+    variations: ListingVariations | null;
   };
 }
 
@@ -4267,7 +4649,7 @@ async function assemblePublishContext(
   const { data: listingRow } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out",
+      "id, listing_title, listing_description, listing_price, ebay_condition, ebay_condition_description, quantity, best_offer_enabled, best_offer_auto_accept_cents, best_offer_auto_decline_cents, price_range_low_cents, price_range_high_cents, platform_category_id, item_specifics_override, scheduled_publish_at, badge_enabled, shipping_policy_id, payment_policy_id, return_policy_id, promo_rate_pct, promo_opt_out, listing_format, auction_start_price_cents, auction_reserve_price_cents, auction_buy_it_now_price_cents, auction_duration, variations",
     )
     .eq("inventory_item_id", itemId)
     .eq("platform", "ebay")
@@ -4575,6 +4957,33 @@ async function assemblePublishContext(
         : null;
   }
 
+  // US-568: resolve the listing format + auction terms. Auction prices are
+  // stored in cents; convert to eBay money strings. A draft marked 'auction'
+  // without a start price falls back to the listing price as the starting bid.
+  const format: "FIXED_PRICE" | "AUCTION" =
+    listing?.listing_format === "auction" ? "AUCTION" : "FIXED_PRICE";
+  const centsToStr = (c: number | null | undefined): string | null =>
+    typeof c === "number" && c > 0 ? centsToMoneyString(c) : null;
+  const auctionStartPrice =
+    format === "AUCTION"
+      ? (centsToStr(listing?.auction_start_price_cents) ??
+        (priceNumber ? priceNumber.toFixed(2) : null))
+      : null;
+  const auctionReservePrice =
+    format === "AUCTION"
+      ? centsToStr(listing?.auction_reserve_price_cents)
+      : null;
+  const auctionBuyItNowPrice =
+    format === "AUCTION"
+      ? centsToStr(listing?.auction_buy_it_now_price_cents)
+      : null;
+  const auctionDuration =
+    format === "AUCTION"
+      ? (listing?.auction_duration?.trim() || "DAYS_7")
+      : "GTC";
+  // US-568: variation matrix — keep only non-empty, well-formed entries.
+  const variations = normalizeVariations(listing?.variations ?? null);
+
   const summary: PublishContextOk["summary"] = {
     title,
     description,
@@ -4588,6 +4997,12 @@ async function assemblePublishContext(
     bestOfferEnabled,
     bestOfferAutoAccept,
     bestOfferAutoDecline,
+    format,
+    auctionStartPrice,
+    auctionReservePrice,
+    auctionBuyItNowPrice,
+    auctionDuration,
+    variations,
     // US-561: resolve the ad rate to attach — opt-out wins, then the seller's
     // chosen rate, else the category suggestion. The composer surfaces the same
     // suggestion so "promote by default" stays transparent + adjustable.

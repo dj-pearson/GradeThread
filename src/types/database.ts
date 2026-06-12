@@ -792,8 +792,40 @@ export interface ListingRow {
   // can diff edited-vs-AI and offer a per-field revert-to-AI. Null for listings
   // that were never AI-generated (manual drafts).
   ai_generated_snapshot: ListingAiSnapshot | null;
+  // US-568: listing format + auction terms + variation matrix. listing_format
+  // is 'fixed_price' (default) or 'auction'; the auction price columns are cents
+  // and only consulted when the format is 'auction'. variations is the
+  // multi-variant matrix (null/empty → single-SKU listing).
+  listing_format: ListingFormat;
+  auction_start_price_cents: number | null;
+  auction_reserve_price_cents: number | null;
+  auction_buy_it_now_price_cents: number | null;
+  auction_duration: string | null;
+  variations: ListingVariations | null;
   created_at: string;
   updated_at: string;
+}
+
+// US-568: eBay offer format. Mirrors listings.listing_format.
+export type ListingFormat = "fixed_price" | "auction";
+
+// US-568: one variant of a multi-variant listing. aspects names the
+// variation values (e.g. {"Size":"M","Color":"Red"}); quantity is per-variant
+// stock; price_cents optionally overrides the listing price for this variant;
+// sku_suffix is appended to the base SKU when publishing (derived from the
+// aspects when omitted).
+export interface ListingVariation {
+  aspects: Record<string, string>;
+  quantity: number;
+  price_cents?: number | null;
+  sku_suffix?: string | null;
+}
+
+// US-568: shape of listings.variations. specifications are the varies-by
+// aspect names (e.g. ["Size", "Color"]); variants enumerates the combinations.
+export interface ListingVariations {
+  specifications: string[];
+  variants: ListingVariation[];
 }
 
 // US-551: shape of listings.ai_generated_snapshot (written in ai-listing.ts).
@@ -1619,6 +1651,13 @@ export interface ListingInsert {
   // ad rate; promo_opt_out turns promotion off for this listing.
   promo_rate_pct?: number | null;
   promo_opt_out?: boolean;
+  // US-568: format + auction terms + variation matrix.
+  listing_format?: ListingFormat;
+  auction_start_price_cents?: number | null;
+  auction_reserve_price_cents?: number | null;
+  auction_buy_it_now_price_cents?: number | null;
+  auction_duration?: string | null;
+  variations?: ListingVariations | null;
 }
 
 export interface SaleInsert {

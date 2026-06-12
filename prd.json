@@ -8555,8 +8555,8 @@
         "Editor exposes format + variation controls"
       ],
       "priority": 568,
-      "passes": false,
-      "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. publish path hardcodes FIXED_PRICE; no variations."
+      "passes": true,
+      "notes": "[P3][AutoLister/Publish] Deep-dive 2026-06-03. publish path hardcodes FIXED_PRICE; no variations. DONE 2026-06-12: migration 00160 adds listing_format + auction_* + variations columns. Publish path (publishItemForOwner) now sends format/listingDuration/auction pricingSummary; multi-variant listings take a dedicated inventory_item_group publish path (publishVariationListing) via new ebay-client group helpers. Composer exposes a Format & variations card (ListingFormatControls). Tests: listing-variations_test.ts."
     },
     {
       "id": "US-624",

@@ -107,6 +107,10 @@ import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ListingKit } from "@/components/flipdesk/listing-kit";
 import { EbayViewItemPreview } from "@/components/flipdesk/ebay-view-item-preview";
+import {
+  ListingFormatControls,
+  type ListingFormatValue,
+} from "@/components/flipdesk/listing-format-controls";
 import { useEbayConnection, useEbayPolicies } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
@@ -117,6 +121,45 @@ import type {
 } from "@/types/database";
 
 const TITLE_MAX = 80;
+
+// US-568: composer default — fixed-price, no auction terms, single SKU.
+const DEFAULT_LISTING_FORMAT_VALUE: ListingFormatValue = {
+  format: "fixed_price",
+  auctionStartPrice: "",
+  auctionReservePrice: "",
+  auctionBuyItNowPrice: "",
+  auctionDuration: "DAYS_7",
+  variations: null,
+};
+
+// US-568: turn the composer's format editor state into the listings columns.
+// Dollar strings convert to integer cents; auction columns null out for
+// fixed-price drafts, and variations null out for auctions / empty matrices.
+function buildFormatPayload(v: ListingFormatValue): Partial<ListingInsert> {
+  const dollarsToCents = (s: string): number | null => {
+    const n = Number.parseFloat(s);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+  };
+  const isAuction = v.format === "auction";
+  return {
+    listing_format: v.format,
+    auction_start_price_cents: isAuction
+      ? dollarsToCents(v.auctionStartPrice)
+      : null,
+    auction_reserve_price_cents: isAuction
+      ? dollarsToCents(v.auctionReservePrice)
+      : null,
+    auction_buy_it_now_price_cents: isAuction
+      ? dollarsToCents(v.auctionBuyItNowPrice)
+      : null,
+    auction_duration: isAuction ? v.auctionDuration : null,
+    // Variations only apply to fixed-price listings; drop empty matrices.
+    variations:
+      !isAuction && v.variations && v.variations.variants.length > 0
+        ? v.variations
+        : null,
+  };
+}
 
 export function FlipdeskComposerPage() {
   const { id } = useParams<{ id: string }>();
@@ -148,6 +191,10 @@ export function FlipdeskComposerPage() {
   const [promoteEnabled, setPromoteEnabled] = useState(true);
   const [promoRate, setPromoRate] = useState("");
   const [promoSuggested, setPromoSuggested] = useState<number | null>(null);
+  // US-568: listing format (fixed/auction), auction terms, and variation matrix.
+  const [listingFormat, setListingFormat] = useState<ListingFormatValue>(
+    DEFAULT_LISTING_FORMAT_VALUE,
+  );
   const [saving, setSaving] = useState(false);
   const [initialised, setInitialised] = useState(false);
   // Lifted from the category picker so the comps panel reacts to a pick
@@ -316,6 +363,17 @@ export function FlipdeskComposerPage() {
     setPromoRate(
       listing?.promo_rate_pct != null ? String(listing.promo_rate_pct) : "",
     );
+    // US-568: seed listing format + auction terms + variation matrix.
+    const centsToStr = (c: number | null | undefined) =>
+      typeof c === "number" && c > 0 ? String(c / 100) : "";
+    setListingFormat({
+      format: listing?.listing_format === "auction" ? "auction" : "fixed_price",
+      auctionStartPrice: centsToStr(listing?.auction_start_price_cents),
+      auctionReservePrice: centsToStr(listing?.auction_reserve_price_cents),
+      auctionBuyItNowPrice: centsToStr(listing?.auction_buy_it_now_price_cents),
+      auctionDuration: listing?.auction_duration ?? "DAYS_7",
+      variations: listing?.variations ?? null,
+    });
     const seededPrimary =
       listing?.primary_photo_id &&
       photos.some((p) => p.id === listing.primary_photo_id)
@@ -552,6 +610,9 @@ export function FlipdeskComposerPage() {
               return Number.isFinite(r) && r > 0 ? r : null;
             })()
           : null,
+        // US-568: persist format + auction terms + variation matrix. Auction
+        // prices convert dollars → cents; null when blank or non-auction.
+        ...buildFormatPayload(listingFormat),
       };
 
       let listingId: string;
@@ -1156,6 +1217,23 @@ export function FlipdeskComposerPage() {
                   )}
                 </p>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Listing format + variations (US-568) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Format &amp; variations</CardTitle>
+              <CardDescription>
+                List as a fixed-price Buy It Now or a timed auction, or offer one
+                listing in multiple sizes/colors.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ListingFormatControls
+                value={listingFormat}
+                onChange={setListingFormat}
+              />
             </CardContent>
           </Card>
 

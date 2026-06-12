@@ -1664,6 +1664,15 @@ export interface BestOfferTerms {
   autoDeclinePrice?: { value: string; currency: string };
 }
 
+// US-568: eBay's offer pricingSummary covers both formats. FIXED_PRICE sends
+// `price`; AUCTION sends `auctionStartPrice` (required) plus optional
+// `auctionReservePrice` and `price` (the Buy It Now price on an auction).
+export interface PricingSummary {
+  price?: { value: string; currency: string };
+  auctionStartPrice?: { value: string; currency: string };
+  auctionReservePrice?: { value: string; currency: string };
+}
+
 export interface OfferPayload {
   sku: string;
   marketplaceId: string;
@@ -1671,6 +1680,8 @@ export interface OfferPayload {
   availableQuantity: number;
   categoryId: string;
   listingDescription: string;
+  // US-568: required for AUCTION offers (e.g. "DAYS_7"); GTC for FIXED_PRICE.
+  listingDuration?: string;
   listingPolicies: {
     fulfillmentPolicyId: string;
     paymentPolicyId: string;
@@ -1678,9 +1689,7 @@ export interface OfferPayload {
     // Only present when the seller has best-offer enabled on the draft.
     bestOfferTerms?: BestOfferTerms;
   };
-  pricingSummary: {
-    price: { value: string; currency: string };
-  };
+  pricingSummary: PricingSummary;
   merchantLocationKey: string;
 }
 
@@ -1932,13 +1941,15 @@ export async function syncExistingOffer(
     availableQuantity: number;
     categoryId: string;
     listingDescription: string;
+    // US-568: present for AUCTION offers so a re-synced auction keeps its term.
+    listingDuration?: string;
     listingPolicies: {
       fulfillmentPolicyId: string;
       paymentPolicyId: string;
       returnPolicyId: string;
       bestOfferTerms?: BestOfferTerms;
     };
-    pricingSummary: { price: { value: string; currency: string } };
+    pricingSummary: PricingSummary;
     merchantLocationKey: string;
   },
 ): Promise<void> {
@@ -1946,6 +1957,9 @@ export async function syncExistingOffer(
   current.availableQuantity = fields.availableQuantity;
   current.categoryId = fields.categoryId;
   current.listingDescription = fields.listingDescription;
+  if (fields.listingDuration !== undefined) {
+    current.listingDuration = fields.listingDuration;
+  }
   current.listingPolicies = fields.listingPolicies;
   current.pricingSummary = fields.pricingSummary;
   current.merchantLocationKey = fields.merchantLocationKey;
@@ -1967,6 +1981,94 @@ export async function withdrawOffer(
     `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/withdraw`,
     { method: "POST" }
   );
+}
+
+// US-568: multi-variant (size/color) listings. eBay models them as an
+// inventory_item_group: each variant is its own inventory_item (SKU) carrying
+// the variation aspects, and the group ties them together with the shared
+// product content + the varies-by specifications. A single offer per variant
+// SKU is created, then publishByInventoryItemGroup mints ONE multi-variation
+// listing.
+export interface InventoryItemGroupPayload {
+  title: string;
+  description: string;
+  imageUrls?: string[];
+  aspects?: Record<string, string[]>;
+  variantSKUs: string[];
+  // The aspect names buyers pick between (e.g. ["Size", "Color"]).
+  variesBy: {
+    specifications: Array<{ name: string; values: string[] }>;
+    // Aspect whose value changes the photo (usually "Color"). Optional.
+    aspectsImageVariesBy?: string[];
+  };
+}
+
+// PUT is idempotent; safe to re-run on retries.
+export async function createOrReplaceInventoryItemGroup(
+  userId: string,
+  groupKey: string,
+  payload: InventoryItemGroupPayload
+): Promise<void> {
+  await fetchAuthed<unknown>(
+    userId,
+    `/sell/inventory/v1/inventory_item_group/${encodeURIComponent(groupKey)}`,
+    { method: "PUT", body: JSON.stringify(payload) }
+  );
+}
+
+// Publishes every offer in the group as one multi-variation listing and returns
+// the live listingId. Like publishOffer this is NOT idempotent, so callers must
+// reconcile on retry (see publishItemGroupOrAdopt).
+export async function publishOfferByInventoryItemGroup(
+  userId: string,
+  groupKey: string,
+  marketplaceId: string
+): Promise<{ listingId: string }> {
+  return await fetchAuthedOnce<{ listingId: string }>(
+    userId,
+    `/sell/inventory/v1/publish_by_inventory_item_group`,
+    {
+      method: "POST",
+      body: JSON.stringify({ inventoryItemGroupKey: groupKey, marketplaceId }),
+    }
+  );
+}
+
+// Reads the group's first published offer to find an already-live listingId,
+// so a crash-then-retry adopts the existing multi-variation listing instead of
+// double-publishing. Returns null when nothing is live yet (or the lookup
+// fails — treated as not-live).
+export async function getPublishedListingIdForGroup(
+  userId: string,
+  variantSKUs: string[]
+): Promise<string | null> {
+  for (const sku of variantSKUs) {
+    try {
+      const offers = await listOffersForSku(userId, sku);
+      const live = offers.find((o) => o.listingId);
+      if (live?.listingId) return live.listingId;
+    } catch {
+      // try the next variant
+    }
+  }
+  return null;
+}
+
+// US-568: idempotent group publish at the flow level (mirrors publishOrAdoptOffer).
+export async function publishItemGroupOrAdopt(
+  userId: string,
+  groupKey: string,
+  variantSKUs: string[],
+  marketplaceId: string
+): Promise<{ listingId: string; adopted: boolean }> {
+  const existing = await getPublishedListingIdForGroup(userId, variantSKUs);
+  if (existing) return { listingId: existing, adopted: true };
+  const published = await publishOfferByInventoryItemGroup(
+    userId,
+    groupKey,
+    marketplaceId
+  );
+  return { listingId: published.listingId, adopted: false };
 }
 
 export interface RemoteOffer {

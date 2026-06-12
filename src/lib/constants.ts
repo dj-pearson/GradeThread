@@ -670,6 +670,38 @@ export const LISTING_STATUSES = [
   "relisted",
 ] as const;
 
+// US-568: eBay listing format + auction durations. 'fixed_price' is Buy It Now
+// (GTC); 'auction' uses one of the timed durations below.
+export const LISTING_FORMATS = ["fixed_price", "auction"] as const;
+
+export const LISTING_FORMAT_LABELS: Record<
+  (typeof LISTING_FORMATS)[number],
+  string
+> = {
+  fixed_price: "Fixed price (Buy It Now)",
+  auction: "Auction",
+};
+
+// eBay listingDuration enum values valid for auction offers.
+export const AUCTION_DURATIONS = [
+  "DAYS_1",
+  "DAYS_3",
+  "DAYS_5",
+  "DAYS_7",
+  "DAYS_10",
+] as const;
+
+export const AUCTION_DURATION_LABELS: Record<
+  (typeof AUCTION_DURATIONS)[number],
+  string
+> = {
+  DAYS_1: "1 day",
+  DAYS_3: "3 days",
+  DAYS_5: "5 days",
+  DAYS_7: "7 days",
+  DAYS_10: "10 days",
+};
+
 export const GRADING_SUBMISSION_TIERS = [
   "standard",
   "premium",
