@@ -171,6 +171,7 @@ the handler returns 401.
 | data-retention          | `0 4 * * *` (04:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/data-retention`                        |
 | condition-index-refresh | `0 8 * * *` (08:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/condition-index-refresh`              |
 | push-token-prune        | `0 3 * * *` (03:00)    | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/push-token-prune`                |
+| ebay-pending-webhooks   | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/ebay-pending-webhooks`                 |
 
 > **Cadence notes (US-496):**
 > - `reprice-scan` fans out one eBay Browse call per active listing — every 6h
@@ -198,6 +199,15 @@ the handler returns 401.
 >   `email-retry` re-sends failed critical email (US-498); `integrity-scan`
 >   reports DB anomalies (US-504); `data-retention` purges grading photos past
 >   the window (US-521). All are overlap-locked and idempotent.
+> - `ebay-pending-webhooks` (US-472) drains `ebay_pending_webhook_events` — the
+>   parking lot for verified payout/order/return notifications that arrived
+>   before a freshly-connected seller's `account_handle`/`external_account_id`
+>   hydrated. Each tick re-attempts linkage (the id usually hydrates on the next
+>   hourly token refresh) and replays linked events (payout → dedup ingest,
+>   order/return → targeted sync); after 8 attempts a row is dead-lettered + a
+>   warning is captured so the operator can fall back to a CSV payout import.
+>   Metrics: `webhook.dropped_no_handle` (parked), `webhook.pending_linked`,
+>   `webhook.pending_dead_lettered`. Overlap-locked.
 
 Use `http://localhost:8787` from inside the container (not the public FQDN)
 so scheduled jobs don't take the round-trip through Traefik + WAF and

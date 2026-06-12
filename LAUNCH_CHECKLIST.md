@@ -115,6 +115,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | growth-dispatch | `*/15 * * * *` | `/api/jobs/growth-dispatch` | ☐ | |
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | ☐ | |
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | ☐ | full 2-way merge (push **and** pull); `/sync/pull` is an alias |
+| ebay-pending-webhooks | `*/15 * * * *` | `/api/jobs/ebay-pending-webhooks` | ☐ | re-links parked payout/order/return events once the seller's handle/id hydrates (US-472) |
 
 ---
 

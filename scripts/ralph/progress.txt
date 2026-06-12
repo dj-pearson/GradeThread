@@ -872,3 +872,16 @@ Branch: ralph/gradethread-build
 - Notes: processEbayWebhookEvent now classifies every verified eBay topic via classifyEbayTopic (substring match → payout/order/return/account_deletion/unhandled). Order/sale and return/cancel/refund/dispute topics resolve the seller (resolveEbayUserId, by external_account_id then account_handle) and call the new exported triggerEbaySyncForUser, which claims the per-tenant sync lock and fires an incremental doListingsPull — the existing orders sync flips newly-sold items to 'sold' and reverses cancelled/refunded line items back to 'listed' (US-459). Unhandled topics now emit a webhook.unhandled_topic metric (not just a console line); webhook.received / webhook.sync_triggered / webhook.unmatched_seller are also metered. Classifier extracted to a pure lib module so it's unit-testable without booting the service-role client. Edge: deno check src/main.ts clean, deno lint clean, new + idempotency tests pass.
 - Timestamp: 2026-06-12
 ---
+
+## US-472: Make eBay webhook/payout user-linkage reliable
+- Status: COMPLETE
+- Files changed: supabase/migrations/00149_ebay_pending_webhook_events.sql (new), services/edge-functions/src/routes/flipdesk-webhooks.ts, services/edge-functions/src/lib/ebay-client.ts, services/edge-functions/src/lib/schema-version.ts (bump 00145->00149), services/edge-functions/src/main.ts, services/edge-functions/src/tests/ebay-webhook-linkage_test.ts (new), services/edge-functions/COOLIFY.md, LAUNCH_CHECKLIST.md, prd.json
+- Notes:
+  * Connect reliability: getUserIdentityFromToken now retries (3x w/ backoff) on transient (5xx/429/network) failures so account_handle + external_account_id are captured reliably on first connect; a real 4xx is not retried. Refresh-path backfill unchanged (already hydrates nulls).
+  * Stable-key matching: webhooks now resolve seller via shared extractEbayCandidates -> resolveEbayConnectionUserId, preferring external_account_id (stable eBay userId/payeeId/sellerId) then account_handle. Payout handler previously matched ONLY on handle.
+  * No data loss: verified-but-unlinkable payout/order/return events are PARKED in new table ebay_pending_webhook_events (deduped by notificationId, RLS on, service-role only) instead of silently dropped. New drain cron handleEbayPendingWebhooksCron at POST /api/jobs/ebay-pending-webhooks (every 15min, job-secret + overlap lock) re-attempts linkage and replays linked events (payout->dedup ingest via shared ingestPayoutForUser, order/return->triggerEbaySyncForUser); dead-letters after 8 attempts (CSV fallback) with a captured warning.
+  * Metric: webhook.dropped_no_handle on every parked drop (payout + order/return); plus webhook.pending_linked / webhook.pending_dead_lettered / webhook.pending_drain.
+  * Pre-existing drift fixed: EXPECTED_SCHEMA_VERSION was 00145 while migrations already reached 00148 (concurrent agent); bumped to 00149 to satisfy schema-version_test.
+  * Verification: deno lint (304 files), deno check src/main.ts, full deno test (737 passed / 0 failed). Frontend untouched.
+- Timestamp: 2026-06-12
+---

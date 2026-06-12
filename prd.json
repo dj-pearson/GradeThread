@@ -7322,8 +7322,8 @@
         "A metric tracks dropped-for-no-handle events"
       ],
       "priority": 472,
-      "passes": false,
-      "notes": "[P2][FlipDesk] Audit 2026-06-03. account_handle is best-effort/NULL on connect; webhooks match only on it."
+      "passes": true,
+      "notes": "[P2][FlipDesk] Audit 2026-06-03. account_handle is best-effort/NULL on connect; webhooks match only on it. DONE 2026-06-12: connect now retries the identity lookup (commerce/identity) on transient failures so account_handle/external_account_id capture reliably; webhooks resolve seller by stable external_account_id first then handle (extractEbayCandidates). Verified-but-unlinkable payout/order/return events are PARKED in new table ebay_pending_webhook_events (migration 00149) instead of dropped, metered as webhook.dropped_no_handle. New drain cron /api/jobs/ebay-pending-webhooks (every 15min, overlap-locked) re-links once handle/id hydrates and replays (payout→dedup ingest, order/return→targeted sync); dead-letters after 8 attempts for CSV fallback. Tests: ebay-webhook-linkage_test.ts."
     },
     {
       "id": "US-473",

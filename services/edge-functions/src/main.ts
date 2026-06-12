@@ -10,7 +10,10 @@ import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { flipdeskEbayRoutes } from "./routes/flipdesk-ebay.ts";
-import { flipdeskWebhookRoutes } from "./routes/flipdesk-webhooks.ts";
+import {
+  flipdeskWebhookRoutes,
+  handleEbayPendingWebhooksCron,
+} from "./routes/flipdesk-webhooks.ts";
 import { flipdeskGradingRoutes } from "./routes/flipdesk-grading.ts";
 import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
@@ -510,6 +513,10 @@ app.post("/api/jobs/condition-index-refresh", (c) => handleConditionIndexRefresh
 // US-383 daily trial-expiry downgrade cron. OUTSIDE /api/* JWT groups; the
 // handler enforces X-Internal-Job-Secret itself (mirrors the other crons).
 app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
+// US-472 eBay parked-webhook drain. Re-links payout/order/return events that
+// arrived before the connection's account_handle/external_account_id hydrated,
+// and dead-letters the ones that never link. Handler enforces the job secret.
+app.post("/api/jobs/ebay-pending-webhooks", (c) => handleEbayPendingWebhooksCron(c));
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
 // gated by the /api/admin/* middleware groups above.
 app.route("/api/admin/seo", adminSeoRoutes);

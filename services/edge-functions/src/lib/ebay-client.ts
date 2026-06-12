@@ -245,37 +245,68 @@ export interface EbayUserTokenResponse {
 // Called directly after exchangeCodeForTokens (no DB row exists yet) and from
 // the refresh path's backfill. Returns null on failure — the caller treats it
 // as non-fatal so identity outages don't break connect or refresh.
+//
+// US-472: the account_handle / external_account_id this captures is what
+// webhooks link payout/order/return events on, so a transient miss at connect
+// time means inbound events for that seller have nothing to match until the next
+// token refresh hydrates the row. To make first-connect linkage reliable we now
+// RETRY the lookup on a transient failure (network blip / 5xx / 429) with a short
+// backoff before giving up. A genuine 4xx (e.g. missing scope) is not retried.
 export async function getUserIdentityFromToken(
   accessToken: string,
+  attempts = 3,
 ): Promise<{ username: string | null; externalAccountId: string | null } | null> {
-  try {
-    const res = await ebayFetch(`${apiHost()}/commerce/identity/v1/user`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
-      },
-    });
-    if (!res.ok) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const res = await ebayFetch(`${apiHost()}/commerce/identity/v1/user`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+        },
+      });
+      if (!res.ok) {
+        // 5xx / 429 are worth another try; a 4xx (bad scope/token) is terminal.
+        const transient = res.status >= 500 || res.status === 429;
+        await res.body?.cancel();
+        if (transient && attempt < attempts) {
+          await delay(attempt * 300);
+          continue;
+        }
+        console.warn(
+          `[ebay-client] identity lookup returned ${res.status} (attempt ${attempt}/${attempts}); account_handle stays null`,
+        );
+        return null;
+      }
+      const body = await res.json() as {
+        username?: string;
+        userId?: string;
+      };
+      // US-364: capture eBay's stable `userId` (the same id the account-deletion
+      // webhook sends) so deletion + webhook linkage can match on it instead of
+      // the free-text handle.
+      return {
+        username: body.username ?? body.userId ?? null,
+        externalAccountId: body.userId ?? null,
+      };
+    } catch (err) {
+      // Network/abort errors are transient — retry before giving up.
+      if (attempt < attempts) {
+        await delay(attempt * 300);
+        continue;
+      }
       console.warn(
-        `[ebay-client] identity lookup returned ${res.status}; account_handle stays null`,
+        `[ebay-client] identity lookup threw (attempt ${attempt}/${attempts}):`,
+        err,
       );
       return null;
     }
-    const body = await res.json() as {
-      username?: string;
-      userId?: string;
-    };
-    // US-364: capture eBay's stable `userId` (the same id the account-deletion
-    // webhook sends) so deletion can match on it instead of the free-text handle.
-    return {
-      username: body.username ?? body.userId ?? null,
-      externalAccountId: body.userId ?? null,
-    };
-  } catch (err) {
-    console.warn("[ebay-client] identity lookup threw:", err);
-    return null;
   }
+  return null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // US-364: best-effort upstream revocation of a user's eBay grant on disconnect /

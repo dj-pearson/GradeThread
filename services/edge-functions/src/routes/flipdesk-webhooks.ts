@@ -9,6 +9,8 @@ import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
 import { classifyEbayTopic } from "../lib/ebay-webhook-topics.ts";
+import { requireJobSecret } from "../lib/job-auth.ts";
+import { acquireJobLock } from "../lib/job-lock.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -112,15 +114,19 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
 // unit-tested (with an injected key fixture) without importing this route
 // module (and its service-role client).
 
-// US-471: resolve the GradeThread user behind an eBay notification from the
-// fields eBay commonly carries on order/sale/return payloads. Prefers the
-// stable, signature-verified seller userId (stored as external_account_id) and
-// falls back to the seller username (account_handle). Returns null when no
-// active connection matches — the caller meters + drops.
-async function resolveEbayUserId(
+// US-471/US-472: the linkage candidates eBay commonly carries on order/sale/
+// return AND payout payloads — the stable seller userId and the free-text
+// username. Centralized so the parking lot (US-472) stores the same fields the
+// resolver matches on.
+interface EbayLinkCandidates {
+  username: string | null;
+  ebayUserId: string | null;
+}
+
+export function extractEbayCandidates(
   data: Record<string, unknown>,
-): Promise<string | null> {
-  const seller = (data.seller ?? data.user) as
+): EbayLinkCandidates {
+  const seller = (data.seller ?? data.user ?? data.payee) as
     | { username?: unknown; userId?: unknown }
     | undefined;
   const username =
@@ -129,10 +135,21 @@ async function resolveEbayUserId(
     null;
   const ebayUserId =
     (typeof data.sellerId === "string" && data.sellerId) ||
+    (typeof data.payeeId === "string" && data.payeeId) ||
     (typeof data.userId === "string" && data.userId) ||
     (typeof seller?.userId === "string" && seller.userId) ||
     null;
+  return { username, ebayUserId };
+}
 
+// Resolve the GradeThread user_id from linkage candidates. Prefers the stable,
+// signature-verified seller userId (stored as external_account_id) and falls
+// back to the seller username (account_handle). Returns null when no active
+// connection matches — the caller meters, parks, and drops.
+async function resolveEbayConnectionUserId(
+  username: string | null,
+  ebayUserId: string | null,
+): Promise<string | null> {
   if (ebayUserId) {
     const { data: row } = await supabaseAdmin
       .from("marketplace_connections")
@@ -158,6 +175,36 @@ async function resolveEbayUserId(
     if (uid) return uid;
   }
   return null;
+}
+
+// US-472: park a verified-but-unlinkable event so it isn't lost. The drain cron
+// (`/api/jobs/ebay-pending-webhooks`) re-attempts linkage once the connection's
+// account_handle / external_account_id hydrates. Deduped by notificationId; a
+// best-effort insert (a parking failure must never break the webhook ack).
+async function parkUnmatchedEbayEvent(args: {
+  bucket: "payout" | "order" | "return";
+  topic: string;
+  notificationId: string | null;
+  candidates: EbayLinkCandidates;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("ebay_pending_webhook_events")
+    .insert({
+      bucket: args.bucket,
+      topic: args.topic,
+      notification_id: args.notificationId,
+      ebay_username: args.candidates.username,
+      ebay_user_id: args.candidates.ebayUserId,
+      payload: args.payload,
+    });
+  // 23505 = the same notification is already parked — a no-op, not an error.
+  if (error && error.code !== "23505") {
+    console.error(
+      "[flipdesk-webhooks] failed to park unmatched eBay event:",
+      error.message,
+    );
+  }
 }
 
 // Dispatches a verified eBay notification by topic. Handles:
@@ -214,7 +261,7 @@ async function processEbayWebhookEvent(
   recordMetric("webhook.received", 1, { provider: "ebay", topic, bucket });
 
   if (bucket === "payout") {
-    await handlePayoutEvent(notif?.data ?? {}, topic);
+    await handlePayoutEvent(notif?.data ?? {}, topic, notif?.notificationId ?? null);
     return;
   }
 
@@ -224,15 +271,34 @@ async function processEbayWebhookEvent(
   // 'listed' (US-459). One code path serves both buckets — the difference is
   // only which line items the sync finds changed.
   if (bucket === "order" || bucket === "return") {
-    const userId = await resolveEbayUserId(notif?.data ?? {});
+    const data = notif?.data ?? {};
+    const candidates = extractEbayCandidates(data);
+    const userId = await resolveEbayConnectionUserId(
+      candidates.username,
+      candidates.ebayUserId,
+    );
     if (!userId) {
       recordMetric("webhook.unmatched_seller", 1, {
         provider: "ebay",
         topic,
         bucket,
       });
+      // US-472: don't lose the event. Park it for the drain to re-link once the
+      // connection's handle/id hydrates, and meter the no-handle drop.
+      recordMetric("webhook.dropped_no_handle", 1, {
+        provider: "ebay",
+        topic,
+        bucket,
+      });
+      await parkUnmatchedEbayEvent({
+        bucket,
+        topic,
+        notificationId: notif?.notificationId ?? null,
+        candidates,
+        payload: data,
+      });
       console.warn(
-        `[flipdesk-webhooks] no active eBay connection matches topic=${topic} id=${notifId} — dropping`,
+        `[flipdesk-webhooks] no active eBay connection matches topic=${topic} id=${notifId} — parked for re-link`,
       );
       return;
     }
@@ -257,15 +323,13 @@ async function processEbayWebhookEvent(
   );
 }
 
-// Parses an eBay payout-event payload into our internal ParsedPayoutRow
-// shape and inserts via the same dedup pipeline F1 uses for CSV imports.
-// Re-deliveries of the same payoutId+amount+date are a no-op.
-async function handlePayoutEvent(
+// Parses an eBay payout-event payload into our internal ParsedPayoutRow shape.
+// Returns null when a required field is missing (can't ingest such a row).
+export function parsePayoutRow(
   data: Record<string, unknown>,
   topic: string,
-): Promise<void> {
+): ParsedPayoutRow | null {
   const payoutId = typeof data.payoutId === "string" ? data.payoutId : null;
-  const username = (data.user as { username?: unknown } | undefined)?.username;
   const amountObj = (data.amount ?? data.totalNetAmount) as
     | { value?: unknown; currencyCode?: unknown }
     | undefined;
@@ -285,34 +349,14 @@ async function handlePayoutEvent(
       ? data.payoutStatus
       : topic.replace(/^FINANCES_PAYOUT_/, "");
 
-  if (!payoutId || !Number.isFinite(amountValue) || !payoutDate || !username) {
+  if (!payoutId || !Number.isFinite(amountValue) || !payoutDate) {
     console.warn(
-      `[flipdesk-webhooks] payout event missing required fields — payoutId=${payoutId} amount=${amountValue} date=${payoutDate} username=${username}`,
+      `[flipdesk-webhooks] payout event missing required fields — payoutId=${payoutId} amount=${amountValue} date=${payoutDate}`,
     );
-    return;
+    return null;
   }
 
-  // Map eBay seller username → marketplace_connections.user_id. If the
-  // handle hasn't been populated yet (NULL on first connect), we can't
-  // match and have to drop. The user can either re-trigger a sync (which
-  // hydrates the handle) or fall back to CSV upload.
-  const { data: connRow } = await supabaseAdmin
-    .from("marketplace_connections")
-    .select("user_id")
-    .eq("marketplace", "ebay")
-    .eq("account_handle", username as string)
-    .eq("is_active", true)
-    .limit(1)
-    .maybeSingle();
-  const userId = (connRow as { user_id?: string } | null)?.user_id ?? null;
-  if (!userId) {
-    console.warn(
-      `[flipdesk-webhooks] no active eBay connection matches username=${username} — dropping payout event ${payoutId}`,
-    );
-    return;
-  }
-
-  const payoutRow: ParsedPayoutRow = {
+  return {
     payoutId,
     payoutDate,
     amount: amountValue,
@@ -323,7 +367,20 @@ async function handlePayoutEvent(
       topic,
     },
   };
+}
 
+// Ingests a parsed payout for a KNOWN user via the same dedup pipeline F1 uses
+// for CSV imports. Re-deliveries of the same payoutId+amount+date are a no-op.
+// Shared by the live webhook and the parked-event drain (US-472).
+async function ingestPayoutForUser(
+  userId: string,
+  data: Record<string, unknown>,
+  topic: string,
+): Promise<void> {
+  const payoutRow = parsePayoutRow(data, topic);
+  if (!payoutRow) return;
+  const currency = payoutRow.currency;
+  const amountValue = payoutRow.amount;
   try {
     const { inserted, duplicates } = await ingestPayoutsForUser(
       userId,
@@ -331,7 +388,7 @@ async function handlePayoutEvent(
       "api_sync",
     );
     console.log(
-      `[flipdesk-webhooks] payout ${payoutId} processed: inserted=${inserted} duplicates=${duplicates}`,
+      `[flipdesk-webhooks] payout ${payoutRow.payoutId} processed: inserted=${inserted} duplicates=${duplicates}`,
     );
     // US-737: a genuinely new payout arrived from eBay (async, not a manual
     // CSV upload) → notify so the user knows money landed and can reconcile.
@@ -345,9 +402,209 @@ async function handlePayoutEvent(
     }
   } catch (err) {
     console.error(
-      `[flipdesk-webhooks] payout ingest failed for ${payoutId}:`,
+      `[flipdesk-webhooks] payout ingest failed for ${payoutRow.payoutId}:`,
       err instanceof Error ? err.message : String(err),
     );
+    throw err;
+  }
+}
+
+// Live payout-webhook handler: resolve the seller, then ingest. US-472: match on
+// the stable eBay userId first (external_account_id) and fall back to the handle
+// — and when neither resolves yet (handle/id not hydrated on first connect),
+// PARK the verified event so the drain can re-link it, instead of dropping it.
+async function handlePayoutEvent(
+  data: Record<string, unknown>,
+  topic: string,
+  notificationId: string | null,
+): Promise<void> {
+  const candidates = extractEbayCandidates(data);
+  const payoutId = typeof data.payoutId === "string" ? data.payoutId : "(no-id)";
+  const userId = await resolveEbayConnectionUserId(
+    candidates.username,
+    candidates.ebayUserId,
+  );
+  if (!userId) {
+    recordMetric("webhook.dropped_no_handle", 1, {
+      provider: "ebay",
+      topic,
+      bucket: "payout",
+    });
+    await parkUnmatchedEbayEvent({
+      bucket: "payout",
+      topic,
+      notificationId,
+      candidates,
+      payload: data,
+    });
+    console.warn(
+      `[flipdesk-webhooks] no active eBay connection matches username=${candidates.username} userId=${candidates.ebayUserId} — parked payout event ${payoutId} for re-link`,
+    );
+    return;
+  }
+  await ingestPayoutForUser(userId, data, topic);
+}
+
+// US-472: scheduled drain of parked events. For each unprocessed parked event we
+// re-attempt linkage (the connection's handle/id may have hydrated since). On a
+// match we replay the event (payout → ingest, order/return → targeted sync) and
+// mark it linked; otherwise we increment attempts and, past the cap, dead-letter
+// it so the table stays bounded and the operator can fall back to a CSV import.
+const PENDING_MAX_ATTEMPTS = 8;
+const PENDING_DRAIN_BATCH = 100;
+
+interface PendingDrainResult {
+  scanned: number;
+  linked: number;
+  retried: number;
+  dead_lettered: number;
+}
+
+interface PendingEventRow {
+  id: string;
+  bucket: "payout" | "order" | "return";
+  topic: string;
+  ebay_username: string | null;
+  ebay_user_id: string | null;
+  payload: Record<string, unknown>;
+  attempts: number;
+}
+
+export async function drainPendingEbayWebhookEvents(): Promise<PendingDrainResult> {
+  const { data, error } = await supabaseAdmin
+    .from("ebay_pending_webhook_events")
+    .select("id, bucket, topic, ebay_username, ebay_user_id, payload, attempts")
+    .is("processed_at", null)
+    .order("created_at", { ascending: true })
+    .limit(PENDING_DRAIN_BATCH);
+  if (error) {
+    captureException(error, { route: "ebay-pending-webhooks.scan" });
+    throw new Error(`pending-webhook drain scan failed: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as PendingEventRow[];
+  let linked = 0;
+  let retried = 0;
+  let deadLettered = 0;
+
+  for (const row of rows) {
+    const userId = await resolveEbayConnectionUserId(
+      row.ebay_username,
+      row.ebay_user_id,
+    );
+    const attempts = row.attempts + 1;
+
+    if (!userId) {
+      if (attempts >= PENDING_MAX_ATTEMPTS) {
+        await supabaseAdmin
+          .from("ebay_pending_webhook_events")
+          .update({
+            attempts,
+            last_attempt_at: new Date().toISOString(),
+            processed_at: new Date().toISOString(),
+            outcome: "dead_letter",
+            last_error: "no matching connection after max attempts",
+          })
+          .eq("id", row.id);
+        deadLettered += 1;
+        recordMetric("webhook.pending_dead_lettered", 1, {
+          provider: "ebay",
+          bucket: row.bucket,
+        });
+        captureException(
+          new Error(
+            `eBay webhook dead-lettered after ${attempts} attempts (bucket=${row.bucket}, topic=${row.topic}) — seller never linked; CSV fallback needed`,
+          ),
+          {
+            level: "warn",
+            route: "ebay-pending-webhooks",
+            tags: { bucket: row.bucket, topic: row.topic },
+            extra: { id: row.id },
+          },
+        );
+        continue;
+      }
+      await supabaseAdmin
+        .from("ebay_pending_webhook_events")
+        .update({
+          attempts,
+          last_attempt_at: new Date().toISOString(),
+          last_error: "no matching connection (handle/id not yet hydrated)",
+        })
+        .eq("id", row.id);
+      retried += 1;
+      continue;
+    }
+
+    // Linkage succeeded — replay the event.
+    try {
+      if (row.bucket === "payout") {
+        await ingestPayoutForUser(userId, row.payload, row.topic);
+      } else {
+        // order/return → the same targeted incremental sync the live path runs.
+        await triggerEbaySyncForUser(userId);
+      }
+      await supabaseAdmin
+        .from("ebay_pending_webhook_events")
+        .update({
+          attempts,
+          last_attempt_at: new Date().toISOString(),
+          processed_at: new Date().toISOString(),
+          outcome: "linked",
+          last_error: null,
+        })
+        .eq("id", row.id);
+      linked += 1;
+      recordMetric("webhook.pending_linked", 1, {
+        provider: "ebay",
+        bucket: row.bucket,
+      });
+    } catch (err) {
+      // Transient dispatch failure — leave unprocessed for the next sweep.
+      await supabaseAdmin
+        .from("ebay_pending_webhook_events")
+        .update({
+          attempts,
+          last_attempt_at: new Date().toISOString(),
+          last_error: err instanceof Error ? err.message.slice(0, 500) : String(err),
+        })
+        .eq("id", row.id);
+      retried += 1;
+    }
+  }
+
+  if (rows.length > 0) {
+    recordMetric("webhook.pending_drain", rows.length, {
+      provider: "ebay",
+      linked,
+      retried,
+      dead_lettered: deadLettered,
+    });
+  }
+  return { scanned: rows.length, linked, retried, dead_lettered: deadLettered };
+}
+
+// Cron entry point. OUTSIDE /api/* JWT groups; guards with the shared job secret
+// and an overlap lock (mirrors the other crons).
+export async function handleEbayPendingWebhooksCron(c: {
+  req: { header: (name: string) => string | undefined };
+  json: (body: unknown, status?: number) => Response;
+}): Promise<Response> {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  const lock = await acquireJobLock("ebay-pending-webhooks", 240);
+  if (!lock.acquired) {
+    return c.json({ ok: true, skipped: true, reason: lock.reason });
+  }
+  try {
+    const result = await drainPendingEbayWebhookEvents();
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    captureException(err, { route: "ebay-pending-webhooks.cron" });
+    return c.json({ error: "Pending-webhook drain failed" }, 500);
+  } finally {
+    await lock.release();
   }
 }
 
