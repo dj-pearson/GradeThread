@@ -356,16 +356,34 @@ export function InventoryPage() {
           {isLoading ? (
             <LoadingSkeleton />
           ) : items.length === 0 ? (
-            <EmptyState
-              icon={Package}
-              title="No inventory items yet"
-              description="Add your first item to start tracking your inventory."
-              action={{
-                label: "Add your first item",
-                to: "/dashboard/inventory/new",
-                icon: Plus,
-              }}
-            />
+            statusFilter !== "all" ||
+            garmentTypeFilter !== "all" ||
+            brandFilter !== "all" ? (
+              <EmptyState
+                icon={Package}
+                title="No matching items"
+                description="No inventory items match the current filters."
+                secondaryAction={{
+                  label: "Clear filters",
+                  onClick: () => {
+                    setStatusFilter("all");
+                    setGarmentTypeFilter("all");
+                    setBrandFilter("all");
+                  },
+                }}
+              />
+            ) : (
+              <EmptyState
+                icon={Package}
+                title="No inventory items yet"
+                description="Add your first item to start tracking your inventory."
+                action={{
+                  label: "Add your first item",
+                  to: "/dashboard/inventory/new",
+                  icon: Plus,
+                }}
+              />
+            )
           ) : (
             <>
               {/* Mobile: card list instead of the horizontal-scroll table. */}

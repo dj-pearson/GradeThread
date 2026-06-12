@@ -576,3 +576,10 @@ Branch: ralph/gradethread-build
   - Verified: tsc --noEmit, npm run build, npm run lint (0 errors), deno check + deno lint, supabase db reset (00142 applies clean).
 - Timestamp: 2026-06-11
 ---
+
+## US-378: Make onboarding essentials non-skippable + design new-user empty states
+- Status: COMPLETE
+- Files changed: src/stores/onboarding-tour-store.ts (new), src/components/onboarding/onboarding-flow.tsx, src/pages/settings.tsx, src/pages/inventory.tsx, prd.json
+- Notes: Essential steps (verify email, accept terms) were already non-skippable via existing gates — VerifyEmailGate (US-366) and LegalGate (US-377) in protected-route.tsx. Made use_case capture non-skippable in OnboardingFlow: dialog is non-dismissible (no Escape/outside-click) until a use case is picked, and the "Skip tour" button only renders after selection, so use_case is always persisted even when the tour itself is skipped. Added useOnboardingTourStore (mirrors flipdesk-tour-store) so the welcome/product tour is re-openable from Settings via a new "Product tour" card; OnboardingFlow now also shows on `reopened`, restarting at the welcome step and seeding the saved use_case. Empty states: submissions + dashboard already had brand-new states; inventory now distinguishes "No matching items" (filters active) from the brand-new "Add your first item" CTA. Verified with tsc --noEmit, npm run build, and eslint.
+- Timestamp: 2026-06-11
+---

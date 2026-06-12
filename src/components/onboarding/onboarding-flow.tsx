@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sparkles,
@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import type { UserUpdate, UserUseCase } from "@/types/database";
 
 const USE_CASES: {
@@ -123,12 +124,30 @@ function nextActionLabel(useCase: UserUseCase | null): string {
 export function OnboardingFlow() {
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
+  const reopened = useOnboardingTourStore((s) => s.reopened);
+  const closeTour = useOnboardingTourStore((s) => s.close);
   const [step, setStep] = useState(0);
-  const [useCase, setUseCase] = useState<UserUseCase | null>(null);
+  // Seed the use-case selection from the saved profile so a Settings replay
+  // shows the prior choice (and the essential-capture gate doesn't re-trip).
+  const [useCase, setUseCase] = useState<UserUseCase | null>(
+    profile?.use_case ?? null
+  );
   const [saving, setSaving] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
-  const shouldShow = !!profile && !profile.onboarded_at && !dismissed;
+  // First-run: show until onboarded_at is set. Replay-from-Settings: show on
+  // demand even after onboarding, starting fresh from the welcome step.
+  const firstRun = !!profile && !profile.onboarded_at && !dismissed;
+  const shouldShow = reopened || firstRun;
+
+  // When reopened from Settings, restart at the welcome step and reflect the
+  // saved use case.
+  useEffect(() => {
+    if (reopened) {
+      setStep(0);
+      setUseCase(profile?.use_case ?? null);
+    }
+  }, [reopened, profile?.use_case]);
 
   // `routeNext` is true only when the user finishes the tour (not Skip), so we
   // drop them on the first action that fits their use case.
@@ -146,11 +165,13 @@ export function OnboardingFlow() {
         .eq("id", user.id);
       if (error) throw error;
       setDismissed(true);
+      closeTour();
       await refreshProfile();
       if (routeNext) navigate(nextActionFor(useCase));
     } catch {
       // Don't trap the user — close anyway; it may reappear next session.
       setDismissed(true);
+      closeTour();
       toast.error(
         "Couldn't save onboarding. You can set your use case later in Settings."
       );
@@ -168,10 +189,25 @@ export function OnboardingFlow() {
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open && !saving) void finish();
+        if (open || saving) return;
+        // The use case is essential and captured up front: until it's chosen
+        // the dialog is non-dismissible (no outside-click / Escape close).
+        // Once chosen, dismissing finishes the still-skippable tour.
+        if (!useCase) return;
+        void finish();
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        // Reinforce the up-front gate: no Escape / outside-click close until a
+        // use case is picked.
+        onEscapeKeyDown={(e) => {
+          if (!useCase) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (!useCase) e.preventDefault();
+        }}
+      >
         {/* Step 0 — Welcome */}
         {step === 0 && (
           <>
@@ -267,14 +303,20 @@ export function OnboardingFlow() {
         </div>
 
         <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => void finish()}
-            disabled={saving}
-          >
-            Skip
-          </Button>
+          {/* Skip only appears once a use case is chosen — the tour is
+              skippable, but the use-case capture before it is not. */}
+          {useCase ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void finish()}
+              disabled={saving}
+            >
+              Skip tour
+            </Button>
+          ) : (
+            <span />
+          )}
           <div className="flex gap-2">
             {step > 0 && (
               <Button

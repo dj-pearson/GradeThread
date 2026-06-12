@@ -21,6 +21,7 @@ import { FLIPDESK_PLANS, PLANS, type PlanKey } from "@/lib/constants";
 import { Loader2, Upload, Download, Sparkles, Compass, Archive, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
+import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
@@ -50,10 +51,16 @@ export function SettingsPage() {
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const openFlipdeskTour = useFlipdeskTourStore((s) => s.open);
+  const openWelcomeTour = useOnboardingTourStore((s) => s.open);
 
   function replayFlipdeskTour() {
     openFlipdeskTour();
     navigate("/dashboard/flipdesk");
+  }
+
+  function replayWelcomeTour() {
+    openWelcomeTour();
+    navigate("/dashboard");
   }
 
   const [fullName, setFullName] = useState(profile?.full_name ?? "");
@@ -661,6 +668,33 @@ export function SettingsPage() {
             {savingAi && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save AI Settings
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Onboarding / product tour */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Product tour
+          </CardTitle>
+          <CardDescription>
+            Replay the welcome walkthrough any time.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <p className="text-sm font-medium">Welcome tour</p>
+              <p className="text-xs text-muted-foreground">
+                Revisit the quick walkthrough and update what you use
+                GradeThread for.
+              </p>
+            </div>
+            <Button variant="outline" onClick={replayWelcomeTour}>
+              Replay tour
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

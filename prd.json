@@ -6135,8 +6135,8 @@
         "use_case capture handled even when the tour is skipped"
       ],
       "priority": 378,
-      "passes": false,
-      "notes": "[P2][Auth/UX] Audit 2026-06-03. Files: src/components/onboarding/onboarding-flow.tsx."
+      "passes": true,
+      "notes": "[P2][Auth/UX] Audit 2026-06-03. Files: src/components/onboarding/onboarding-flow.tsx. DONE 2026-06-11: Essentials already gated (VerifyEmailGate US-366 + LegalGate US-377). OnboardingFlow now captures use_case non-skippably (dialog non-dismissible + Skip only after pick); tour stays skippable and is re-openable from Settings via new useOnboardingTourStore (src/stores/onboarding-tour-store.ts). Inventory empty state now distinguishes no-matches vs brand-new; submissions/dashboard already had brand-new empty states."
     },
     {
       "id": "US-379",
