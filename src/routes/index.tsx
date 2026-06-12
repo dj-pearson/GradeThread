@@ -126,6 +126,8 @@ const KnowledgePage = lazy(() => import("@/pages/content/knowledge").then(m => (
 const ContentSettingsPage = lazy(() => import("@/pages/content/content-settings").then(m => ({ default: m.ContentSettingsPage })));
 const ContentAnalyticsPage = lazy(() => import("@/pages/content/analytics").then(m => ({ default: m.ContentAnalyticsPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
+// US-443: in-shell 404 that keeps the dashboard/admin chrome (sidebar + header).
+const InShellNotFound = lazy(() => import("@/pages/not-found").then(m => ({ default: m.InShellNotFound })));
 const AdminDashboardPage = lazy(() => import("@/pages/admin/dashboard").then(m => ({ default: m.AdminDashboardPage })));
 const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ default: m.AdminUsersPage })));
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
@@ -305,6 +307,9 @@ export const router = createBrowserRouter([
               // Keep old /dashboard/content/* URLs alive via a prefix-preserving
               // redirect so existing bookmarks and in-app links don't 404.
               { path: "/dashboard/content/*", element: <ContentRedirect /> },
+              // In-shell 404: an unknown /dashboard/* path keeps the sidebar +
+              // header instead of dropping to the full-screen navless root 404.
+              { path: "/dashboard/*", element: <SuspenseWrapper><InShellNotFound /></SuspenseWrapper> },
             ],
           },
         ],
@@ -351,6 +356,8 @@ export const router = createBrowserRouter([
               { path: "/admin/content/knowledge", element: <SuspenseWrapper><KnowledgePage /></SuspenseWrapper> },
               { path: "/admin/content/analytics", element: <SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper> },
               { path: "/admin/content/settings", element: <SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper> },
+              // In-shell 404: an unknown /admin/* path keeps the admin chrome.
+              { path: "/admin/*", element: <SuspenseWrapper><InShellNotFound homeTo="/admin" homeLabel="Back to admin" /></SuspenseWrapper> },
             ],
           },
         ],

@@ -6958,8 +6958,8 @@
         "Root 404 carries <SEO noindex>"
       ],
       "priority": 443,
-      "passes": false,
-      "notes": "[P2][UX] Audit 2026-06-03. Only a root-level path:* exists; renders min-h-screen NotFoundPage with no shell."
+      "passes": true,
+      "notes": "[P2][UX] Audit 2026-06-03. Only a root-level path:* exists; renders min-h-screen NotFoundPage with no shell. DONE 2026-06-12: Added InShellNotFound (content-relative min-h-full) export in not-found.tsx; wired /dashboard/* and /admin/* catch-alls inside their layouts so unknown authed paths keep sidebar/header. Root path:* still renders NotFoundPage with <SEO noindex>."
     },
     {
       "id": "US-444",

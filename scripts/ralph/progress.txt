@@ -779,3 +779,10 @@ Branch: ralph/gradethread-build
 - Notes: Added a reusable LoadingRegion wrapper (role=status, aria-busy=true, sr-only label) plus a generic SkeletonRows placeholder in the shared skeletons library. Replaced every bare "Loading…" string with layout-appropriate skeletons (TableLoadingSkeleton for tables, ChartSkeleton for analytics charts, a grid of Skeletons for the flipdesk pipeline, SkeletonRows for lists) wrapped in LoadingRegion. Decorative skeletons stay aria-hidden; the region announces. audit-log already had skeletons — wrapped them in LoadingRegion and changed its bare title text. tsc/build/lint all clean (only 2 pre-existing unrelated warnings).
 - Timestamp: 2026-06-12
 ---
+
+## US-443: Add in-shell 404s and noindex the root 404
+- Status: COMPLETE
+- Files changed: src/pages/not-found.tsx, src/routes/index.tsx, prd.json
+- Notes: Added InShellNotFound named export to not-found.tsx using content-relative min-h-full (not min-h-screen, which double-scrolls inside the constrained <main>). Wired catch-all routes /dashboard/* (inside DashboardLayout children) and /admin/* (inside AdminLayout children, with homeTo="/admin") so unknown authed paths keep the sidebar+header. The static "dashboard"/"admin" segment outranks the bare root path:* splat, so those routes win. Root 404 already carried <SEO noindex> (criterion 2 pre-met).
+- Timestamp: 2026-06-12
+---

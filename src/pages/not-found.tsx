@@ -44,3 +44,33 @@ export function NotFoundPage() {
     </div>
   );
 }
+
+// US-443: in-shell 404 for the authenticated dashboard/admin layouts. Rendered
+// inside the layout's <main>, so the sidebar + header stay put and the user
+// keeps app navigation. Uses content-relative min-height (min-h-full, sized to
+// the surrounding scroll area) rather than the root page's min-h-screen, which
+// would overflow the already-constrained main and create a double scrollbar.
+export function InShellNotFound({
+  homeTo = "/dashboard",
+  homeLabel = "Back to dashboard",
+}: {
+  homeTo?: string;
+  homeLabel?: string;
+}) {
+  return (
+    <div className="flex min-h-full flex-col items-center justify-center px-6 py-12 text-center">
+      <SEO title="Page not found" noindex />
+      <h1 className="text-6xl font-bold text-brand-navy dark:text-foreground">404</h1>
+      <p className="mt-4 max-w-md text-lg text-muted-foreground">
+        We couldn&apos;t find that page. It may have moved, or the link might be
+        out of date.
+      </p>
+      <Link to={homeTo} className="mt-6">
+        <Button>
+          <LayoutDashboard className="mr-2 h-4 w-4" />
+          {homeLabel}
+        </Button>
+      </Link>
+    </div>
+  );
+}
