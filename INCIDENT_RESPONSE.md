@@ -2,6 +2,11 @@
 
 Per-scenario recovery runbooks + escalation, so incidents have a documented path.
 
+This file covers **availability / operational** incidents. Security incidents
+(breach, leaked secret, account compromise) follow
+[`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md), which also holds the
+monitor inventory, alert thresholds, and the end-to-end alert drill (US-500).
+
 ## Severity levels
 
 | Sev | Definition | Response | Examples |
@@ -12,14 +17,33 @@ Per-scenario recovery runbooks + escalation, so incidents have a documented path
 
 ## On-call & escalation
 
-> **MANUAL / LAUNCH-BLOCKER — fill in real contacts:**
-> - Primary on-call: ______ (phone / PagerDuty)
-> - Secondary / escalation: ______
-> - Owner (final escalation): Pearson Media LLC — ______
->
-> Alert channels feeding on-call: Sentry (`SENTRY_DSN`), `MONITOR_ALERT_WEBHOOK`
-> (Slack/PagerDuty), and the uptime monitors (`UPTIME_MONITORING.md`). All three
-> must point at the on-call channel before launch.
+GradeThread runs a **single-operator on-call** model until headcount grows:
+the founder is primary on-call 24/7. Redundancy comes from independent alert
+channels (one dead channel never hides an incident) and from the
+auto-remediation crons (stuck-submission sweep, webhook dead-letter capture,
+token-refresh backoff) that contain damage until a human responds.
+
+| Role | Who | Reach via |
+|---|---|---|
+| Primary on-call | DJ Pearson (founder, Pearson Media LLC) | On-call Slack channel (the `MONITOR_ALERT_WEBHOOK` / `UPTIME_ALERT_WEBHOOK` destination); GitHub `uptime` issues (repo watch with mobile push); Sentry email; pearsonperformance@gmail.com |
+| Secondary / escalation | Pearson Media leadership | Phone — private contact sheet (kept OUT of this repo, deliberately) |
+| Final escalation / comms owner | Pearson Media LLC (owner) | Same channels; owns user notification, `/status` + social updates |
+
+**Ack targets** (clock starts at the first *confirmed* alert — see
+`UPTIME_MONITORING.md` for what counts as confirmed): **SEV1 = 15 min,
+SEV2 = 1 h, SEV3 = next business day.**
+
+**Escalation ladder** (SEV1; advance every 15 unacknowledged minutes):
+1. On-call via the Slack channel mention / assigned `uptime` issue.
+2. Phone (private contact sheet).
+3. If user data may be affected, switch to the security flow in
+   [`docs/INCIDENT_RESPONSE.md`](docs/INCIDENT_RESPONSE.md).
+
+All three alert sources — Sentry (`SENTRY_DSN`), the edge service's
+`MONITOR_ALERT_WEBHOOK`, and the uptime monitor's `UPTIME_ALERT_WEBHOOK`
+(`UPTIME_MONITORING.md`) — must point at the same on-call channel before
+launch (`LAUNCH_CHECKLIST.md`), and everyone on call watches the repo with
+issue notifications enabled.
 
 ## Detection
 
@@ -33,7 +57,9 @@ Per-scenario recovery runbooks + escalation, so incidents have a documented path
 ### 1. Database outage / unreachable
 1. Confirm: `/health/ready` → 503; `circuit`/DB errors in the tracker.
 2. Check the Postgres host (disk full? OOM? crashed?). Restart if safe.
-3. If the volume/data is lost → restore from backup (`BACKUPS.md`; prefer PITR).
+3. If the volume/data is lost → restore from backup: `BACKUPS.md` → "Restore
+   procedure" (verified by drill; `scripts/ops/restore-postgres.sh`). Prefer
+   PITR when WAL archiving covers the loss window.
 4. After recovery: run `integrity-scan` cron; verify a test grade + certificate.
 
 ### 2. Edge crash-loop
@@ -93,5 +119,6 @@ File follow-up work as new prd.json stories.
 ## Links
 
 - Backups/restore: `BACKUPS.md` · Rollback: `ROLLBACK.md` · Migrations:
-  `MIGRATIONS.md` · Monitoring: `UPTIME_MONITORING.md` · Secrets:
-  `KEY_ROTATION.md` · Scaling/degradation: `SCALING.md`
+  `MIGRATIONS.md` · Uptime/alerting: `UPTIME_MONITORING.md` · Secrets:
+  `KEY_ROTATION.md` · Scaling/degradation: `SCALING.md` · Security incidents +
+  alert thresholds/drill: `docs/INCIDENT_RESPONSE.md`

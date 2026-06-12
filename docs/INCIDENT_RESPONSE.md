@@ -3,7 +3,11 @@
 Internal playbook for handling a suspected or confirmed security incident
 (breach, leaked secret, account compromise, data exposure) on GradeThread.
 Availability incidents (outages) are covered in
-[Availability monitoring, thresholds & escalation](#availability-monitoring-thresholds--escalation).
+[Availability monitoring, thresholds & escalation](#availability-monitoring-thresholds--escalation);
+the **per-scenario recovery runbooks** (DB outage + restore, edge crash-loop,
+webhook backlog, stuck submissions, eBay token mass-refresh failure) and the
+**on-call roster** live in the repo-root
+[INCIDENT_RESPONSE.md](../INCIDENT_RESPONSE.md) (US-506).
 
 ## Severity levels
 
@@ -104,10 +108,17 @@ US-500. What watches what, when it pages, and who responds.
 | **SEV-2** | Single non-critical component degraded (auth health flapping, readiness intermittently 503) or repeated self-recovering blips | 1 h ack | Investigate same day; check Coolify resource limits, Supabase logs |
 | **SEV-3** | Latency elevated but all checks passing; monitor itself failing (Actions outage) | next business day | Schedule into the work cycle |
 
-Escalation ladder (15 min per unacknowledged step for SEV-1):
+Escalation ladder (15 min per unacknowledged step for SEV-1; the on-call
+roster + contact channels are defined in the repo-root
+[INCIDENT_RESPONSE.md](../INCIDENT_RESPONSE.md) → "On-call & escalation"):
 1. On-call (Slack channel mention / GitHub issue assignee).
 2. Pearson Media leadership (phone — see private contact sheet).
 3. If user data may be affected, switch to the security flow above.
+
+Recovery procedures per failure mode (DB outage + restore via `BACKUPS.md`,
+edge crash-loop, webhook backlog/dead-letter, stuck submissions, eBay token
+mass-refresh failure) are the per-scenario runbooks in the repo-root
+[INCIDENT_RESPONSE.md](../INCIDENT_RESPONSE.md).
 
 During any SEV-1/SEV-2: confirm `gradethread.com/status` reflects the outage
 (it probes components from the visitor's browser, so it stays accurate without

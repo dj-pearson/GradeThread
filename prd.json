@@ -7759,8 +7759,8 @@
         "Links the uptime/alerting and backup/restore procedures"
       ],
       "priority": 506,
-      "passes": false,
-      "notes": "[P2][Ops] Audit 2026-06-03. INCIDENT_RESPONSE.md lacks on-call/escalation/per-scenario runbooks."
+      "passes": true,
+      "notes": "[P2][Ops] Audit 2026-06-03. DONE 2026-06-12: root INCIDENT_RESPONSE.md already had the 5 failure-mode runbooks (DB outage+restore, edge crash-loop, webhook backlog/dead-letter, stuck submissions, eBay token mass-refresh); this story filled in the on-call/escalation definition (single-operator model: founder primary, channel-redundant alerts, ack targets SEV1=15m/SEV2=1h, 15-min escalation ladder to phone/private contact sheet), strengthened the DB-restore link to BACKUPS.md restore procedure + restore-postgres.sh, and cross-linked root (ops runbooks) <-> docs/INCIDENT_RESPONSE.md (security flow + US-500 thresholds/drill). LAUNCH_CHECKLIST gained a private-contact-sheet go/no-go item."
     },
     {
       "id": "US-507",
