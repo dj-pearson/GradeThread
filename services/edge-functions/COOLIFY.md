@@ -157,6 +157,7 @@ the handler returns 401.
 | ebay-orders-sync        | `*/30 * * * *` (30min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/listings/pull`                |
 | ebay-performance-sync   | `0 */6 * * *` (6h)     | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/sync/performance`             |
 | ebay-publish-due        | `*/5 * * * *` (5min)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/flipdesk/ebay/jobs/publish-due`             |
+| ebay-sync-reaper        | `*/15 * * * *` (15min) | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/sync-reaper`                           |
 | gsc-sync                | `30 6 * * *` (06:30)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/gsc-sync`                              |
 | trial-check             | `0 14 * * *` (14:00)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/notifications/trial-check`                  |
 | trial-expiry            | `15 0 * * *` (00:15)   | `curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/trial-expiry`                          |
@@ -182,6 +183,17 @@ the handler returns 401.
 > - `automation-rules` (US-150) applies user-defined price-drop / promo / end
 >   rules hourly (offset to :30 so it never races reprice-scan for the eBay
 >   rate budget). Per-rule cooldowns stop hourly re-fires; overlap-locked.
+> - `ebay-publish-due` (US-407) claims a **small bounded batch** (default 15,
+>   override `PUBLISH_DUE_BATCH_LIMIT`) per tick so the run always finishes
+>   inside its 240s job-lock lease; the 5-min cadence drains any larger backlog
+>   over successive ticks (response `more: true` while a backlog remains). Each
+>   draft is per-row claim-locked, so a crashed/redeployed container never
+>   strands a publish — a stale claim is reclaimed on a later tick.
+> - `ebay-sync-reaper` (US-407/US-456) flips any `flipdesk_sync_runs` row left
+>   `running` past the stuck threshold (`SYNC_STUCK_THRESHOLD_MIN`, default 15m)
+>   to `failed`, so a container that dies mid-pull doesn't strand the tenant's
+>   sync lock until their next manual pull. The next 30-min `ebay-orders-sync`
+>   tick re-pulls incrementally from `last_synced_at`, so the work resumes.
 > - `stuck-submissions` fails+refunds grades stranded in `processing` (US-495);
 >   `email-retry` re-sends failed critical email (US-498); `integrity-scan`
 >   reports DB anomalies (US-504); `data-retention` purges grading photos past

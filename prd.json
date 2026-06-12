@@ -6507,8 +6507,8 @@
         "A crashed/redeployed container does not strand a job at status=running"
       ],
       "priority": 407,
-      "passes": false,
-      "notes": "[P1][Performance/Reliability] Audit 2026-06-03 (3 agents). doListingsPull/processBatch are fire-and-forget detached promises."
+      "passes": true,
+      "notes": "[P1][Performance/Reliability] Audit 2026-06-03 (3 agents). doListingsPull/processBatch are fire-and-forget detached promises. IMPL 2026-06-11: Durable job queue already landed across US-456 (flipdesk_sync_runs claim + stuck-reaper cron), US-525/526 (autolister batches/jobs claim+heartbeat+reclaim cron), and US-528 (publish per-row claim+stale reclaim). Closed the final gap: publish-due now claims a SMALL bounded batch (publishBatchLimit(), default 15, env PUBLISH_DUE_BATCH_LIMIT, fetch+1 to detect backlog) so each tick finishes inside the 240s job-lock lease and the 5-min cron drains the backlog (response.more). Added ebay-sync-reaper to COOLIFY.md scheduled tasks (already in LAUNCH_CHECKLIST) so stranded running sync rows clear without a user pull. Unit test: publish-due-batch_test.ts."
     },
     {
       "id": "US-408",

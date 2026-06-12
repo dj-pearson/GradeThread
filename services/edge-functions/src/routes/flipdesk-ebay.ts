@@ -3062,6 +3062,20 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
 // never reclaimed, while a crashed one is eventually retried.
 const PUBLISH_CLAIM_STALE_MS = 10 * 60_000;
 
+// US-407: a publish-due tick claims a SMALL, bounded batch — not the whole
+// backlog — so the run reliably finishes inside the 240s job-lock lease (each
+// publish makes several sequential eBay calls; 100 of them serially would blow
+// past the lease, the lock would expire mid-run, and the next tick would
+// overlap). Bounding the batch keeps each invocation idempotent and short; the
+// cron (every 5 min) drains any larger backlog over successive ticks. Sized so
+// the worst case (PUBLISH_BATCH_LIMIT × worst-case publish wall-time) stays
+// comfortably under the lease. Overridable for ops tuning.
+const PUBLISH_BATCH_DEFAULT = 15;
+export function publishBatchLimit(): number {
+  const n = Number(Deno.env.get("PUBLISH_DUE_BATCH_LIMIT"));
+  return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 100) : PUBLISH_BATCH_DEFAULT;
+}
+
 // Scheduled publishing worker (US-322). Job-secret gated (no user token) like
 // /oauth/refresh — a cron hits this periodically. Publishes every draft whose
 // scheduled_publish_at is due and that isn't already live, AS the listing's
@@ -3088,6 +3102,10 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
   // publish whose container crashed/redeployed mid-run so the draft isn't
   // stranded. Must comfortably exceed the worst-case publish wall-time.
   const staleBefore = new Date(Date.now() - PUBLISH_CLAIM_STALE_MS).toISOString();
+  // US-407: bound the scan to a small batch so the tick finishes within the
+  // lock lease; the cron drains any larger backlog over successive ticks. We
+  // fetch one extra row to cheaply detect whether more work remains.
+  const batchLimit = publishBatchLimit();
   // Due = scheduled at/before now, not yet synced live, still a draft, and not
   // currently claimed by an in-flight tick. The lte filter already excludes
   // NULL scheduled_publish_at rows.
@@ -3098,15 +3116,21 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     .is("synced_to_ebay_at", null)
     .eq("listing_status", "draft")
     .or(`publish_claimed_at.is.null,publish_claimed_at.lt.${staleBefore}`)
-    .limit(100);
+    .order("scheduled_publish_at", { ascending: true })
+    .limit(batchLimit + 1);
   if (error) {
     console.error("[flipdesk-ebay] publish-due scan failed:", error);
     return c.json({ error: "Scan failed" }, 500);
   }
 
-  const due = (dueRows ?? []) as { id: string; inventory_item_id: string }[];
+  const allDue = (dueRows ?? []) as { id: string; inventory_item_id: string }[];
+  // US-407: we asked for batchLimit+1; a full extra row means the backlog
+  // exceeds one tick. Process only batchLimit this invocation; the next cron
+  // tick picks up the rest. `more` lets ops/monitoring see the backlog draining.
+  const more = allDue.length > batchLimit;
+  const due = allDue.slice(0, batchLimit);
   if (due.length === 0) {
-    return c.json({ scanned: 0, published: 0, failed: 0, skipped: 0 });
+    return c.json({ scanned: 0, published: 0, failed: 0, skipped: 0, more: false });
   }
 
   // Resolve each item's owner (the publish must run as them).
@@ -3177,7 +3201,7 @@ flipdeskEbayRoutes.post("/jobs/publish-due", async (c) => {
     }
   }
 
-  return c.json({ scanned: due.length, published, failed, skipped });
+  return c.json({ scanned: due.length, published, failed, skipped, more });
   } finally {
     await lock.release();
   }
