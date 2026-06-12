@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
+import { publishItemForOwner } from "./flipdesk-ebay.ts";
 import {
   getMarketplaceSpec,
   type MarketplacePlatform,
@@ -75,6 +76,32 @@ const JOB_STALE_MS = 5 * 60_000;
 // US-525: a 'running' batch whose updated_at (bumped on every progress roll-up)
 // is older than this is presumed abandoned and is swept.
 const BATCH_STALE_MS = 15 * 60_000;
+
+// ── US-559: durable bulk publish ─────────────────────────────────────
+// A single, bounded concurrency for the publish worker. eBay returns 429 under
+// burst publishing, so the rate budget is centralized here (not multiplied by
+// however many browser tabs were looping /push). publishItemForOwner already
+// retries the eBay publish call internally — the durable worker deliberately
+// does NOT add a second retry layer on top (the old client loop did, which
+// compounded the server's own withRetry); a genuine failure surfaces on the
+// job for an explicit retry-failed instead.
+const PUBLISH_CONCURRENCY = 3;
+// One bulk-publish run is capped at the same 100 items as a generation batch.
+const MAX_PUBLISH_BATCH_ITEMS = 100;
+// Hard wall-clock cap on a single item's publish. publishItemForOwner makes
+// several sequential eBay calls (inventory PUT → offer POST → publish), so cap
+// it generously so a hung call can't pin a concurrency slot forever (US-526).
+const PUBLISH_ITEM_TIMEOUT_MS = 120_000;
+// A publish job started this many times (incl. reclaim resumes) is failed
+// terminally rather than resumed forever (US-525).
+const MAX_PUBLISH_JOB_ATTEMPTS = 5;
+// A 'running' publish job whose updated_at is older than this was left by a
+// dead worker and is eligible for reclaim. Must exceed PUBLISH_ITEM_TIMEOUT_MS
+// so a live publish is never reclaimed out from under its worker.
+const PUBLISH_JOB_STALE_MS = 5 * 60_000;
+// A 'running' publish batch whose heartbeat (updated_at) is older than this is
+// presumed abandoned and is swept by the reclaim cron.
+const PUBLISH_BATCH_STALE_MS = 15 * 60_000;
 
 export const flipdeskAutolisterRoutes = new Hono<{
   Variables: {
@@ -1004,6 +1031,440 @@ export async function handleAutolisterReclaimCron(c: Context): Promise<Response>
   }
 
   return c.json({ scanned: stale.length, resumed, finalized });
+  } finally {
+    await lock.release();
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════
+// US-559: durable server-side bulk publish
+// ════════════════════════════════════════════════════════════════════
+//
+// Replaces the client loop over POST /listings/push. A run is durable in
+// listing_publish_batches/jobs (00156) and mirrors the generation batch model:
+//   • POST /publish-batch            — enqueue owned items; 202 + batch_id.
+//   • GET  /publish-batch/:id        — poll batch + per-item status/blockers.
+//   • POST /publish-batch/:id/retry-failed — re-run only the failed jobs.
+//   • POST /publish-batch/:id/resume — unstick a batch stranded by a restart.
+//   • handlePublishBatchReclaimCron  — sweeps abandoned batches (mounted at
+//     /api/jobs/publish-batch-reclaim, OUTSIDE the authed wildcard).
+//
+// Survives tab-close: the 202 closes the HTTP connection and the worker runs
+// server-side; if the container dies, the reclaim sweeper resumes from the
+// persisted jobs. Idempotent per item: each job is CLAIMED before it runs, and
+// publishItemForOwner adopts an existing live offer for the SKU rather than
+// minting a duplicate (US-464). The rate budget is centralized in the single
+// bounded-concurrency worker here, not multiplied across browser tabs.
+
+/**
+ * Recompute counts from the authoritative publish-jobs table and terminalize
+ * the batch when no jobs remain open. Idempotent — also the live progress
+ * roll-up (bumps updated_at, the heartbeat the reclaim sweeper watches).
+ */
+async function finalizePublishBatch(batchId: string): Promise<void> {
+  const { data } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .select("status")
+    .eq("batch_id", batchId);
+  const rows = (data ?? []) as Array<{ status: string }>;
+  const succeeded = rows.filter((r) => r.status === "success").length;
+  const failed = rows.filter((r) => r.status === "failed").length;
+  const open = rows.filter((r) => r.status === "pending" || r.status === "running").length;
+  const patch: Record<string, unknown> = {
+    succeeded_count: succeeded,
+    failed_count: failed,
+  };
+  const terminal = deriveBatchStatus(succeeded, failed, open);
+  if (terminal) patch.status = terminal;
+  await supabaseAdmin.from("listing_publish_batches").update(patch).eq("id", batchId);
+}
+
+async function markPublishJobFailed(jobId: string, message: string): Promise<void> {
+  await supabaseAdmin
+    .from("listing_publish_jobs")
+    .update({ status: "failed", error: message.slice(0, 1000) })
+    .eq("id", jobId);
+}
+
+/** Human-readable failure message from a publishItemForOwner failure body. */
+export function publishFailureMessage(body: Record<string, unknown>): string {
+  const blockers = Array.isArray(body.blockers) ? (body.blockers as string[]) : [];
+  if (blockers.length > 0) return blockers.join(" • ");
+  return (body.detail ?? body.error ?? "Publish failed.") as string;
+}
+
+/**
+ * Background worker: publish each job's item with bounded concurrency. Partial
+ * failures never abort the batch — each job records its own status/error/
+ * attempts. Jobs are CLAIMED so a resumed/concurrent run can't double-process
+ * one (US-525); a per-item timeout caps a hung publish (US-526).
+ */
+async function processPublishBatch(
+  batchId: string,
+  ownerId: string,
+  jobs: Array<{ id: string; inventory_item_id: string; attempts?: number }>,
+): Promise<void> {
+  const jobStaleBefore = new Date(Date.now() - PUBLISH_JOB_STALE_MS).toISOString();
+
+  async function runJob(
+    job: { id: string; inventory_item_id: string; attempts?: number },
+  ): Promise<void> {
+    const attempts = job.attempts ?? 0;
+    if (attempts >= MAX_PUBLISH_JOB_ATTEMPTS) {
+      await markPublishJobFailed(
+        job.id,
+        "Publish abandoned after repeated interruptions. Retry from the queue if needed.",
+      );
+      return;
+    }
+
+    // Atomically CLAIM the job. Eligible = still 'pending', or a 'running' job
+    // left stale by a dead worker. A fresh 'running' job (live worker owns it)
+    // matches nothing and we skip — the idempotency guard against double-publish.
+    const { data: claimed } = await supabaseAdmin
+      .from("listing_publish_jobs")
+      .update({ status: "running", attempts: attempts + 1, error: null })
+      .eq("id", job.id)
+      .in("status", ["pending", "running"])
+      .or(`status.eq.pending,updated_at.lt.${jobStaleBefore}`)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) return;
+
+    try {
+      const result = await withTimeout(
+        publishItemForOwner(ownerId, job.inventory_item_id),
+        PUBLISH_ITEM_TIMEOUT_MS,
+        "Publish",
+      );
+      if (result.ok) {
+        await supabaseAdmin
+          .from("listing_publish_jobs")
+          .update({
+            status: "success",
+            listing_id: result.listing_id,
+            listing_url: result.listing_url,
+            error: null,
+          })
+          .eq("id", job.id);
+      } else {
+        await markPublishJobFailed(job.id, publishFailureMessage(result.body));
+      }
+    } catch (err) {
+      await markPublishJobFailed(
+        job.id,
+        err instanceof Error ? err.message : "Publish failed",
+      );
+    }
+  }
+
+  try {
+    for (let i = 0; i < jobs.length; i += PUBLISH_CONCURRENCY) {
+      await Promise.all(jobs.slice(i, i + PUBLISH_CONCURRENCY).map((j) => runJob(j)));
+      await finalizePublishBatch(batchId); // live progress + heartbeat
+    }
+  } catch (err) {
+    console.error("[flipdesk-autolister] publish worker crashed:", err);
+  } finally {
+    await finalizePublishBatch(batchId).catch((e) =>
+      console.error("[flipdesk-autolister] finalizePublishBatch failed:", e)
+    );
+  }
+}
+
+// POST /publish-batch  Body: { item_ids: string[] }
+flipdeskAutolisterRoutes.post("/publish-batch", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const itemIds = Array.isArray(body.item_ids)
+    ? Array.from(
+      new Set(body.item_ids.filter((x): x is string => typeof x === "string")),
+    )
+    : [];
+  if (itemIds.length === 0) {
+    return c.json({ error: "item_ids must be a non-empty array" }, 400);
+  }
+  if (itemIds.length > MAX_PUBLISH_BATCH_ITEMS) {
+    return c.json(
+      { error: `A publish batch can contain at most ${MAX_PUBLISH_BATCH_ITEMS} items.` },
+      400,
+    );
+  }
+
+  // Plan gate (paid FlipDesk feature, billed to the workspace owner).
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  // Tenant isolation: every requested item MUST belong to this workspace.
+  // Pull status too so the active-listing cap counts only the items that would
+  // become NEWLY live (a re-publish of an already-'listed' item doesn't add to
+  // the count) — same rule the single-item /listings/push handler uses.
+  const { data: ownedRows, error: ownErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, status")
+    .eq("user_id", ownerId)
+    .in("id", itemIds);
+  if (ownErr) {
+    return c.json({ error: "Could not verify item ownership." }, 500);
+  }
+  const owned = (ownedRows ?? []) as Array<{ id: string; status: string }>;
+  const ownedIds = new Set(owned.map((r) => r.id));
+  const notOwned = itemIds.filter((id) => !ownedIds.has(id));
+  if (notOwned.length > 0) {
+    return c.json(
+      { error: "One or more items do not belong to your workspace." },
+      403,
+    );
+  }
+
+  // Centralized rate/capacity budget: gate the whole run against the active-
+  // listing cap up front (delta = items that aren't already live), so a bulk
+  // publish can't quietly blow past the plan limit one item at a time.
+  const newLive = owned.filter((r) => r.status !== "listed").length;
+  if (newLive > 0) {
+    const capGate = await requireFlipdesk(c, {
+      capacity: { kind: "activeListings", delta: newLive },
+      userId: ownerId,
+    });
+    if (capGate) return capGate;
+  }
+
+  // Create the batch + one job per item.
+  const { data: batch, error: batchErr } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .insert({
+      user_id: ownerId,
+      status: "running",
+      item_count: itemIds.length,
+    })
+    .select("id")
+    .single();
+  if (batchErr || !batch) {
+    return c.json({ error: "Could not create publish batch." }, 500);
+  }
+  const batchId = (batch as { id: string }).id;
+
+  const { data: jobRows, error: jobsErr } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .insert(
+      itemIds.map((id) => ({
+        batch_id: batchId,
+        inventory_item_id: id,
+        status: "pending" as const,
+      })),
+    )
+    .select("id, inventory_item_id");
+  if (jobsErr || !jobRows) {
+    await supabaseAdmin
+      .from("listing_publish_batches")
+      .update({ status: "failed", error: "Failed to enqueue jobs." })
+      .eq("id", batchId);
+    return c.json({ error: "Could not enqueue publish jobs." }, 500);
+  }
+
+  const jobs = jobRows as Array<{ id: string; inventory_item_id: string }>;
+
+  // Optimistic immediate processing — the 202 closes the connection well under
+  // Cloudflare's proxy timeout. Durability does NOT depend on this promise: if
+  // the container dies mid-run, the reclaim sweeper resumes from the job rows.
+  void processPublishBatch(batchId, ownerId, jobs).catch((err) =>
+    console.error("[flipdesk-autolister] background publish batch crashed:", err)
+  );
+
+  return c.json({ batch_id: batchId, item_count: itemIds.length }, 202);
+});
+
+// GET /publish-batch/:id — batch + per-job status for progress polling.
+flipdeskAutolisterRoutes.get("/publish-batch/:id", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const batchId = c.req.param("id");
+
+  const { data: batch, error } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .select(
+      "id, status, item_count, succeeded_count, failed_count, error, created_at, updated_at",
+    )
+    .eq("id", batchId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (error) return c.json({ error: "Could not load batch." }, 500);
+  if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+  // Jobs are reachable only because the batch above is confirmed owned.
+  const { data: jobs } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .select("id, inventory_item_id, status, error, attempts, listing_id, listing_url, updated_at")
+    .eq("batch_id", batchId)
+    .order("created_at", { ascending: true });
+
+  return c.json({ batch, jobs: jobs ?? [] });
+});
+
+// POST /publish-batch/:id/retry-failed — re-run ONLY the failed jobs in place.
+flipdeskAutolisterRoutes.post("/publish-batch/:id/retry-failed", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const batchId = c.req.param("id");
+
+  const { data: batch, error: batchErr } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .select("id")
+    .eq("id", batchId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (batchErr) return c.json({ error: "Could not load batch." }, 500);
+  if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  const { data: failedJobs, error: jobsErr } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .select("id, inventory_item_id, attempts")
+    .eq("batch_id", batchId)
+    .eq("status", "failed");
+  if (jobsErr) return c.json({ error: "Could not load failed jobs." }, 500);
+  const jobs = (failedJobs ?? []) as Array<
+    { id: string; inventory_item_id: string; attempts: number }
+  >;
+  if (jobs.length === 0) {
+    return c.json({ error: "No failed jobs to retry." }, 400);
+  }
+
+  await supabaseAdmin
+    .from("listing_publish_batches")
+    .update({ status: "running", error: null })
+    .eq("id", batchId);
+  await supabaseAdmin
+    .from("listing_publish_jobs")
+    .update({ status: "pending", error: null })
+    .in("id", jobs.map((j) => j.id));
+
+  void processPublishBatch(batchId, ownerId, jobs).catch((err) =>
+    console.error("[flipdesk-autolister] retry publish batch crashed:", err)
+  );
+
+  return c.json({ batch_id: batchId, retried: jobs.length }, 202);
+});
+
+// POST /publish-batch/:id/resume — user-triggered resume of a STRANDED batch
+// (jobs left 'pending'/'running' after the worker was interrupted by a restart).
+flipdeskAutolisterRoutes.post("/publish-batch/:id/resume", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const batchId = c.req.param("id");
+
+  const { data: batch, error: batchErr } = await supabaseAdmin
+    .from("listing_publish_batches")
+    .select("id")
+    .eq("id", batchId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (batchErr) return c.json({ error: "Could not load batch." }, 500);
+  if (!batch) return c.json({ error: "Batch not found" }, 404);
+
+  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
+  if (gated) return gated;
+
+  const { data: openJobs, error: jobsErr } = await supabaseAdmin
+    .from("listing_publish_jobs")
+    .select("id, inventory_item_id, attempts")
+    .eq("batch_id", batchId)
+    .in("status", ["pending", "running"]);
+  if (jobsErr) return c.json({ error: "Could not load jobs." }, 500);
+  const jobs = (openJobs ?? []) as Array<
+    { id: string; inventory_item_id: string; attempts: number }
+  >;
+  if (jobs.length === 0) {
+    return c.json({ error: "Nothing to resume — no unfinished jobs." }, 400);
+  }
+
+  await supabaseAdmin
+    .from("listing_publish_batches")
+    .update({ status: "running", error: null })
+    .eq("id", batchId);
+  await supabaseAdmin
+    .from("listing_publish_jobs")
+    .update({ status: "pending", error: null })
+    .in("id", jobs.map((j) => j.id));
+
+  void processPublishBatch(batchId, ownerId, jobs).catch((err) =>
+    console.error("[flipdesk-autolister] resume publish batch crashed:", err)
+  );
+
+  return c.json({ batch_id: batchId, resumed: jobs.length }, 202);
+});
+
+// US-559: publish-batch reclaim sweeper. A cron hits POST
+// /api/jobs/publish-batch-reclaim (job-secret gated, mounted in main.ts OUTSIDE
+// the authed /autolister/* wildcard). Finds 'running' publish batches whose
+// worker died (stale heartbeat), claims each, and re-dispatches its still-open
+// jobs so the batch eventually terminalizes.
+export async function handlePublishBatchReclaimCron(c: Context): Promise<Response> {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+
+  const lock = await acquireJobLock("publish-batch-reclaim", 300);
+  if (!lock.acquired) {
+    return c.json({ scanned: 0, resumed: 0, finalized: 0, skipped: true, reason: lock.reason });
+  }
+  try {
+    const batchStaleBefore = new Date(Date.now() - PUBLISH_BATCH_STALE_MS).toISOString();
+    const { data: staleRows, error } = await supabaseAdmin
+      .from("listing_publish_batches")
+      .select("id, user_id")
+      .eq("status", "running")
+      .lt("updated_at", batchStaleBefore)
+      .limit(20);
+    if (error) {
+      console.error("[flipdesk-autolister] publish reclaim scan failed:", error.message);
+      return c.json({ error: "Scan failed" }, 500);
+    }
+    const stale = (staleRows ?? []) as Array<{ id: string; user_id: string }>;
+
+    let resumed = 0;
+    let finalized = 0;
+    for (const b of stale) {
+      // Claim the batch — any UPDATE bumps updated_at via the trigger, so a
+      // concurrent tick sees a fresh (non-stale) row and skips it.
+      const { data: claimedBatch } = await supabaseAdmin
+        .from("listing_publish_batches")
+        .update({ error: null })
+        .eq("id", b.id)
+        .eq("status", "running")
+        .lt("updated_at", batchStaleBefore)
+        .select("id")
+        .maybeSingle();
+      if (!claimedBatch) continue; // lost the race
+
+      const { data: openJobs } = await supabaseAdmin
+        .from("listing_publish_jobs")
+        .select("id, inventory_item_id, attempts")
+        .eq("batch_id", b.id)
+        .in("status", ["pending", "running"]);
+      const jobs = (openJobs ?? []) as Array<
+        { id: string; inventory_item_id: string; attempts: number }
+      >;
+
+      if (jobs.length === 0) {
+        await finalizePublishBatch(b.id);
+        finalized += 1;
+        continue;
+      }
+
+      void processPublishBatch(b.id, b.user_id, jobs).catch((err) =>
+        console.error("[flipdesk-autolister] publish reclaim resume crashed:", err)
+      );
+      resumed += 1;
+    }
+
+    return c.json({ scanned: stale.length, resumed, finalized });
   } finally {
     await lock.release();
   }

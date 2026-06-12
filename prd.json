@@ -8438,8 +8438,8 @@
         "Idempotent per item (no duplicate listings)"
       ],
       "priority": 559,
-      "passes": false,
-      "notes": "[P1][AutoLister/Publish] Deep-dive 2026-06-03. useBulkPublish loops /listings/push client-side; client retries compound the server withRetry."
+      "passes": true,
+      "notes": "[P1][AutoLister/Publish] Deep-dive 2026-06-03. useBulkPublish loops /listings/push client-side; client retries compound the server withRetry. | DONE 2026-06-12: durable server-side bulk publish. Migration 00156 adds listing_publish_batches/jobs (mirror of generation tables, reuses the listing_generation_status/job_status enums). New endpoints in flipdesk-autolister.ts: POST /publish-batch (enqueue owned items, plan+active-listing-cap gated up front, 202+batch_id), GET /publish-batch/:id (poll batch+per-item status/blockers), /publish-batch/:id/retry-failed, /publish-batch/:id/resume, plus handlePublishBatchReclaimCron at /api/jobs/publish-batch-reclaim. processPublishBatch mirrors processBatch (claim/concurrency/finalize/retry) but wraps the proven publishItemForOwner (idempotent via publishOrAdoptOffer US-464) and deliberately adds NO extra retry layer (the client loop did, compounding the server withRetry). Rate budget centralized in one bounded worker. Frontend useBulkPublish keeps its {run,results,running} surface but now starts the server batch and polls it, so a run survives tab-close. Tests: publish-batch_test.ts."
     },
     {
       "id": "US-560",

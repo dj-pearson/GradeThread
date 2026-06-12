@@ -103,6 +103,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | gsc-sync | `30 6 * * *` | `/api/jobs/gsc-sync` | ☐ | |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | ☐ | |
 | autolister-reclaim | `*/5 * * * *` | `/api/jobs/autolister-reclaim` | ☐ | |
+| publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | ☐ | |
 | reprice-scan | `0 */6 * * *` | `/api/jobs/reprice-scan` | ☐ | |
 | reprice-rules | `0 */6 * * *` | `/api/jobs/reprice-rules` | ☐ | |
 | grading-monitor | `0 */12 * * *` | `/api/jobs/grading-monitor` | ☐ | |

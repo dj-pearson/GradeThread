@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
-import { supabase } from "@/lib/supabase";
 import type {
   ListingGenerationJobStatus,
   ListingGenerationStatus,
@@ -68,25 +67,18 @@ export function useStartAutolisterBatch() {
   });
 }
 
-// ── Bulk publish (US-321) ───────────────────────────────────────
+// ── Bulk publish (US-321, durable in US-559) ────────────────────────
 //
-// Client-side orchestrator over the proven single-item publish path: for each
-// item it validates (POST /listings/validate — refuses items with unresolved
-// blockers) then publishes (POST /listings/push — the 3-step inventory PUT →
-// offer POST → offer publish). Runs with bounded concurrency, captures a
-// per-item result, and writes the publish outcome back to the listing row
-// (synced_to_ebay_at on success; publish_error/publish_failed_at on failure).
-
-const PUBLISH_CONCURRENCY = 3;
-
-// eBay returns 429 under burst publishing. Retry the publish call a few times
-// with exponential backoff (full jitter) before giving up on an item (US-325).
-const PUBLISH_RETRYABLE = new Set([429, 500, 502, 503, 504]);
-
-function backoff(attempt: number): Promise<void> {
-  const cap = Math.min(8000, 500 * 2 ** (attempt - 1));
-  return new Promise((r) => setTimeout(r, Math.floor(Math.random() * cap)));
-}
+// Bulk publish is a DURABLE, SERVER-SIDE batch (US-559): the browser POSTs the
+// item set to /autolister/publish-batch (which validates + publishes each item
+// with central bounded concurrency, idempotent per item) and then POLLS the
+// batch for per-item status. The run survives a tab close — the work continues
+// server-side and the reclaim sweeper resumes it across a container restart —
+// and the eBay rate budget is centralized in the one server worker instead of
+// being multiplied across browser tabs each looping /push.
+//
+// The hook keeps its original { run, results, running } surface so the drafts
+// cockpit is unchanged; results are derived from the polled jobs.
 
 export type BulkPublishStatus = "pending" | "publishing" | "success" | "failed";
 
@@ -102,117 +94,115 @@ export interface BulkPublishItem {
   listingId?: string | null;
 }
 
-async function markListingOutcome(
-  item: BulkPublishItem,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  try {
-    let q = supabase.from("listings").update(patch as never);
-    q = item.listingId
-      ? q.eq("id", item.listingId)
-      : q.eq("inventory_item_id", item.itemId).eq("platform", "ebay");
-    await q;
-  } catch {
-    /* non-fatal — the UI already reflects the result */
+// Server job → UI result status. The jobs table uses the same lifecycle as
+// generation jobs (pending → running → success/failed).
+function jobToStatus(jobStatus: string): BulkPublishStatus {
+  switch (jobStatus) {
+    case "success":
+      return "success";
+    case "failed":
+      return "failed";
+    case "running":
+      return "publishing";
+    default:
+      return "pending";
   }
+}
+
+interface PublishJobRow {
+  inventory_item_id: string;
+  status: string;
+  error: string | null;
+  listing_url: string | null;
 }
 
 export function useBulkPublish() {
   const [results, setResults] = useState<Record<string, BulkPublishItemResult>>({});
   const [running, setRunning] = useState(false);
 
-  const set = useCallback((itemId: string, patch: Partial<BulkPublishItemResult>) => {
-    setResults((prev) => ({
-      ...prev,
-      [itemId]: { ...(prev[itemId] ?? { itemId, status: "pending" }), ...patch, itemId },
-    }));
-  }, []);
+  const run = useCallback(async (items: BulkPublishItem[]) => {
+    if (items.length === 0) return;
+    setRunning(true);
+    setResults(
+      Object.fromEntries(
+        items.map((i) => [i.itemId, { itemId: i.itemId, status: "pending" as const }]),
+      ),
+    );
 
-  const run = useCallback(
-    async (items: BulkPublishItem[]) => {
-      if (items.length === 0) return;
-      setRunning(true);
-      setResults(
+    const finish = (failed: number, total: number) => {
+      setRunning(false);
+      toast.success(
+        `Publish finished — ${total - failed} live${failed ? `, ${failed} failed` : ""}.`,
+      );
+    };
+
+    const failAll = (message: string) => {
+      setResults((prev) =>
         Object.fromEntries(
-          items.map((i) => [i.itemId, { itemId: i.itemId, status: "pending" as const }]),
+          Object.values(prev).map((r) => [r.itemId, { ...r, status: "failed", error: message }]),
+        ),
+      );
+      setRunning(false);
+      toast.error(message);
+    };
+
+    // 1. Start the durable server batch.
+    let batchId: string;
+    try {
+      const res = await edgeFetch("/api/flipdesk/autolister/publish-batch", {
+        method: "POST",
+        json: { item_ids: items.map((i) => i.itemId) },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.batch_id) {
+        failAll(json.error || "Could not start publishing.");
+        return;
+      }
+      batchId = json.batch_id as string;
+    } catch (err) {
+      failAll(err instanceof Error ? err.message : "Could not start publishing.");
+      return;
+    }
+
+    // 2. Poll the batch until it terminalizes, mapping jobs → per-item results.
+    //    Closing the tab here doesn't stop the publish — the server owns it.
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 1500));
+      let json: {
+        batch?: { status?: string };
+        jobs?: PublishJobRow[];
+      };
+      try {
+        const res = await edgeFetch(`/api/flipdesk/autolister/publish-batch/${batchId}`);
+        json = await res.json().catch(() => ({}));
+        if (!res.ok) continue; // transient — keep polling
+      } catch {
+        continue;
+      }
+
+      const jobs = json.jobs ?? [];
+      setResults(() =>
+        Object.fromEntries(
+          jobs.map((j) => [
+            j.inventory_item_id,
+            {
+              itemId: j.inventory_item_id,
+              status: jobToStatus(j.status),
+              error: j.error ?? undefined,
+              listingUrl: j.listing_url ?? undefined,
+            } satisfies BulkPublishItemResult,
+          ]),
         ),
       );
 
-      let failed = 0;
-      const publishOne = async (item: BulkPublishItem) => {
-        set(item.itemId, { status: "publishing" });
-        try {
-          // Pre-flight: refuse items with unresolved blockers.
-          const vRes = await edgeFetch("/api/flipdesk/ebay/listings/validate", {
-            method: "POST",
-            json: { inventory_item_id: item.itemId },
-          });
-          const vJson = await vRes.json().catch(() => ({}));
-          if (!vRes.ok) throw new Error(vJson.error || "Validation failed.");
-          if (vJson.ok === false && Array.isArray(vJson.blockers) && vJson.blockers.length) {
-            throw new Error(vJson.blockers.join(" • "));
-          }
-
-          // Publish (3-step Sell API flow on the server), retrying transient
-          // rate-limit / 5xx responses with exponential backoff.
-          const MAX_PUBLISH_ATTEMPTS = 3;
-          let pRes: Response | null = null;
-          let pJson: Record<string, unknown> = {};
-          for (let attempt = 1; attempt <= MAX_PUBLISH_ATTEMPTS; attempt++) {
-            pRes = await edgeFetch("/api/flipdesk/ebay/listings/push", {
-              method: "POST",
-              json: { inventory_item_id: item.itemId },
-            });
-            pJson = await pRes.json().catch(() => ({}));
-            if (
-              PUBLISH_RETRYABLE.has(pRes.status) &&
-              attempt < MAX_PUBLISH_ATTEMPTS
-            ) {
-              await backoff(attempt);
-              continue;
-            }
-            break;
-          }
-          if (!pRes || !pRes.ok || pJson.ok === false) {
-            const detail = (pJson.detail ?? pJson.error ?? "Publish failed.") as string;
-            const blockers = Array.isArray(pJson.blockers)
-              ? (pJson.blockers as string[]).join(" • ")
-              : "";
-            throw new Error(blockers ? `${detail} — ${blockers}` : detail);
-          }
-
-          set(item.itemId, {
-            status: "success",
-            listingUrl:
-              typeof pJson.listing_url === "string" ? pJson.listing_url : undefined,
-          });
-          await markListingOutcome(item, {
-            synced_to_ebay_at: new Date().toISOString(),
-            publish_error: null,
-            publish_failed_at: null,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "Publish failed.";
-          failed++;
-          set(item.itemId, { status: "failed", error: message });
-          await markListingOutcome(item, {
-            publish_error: message,
-            publish_failed_at: new Date().toISOString(),
-          });
-        }
-      };
-
-      for (let i = 0; i < items.length; i += PUBLISH_CONCURRENCY) {
-        await Promise.all(items.slice(i, i + PUBLISH_CONCURRENCY).map(publishOne));
+      const status = json.batch?.status;
+      if (status && status !== "pending" && status !== "running") {
+        const failed = jobs.filter((j) => j.status === "failed").length;
+        finish(failed, jobs.length || items.length);
+        return;
       }
-      setRunning(false);
-
-      toast.success(
-        `Publish finished — ${items.length - failed} live${failed ? `, ${failed} failed` : ""}.`,
-      );
-    },
-    [set],
-  );
+    }
+  }, []);
 
   return { run, results, running };
 }

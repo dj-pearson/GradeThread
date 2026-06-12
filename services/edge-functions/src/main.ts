@@ -25,6 +25,7 @@ import { flipdeskTemplatesRoutes } from "./routes/flipdesk-templates.ts";
 import {
   flipdeskAutolisterRoutes,
   handleAutolisterReclaimCron,
+  handlePublishBatchReclaimCron,
 } from "./routes/flipdesk-autolister.ts";
 import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
@@ -497,6 +498,9 @@ app.post("/api/jobs/automation-rules", (c) => handleAutomationRulesCron(c));
 // JWT wildcard so a cron (no user token) can reach it; the handler enforces
 // X-Internal-Job-Secret itself. Resumes batches whose worker died mid-run.
 app.post("/api/jobs/autolister-reclaim", (c) => handleAutolisterReclaimCron(c));
+// US-559 bulk-publish reclaim sweeper. Same job-secret gating; resumes durable
+// publish batches whose worker died mid-run so nothing is stranded.
+app.post("/api/jobs/publish-batch-reclaim", (c) => handlePublishBatchReclaimCron(c));
 app.route("/api/admin", adminBillingRoutes);
 // US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
 app.route("/api/admin/feature-flags", adminFlagsRoutes);
