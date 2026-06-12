@@ -427,6 +427,11 @@ export interface AspectExtractionInput {
   knownAspects?: Record<string, string[]>; // already-filled values
   aspects: EbayAspectSpec[];
   categoryPath?: string | null;
+  // US-545: override the model for this refine pass. The listing flow routes
+  // EASY apparel categories to the cheaper lightweight model (Haiku) here, since
+  // their item-specifics are unambiguous enough to refine reliably without
+  // Sonnet. Unset → the default routing (Sonnet with photos, Haiku without).
+  modelOverride?: string;
 }
 
 export interface AspectExtractionResult {
@@ -583,7 +588,9 @@ export async function extractEbayAspects(
   // Aspect extraction without photos is rarely useful — most aspects can
   // only be filled from visual evidence — but we still run the model on
   // text alone if that's all we have.
-  const model = hasPhotos ? getSonnetModel() : getHaikuModel();
+  // US-545: an explicit override (easy-category routing) wins over the default.
+  const model = input.modelOverride?.trim() ||
+    (hasPhotos ? getSonnetModel() : getHaikuModel());
   const client = getAnthropicClient();
   const temperature = getAiTemperature();
 

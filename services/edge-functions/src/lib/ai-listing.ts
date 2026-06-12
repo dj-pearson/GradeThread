@@ -23,8 +23,13 @@ import {
 import {
   estimateCost,
   extractEbayAspects,
+  getHaikuModel,
   type EbayAspectSpec,
 } from "./ai-extract.ts";
+import {
+  isEasyAspectCategory,
+  selectListingPhotos,
+} from "./listing-photo-budget.ts";
 import {
   getCategoryAspects,
   searchBrowseComps,
@@ -660,11 +665,15 @@ export async function generateListing(
   const gradeReportId =
     (itemData as { grade_report_id?: string | null }).grade_report_id ?? null;
 
-  // 2. Photos.
+  // 2. Photos. US-545: the vision passes (generation + aspect refine) send a
+  // cost-disciplined subset — exact-duplicate and near-identical same-role
+  // shots dropped, count capped — since image tokens dominate per-item cost.
+  // Tag-OCR still scans the full tag set below (tags are cheap and authoritative).
   const photos = await loadItemPhotoUrls(itemId);
   if (photos.length === 0) {
     throw new Error(`Item ${itemId} has no photos to generate a listing from`);
   }
+  const visionPhotos = selectListingPhotos(photos);
 
   const knownFields: Record<string, unknown> = {};
   for (
@@ -750,9 +759,9 @@ export async function generateListing(
     }
   }
 
-  // 4. Generate.
+  // 4. Generate (on the cost-disciplined photo subset).
   const gen = await generateListingFields({
-    photos,
+    photos: visionPhotos,
     knownFields: Object.keys(knownFields).length > 0 ? knownFields : undefined,
     tagGroundTruth,
     measurements,
@@ -797,14 +806,23 @@ export async function generateListing(
       const specs = buildAspectSpecsForCategory(rawAspectsResponse);
       if (specs.length > 0) {
         try {
+          // US-545: on common apparel categories the item-specifics are
+          // unambiguous enough to refine on the cheap model. Route those to
+          // Haiku; everything else (designer/vintage/non-apparel) stays on the
+          // default vision model. The signal is the resolved category path,
+          // falling back to the model's own natural-language category query.
+          const easyCategory = isEasyAspectCategory(
+            categoryPath ?? listing.suggested_category_query,
+          );
           const refined = await extractEbayAspects({
             text: [item.title, normalizedBrand, item.size, item.color, item.material]
               .filter((v): v is string => !!v && v.length > 0)
               .join(" • "),
-            photos: photos.map((p) => ({ url: p.url, type: p.type })),
+            photos: visionPhotos.map((p) => ({ url: p.url, type: p.type })),
             knownAspects: listing.item_specifics,
             aspects: specs,
             categoryPath,
+            modelOverride: easyCategory ? getHaikuModel() : undefined,
           });
           const refinedSpecifics = suggestionsToSpecifics(refined.suggestions);
           // US-541: capture each refined aspect's confidence (0..1) for triage.

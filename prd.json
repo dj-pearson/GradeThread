@@ -8258,8 +8258,8 @@
         "Per-item cost reduced ~30-50% at batch scale (measured)"
       ],
       "priority": 545,
-      "passes": false,
-      "notes": "[P2][AutoLister/AI/Cost] Deep-dive 2026-06-03. Two Sonnet vision calls per item, both sending all photos; prompt caching only covers the ~1KB system block."
+      "passes": true,
+      "notes": "[P2][AutoLister/AI/Cost] Deep-dive 2026-06-03. Two Sonnet vision calls per item, both sending all photos; prompt caching only covers the ~1KB system block. IMPLEMENTED 2026-06-12: new lib/listing-photo-budget.ts (pure, tested) adds (1) selectListingPhotos — drops exact-dupe + near-identical same-role shots and caps to 6 before BOTH vision passes (generation + aspect refine); (2) isEasyAspectCategory — routes common-apparel aspect-refine to Haiku via new extractEbayAspects modelOverride, keeps designer/vintage/non-apparel on Sonnet; (3) estimateListingItemCost cost model proving ~40% per-item reduction at 8-photo batch scale (runtime spend logged to ai_enrichment_log.cost_usd). Wired in ai-listing.ts generateListing. Note: Anthropic resizes images <=1.15MP before billing so photo COUNT, not source downscale, is the real token lever."
     },
     {
       "id": "US-546",
