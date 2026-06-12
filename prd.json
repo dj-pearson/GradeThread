@@ -6122,8 +6122,8 @@
         "A re-acceptance flow exists for future material changes; record is exportable"
       ],
       "priority": 377,
-      "passes": false,
-      "notes": "[P1][Auth/Legal] Audit 2026-06-03. signup.tsx uses passive browsewrap text; nothing recorded; OAuth bypasses it."
+      "passes": true,
+      "notes": "[P1][Auth/Legal] Audit 2026-06-03. signup.tsx uses passive browsewrap text; nothing recorded; OAuth bypasses it. DONE 2026-06-11: clickwrap checkbox gates email+Google signup (signup.tsx); acceptance recorded server-side — email via signup metadata→handle_new_user (migration 00142), OAuth/re-acceptance via dashboard LegalGate→POST /api/legal/accept. New legal_acceptances audit table (RLS own-row SELECT) + users.{tos,privacy}_accepted_{version,at}. LEGAL_VERSIONS constant + edge mirror drive re-acceptance on version bump; GET /api/legal/export makes the record exportable."
     },
     {
       "id": "US-378",

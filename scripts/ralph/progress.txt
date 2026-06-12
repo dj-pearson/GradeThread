@@ -556,3 +556,23 @@ Branch: ralph/gradethread-build
 - Notes: TOTP enrollment stays client->Supabase (supabase.auth.mfa.*) so a workspace MFA requirement can never block enrollment. Recovery codes are minted/consumed by the edge service from an AAL2 session, persisting only SHA-256 hashes; lost-device consume burns a code (atomic update-then-select to avoid double-spend) and unenrolls all TOTP factors via auth.admin.mfa.deleteFactor so the user can re-enroll. Owner policy stored on users.workspace_mfa_required_role; enforced in workspaceMiddleware via pure, unit-tested workspaceMfaBlocked(); owner never forced by own policy. listFactors().totp is verified-only in supabase-js types — use .all to reach unverified factors. Verified: tsc --noEmit, npm run build, deno check, deno lint, eslint, 9 new deno tests all green.
 - Timestamp: 2026-06-11
 ---
+
+## US-377: Capture explicit ToS/Privacy acceptance at signup (clickwrap)
+- Status: COMPLETE
+- Files changed:
+  - supabase/migrations/00142_legal_acceptance.sql (new): users.{tos,privacy}_accepted_{version,at} columns; legal_acceptances audit table (RLS own-row SELECT only); handle_new_user extended to stamp acceptance from email signup metadata + append an audit row
+  - src/types/database.ts: UserRow acceptance columns; LegalAcceptanceRow + legal_acceptances table entry
+  - src/lib/constants.ts: LEGAL_VERSIONS (tos/privacy effective-date versions)
+  - src/lib/auth.ts: signUpWithEmail passes tos_version/privacy_version/legal_accepted_at in options.data
+  - src/pages/signup.tsx: affirmative clickwrap checkbox gates Create-account AND Continue-with-Google; removed passive browsewrap text
+  - services/edge-functions/src/routes/legal.ts (new): GET /status, POST /accept (records audit row w/ IP+UA, updates current columns), GET /export
+  - services/edge-functions/src/main.ts: mount /api/legal with authMiddleware + rate limit
+  - src/components/auth/legal-gate.tsx (new): blocks dashboard until current versions accepted (OAuth first-access capture + re-acceptance on version bump)
+  - src/components/auth/protected-route.tsx: wrap Outlet in <LegalGate>
+- Notes:
+  - Email signups are recorded server-side at account creation via the trigger (no edge round-trip). OAuth signups carry no checkbox through the redirect, so LegalGate is the authoritative capture before first dashboard access.
+  - Re-acceptance: bump LEGAL_VERSIONS (constants.ts) + the TOS_VERSION/PRIVACY_VERSION mirror in legal.ts + the effectiveDate in pages/legal/{terms,privacy}.tsx — a stale recorded version re-triggers the gate for everyone.
+  - Edge route is per-user scoped via c.get("userId") (never an id from the body) per the CLAUDE.md service-role rule.
+  - Verified: tsc --noEmit, npm run build, npm run lint (0 errors), deno check + deno lint, supabase db reset (00142 applies clean).
+- Timestamp: 2026-06-11
+---

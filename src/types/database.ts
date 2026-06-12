@@ -272,6 +272,12 @@ export interface UserRow {
   // Cross-source sync-conflict email alert: send one email when the open
   // conflict count crosses this number (US-148, migration 00133). NULL disables.
   sync_conflict_email_threshold: number | null;
+  // US-377: current accepted ToS/Privacy versions (clickwrap). NULL = never
+  // recorded → the client legal gate blocks the dashboard until acceptance.
+  tos_accepted_version: string | null;
+  tos_accepted_at: string | null;
+  privacy_accepted_version: string | null;
+  privacy_accepted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -326,6 +332,20 @@ export interface WorkspaceInvitationInsert {
 export type WorkspaceInvitationUpdate = Partial<
   Pick<WorkspaceInvitationRow, "role" | "revoked_at">
 >;
+
+// US-377: append-only ToS/Privacy clickwrap acceptance log. One row per
+// acceptance event (signup / oauth / re-acceptance) — the provable, exportable
+// record. Written only by the edge service-role client + the signup trigger.
+export interface LegalAcceptanceRow {
+  id: string;
+  user_id: string;
+  tos_version: string;
+  privacy_version: string;
+  method: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  accepted_at: string;
+}
 
 // US-374: single-use MFA recovery codes. Only SHA-256 hashes are persisted;
 // plaintext is shown once at generation time.
@@ -2439,6 +2459,12 @@ export interface Database {
         Insert: Pick<MfaRecoveryCodeRow, "user_id" | "code_hash"> &
           Partial<Pick<MfaRecoveryCodeRow, "used_at">>;
         Update: Partial<Pick<MfaRecoveryCodeRow, "used_at">>;
+      };
+      legal_acceptances: {
+        Row: LegalAcceptanceRow;
+        Insert: Pick<LegalAcceptanceRow, "user_id" | "tos_version" | "privacy_version" | "method"> &
+          Partial<Pick<LegalAcceptanceRow, "user_agent" | "ip_address" | "accepted_at">>;
+        Update: never;
       };
       // Growth / Promote suite (00102)
       audience_segments: {

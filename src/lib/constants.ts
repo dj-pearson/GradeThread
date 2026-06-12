@@ -826,3 +826,15 @@ export const SEED_KNOWLEDGE_KEYS = [
   "social.short.style",
   "seo.pillars",
 ] as const;
+
+// US-377: legal-document versions for the signup clickwrap + re-acceptance gate.
+// The version string is the document's EFFECTIVE DATE — bump these whenever the
+// Terms of Service or Privacy Policy materially change (and update the matching
+// `effectiveDate` in src/pages/legal/{terms,privacy}.tsx). A user whose recorded
+// acceptance version differs from the current one is shown the re-acceptance
+// gate before they can use the dashboard. Keep IN SYNC with the edge mirror in
+// services/edge-functions/src/routes/legal.ts.
+export const LEGAL_VERSIONS = {
+  tos: "2026-04-01",
+  privacy: "2026-04-01",
+} as const;

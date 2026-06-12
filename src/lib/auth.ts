@@ -1,8 +1,14 @@
 import { supabase } from "./supabase";
+import { LEGAL_VERSIONS } from "./constants";
 
 // US-368: `captchaToken` is the Cloudflare Turnstile token from the auth pages.
 // GoTrue requires it on signup/login/reset once captcha is enabled; it's
 // undefined (and ignored) when VITE_TURNSTILE_SITE_KEY is unset.
+//
+// US-377: the affirmative ToS/Privacy clickwrap version + timestamp ride along
+// in options.data (raw_user_meta_data). The handle_new_user trigger reads them
+// to stamp the user's accepted versions and append an audit row at account
+// creation — recording consent server-side for email signups.
 export async function signUpWithEmail(
   email: string,
   password: string,
@@ -13,7 +19,12 @@ export async function signUpWithEmail(
     email,
     password,
     options: {
-      data: { full_name: fullName },
+      data: {
+        full_name: fullName,
+        tos_version: LEGAL_VERSIONS.tos,
+        privacy_version: LEGAL_VERSIONS.privacy,
+        legal_accepted_at: new Date().toISOString(),
+      },
       emailRedirectTo: `${window.location.origin}/auth/callback`,
       captchaToken,
     },

@@ -1,6 +1,7 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { VerifyEmailGate } from "@/components/auth/verify-email-gate";
+import { LegalGate } from "@/components/auth/legal-gate";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 export function ProtectedRoute() {
@@ -25,11 +26,17 @@ export function ProtectedRoute() {
     return <VerifyEmailGate email={user.email ?? null} />;
   }
 
+  // US-377: block dashboard access until the user has affirmatively accepted the
+  // CURRENT ToS/Privacy versions. Captures consent for OAuth signups before
+  // first access and forces re-acceptance after a material change. No-op once
+  // the recorded versions match.
   // US-437: provides the branded, focus-managed useConfirm() to every
   // authenticated page (dashboard + admin), replacing native window.confirm.
   return (
-    <ConfirmProvider>
-      <Outlet />
-    </ConfirmProvider>
+    <LegalGate>
+      <ConfirmProvider>
+        <Outlet />
+      </ConfirmProvider>
+    </LegalGate>
   );
 }

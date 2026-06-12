@@ -30,6 +30,11 @@ export function SignupPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmation, setIsConfirmation] = useState(false);
+  // US-377: affirmative ToS/Privacy clickwrap. Must be checked before any
+  // account is created (email OR Google). The accepted version + timestamp are
+  // recorded server-side (email: signup metadata → handle_new_user; OAuth: the
+  // dashboard legal gate captures it before first access).
+  const [agreedToLegal, setAgreedToLegal] = useState(false);
   // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
@@ -45,6 +50,11 @@ export function SignupPage() {
     // US-368: bot-protection — a captcha token is required when Turnstile is on.
     if (captchaRequired && !captchaToken) {
       toast.error("Please complete the verification challenge.");
+      return;
+    }
+    // US-377: clickwrap — affirmative consent is mandatory.
+    if (!agreedToLegal) {
+      toast.error("Please agree to the Terms of Service and Privacy Policy.");
       return;
     }
     setIsLoading(true);
@@ -98,6 +108,14 @@ export function SignupPage() {
   }
 
   async function handleGoogleSignIn() {
+    // US-377: require the clickwrap before redirecting to Google too. OAuth
+    // can't carry the checkbox through the redirect, so the dashboard legal gate
+    // is the authoritative server-side capture — but we still block here so the
+    // intent is explicit and the gate is a fallback, not the only consent point.
+    if (!agreedToLegal) {
+      toast.error("Please agree to the Terms of Service and Privacy Policy first.");
+      return;
+    }
     try {
       await signInWithGoogle();
     } catch (err) {
@@ -186,7 +204,32 @@ export function SignupPage() {
             onExpire={() => setCaptchaToken(null)}
             resetSignal={captchaReset}
           />
-          <Button type="submit" className="w-full" disabled={isLoading}>
+          {/* US-377: affirmative clickwrap — gates the submit button below. */}
+          <label htmlFor="legal-consent" className="flex items-start gap-2.5 text-xs text-muted-foreground">
+            <input
+              id="legal-consent"
+              type="checkbox"
+              checked={agreedToLegal}
+              onChange={(e) => setAgreedToLegal(e.target.checked)}
+              className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer accent-brand-red"
+            />
+            <span>
+              I agree to the{" "}
+              <Link to="/terms" target="_blank" className="underline hover:text-foreground">
+                Terms of Service
+              </Link>{" "}
+              and{" "}
+              <Link to="/privacy" target="_blank" className="underline hover:text-foreground">
+                Privacy Policy
+              </Link>
+              .
+            </span>
+          </label>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isLoading || !agreedToLegal}
+          >
             {isLoading ? "Creating account..." : "Create account"}
           </Button>
         </form>
@@ -210,18 +253,6 @@ export function SignupPage() {
           </svg>
           Continue with Google
         </Button>
-
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          By creating an account, you agree to our{" "}
-          <Link to="/terms" className="underline hover:text-foreground">
-            Terms of Service
-          </Link>{" "}
-          and{" "}
-          <Link to="/privacy" className="underline hover:text-foreground">
-            Privacy Policy
-          </Link>
-          .
-        </p>
       </CardContent>
       <CardFooter className="justify-center">
         <p className="text-sm text-muted-foreground">

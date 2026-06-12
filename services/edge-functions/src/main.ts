@@ -65,6 +65,7 @@ import { contentPublicRoutes } from "./routes/content-public.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { workspaceRoutes } from "./routes/workspace.ts";
 import { accountRoutes } from "./routes/account.ts";
+import { legalRoutes } from "./routes/legal.ts";
 import { verifiedRoutes } from "./routes/verified.ts";
 import { authMiddleware } from "./middleware/auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
@@ -171,6 +172,8 @@ app.use("/api/notifications/register", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
 // Account data export / deletion — caller acts only on their own data. (US-275)
 app.use("/api/account/*", authMiddleware);
+// US-377: ToS/Privacy clickwrap acceptance — caller acts only on their own record.
+app.use("/api/legal/*", authMiddleware);
 // US-628: in-app announcement reads — caller acts only on their own dismissals.
 app.use("/api/announcements/*", authMiddleware);
 // US-629 referral program — caller manages only their own code/attribution.
@@ -360,6 +363,7 @@ app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oaut
 app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
 app.use("/api/account/*", rateLimiter(10, 60_000, "account")); // data export is heavy
+app.use("/api/legal/*", rateLimiter(30, 60_000, "legal"));
 app.use("/api/announcements/*", rateLimiter(60, 60_000, "announcements"));
 app.use("/api/referrals/*", rateLimiter(30, 60_000, "referrals"));
 app.use("/api/verified/*", rateLimiter(30, 60_000, "verified"));
@@ -537,6 +541,7 @@ app.route("/api/content/public", contentPublicRoutes);
 app.route("/api/content/scheduler", contentSchedulerRoutes);
 app.route("/api/workspace", workspaceRoutes);
 app.route("/api/account", accountRoutes);
+app.route("/api/legal", legalRoutes);
 app.route("/api/verified", verifiedRoutes);
 
 // 404
