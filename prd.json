@@ -6970,8 +6970,8 @@
         "Submit-time errors move focus to the first invalid field"
       ],
       "priority": 444,
-      "passes": false,
-      "notes": "[P2][UX/A11y] Audit 2026-06-03. Auth/most forms rely on native validation + toast only."
+      "passes": true,
+      "notes": "[P2][UX/A11y] Audit 2026-06-03. Auth/most forms rely on native validation + toast only. Implemented: shared client validators in src/lib/validation.ts; auth forms (login, signup, reset-password request + update) now render inline errors via the existing FieldError component with aria-invalid + aria-describedby, persisting until the field is edited; submit moves focus to the first invalid field (document.getElementById); forms set noValidate so JS validation is authoritative. Reused established garment-info-form pattern."
     },
     {
       "id": "US-445",

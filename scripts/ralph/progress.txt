@@ -786,3 +786,10 @@ Branch: ralph/gradethread-build
 - Notes: Added InShellNotFound named export to not-found.tsx using content-relative min-h-full (not min-h-screen, which double-scrolls inside the constrained <main>). Wired catch-all routes /dashboard/* (inside DashboardLayout children) and /admin/* (inside AdminLayout children, with homeTo="/admin") so unknown authed paths keep the sidebar+header. The static "dashboard"/"admin" segment outranks the bare root path:* splat, so those routes win. Root 404 already carried <SEO noindex> (criterion 2 pre-met).
 - Timestamp: 2026-06-12
 ---
+
+## US-444: Add inline field-level validation with ARIA
+- Status: COMPLETE
+- Files changed: src/lib/validation.ts (new), src/pages/login.tsx, src/pages/signup.tsx, src/pages/reset-password.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Reused the existing FieldError component (src/components/ui/form-feedback.tsx) and the focus-first-invalid pattern already established in garment-info-form.tsx, rather than inventing new helpers. Added shared client validators (validateEmail, validateRequired) in src/lib/validation.ts. Auth forms (login, signup, reset-password request + update password) now: render inline errors with aria-invalid + aria-describedby that persist until the field is edited; move focus to the first invalid field on submit via document.getElementById; set noValidate on the <form> so JS validation is authoritative (native bubbles no longer pre-empt the inline errors). Password field on signup/update keeps the PASSWORD_HINT associated via aria-describedby when no error. tsc/build/eslint all clean.
+- Timestamp: 2026-06-12
+---

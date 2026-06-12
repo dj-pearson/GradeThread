@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { FieldError } from "@/components/ui/form-feedback";
+import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
 
 export function LoginPage() {
@@ -17,12 +19,26 @@ export function LoginPage() {
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // US-444: inline, screen-reader-associated field errors that persist until
+  // the field is corrected (not a transient toast).
+  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
   // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // US-444: validate at the field level first; show inline errors and move
+    // focus to the first invalid field rather than firing a toast.
+    const nextErrors = {
+      email: validateEmail(email),
+      password: password ? undefined : "Password is required",
+    };
+    setErrors(nextErrors);
+    if (nextErrors.email || nextErrors.password) {
+      document.getElementById(nextErrors.email ? "email" : "password")?.focus();
+      return;
+    }
     if (captchaRequired && !captchaToken) {
       toast.error("Please complete the verification challenge.");
       return;
@@ -64,7 +80,7 @@ export function LoginPage() {
         <CardDescription>Sign in to your GradeThread account</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -72,9 +88,15 @@ export function LoginPage() {
               type="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              }}
               required
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? "email-error" : undefined}
             />
+            <FieldError id="email-error">{errors.email}</FieldError>
           </div>
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -90,9 +112,15 @@ export function LoginPage() {
               id="password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
               required
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? "password-error" : undefined}
             />
+            <FieldError id="password-error">{errors.password}</FieldError>
           </div>
           <TurnstileWidget
             onVerify={setCaptchaToken}

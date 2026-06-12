@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { FieldError } from "@/components/ui/form-feedback";
+import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
 
 // How long to wait for a recovery session (getSession or PASSWORD_RECOVERY)
@@ -30,12 +32,21 @@ function RequestResetForm() {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  // US-444: inline, screen-reader-associated email error.
+  const [emailError, setEmailError] = useState<string | undefined>(undefined);
   // US-368: Turnstile token + a counter to reset the (single-use) widget on retry.
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const [captchaReset, setCaptchaReset] = useState(0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // US-444: validate the field inline and focus it before anything else.
+    const err = validateEmail(email);
+    setEmailError(err);
+    if (err) {
+      document.getElementById("email")?.focus();
+      return;
+    }
     if (captchaRequired && !captchaToken) {
       toast.error("Please complete the verification challenge.");
       return;
@@ -81,7 +92,7 @@ function RequestResetForm() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -89,9 +100,15 @@ function RequestResetForm() {
               type="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (emailError) setEmailError(undefined);
+              }}
               required
+              aria-invalid={!!emailError}
+              aria-describedby={emailError ? "email-error" : undefined}
             />
+            <FieldError id="email-error">{emailError}</FieldError>
           </div>
           <TurnstileWidget
             onVerify={setCaptchaToken}
@@ -117,6 +134,9 @@ function UpdatePasswordForm() {
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // US-444: inline, screen-reader-associated field errors that persist until
+  // corrected, replacing the password/match toasts.
+  const [errors, setErrors] = useState<{ password?: string; confirm?: string }>({});
   // US-371: only allow the update once we've confirmed a recovery session
   // exists. A valid reset link establishes one (detectSessionInUrl) and fires
   // PASSWORD_RECOVERY; without it the link is invalid/expired.
@@ -148,13 +168,18 @@ function UpdatePasswordForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (phase !== "ready") return;
+    // US-444: validate inline (server stays authoritative via checkPassword's
+    // mirror), render errors at the field, focus the first invalid one.
     const check = checkPassword(password);
-    if (!check.ok) {
-      toast.error(check.reason ?? "Password does not meet the requirements");
-      return;
-    }
-    if (password !== confirm) {
-      toast.error("Passwords do not match");
+    const nextErrors = {
+      password: check.ok
+        ? undefined
+        : check.reason ?? "Password does not meet the requirements",
+      confirm: password !== confirm ? "Passwords do not match" : undefined,
+    };
+    setErrors(nextErrors);
+    if (nextErrors.password || nextErrors.confirm) {
+      document.getElementById(nextErrors.password ? "password" : "confirm")?.focus();
       return;
     }
     setIsLoading(true);
@@ -216,7 +241,7 @@ function UpdatePasswordForm() {
         <CardDescription>Enter your new password below.</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="password">New password</Label>
             <Input
@@ -224,10 +249,16 @@ function UpdatePasswordForm() {
               type="password"
               placeholder={PASSWORD_HINT}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
               required
               minLength={10}
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? "password-error" : "password-hint"}
             />
+            <FieldError id="password-error">{errors.password}</FieldError>
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm">Confirm new password</Label>
@@ -235,12 +266,18 @@ function UpdatePasswordForm() {
               id="confirm"
               type="password"
               value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
+              onChange={(e) => {
+                setConfirm(e.target.value);
+                if (errors.confirm) setErrors((prev) => ({ ...prev, confirm: undefined }));
+              }}
               required
               minLength={10}
+              aria-invalid={!!errors.confirm}
+              aria-describedby={errors.confirm ? "confirm-error" : undefined}
             />
+            <FieldError id="confirm-error">{errors.confirm}</FieldError>
           </div>
-          <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
+          <p id="password-hint" className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
           <Button type="submit" className="w-full" disabled={isLoading}>
             {isLoading ? "Updating..." : "Update password"}
           </Button>

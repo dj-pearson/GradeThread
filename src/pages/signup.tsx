@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { FieldError } from "@/components/ui/form-feedback";
+import { validateEmail, validateRequired } from "@/lib/validation";
 import { toast } from "sonner";
 
 // Mirrors the constant in components/launch-banner.tsx. The signup notice
@@ -30,6 +32,13 @@ export function SignupPage() {
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isConfirmation, setIsConfirmation] = useState(false);
+  // US-444: inline, screen-reader-associated field errors that persist until
+  // corrected, replacing the password/required toasts below.
+  const [errors, setErrors] = useState<{
+    fullName?: string;
+    email?: string;
+    password?: string;
+  }>({});
   // US-377: affirmative ToS/Privacy clickwrap. Must be checked before any
   // account is created (email OR Google). The accepted version + timestamp are
   // recorded server-side (email: signup metadata → handle_new_user; OAuth: the
@@ -41,10 +50,25 @@ export function SignupPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // US-367: client mirror of the server password policy (server is authoritative).
+    // US-444: validate each field inline. US-367: the password check is the
+    // client mirror of the server policy (server is authoritative). Errors
+    // render at the field and focus moves to the first invalid one.
     const pwCheck = checkPassword(password);
-    if (!pwCheck.ok) {
-      toast.error(pwCheck.reason ?? "Password does not meet the requirements");
+    const nextErrors = {
+      fullName: validateRequired(fullName, "Full name"),
+      email: validateEmail(email),
+      password: pwCheck.ok
+        ? undefined
+        : pwCheck.reason ?? "Password does not meet the requirements",
+    };
+    setErrors(nextErrors);
+    if (nextErrors.fullName || nextErrors.email || nextErrors.password) {
+      const firstId = nextErrors.fullName
+        ? "name"
+        : nextErrors.email
+          ? "email"
+          : "password";
+      document.getElementById(firstId)?.focus();
       return;
     }
     // US-368: bot-protection — a captcha token is required when Turnstile is on.
@@ -164,16 +188,22 @@ export function SignupPage() {
             </div>
           </div>
         )}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="name">Full name</Label>
             <Input
               id="name"
               placeholder="Jane Smith"
               value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              onChange={(e) => {
+                setFullName(e.target.value);
+                if (errors.fullName) setErrors((prev) => ({ ...prev, fullName: undefined }));
+              }}
               required
+              aria-invalid={!!errors.fullName}
+              aria-describedby={errors.fullName ? "name-error" : undefined}
             />
+            <FieldError id="name-error">{errors.fullName}</FieldError>
           </div>
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
@@ -182,9 +212,15 @@ export function SignupPage() {
               type="email"
               placeholder="you@example.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              }}
               required
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? "email-error" : undefined}
             />
+            <FieldError id="email-error">{errors.email}</FieldError>
           </div>
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
@@ -193,11 +229,19 @@ export function SignupPage() {
               type="password"
               placeholder={PASSWORD_HINT}
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
               required
               minLength={10}
+              aria-invalid={!!errors.password}
+              aria-describedby={
+                errors.password ? "password-error" : "password-hint"
+              }
             />
-            <p className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
+            <FieldError id="password-error">{errors.password}</FieldError>
+            <p id="password-hint" className="text-xs text-muted-foreground">{PASSWORD_HINT}</p>
           </div>
           <TurnstileWidget
             onVerify={setCaptchaToken}
