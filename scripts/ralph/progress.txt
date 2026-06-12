@@ -1166,3 +1166,10 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit OK; npm run build OK; eslint clean on all changed files; vitest scheduling.test.ts 11/11 OK.
 - Timestamp: 2026-06-12
 ---
+
+## US-564: Crosslist one draft to multiple marketplaces with auto-delist
+- Status: COMPLETE
+- Files changed: services/edge-functions/src/lib/cross-listing-fields.ts (new), services/edge-functions/src/routes/flipdesk-listings.ts, services/edge-functions/src/tests/cross-listing-fields_test.ts (new), prd.json, scripts/ralph/progress.txt
+- Notes: AC1 (adapter contract behind publishItemForOwner) and AC2 (auto-delist-on-sale via autoEndCrossListings driven by the eBay orders sync) already shipped in US-149. The gap was AC3: the cross-push fan-out copied the eBay title/description verbatim into every sibling row, ignoring each marketplace's limits/condition/category. Added pure lib mapSiblingListingFields() that maps the shared AI draft (US-721 listings.platform_fields variants) onto each non-eBay sibling — title/description clamped to the platform's caps (Depop carries no title), condition/category/tags/brand/size/color carried into the sibling's own platform_fields, composer price always wins. /cross-push now resolves variants once per fan-out (one AI pass for all missing platforms via generatePlatformVariants, best-effort with source-copy fallback) and persists the mapped fields per sibling. Edge client is untyped (any) so new columns are safe. deno check/lint clean; 4 new unit tests pass.
+- Timestamp: 2026-06-12
+---

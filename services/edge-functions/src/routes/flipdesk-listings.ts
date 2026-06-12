@@ -6,14 +6,28 @@ import {
   getAdapter,
   isCrossListingPlatform,
 } from "../lib/marketplace-adapters/index.ts";
+import {
+  getMarketplaceSpec,
+  type MarketplacePlatform,
+} from "../lib/marketplace-specs.ts";
+import {
+  mapSiblingListingFields,
+  type StoredPlatformVariant,
+} from "../lib/cross-listing-fields.ts";
+import { generatePlatformVariants } from "../lib/ai-listing.ts";
 
-// Multi-marketplace cross-listing dispatch (US-149).
+// Multi-marketplace cross-listing dispatch (US-149 + US-564).
 //
 // POST /cross-push fans a single source draft out into one listings row per
 // selected platform (denormalized; siblings share listings.draft_id), then
 // asks each platform's adapter to publish. eBay publishes for real via the
 // US-121 pipeline; the other adapters return 501 until they're wired up, so
 // their rows stay local drafts.
+//
+// US-564 (AC3): each non-eBay sibling is populated from its per-marketplace AI
+// variant (US-721 platform_fields) — title/description clamped to that
+// platform's limits, with condition/category/tags carried through — rather than
+// a verbatim copy of the eBay draft. Missing variants are generated on demand.
 
 export const flipdeskListingsRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
@@ -41,6 +55,54 @@ interface PlatformPushResult {
   platform_listing_id?: string;
   listing_url?: string;
   price: number;
+}
+
+// Resolves the per-marketplace AI field variants (US-721) for the requested
+// non-eBay platforms. Reads them off the item's eBay base draft
+// (listings.platform_fields); any platform without a variant yet is generated
+// on demand (best-effort — a failure just falls back to the source-draft copy
+// so cross-push never blocks on AI). Tenant-scoped: generatePlatformVariants
+// re-loads the item + draft by ownerId.
+async function resolvePlatformVariants(
+  ownerId: string,
+  itemId: string,
+  platforms: CrossListingPlatform[],
+): Promise<Record<string, StoredPlatformVariant>> {
+  const mapped = platforms.filter(
+    (p) => p !== "ebay" && getMarketplaceSpec(p),
+  ) as MarketplacePlatform[];
+  if (mapped.length === 0) return {};
+
+  const read = async (): Promise<Record<string, StoredPlatformVariant>> => {
+    const { data } = await supabaseAdmin
+      .from("listings")
+      .select("platform_fields")
+      .eq("inventory_item_id", itemId)
+      .eq("platform", "ebay")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return (
+      (data as { platform_fields: Record<string, StoredPlatformVariant> | null } | null)
+        ?.platform_fields ?? {}
+    );
+  };
+
+  let fields = await read();
+  const missing = mapped.filter((p) => !fields[p]);
+  if (missing.length > 0) {
+    try {
+      await generatePlatformVariants(itemId, ownerId, missing);
+      await supabaseAdmin.rpc("increment_ai_actions", { p_user_id: ownerId });
+      fields = await read();
+    } catch (err) {
+      console.warn(
+        "[cross-push] per-platform field mapping unavailable, using source copy:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return fields;
 }
 
 function toPushResult(
@@ -153,6 +215,14 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
         : 0);
   }
 
+  // US-564 (AC3): resolve the per-marketplace field variants once for the whole
+  // fan-out (one AI pass covers every missing platform).
+  const variantMap = await resolvePlatformVariants(
+    ownerId,
+    draft.inventory_item_id,
+    platforms,
+  );
+
   const results: Partial<Record<CrossListingPlatform, PlatformPushResult>> = {};
 
   for (const platform of platforms) {
@@ -172,6 +242,19 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
       continue;
     }
 
+    // US-564: map the shared draft onto this platform's requirements (title /
+    // description clamped to its limits, condition/category/tags carried
+    // through) instead of copying the eBay draft verbatim.
+    const mapped = mapSiblingListingFields(
+      platform,
+      {
+        listing_title: draft.listing_title,
+        listing_description: draft.listing_description,
+      },
+      price,
+      variantMap[platform],
+    );
+
     // Reuse the group's existing row for this platform (idempotent re-push)
     // or create the denormalized sibling.
     const { data: existing } = await supabaseAdmin
@@ -182,9 +265,17 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
       .maybeSingle();
     let rowId = (existing as { id: string } | null)?.id ?? null;
     if (rowId) {
+      const update: Record<string, unknown> = {
+        listing_price: price,
+        listing_title: mapped.listing_title,
+        listing_description: mapped.listing_description,
+      };
+      // Only overwrite platform_fields when we actually have a variant — never
+      // clobber a previously generated one with null.
+      if (mapped.platform_fields) update.platform_fields = mapped.platform_fields;
       await supabaseAdmin
         .from("listings")
-        .update({ listing_price: price })
+        .update(update)
         .eq("id", rowId);
     } else {
       const { data: created, error: insErr } = await supabaseAdmin
@@ -195,8 +286,9 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
           listing_status: "draft",
           is_active: false,
           listing_price: price,
-          listing_title: draft.listing_title,
-          listing_description: draft.listing_description,
+          listing_title: mapped.listing_title,
+          listing_description: mapped.listing_description,
+          platform_fields: mapped.platform_fields ?? undefined,
           primary_photo_id: draft.primary_photo_id,
           badge_enabled: draft.badge_enabled,
           draft_id: groupId,

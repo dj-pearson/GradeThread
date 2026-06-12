@@ -8503,8 +8503,8 @@
         "Per-marketplace field mapping from the shared AI draft + photos + aspects"
       ],
       "priority": 564,
-      "passes": false,
-      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Only eBay publishes; other marketplaces are PHASE_2/3 placeholders. Ties to US-458."
+      "passes": true,
+      "notes": "[P2][AutoLister/Publish] Deep-dive 2026-06-03. Only eBay publishes; other marketplaces are PHASE_2/3 placeholders. Ties to US-458. [DONE 2026-06-12] Wired the US-721 per-marketplace AI field mapping (listings.platform_fields) into the US-149 cross-push fan-out: new pure lib cross-listing-fields.ts maps the shared draft onto each sibling (title/description clamped to platform caps, condition/category/tags carried through), generated on demand when missing. Adapter contract + auto-delist-on-sale (autoEndCrossListings via orders sync) already shipped in US-149."
     },
     {
       "id": "US-565",
