@@ -830,3 +830,10 @@ Branch: ralph/gradethread-build
 - Notes: Added ARIA grid roles to the spreadsheet table — role=grid (aria-rowcount/aria-colcount/aria-label), role=row (aria-rowindex, header=1, data rows offset by header + page start), role=columnheader (aria-colindex), role=rowheader for the # column, role=gridcell (aria-colindex) for editable cells. Each input gets aria-label="<Column>, row N" so SR announces current-cell coordinates. Replaced the low-contrast navy focus ring with a 2px brand-red inset ring (#E94560 ≥3:1 against both #F5F5F5 light and #1A1A2E dark surfaces per WCAG 1.4.11) plus a tint, lifted above row borders with focus:z-10. tsc/build/eslint clean.
 - Timestamp: 2026-06-12
 ---
+
+## US-452: Announce async status via live regions
+- Status: COMPLETE
+- Files changed: src/components/ui/skeletons.tsx, src/pages/submission-detail.tsx, src/components/submission/photo-upload.tsx, src/routes/index.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: AC1 (inline indicators get role=status + aria-live=polite, critical errors aria-live=assertive): LoadingRegion now sets explicit aria-live=polite alongside role=status/aria-busy, propagating to all skeleton loaders. submission-detail status CardContent is now a live region keyed to submission.status — processing=role=status/aria-live=polite/aria-busy, failed=role=alert/aria-live=assertive (critical error), with the decorative spinner aria-hidden so the heading/body text carry the announcement. photo-upload per-slot processing block wrapped in role=status/aria-live=polite + descriptive "Processing <slot> photo…" label, spinner aria-hidden. PageLoader (global Suspense fallback) gained role=status/aria-live=polite + sr-only "Loading page…" so route transitions aren't silent. AC2 (realtime SR-announced toast): already satisfied — useRealtimeSubmissions() fires toast.success/toast.error on completed/failed status, and sonner's Toaster renders a built-in aria-live region that announces them. tsc --noEmit clean, npm run build clean, eslint clean (only 2 pre-existing react-refresh warnings).
+- Timestamp: 2026-06-12
+---

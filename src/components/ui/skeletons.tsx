@@ -4,8 +4,10 @@ import { cn } from "@/lib/utils";
 
 // Accessible wrapper for any loading placeholder. The visual skeleton inside is
 // decorative (aria-hidden), so this adds the semantics screen readers need: a
-// role=status live region with aria-busy and an sr-only label that announces
-// what's loading. Use it to wrap the skeleton helpers below (US-440).
+// role=status live region with aria-live=polite, aria-busy, and an sr-only
+// label that announces what's loading. role=status implies polite, but we set
+// aria-live explicitly so the live-region contract is unambiguous (US-440,
+// US-452). Use it to wrap the skeleton helpers below.
 export function LoadingRegion({
   label = "Loading",
   className,
@@ -16,7 +18,12 @@ export function LoadingRegion({
   children: ReactNode;
 }) {
   return (
-    <div role="status" aria-busy="true" className={className}>
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className={className}
+    >
       <span className="sr-only">{label}</span>
       {children}
     </div>

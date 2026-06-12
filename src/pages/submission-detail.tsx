@@ -1000,10 +1000,25 @@ export function SubmissionDetailPage() {
 
       ) : (
         <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+          {/* Live region for async status (US-452): processing is announced
+              politely; a failed grade is a critical error announced assertively
+              so screen-reader users hear it interrupt. The decorative spinner is
+              hidden from assistive tech — the heading/body text carry the
+              message. */}
+          <CardContent
+            className="flex flex-col items-center justify-center py-12 text-center"
+            role={submission.status === "failed" ? "alert" : "status"}
+            aria-live={
+              submission.status === "failed" ? "assertive" : "polite"
+            }
+            aria-busy={submission.status === "processing"}
+          >
             {submission.status === "processing" ? (
               <>
-                <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                <div
+                  className="h-12 w-12 animate-spin rounded-full border-4 border-primary border-t-transparent"
+                  aria-hidden="true"
+                />
                 <h3 className="mt-4 text-lg font-medium">
                   Grading in Progress
                 </h3>

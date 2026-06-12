@@ -7067,8 +7067,8 @@
         "Realtime submission status changes surface an SR-announced toast"
       ],
       "priority": 452,
-      "passes": false,
-      "notes": "[P3][A11y] Audit 2026-06-03."
+      "passes": true,
+      "notes": "[P3][A11y] Audit 2026-06-03. Done: LoadingRegion now sets explicit aria-live=polite (alongside role=status/aria-busy) so all skeleton loaders announce. submission-detail status card is a live region keyed to status — processing=role=status/aria-live=polite, failed (critical error)=role=alert/aria-live=assertive, decorative spinner aria-hidden. photo-upload per-slot processing indicator wrapped in role=status/aria-live=polite with a descriptive label. PageLoader (global Suspense fallback) given role=status + sr-only 'Loading page…' so route loads aren't silent. Criterion 2 (realtime SR-announced toast) already satisfied by useRealtimeSubmissions() firing toast.success/error on completed/failed via sonner's built-in aria-live region."
     },
     {
       "id": "US-453",

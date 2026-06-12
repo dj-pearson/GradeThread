@@ -151,9 +151,20 @@ const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").
 const ReferralsPage = lazy(() => import("@/pages/referrals").then(m => ({ default: m.ReferralsPage })));
 
 function PageLoader() {
+  // Live region (US-452): the bare spinner is decorative, so announce the load
+  // politely with an sr-only label rather than leaving SR users in silence.
   return (
-    <div className="flex h-64 items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+    <div
+      className="flex h-64 items-center justify-center"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <span className="sr-only">Loading page…</span>
+      <div
+        className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"
+        aria-hidden="true"
+      />
     </div>
   );
 }

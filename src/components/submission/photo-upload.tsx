@@ -398,10 +398,18 @@ export function PhotoUpload({ onChange }: PhotoUploadProps) {
           />
 
           {state.isProcessing ? (
-            <div className="flex flex-col items-center gap-2">
-              <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+            <div
+              className="flex flex-col items-center gap-2"
+              role="status"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <div
+                className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent"
+                aria-hidden="true"
+              />
               <span className="text-xs text-muted-foreground">
-                Processing...
+                Processing {slot.label} photo…
               </span>
             </div>
           ) : state.preview ? (
