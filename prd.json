@@ -8425,8 +8425,8 @@
         "Desktop + mobile preview toggle"
       ],
       "priority": 558,
-      "passes": false,
-      "notes": "[P3][AutoLister/UX] Deep-dive 2026-06-03. Composer preview is a stylized card, not eBay's real layout."
+      "passes": true,
+      "notes": "[P3][AutoLister/UX] Deep-dive 2026-06-03. Composer preview is a stylized card, not eBay's real layout. | IMPLEMENTED 2026-06-12: new EbayViewItemPreview component (src/components/flipdesk/ebay-view-item-preview.tsx) renders eBays view-item layout — gallery (clickable thumb rail + hero), condition pill, price/buy box, item-specifics table, and shipping/returns lines from the assigned business policy (useEbayPolicies defaults). Desktop/mobile viewport toggle. Wired into composer preview column."
     },
     {
       "id": "US-559",

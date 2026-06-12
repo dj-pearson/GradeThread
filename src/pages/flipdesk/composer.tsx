@@ -26,7 +26,6 @@ import {
   Award,
   Star,
   GripVertical,
-  ImageOff,
   Rocket,
   Sparkles,
 } from "lucide-react";
@@ -92,7 +91,8 @@ import {
 import { EbayCompsPanel } from "@/components/flipdesk/ebay-comps-panel";
 import { PublishToEbayDialog } from "@/components/flipdesk/publish-to-ebay-dialog";
 import { ListingKit } from "@/components/flipdesk/listing-kit";
-import { useEbayConnection } from "@/hooks/use-ebay";
+import { EbayViewItemPreview } from "@/components/flipdesk/ebay-view-item-preview";
+import { useEbayConnection, useEbayPolicies } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import type {
@@ -154,6 +154,9 @@ export function FlipdeskComposerPage() {
     Partial<Record<CrossListingPlatform, string>>
   >({});
   const { data: ebayConnection } = useEbayConnection();
+  // US-558: the seller's business policies feed the preview's shipping/returns
+  // lines. Only fetch once eBay is connected.
+  const { data: ebayPolicies } = useEbayPolicies(!!ebayConnection);
   const crossPush = useCrossPush();
 
   // Shared items_full read — single source of truth across FlipDesk (US-419).
@@ -630,6 +633,28 @@ export function FlipdeskComposerPage() {
     shippingCost: item.shipping_cost,
   });
   const showBadgeOverlay = badgeEnabled && item.grade_value != null;
+
+  // US-558: resolve the assigned (default) shipping + return policy names so the
+  // preview can show what buyers will actually see at checkout.
+  const policyName = (
+    type: "fulfillment" | "return",
+    defaultId: string | null,
+  ): string | null => {
+    const list = ebayPolicies?.policies ?? [];
+    const chosen =
+      list.find((p) => p.policy_type === type && p.policy_id === defaultId) ??
+      list.find((p) => p.policy_type === type && p.is_default) ??
+      list.find((p) => p.policy_type === type);
+    return chosen?.policy_name ?? null;
+  };
+  const shippingPolicyName = policyName(
+    "fulfillment",
+    ebayPolicies?.defaults.fulfillment_policy_id ?? null,
+  );
+  const returnPolicyName = policyName(
+    "return",
+    ebayPolicies?.defaults.return_policy_id ?? null,
+  );
 
   return (
     <div className="space-y-6">
@@ -1211,103 +1236,25 @@ export function FlipdeskComposerPage() {
                 How the drafted listing will render to buyers.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Primary photo */}
-              <div className="relative aspect-square overflow-hidden rounded-md border bg-muted/40">
-                {primaryPhoto ? (
-                  <img
-                    src={primaryPhoto.photo_url}
-                    alt={title || item.item_title}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-muted-foreground">
-                    <ImageOff className="h-6 w-6" />
-                    <span className="text-xs">No photo selected</span>
-                  </div>
-                )}
-                {showBadgeOverlay && primaryPhoto && (
-                  <div className="absolute bottom-2 right-2 flex overflow-hidden rounded-md bg-brand-navy text-white shadow-lg">
-                    <div className="w-1.5 bg-brand-red" />
-                    <div className="px-2.5 py-1.5 leading-tight">
-                      <div className="text-[8px] font-bold tracking-wider">
-                        GRADETHREAD VERIFIED
-                      </div>
-                      <div className="text-base font-bold">
-                        {item.grade_value!.toFixed(1)} / 10
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Thumbnail strip */}
-              {order.length > 0 && (
-                <div className="flex gap-1.5 overflow-x-auto pb-1">
-                  {order.map((photo) => (
-                    <img
-                      key={photo.id}
-                      src={photo.thumbnail_url ?? photo.photo_url}
-                      alt=""
-                      loading="lazy"
-                      className={cn(
-                        "h-12 w-12 flex-shrink-0 rounded border object-cover",
-                        photo.id === primaryPhoto?.id &&
-                          "ring-2 ring-brand-navy",
-                      )}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Title + price */}
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold leading-snug">
-                  {title || (
-                    <span className="text-muted-foreground">
-                      Untitled listing
-                    </span>
-                  )}
-                </h2>
-                <div className="text-xl font-bold text-brand-navy dark:text-foreground">
-                  {previewPrice != null
-                    ? `$${previewPrice.toFixed(2)}`
-                    : "Price not set"}
-                </div>
-              </div>
-
-              {/* Item specifics */}
-              {specifics.length > 0 && (
-                <div>
-                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    Item specifics
-                  </div>
-                  <dl className="grid grid-cols-2 gap-x-4 gap-y-1 rounded-md border p-3 text-xs">
-                    {specifics.map((s) => (
-                      <div key={s.label} className="flex justify-between gap-2">
-                        <dt className="text-muted-foreground">{s.label}</dt>
-                        <dd className="text-right font-medium">{s.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              )}
-
-              {/* Description */}
-              <div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Description
-                </div>
-                {resolvedDescription.trim() ? (
-                  <p className="whitespace-pre-wrap rounded-md border bg-muted/30 p-3 text-xs leading-relaxed">
-                    {resolvedDescription}
-                  </p>
-                ) : (
-                  <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                    Apply a template or write a description to preview it here.
-                  </p>
-                )}
-              </div>
+            <CardContent>
+              <EbayViewItemPreview
+                title={title}
+                price={previewPrice}
+                photos={order}
+                primaryPhotoId={primaryPhoto?.id ?? null}
+                conditionLabel={
+                  ebayCondition
+                    ? conditionLabel(ebayCondition)
+                    : (item.grade_label ?? "Pre-owned")
+                }
+                specifics={specifics}
+                description={resolvedDescription}
+                shippingCost={item.shipping_cost}
+                shippingPolicyName={shippingPolicyName}
+                returnPolicyName={returnPolicyName}
+                showBadge={showBadgeOverlay}
+                gradeValue={item.grade_value}
+              />
             </CardContent>
           </Card>
         </div>
