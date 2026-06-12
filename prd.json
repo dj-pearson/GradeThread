@@ -8052,8 +8052,8 @@
         "A min-resolution/quality gate rejects unusably small images"
       ],
       "priority": 529,
-      "passes": false,
-      "notes": "[P1][AutoLister/Security] Deep-dive 2026-06-03. autolister.tsx uploads client-side directly to item-photos, bypassing the validated edge path; image-utils validateImage() is not called."
+      "passes": true,
+      "notes": "[P1][AutoLister/Security] Deep-dive 2026-06-03. autolister.tsx uploads client-side directly to item-photos, bypassing the validated edge path; image-utils validateImage() is not called. DONE 2026-06-12: new POST /api/flipdesk/autolister/staging/upload runs validateImageUpload (magic-byte sniff, jpeg/png/webp allowlist, size/dimension caps, 500px long-side min-res gate) + stripImageMetadata before storage.upload; all three client upload sites (handleFiles, restageProcessed, replacePhotoWithBlob) routed through it, so the compress-failure fallback also gets EXIF/GPS stripped server-side. Added WebP (VP8/VP8L/VP8X) dimension parsing + minDimension option to upload-validation.ts with tests. Dedicated 120/min rate limit for the upload path (bypassed from the 20/min autolister write cap)."
     },
     {
       "id": "US-530",
