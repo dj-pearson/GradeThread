@@ -27,6 +27,7 @@ import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
 import { signOut, signOutEverywhere, signOutOtherSessions } from "@/lib/auth";
 import { checkPassword, PASSWORD_HINT } from "@/lib/password-policy";
 import { FieldError } from "@/components/ui/form-feedback";
+import { MfaCard } from "@/components/settings/mfa-card";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
 
@@ -753,6 +754,9 @@ export function SettingsPage() {
           </p>
         </CardContent>
       </Card>
+
+      {/* Two-Factor Authentication (US-374) */}
+      <MfaCard />
 
       {/* Password Section - only for email/password users */}
       {!isOAuthUser && (

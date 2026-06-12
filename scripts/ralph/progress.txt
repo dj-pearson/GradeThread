@@ -549,3 +549,10 @@ Branch: ralph/gradethread-build
   - Verification: npx tsc -b clean; npm run lint clean (0 errors, 1 pre-existing-style react-refresh warning matching confirm-dialog.tsx); npm run build clean (28 prerendered pages); supabase db reset re-applied all 140 migrations cleanly with the new config (CI db-migrations will pass); vitest 402/402 passing.
 - Timestamp: 2026-06-11
 ---
+
+## US-374: Self-serve MFA (TOTP) for all users + workspace enforcement
+- Status: COMPLETE
+- Files changed: supabase/migrations/00141_self_serve_mfa.sql; services/edge-functions/src/lib/recovery-codes.ts (new); services/edge-functions/src/lib/workspace-roles.ts (workspaceMfaBlocked + MFA_THRESHOLD_ROLES); services/edge-functions/src/middleware/workspace.ts (enforce owner MFA policy); services/edge-functions/src/routes/account.ts (recovery-code GET/POST/consume); services/edge-functions/src/routes/workspace.ts (GET/PUT /mfa-policy); services/edge-functions/src/tests/workspace-mfa_test.ts (new); src/components/settings/mfa-card.tsx (new); src/pages/settings.tsx; src/pages/team.tsx (WorkspaceMfaPolicyCard); src/lib/edge-fetch.ts (403 workspace_mfa_required handler); src/types/database.ts; docs/MFA.md (new)
+- Notes: TOTP enrollment stays client->Supabase (supabase.auth.mfa.*) so a workspace MFA requirement can never block enrollment. Recovery codes are minted/consumed by the edge service from an AAL2 session, persisting only SHA-256 hashes; lost-device consume burns a code (atomic update-then-select to avoid double-spend) and unenrolls all TOTP factors via auth.admin.mfa.deleteFactor so the user can re-enroll. Owner policy stored on users.workspace_mfa_required_role; enforced in workspaceMiddleware via pure, unit-tested workspaceMfaBlocked(); owner never forced by own policy. listFactors().totp is verified-only in supabase-js types — use .all to reach unverified factors. Verified: tsc --noEmit, npm run build, deno check, deno lint, eslint, 9 new deno tests all green.
+- Timestamp: 2026-06-11
+---

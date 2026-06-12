@@ -5,6 +5,7 @@ import {
   ASSIGNABLE_ROLES,
   canAssignRole,
   canManageMember,
+  MFA_THRESHOLD_ROLES,
   roleAtLeast,
   type WorkspaceRole,
 } from "../lib/workspace-roles.ts";
@@ -314,6 +315,108 @@ workspaceRoutes.post("/invitations/:id/resend", async (c) => {
   });
 
   return c.json({ email_sent: emailSent, accept_url: acceptUrl });
+});
+
+// GET /api/workspace/mfa-policy
+//
+// US-374: read the active workspace's MFA-enforcement threshold. Owner/admin
+// only (it's a security-posture setting). Returns { required_role } where null
+// means enforcement is off.
+workspaceRoutes.get("/mfa-policy", async (c) => {
+  const ownerId = c.get("workspaceOwnerId");
+  const role = c.get("workspaceRole");
+  if (!roleAtLeast(role, "admin")) {
+    return c.json({ error: "Only the workspace owner and admins can view this" }, 403);
+  }
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("workspace_mfa_required_role")
+    .eq("id", ownerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[workspace] mfa-policy read failed", error);
+    return c.json({ error: "Failed to load MFA policy" }, 500);
+  }
+  return c.json({
+    required_role:
+      (data as { workspace_mfa_required_role: WorkspaceRole | null } | null)
+        ?.workspace_mfa_required_role ?? null,
+  });
+});
+
+// PUT /api/workspace/mfa-policy
+//
+// US-374: set/clear the MFA-enforcement threshold. OWNER ONLY — this raises the
+// security bar for every member at/above the threshold, so it sits with the
+// owner alongside billing (not delegated to admins). Body:
+// { required_role: 'viewer'|'member'|'listing_manager'|'admin'|null }.
+workspaceRoutes.put("/mfa-policy", async (c) => {
+  const ownerId = c.get("workspaceOwnerId");
+  const userId = c.get("userId");
+  const role = c.get("workspaceRole");
+
+  if (role !== "owner") {
+    return c.json(
+      { error: "Only the workspace owner can change the MFA requirement" },
+      403,
+    );
+  }
+
+  let body: { required_role?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const raw = body.required_role;
+  let requiredRole: WorkspaceRole | null;
+  if (raw === null || raw === undefined || raw === "") {
+    requiredRole = null;
+  } else if (
+    typeof raw === "string" &&
+    MFA_THRESHOLD_ROLES.includes(raw as WorkspaceRole)
+  ) {
+    requiredRole = raw as WorkspaceRole;
+  } else {
+    return c.json(
+      {
+        error: `required_role must be null or one of: ${MFA_THRESHOLD_ROLES.join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  // Read the prior value for the audit trail.
+  const { data: prior } = await supabaseAdmin
+    .from("users")
+    .select("workspace_mfa_required_role")
+    .eq("id", ownerId)
+    .maybeSingle();
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update({ workspace_mfa_required_role: requiredRole })
+    .eq("id", userId); // owner updates their own row
+  if (error) {
+    console.error("[workspace] mfa-policy update failed", error);
+    return c.json({ error: "Failed to update MFA policy" }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "workspace.mfa_policy.change",
+    targetType: "workspace",
+    targetId: ownerId,
+    before: {
+      required_role:
+        (prior as { workspace_mfa_required_role: WorkspaceRole | null } | null)
+          ?.workspace_mfa_required_role ?? null,
+    },
+    after: { required_role: requiredRole },
+    details: { owner_id: ownerId },
+  });
+
+  return c.json({ required_role: requiredRole });
 });
 
 // Shared loader: the target's membership row in the ACTIVE workspace, or null.

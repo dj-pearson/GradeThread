@@ -3,6 +3,11 @@ import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { sendAccountDeletedEmail } from "../lib/email.ts";
+import { type AuthAssuranceClaims, isAal2 } from "../lib/jwt-claims.ts";
+import {
+  generateRecoveryCodes,
+  hashRecoveryCode,
+} from "../lib/recovery-codes.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -10,9 +15,145 @@ import { sendAccountDeletedEmail } from "../lib/email.ts";
 // through the parent row's ownership (grade_reports via submission, listings/
 // sales via inventory_item).
 
-type AccountEnv = { Variables: { userId: string } };
+type AccountEnv = {
+  Variables: { userId: string; authClaims?: AuthAssuranceClaims };
+};
 
 export const accountRoutes = new Hono<AccountEnv>();
+
+// ── MFA recovery codes (US-374) ────────────────────────────────────────────
+//
+// All three endpoints are tenant-scoped to c.var.userId (the verified caller),
+// per the CLAUDE.md service-role-bypasses-RLS rule. The `mfa_recovery_codes`
+// table only ever holds SHA-256 hashes; plaintext is returned once at generate.
+
+const RECOVERY_CODE_COUNT = 10;
+
+// GET /api/account/mfa/recovery-codes — how many unused codes remain.
+accountRoutes.get("/mfa/recovery-codes", async (c) => {
+  const userId = c.get("userId");
+  const { count, error } = await supabaseAdmin
+    .from("mfa_recovery_codes")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .is("used_at", null);
+  if (error) {
+    console.error("[account/mfa] recovery-code count failed:", error.message);
+    return c.json({ error: "Failed to load recovery codes." }, 500);
+  }
+  return c.json({ remaining: count ?? 0 });
+});
+
+// POST /api/account/mfa/recovery-codes — (re)generate a fresh set. Requires an
+// AAL2 session (proof the caller currently controls their second factor), so a
+// walk-up attacker on an unlocked AAL1 session can't mint backup codes. Any
+// previously issued codes are invalidated.
+accountRoutes.post("/mfa/recovery-codes", async (c) => {
+  const userId = c.get("userId");
+
+  if (!isAal2(c.get("authClaims") ?? { aal: null, amr: [] })) {
+    return c.json(
+      {
+        error:
+          "Verify your authenticator first. Recovery codes can only be generated from an MFA-verified session.",
+        code: "MFA_REQUIRED",
+      },
+      403,
+    );
+  }
+
+  const codes = generateRecoveryCodes(RECOVERY_CODE_COUNT);
+  const hashes = await Promise.all(codes.map((code) => hashRecoveryCode(code)));
+
+  // Replace the existing set atomically enough for our purposes: delete then
+  // insert. A race here only ever costs the user one regenerate.
+  const { error: delErr } = await supabaseAdmin
+    .from("mfa_recovery_codes")
+    .delete()
+    .eq("user_id", userId);
+  if (delErr) {
+    console.error("[account/mfa] clear old codes failed:", delErr.message);
+    return c.json({ error: "Failed to generate recovery codes." }, 500);
+  }
+
+  const { error: insErr } = await supabaseAdmin
+    .from("mfa_recovery_codes")
+    .insert(hashes.map((code_hash) => ({ user_id: userId, code_hash })));
+  if (insErr) {
+    console.error("[account/mfa] insert codes failed:", insErr.message);
+    return c.json({ error: "Failed to generate recovery codes." }, 500);
+  }
+
+  // Plaintext returned exactly once — never stored, never retrievable again.
+  return c.json({ codes, remaining: codes.length });
+});
+
+// POST /api/account/mfa/recovery-codes/consume — lost-device recovery. Works
+// from an AAL1 session (the user can't reach AAL2 without their device). A
+// valid, unused code is burned and ALL the caller's TOTP factors are unenrolled
+// server-side, so they can sign in with their password and enroll a new device.
+accountRoutes.post("/mfa/recovery-codes/consume", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { code?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const code = typeof body.code === "string" ? body.code : "";
+  if (!code.trim()) {
+    return c.json({ error: "A recovery code is required." }, 400);
+  }
+
+  const codeHash = await hashRecoveryCode(code);
+
+  // Burn the code: only matches an UNUSED row for THIS user. The update returns
+  // the row iff it was still unused, closing the double-spend race.
+  const { data: burned, error: burnErr } = await supabaseAdmin
+    .from("mfa_recovery_codes")
+    .update({ used_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .eq("code_hash", codeHash)
+    .is("used_at", null)
+    .select("id")
+    .maybeSingle();
+  if (burnErr) {
+    console.error("[account/mfa] consume failed:", burnErr.message);
+    return c.json({ error: "Failed to verify recovery code." }, 500);
+  }
+  if (!burned) {
+    return c.json({ error: "Invalid or already-used recovery code." }, 400);
+  }
+
+  // Unenroll every TOTP factor so the lost device no longer guards the account.
+  let factorsRemoved = 0;
+  try {
+    const { data: factorList } = await supabaseAdmin.auth.admin.mfa.listFactors({
+      userId,
+    });
+    const factors = factorList?.factors ?? [];
+    for (const factor of factors) {
+      const { error: delFactorErr } = await supabaseAdmin.auth.admin.mfa
+        .deleteFactor({ id: factor.id, userId });
+      if (delFactorErr) {
+        console.error(
+          "[account/mfa] deleteFactor failed:",
+          delFactorErr.message,
+        );
+      } else {
+        factorsRemoved++;
+      }
+    }
+  } catch (err) {
+    console.error(
+      "[account/mfa] factor teardown errored:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  return c.json({ ok: true, factors_removed: factorsRemoved });
+});
 
 function getStripe(): Stripe | null {
   const key = Deno.env.get("STRIPE_SECRET_KEY");

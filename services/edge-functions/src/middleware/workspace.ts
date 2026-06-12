@@ -1,6 +1,11 @@
 import { createMiddleware } from "hono/factory";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { roleAtLeast, type WorkspaceRole } from "../lib/workspace-roles.ts";
+import {
+  roleAtLeast,
+  type WorkspaceRole,
+  workspaceMfaBlocked,
+} from "../lib/workspace-roles.ts";
+import { type AuthAssuranceClaims, isAal2 } from "../lib/jwt-claims.ts";
 
 // Re-export the pure role helpers so existing importers of this middleware keep
 // working. The hierarchy + assignment cap live in lib/workspace-roles.ts (no DB
@@ -12,6 +17,8 @@ type WorkspaceEnv = {
   Variables: {
     user: { id: string; email?: string; [key: string]: unknown };
     userId: string;
+    // Decoded by authMiddleware from the verified token (US-357/US-374).
+    authClaims?: AuthAssuranceClaims;
     // Owner of the workspace this request is acting inside. Equals userId for
     // a solo user or when the caller is the workspace owner. For a member
     // acting in someone else's workspace, this is the OWNER's id — tenant
@@ -43,13 +50,22 @@ export const workspaceMiddleware = createMiddleware<WorkspaceEnv>(
       return;
     }
 
-    // Member of someone else's workspace. Look up the role.
-    const { data, error } = await supabaseAdmin
-      .from("workspace_members")
-      .select("role")
-      .eq("owner_id", ownerId)
-      .eq("member_id", userId)
-      .maybeSingle();
+    // Member of someone else's workspace. Look up the member's role AND the
+    // owner's MFA-enforcement policy in one round-trip each.
+    const [memberRes, ownerRes] = await Promise.all([
+      supabaseAdmin
+        .from("workspace_members")
+        .select("role")
+        .eq("owner_id", ownerId)
+        .eq("member_id", userId)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("users")
+        .select("workspace_mfa_required_role")
+        .eq("id", ownerId)
+        .maybeSingle(),
+    ]);
+    const { data, error } = memberRes;
 
     if (error) {
       console.error("[workspace] lookup failed", error);
@@ -69,8 +85,32 @@ export const workspaceMiddleware = createMiddleware<WorkspaceEnv>(
       );
     }
 
+    const memberRole = data.role as WorkspaceRole;
+
+    // US-374: enforce the owner's MFA policy. If the owner requires MFA at or
+    // above this member's role and the member's session isn't AAL2, block with
+    // a machine-readable code so the client can route them to Settings →
+    // Two-Factor Authentication to enroll. Enrollment itself goes
+    // client→Supabase (never through workspace routes), so this can't lock a
+    // member out of enrolling.
+    const requiredRole =
+      (ownerRes.data as { workspace_mfa_required_role: WorkspaceRole | null } | null)
+        ?.workspace_mfa_required_role ?? null;
+    const sessionAal2 = isAal2(c.get("authClaims") ?? { aal: null, amr: [] });
+    if (workspaceMfaBlocked(memberRole, requiredRole, sessionAal2)) {
+      return c.json(
+        {
+          error:
+            "This workspace requires two-factor authentication for your role. " +
+            "Enable 2FA in Settings, then sign in again to continue.",
+          error_code: "workspace_mfa_required",
+        },
+        403,
+      );
+    }
+
     c.set("workspaceOwnerId", ownerId);
-    c.set("workspaceRole", data.role as WorkspaceRole);
+    c.set("workspaceRole", memberRole);
     await next();
   },
 );

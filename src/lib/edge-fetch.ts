@@ -114,6 +114,27 @@ export async function edgeFetch(
       const data = await cloned.json().catch(() => ({} as Record<string, unknown>));
       handlePaymentRequired(data);
     }
+
+    // US-374: workspace requires MFA for this member's role. Surface a clear,
+    // one-time prompt pointing at Settings → Two-Factor Authentication.
+    if (res.status === 403) {
+      const cloned = res.clone();
+      const data = await cloned.json().catch(() => ({} as Record<string, unknown>));
+      if (data.error_code === "workspace_mfa_required") {
+        toast.error("Two-factor authentication required", {
+          id: "workspace_mfa_required",
+          description:
+            "This workspace requires 2FA for your role. Enable it in Settings, then sign in again.",
+          duration: 8000,
+          action: {
+            label: "Open Settings",
+            onClick: () => {
+              window.location.href = "/dashboard/settings";
+            },
+          },
+        });
+      }
+    }
   }
 
   return res;

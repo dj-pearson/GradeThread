@@ -6083,8 +6083,8 @@
         "Lost-device recovery documented"
       ],
       "priority": 374,
-      "passes": false,
-      "notes": "[P1][Auth] Audit 2026-06-03. MFA is admin-only today (AdminMfaGate); no enterprise SSO/SAML."
+      "passes": true,
+      "notes": "[P1][Auth] Audit 2026-06-03. MFA is admin-only today (AdminMfaGate); no enterprise SSO/SAML. DONE 2026-06-11: self-serve TOTP card in Settings (mfa-card.tsx) for all users with single-use recovery codes (edge /api/account/mfa/* storing SHA-256 hashes only; lost-device consume unenrolls factors). Owner-set workspace MFA threshold (users.workspace_mfa_required_role, migration 00141) enforced in workspaceMiddleware (403 workspace_mfa_required) via pure workspaceMfaBlocked() + team.tsx WorkspaceMfaPolicyCard. Lost-device recovery documented in docs/MFA.md."
     },
     {
       "id": "US-375",

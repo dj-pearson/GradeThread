@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Mail, Send, Trash2, UserPlus, Users } from "lucide-react";
+import {
+  Copy,
+  Loader2,
+  Mail,
+  Send,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -52,7 +61,7 @@ interface MemberWithProfile extends WorkspaceMemberRow {
 
 export function TeamPage() {
   const { user, profile } = useAuth();
-  const { workspaceOwnerId, role, can, isPersonal } = useWorkspace();
+  const { workspaceOwnerId, role, can, isPersonal, isOwner } = useWorkspace();
   const queryClient = useQueryClient();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [lastInvite, setLastInvite] = useState<
@@ -383,6 +392,8 @@ export function TeamPage() {
         </CardContent>
       </Card>
 
+      {isOwner && <WorkspaceMfaPolicyCard ownerId={workspaceOwnerId} />}
+
       {canManage && invites.length > 0 && (
         <Card>
           <CardHeader>
@@ -490,5 +501,118 @@ export function TeamPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// US-374: owner-only control to require MFA (2FA) for members at/above a role
+// threshold. Persisted as users.workspace_mfa_required_role; enforced server-
+// side by workspaceMiddleware (a non-AAL2 member at/above the threshold is
+// blocked with error_code 'workspace_mfa_required').
+const MFA_POLICY_OPTIONS: { value: string; label: string; hint: string }[] = [
+  { value: "off", label: "Not required", hint: "Members sign in with a password only." },
+  { value: "admin", label: "Admins", hint: "Admins must use 2FA." },
+  {
+    value: "listing_manager",
+    label: "Managers and above",
+    hint: "Managers and Admins must use 2FA.",
+  },
+  {
+    value: "member",
+    label: "Staff and above",
+    hint: "Everyone except Viewers must use 2FA.",
+  },
+  { value: "viewer", label: "Everyone", hint: "All members must use 2FA." },
+];
+
+function WorkspaceMfaPolicyCard({ ownerId }: { ownerId: string | null }) {
+  const [value, setValue] = useState<string>("off");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await edgeFetch("/api/workspace/mfa-policy", { method: "GET" });
+        const data = (await res.json().catch(() => ({}))) as {
+          required_role?: string | null;
+        };
+        if (active && res.ok) setValue(data.required_role ?? "off");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [ownerId]);
+
+  async function save(next: string) {
+    const prev = value;
+    setValue(next);
+    setSaving(true);
+    try {
+      const res = await edgeFetch("/api/workspace/mfa-policy", {
+        method: "PUT",
+        json: { required_role: next === "off" ? null : next },
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setValue(prev);
+        toast.error(data.error ?? "Couldn't update the MFA requirement.");
+        return;
+      }
+      toast.success(
+        next === "off"
+          ? "Two-factor authentication is no longer required."
+          : "Two-factor authentication requirement updated.",
+      );
+    } catch (err) {
+      setValue(prev);
+      toast.error(err instanceof Error ? err.message : "Failed to update policy.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const activeHint = MFA_POLICY_OPTIONS.find((o) => o.value === value)?.hint;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5 text-primary" />
+          Require two-factor authentication
+        </CardTitle>
+        <CardDescription>
+          Require members at or above a role to have 2FA enabled before they can
+          act in your workspace. Members enable 2FA under Settings → Two-Factor
+          Authentication. You (the owner) are not affected by this rule.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <div className="flex items-center gap-3">
+          <Select value={value} onValueChange={save} disabled={loading || saving}>
+            <SelectTrigger className="w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {MFA_POLICY_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {(loading || saving) && (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          )}
+        </div>
+        {activeHint && (
+          <p className="text-xs text-muted-foreground">{activeHint}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

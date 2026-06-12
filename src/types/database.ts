@@ -251,6 +251,10 @@ export interface UserRow {
   // Multi-user (US-Team): the workspace this user is currently acting
   // inside. NULL = personal workspace (workspace_owner_id = id).
   active_workspace_owner_id: string | null;
+  // US-374: owner-scoped MFA-enforcement threshold. When set, members at or
+  // above this role must use MFA (AAL2) to act in this owner's workspace.
+  // NULL = no enforcement.
+  workspace_mfa_required_role: WorkspaceRole | null;
   // Soft upgrade triggers (US-209, migration 00071). usage_alert_thresholds:
   // percentages (out of 100) the user wants to be warned at — default [80],
   // Settings offers 50/80/95. last_warning_at: dedup ledger keyed
@@ -322,6 +326,16 @@ export interface WorkspaceInvitationInsert {
 export type WorkspaceInvitationUpdate = Partial<
   Pick<WorkspaceInvitationRow, "role" | "revoked_at">
 >;
+
+// US-374: single-use MFA recovery codes. Only SHA-256 hashes are persisted;
+// plaintext is shown once at generation time.
+export interface MfaRecoveryCodeRow {
+  id: string;
+  user_id: string;
+  code_hash: string;
+  used_at: string | null;
+  created_at: string;
+}
 
 // Returned by peek_workspace_invitation RPC.
 export interface WorkspaceInvitationPeek {
@@ -2419,6 +2433,12 @@ export interface Database {
         Row: WorkspaceInvitationRow;
         Insert: WorkspaceInvitationInsert;
         Update: WorkspaceInvitationUpdate;
+      };
+      mfa_recovery_codes: {
+        Row: MfaRecoveryCodeRow;
+        Insert: Pick<MfaRecoveryCodeRow, "user_id" | "code_hash"> &
+          Partial<Pick<MfaRecoveryCodeRow, "used_at">>;
+        Update: Partial<Pick<MfaRecoveryCodeRow, "used_at">>;
       };
       // Growth / Promote suite (00102)
       audience_segments: {

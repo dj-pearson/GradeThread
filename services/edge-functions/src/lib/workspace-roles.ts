@@ -62,3 +62,33 @@ export function canManageMember(
   if (targetCurrentRole === "owner") return false;
   return roleAtLeast(actorRole, targetCurrentRole);
 }
+
+// Roles an owner may pick as the MFA-enforcement threshold. 'owner' is excluded
+// — the policy targets MEMBERS, and the owner is never forced by their own
+// policy (they have other, admin-area MFA paths). null = enforcement off.
+export const MFA_THRESHOLD_ROLES: WorkspaceRole[] = [
+  "viewer",
+  "member",
+  "listing_manager",
+  "admin",
+];
+
+/**
+ * US-374: whether a workspace MEMBER must be BLOCKED for not satisfying the
+ * workspace's MFA policy. Pure (no DB / no JWT decode) so the gate is
+ * unit-testable. Blocks iff the owner set a threshold, the member's role meets
+ * or exceeds it, and the member's session is NOT AAL2 (MFA unsatisfied).
+ *
+ * The caller passes `requiredRole` (the owner's `workspace_mfa_required_role`,
+ * or null when unset) and `isSessionAal2` (decoded from the verified token).
+ * Owners acting in their own workspace should never be passed here.
+ */
+export function workspaceMfaBlocked(
+  memberRole: WorkspaceRole,
+  requiredRole: WorkspaceRole | null | undefined,
+  isSessionAal2: boolean,
+): boolean {
+  if (!requiredRole) return false; // no policy → never blocked
+  if (!roleAtLeast(memberRole, requiredRole)) return false; // below threshold
+  return !isSessionAal2;
+}
