@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { signInWithEmail, signInWithGoogle } from "@/lib/auth";
+import { SIGN_IN_FAILED_MESSAGE } from "@/lib/auth-identity";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,9 +35,11 @@ export function LoginPage() {
       // US-369: a single generic message for ALL sign-in failures so the error
       // text can't be used to enumerate accounts (invalid password vs unknown
       // email vs unconfirmed email all read identically).
-      toast.error(
-        "We couldn't sign you in. Check your email and password — and if you just signed up, confirm your email first.",
-      );
+      // US-380: the message also nudges users who originally signed up with a
+      // different method (e.g. Google) toward "Continue with Google" — an
+      // enumeration-safe hint shown on every failure, so it never confirms the
+      // account exists.
+      toast.error(SIGN_IN_FAILED_MESSAGE);
       // US-368: the Turnstile token was consumed by the failed attempt — reset
       // for the retry.
       setCaptchaToken(null);

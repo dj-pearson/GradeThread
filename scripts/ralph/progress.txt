@@ -583,3 +583,10 @@ Branch: ralph/gradethread-build
 - Notes: Essential steps (verify email, accept terms) were already non-skippable via existing gates — VerifyEmailGate (US-366) and LegalGate (US-377) in protected-route.tsx. Made use_case capture non-skippable in OnboardingFlow: dialog is non-dismissible (no Escape/outside-click) until a use case is picked, and the "Skip tour" button only renders after selection, so use_case is always persisted even when the tour itself is skipped. Added useOnboardingTourStore (mirrors flipdesk-tour-store) so the welcome/product tour is re-openable from Settings via a new "Product tour" card; OnboardingFlow now also shows on `reopened`, restarting at the welcome step and seeding the saved use_case. Empty states: submissions + dashboard already had brand-new states; inventory now distinguishes "No matching items" (filters active) from the brand-new "Add your first item" CTA. Verified with tsc --noEmit, npm run build, and eslint.
 - Timestamp: 2026-06-11
 ---
+
+## US-380: Handle duplicate-account / identity-linking across OAuth and password
+- Status: COMPLETE
+- Files changed: src/lib/auth-identity.ts (new), src/lib/auth-identity.test.ts (new), src/pages/login.tsx, src/pages/auth-callback.tsx, supabase/config.toml, prd.json
+- Notes: Documented GoTrue account-linking policy in config.toml — automatic identity linking on confirmed-email match is left ON (default) so Google sign-in links to an existing email/password account instead of duplicating; manual linking endpoint stays disabled (GOTRUE_SECURITY_MANUAL_LINKING_ENABLED unset). Added enumeration-safe (US-369-compatible) method-mismatch guidance: login failure message now nudges toward the original method incl. Continue with Google; auth-callback detects identity-linking/duplicate errors and shows "use your original sign-in method" instead of a raw provider error. New colocated vitest covers isIdentityLinkingError + message invariants (6 tests pass). tsc/build/eslint all clean.
+- Timestamp: 2026-06-11
+---

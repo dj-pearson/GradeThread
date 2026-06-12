@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identity";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 
 // How long to wait for the auth exchange to complete before giving up and
@@ -39,9 +40,15 @@ export function AuthCallbackPage() {
     // 1. Surface an explicit provider error immediately.
     const authError = readAuthError();
     if (authError) {
+      // US-380: a duplicate-account / identity-linking error means this email
+      // already belongs to an account created with a different method that
+      // GoTrue couldn't auto-link. Guide the user back to their original method
+      // instead of dumping the raw provider error.
       setErrorMessage(
-        authError.description ||
-          "Sign-in could not be completed. Please try again.",
+        isIdentityLinkingError(authError.error, authError.description)
+          ? OAUTH_LINKING_MESSAGE
+          : authError.description ||
+              "Sign-in could not be completed. Please try again.",
       );
       return;
     }

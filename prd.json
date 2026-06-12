@@ -6160,8 +6160,8 @@
         "Login/signup detect a method mismatch and show 'use your original sign-in method' instead of a raw error"
       ],
       "priority": 380,
-      "passes": false,
-      "notes": "[P3][Auth] Audit 2026-06-03."
+      "passes": true,
+      "notes": "[P3][Auth] Audit 2026-06-03. Implemented: GoTrue automatic-link-on-confirmed-email policy documented in config.toml (manual linking stays disabled); enumeration-safe method-mismatch guidance via src/lib/auth-identity.ts wired into login (failure hint) + auth-callback (linking-error detection). Test: auth-identity.test.ts."
     },
     {
       "id": "US-381",

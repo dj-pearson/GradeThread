@@ -31,6 +31,20 @@ additional_redirect_urls = [
   # needs this exact entry too or Google sign-in breaks on older iOS.
   "com.gradethread.app://auth-callback",
 ]
+# US-380: duplicate-account / identity-linking policy. GoTrue AUTOMATICALLY links
+# a new OAuth identity (e.g. Google) to an existing account when the email
+# matches AND that email is confirmed — and email confirmations are ON below, so
+# every email/password account has a confirmed email. Result: signing in with
+# Google for an email that already has a password account links to it instead of
+# creating a duplicate/orphaned account. This automatic-on-confirmed-match
+# behaviour is the GoTrue default and is the DESIRED policy here; keep it.
+# The MANUAL linking endpoint (POST /user/identities) stays DISABLED — the
+# self-hosted prod GoTrue must leave GOTRUE_SECURITY_MANUAL_LINKING_ENABLED unset
+# (default false) so identities can't be linked without re-verifying ownership.
+# Because enumeration protection (US-369) forbids confirming an email exists, the
+# app can't tell users which method they used; instead login + the OAuth callback
+# show enumeration-safe "use your original sign-in method" guidance
+# (src/lib/auth-identity.ts).
 jwt_expiry = 3600
 # US-375: rotate refresh tokens on every use and detect reuse of a revoked token
 # (a sign of theft). The self-hosted GoTrue mirrors this with
