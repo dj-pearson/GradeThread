@@ -183,7 +183,7 @@ function FlipdeskPricingBlock() {
                     <span className="text-sm text-muted-foreground">/mo</span>
                   )}
                   {interval === "yearly" && savings != null && (
-                    <div className="mt-0.5 text-xs text-emerald-700">
+                    <div className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
                       {dollars(plan.priceYearlyCents)} billed yearly
                     </div>
                   )}
@@ -193,7 +193,7 @@ function FlipdeskPricingBlock() {
                 <ul className="space-y-2 text-sm">
                   {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600 dark:text-green-400" />
                       {f}
                     </li>
                   ))}
@@ -359,7 +359,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
     <div className="border-b last:border-b-0">
       <button
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between py-4 text-left text-sm font-medium hover:text-brand-navy"
+        className="flex w-full items-center justify-between py-4 text-left text-sm font-medium hover:text-brand-navy dark:hover:text-foreground"
       >
         {q}
         <ChevronDown
@@ -478,7 +478,7 @@ export function LandingPage() {
             Every grade follows one published, objective methodology.{" "}
             <Link
               to="/grading-standard"
-              className="font-medium text-brand-red hover:underline decoration-brand-red underline-offset-4"
+              className="font-medium text-brand-red-text hover:underline decoration-brand-red underline-offset-4"
             >
               See the GradeThread grading standard
             </Link>
@@ -560,7 +560,7 @@ export function LandingPage() {
               },
             ].map((item) => (
               <div key={item.title} className="text-center rounded-2xl border border-border/40 bg-card/60 p-6 shadow-sm hover:shadow-md hover:border-brand-red/20 transition-all duration-300 glass-card">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red mb-4">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand-red/10 text-brand-red-text mb-4">
                   <item.icon className="h-5 w-5" />
                 </div>
                 <h3 className="text-base font-semibold font-display">{item.title}</h3>

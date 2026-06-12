@@ -62,7 +62,7 @@ type VerifyState =
 function getScoreColor(score: number): string {
   if (score > 7) return "text-emerald-500";
   if (score >= 5) return "text-amber-500";
-  return "text-brand-red";
+  return "text-brand-red-text";
 }
 
 function getScoreBorderColor(score: number): string {
@@ -72,9 +72,9 @@ function getScoreBorderColor(score: number): string {
 }
 
 function getTierBadgeClasses(score: number): string {
-  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200";
-  return "bg-rose-100 text-rose-800 border-rose-200";
+  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800";
+  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+  return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800";
 }
 
 function getProgressColor(score: number): string {
@@ -94,8 +94,8 @@ function formatLabel(value: string): string {
 const SEVERITY_RANK: Record<string, number> = { major: 0, moderate: 1, minor: 2 };
 
 function severityBadgeClasses(severity: string): string {
-  if (severity === "major") return "bg-red-100 text-red-800 border-red-200";
-  if (severity === "moderate") return "bg-yellow-100 text-yellow-800 border-yellow-200";
+  if (severity === "major") return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800";
+  if (severity === "moderate") return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800";
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
@@ -484,7 +484,7 @@ export function CertificatePage() {
       {/* Print-only header (US-767): keeps GradeThread branding on the PDF
           without the dark banner that doesn't render on white paper. */}
       <div className="mx-auto hidden max-w-3xl px-6 pt-6 print:block">
-        <p className="text-xl font-bold text-brand-navy">GradeThread</p>
+        <p className="text-xl font-bold text-brand-navy dark:text-foreground">GradeThread</p>
         <p className="text-sm text-muted-foreground">
           Verified Grade Certificate
         </p>
@@ -763,7 +763,7 @@ export function CertificatePage() {
           <CardContent className="space-y-3">
             {/* Confidence */}
             <div className="flex items-start gap-3">
-              <Gauge className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy" />
+              <Gauge className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
               <div>
                 <p className="text-sm font-medium">
                   Grade confidence: {confidenceLabel(gradeReport.confidence_label)}
@@ -778,7 +778,7 @@ export function CertificatePage() {
             {/* Human review */}
             {gradeReport.human_reviewed && (
               <div className="flex items-start gap-3">
-                <UserCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                <UserCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                 <div>
                   <p className="text-sm font-medium">Human-reviewed</p>
                   <p className="text-xs text-muted-foreground">
@@ -792,7 +792,7 @@ export function CertificatePage() {
             {authenticity &&
               (authenticityFlagged ? (
                 <div className="flex items-start gap-3">
-                  <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600" />
+                  <ShieldAlert className="mt-0.5 h-5 w-5 flex-shrink-0 text-yellow-600 dark:text-yellow-400" />
                   <div>
                     <p className="text-sm font-medium">
                       Authenticity check: routed for review
@@ -806,7 +806,7 @@ export function CertificatePage() {
                 </div>
               ) : (
                 <div className="flex items-start gap-3">
-                  <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                  <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                   <div>
                     <p className="text-sm font-medium">
                       Authenticity check passed
@@ -824,7 +824,7 @@ export function CertificatePage() {
                 absence is never a negative. */}
             {gradeReport.verified_capture_passed && (
               <div className="flex items-start gap-3">
-                <BadgeCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600" />
+                <BadgeCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-600 dark:text-green-400" />
                 <div>
                   <p className="text-sm font-medium">Verified Capture</p>
                   <p className="text-xs text-muted-foreground">
@@ -840,15 +840,15 @@ export function CertificatePage() {
         {/* US-514: AI-transparency disclosure. Buyers must be clearly told the
             grade is an AI-generated estimate, not a professional appraisal or
             guarantee. Wording mirrors Terms §5. */}
-        <Card className="border-amber-300 bg-amber-50/60">
+        <Card className="border-amber-300 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-950/60">
           <CardContent className="flex items-start gap-3 pt-6">
-            <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+            <Info className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
             <div className="space-y-1">
-              <p className="text-sm font-medium text-amber-900">
+              <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
                 AI-generated condition estimate — not a professional appraisal or
                 guarantee
               </p>
-              <p className="text-xs text-amber-800">
+              <p className="text-xs text-amber-800 dark:text-amber-300">
                 This grade is produced by an automated AI system from the seller's
                 photos. It is an estimate of condition, not a certified appraisal,
                 authentication, or warranty of value. Confidence is shown above;
@@ -897,7 +897,7 @@ export function CertificatePage() {
           <Card className="print:hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <ImageIcon className="h-5 w-5 text-brand-navy" />
+                <ImageIcon className="h-5 w-5 text-brand-navy dark:text-foreground" />
                 Graded photo
               </CardTitle>
               <CardDescription>
@@ -919,7 +919,7 @@ export function CertificatePage() {
           <Card className="print:hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <BadgeCheck className="h-5 w-5 text-brand-navy" />
+                <BadgeCheck className="h-5 w-5 text-brand-navy dark:text-foreground" />
                 Add this badge to your listing
               </CardTitle>
               <CardDescription>
@@ -996,7 +996,7 @@ export function CertificatePage() {
             Powered by{" "}
             <a
               href="/"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               GradeThread
             </a>{" "}

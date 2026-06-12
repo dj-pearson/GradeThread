@@ -60,17 +60,17 @@ import {
 import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  processing: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  disputed: "bg-purple-100 text-purple-700",
+  pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  processing: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  completed: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  failed: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+  disputed: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
 };
 
 const CONFIDENCE_COLORS: Record<string, string> = {
-  high: "text-green-600",
-  medium: "text-yellow-600",
-  low: "text-red-600",
+  high: "text-green-600 dark:text-green-400",
+  medium: "text-yellow-600 dark:text-yellow-400",
+  low: "text-red-600 dark:text-red-400",
 };
 
 function formatDate(dateStr: string): string {
@@ -360,7 +360,7 @@ export function AdminSubmissionsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <FileText className="h-6 w-6 text-brand-red" />
+          <FileText className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">All Submissions</h1>
           <Badge variant="secondary" className="ml-2">
             {filtered.length} submission{filtered.length !== 1 ? "s" : ""}
@@ -462,14 +462,14 @@ export function AdminSubmissionsPage() {
 
       {/* SLA Warning Banner */}
       {overdueSubmissions.length > 0 && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40">
           <CardContent className="flex items-center gap-3 py-3">
-            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
             <div>
-              <p className="text-sm font-medium text-red-800">
+              <p className="text-sm font-medium text-red-800 dark:text-red-300">
                 {overdueSubmissions.length} submission{overdueSubmissions.length !== 1 ? "s" : ""} exceeded SLA (5 min)
               </p>
-              <p className="text-xs text-red-600">
+              <p className="text-xs text-red-600 dark:text-red-400">
                 These submissions have been processing longer than the expected timeframe.
               </p>
             </div>
@@ -536,7 +536,7 @@ export function AdminSubmissionsPage() {
                     return (
                       <TableRow
                         key={s.id}
-                        className={`cursor-pointer hover:bg-muted/50 ${overdue ? "bg-red-50/50" : ""}`}
+                        className={`cursor-pointer hover:bg-muted/50 ${overdue ? "bg-red-50/50 dark:bg-red-950/50" : ""}`}
                         onClick={() => navigate(`/dashboard/submissions/${s.id}`)}
                       >
                         <TableCell className="font-medium max-w-[200px] truncate">
@@ -559,10 +559,10 @@ export function AdminSubmissionsPage() {
                             <span
                               className={
                                 r.overall_score >= 7
-                                  ? "text-green-600 font-medium"
+                                  ? "text-green-600 font-medium dark:text-green-400"
                                   : r.overall_score >= 5
-                                    ? "text-yellow-600 font-medium"
-                                    : "text-red-600 font-medium"
+                                    ? "text-yellow-600 font-medium dark:text-yellow-400"
+                                    : "text-red-600 font-medium dark:text-red-400"
                               }
                             >
                               {r.overall_score.toFixed(1)}
@@ -584,7 +584,7 @@ export function AdminSubmissionsPage() {
                           {formatDate(s.created_at)}
                         </TableCell>
                         <TableCell className="tabular-nums">
-                          <span className={overdue ? "text-red-600 font-medium" : ""}>
+                          <span className={overdue ? "text-red-600 font-medium dark:text-red-400" : ""}>
                             {getProcessingTime(s, r)}
                           </span>
                         </TableCell>
@@ -619,7 +619,7 @@ export function AdminSubmissionsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 text-red-600"
+                                className="h-7 w-7 p-0 text-red-600 dark:text-red-400"
                                 title="Mark as failed"
                                 onClick={() => setMarkFailedTarget(s)}
                               >
@@ -667,9 +667,9 @@ export function AdminSubmissionsPage() {
 
       {/* Failed Submissions Section */}
       {failedSubmissions.length > 0 && (
-        <Card className="border-red-200">
+        <Card className="border-red-200 dark:border-red-800">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base text-red-700">
+            <CardTitle className="flex items-center gap-2 text-base text-red-700 dark:text-red-300">
               <XCircle className="h-4 w-4" />
               Failed Submissions ({failedSubmissions.length})
             </CardTitle>
@@ -701,7 +701,7 @@ export function AdminSubmissionsPage() {
                     <TableCell className="text-muted-foreground">
                       {formatDateTime(item.submission.updated_at)}
                     </TableCell>
-                    <TableCell className="tabular-nums text-red-600">
+                    <TableCell className="tabular-nums text-red-600 dark:text-red-400">
                       {getProcessingTime(item.submission, item.report)}
                     </TableCell>
                     <TableCell className="text-right">

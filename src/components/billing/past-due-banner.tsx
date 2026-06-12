@@ -20,7 +20,7 @@ export function PastDueBanner() {
       role="alert"
       className="mb-4 flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40"
     >
-      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+      <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
       <div className="flex-1 text-sm">
         <p className="font-semibold text-red-700 dark:text-red-300">
           Payment failed — your plan benefits are paused

@@ -232,7 +232,7 @@ export function FlipdeskListingPerformancePage() {
       {accessDenied && (
         <Card className="border-brand-red/40 bg-brand-red/5">
           <CardContent className="flex flex-wrap items-center gap-3 py-4 text-sm">
-            <Info className="h-4 w-4 shrink-0 text-brand-red" />
+            <Info className="h-4 w-4 shrink-0 text-brand-red-text" />
             <span className="flex-1">
               eBay hasn't granted Sell Analytics access for your account, so
               views, impressions and click-through can't be pulled. Reconnect

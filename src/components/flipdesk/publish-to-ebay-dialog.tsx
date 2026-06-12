@@ -138,8 +138,8 @@ export function PublishToEbayDialog({
         {/* Still-active warning: relisting ends the current live listing and
             creates a brand-new one (new item #, watchers/views reset). */}
         {!result && listingActive && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/30">
-            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm dark:bg-amber-950/30 dark:border-amber-800">
+            <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
             <div className="text-amber-900 dark:text-amber-200">
               <div className="font-medium">This item is still live on eBay.</div>
               <div className="mt-1 text-xs text-amber-800/90 dark:text-amber-200/80">
@@ -154,8 +154,8 @@ export function PublishToEbayDialog({
         {/* Already published */}
         {result && (
           <div className="space-y-3">
-            <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30">
-              <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600" />
+            <div className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm dark:bg-emerald-950/30 dark:border-emerald-800">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
               <div>
                 <div className="font-medium text-emerald-900 dark:text-emerald-200">
                   Your listing is live.
@@ -190,7 +190,7 @@ export function PublishToEbayDialog({
         {!result && !validate.isPending && blockers.length > 0 && (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-sm font-medium">
-              <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
               Fix these before publishing
             </div>
             <ul className="space-y-1 rounded-md border bg-amber-50 p-3 text-xs dark:bg-amber-950/30">

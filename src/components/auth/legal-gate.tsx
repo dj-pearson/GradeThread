@@ -76,7 +76,7 @@ export function LegalGate({ children }: { children: React.ReactNode }) {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-brand-red/10">
-            <ScrollText className="h-6 w-6 text-brand-red" />
+            <ScrollText className="h-6 w-6 text-brand-red-text" />
           </div>
           <CardTitle>
             {isUpdate ? "We've updated our terms" : "One last step"}

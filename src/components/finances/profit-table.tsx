@@ -322,7 +322,7 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
                   <TableCell
                     className={cn(
                       "font-medium",
-                      row.netProfit >= 0 ? "text-green-600" : "text-red-600"
+                      row.netProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                     )}
                   >
                     {formatCurrency(row.netProfit)}
@@ -330,7 +330,7 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
                   <TableCell
                     className={cn(
                       "font-medium",
-                      row.profitMargin >= 0 ? "text-green-600" : "text-red-600"
+                      row.profitMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                     )}
                   >
                     {row.profitMargin.toFixed(1)}%
@@ -353,7 +353,7 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
                 <TableCell
                   className={cn(
                     "font-bold",
-                    totals.netProfit >= 0 ? "text-green-600" : "text-red-600"
+                    totals.netProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                   )}
                 >
                   {formatCurrency(totals.netProfit)}
@@ -361,7 +361,7 @@ export function ProfitTable({ rows: serverRows, rowsTotal }: ProfitTableProps) {
                 <TableCell
                   className={cn(
                     "font-bold",
-                    totals.profitMargin >= 0 ? "text-green-600" : "text-red-600"
+                    totals.profitMargin >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                   )}
                 >
                   {totals.profitMargin.toFixed(1)}%

@@ -6,9 +6,9 @@ import { cn } from "@/lib/utils";
 // (functions/badge/cert/[id].ts); this mirrors its look for previews.
 
 function scoreColor(score: number): string {
-  if (score > 7) return "text-green-600";
-  if (score >= 5) return "text-yellow-600";
-  return "text-red-600";
+  if (score > 7) return "text-green-600 dark:text-green-400";
+  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
+  return "text-red-600 dark:text-red-400";
 }
 
 export function VerifiedBadge({

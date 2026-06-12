@@ -1219,7 +1219,7 @@ export function FlipdeskAutolisterPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Sparkles className="h-6 w-6 text-brand-red" />
+            <Sparkles className="h-6 w-6 text-brand-red-text" />
             AutoLister
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -1248,7 +1248,7 @@ export function FlipdeskAutolisterPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="flex items-center gap-2 font-semibold">
-                <Sparkles className="h-4 w-4 text-brand-red" />
+                <Sparkles className="h-4 w-4 text-brand-red-text" />
                 AutoLister is a Pro feature
               </h2>
               <p className="text-sm text-muted-foreground">
@@ -1372,7 +1372,7 @@ export function FlipdeskAutolisterPage() {
       {staged.length > 0 && entitled && (
         <Card className="flex flex-wrap items-center gap-3 p-3">
           <div className="flex items-center gap-2">
-            <WandSparkles className="h-4 w-4 text-brand-red" />
+            <WandSparkles className="h-4 w-4 text-brand-red-text" />
             <span className="text-sm font-medium">Auto-enhance</span>
           </div>
           <Button
@@ -1397,7 +1397,7 @@ export function FlipdeskAutolisterPage() {
       {staged.length > 0 && entitled && (
         <Card className="flex flex-wrap items-center gap-3 p-3">
           <div className="flex items-center gap-2">
-            <Eraser className="h-4 w-4 text-brand-red" />
+            <Eraser className="h-4 w-4 text-brand-red-text" />
             <span className="text-sm font-medium">Studio background</span>
           </div>
           <div className="inline-flex overflow-hidden rounded-md border text-xs">

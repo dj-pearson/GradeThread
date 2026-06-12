@@ -149,7 +149,7 @@ export function FlipdeskVerifiedPage() {
       {/* Header */}
       <div className="space-y-1">
         <div className="flex items-center gap-2">
-          <ShieldCheck className="h-6 w-6 text-brand-navy" />
+          <ShieldCheck className="h-6 w-6 text-brand-navy dark:text-foreground" />
           <h1 className="text-2xl font-bold">GradeThread Verified</h1>
         </div>
         <p className="text-muted-foreground">
@@ -163,7 +163,7 @@ export function FlipdeskVerifiedPage() {
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-3xl font-extrabold text-brand-navy">
+            <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
               {data?.stats.total_graded ?? 0}
             </div>
             <p className="text-sm text-muted-foreground">verified grades</p>
@@ -171,7 +171,7 @@ export function FlipdeskVerifiedPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-3xl font-extrabold text-brand-navy">
+            <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
               {data && data.stats.average_grade > 0
                 ? data.stats.average_grade.toFixed(1)
                 : "—"}
@@ -211,19 +211,19 @@ export function FlipdeskVerifiedPage() {
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   )}
                   {availability.state === "ok" && (
-                    <Check className="h-4 w-4 text-green-600" />
+                    <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
                   )}
                   {availability.state === "error" && (
-                    <X className="h-4 w-4 text-red-600" />
+                    <X className="h-4 w-4 text-red-600 dark:text-red-400" />
                   )}
                 </div>
               </div>
             </div>
             {availability.state === "error" && (
-              <p className="text-xs text-red-600">{availability.reason}</p>
+              <p className="text-xs text-red-600 dark:text-red-400">{availability.reason}</p>
             )}
             {availability.state === "ok" && (
-              <p className="text-xs text-green-600">Available!</p>
+              <p className="text-xs text-green-600 dark:text-green-400">Available!</p>
             )}
           </div>
 
@@ -316,7 +316,7 @@ export function FlipdeskVerifiedPage() {
                 href={liveUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-navy hover:underline"
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-navy hover:underline dark:text-foreground"
               >
                 <ExternalLink className="h-4 w-4" />
                 View public profile
@@ -331,7 +331,7 @@ export function FlipdeskVerifiedPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <BadgeCheck className="h-5 w-5 text-brand-navy" />
+              <BadgeCheck className="h-5 w-5 text-brand-navy dark:text-foreground" />
               Embed your "Verified Seller" badge
             </CardTitle>
             <CardDescription>

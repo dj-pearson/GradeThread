@@ -245,7 +245,7 @@ export function CompEditor({
                     href={c.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-brand-red underline"
+                    className="text-brand-red-text underline"
                   >
                     {c.url}
                   </a>

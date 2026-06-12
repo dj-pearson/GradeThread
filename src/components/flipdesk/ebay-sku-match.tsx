@@ -117,7 +117,7 @@ function StatTile({
 }) {
   const valueClass =
     tone === "ok"
-      ? "text-emerald-600"
+      ? "text-emerald-600 dark:text-emerald-400"
       : tone === "warn"
         ? "text-destructive"
         : "";
@@ -582,7 +582,7 @@ export function EbaySkuMatch() {
             <CardContent>
               {buckets.unmatched.length === 0 ? (
                 <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   Every imported eBay listing matches a FlipDesk SKU.
                 </div>
               ) : (
@@ -723,7 +723,7 @@ export function EbaySkuMatch() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                 Matched listings
               </CardTitle>
               <CardDescription>

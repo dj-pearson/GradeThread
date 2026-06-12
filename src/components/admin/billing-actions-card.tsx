@@ -382,7 +382,7 @@ export function BillingActionsCard({
           {payments.isLoading ? (
             <Skeleton className="h-32 w-full" />
           ) : payments.error ? (
-            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
               <AlertTriangle className="h-4 w-4" />
               {(payments.error as Error).message}
             </div>
@@ -489,7 +489,7 @@ function ChargeList({ charges, refunding, refundingChargeId, onRefund }: ChargeL
                     href={ch.receipt_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-brand-navy underline hover:text-brand-navy/80"
+                    className="text-xs text-brand-navy underline hover:text-brand-navy/80 dark:text-foreground"
                   >
                     Receipt
                   </a>

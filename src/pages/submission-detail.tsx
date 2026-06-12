@@ -72,13 +72,13 @@ import type {
 function getScoreColor(score: number): string {
   if (score > 7) return "text-emerald-500";
   if (score >= 5) return "text-amber-500";
-  return "text-brand-red";
+  return "text-brand-red-text";
 }
 
 function getTierBadgeClasses(score: number): string {
-  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200";
-  return "bg-rose-100 text-rose-800 border-rose-200";
+  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800";
+  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+  return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800";
 }
 
 function getConfidenceLabel(score: number): {
@@ -90,7 +90,7 @@ function getConfidenceLabel(score: number): {
     return { label: "High", color: "text-emerald-500", icon: CheckCircle2 };
   if (score >= 0.75)
     return { label: "Medium", color: "text-amber-500", icon: Info };
-  return { label: "Low", color: "text-brand-red", icon: AlertTriangle };
+  return { label: "Low", color: "text-brand-red-text", icon: AlertTriangle };
 }
 
 function formatLabel(value: string): string {
@@ -460,13 +460,13 @@ export function SubmissionDetailPage() {
   function getDisputeStatusBadge(status: string) {
     switch (status) {
       case "open":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+        return "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800";
       case "under_review":
-        return "bg-blue-100 text-blue-800 border-blue-200";
+        return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-800";
       case "resolved":
-        return "bg-green-100 text-green-800 border-green-200";
+        return "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800";
       case "rejected":
-        return "bg-red-100 text-red-800 border-red-200";
+        return "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800";
       default:
         return "";
     }
@@ -554,17 +554,17 @@ export function SubmissionDetailPage() {
             variant="outline"
             className={cn(
               submission.status === "completed" &&
-                "border-green-200 bg-green-100 text-green-800",
+                "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300",
               submission.status === "processing" &&
-                "border-blue-200 bg-blue-100 text-blue-800",
+                "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
               submission.status === "pending" &&
-                "border-yellow-200 bg-yellow-100 text-yellow-800",
+                "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
               submission.status === "needs_photos" &&
-                "border-amber-200 bg-amber-100 text-amber-800",
+                "border-amber-200 bg-amber-100 text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
               submission.status === "expired" &&
                 "border-gray-200 bg-gray-100 text-gray-600",
               submission.status === "failed" &&
-                "border-red-200 bg-red-100 text-red-800"
+                "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
             )}
           >
             {formatLabel(submission.status)}
@@ -882,7 +882,7 @@ export function SubmissionDetailPage() {
                 </p>
                 {/* US-514: AI-transparency disclosure (mirrors the public
                     certificate + Terms §5). */}
-                <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                   AI-generated condition estimate — not a professional appraisal
                   or guarantee. This grade is produced automatically from photos
                   and is an estimate of condition only; lower-confidence grades
@@ -1081,7 +1081,7 @@ export function SubmissionDetailPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <ImageIcon className="h-5 w-5 text-brand-navy" />
+              <ImageIcon className="h-5 w-5 text-brand-navy dark:text-foreground" />
               Your graded photo
             </CardTitle>
             <CardDescription>

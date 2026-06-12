@@ -64,7 +64,7 @@ function RequestResetForm() {
           </CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
-          <Link to="/login" className="text-sm text-brand-red hover:underline">
+          <Link to="/login" className="text-sm text-brand-red-text hover:underline">
             Back to sign in
           </Link>
         </CardFooter>
@@ -198,7 +198,7 @@ function UpdatePasswordForm() {
           </CardDescription>
         </CardHeader>
         <CardFooter className="justify-center gap-4">
-          <Link to="/auth/reset-password" className="text-sm text-brand-red hover:underline">
+          <Link to="/auth/reset-password" className="text-sm text-brand-red-text hover:underline">
             Request a new link
           </Link>
           <Link to="/login" className="text-sm text-muted-foreground hover:underline">

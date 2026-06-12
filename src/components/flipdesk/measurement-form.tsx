@@ -99,7 +99,7 @@ export function MeasurementForm({
               href={sizeGuideUrl(brand)}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-brand-red hover:underline"
+              className="inline-flex items-center gap-1 text-xs text-brand-red-text hover:underline"
             >
               {brand} size guide
               <ExternalLink className="h-3 w-3" />

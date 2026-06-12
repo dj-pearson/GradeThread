@@ -28,16 +28,16 @@ import { Users, Search } from "lucide-react";
 
 const ROLE_COLORS: Record<string, string> = {
   user: "bg-muted text-muted-foreground",
-  reviewer: "bg-blue-100 text-blue-700",
-  admin: "bg-purple-100 text-purple-700",
-  super_admin: "bg-red-100 text-red-700",
+  reviewer: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+  super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
 };
 
 const PLAN_COLORS: Record<string, string> = {
   free: "bg-muted text-muted-foreground",
-  starter: "bg-green-100 text-green-700",
-  professional: "bg-blue-100 text-blue-700",
-  enterprise: "bg-amber-100 text-amber-700",
+  starter: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  professional: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  enterprise: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
 };
 
 function formatRole(role: string): string {
@@ -136,7 +136,7 @@ export function AdminUsersPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Users className="h-6 w-6 text-brand-red" />
+        <Users className="h-6 w-6 text-brand-red-text" />
         <h1 className="text-2xl font-bold">User Management</h1>
         <Badge variant="secondary" className="ml-2">
           {totalCount} user{totalCount !== 1 ? "s" : ""}

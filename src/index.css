@@ -72,9 +72,18 @@
 
   /* Brand colors as Tailwind utilities */
   --color-brand-navy: #0c1e36;
-  --color-brand-red: #f03d5f;
+  /* US-439: brand red deepened from #f03d5f to #cc1f3d so white text on a
+     `bg-brand-red` CTA clears AA (5.48:1) in BOTH themes. The vibrant red can't
+     serve as both a white-on-red surface and as red text, so red TEXT uses the
+     theme-inverting `--color-brand-red-text` token below instead. */
+  --color-brand-red: #cc1f3d;
   --color-brand-night: #0e0e1a;
   --color-brand-gray: #fafafc;
+
+  /* US-439: AA-safe red for TEXT. Inverts per theme so red copy stays >=4.5:1
+     on both light surfaces (#cc1f3d, 5.26:1) and dark surfaces (#fb5e78,
+     5.56:1). Use `text-brand-red-text` for red text; never `text-brand-red`. */
+  --color-brand-red-text: var(--brand-red-text);
 
   /* Semantic color mappings */
   --color-background: var(--background);
@@ -127,7 +136,10 @@
   --muted-foreground: #64748b;
   --accent: #f03d5f;
   --accent-foreground: #ffffff;
-  --destructive: #f03d5f;
+  /* US-439: AA-safe destructive red (text 5.26:1 on light; white-on-button
+     5.48:1). Inverts in .dark. */
+  --destructive: #cc1f3d;
+  --brand-red-text: #cc1f3d;
   --border: #e2e8f0;
   --input: #e2e8f0;
   --ring: #0c1e36;
@@ -162,7 +174,11 @@
   --muted-foreground: #94a3b8;
   --accent: #f03d5f;
   --accent-foreground: #ffffff;
-  --destructive: #f03d5f;
+  /* US-439: lighter destructive red in dark mode keeps red text legible
+     (5.56:1 on cards); the button variant's `dark:bg-destructive/60` darkens it
+     enough for white text (6.21:1). */
+  --destructive: #fb5e78;
+  --brand-red-text: #fb5e78;
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: #f03d5f;
@@ -195,7 +211,9 @@
   @apply text-sm leading-relaxed text-foreground;
 }
 .prose-legal h2 {
-  @apply mt-10 mb-3 text-xl font-semibold text-brand-navy scroll-mt-20;
+  /* US-439: was text-brand-navy (~1.4:1 on the dark theme bg). text-foreground
+     inverts per theme so legal headings stay legible in both. */
+  @apply mt-10 mb-3 text-xl font-semibold text-foreground scroll-mt-20;
 }
 .prose-legal h3 {
   @apply mt-6 mb-2 text-base font-semibold text-foreground;
@@ -213,7 +231,9 @@
   @apply pl-1;
 }
 .prose-legal a {
-  @apply text-brand-red underline-offset-2 hover:underline;
+  /* US-439: brand-red-text (AA-safe, inverting) instead of the vibrant
+     bg-grade brand-red which fails 4.5:1 as link text. */
+  @apply text-brand-red-text underline-offset-2 hover:underline;
 }
 .prose-legal strong {
   @apply font-semibold text-foreground;

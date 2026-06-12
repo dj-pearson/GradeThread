@@ -103,7 +103,7 @@ export function LegalLayout({
           <article>
             <Breadcrumbs items={trail} className="mb-6" />
             <header className="mb-8 border-b pb-6">
-              <h1 className="text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl">
+              <h1 className="text-3xl font-bold tracking-tight text-brand-navy sm:text-4xl dark:text-foreground">
                 {title}
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">

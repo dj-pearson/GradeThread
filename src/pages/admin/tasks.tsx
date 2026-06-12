@@ -300,12 +300,12 @@ function ProjectCard({
             <Badge variant="outline">{counts.todo} to do</Badge>
           )}
           {counts.in_progress > 0 && (
-            <Badge variant="outline" className="border-sky-400 text-sky-700">
+            <Badge variant="outline" className="border-sky-400 text-sky-700 dark:text-sky-300">
               {counts.in_progress} in progress
             </Badge>
           )}
           {counts.blocked > 0 && (
-            <Badge variant="outline" className="border-amber-500 text-amber-700">
+            <Badge variant="outline" className="border-amber-500 text-amber-700 dark:text-amber-300">
               {counts.blocked} blocked
             </Badge>
           )}
@@ -313,13 +313,13 @@ function ProjectCard({
 
         {nextUp ? (
           <div className="rounded-md border border-brand-navy/30 bg-brand-navy/5 p-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-brand-navy">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-brand-navy dark:text-foreground">
               Next up
             </div>
             <div className="mt-0.5 line-clamp-2 text-sm">{nextUp.title}</div>
           </div>
         ) : total > 0 ? (
-          <div className="rounded-md border border-emerald-300 bg-emerald-50 p-2.5 text-sm text-emerald-700">
+          <div className="rounded-md border border-emerald-300 bg-emerald-50 p-2.5 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
             All steps complete 🎉
           </div>
         ) : (

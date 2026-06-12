@@ -65,7 +65,7 @@ export class ErrorBoundary extends Component<Props, State> {
                   const img = e.currentTarget;
                   const span = document.createElement("span");
                   span.textContent = "GradeThread";
-                  span.className = "mt-4 text-sm font-bold text-brand-navy";
+                  span.className = "mt-4 text-sm font-bold text-brand-navy dark:text-foreground";
                   img.replaceWith(span);
                 }}
               />

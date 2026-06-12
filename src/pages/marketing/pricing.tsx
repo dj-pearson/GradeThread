@@ -64,16 +64,16 @@ export function PricingPage() {
                 className="rounded-lg border bg-background p-6"
               >
                 <h3 className="text-lg font-semibold">{tier.label}</h3>
-                <p className="mt-2 text-3xl font-bold text-brand-navy">
+                <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
                   {dollars(tier.priceCents)}
                 </p>
                 <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                   <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-brand-navy" />
+                    <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
                     {tier.slaHours}h service-level target
                   </li>
                   <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-brand-navy" />
+                    <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
                     {tier.creditCost} credit{tier.creditCost > 1 ? "s" : ""} per
                     grade
                   </li>
@@ -93,7 +93,7 @@ export function PricingPage() {
                 key={pack.credits}
                 className="rounded-lg border bg-background p-4 text-center"
               >
-                <p className="text-2xl font-bold text-brand-navy">
+                <p className="text-2xl font-bold text-brand-navy dark:text-foreground">
                   {pack.credits}
                 </p>
                 <p className="text-xs text-muted-foreground">credits</p>
@@ -121,7 +121,7 @@ export function PricingPage() {
                   className="flex flex-col rounded-lg border bg-background p-6"
                 >
                   <h3 className="text-lg font-semibold">{plan.name}</h3>
-                  <p className="mt-2 text-3xl font-bold text-brand-navy">
+                  <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
                     {dollars(plan.priceMonthlyCents)}
                     <span className="text-sm font-normal text-muted-foreground">
                       /mo
@@ -129,18 +129,18 @@ export function PricingPage() {
                   </p>
                   <ul className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
                     <li className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy" />
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
                       {plan.includedStandardGradesPerMonth} grades/mo included
                     </li>
                     <li className="flex items-start gap-2">
-                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy" />
+                      <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
                       {plan.activeListingCap === -1
                         ? "Unlimited active listings"
                         : `${plan.activeListingCap} active listings`}
                     </li>
                     {plan.features.slice(0, 3).map((f) => (
                       <li key={f} className="flex items-start gap-2">
-                        <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy" />
+                        <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
                         {f}
                       </li>
                     ))}
@@ -153,14 +153,14 @@ export function PricingPage() {
             New to grading? Start with{" "}
             <Link
               to="/how-it-works"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               how it works
             </Link>{" "}
             or read the{" "}
             <Link
               to="/faq"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               FAQ
             </Link>

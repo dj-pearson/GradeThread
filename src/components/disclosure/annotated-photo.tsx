@@ -171,7 +171,7 @@ export function AnnotatedPhoto({
         <canvas ref={canvasRef} className="h-auto w-full" />
       </div>
       {tainted && (
-        <p className="text-xs text-amber-600">
+        <p className="text-xs text-amber-600 dark:text-amber-400">
           This image can't be exported from the browser. The annotations still
           display above.
         </p>

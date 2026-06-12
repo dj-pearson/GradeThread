@@ -305,7 +305,7 @@ export function EbayCategoryPicker({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <Check className="h-4 w-4 text-emerald-600" />
+              <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <Button
                 variant="outline"
                 size="sm"
@@ -480,7 +480,7 @@ function AspectGroup({
         className={cn(
           "mb-2 text-[10px] font-semibold uppercase tracking-wide",
           tone === "required" && "text-destructive",
-          tone === "recommended" && "text-brand-navy",
+          tone === "recommended" && "text-brand-navy dark:text-foreground",
           tone === "optional" && "text-muted-foreground"
         )}
       >

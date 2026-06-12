@@ -25,14 +25,14 @@ export function FaqPage() {
             public certificates, pricing, and the API. Still stuck? See{" "}
             <Link
               to="/how-it-works"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               how it works
             </Link>{" "}
             or the{" "}
             <Link
               to="/condition-grading"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               condition-grading guide
             </Link>

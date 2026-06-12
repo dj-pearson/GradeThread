@@ -58,7 +58,7 @@ import { cn } from "@/lib/utils";
 function StatusIcon({ status }: { status: AutolisterJob["status"] }) {
   switch (status) {
     case "success":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
+      return <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />;
     case "failed":
       return <XCircle className="h-4 w-4 text-destructive" />;
     case "running":
@@ -627,7 +627,7 @@ export function FlipdeskAutolisterQueuePage() {
             {done} / {batch.item_count} processed
           </span>
           <div className="flex items-center gap-3">
-            <span className="text-emerald-600">{batch.succeeded_count} done</span>
+            <span className="text-emerald-600 dark:text-emerald-400">{batch.succeeded_count} done</span>
             {batch.failed_count > 0 && (
               <span className="text-destructive">{batch.failed_count} failed</span>
             )}
@@ -750,7 +750,7 @@ export function FlipdeskAutolisterQueuePage() {
                 reviewByListing[job.listing_id]?.needsReview && (
                   <Badge
                     variant="outline"
-                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700"
+                    className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
                     title={
                       (reviewByListing[job.listing_id]?.fields.length ?? 0) > 0
                         ? `AI is unsure about: ${reviewByListing[job.listing_id]!.fields.join(", ")}`
@@ -793,7 +793,7 @@ export function FlipdeskAutolisterQueuePage() {
                     href={pub.listingUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:underline"
+                    className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:underline dark:text-emerald-400"
                   >
                     Live on eBay
                     <ExternalLink className="h-3 w-3" />
@@ -849,9 +849,9 @@ function PhotoQaBadge({
   const score = meta.qaScore;
   const cls =
     score >= 80
-      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
       : score >= 50
-        ? "border-amber-500/40 bg-amber-500/10 text-amber-700"
+        ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
         : "border-destructive/40 bg-destructive/10 text-destructive";
   const tip =
     meta.qaIssues.length > 0
@@ -896,11 +896,11 @@ function PublishConfirmDialog({
         <div className="space-y-2">
           <div className="flex flex-wrap gap-3 text-sm">
             <span className="inline-flex items-center gap-1.5">
-              <ShieldCheck className="h-4 w-4 text-emerald-600" />
+              <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <strong>{publishable}</strong> ready
             </span>
             {blocked > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-amber-700">
+              <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
                 <AlertTriangle className="h-4 w-4" />
                 <strong>{blocked}</strong> blocked
               </span>
@@ -926,7 +926,7 @@ function PublishConfirmDialog({
                   {!item.blockersLoaded ? (
                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                   ) : item.blockers.length === 0 ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                   ) : (
                     <AlertTriangle className="h-4 w-4 text-amber-500" />
                   )}
@@ -940,7 +940,7 @@ function PublishConfirmDialog({
                     </div>
                   )}
                   {item.blockers.length > 0 && (
-                    <ul className="mt-1 space-y-0.5 text-xs text-amber-700">
+                    <ul className="mt-1 space-y-0.5 text-xs text-amber-700 dark:text-amber-300">
                       {item.blockers.map((b, i) => (
                         <li key={i}>• {b}</li>
                       ))}

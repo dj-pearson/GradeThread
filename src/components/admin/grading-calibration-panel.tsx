@@ -65,7 +65,7 @@ export function GradingCalibrationPanel() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <Gauge className="h-4 w-4 text-brand-navy" />
+          <Gauge className="h-4 w-4 text-brand-navy dark:text-foreground" />
           Confidence Calibration
         </CardTitle>
         <CardDescription>
@@ -105,12 +105,12 @@ export function GradingCalibrationPanel() {
             </div>
 
             {recDiffers && (
-              <div className="flex items-start gap-2 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-xs text-yellow-800">
+              <div className="flex items-start gap-2 rounded-lg border border-yellow-300 bg-yellow-50 p-3 text-xs text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300">
                 <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>
                   Grades reach {pct(data.target_agreement)} agreement at{" "}
                   <strong>{pct(rec)}</strong> confidence. Consider setting{" "}
-                  <code className="rounded bg-yellow-100 px-1">
+                  <code className="rounded bg-yellow-100 px-1 dark:bg-yellow-950/50">
                     GRADING_REVIEW_CONFIDENCE_THRESHOLD={rec}
                   </code>{" "}
                   ({rec! > cur ? "route more grades to review" : "ship more grades unreviewed"}).

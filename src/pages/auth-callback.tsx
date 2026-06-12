@@ -103,7 +103,7 @@ export function AuthCallbackPage() {
           <p className="mt-2 text-sm text-muted-foreground">{errorMessage}</p>
           <Link
             to="/login"
-            className="mt-4 inline-block text-sm font-medium text-brand-red hover:underline"
+            className="mt-4 inline-block text-sm font-medium text-brand-red-text hover:underline"
           >
             Back to sign in
           </Link>

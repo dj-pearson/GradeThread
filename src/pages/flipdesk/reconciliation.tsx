@@ -362,7 +362,7 @@ export function FlipdeskReconciliationPage() {
             </div>
           ) : flagged.length === 0 ? (
             <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               No discrepancies. Fees and shipping look clean.
             </div>
           ) : (
@@ -436,13 +436,13 @@ function runStatusBadge(status: EbaySyncRun["status"]) {
     case "success":
       return {
         label: "Success",
-        className: "border-emerald-600/30 bg-emerald-600/10 text-emerald-700",
+        className: "border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-300",
         Icon: CheckCircle2,
       };
     case "partial":
       return {
         label: "Partial",
-        className: "border-amber-500/30 bg-amber-500/10 text-amber-700",
+        className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
         Icon: AlertTriangle,
       };
     case "failed":
@@ -502,7 +502,7 @@ function SyncHistoryCard() {
               <strong>Marketplaces</strong> page — results land when it finishes
               (a sync takes ~1–2 minutes).
               {latestStuck && (
-                <span className="mt-1 block text-amber-600">
+                <span className="mt-1 block text-amber-600 dark:text-amber-400">
                   The last sync looks stuck — running another will reclaim it.
                 </span>
               )}
@@ -584,7 +584,7 @@ function SyncHistoryCard() {
                       {run.listings_total}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <span className="text-emerald-700">
+                      <span className="text-emerald-700 dark:text-emerald-300">
                         {run.listings_matched}
                       </span>
                       {run.listings_unmatched > 0 && (
@@ -604,7 +604,7 @@ function SyncHistoryCard() {
                           }`}
                         >
                           {run.sales_new > 0 && (
-                            <span className="text-emerald-700">
+                            <span className="text-emerald-700 dark:text-emerald-300">
                               +{run.sales_new}
                             </span>
                           )}
@@ -617,7 +617,7 @@ function SyncHistoryCard() {
                           {(run.sales_reversed ?? 0) > 0 && (
                             <>
                               {(run.sales_new > 0 || run.sales_updated > 0) && " "}
-                              <span className="text-rose-700">
+                              <span className="text-rose-700 dark:text-rose-300">
                                 -{run.sales_reversed}
                               </span>
                             </>
@@ -764,7 +764,7 @@ function ReviewQueueCard({
           </div>
         ) : queue.length === 0 ? (
           <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             All payouts are reconciled.
           </div>
         ) : (
@@ -818,7 +818,7 @@ function ReviewQueueCard({
                         key={c.sale_id}
                         className="flex items-center gap-3 rounded border bg-background p-2 text-xs"
                       >
-                        <div className="w-10 shrink-0 text-right font-mono tabular-nums text-brand-navy">
+                        <div className="w-10 shrink-0 text-right font-mono tabular-nums text-brand-navy dark:text-foreground">
                           {(c.score * 100).toFixed(0)}%
                         </div>
                         <div className="min-w-0 flex-1">

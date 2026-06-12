@@ -272,12 +272,12 @@ function TableView({ transactions, total }: { transactions: FinCfTxn[]; total: n
                 <TableCell className="text-xs">{formatDate(row.date)}</TableCell>
                 <TableCell>
                   {row.type === "inflow" ? (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
                       <ArrowDownLeft className="h-3 w-3" />
                       In
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600 dark:text-red-400">
                       <ArrowUpRight className="h-3 w-3" />
                       Out
                     </span>
@@ -290,7 +290,7 @@ function TableView({ transactions, total }: { transactions: FinCfTxn[]; total: n
                 <TableCell
                   className={cn(
                     "text-right text-xs font-medium",
-                    row.type === "inflow" ? "text-green-600" : "text-red-600"
+                    row.type === "inflow" ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                   )}
                 >
                   {row.type === "inflow" ? "+" : "-"}
@@ -299,7 +299,7 @@ function TableView({ transactions, total }: { transactions: FinCfTxn[]; total: n
                 <TableCell
                   className={cn(
                     "text-right text-xs font-medium",
-                    row.runningBalance >= 0 ? "text-green-600" : "text-red-600"
+                    row.runningBalance >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                   )}
                 >
                   {formatCurrency(row.runningBalance)}

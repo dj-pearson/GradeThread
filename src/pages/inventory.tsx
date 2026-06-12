@@ -91,8 +91,8 @@ function calcDaysListed(
 
 function getDaysListedClasses(days: number | null): string {
   if (days === null) return "text-muted-foreground";
-  if (days >= 60) return "text-red-600 font-medium";
-  if (days >= 30) return "text-yellow-600 font-medium";
+  if (days >= 60) return "text-red-600 font-medium dark:text-red-400";
+  if (days >= 30) return "text-yellow-600 font-medium dark:text-yellow-400";
   return "text-muted-foreground";
 }
 

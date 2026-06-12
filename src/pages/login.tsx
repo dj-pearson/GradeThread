@@ -81,7 +81,7 @@ export function LoginPage() {
               <Label htmlFor="password">Password</Label>
               <Link
                 to="/auth/reset-password"
-                className="text-xs text-brand-red hover:underline"
+                className="text-xs text-brand-red-text hover:underline"
               >
                 Forgot password?
               </Link>
@@ -139,7 +139,7 @@ export function LoginPage() {
       <CardFooter className="justify-center">
         <p className="text-sm text-muted-foreground">
           Don&apos;t have an account?{" "}
-          <Link to="/signup" className="font-medium text-brand-red hover:underline">
+          <Link to="/signup" className="font-medium text-brand-red-text hover:underline">
             Sign up
           </Link>
         </p>

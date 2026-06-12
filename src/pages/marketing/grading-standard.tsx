@@ -66,7 +66,7 @@ export function GradingStandardPage() {
           <div className="mt-8 grid gap-6 sm:grid-cols-2">
             {PRINCIPLES.map((p) => (
               <div key={p.title} className="rounded-lg border bg-background p-5">
-                <h3 className="font-semibold text-brand-navy">{p.title}</h3>
+                <h3 className="font-semibold text-brand-navy dark:text-foreground">{p.title}</h3>
                 <p className="mt-2 text-sm text-muted-foreground">{p.body}</p>
               </div>
             ))}
@@ -107,7 +107,7 @@ export function GradingStandardPage() {
             For what each factor and tier means in detail, see the{" "}
             <Link
               to="/condition-grading"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               condition grading guide
             </Link>

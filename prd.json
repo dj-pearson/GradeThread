@@ -6907,8 +6907,8 @@
         "Red CTA/destructive text and muted-foreground meet >=4.5:1 in both themes (documented contrast check)"
       ],
       "priority": 439,
-      "passes": false,
-      "notes": "[P1][A11y/Dark mode] Audit 2026-06-03. ~135 light pastels w/ only 18 dark: variants; navy text on #1A1A2E ~1.4:1; red #E94560 on white ~3.3:1."
+      "passes": true,
+      "notes": "[P1][A11y/Dark mode] Audit 2026-06-03. ~135 light pastels w/ only 18 dark: variants; navy text on #1A1A2E ~1.4:1; red #E94560 on white ~3.3:1. [DONE 2026-06-12] Tokenized status pastels: STATUS_TONE_CLASSES is the canonical map; a codemod appended dark: counterparts to every raw light pastel (bg-50/100/200, text-600/700/800/900, border-100/200/300, incl. opacity-suffixed and nested-in-template classNames). text-brand-navy on themeable surfaces now pairs with dark:text-foreground; .prose-legal h2 -> text-foreground. Red split into bg vs text: --color-brand-red deepened to #cc1f3d (white-on-CTA 5.48:1 both themes); new inverting --color-brand-red-text + --destructive (#cc1f3d light / #fb5e78 dark) give AA red text (>=5.26:1) in both themes; dark destructive button via bg-destructive/60 = 6.21:1. muted-foreground already AA (4.57 light / 7.47 dark). Documented in docs/ACCESSIBILITY_CONTRAST.md + regression test src/lib/a11y/__tests__/contrast.test.ts (9 tests). Guard: scripts/ralph/verify-pastels.mjs reports 0 raw light pastels missing a dark counterpart."
     },
     {
       "id": "US-440",

@@ -82,7 +82,7 @@ export function ReconcilePanel({ itemId, title }: Props) {
         ) : (
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         )}
-        <GitCompare className="h-4 w-4 text-brand-navy" />
+        <GitCompare className="h-4 w-4 text-brand-navy dark:text-foreground" />
         <span className="font-medium">Reconcile with inventory</span>
         {title && (
           <span className="truncate text-muted-foreground">— {title}</span>

@@ -245,7 +245,7 @@ export function FlipdeskMarketplacesGooglePage() {
             <CardContent className="space-y-4">
               {hasSheet && connection?.sheet_url ? (
                 <div className="flex flex-col gap-3 rounded-lg border border-emerald-600/30 bg-emerald-600/5 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <span className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+                  <span className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
                     <FileSpreadsheet className="h-4 w-4" />
                     Your FlipDesk Sync sheet is ready.
                   </span>

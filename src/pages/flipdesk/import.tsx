@@ -706,7 +706,7 @@ A1	GT-0001	Lululemon Align Pant	..."
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               {result.failed === 0 ? (
-                <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
                 <AlertCircle className="h-5 w-5 text-destructive" />
               )}

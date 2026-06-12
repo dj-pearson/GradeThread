@@ -120,13 +120,13 @@ export function BulkAiEnrichDialog({
           <div className="space-y-3">
             <div className="grid grid-cols-3 gap-2 text-center text-sm">
               <div className="rounded-md border p-2">
-                <div className="text-lg font-bold text-green-600">
+                <div className="text-lg font-bold text-green-600 dark:text-green-400">
                   {result.summary.enriched}
                 </div>
                 <div className="text-xs text-muted-foreground">Enriched</div>
               </div>
               <div className="rounded-md border p-2">
-                <div className="text-lg font-bold text-amber-600">
+                <div className="text-lg font-bold text-amber-600 dark:text-amber-400">
                   {result.summary.needs_review}
                 </div>
                 <div className="text-xs text-muted-foreground">
@@ -134,7 +134,7 @@ export function BulkAiEnrichDialog({
                 </div>
               </div>
               <div className="rounded-md border p-2">
-                <div className="text-lg font-bold text-red-600">
+                <div className="text-lg font-bold text-red-600 dark:text-red-400">
                   {result.summary.failed}
                 </div>
                 <div className="text-xs text-muted-foreground">Failed</div>
@@ -155,13 +155,13 @@ export function BulkAiEnrichDialog({
                 >
                   <span className="flex items-center gap-2">
                     {r.status === "enriched" && (
-                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
                     )}
                     {r.status === "needs_review" && (
-                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                     )}
                     {r.status === "failed" && (
-                      <XCircle className="h-4 w-4 text-red-600" />
+                      <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
                     )}
                     <span className="text-muted-foreground">
                       {r.status === "enriched" &&

@@ -203,14 +203,14 @@ function HealthIndicator({ label, status, icon: Icon, detail }: {
   detail?: string;
 }) {
   const colors = {
-    healthy: "text-green-600",
-    degraded: "text-yellow-600",
-    down: "text-red-600",
+    healthy: "text-green-600 dark:text-green-400",
+    degraded: "text-yellow-600 dark:text-yellow-400",
+    down: "text-red-600 dark:text-red-400",
   };
   const bgColors = {
-    healthy: "bg-green-50",
-    degraded: "bg-yellow-50",
-    down: "bg-red-50",
+    healthy: "bg-green-50 dark:bg-green-950/40",
+    degraded: "bg-yellow-50 dark:bg-yellow-950/40",
+    down: "bg-red-50 dark:bg-red-950/40",
   };
   const StatusIcon = status === "healthy" ? CheckCircle : status === "degraded" ? AlertTriangle : XCircle;
 
@@ -266,7 +266,7 @@ export function AdminSystemPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Wrench className="h-6 w-6 text-brand-red" />
+          <Wrench className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">System Health</h1>
         </div>
         <div className="flex items-center gap-3">
@@ -375,7 +375,7 @@ export function AdminSystemPage() {
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-blue-600">
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">
                     {data?.queue.processingCount ?? 0}
                   </div>
                   <CardDescription>Currently grading</CardDescription>
@@ -399,7 +399,7 @@ export function AdminSystemPage() {
                   <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${(data?.queue.failedLast24h ?? 0) > 0 ? "text-red-600" : ""}`}>
+                  <div className={`text-2xl font-bold ${(data?.queue.failedLast24h ?? 0) > 0 ? "text-red-600 dark:text-red-400" : ""}`}>
                     {data?.queue.failedLast24h ?? 0}
                   </div>
                   <CardDescription>Failed submissions</CardDescription>
@@ -685,7 +685,7 @@ export function AdminSystemPage() {
                   <CreditCard className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-green-600">
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                     ${(data?.subscriptions.mrr ?? 0).toLocaleString()}
                   </div>
                   <CardDescription>Monthly recurring revenue</CardDescription>
@@ -709,7 +709,7 @@ export function AdminSystemPage() {
                   <TrendingDown className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${(data?.subscriptions.churnRatePercent ?? 0) > 5 ? "text-red-600" : ""}`}>
+                  <div className={`text-2xl font-bold ${(data?.subscriptions.churnRatePercent ?? 0) > 5 ? "text-red-600 dark:text-red-400" : ""}`}>
                     {data?.subscriptions.churnRatePercent ?? 0}%
                   </div>
                   <CardDescription>Estimated 30-day</CardDescription>

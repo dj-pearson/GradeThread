@@ -30,16 +30,16 @@ function dollars(cents: number | null): string {
 
 function gradeClasses(grade: number | null): string {
   if (grade == null) return "bg-muted text-muted-foreground";
-  if (grade >= 8) return "bg-green-100 text-green-800";
-  if (grade >= 6) return "bg-yellow-100 text-yellow-800";
-  return "bg-red-100 text-red-800";
+  if (grade >= 8) return "bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300";
+  if (grade >= 6) return "bg-yellow-100 text-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
+  return "bg-red-100 text-red-800 dark:bg-red-950/50 dark:text-red-300";
 }
 
 type SortKey = "margin" | "grade" | "confidence";
 
 function CandidateRow({ c }: { c: ScoutScored }) {
   return (
-    <Card className={cn(c.underpriced && "border-green-300")}>
+    <Card className={cn(c.underpriced && "border-green-300 dark:border-green-800")}>
       <CardContent className="flex gap-4 p-4">
         {c.imageUrl ? (
           <img
@@ -97,7 +97,7 @@ function CandidateRow({ c }: { c: ScoutScored }) {
                 className={cn(
                   "font-semibold",
                   c.estMarginCents != null && c.estMarginCents > 0
-                    ? "text-green-700"
+                    ? "text-green-700 dark:text-green-300"
                     : "text-muted-foreground",
                 )}
               >
@@ -164,7 +164,7 @@ export function FlipdeskScoutPage() {
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <div className="space-y-1">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Sparkles className="h-6 w-6 text-brand-red" /> ScoutAI
+          <Sparkles className="h-6 w-6 text-brand-red-text" /> ScoutAI
         </h1>
         <p className="text-muted-foreground">
           Find underpriced gems. ScoutAI grades live eBay listings from their own
@@ -220,7 +220,7 @@ export function FlipdeskScoutPage() {
       </Card>
 
       {/* Estimate disclaimer (US-620) */}
-      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+      <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
         <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
         <span>
           Shadow grades are private AI estimates from each listing's photos — not

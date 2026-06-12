@@ -60,16 +60,16 @@ function getNotificationIconColor(type: NotificationType): string {
     case "grading_ready":
     case "listing_live":
     case "sale_recorded":
-      return "text-emerald-600";
+      return "text-emerald-600 dark:text-emerald-400";
     case "grading_submitted":
-      return "text-violet-600";
+      return "text-violet-600 dark:text-violet-400";
     case "dispute_update":
-      return "text-yellow-600";
+      return "text-yellow-600 dark:text-yellow-400";
     case "billing":
     case "payout_imported":
-      return "text-blue-600";
+      return "text-blue-600 dark:text-blue-400";
     case "item_status_change":
-      return "text-sky-600";
+      return "text-sky-600 dark:text-sky-400";
     case "system":
       return "text-muted-foreground";
     default:

@@ -128,9 +128,9 @@ const FACTOR_META: Record<keyof FactorScores, { label: string; weight: number }>
 // ─── Helpers ────────────────────────────────────────────────────────
 
 const CONFIDENCE_COLORS: Record<string, string> = {
-  high: "text-green-600",
-  medium: "text-yellow-600",
-  low: "text-red-600",
+  high: "text-green-600 dark:text-green-400",
+  medium: "text-yellow-600 dark:text-yellow-400",
+  low: "text-red-600 dark:text-red-400",
 };
 
 function getConfidenceLevel(score: number): "high" | "medium" | "low" {
@@ -421,7 +421,7 @@ export function AdminReviewsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <MessageSquare className="h-6 w-6 text-brand-red" />
+          <MessageSquare className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">Human Reviews</h1>
           <Badge variant="secondary" className="ml-2">
             {pendingCount} pending
@@ -430,7 +430,7 @@ export function AdminReviewsPage() {
         {pendingCount > 0 && (
           <Badge
             variant="outline"
-            className={slaBreaching ? "border-red-300 bg-red-50 text-red-700" : ""}
+            className={slaBreaching ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300" : ""}
           >
             <Clock className="mr-1 h-3 w-3" />
             Oldest waiting {formatWaitingTime(queueAgeSeconds * 1000)}
@@ -544,10 +544,10 @@ export function AdminReviewsPage() {
                         <span
                           className={
                             item.overall_score >= 7
-                              ? "text-green-600 font-medium"
+                              ? "text-green-600 font-medium dark:text-green-400"
                               : item.overall_score >= 5
-                                ? "text-yellow-600 font-medium"
-                                : "text-red-600 font-medium"
+                                ? "text-yellow-600 font-medium dark:text-yellow-400"
+                                : "text-red-600 font-medium dark:text-red-400"
                           }
                         >
                           {item.overall_score.toFixed(1)}
@@ -627,7 +627,7 @@ export function AdminReviewsPage() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5 text-brand-red" />
+              <MessageSquare className="h-5 w-5 text-brand-red-text" />
               Review: {reviewingItem?.title}
             </DialogTitle>
             <DialogDescription>
@@ -723,9 +723,9 @@ export function AdminReviewsPage() {
                 <h4 className="text-sm font-medium mb-3">Factor Scores — Review & Adjust</h4>
 
                 {requiresSuperAdmin && (
-                  <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
-                    <p className="text-sm text-amber-800">
+                  <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/40">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 dark:text-amber-400" />
+                    <p className="text-sm text-amber-800 dark:text-amber-300">
                       Score adjustment &gt; 1.5 points ({scoreDifference.toFixed(1)} pts).
                       {isSuperAdmin
                         ? " You have super_admin permissions to approve this."
@@ -761,7 +761,7 @@ export function AdminReviewsPage() {
                         </div>
                         <div className="col-span-3 text-right">
                           {diff > 0 ? (
-                            <span className={`text-sm font-medium ${diff > 1 ? "text-amber-600" : "text-blue-600"}`}>
+                            <span className={`text-sm font-medium ${diff > 1 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
                               {adjustedScore > aiScore ? "+" : ""}
                               {(adjustedScore - aiScore).toFixed(1)}
                             </span>
@@ -788,7 +788,7 @@ export function AdminReviewsPage() {
                     <div className="col-span-3 text-right">
                       {scoreDifference > 0 ? (
                         <span
-                          className={`text-sm font-medium ${scoreDifference > 1.5 ? "text-red-600" : scoreDifference > 0.5 ? "text-amber-600" : "text-blue-600"}`}
+                          className={`text-sm font-medium ${scoreDifference > 1.5 ? "text-red-600 dark:text-red-400" : scoreDifference > 0.5 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}
                         >
                           {computedOverallScore > reviewingItem.overall_score ? "+" : ""}
                           {(computedOverallScore - reviewingItem.overall_score).toFixed(1)}

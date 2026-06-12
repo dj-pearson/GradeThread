@@ -138,7 +138,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Award className="h-4 w-4 text-emerald-600" />
+            <Award className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             Grade
           </CardTitle>
           <CardDescription>
@@ -148,7 +148,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
         </CardHeader>
         <CardContent className="space-y-2">
           <div className="flex items-baseline gap-3">
-            <span className="text-3xl font-bold tabular-nums text-brand-navy">
+            <span className="text-3xl font-bold tabular-nums text-brand-navy dark:text-foreground">
               {item.grade_value?.toFixed(1)}
             </span>
             {item.grade_label && (
@@ -178,7 +178,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-brand-navy" />
+            <Loader2 className="h-4 w-4 animate-spin text-brand-navy dark:text-foreground" />
             Grading in progress
           </CardTitle>
           <CardDescription>
@@ -258,7 +258,7 @@ export function GradeThisItemCard({ item }: { item: ItemFullRow }) {
         <div className="flex items-center justify-between gap-3">
           <div className="text-xs text-muted-foreground">
             {ready ? (
-              <span className="flex items-center gap-1 text-emerald-600">
+              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Ready to grade
               </span>

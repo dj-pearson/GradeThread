@@ -310,7 +310,7 @@ export function AdminReliabilityPage() {
                     <div className="mb-2 flex items-center gap-2 text-sm font-medium">
                       AI vs human consensus
                       {report.ai_vs_human.ai_meets_human ? (
-                        <Badge className="bg-green-100 text-green-800">
+                        <Badge className="bg-green-100 text-green-800 dark:bg-green-950/50 dark:text-green-300">
                           <CheckCircle2 className="mr-1 h-3 w-3" /> AI meets/beats experts
                         </Badge>
                       ) : (

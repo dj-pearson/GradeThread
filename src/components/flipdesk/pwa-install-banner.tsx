@@ -52,7 +52,7 @@ export function PwaInstallBanner() {
     <div className="flex flex-col gap-3 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-brand-navy/10">
-          <Smartphone className="h-5 w-5 text-brand-navy" />
+          <Smartphone className="h-5 w-5 text-brand-navy dark:text-foreground" />
         </div>
         <div>
           <p className="text-sm font-medium">Install FlipDesk on this device</p>

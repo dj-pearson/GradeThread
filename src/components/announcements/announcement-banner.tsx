@@ -21,9 +21,9 @@ interface ActiveAnnouncement {
 }
 
 const STYLES: Record<Variant, { wrap: string; icon: typeof Info }> = {
-  info: { wrap: "border-blue-200 bg-blue-50 text-blue-900", icon: Info },
-  success: { wrap: "border-green-200 bg-green-50 text-green-900", icon: CheckCircle2 },
-  warning: { wrap: "border-amber-200 bg-amber-50 text-amber-900", icon: AlertTriangle },
+  info: { wrap: "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-200", icon: Info },
+  success: { wrap: "border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200", icon: CheckCircle2 },
+  warning: { wrap: "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200", icon: AlertTriangle },
   promo: { wrap: "border-brand-red/30 bg-brand-red/10 text-brand-night", icon: Sparkles },
 };
 

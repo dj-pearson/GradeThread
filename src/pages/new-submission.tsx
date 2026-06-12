@@ -620,7 +620,7 @@ export function NewSubmissionPage() {
                   />
                   <div className="space-y-0.5">
                     <p className="flex items-center gap-1.5 text-sm font-medium">
-                      <BadgeCheck className="h-4 w-4 text-brand-navy" />
+                      <BadgeCheck className="h-4 w-4 text-brand-navy dark:text-foreground" />
                       Earn a Verified Capture badge
                     </p>
                     <p className="text-xs text-muted-foreground">

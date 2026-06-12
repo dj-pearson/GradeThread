@@ -51,18 +51,18 @@ function confidenceTier(c: number): {
   if (c >= 0.8) {
     return {
       label: "High",
-      className: "border-green-200 bg-green-100 text-green-800",
+      className: "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300",
     };
   }
   if (c >= 0.5) {
     return {
       label: "Med",
-      className: "border-yellow-200 bg-yellow-100 text-yellow-800",
+      className: "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
     };
   }
   return {
     label: "Low",
-    className: "border-red-200 bg-red-100 text-red-800",
+    className: "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300",
   };
 }
 

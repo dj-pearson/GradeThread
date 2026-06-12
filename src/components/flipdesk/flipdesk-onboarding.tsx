@@ -160,7 +160,7 @@ export function FlipdeskOnboarding() {
       <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-navy/10">
-            <Sparkles className="h-5 w-5 text-brand-navy" />
+            <Sparkles className="h-5 w-5 text-brand-navy dark:text-foreground" />
           </div>
           <div>
             <CardTitle>Welcome to FlipDesk</CardTitle>

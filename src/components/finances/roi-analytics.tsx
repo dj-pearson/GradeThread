@@ -171,8 +171,8 @@ function RoiTable({
                 <TableCell
                   className={
                     g.roiPct !== null && g.roiPct < 0
-                      ? "text-right text-red-600"
-                      : "text-right text-green-600"
+                      ? "text-right text-red-600 dark:text-red-400"
+                      : "text-right text-green-600 dark:text-green-400"
                   }
                 >
                   {formatRoi(g.roiPct)}
@@ -180,7 +180,7 @@ function RoiTable({
                 <TableCell
                   className={
                     g.totalProfit < 0
-                      ? "text-right text-red-600"
+                      ? "text-right text-red-600 dark:text-red-400"
                       : "text-right"
                   }
                 >
@@ -235,8 +235,8 @@ function ItemRoiTable({
               <TableCell
                 className={
                   item.profit < 0
-                    ? "text-right text-red-600"
-                    : "text-right text-green-600"
+                    ? "text-right text-red-600 dark:text-red-400"
+                    : "text-right text-green-600 dark:text-green-400"
                 }
               >
                 {formatCurrency(item.profit)}
@@ -244,8 +244,8 @@ function ItemRoiTable({
               <TableCell
                 className={
                   item.roi_pct < 0
-                    ? "text-right font-medium text-red-600"
-                    : "text-right font-medium text-green-600"
+                    ? "text-right font-medium text-red-600 dark:text-red-400"
+                    : "text-right font-medium text-green-600 dark:text-green-400"
                 }
               >
                 {formatRoi(item.roi_pct)}
@@ -334,7 +334,7 @@ export function RoiAnalytics({
             <CardTitle className="text-base">Best Performers</CardTitle>
             <CardDescription>Top 10 items by ROI</CardDescription>
           </div>
-          <TrendingUp className="h-4 w-4 text-green-600" />
+          <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
         </CardHeader>
         <CardContent>
           <ItemRoiTable
@@ -350,7 +350,7 @@ export function RoiAnalytics({
             <CardTitle className="text-base">Worst Performers</CardTitle>
             <CardDescription>Bottom 10 items by ROI</CardDescription>
           </div>
-          <TrendingDown className="h-4 w-4 text-red-600" />
+          <TrendingDown className="h-4 w-4 text-red-600 dark:text-red-400" />
         </CardHeader>
         <CardContent>
           <ItemRoiTable

@@ -153,7 +153,7 @@ export function FlipdeskPrepPage() {
         <PrepHeader queueLength={0} index={0} />
         <Card>
           <CardContent className="space-y-3 py-16 text-center">
-            <CircleCheck className="mx-auto h-10 w-10 text-emerald-600" />
+            <CircleCheck className="mx-auto h-10 w-10 text-emerald-600 dark:text-emerald-400" />
             <div className="text-lg font-semibold">Prep queue is clear</div>
             <p className="text-sm text-muted-foreground">
               Every item has moved past prep. Time to draft and list.

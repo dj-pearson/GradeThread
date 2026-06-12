@@ -193,7 +193,7 @@ export function CrossSourceConflicts() {
             </div>
           ) : groups.length === 0 ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               No open conflicts. FlipDesk, eBay, and Sheets agree.
             </div>
           ) : (
@@ -338,8 +338,8 @@ function ListingConflictCard({
 
             {c.suggested_action === "mark_ended_in_flipdesk" && (
               <div className="mt-1.5 flex flex-wrap items-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1">
-                <Flag className="h-3 w-3 shrink-0 text-amber-600" />
-                <span className="text-[11px] text-amber-700">
+                <Flag className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="text-[11px] text-amber-700 dark:text-amber-300">
                   eBay says this listing ended, but FlipDesk still has it
                   active.
                 </span>

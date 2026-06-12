@@ -256,7 +256,7 @@ export function AdminDashboardPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <LayoutDashboard className="h-6 w-6 text-brand-red" />
+          <LayoutDashboard className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">Admin Dashboard</h1>
         </div>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -327,7 +327,7 @@ export function AdminDashboardPage() {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                 ${kpis?.revenueThisMonth.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <CardDescription>From sales</CardDescription>

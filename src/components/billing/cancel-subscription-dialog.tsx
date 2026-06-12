@@ -99,7 +99,7 @@ export function CancelSubscriptionDialog({
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-amber-600" />
+                  <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                   Before you cancel
                 </DialogTitle>
                 <DialogDescription>
@@ -110,7 +110,7 @@ export function CancelSubscriptionDialog({
 
               <div className="space-y-3 py-2 text-sm">
                 <div className="rounded-md border border-border p-3">
-                  <div className="mb-1 font-semibold text-red-700">
+                  <div className="mb-1 font-semibold text-red-700 dark:text-red-300">
                     What changes at period end
                   </div>
                   <ul className="space-y-1 text-muted-foreground">
@@ -121,7 +121,7 @@ export function CancelSubscriptionDialog({
                   </ul>
                 </div>
                 <div className="rounded-md border border-border p-3">
-                  <div className="mb-1 font-semibold text-emerald-700">
+                  <div className="mb-1 font-semibold text-emerald-700 dark:text-emerald-300">
                     What you keep
                   </div>
                   <ul className="space-y-1 text-muted-foreground">
@@ -257,7 +257,7 @@ function Bullet({ children, keep }: { children: React.ReactNode; keep?: boolean 
   return (
     <li className="flex items-start gap-2">
       {keep ? (
-        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+        <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
       ) : (
         <span className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" />
       )}

@@ -138,14 +138,14 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
       <div className="flex items-center justify-between gap-2">
         <Label className="text-xs font-medium">
           {field.label}
-          {field.required && <span className="ml-0.5 text-brand-red">*</span>}
+          {field.required && <span className="ml-0.5 text-brand-red-text">*</span>}
         </Label>
         <div className="flex items-center gap-1">
           {field.maxLength != null && (
             <span
               className={cn(
                 "text-[11px] tabular-nums",
-                status.over ? "font-semibold text-brand-red" : "text-muted-foreground",
+                status.over ? "font-semibold text-brand-red-text" : "text-muted-foreground",
               )}
             >
               {status.length}/{field.maxLength}
@@ -243,13 +243,13 @@ function PlatformPanel({
       {(errors.length > 0 || warnings.length > 0) && (
         <div className="space-y-1 rounded-md border p-2 text-xs">
           {errors.map((i, idx) => (
-            <div key={`e${idx}`} className="flex items-start gap-1.5 text-brand-red">
+            <div key={`e${idx}`} className="flex items-start gap-1.5 text-brand-red-text">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{i.message}</span>
             </div>
           ))}
           {warnings.map((i, idx) => (
-            <div key={`w${idx}`} className="flex items-start gap-1.5 text-amber-600">
+            <div key={`w${idx}`} className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{i.message}</span>
             </div>

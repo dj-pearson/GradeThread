@@ -110,9 +110,9 @@ function formatDate(date: string | null): string {
 }
 
 function getScoreColor(score: number): string {
-  if (score > 7) return "text-green-600";
-  if (score >= 5) return "text-yellow-600";
-  return "text-red-600";
+  if (score > 7) return "text-green-600 dark:text-green-400";
+  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
+  return "text-red-600 dark:text-red-400";
 }
 
 function getStatusBadgeClasses(status: string): string {
@@ -120,19 +120,19 @@ function getStatusBadgeClasses(status: string): string {
     case "acquired":
       return "border-slate-200 bg-slate-100 text-slate-800";
     case "grading":
-      return "border-blue-200 bg-blue-100 text-blue-800";
+      return "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300";
     case "graded":
-      return "border-indigo-200 bg-indigo-100 text-indigo-800";
+      return "border-indigo-200 bg-indigo-100 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300";
     case "listed":
-      return "border-yellow-200 bg-yellow-100 text-yellow-800";
+      return "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
     case "sold":
-      return "border-green-200 bg-green-100 text-green-800";
+      return "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300";
     case "shipped":
-      return "border-cyan-200 bg-cyan-100 text-cyan-800";
+      return "border-cyan-200 bg-cyan-100 text-cyan-800 dark:border-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-300";
     case "completed":
-      return "border-emerald-200 bg-emerald-100 text-emerald-800";
+      return "border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300";
     case "returned":
-      return "border-red-200 bg-red-100 text-red-800";
+      return "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
     default:
       return "";
   }
@@ -678,7 +678,7 @@ export function InventoryDetailPage() {
           {item.status === "returned" ? (
             <div className="flex items-center gap-3 text-sm">
               <RotateCcw className="h-5 w-5 text-red-500" />
-              <span className="font-medium text-red-700">Item Returned</span>
+              <span className="font-medium text-red-700 dark:text-red-300">Item Returned</span>
             </div>
           ) : (
             <div className="flex items-center gap-1">
@@ -1062,7 +1062,7 @@ export function InventoryDetailPage() {
                         variant="outline"
                         className={cn(
                           listing.is_active
-                            ? "border-green-200 bg-green-100 text-green-800"
+                            ? "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300"
                             : "border-slate-200 bg-slate-100 text-slate-600"
                         )}
                       >
@@ -1112,10 +1112,10 @@ export function InventoryDetailPage() {
           className={cn(
             "border-l-4",
             priceSuggestion.severity === "urgent"
-              ? "border-l-red-500 bg-red-50"
+              ? "border-l-red-500 bg-red-50 dark:bg-red-950/40"
               : priceSuggestion.severity === "warning"
-                ? "border-l-yellow-500 bg-yellow-50"
-                : "border-l-blue-500 bg-blue-50"
+                ? "border-l-yellow-500 bg-yellow-50 dark:bg-yellow-950/40"
+                : "border-l-blue-500 bg-blue-50 dark:bg-blue-950/40"
           )}
         >
           <CardHeader className="pb-2">
@@ -1124,10 +1124,10 @@ export function InventoryDetailPage() {
                 className={cn(
                   "h-4 w-4",
                   priceSuggestion.severity === "urgent"
-                    ? "text-red-600"
+                    ? "text-red-600 dark:text-red-400"
                     : priceSuggestion.severity === "warning"
-                      ? "text-yellow-600"
-                      : "text-blue-600"
+                      ? "text-yellow-600 dark:text-yellow-400"
+                      : "text-blue-600 dark:text-blue-400"
                 )}
               />
               Price Suggestion
@@ -1156,8 +1156,8 @@ export function InventoryDetailPage() {
                     variant="outline"
                     className={cn(
                       priceSuggestion.adjustmentPercent > 0
-                        ? "border-green-200 bg-green-100 text-green-800"
-                        : "border-red-200 bg-red-100 text-red-800"
+                        ? "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300"
+                        : "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
                     )}
                   >
                     {priceSuggestion.adjustmentPercent > 0 ? "+" : ""}
@@ -1588,7 +1588,7 @@ export function InventoryDetailPage() {
                   <span>Net Profit</span>
                   <span
                     className={cn(
-                      netProfit >= 0 ? "text-green-600" : "text-red-600"
+                      netProfit >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                     )}
                   >
                     {formatCurrency(netProfit)}

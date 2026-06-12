@@ -104,7 +104,7 @@ export function GrowthReferralsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Gift className="h-6 w-6 text-brand-red" /> Referrals
+          <Gift className="h-6 w-6 text-brand-red-text" /> Referrals
         </h1>
         <p className="text-muted-foreground">
           Organic acquisition loop. Rewards are paid as grade credits to both parties on approval.

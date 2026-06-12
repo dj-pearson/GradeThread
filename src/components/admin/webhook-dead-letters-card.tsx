@@ -85,13 +85,13 @@ export function WebhookDeadLettersCard() {
         {query.isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : query.error ? (
-          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
             <AlertTriangle className="h-4 w-4" />
             {(query.error as Error).message}
           </div>
         ) : rows.length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
             No dropped webhook events.
           </p>
         ) : (
@@ -119,7 +119,7 @@ export function WebhookDeadLettersCard() {
                         {new Date(r.created_at).toLocaleString()}
                       </div>
                       {r.error_message && (
-                        <div className="break-words text-xs text-red-600">
+                        <div className="break-words text-xs text-red-600 dark:text-red-400">
                           {r.error_message}
                         </div>
                       )}

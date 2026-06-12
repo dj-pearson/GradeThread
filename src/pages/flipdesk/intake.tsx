@@ -441,7 +441,7 @@ export function FlipdeskIntakePage() {
       )}
       {offline.pending > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-brand-navy/30 bg-brand-navy/5 p-3 text-sm">
-          <CloudUpload className="h-4 w-4 flex-shrink-0 text-brand-navy" />
+          <CloudUpload className="h-4 w-4 flex-shrink-0 text-brand-navy dark:text-foreground" />
           {offline.pending} item{offline.pending === 1 ? "" : "s"} queued
           offline{offline.online ? " — syncing…" : "."}
         </div>

@@ -261,7 +261,7 @@ function Stat({
         <p className="text-xs uppercase text-muted-foreground">{label}</p>
         <p
           className={`mt-1 text-2xl font-bold ${
-            tone === "warn" ? "text-amber-600" : ""
+            tone === "warn" ? "text-amber-600 dark:text-amber-400" : ""
           }`}
         >
           {value}

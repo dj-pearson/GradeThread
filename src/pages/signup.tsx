@@ -134,7 +134,7 @@ export function SignupPage() {
           </CardDescription>
         </CardHeader>
         <CardFooter className="justify-center">
-          <Link to="/login" className="text-sm text-brand-red hover:underline">
+          <Link to="/login" className="text-sm text-brand-red-text hover:underline">
             Back to sign in
           </Link>
         </CardFooter>
@@ -151,9 +151,9 @@ export function SignupPage() {
       <CardContent>
         {PRE_LAUNCH && (
           <div className="mb-5 flex items-start gap-3 rounded-md border border-brand-red/30 bg-brand-red/5 p-3 text-sm">
-            <Rocket className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red" />
+            <Rocket className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red-text" />
             <div>
-              <p className="font-semibold text-brand-navy">
+              <p className="font-semibold text-brand-navy dark:text-foreground">
                 GradeThread launches July 1, 2026.
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -257,7 +257,7 @@ export function SignupPage() {
       <CardFooter className="justify-center">
         <p className="text-sm text-muted-foreground">
           Already have an account?{" "}
-          <Link to="/login" className="font-medium text-brand-red hover:underline">
+          <Link to="/login" className="font-medium text-brand-red-text hover:underline">
             Sign in
           </Link>
         </p>

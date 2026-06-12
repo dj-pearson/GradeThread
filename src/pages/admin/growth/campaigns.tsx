@@ -59,10 +59,10 @@ interface Segment { id: string; name: string }
 
 const STATUS_COLOR: Record<string, string> = {
   draft: "bg-slate-100 text-slate-700",
-  scheduled: "bg-blue-100 text-blue-700",
-  sending: "bg-amber-100 text-amber-700",
-  sent: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
+  scheduled: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  sending: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+  sent: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  failed: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
   canceled: "bg-slate-100 text-slate-500",
 };
 const CHANNEL_ICON: Record<Channel, typeof Mail> = {

@@ -146,14 +146,14 @@ export function ConditionGradingPage() {
             See the process end to end in{" "}
             <Link
               to="/how-it-works"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               how it works
             </Link>
             , or how sellers apply it on the{" "}
             <Link
               to="/for-resellers"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               resellers page
             </Link>
@@ -177,7 +177,7 @@ export function ConditionGradingPage() {
               <Link
                 key={e.slug}
                 to={e.path}
-                className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white"
+                className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white dark:text-foreground"
               >
                 {e.term}
               </Link>
@@ -190,7 +190,7 @@ export function ConditionGradingPage() {
               <Link
                 key={e.slug}
                 to={e.path}
-                className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white"
+                className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white dark:text-foreground"
               >
                 {e.term}
               </Link>

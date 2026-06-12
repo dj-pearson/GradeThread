@@ -358,7 +358,7 @@ export function SnapCatalog() {
       {enriched ? (
         <Card className="border-green-500/40 bg-green-50 dark:bg-green-950/20">
           <CardContent className="flex flex-col items-center gap-3 py-6 text-center">
-            <Check className="h-8 w-8 text-green-600" />
+            <Check className="h-8 w-8 text-green-600 dark:text-green-400" />
             <p className="text-sm font-medium">Item cataloged.</p>
             <div className="flex gap-2">
               <Button variant="outline" onClick={snapAnother}>

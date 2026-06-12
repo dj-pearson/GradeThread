@@ -96,9 +96,9 @@ export function ActivityHistoryDialog({
                   <span
                     className={
                       entry.delta > 0
-                        ? "tabular-nums font-semibold text-emerald-700"
+                        ? "tabular-nums font-semibold text-emerald-700 dark:text-emerald-300"
                         : entry.delta < 0
-                          ? "tabular-nums font-semibold text-red-700"
+                          ? "tabular-nums font-semibold text-red-700 dark:text-red-300"
                           : "tabular-nums text-muted-foreground"
                     }
                   >

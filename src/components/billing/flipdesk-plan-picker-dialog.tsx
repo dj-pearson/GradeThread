@@ -214,7 +214,7 @@ export function FlipdeskPlanPickerDialog({
                       )}
                     </div>
                     {interval === "yearly" && savings != null && (
-                      <div className="mt-0.5 text-xs text-emerald-700">
+                      <div className="mt-0.5 text-xs text-emerald-700 dark:text-emerald-300">
                         {dollars(plan.priceYearlyCents)} billed yearly
                       </div>
                     )}
@@ -266,7 +266,7 @@ export function FlipdeskPlanPickerDialog({
                           )}
                         >
                           {enabled ? (
-                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                            <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
                           ) : (
                             <X className="h-3.5 w-3.5 shrink-0" />
                           )}

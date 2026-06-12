@@ -1395,7 +1395,7 @@ export function FlipdeskListingsPage() {
           <button
             type="button"
             onClick={() => setFilterQuery(EMPTY_QUERY)}
-            className="text-xs text-brand-red hover:underline"
+            className="text-xs text-brand-red-text hover:underline"
           >
             Clear all
           </button>
@@ -1999,7 +1999,7 @@ export function FlipdeskListingsPage() {
                                 href={it.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex text-brand-red"
+                                className="inline-flex text-brand-red-text"
                                 aria-label="Open listing"
                               >
                                 <ExternalLink className="h-3 w-3" />
@@ -2068,7 +2068,7 @@ export function FlipdeskListingsPage() {
       {selectable && selected.size > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
-            <div className="text-sm font-semibold text-brand-navy">
+            <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
               {selected.size} selected
             </div>
             <div className="flex gap-2">

@@ -141,7 +141,7 @@ export function AdminSeoPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <TrendingUp className="h-6 w-6 text-brand-red" />
+            <TrendingUp className="h-6 w-6 text-brand-red-text" />
             SEO Health
           </h1>
           <p className="text-sm text-muted-foreground">

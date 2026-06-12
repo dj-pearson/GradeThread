@@ -98,7 +98,7 @@ export function GradingEvalCandidatesPanel() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm font-medium">
-          <FlaskConical className="h-4 w-4 text-brand-navy" />
+          <FlaskConical className="h-4 w-4 text-brand-navy dark:text-foreground" />
           Candidate eval cases
           {candidates.length > 0 && (
             <Badge variant="secondary">{candidates.length} pending</Badge>

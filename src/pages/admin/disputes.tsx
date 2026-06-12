@@ -140,10 +140,10 @@ const FACTOR_META: Record<keyof FactorScores, { label: string; weight: number }>
 // ─── Helpers ────────────────────────────────────────────────────────
 
 const STATUS_COLORS: Record<DisputeStatus, string> = {
-  open: "bg-yellow-100 text-yellow-700",
-  under_review: "bg-blue-100 text-blue-700",
-  resolved: "bg-green-100 text-green-700",
-  rejected: "bg-red-100 text-red-700",
+  open: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  under_review: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  resolved: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  rejected: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
 };
 
 const STATUS_LABELS: Record<DisputeStatus, string> = {
@@ -609,7 +609,7 @@ export function AdminDisputesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Scale className="h-6 w-6 text-brand-red" />
+          <Scale className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">Disputes</h1>
           {openCount > 0 && (
             <Badge variant="destructive" className="ml-2">
@@ -629,25 +629,25 @@ export function AdminDisputesPage() {
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-muted-foreground">Open</p>
-            <p className="text-2xl font-bold text-yellow-600">{openCount}</p>
+            <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{openCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-muted-foreground">Under Review</p>
-            <p className="text-2xl font-bold text-blue-600">{underReviewCount}</p>
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{underReviewCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-muted-foreground">Resolved</p>
-            <p className="text-2xl font-bold text-green-600">{resolvedCount}</p>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{resolvedCount}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm font-medium text-muted-foreground">Rejected</p>
-            <p className="text-2xl font-bold text-red-600">{rejectedCount}</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{rejectedCount}</p>
           </CardContent>
         </Card>
       </div>
@@ -850,7 +850,7 @@ export function AdminDisputesPage() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Scale className="h-5 w-5 text-brand-red" />
+              <Scale className="h-5 w-5 text-brand-red-text" />
               Dispute: {selectedDispute?.submission.title}
             </DialogTitle>
             <DialogDescription>
@@ -877,10 +877,10 @@ export function AdminDisputesPage() {
               </div>
 
               {/* User's Dispute Reason */}
-              <Card className="border-amber-200 bg-amber-50/50">
+              <Card className="border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/50">
                 <CardHeader className="pb-2">
                   <CardTitle className="flex items-center gap-2 text-sm">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                     User&apos;s Dispute Reason
                   </CardTitle>
                 </CardHeader>
@@ -1035,7 +1035,7 @@ export function AdminDisputesPage() {
                             </div>
                             <div className="col-span-3 text-right">
                               {diff > 0 ? (
-                                <span className={`text-sm font-medium ${diff > 1 ? "text-amber-600" : "text-blue-600"}`}>
+                                <span className={`text-sm font-medium ${diff > 1 ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
                                   {adjustedScore > aiScore ? "+" : ""}
                                   {(adjustedScore - aiScore).toFixed(1)}
                                 </span>
@@ -1062,7 +1062,7 @@ export function AdminDisputesPage() {
                         </div>
                         <div className="col-span-3 text-right">
                           {Math.abs(computedOverallScore - selectedDispute.report.overall_score) > 0 ? (
-                            <span className="text-sm font-medium text-blue-600">
+                            <span className="text-sm font-medium text-blue-600 dark:text-blue-400">
                               {computedOverallScore > selectedDispute.report.overall_score ? "+" : ""}
                               {(computedOverallScore - selectedDispute.report.overall_score).toFixed(1)}
                             </span>
@@ -1125,17 +1125,17 @@ export function AdminDisputesPage() {
               {(selectedDispute.dispute.status === "resolved" || selectedDispute.dispute.status === "rejected") && (
                 <div className={`rounded-lg border p-4 ${
                   selectedDispute.dispute.status === "resolved"
-                    ? "border-green-200 bg-green-50"
-                    : "border-red-200 bg-red-50"
+                    ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/40"
+                    : "border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/40"
                 }`}>
                   <p className={`text-sm font-medium ${
-                    selectedDispute.dispute.status === "resolved" ? "text-green-800" : "text-red-800"
+                    selectedDispute.dispute.status === "resolved" ? "text-green-800 dark:text-green-300" : "text-red-800 dark:text-red-300"
                   }`}>
                     This dispute has been {selectedDispute.dispute.status}.
                   </p>
                   {selectedDispute.dispute.resolution_notes && (
                     <p className={`text-sm mt-2 ${
-                      selectedDispute.dispute.status === "resolved" ? "text-green-700" : "text-red-700"
+                      selectedDispute.dispute.status === "resolved" ? "text-green-700 dark:text-green-300" : "text-red-700 dark:text-red-300"
                     }`}>
                       <strong>Notes:</strong> {selectedDispute.dispute.resolution_notes}
                     </p>

@@ -34,17 +34,17 @@ const REASON_META: Record<
   UNDERPRICED: {
     label: "Underpriced",
     icon: TrendingUp,
-    classes: "bg-green-100 text-green-800 border-green-200",
+    classes: "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800",
   },
   OVERPRICED: {
     label: "Overpriced",
     icon: TrendingDown,
-    classes: "bg-amber-100 text-amber-800 border-amber-200",
+    classes: "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800",
   },
   STALE: {
     label: "Stale",
     icon: Clock,
-    classes: "bg-orange-100 text-orange-800 border-orange-200",
+    classes: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-800",
   },
   OK: { label: "OK", icon: Check, classes: "bg-muted text-muted-foreground" },
   NO_COMPS: { label: "No comps", icon: X, classes: "bg-muted text-muted-foreground" },
@@ -86,7 +86,7 @@ function SuggestionRow({ s }: { s: RepriceSuggestion }) {
             <span className="text-muted-foreground line-through">
               {money(s.current_price_cents)}
             </span>
-            <span className={cn("font-semibold", up ? "text-green-600" : "text-amber-600")}>
+            <span className={cn("font-semibold", up ? "text-green-600 dark:text-green-400" : "text-amber-600 dark:text-amber-400")}>
               {money(s.suggested_price_cents)}
             </span>
             <span className="text-xs text-muted-foreground">
@@ -98,7 +98,7 @@ function SuggestionRow({ s }: { s: RepriceSuggestion }) {
                 href={s.listings.listing_url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-brand-navy hover:underline"
+                className="inline-flex items-center gap-1 text-xs text-brand-navy hover:underline dark:text-foreground"
               >
                 <ExternalLink className="h-3 w-3" />
                 view

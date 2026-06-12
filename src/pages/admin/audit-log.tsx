@@ -179,7 +179,7 @@ export function AdminAuditLogPage() {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <ScrollText className="h-6 w-6 text-brand-red" />
+          <ScrollText className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">Audit Log</h1>
         </div>
         <Card>
@@ -201,7 +201,7 @@ export function AdminAuditLogPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <ScrollText className="h-6 w-6 text-brand-red" />
+        <ScrollText className="h-6 w-6 text-brand-red-text" />
         <div>
           <h1 className="text-2xl font-bold">Audit Log</h1>
           <p className="text-sm text-muted-foreground">
@@ -419,7 +419,7 @@ export function AdminAuditLogPage() {
                                   )}
                                 </span>
                                 {superAdmin && (
-                                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-brand-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-red">
+                                  <span className="inline-flex shrink-0 items-center gap-0.5 rounded bg-brand-red/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-red-text">
                                     <Shield className="h-3 w-3" />
                                     Super
                                   </span>

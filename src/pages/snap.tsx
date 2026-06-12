@@ -19,9 +19,9 @@ function dollars(cents: number | null): string {
 }
 
 function gradeClasses(grade: number): string {
-  if (grade >= 8) return "text-green-600";
-  if (grade >= 6) return "text-yellow-600";
-  return "text-red-600";
+  if (grade >= 8) return "text-green-600 dark:text-green-400";
+  if (grade >= 6) return "text-yellow-600 dark:text-yellow-400";
+  return "text-red-600 dark:text-red-400";
 }
 
 export function SnapToValuePage() {
@@ -52,7 +52,7 @@ export function SnapToValuePage() {
     <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
       <div className="space-y-1">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Sparkles className="h-6 w-6 text-brand-red" /> What's it worth?
+          <Sparkles className="h-6 w-6 text-brand-red-text" /> What's it worth?
         </h1>
         <p className="text-muted-foreground">
           Snap a photo of any garment and get an instant AI condition grade plus a
@@ -111,9 +111,9 @@ export function SnapToValuePage() {
       </Card>
 
       {snap.isError && (
-        <Card className={cn(limitReached ? "border-amber-300" : "border-destructive/40")}>
+        <Card className={cn(limitReached ? "border-amber-300 dark:border-amber-800" : "border-destructive/40")}>
           <CardContent className="space-y-3 p-4 text-sm">
-            <p className={limitReached ? "text-amber-800" : "text-destructive"}>{snap.error.message}</p>
+            <p className={limitReached ? "text-amber-800 dark:text-amber-300" : "text-destructive"}>{snap.error.message}</p>
             {limitReached && (
               <Button asChild size="sm">
                 <Link to="/dashboard/billing">Upgrade for more snaps</Link>
@@ -154,7 +154,7 @@ export function SnapToValuePage() {
               </div>
             </div>
 
-            <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800">
+            <div className="flex items-start gap-2 rounded-md bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
               <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <span>{result.disclaimer}</span>
             </div>

@@ -235,8 +235,8 @@ export function GradePriceCorrelation({
                     <TableCell
                       className={
                         t.avg_profit < 0
-                          ? "text-right text-red-600"
-                          : "text-right text-green-600"
+                          ? "text-right text-red-600 dark:text-red-400"
+                          : "text-right text-green-600 dark:text-green-400"
                       }
                     >
                       {formatCurrency(t.avg_profit)}

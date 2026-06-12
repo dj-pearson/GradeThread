@@ -517,7 +517,7 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
               <span className="text-muted-foreground">ended</span>
             )}
             {!a.ebay_synced && a.action_type !== "set_promo_rate_pct" && (
-              <span className="text-amber-600">local only</span>
+              <span className="text-amber-600 dark:text-amber-400">local only</span>
             )}
           </li>
         );
@@ -711,7 +711,7 @@ export function FlipdeskAutomationsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Zap className="h-4 w-4 text-brand-red" />
+              <Zap className="h-4 w-4 text-brand-red-text" />
               No automation rules yet
             </CardTitle>
           </CardHeader>

@@ -168,21 +168,21 @@ const SUGGESTION_ICON = {
 const SEVERITY_STYLES = {
   urgent: {
     border: "border-l-red-500",
-    bg: "bg-red-50",
-    icon: "text-red-600",
-    badge: "border-red-200 bg-red-100 text-red-800",
+    bg: "bg-red-50 dark:bg-red-950/40",
+    icon: "text-red-600 dark:text-red-400",
+    badge: "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300",
   },
   warning: {
     border: "border-l-yellow-500",
-    bg: "bg-yellow-50",
-    icon: "text-yellow-600",
-    badge: "border-yellow-200 bg-yellow-100 text-yellow-800",
+    bg: "bg-yellow-50 dark:bg-yellow-950/40",
+    icon: "text-yellow-600 dark:text-yellow-400",
+    badge: "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300",
   },
   info: {
     border: "border-l-blue-500",
-    bg: "bg-blue-50",
-    icon: "text-blue-600",
-    badge: "border-blue-200 bg-blue-100 text-blue-800",
+    bg: "bg-blue-50 dark:bg-blue-950/40",
+    icon: "text-blue-600 dark:text-blue-400",
+    badge: "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300",
   },
 } as const;
 

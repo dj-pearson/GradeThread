@@ -230,7 +230,7 @@ Then the body..."
             />
             <p
               className={`mt-2 text-xs ${
-                longOver ? "text-red-600" : "text-muted-foreground"
+                longOver ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
               }`}
             >
               {longBody.length}/{SOCIAL_LONG_LIMIT}
@@ -253,7 +253,7 @@ Then the body..."
             />
             <p
               className={`mt-2 text-xs ${
-                shortOver ? "text-red-600" : "text-muted-foreground"
+                shortOver ? "text-red-600 dark:text-red-400" : "text-muted-foreground"
               }`}
             >
               {shortBody.length}/{SOCIAL_SHORT_LIMIT}

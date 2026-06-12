@@ -83,7 +83,7 @@ export function ForResellersPage() {
           <div className="mt-10 grid gap-8 sm:grid-cols-2">
             {BENEFITS.map((b) => (
               <div key={b.title} className="flex gap-4">
-                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy">
+                <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy dark:text-foreground">
                   <b.icon className="h-5 w-5" />
                 </div>
                 <div>
@@ -118,21 +118,21 @@ export function ForResellersPage() {
             photograph, draft, list, sell, ship, reconcile — in{" "}
             <Link
               to="/pricing"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               FlipDesk
             </Link>
             . New here? See{" "}
             <Link
               to="/how-it-works"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               how grading works
             </Link>{" "}
             or the{" "}
             <Link
               to="/condition-grading"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               condition-grading guide
             </Link>

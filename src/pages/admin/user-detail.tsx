@@ -62,25 +62,25 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-700",
-  processing: "bg-blue-100 text-blue-700",
-  completed: "bg-green-100 text-green-700",
-  failed: "bg-red-100 text-red-700",
-  disputed: "bg-orange-100 text-orange-700",
+  pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+  processing: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  completed: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  failed: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+  disputed: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
 };
 
 const PLAN_COLORS: Record<string, string> = {
   free: "bg-muted text-muted-foreground",
-  starter: "bg-green-100 text-green-700",
-  professional: "bg-blue-100 text-blue-700",
-  enterprise: "bg-amber-100 text-amber-700",
+  starter: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  professional: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  enterprise: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
 };
 
 const ROLE_COLORS: Record<string, string> = {
   user: "bg-muted text-muted-foreground",
-  reviewer: "bg-blue-100 text-blue-700",
-  admin: "bg-purple-100 text-purple-700",
-  super_admin: "bg-red-100 text-red-700",
+  reviewer: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  admin: "bg-purple-100 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300",
+  super_admin: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300",
 };
 
 function formatRole(role: string): string {
@@ -651,10 +651,10 @@ export function AdminUserDetailPage() {
                         {report ? (
                           <span className={`font-semibold ${
                             report.overall_score >= 7
-                              ? "text-green-600"
+                              ? "text-green-600 dark:text-green-400"
                               : report.overall_score >= 5
-                                ? "text-yellow-600"
-                                : "text-red-600"
+                                ? "text-yellow-600 dark:text-yellow-400"
+                                : "text-red-600 dark:text-red-400"
                           }`}>
                             {report.overall_score.toFixed(1)}
                           </span>

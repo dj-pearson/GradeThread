@@ -201,8 +201,8 @@ export function ApiKeysPage() {
 
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="rounded-full bg-amber-100 p-4">
-              <Crown className="h-8 w-8 text-amber-600" />
+            <div className="rounded-full bg-amber-100 p-4 dark:bg-amber-950/50">
+              <Crown className="h-8 w-8 text-amber-600 dark:text-amber-400" />
             </div>
             <h3 className="mt-4 text-lg font-semibold">API Access Requires the Business Plan</h3>
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
@@ -262,15 +262,15 @@ export function ApiKeysPage() {
                       aria-label={copied ? "API key copied" : "Copy API key"}
                     >
                       {copied ? (
-                        <Check className="h-4 w-4 text-green-600" />
+                        <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
                       ) : (
                         <Copy className="h-4 w-4" />
                       )}
                     </Button>
                   </div>
-                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-                    <p className="text-sm text-amber-800">
+                  <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <p className="text-sm text-amber-800 dark:text-amber-300">
                       Store this key securely. It will not be shown again. If you lose it,
                       you'll need to create a new key.
                     </p>

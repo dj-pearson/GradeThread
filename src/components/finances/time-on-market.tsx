@@ -238,9 +238,9 @@ export function TimeOnMarket({
                         className={cn(
                           "text-right",
                           row.avg_days >= 60
-                            ? "text-red-600 font-medium"
+                            ? "text-red-600 font-medium dark:text-red-400"
                             : row.avg_days >= 30
-                              ? "text-yellow-600 font-medium"
+                              ? "text-yellow-600 font-medium dark:text-yellow-400"
                               : ""
                         )}
                       >
@@ -284,9 +284,9 @@ export function TimeOnMarket({
                       className={cn(
                         "text-right",
                         row.avg_days >= 60
-                          ? "text-red-600 font-medium"
+                          ? "text-red-600 font-medium dark:text-red-400"
                           : row.avg_days >= 30
-                            ? "text-yellow-600 font-medium"
+                            ? "text-yellow-600 font-medium dark:text-yellow-400"
                             : ""
                       )}
                     >
@@ -348,14 +348,14 @@ export function TimeOnMarket({
                       className={cn(
                         "text-right font-medium",
                         item.days_listed >= 60
-                          ? "text-red-600"
-                          : "text-yellow-600"
+                          ? "text-red-600 dark:text-red-400"
+                          : "text-yellow-600 dark:text-yellow-400"
                       )}
                     >
                       {item.days_listed}d
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="border-yellow-200 bg-yellow-100 text-yellow-800">
+                      <Badge variant="outline" className="border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300">
                         {formatLabel(item.status)}
                       </Badge>
                     </TableCell>

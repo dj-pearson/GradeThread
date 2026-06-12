@@ -97,7 +97,7 @@ const STATUS_LABEL: Record<AdminTaskStatus, string> = {
 };
 
 const PRIORITY_BADGE: Record<AdminTaskPriority, { label: string; cls: string }> = {
-  high: { label: "High", cls: "border-brand-red text-brand-red" },
+  high: { label: "High", cls: "border-brand-red text-brand-red-text" },
   medium: { label: "Med", cls: "border-slate-300 text-slate-600" },
   low: { label: "Low", cls: "border-slate-200 text-slate-400" },
 };
@@ -490,7 +490,7 @@ function TaskCardVisual({
       )}
     >
       {isNext && (
-        <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-brand-navy">
+        <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-brand-navy dark:text-foreground">
           <Sparkles className="h-3 w-3" />
           Next up
         </div>

@@ -665,11 +665,11 @@ export function FlipdeskReconcilePage() {
 
           {/* Committed items → generate title/details (US-288) */}
           {committed.length > 0 && (
-            <Card className="border-green-300/60">
+            <Card className="border-green-300/60 dark:border-green-800/60">
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <div>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
                     Committed {committed.length} item{committed.length === 1 ? "" : "s"}
                   </CardTitle>
                   <CardDescription>Generate titles &amp; details with AI, or do it later.</CardDescription>
@@ -1034,7 +1034,7 @@ function NeedsSortingZone({
   return (
     <Card
       ref={setNodeRef}
-      className={cn("mt-4 border-amber-300/60 transition-colors", isOver && "border-primary ring-2 ring-primary/40")}
+      className={cn("mt-4 border-amber-300/60 transition-colors dark:border-amber-800/60", isOver && "border-primary ring-2 ring-primary/40")}
     >
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-base">
@@ -1182,7 +1182,7 @@ function CommitResultsDialog({
           {results?.map((r) => (
             <div key={r.clusterId} className="flex items-start gap-2 rounded border px-3 py-2 text-sm">
               {r.ok ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600 dark:text-green-400" />
               ) : (
                 <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
               )}

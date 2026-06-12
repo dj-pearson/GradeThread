@@ -217,7 +217,7 @@ export function PriceSuggestionsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Urgent Actions</CardDescription>
-            <CardTitle className="text-2xl text-red-600">
+            <CardTitle className="text-2xl text-red-600 dark:text-red-400">
               {urgentCount}
             </CardTitle>
           </CardHeader>
@@ -230,7 +230,7 @@ export function PriceSuggestionsPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Warnings</CardDescription>
-            <CardTitle className="text-2xl text-yellow-600">
+            <CardTitle className="text-2xl text-yellow-600 dark:text-yellow-400">
               {warningCount}
             </CardTitle>
           </CardHeader>
@@ -327,8 +327,8 @@ export function PriceSuggestionsPage() {
                             className={cn(
                               "inline-flex items-center gap-1 text-sm font-medium",
                               suggestion.adjustmentPercent > 0
-                                ? "text-green-600"
-                                : "text-red-600"
+                                ? "text-green-600 dark:text-green-400"
+                                : "text-red-600 dark:text-red-400"
                             )}
                           >
                             {suggestion.adjustmentPercent > 0 ? (
@@ -350,9 +350,9 @@ export function PriceSuggestionsPage() {
                           className={cn(
                             "text-sm",
                             daysListed > 60
-                              ? "font-medium text-red-600"
+                              ? "font-medium text-red-600 dark:text-red-400"
                               : daysListed > 30
-                                ? "font-medium text-yellow-600"
+                                ? "font-medium text-yellow-600 dark:text-yellow-400"
                                 : ""
                           )}
                         >
@@ -367,7 +367,7 @@ export function PriceSuggestionsPage() {
                       <TableCell>
                         <Link
                           to={`/dashboard/inventory/${item.id}`}
-                          className="inline-flex items-center text-sm text-brand-navy hover:underline"
+                          className="inline-flex items-center text-sm text-brand-navy hover:underline dark:text-foreground"
                         >
                           <ArrowRight className="h-4 w-4" />
                         </Link>

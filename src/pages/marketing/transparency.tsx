@@ -100,7 +100,7 @@ function MetricCard({
         className={
           pending
             ? "mt-2 text-base font-medium text-muted-foreground"
-            : "mt-2 text-3xl font-bold tracking-tight text-brand-navy"
+            : "mt-2 text-3xl font-bold tracking-tight text-brand-navy dark:text-foreground"
         }
       >
         {value}
@@ -125,7 +125,7 @@ export function TransparencyPage() {
       <section className="px-6 py-16 lg:py-20">
         <div className="mx-auto max-w-3xl">
           <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs font-medium text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-brand-navy" />
+            <ShieldCheck className="h-3.5 w-3.5 text-brand-navy dark:text-foreground" />
             Published, not promised
           </div>
           <h1 className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl">
@@ -150,7 +150,7 @@ export function TransparencyPage() {
       <section className="border-t bg-card px-6 py-16">
         <div className="mx-auto max-w-5xl">
           <div className="flex items-center gap-2">
-            <Gauge className="h-5 w-5 text-brand-navy" />
+            <Gauge className="h-5 w-5 text-brand-navy dark:text-foreground" />
             <h2 className="text-2xl font-bold">How accurate the grades are</h2>
           </div>
           <p className="mt-3 max-w-3xl text-muted-foreground">
@@ -272,7 +272,7 @@ export function TransparencyPage() {
       <section className="px-6 py-16">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-center gap-2">
-            <RefreshCw className="h-5 w-5 text-brand-navy" />
+            <RefreshCw className="h-5 w-5 text-brand-navy dark:text-foreground" />
             <h2 className="text-2xl font-bold">How the standard improves over time</h2>
           </div>
           <p className="mt-3 text-muted-foreground">
@@ -321,7 +321,7 @@ export function TransparencyPage() {
       <section className="border-t bg-card px-6 py-16">
         <div className="mx-auto max-w-3xl">
           <div className="flex items-center gap-2">
-            <GitCommitVertical className="h-5 w-5 text-brand-navy" />
+            <GitCommitVertical className="h-5 w-5 text-brand-navy dark:text-foreground" />
             <h2 className="text-2xl font-bold">Model changelog</h2>
           </div>
           <p className="mt-3 text-muted-foreground">
@@ -368,7 +368,7 @@ export function TransparencyPage() {
             For the full rubric and weighting behind every grade, see the{" "}
             <Link
               to="/grading-standard"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               grading standard
             </Link>

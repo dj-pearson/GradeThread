@@ -283,7 +283,7 @@ function GradingRoiReport() {
                   className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm"
                 >
                   Graded items sell for{" "}
-                  <span className="font-bold text-emerald-700">
+                  <span className="font-bold text-emerald-700 dark:text-emerald-300">
                     {usd(b.netProfitLift)} more
                   </span>{" "}
                   net profit on average in{" "}
@@ -358,7 +358,7 @@ function GradingRoiReport() {
                     <TableCell
                       className={`text-right font-mono tabular-nums ${
                         b.netProfitLift != null && b.netProfitLift > 0
-                          ? "text-emerald-700"
+                          ? "text-emerald-700 dark:text-emerald-300"
                           : b.netProfitLift != null && b.netProfitLift < 0
                             ? "text-destructive"
                             : ""

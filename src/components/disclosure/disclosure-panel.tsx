@@ -40,7 +40,7 @@ export function DisclosurePanel({ itemId }: { itemId: string }) {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <ShieldAlert className="h-5 w-5 text-brand-navy" />
+            <ShieldAlert className="h-5 w-5 text-brand-navy dark:text-foreground" />
             Condition Disclosure
           </CardTitle>
           <CardDescription>
@@ -58,7 +58,7 @@ export function DisclosurePanel({ itemId }: { itemId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
-          <ShieldAlert className="h-5 w-5 text-brand-navy" />
+          <ShieldAlert className="h-5 w-5 text-brand-navy dark:text-foreground" />
           Condition Disclosure
           {grade && (
             <Badge variant="outline" className="ml-1">

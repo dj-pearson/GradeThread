@@ -39,7 +39,7 @@ export function VerifyEmailGate({ email }: { email: string | null }) {
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-brand-red/10">
-            <MailCheck className="h-6 w-6 text-brand-red" />
+            <MailCheck className="h-6 w-6 text-brand-red-text" />
           </div>
           <CardTitle>Confirm your email</CardTitle>
           <CardDescription>

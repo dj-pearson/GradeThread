@@ -45,10 +45,10 @@ interface Announcement {
 interface Segment { id: string; name: string }
 
 const VARIANT_COLOR: Record<Variant, string> = {
-  info: "bg-blue-100 text-blue-700",
-  success: "bg-green-100 text-green-700",
-  warning: "bg-amber-100 text-amber-700",
-  promo: "bg-brand-red/15 text-brand-red",
+  info: "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300",
+  success: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+  warning: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
+  promo: "bg-brand-red/15 text-brand-red-text",
 };
 
 function toLocalInput(iso: string | null): string {
@@ -242,7 +242,7 @@ export function GrowthAnnouncementsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Megaphone className="h-6 w-6 text-brand-red" /> Announcements
+            <Megaphone className="h-6 w-6 text-brand-red-text" /> Announcements
           </h1>
           <p className="text-muted-foreground">In-app banners — no deploy required.</p>
         </div>

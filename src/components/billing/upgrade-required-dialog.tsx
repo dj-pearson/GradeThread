@@ -138,7 +138,7 @@ export function UpgradeRequiredDialog() {
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Lock className="h-5 w-5 text-brand-red" />
+            <Lock className="h-5 w-5 text-brand-red-text" />
             {title}
           </DialogTitle>
           <DialogDescription asChild>
@@ -197,7 +197,7 @@ export function UpgradeRequiredDialog() {
                       {pack.credits} credits
                     </div>
                     <div className="text-sm">${(pack.priceCents / 100).toFixed(2)}</div>
-                    <div className="text-xs text-emerald-700">
+                    <div className="text-xs text-emerald-700 dark:text-emerald-300">
                       Save ${(saved / 100).toFixed(2)}
                     </div>
                     {isBuying && (

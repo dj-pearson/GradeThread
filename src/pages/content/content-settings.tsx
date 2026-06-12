@@ -85,7 +85,7 @@ export function ContentSettingsPage() {
               {test.data && test.variables === target && (
                 <p
                   className={`text-xs ${
-                    test.data.succeeded ? "text-green-600" : "text-red-600"
+                    test.data.succeeded ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                   }`}
                 >
                   {test.data.succeeded

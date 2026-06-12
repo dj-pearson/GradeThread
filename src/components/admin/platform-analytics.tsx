@@ -618,8 +618,8 @@ export function PlatformAnalytics({
                       <TableCell
                         className={
                           f.rate < 50
-                            ? "text-right text-red-600"
-                            : "text-right text-green-600"
+                            ? "text-right text-red-600 dark:text-red-400"
+                            : "text-right text-green-600 dark:text-green-400"
                         }
                       >
                         {f.rate.toFixed(0)}%

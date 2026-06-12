@@ -153,7 +153,7 @@ export function FinancesPage() {
             {isLoading ? (
               <Skeleton className="h-8 w-24" />
             ) : (
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                 {formatCurrency(summary?.total_revenue ?? 0)}
               </div>
             )}
@@ -169,7 +169,7 @@ export function FinancesPage() {
             {isLoading ? (
               <Skeleton className="h-8 w-24" />
             ) : (
-              <div className="text-2xl font-bold text-red-600">
+              <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                 {formatCurrency(summary?.total_costs ?? 0)}
               </div>
             )}
@@ -188,7 +188,7 @@ export function FinancesPage() {
               <div
                 className={cn(
                   "text-2xl font-bold",
-                  (summary?.net_profit ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                  (summary?.net_profit ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                 )}
               >
                 {formatCurrency(summary?.net_profit ?? 0)}
@@ -209,7 +209,7 @@ export function FinancesPage() {
               <div
                 className={cn(
                   "text-2xl font-bold",
-                  (summary?.profit_margin ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                  (summary?.profit_margin ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                 )}
               >
                 {(summary?.profit_margin ?? 0).toFixed(1)}%
@@ -247,7 +247,7 @@ export function FinancesPage() {
               <div
                 className={cn(
                   "text-2xl font-bold",
-                  (summary?.avg_profit_per_item ?? 0) >= 0 ? "text-green-600" : "text-red-600"
+                  (summary?.avg_profit_per_item ?? 0) >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                 )}
               >
                 {formatCurrency(summary?.avg_profit_per_item ?? 0)}

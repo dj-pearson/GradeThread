@@ -832,7 +832,7 @@ function BatchResultsDialog({
               className="flex items-start gap-2 rounded-md border p-2 text-sm"
             >
               {r.ok ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
+                <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
               ) : (
                 <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
               )}

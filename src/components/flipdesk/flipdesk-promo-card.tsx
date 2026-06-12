@@ -46,7 +46,7 @@ export function FlipdeskPromoCard({ itemCount }: { itemCount: number | undefined
       <CardContent className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-md bg-brand-navy/10">
-            <Compass className="h-5 w-5 text-brand-navy" />
+            <Compass className="h-5 w-5 text-brand-navy dark:text-foreground" />
           </div>
           <div>
             <p className="text-sm font-medium">

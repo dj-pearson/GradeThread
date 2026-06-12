@@ -205,7 +205,7 @@ export function BillingPage() {
       {/* Status banners */}
       {pastDue && (
         <div className="flex items-start gap-3 rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/40">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400" />
           <div className="flex-1 text-sm">
             <p className="font-semibold text-red-700 dark:text-red-300">
               Your last payment failed
@@ -227,7 +227,7 @@ export function BillingPage() {
       )}
       {trialing && (
         <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
-          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+          <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="flex-1 text-sm">
             <p className="font-semibold">Pro free trial active</p>
             <p className="text-muted-foreground">
@@ -242,7 +242,7 @@ export function BillingPage() {
       )}
       {paused && (
         <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
-          <Pause className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+          <Pause className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />
           <div className="flex-1 text-sm">
             <p className="font-semibold">Subscription paused</p>
             <p className="text-muted-foreground">
@@ -267,7 +267,7 @@ export function BillingPage() {
       )}
       {subscription.pending_plan && !canceling && !pastDue && (
         <div className="flex items-start gap-3 rounded-md border border-purple-200 bg-purple-50 p-4 dark:border-purple-900 dark:bg-purple-950/40">
-          <ArrowDown className="mt-0.5 h-5 w-5 shrink-0 text-purple-600" />
+          <ArrowDown className="mt-0.5 h-5 w-5 shrink-0 text-purple-600 dark:text-purple-400" />
           <div className="flex-1 text-sm">
             <p className="font-semibold">Downgrade scheduled</p>
             <p className="text-muted-foreground">
@@ -289,7 +289,7 @@ export function BillingPage() {
       )}
       {canceling && !pastDue && (
         <div className="flex items-start gap-3 rounded-md border border-orange-200 bg-orange-50 p-4 dark:border-orange-900 dark:bg-orange-950/40">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600" />
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-orange-600 dark:text-orange-400" />
           <div className="flex-1 text-sm">
             <p className="font-semibold">Subscription ending</p>
             <p className="text-muted-foreground">
@@ -407,7 +407,7 @@ export function BillingPage() {
               {subscription.plan !== "free" && !canceling && (
                 <Button
                   variant="ghost"
-                  className="text-red-700 hover:bg-red-50 hover:text-red-800"
+                  className="text-red-700 hover:bg-red-50 hover:text-red-800 dark:text-red-300 dark:hover:bg-red-950/40 dark:hover:text-red-300"
                   onClick={() => setCancelOpen(true)}
                 >
                   <X className="mr-2 h-4 w-4" />
@@ -502,9 +502,9 @@ export function BillingPage() {
                         <span
                           className={
                             entry.delta > 0
-                              ? "tabular-nums font-medium text-emerald-700"
+                              ? "tabular-nums font-medium text-emerald-700 dark:text-emerald-300"
                               : entry.delta < 0
-                                ? "tabular-nums font-medium text-red-700"
+                                ? "tabular-nums font-medium text-red-700 dark:text-red-300"
                                 : "tabular-nums text-muted-foreground"
                           }
                         >

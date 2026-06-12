@@ -341,7 +341,7 @@ export function FlipdeskAutolisterDraftsPage() {
                               href={pub.listingUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline"
+                              className="inline-flex items-center gap-1 text-[11px] text-emerald-600 hover:underline dark:text-emerald-400"
                             >
                               Live <ExternalLink className="h-3 w-3" />
                             </a>
@@ -359,14 +359,14 @@ export function FlipdeskAutolisterDraftsPage() {
                         ) : d.needs_review ? (
                           <Badge
                             variant="outline"
-                            className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700"
+                            className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
                           >
                             Needs review
                           </Badge>
                         ) : (
                           <Badge
                             variant="outline"
-                            className="border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-700"
+                            className="border-emerald-500/40 bg-emerald-500/10 text-[10px] text-emerald-700 dark:text-emerald-300"
                           >
                             Ready
                           </Badge>
@@ -392,7 +392,7 @@ export function FlipdeskAutolisterDraftsPage() {
                         ) : (
                           <Badge
                             variant="outline"
-                            className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700"
+                            className="border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
                           >
                             needs category
                           </Badge>

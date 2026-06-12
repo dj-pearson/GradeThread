@@ -76,7 +76,7 @@ export function ReferralsPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Gift className="h-6 w-6 text-brand-red" /> Refer a friend
+          <Gift className="h-6 w-6 text-brand-red-text" /> Refer a friend
         </h1>
         <p className="text-muted-foreground">
           Share your link. When a friend joins and qualifies, you both earn grade
@@ -120,7 +120,7 @@ export function ReferralsPage() {
           {data.referred_by ? (
             <Card>
               <CardContent className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-green-600" />
+                <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
                 You were referred with code{" "}
                 <span className="font-mono font-semibold">{data.referred_by.code}</span> — reward status:{" "}
                 {data.referred_by.status}.

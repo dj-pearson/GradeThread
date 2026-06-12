@@ -60,21 +60,21 @@ const SEVERITY_META: Record<
 > = {
   ok: {
     label: "Healthy",
-    badge: "bg-green-100 text-green-800 border-green-200",
+    badge: "bg-green-100 text-green-800 border-green-200 dark:bg-green-950/50 dark:text-green-300 dark:border-green-800",
     Icon: CheckCircle2,
-    tint: "text-green-600",
+    tint: "text-green-600 dark:text-green-400",
   },
   warn: {
     label: "Warning",
-    badge: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    badge: "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-300 dark:border-yellow-800",
     Icon: AlertTriangle,
-    tint: "text-yellow-600",
+    tint: "text-yellow-600 dark:text-yellow-400",
   },
   critical: {
     label: "Critical",
-    badge: "bg-red-100 text-red-800 border-red-200",
+    badge: "bg-red-100 text-red-800 border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800",
     Icon: ShieldAlert,
-    tint: "text-red-600",
+    tint: "text-red-600 dark:text-red-400",
   },
 };
 
@@ -153,7 +153,7 @@ export function GradingMonitorPanel() {
       <CardHeader className="flex flex-row items-start justify-between gap-3">
         <div>
           <CardTitle className="flex items-center gap-2 text-sm font-medium">
-            <Activity className="h-4 w-4 text-brand-navy" />
+            <Activity className="h-4 w-4 text-brand-navy dark:text-foreground" />
             Quality Monitor
           </CardTitle>
           <CardDescription>
@@ -211,13 +211,13 @@ export function GradingMonitorPanel() {
                         ,{" "}
                         <span
                           className={
-                            latest.eval.passed ? "text-green-600" : "text-red-600"
+                            latest.eval.passed ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                           }
                         >
                           {latest.eval.passed ? "passed" : "FAILED"}
                         </span>
                         {latest.eval.regression_vs_baseline && (
-                          <span className="text-yellow-700"> · regressed vs baseline</span>
+                          <span className="text-yellow-700 dark:text-yellow-300"> · regressed vs baseline</span>
                         )}
                       </>
                     ) : (

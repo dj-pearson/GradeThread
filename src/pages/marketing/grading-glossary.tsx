@@ -84,14 +84,14 @@ export function GradingGlossaryPage({ slug: slugProp }: { slug?: string }) {
             See the full picture in{" "}
             <Link
               to="/condition-grading"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               the condition grading guide
             </Link>
             , or how the score is produced in{" "}
             <Link
               to="/how-it-works"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               how it works
             </Link>
@@ -129,7 +129,7 @@ export function GradingGlossaryPage({ slug: slugProp }: { slug?: string }) {
                 <Link
                   key={rel}
                   to={target.path}
-                  className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white"
+                  className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white dark:text-foreground"
                 >
                   {target.term}
                 </Link>
@@ -137,7 +137,7 @@ export function GradingGlossaryPage({ slug: slugProp }: { slug?: string }) {
             })}
             <Link
               to="/condition-grading"
-              className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white"
+              className="rounded-full border px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-brand-navy hover:text-white dark:text-foreground"
             >
               All condition grades
             </Link>

@@ -101,9 +101,9 @@ function StorefrontCard({ listing }: { listing: StorefrontListing }) {
         {listing.brand && (
           <p className="truncate text-xs text-muted-foreground">{listing.brand}</p>
         )}
-        <p className="mt-0.5 text-sm font-semibold text-brand-navy">{price}</p>
+        <p className="mt-0.5 text-sm font-semibold text-brand-navy dark:text-foreground">{price}</p>
         {graded ? (
-          <p className="mt-0.5 text-xs font-medium text-green-700">
+          <p className="mt-0.5 text-xs font-medium text-green-700 dark:text-green-300">
             Verified grade · {listing.grade_tier}
           </p>
         ) : (
@@ -133,9 +133,9 @@ function StorefrontCard({ listing }: { listing: StorefrontListing }) {
 }
 
 function scoreColor(score: number): string {
-  if (score > 7) return "text-green-600";
-  if (score >= 5) return "text-yellow-600";
-  return "text-red-600";
+  if (score > 7) return "text-green-600 dark:text-green-400";
+  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
+  return "text-red-600 dark:text-red-400";
 }
 
 export function VerifiedSellerPage() {
@@ -253,13 +253,13 @@ export function VerifiedSellerPage() {
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-4xl font-extrabold text-brand-navy">{count}</div>
+              <div className="text-4xl font-extrabold text-brand-navy dark:text-foreground">{count}</div>
               <p className="text-sm text-muted-foreground">items graded</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6 text-center">
-              <div className="text-4xl font-extrabold text-brand-navy">{avg}</div>
+              <div className="text-4xl font-extrabold text-brand-navy dark:text-foreground">{avg}</div>
               <p className="text-sm text-muted-foreground">avg grade · out of 10</p>
             </CardContent>
           </Card>
@@ -346,7 +346,7 @@ export function VerifiedSellerPage() {
         <div className="pb-4 text-center">
           <p className="text-sm text-muted-foreground">
             Want a verified profile like this?{" "}
-            <Link to="/for-resellers" className="font-medium text-brand-navy hover:underline">
+            <Link to="/for-resellers" className="font-medium text-brand-navy hover:underline dark:text-foreground">
               Get GradeThread Verified
             </Link>
           </p>

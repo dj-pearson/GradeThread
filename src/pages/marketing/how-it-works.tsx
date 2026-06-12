@@ -104,21 +104,21 @@ export function HowItWorksPage() {
             Want the full breakdown of the scale and tiers? Read our{" "}
             <Link
               to="/condition-grading"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               guide to clothing condition grading
             </Link>
             , see{" "}
             <Link
               to="/pricing"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               pricing
             </Link>
             , or learn how it helps{" "}
             <Link
               to="/for-resellers"
-              className="font-medium text-brand-navy hover:underline"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               resellers
             </Link>

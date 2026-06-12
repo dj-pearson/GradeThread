@@ -849,7 +849,7 @@ export function AdminAiModelsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Brain className="h-6 w-6 text-brand-red" />
+          <Brain className="h-6 w-6 text-brand-red-text" />
           <h1 className="text-2xl font-bold">AI Models</h1>
           <Badge variant="secondary" className="ml-2">
             {versions.length} versions
@@ -877,7 +877,7 @@ export function AdminAiModelsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Active Prompt</CardTitle>
-            <Zap className="h-4 w-4 text-green-600" />
+            <Zap className="h-4 w-4 text-green-600 dark:text-green-400" />
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -898,7 +898,7 @@ export function AdminAiModelsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Avg Accuracy</CardTitle>
-            <Target className="h-4 w-4 text-blue-600" />
+            <Target className="h-4 w-4 text-blue-600 dark:text-blue-400" />
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -919,7 +919,7 @@ export function AdminAiModelsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Grades</CardTitle>
-            <Hash className="h-4 w-4 text-purple-600" />
+            <Hash className="h-4 w-4 text-purple-600 dark:text-purple-400" />
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -936,7 +936,7 @@ export function AdminAiModelsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Versions</CardTitle>
-            <TrendingUp className="h-4 w-4 text-brand-red" />
+            <TrendingUp className="h-4 w-4 text-brand-red-text" />
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -955,14 +955,14 @@ export function AdminAiModelsPage() {
 
       {/* Accuracy Threshold Alert */}
       {lowAccuracyVersions.length > 0 && (
-        <Card className="border-red-300 bg-red-50">
+        <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40">
           <CardContent className="flex items-start gap-3 pt-4">
-            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0" />
+            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 shrink-0 dark:text-red-400" />
             <div>
-              <p className="font-medium text-red-800">
+              <p className="font-medium text-red-800 dark:text-red-300">
                 Accuracy Below Threshold ({(ACCURACY_THRESHOLD * 100).toFixed(0)}%)
               </p>
-              <p className="text-sm text-red-700 mt-1">
+              <p className="text-sm text-red-700 mt-1 dark:text-red-300">
                 {lowAccuracyVersions.map((v) => (
                   <span key={v.versionName}>
                     <strong>{v.versionName}</strong>: {(v.agreementRate * 100).toFixed(1)}%
@@ -991,7 +991,7 @@ export function AdminAiModelsPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <BarChart3 className="h-4 w-4 text-brand-navy" />
+              <BarChart3 className="h-4 w-4 text-brand-navy dark:text-foreground" />
               <CardTitle className="text-sm font-medium">AI Accuracy Feedback Loop</CardTitle>
               <Badge variant="secondary" className="ml-1">
                 {allReviews.length} reviews
@@ -1079,16 +1079,16 @@ export function AdminAiModelsPage() {
               <TabsContent value="details">
                 <div className="space-y-4">
                   {accuracyByVersion.map((version) => (
-                    <Card key={version.versionName} className={version.agreementRate < ACCURACY_THRESHOLD && version.totalReviews >= 5 ? "border-red-300" : ""}>
+                    <Card key={version.versionName} className={version.agreementRate < ACCURACY_THRESHOLD && version.totalReviews >= 5 ? "border-red-300 dark:border-red-800" : ""}>
                       <CardHeader className="pb-2">
                         <div className="flex items-center justify-between">
                           <CardTitle className="text-sm font-medium">{version.versionName}</CardTitle>
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">{version.totalReviews} reviews</Badge>
                             {version.agreementRate >= ACCURACY_THRESHOLD ? (
-                              <Badge className="bg-green-100 text-green-700">Good</Badge>
+                              <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Good</Badge>
                             ) : version.totalReviews >= 5 ? (
-                              <Badge className="bg-red-100 text-red-700">Below Threshold</Badge>
+                              <Badge className="bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300">Below Threshold</Badge>
                             ) : (
                               <Badge variant="secondary">Insufficient Data</Badge>
                             )}
@@ -1100,7 +1100,7 @@ export function AdminAiModelsPage() {
                         <div className="grid grid-cols-3 gap-4 text-sm">
                           <div>
                             <p className="text-muted-foreground">Agreement Rate</p>
-                            <p className={`font-bold text-lg ${version.agreementRate >= ACCURACY_THRESHOLD ? "text-green-600" : version.totalReviews >= 5 ? "text-red-600" : ""}`}>
+                            <p className={`font-bold text-lg ${version.agreementRate >= ACCURACY_THRESHOLD ? "text-green-600 dark:text-green-400" : version.totalReviews >= 5 ? "text-red-600 dark:text-red-400" : ""}`}>
                               {(version.agreementRate * 100).toFixed(1)}%
                             </p>
                           </div>
@@ -1297,7 +1297,7 @@ export function AdminAiModelsPage() {
                       </TableCell>
                       <TableCell>
                         {version.is_active ? (
-                          <Badge className="bg-green-100 text-green-700">Active</Badge>
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Active</Badge>
                         ) : (
                           <Badge variant="secondary">Inactive</Badge>
                         )}
@@ -1308,10 +1308,10 @@ export function AdminAiModelsPage() {
                             version.computedAccuracy === null
                               ? "text-muted-foreground"
                               : (version.computedAccuracy ?? 0) >= 0.8
-                                ? "text-green-600 font-medium"
+                                ? "text-green-600 font-medium dark:text-green-400"
                                 : (version.computedAccuracy ?? 0) >= 0.6
-                                  ? "text-yellow-600 font-medium"
-                                  : "text-red-600 font-medium"
+                                  ? "text-yellow-600 font-medium dark:text-yellow-400"
+                                  : "text-red-600 font-medium dark:text-red-400"
                           }
                         >
                           {formatAccuracy(version.computedAccuracy)}
@@ -1350,7 +1350,7 @@ export function AdminAiModelsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-amber-600"
+                              className="h-7 w-7 p-0 text-amber-600 dark:text-amber-400"
                               title="Deactivate"
                               onClick={() => setDeactivateTarget(version)}
                             >
@@ -1360,7 +1360,7 @@ export function AdminAiModelsPage() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-7 w-7 p-0 text-green-600"
+                              className="h-7 w-7 p-0 text-green-600 dark:text-green-400"
                               title="Activate"
                               onClick={() => setActivateTarget(version)}
                             >
@@ -1370,7 +1370,7 @@ export function AdminAiModelsPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="h-7 w-7 p-0 text-red-600"
+                            className="h-7 w-7 p-0 text-red-600 dark:text-red-400"
                             title="Delete"
                             onClick={() => setDeleteTarget(version)}
                             disabled={version.is_active}
@@ -1419,7 +1419,7 @@ export function AdminAiModelsPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-brand-red" />
+              <Plus className="h-5 w-5 text-brand-red-text" />
               Create Prompt Version
             </DialogTitle>
             <DialogDescription>
@@ -1499,7 +1499,7 @@ export function AdminAiModelsPage() {
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-brand-red" />
+              <Brain className="h-5 w-5 text-brand-red-text" />
               {editMode ? "Edit: " : ""}{viewingVersion?.version_name}
             </DialogTitle>
             <DialogDescription>
@@ -1518,7 +1518,7 @@ export function AdminAiModelsPage() {
                   </CardHeader>
                   <CardContent>
                     {viewingVersion.is_active ? (
-                      <Badge className="bg-green-100 text-green-700">Active</Badge>
+                      <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Active</Badge>
                     ) : (
                       <Badge variant="secondary">Inactive</Badge>
                     )}
@@ -1656,7 +1656,7 @@ export function AdminAiModelsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-red-600"
+                    className="text-red-600 dark:text-red-400"
                     onClick={() => setDeleteTarget(viewingVersion)}
                     disabled={viewingVersion.is_active}
                   >
@@ -1675,7 +1675,7 @@ export function AdminAiModelsPage() {
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Columns2 className="h-5 w-5 text-brand-red" />
+              <Columns2 className="h-5 w-5 text-brand-red-text" />
               Compare Prompt Versions
             </DialogTitle>
             <DialogDescription>
@@ -1729,7 +1729,7 @@ export function AdminAiModelsPage() {
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Status</span>
                         {compareLeftVersion.is_active ? (
-                          <Badge className="bg-green-100 text-green-700">Active</Badge>
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Active</Badge>
                         ) : (
                           <Badge variant="secondary">Inactive</Badge>
                         )}
@@ -1756,7 +1756,7 @@ export function AdminAiModelsPage() {
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Status</span>
                         {compareRightVersion.is_active ? (
-                          <Badge className="bg-green-100 text-green-700">Active</Badge>
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">Active</Badge>
                         ) : (
                           <Badge variant="secondary">Inactive</Badge>
                         )}
@@ -1892,7 +1892,7 @@ export function AdminAiModelsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FlaskConical className="h-5 w-5 text-brand-red" />
+              <FlaskConical className="h-5 w-5 text-brand-red-text" />
               Test Prompt: {testTarget?.version_name}
             </DialogTitle>
             <DialogDescription>
@@ -1903,7 +1903,7 @@ export function AdminAiModelsPage() {
           <div className="space-y-4">
             {testLoading ? (
               <div className="flex flex-col items-center justify-center py-8 gap-3">
-                <Loader2 className="h-8 w-8 animate-spin text-brand-navy" />
+                <Loader2 className="h-8 w-8 animate-spin text-brand-navy dark:text-foreground" />
                 <p className="text-sm text-muted-foreground">Running dry-run test...</p>
               </div>
             ) : testResult ? (

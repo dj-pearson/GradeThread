@@ -132,7 +132,7 @@ function AutomationOptOutCard({ itemId }: { itemId: string }) {
       <CardContent className="flex items-center justify-between gap-4 pt-6">
         <div className="space-y-1">
           <div className="flex items-center gap-2 font-medium">
-            <Zap className="h-4 w-4 text-brand-red" />
+            <Zap className="h-4 w-4 text-brand-red-text" />
             Exclude from automations
           </div>
           <p className="text-sm text-muted-foreground">

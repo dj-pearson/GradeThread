@@ -102,7 +102,7 @@ export function GrowthDashboardPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Megaphone className="h-6 w-6 text-brand-red" />
+            <Megaphone className="h-6 w-6 text-brand-red-text" />
             Growth
           </h1>
           <p className="text-muted-foreground">
@@ -111,11 +111,11 @@ export function GrowthDashboardPage() {
           </p>
         </div>
         <div className="flex gap-2 text-sm">
-          <Link to="/admin/growth/segments" className="text-brand-red hover:underline">Segments</Link>
+          <Link to="/admin/growth/segments" className="text-brand-red-text hover:underline">Segments</Link>
           <span className="text-muted-foreground">·</span>
-          <Link to="/admin/growth/campaigns" className="text-brand-red hover:underline">Campaigns</Link>
+          <Link to="/admin/growth/campaigns" className="text-brand-red-text hover:underline">Campaigns</Link>
           <span className="text-muted-foreground">·</span>
-          <Link to="/admin/growth/announcements" className="text-brand-red hover:underline">Announcements</Link>
+          <Link to="/admin/growth/announcements" className="text-brand-red-text hover:underline">Announcements</Link>
         </div>
       </div>
 

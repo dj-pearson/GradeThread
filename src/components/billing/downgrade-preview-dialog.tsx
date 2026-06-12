@@ -312,18 +312,18 @@ function ComparisonColumn({
               key={flag}
               className={cn(
                 "flex items-center gap-2",
-                lost && "text-red-700",
+                lost && "text-red-700 dark:text-red-300",
                 !enabled && !lost && "text-muted-foreground/60",
               )}
             >
               {enabled ? (
-                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
               ) : (
-                <X className={cn("h-3.5 w-3.5", lost && "text-red-600")} />
+                <X className={cn("h-3.5 w-3.5", lost && "text-red-600 dark:text-red-400")} />
               )}
               <span>{label}</span>
               {lost && (
-                <span className="text-[10px] uppercase tracking-wide text-red-600">
+                <span className="text-[10px] uppercase tracking-wide text-red-600 dark:text-red-400">
                   lost
                 </span>
               )}
@@ -352,7 +352,7 @@ function Stat({
       )}
     >
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn("font-medium tabular-nums", warn && "text-red-700")}>
+      <span className={cn("font-medium tabular-nums", warn && "text-red-700 dark:text-red-300")}>
         {warn && <X className="mr-1 inline h-3 w-3" />}
         {value}
       </span>

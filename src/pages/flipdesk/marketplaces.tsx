@@ -362,7 +362,7 @@ function StepRow({
     <div className="flex items-center justify-between gap-3 py-3">
       <div className="flex min-w-0 items-center gap-3">
         {state === "done" ? (
-          <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-600" />
+          <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
         ) : state === "blocked" ? (
           <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/40" />
         ) : state === "loading" ? (
@@ -449,7 +449,7 @@ function EbaySetup({
       <CardContent className="space-y-4">
         {allReady && !manageOpen ? (
           <div className="flex items-center justify-between rounded-lg border border-emerald-600/30 bg-emerald-600/5 px-3 py-2.5">
-            <span className="flex items-center gap-2 text-sm font-medium text-emerald-700">
+            <span className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
               <CheckCircle2 className="h-4 w-4" />
               Ready to publish on eBay
             </span>
@@ -916,7 +916,7 @@ export function FlipdeskMarketplacesPage() {
             className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm transition-colors hover:bg-muted/50"
           >
             <span className="flex items-center gap-2">
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               Google Sheets — connect a Google account and FlipDesk keeps a live
               sync spreadsheet on your Drive.
             </span>

@@ -146,7 +146,7 @@ export function EbayCompsPanel({
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Recommended price
                 </div>
-                <div className="text-2xl font-bold text-brand-navy">
+                <div className="text-2xl font-bold text-brand-navy dark:text-foreground">
                   {fmt(recommendedPrice, currency)}
                 </div>
               </div>
@@ -229,7 +229,7 @@ export function EbayCompsPanel({
                     <ExternalLink className="absolute right-1 top-1 h-3 w-3 text-white drop-shadow opacity-0 transition-opacity group-hover:opacity-100" />
                   </div>
                   <div className="p-2">
-                    <div className="text-sm font-semibold text-brand-navy">
+                    <div className="text-sm font-semibold text-brand-navy dark:text-foreground">
                       {fmt(c.price, c.currency)}
                     </div>
                     <div className="line-clamp-2 text-[11px] leading-tight text-muted-foreground">

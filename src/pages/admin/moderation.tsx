@@ -61,8 +61,8 @@ function deriveFlagTypes(
   const auth = report?.image_authenticity ?? null;
   const notes = report?.detailed_notes ?? {};
   const reason = (submission.flag_reason ?? "").toLowerCase();
-  const red = "border-red-200 bg-red-100 text-red-800";
-  const amber = "border-yellow-200 bg-yellow-100 text-yellow-800";
+  const red = "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
+  const amber = "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
   const slate = "border-slate-200 bg-slate-100 text-slate-700";
 
   if (auth?.manipulation_suspected) {
@@ -241,7 +241,7 @@ export function AdminModerationPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <ShieldAlert className="h-6 w-6 text-brand-red" />
+        <ShieldAlert className="h-6 w-6 text-brand-red-text" />
         <div>
           <h1 className="text-2xl font-bold">Content Moderation</h1>
           <p className="text-sm text-muted-foreground">
@@ -309,7 +309,7 @@ export function AdminModerationPage() {
                       {entry.user?.suspended && (
                         <Badge
                           variant="outline"
-                          className="border-red-200 bg-red-100 text-red-800"
+                          className="border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300"
                         >
                           User suspended
                         </Badge>
@@ -349,7 +349,7 @@ export function AdminModerationPage() {
                             to={`/cert/${report.certificate_id}`}
                             target="_blank"
                             rel="noreferrer"
-                            className="inline-flex items-center gap-1 font-medium text-brand-navy hover:underline"
+                            className="inline-flex items-center gap-1 font-medium text-brand-navy hover:underline dark:text-foreground"
                           >
                             View grade
                             <ExternalLink className="h-3.5 w-3.5" />
@@ -405,7 +405,7 @@ export function AdminModerationPage() {
                       {busy ? (
                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
                       ) : (
-                        <CheckCircle2 className="mr-1.5 h-4 w-4 text-green-600" />
+                        <CheckCircle2 className="mr-1.5 h-4 w-4 text-green-600 dark:text-green-400" />
                       )}
                       Approve
                     </Button>

@@ -41,15 +41,15 @@ interface RecentSubmission extends SubmissionRow {
 function getStatusBadgeClasses(status: string): string {
   switch (status) {
     case "completed":
-      return "border-green-200 bg-green-100 text-green-800";
+      return "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300";
     case "processing":
-      return "border-blue-200 bg-blue-100 text-blue-800";
+      return "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300";
     case "pending":
-      return "border-yellow-200 bg-yellow-100 text-yellow-800";
+      return "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
     case "failed":
-      return "border-red-200 bg-red-100 text-red-800";
+      return "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
     case "disputed":
-      return "border-purple-200 bg-purple-100 text-purple-800";
+      return "border-purple-200 bg-purple-100 text-purple-800 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300";
     default:
       return "";
   }
@@ -63,9 +63,9 @@ function formatLabel(value: string): string {
 }
 
 function getScoreColor(score: number): string {
-  if (score > 7) return "text-green-600";
-  if (score >= 5) return "text-yellow-600";
-  return "text-red-600";
+  if (score > 7) return "text-green-600 dark:text-green-400";
+  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
+  return "text-red-600 dark:text-red-400";
 }
 
 export function DashboardPage() {

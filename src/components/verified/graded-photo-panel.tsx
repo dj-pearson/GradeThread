@@ -158,7 +158,7 @@ export function GradedPhotoPanel({
           className="flex-1"
         >
           {copied ? (
-            <Check className="mr-2 h-4 w-4 text-green-600" />
+            <Check className="mr-2 h-4 w-4 text-green-600 dark:text-green-400" />
           ) : (
             <Copy className="mr-2 h-4 w-4" />
           )}

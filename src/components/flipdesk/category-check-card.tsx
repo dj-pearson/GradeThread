@@ -80,7 +80,7 @@ export function CategoryCheckCard({ listingId }: Props) {
       <Card>
         <CardContent className="space-y-2 p-3 text-sm">
           <div className="flex items-center gap-2 text-muted-foreground">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             We don&apos;t have an eBay category stored for this listing
             yet. Run <strong>Sync from eBay</strong> to pull it.
           </div>
@@ -103,10 +103,10 @@ export function CategoryCheckCard({ listingId }: Props) {
 
   if (match) {
     return (
-      <Card className="border-emerald-300/60 bg-emerald-50/40 dark:bg-emerald-950/20">
+      <Card className="border-emerald-300/60 bg-emerald-50/40 dark:bg-emerald-950/20 dark:border-emerald-800/60">
         <CardContent className="space-y-1 p-3 text-sm">
           <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
             <span className="font-medium">
               In the right category
             </span>
@@ -125,10 +125,10 @@ export function CategoryCheckCard({ listingId }: Props) {
 
   // Mismatch.
   return (
-    <Card className="border-amber-300/60 bg-amber-50/40 dark:bg-amber-950/20">
+    <Card className="border-amber-300/60 bg-amber-50/40 dark:bg-amber-950/20 dark:border-amber-800/60">
       <CardContent className="space-y-2 p-3 text-sm">
         <div className="flex items-center gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           <span className="font-medium">Possibly wrong category</span>
         </div>
         <div className="space-y-1 text-xs">
