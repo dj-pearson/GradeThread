@@ -1,6 +1,7 @@
-import { useMemo, useState, useEffect, type ReactNode } from "react";
+import { useMemo, useRef, useState, useEffect, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
 import {
   Search,
@@ -226,6 +227,10 @@ const TABS: TabDef[] = [
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+// US-733: below this row count the desktop table renders unchanged; above it,
+// rows are virtualized. Kept comfortably above the 50-row min page size so the
+// smallest page never virtualizes.
+const VIRTUALIZE_ROW_THRESHOLD = 60;
 
 // US-404: explicit projection instead of `select("*")` on the wide items_full
 // view. We drop the columns this triage surface never reads in bulk — the two
@@ -799,6 +804,31 @@ export function FlipdeskListingsPage() {
   const pageRowIds = useMemo(() => pageRows.map((r) => r.id), [pageRows]);
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
+
+  // US-733: virtualize the (desktop) listings table only once a page renders
+  // more rows than the threshold. At or below it, the table renders exactly as
+  // before (no scroll container, no spacer rows) so the common case is
+  // byte-identical and carries zero regression risk; large pages (up to the
+  // 200-row page-size cap) mount only the visible rows + overscan, keeping the
+  // primary inventory surface smooth. Uses the table spacer-row technique so
+  // the real <table> markup — sticky header, sortable columns, select-all —
+  // is preserved. The hook is always created (Rules of Hooks); getVirtualItems
+  // is only consumed when virtualizing.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const virtualize = pageRows.length > VIRTUALIZE_ROW_THRESHOLD;
+  const rowVirtualizer = useVirtualizer({
+    count: pageRows.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 40,
+    overscan: 8,
+  });
+  const virtualItems = virtualize ? rowVirtualizer.getVirtualItems() : [];
+  const vPadTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
+  const vPadBottom =
+    virtualItems.length > 0
+      ? rowVirtualizer.getTotalSize() -
+        (virtualItems[virtualItems.length - 1]?.end ?? 0)
+      : 0;
 
   function toggleSelected(id: string) {
     setSelected((prev) => {
@@ -1524,9 +1554,20 @@ export function FlipdeskListingsPage() {
               <div className="md:hidden">
                 <ItemCardList items={pageRows} onOpen={setDetailItem} />
               </div>
-              <div className="hidden overflow-x-auto md:block">
+              <div
+                ref={tableScrollRef}
+                className={cn(
+                  "hidden overflow-x-auto md:block",
+                  virtualize && "max-h-[70vh] overflow-y-auto",
+                )}
+              >
                 <Table className="text-xs">
-                  <TableHeader>
+                  <TableHeader
+                    className={cn(
+                      virtualize &&
+                        "sticky top-0 z-10 [&_th]:bg-background",
+                    )}
+                  >
                     <TableRow>
                       {selectable && (
                         <TableHead className="w-8 px-2">
@@ -1663,7 +1704,24 @@ export function FlipdeskListingsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pageRows.map((it) => {
+                    {virtualize && vPadTop > 0 && (
+                      <tr aria-hidden="true" style={{ height: vPadTop }}>
+                        <td />
+                      </tr>
+                    )}
+                    {(virtualize
+                      ? virtualItems.map((vi) => ({
+                          it: pageRows[vi.index],
+                          measureRef: rowVirtualizer.measureElement,
+                          vIndex: vi.index,
+                        }))
+                      : pageRows.map((it) => ({
+                          it,
+                          measureRef: undefined,
+                          vIndex: undefined,
+                        }))
+                    ).map(({ it, measureRef, vIndex }) => {
+                      if (!it) return null;
                       const age = daysSince(it.updated_at);
                       const aging = age != null && age >= 14;
                       const score = scoreById.get(it.id) ?? 0;
@@ -1677,6 +1735,8 @@ export function FlipdeskListingsPage() {
                       return (
                         <TableRow
                           key={it.id}
+                          ref={measureRef}
+                          data-index={vIndex}
                           className={cn(
                             "cursor-pointer hover:bg-muted/30",
                             isSel && "bg-brand-navy/5",
@@ -2042,6 +2102,11 @@ export function FlipdeskListingsPage() {
                         </TableRow>
                       );
                     })}
+                    {virtualize && vPadBottom > 0 && (
+                      <tr aria-hidden="true" style={{ height: vPadBottom }}>
+                        <td />
+                      </tr>
+                    )}
                   </TableBody>
                 </Table>
               </div>

@@ -1832,3 +1832,10 @@ Branch: ralph/gradethread-build
 - Notes: The validator (validateListingForPlatform) already existed; this story wired it on both sides. (1) Listing Kit now live-validates the EDITED draft (not just the stale generation-time result) and blocks Copy-all/Send-to-extension on errors, with a Ready/N-to-fix badge; photo cap is a non-blocking kit warning since the US-724 export auto-caps. (2) New pure validateSiblingForPublish() runs in /cross-push before adapter.publish() for non-source platforms, returning a 422 with blockers so a bad draft never burns an API call (eBay self-validates in assemblePublishContext). marketplace-specs.ts was NOT touched (byte-identical mirror guard). 4 new edge tests; all checks green.
 - Timestamp: 2026-06-13
 ---
+
+## US-733: Virtualize the large data tables (listings, submissions, autolister queue)
+- Status: COMPLETE
+- Files changed: src/pages/flipdesk/listings.tsx, prd.json, scripts/ralph/progress.txt
+- Notes: Implemented the scoped approach the prior descope note itself recommended. Of the 3 named surfaces, 2 were already handled (autolister-queue.tsx virtualized via VirtualList/US-416; submissions.tsx server-paginated to 20 via .range, so virtualization is a no-op). The remaining one — listings.tsx, the primary inventory <table> — is now virtualized with @tanstack/react-virtual using the table spacer-row technique (top/bottom padding <tr>s in normal flow + dynamic measureElement on each TableRow via React-19 ref-as-prop + data-index). Threshold-gated by VIRTUALIZE_ROW_THRESHOLD=60: pages <=60 rows render byte-identical to before (zero regression risk for the common case); larger pages mount only visible+overscan(8) rows inside a max-h-[70vh] scroll box, with the header made sticky in that branch. Sorting, filtering, select-all, per-tab conditional columns, and InlineCell edits preserved. Verified: tsc clean, npm run build green, eslint clean, vitest 579 pass (7 failures pre-existing on clean HEAD: US-413/US-435, unrelated). Honest caveat: exact DOM-node % and scroll/selection visual QA can't be done headless; threshold gate confines any risk to large lists only.
+- Timestamp: 2026-06-13
+---
