@@ -11,6 +11,7 @@ import { apiV1Routes } from "./routes/api-v1.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { flipdeskEbayRoutes } from "./routes/flipdesk-ebay.ts";
 import { flipdeskShopifyRoutes } from "./routes/flipdesk-shopify.ts";
+import { flipdeskDepopRoutes } from "./routes/flipdesk-depop.ts";
 import {
   flipdeskWebhookRoutes,
   handleEbayPendingWebhooksCron,
@@ -569,6 +570,7 @@ app.route("/api/v1", apiV1Routes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);
 app.route("/api/flipdesk/shopify", flipdeskShopifyRoutes);
+app.route("/api/flipdesk/depop", flipdeskDepopRoutes);
 app.route("/api/flipdesk/webhooks", flipdeskWebhookRoutes);
 app.route("/api/flipdesk/grading", flipdeskGradingRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);

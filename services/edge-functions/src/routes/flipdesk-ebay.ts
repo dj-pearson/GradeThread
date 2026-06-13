@@ -48,6 +48,9 @@ import {
   type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
+// US-713: the Depop connector shares this token-refresh cron (no separate
+// Coolify task). The sweep is a no-op while DEPOP_ENABLED is off.
+import { refreshExpiringDepopConnections } from "../lib/depop-client.ts";
 import {
   centsToMoneyString,
   resolveBestOfferThresholds,
@@ -422,7 +425,10 @@ flipdeskEbayRoutes.post("/oauth/refresh", async (c) => {
       void pushTokenExpiring(userId);
     }
   }
-  return c.json({ scanned: userIds.length, refreshed, failed });
+  // US-713: same cron run also sweeps Depop connections nearing expiry (shared
+  // token-refresh worker alongside eBay). No-op while the connector is disabled.
+  const depop = await refreshExpiringDepopConnections();
+  return c.json({ scanned: userIds.length, refreshed, failed, depop });
 });
 
 // ── US-151: listing-performance sync (views / watchers / impressions) ──
