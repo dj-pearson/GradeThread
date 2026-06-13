@@ -535,6 +535,7 @@ export type StatusTone =
   | "live"
   | "success"
   | "danger"
+  | "dispute"
   | "muted";
 
 export const STATUS_TONE_CLASSES: Record<StatusTone, string> = {
@@ -550,6 +551,8 @@ export const STATUS_TONE_CLASSES: Record<StatusTone, string> = {
     "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
   danger:
     "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-300",
+  dispute:
+    "border-purple-300 bg-purple-100 text-purple-800 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300",
   muted: "border-border bg-muted text-muted-foreground",
 };
 
@@ -575,6 +578,59 @@ export const ITEM_STATUS_TONE: Record<
   keeping: "muted",
   wearing: "muted",
 };
+
+// Submission/grade-report lifecycle statuses mapped onto the same tone scale,
+// so a submission's status pill matches the rest of the app. One source for
+// the submissions list + dashboard (previously copy-pasted in both).
+export const SUBMISSION_STATUS_TONE: Record<string, StatusTone> = {
+  pending: "pricing",
+  processing: "live",
+  completed: "success",
+  failed: "danger",
+  disputed: "dispute",
+  expired: "muted",
+};
+
+// Tailwind classes for a submission-status badge. Returns "" for unknown
+// statuses (caller's <Badge variant="outline"> keeps its default look).
+export function getStatusBadgeClasses(status: string): string {
+  const tone = SUBMISSION_STATUS_TONE[status];
+  return tone ? STATUS_TONE_CLASSES[tone] : "";
+}
+
+// ─── Grade-score color tokens ────────────────────────────────────
+// Single source for grade-score coloring across the app — design.md §3B
+// refreshed media kit: Emerald Mint (>7), Amber Gold (5–7), AA-safe brand red
+// (<5). Used by certificate, submission/inventory detail, dashboard,
+// submissions. Edit these three to restyle every score everywhere.
+export function getScoreColor(score: number): string {
+  if (score > 7) return "text-emerald-500";
+  if (score >= 5) return "text-amber-500";
+  return "text-brand-red-text";
+}
+
+export function getScoreBorderColor(score: number): string {
+  if (score > 7) return "border-emerald-500";
+  if (score >= 5) return "border-amber-500";
+  return "border-brand-red";
+}
+
+// Progress-bar fill color (targets the inner <Progress> indicator div).
+export function getProgressColor(score: number): string {
+  if (score > 7) return "[&>div]:bg-emerald-500";
+  if (score >= 5) return "[&>div]:bg-amber-500";
+  return "[&>div]:bg-brand-red";
+}
+
+// Soft pill (bg + text + border) for a grade tier — used by the certificate
+// and submission detail's headline score badge.
+export function getTierBadgeClasses(score: number): string {
+  if (score > 7)
+    return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800";
+  if (score >= 5)
+    return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
+  return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800";
+}
 
 // ─── FlipDesk ────────────────────────────────────────────────────
 

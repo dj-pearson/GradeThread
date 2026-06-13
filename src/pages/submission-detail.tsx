@@ -45,7 +45,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { GRADE_FACTORS, DISPUTE_REASONS, COUNTERFEIT_RISK_LABELS } from "@/lib/constants";
+import {
+  GRADE_FACTORS,
+  DISPUTE_REASONS,
+  COUNTERFEIT_RISK_LABELS,
+  getScoreColor,
+  getTierBadgeClasses,
+  getProgressColor,
+} from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -69,21 +76,6 @@ import type {
   InventoryItemRow,
 } from "@/types/database";
 
-// Grade-tier colors follow the refreshed media kit (design.md §3B): Emerald
-// Mint (#10B981 = emerald-500), Amber Gold (#F59E0B = amber-500), and Vibrant
-// Crimson (#F03D5F = brand-red / rose tints) for the lower tier.
-function getScoreColor(score: number): string {
-  if (score > 7) return "text-emerald-500";
-  if (score >= 5) return "text-amber-500";
-  return "text-brand-red-text";
-}
-
-function getTierBadgeClasses(score: number): string {
-  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800";
-  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
-  return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800";
-}
-
 function getConfidenceLabel(score: number): {
   label: string;
   color: string;
@@ -101,12 +93,6 @@ function formatLabel(value: string): string {
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-}
-
-function getProgressColor(score: number): string {
-  if (score > 7) return "[&>div]:bg-emerald-500";
-  if (score >= 5) return "[&>div]:bg-amber-500";
-  return "[&>div]:bg-brand-red";
 }
 
 function LoadingSkeleton() {

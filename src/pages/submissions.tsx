@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +48,12 @@ import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
-import { GARMENT_TYPES, SUBMISSION_STATUSES } from "@/lib/constants";
+import {
+  GARMENT_TYPES,
+  SUBMISSION_STATUSES,
+  getStatusBadgeClasses,
+  getScoreColor,
+} from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, DisputeRow } from "@/types/database";
 
 const PAGE_SIZE = 20;
@@ -60,31 +66,6 @@ function formatLabel(value: string): string {
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-}
-
-function getStatusBadgeClasses(status: string): string {
-  switch (status) {
-    case "completed":
-      return "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300";
-    case "processing":
-      return "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300";
-    case "pending":
-      return "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
-    case "failed":
-      return "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
-    case "disputed":
-      return "border-purple-200 bg-purple-100 text-purple-800 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300";
-    case "expired":
-      return "border-gray-200 bg-gray-100 text-gray-600";
-    default:
-      return "";
-  }
-}
-
-function getScoreColor(score: number): string {
-  if (score > 7) return "text-green-600 dark:text-green-400";
-  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
-  return "text-red-600 dark:text-red-400";
 }
 
 interface SubmissionWithGrade extends SubmissionRow {
@@ -410,44 +391,42 @@ export function SubmissionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Submissions</h1>
-          <p className="text-muted-foreground">
-            View and manage your grading submissions.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={exporting}
-            onClick={async () => {
-              setExporting(true);
-              try {
-                await exportSubmissionsCsv();
-              } catch {
-                toast.error("Failed to export submissions.");
-              } finally {
-                setExporting(false);
-              }
-            }}
-          >
-            <Download className="mr-1 h-4 w-4" />
-            {exporting ? "Exporting…" : "Export CSV"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => navigate("/dashboard/submissions/bulk")}
-          >
-            <Layers className="mr-1 h-4 w-4" />
-            Bulk Upload
-          </Button>
-          <Button onClick={() => navigate("/dashboard/submissions/new")}>
-            <Plus className="mr-1 h-4 w-4" />
-            New Submission
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Submissions"
+        subtitle="View and manage your grading submissions."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await exportSubmissionsCsv();
+                } catch {
+                  toast.error("Failed to export submissions.");
+                } finally {
+                  setExporting(false);
+                }
+              }}
+            >
+              <Download className="mr-1 h-4 w-4" />
+              {exporting ? "Exporting…" : "Export CSV"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => navigate("/dashboard/submissions/bulk")}
+            >
+              <Layers className="mr-1 h-4 w-4" />
+              Bulk Upload
+            </Button>
+            <Button onClick={() => navigate("/dashboard/submissions/new")}>
+              <Plus className="mr-1 h-4 w-4" />
+              New Submission
+            </Button>
+          </>
+        }
+      />
 
       {/* Filters */}
       <Card>

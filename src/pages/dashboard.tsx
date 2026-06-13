@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { supabase } from "@/lib/supabase";
 import { fetchInChunks } from "@/lib/supabase-batch";
-import { PLANS } from "@/lib/constants";
+import { PLANS, getStatusBadgeClasses, getScoreColor } from "@/lib/constants";
 import type { PlanKey } from "@/lib/constants";
 import type { SubmissionRow, GradeReportRow, InventoryItemRow, ListingRow } from "@/types/database";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { ChartSkeleton } from "@/components/ui/skeletons";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
 
 // Defer the Recharts bundle so the dashboard shell paints before charts load.
 const GradeCharts = lazy(() =>
@@ -40,34 +41,11 @@ interface RecentSubmission extends SubmissionRow {
   grade_report?: Pick<GradeReportRow, "overall_score" | "grade_tier"> | null;
 }
 
-function getStatusBadgeClasses(status: string): string {
-  switch (status) {
-    case "completed":
-      return "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300";
-    case "processing":
-      return "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300";
-    case "pending":
-      return "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
-    case "failed":
-      return "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
-    case "disputed":
-      return "border-purple-200 bg-purple-100 text-purple-800 dark:border-purple-800 dark:bg-purple-950/50 dark:text-purple-300";
-    default:
-      return "";
-  }
-}
-
 function formatLabel(value: string): string {
   return value
     .split(/[-_]/)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
-}
-
-function getScoreColor(score: number): string {
-  if (score > 7) return "text-green-600 dark:text-green-400";
-  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
-  return "text-red-600 dark:text-red-400";
 }
 
 export function DashboardPage() {
@@ -203,18 +181,16 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Welcome back{profile?.full_name ? `, ${profile.full_name}` : ""}.
-          </p>
-        </div>
-        <Button onClick={() => navigate("/dashboard/submissions/new")}>
-          <Plus className="mr-1 h-4 w-4" />
-          New Submission
-        </Button>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        subtitle={`Welcome back${profile?.full_name ? `, ${profile.full_name}` : ""}.`}
+        actions={
+          <Button onClick={() => navigate("/dashboard/submissions/new")}>
+            <Plus className="mr-1 h-4 w-4" />
+            New Submission
+          </Button>
+        }
+      />
 
       {/* Quick Actions */}
       <div className="grid gap-3 sm:grid-cols-3">

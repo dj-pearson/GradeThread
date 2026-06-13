@@ -48,7 +48,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { ITEM_STATUSES, LISTING_PLATFORMS, GRADE_FACTORS } from "@/lib/constants";
+import {
+  ITEM_STATUSES,
+  LISTING_PLATFORMS,
+  GRADE_FACTORS,
+  getScoreColor,
+} from "@/lib/constants";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type {
@@ -108,35 +114,6 @@ function formatDate(date: string | null): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function getScoreColor(score: number): string {
-  if (score > 7) return "text-green-600 dark:text-green-400";
-  if (score >= 5) return "text-yellow-600 dark:text-yellow-400";
-  return "text-red-600 dark:text-red-400";
-}
-
-function getStatusBadgeClasses(status: string): string {
-  switch (status) {
-    case "acquired":
-      return "border-slate-200 bg-slate-100 text-slate-800";
-    case "grading":
-      return "border-blue-200 bg-blue-100 text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300";
-    case "graded":
-      return "border-indigo-200 bg-indigo-100 text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300";
-    case "listed":
-      return "border-yellow-200 bg-yellow-100 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/50 dark:text-yellow-300";
-    case "sold":
-      return "border-green-200 bg-green-100 text-green-800 dark:border-green-800 dark:bg-green-950/50 dark:text-green-300";
-    case "shipped":
-      return "border-cyan-200 bg-cyan-100 text-cyan-800 dark:border-cyan-800 dark:bg-cyan-950/50 dark:text-cyan-300";
-    case "completed":
-      return "border-emerald-200 bg-emerald-100 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300";
-    case "returned":
-      return "border-red-200 bg-red-100 text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-300";
-    default:
-      return "";
-  }
 }
 
 const LIFECYCLE_STEPS: { status: ItemStatus; icon: typeof Package; label: string }[] = [
@@ -661,12 +638,7 @@ export function InventoryDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge
-            variant="outline"
-            className={cn(getStatusBadgeClasses(item.status))}
-          >
-            {formatLabel(item.status)}
-          </Badge>
+          <StatusBadge status={item.status} />
         </div>
       </div>
 

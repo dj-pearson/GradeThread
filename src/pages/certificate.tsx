@@ -25,7 +25,13 @@ import { Breadcrumbs } from "@/components/breadcrumbs";
 import { certificateLd, breadcrumbLd } from "@/lib/seo/json-ld";
 import { SITE_URL } from "@/lib/seo/public-routes";
 import { cn } from "@/lib/utils";
-import { GRADE_FACTORS } from "@/lib/constants";
+import {
+  GRADE_FACTORS,
+  getScoreColor,
+  getScoreBorderColor,
+  getTierBadgeClasses,
+  getProgressColor,
+} from "@/lib/constants";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
@@ -56,33 +62,6 @@ type VerifyState =
   | { phase: "checking" }
   | { phase: "done"; result: IntegrityVerify }
   | { phase: "error" };
-
-// Grade-tier colors follow the refreshed media kit (design.md §3B): Emerald
-// Mint (#10B981 = emerald-500), Amber Gold (#F59E0B = amber-500), and Vibrant
-// Crimson (#F03D5F = brand-red / rose tints) for the lower tier.
-function getScoreColor(score: number): string {
-  if (score > 7) return "text-emerald-500";
-  if (score >= 5) return "text-amber-500";
-  return "text-brand-red-text";
-}
-
-function getScoreBorderColor(score: number): string {
-  if (score > 7) return "border-emerald-500";
-  if (score >= 5) return "border-amber-500";
-  return "border-brand-red";
-}
-
-function getTierBadgeClasses(score: number): string {
-  if (score > 7) return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800";
-  if (score >= 5) return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
-  return "bg-rose-100 text-rose-800 border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800";
-}
-
-function getProgressColor(score: number): string {
-  if (score > 7) return "[&>div]:bg-emerald-500";
-  if (score >= 5) return "[&>div]:bg-amber-500";
-  return "[&>div]:bg-brand-red";
-}
 
 function formatLabel(value: string): string {
   return value

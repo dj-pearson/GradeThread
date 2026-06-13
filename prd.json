@@ -9177,8 +9177,8 @@
         "A palette change requires editing one place, not every page"
       ],
       "priority": 605,
-      "passes": false,
-      "notes": "[P2][UX/Design-system] Deep-dive 2026-06-04. No shared PageHeader/EmptyState; status/score color logic duplicated across dashboard, submissions, certificate, inventory, inventory-detail, submission-detail."
+      "passes": true,
+      "notes": "[P2][UX/Design-system] Deep-dive 2026-06-04. No shared PageHeader/EmptyState; status/score color logic duplicated across dashboard, submissions, certificate, inventory, inventory-detail, submission-detail. IMPLEMENTED 2026-06-13: Added <PageHeader> (src/components/ui/page-header.tsx, title/subtitle/icon/actions) adopted in dashboard, submissions, settings, flipdesk/analytics; <EmptyState> already existed and is widely adopted. Centralized getScoreColor/getScoreBorderColor/getProgressColor/getTierBadgeClasses + submission-status SUBMISSION_STATUS_TONE/getStatusBadgeClasses into src/lib/constants.ts (single source on the media-kit emerald/amber/brand-red palette + shared StatusTone scale incl. new dispute tone); removed the copy-pasted versions from submissions, dashboard, certificate, submission-detail, inventory-detail (inventory-detail item-status badge now uses <StatusBadge>). Tests: page-header.test.tsx, status-score-tokens.test.ts."
     },
     {
       "id": "US-606",

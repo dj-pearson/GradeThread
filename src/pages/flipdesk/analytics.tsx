@@ -49,6 +49,7 @@ import {
   type ReturnStat,
 } from "@/lib/flipdesk-returns-analytics";
 import { ChartSkeleton, LoadingRegion } from "@/components/ui/skeletons";
+import { PageHeader } from "@/components/ui/page-header";
 
 // Lazy-load the Recharts bar chart at the chart boundary so the route-entry
 // chunk stays light and the page shell + table paint before Recharts streams
@@ -88,17 +89,11 @@ export function FlipdeskAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy text-white">
-          <BarChart3 className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
-          <p className="text-sm text-muted-foreground">
-            What sells, what doesn&apos;t, and whether grading pays off.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={BarChart3}
+        title="Analytics"
+        subtitle="What sells, what doesn't, and whether grading pays off."
+      />
 
       <Tabs
         value={tab}
