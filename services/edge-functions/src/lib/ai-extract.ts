@@ -50,11 +50,61 @@ const EXTRACT_FIELDS = [
   "description",
 ] as const;
 
+// ─── Canonical listing attributes (US-821) ──────────────────────────
+//
+// ONE extract pass should capture everything an eBay listing will ever need so
+// a later category change never re-runs AI. These are CANONICAL (lowercase
+// snake_case) keys — NOT eBay aspect names; US-822 maps canonical -> per-
+// category eBay aspect downstream. Values are kept as free text (with common
+// values hinted in the prompt) so US-823's normalization layer owns synonyms;
+// constraining them to enums here would silently drop legitimate values.
+//
+// Token-budget note: this set adds ~13 small object slots to the SAME single
+// extract tool call (no extra AI invocation). max_tokens was bumped to 2500 to
+// keep the tool-call JSON from truncating mid-string with the wider schema.
+interface CanonicalAttributeSpec {
+  key: string;
+  multi: boolean;
+  description: string;
+}
+
+export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
+  { key: "department", multi: false, description: "Target department — e.g. Men, Women, Unisex Adult, Boys, Girls, Baby" },
+  { key: "size_type", multi: false, description: "Size type — e.g. Regular, Plus, Petite, Big & Tall, Juniors, Maternity, Tall" },
+  { key: "sleeve_length", multi: false, description: "Sleeve length — e.g. Short Sleeve, Long Sleeve, 3/4 Sleeve, Sleeveless" },
+  { key: "neckline", multi: false, description: "Neckline — e.g. Crew Neck, V-Neck, Collared, Hooded, Turtleneck, Scoop Neck" },
+  { key: "pattern", multi: false, description: "Pattern — e.g. Solid, Striped, Plaid, Floral, Graphic, Camouflage, Polka Dot" },
+  { key: "fit", multi: false, description: "Fit — e.g. Regular, Slim, Relaxed, Oversized, Skinny, Loose" },
+  { key: "closure", multi: false, description: "Closure — e.g. Button, Zip, Pullover, Snap, Drawstring, Hook & Loop" },
+  { key: "features", multi: true, description: "Notable features as an array — e.g. Pockets, Hooded, Lined, Stretch, Water Resistant, Breathable" },
+  { key: "garment_care", multi: false, description: "Care instructions read from the tag — e.g. Machine Wash, Hand Wash, Dry Clean Only" },
+  { key: "country_of_manufacture", multi: false, description: "Country of manufacture read verbatim from the care label" },
+  { key: "vintage", multi: false, description: "Whether the item is vintage (20+ years old / clearly retro) — 'Yes' or 'No'" },
+  { key: "theme", multi: false, description: "Theme or franchise — e.g. a sports team, band, movie, brand collab" },
+  { key: "mpn", multi: false, description: "Manufacturer Part Number / style code printed on the tag (distinct from the marketing style name)" },
+];
+
+const MULTI_ATTRIBUTE_KEYS = new Set(
+  CANONICAL_ATTRIBUTES.filter((a) => a.multi).map((a) => a.key),
+);
+
 export interface FieldSuggestion {
   value: string;
   confidence: number; // 0..1
   source: string; // "text" | "photo:tag" | "photo:front" | ...
 }
+
+// A captured canonical attribute. Always an array (multi fits the same shape;
+// single uses length 1) with a calibrated confidence + provenance source.
+export interface AttributeSuggestion {
+  values: string[];
+  confidence: number; // 0..1
+  source: string;
+}
+
+// The persisted form of inventory_items.attributes: canonical key -> a scalar
+// string (single) or string[] (multi, e.g. features).
+export type CanonicalAttributeColumn = Record<string, string | string[]>;
 
 export interface ExtractPhoto {
   url: string;
@@ -80,6 +130,8 @@ export type MeasurementSuggestions = Record<string, number>;
 
 export interface ExtractionResult {
   suggestions: Record<string, FieldSuggestion>;
+  /** US-821: canonical listing attributes captured in the same single pass. */
+  attributes: Record<string, AttributeSuggestion>;
   conditionSummary: string | null;
   conflicts: FieldConflict[];
   measurements: MeasurementSuggestions | null;
@@ -132,6 +184,14 @@ Fields supplied as already-known are ground truth — do not contradict them; on
 Always also return a short condition_summary describing the item's observed condition.
 Always also return ebay_category_query: a short, generic eBay category search phrase for this item (e.g. "men's flannel button-up shirt", "women's ankle boots") — item type + department, NO brand, NO size, NO color.
 
+Canonical attributes (the 'attributes' object):
+- Capture EVERY listing attribute you can support in this ONE call, so a later category change never needs a fresh AI pass. These are CANONICAL keys, not eBay aspect names.
+- Fill only the attributes the photos/text clearly support — omit the rest. Never guess.
+- The example values in each field's description are HINTS, not a closed list — return the value you actually observe (a downstream layer normalizes synonyms).
+- 'features' is an array (return all that apply); every other attribute is a single value.
+- Read department, size_type, garment_care, country_of_manufacture, and mpn from the care/brand tag when present. mpn is the manufacturer part/style number printed on the tag — distinct from the marketing 'style' name; do not conflate them.
+- Give each attribute a 0..1 confidence and a source string, same as the core fields.
+
 Measurement suggestions:
 - ONLY suggest measurements when brand AND size AND item type are clearly identifiable. If any of those are unknown, OMIT measurements entirely.
 - Measurements are the BRAND'S PUBLISHED FLAT-MEASUREMENT SPEC for that size, NOT measured from this specific garment. The user will verify.
@@ -161,6 +221,47 @@ function fieldSchema(description: string) {
     required: ["value", "confidence"],
   };
 }
+
+// One canonical-attribute slot in the extract tool. Multi attrs (features)
+// take a string array; single attrs take a scalar string. Confidence + source
+// mirror fieldSchema so the same decode path reads both.
+function attributeSchema(spec: CanonicalAttributeSpec) {
+  const valueProp = spec.multi
+    ? {
+        values: {
+          type: "array" as const,
+          items: { type: "string" as const },
+          description: "All applicable values",
+        },
+      }
+    : { value: { type: "string" as const } };
+  return {
+    type: "object" as const,
+    description: spec.description,
+    properties: {
+      ...valueProp,
+      confidence: {
+        type: "number" as const,
+        description: "0..1 calibrated confidence",
+      },
+      source: {
+        type: "string" as const,
+        description: "'text' or 'photo:<type>'",
+      },
+    },
+    required: ["confidence"],
+  };
+}
+
+// The nested `attributes` object schema, one property per canonical attribute.
+const ATTRIBUTES_SCHEMA = {
+  type: "object" as const,
+  description:
+    "Canonical listing attributes (lowercase snake_case keys, NOT eBay aspect names). Fill every attribute the photos/text support; omit the rest.",
+  properties: Object.fromEntries(
+    CANONICAL_ATTRIBUTES.map((spec) => [spec.key, attributeSchema(spec)]),
+  ),
+};
 
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "extract_item_fields",
@@ -200,6 +301,7 @@ const EXTRACT_TOOL: Anthropic.Tool = {
         description:
           "Short eBay category search phrase: item type + department, no brand/size/color (e.g. \"men's flannel button-up shirt\")",
       },
+      attributes: ATTRIBUTES_SCHEMA,
       conflicts: {
         type: "array",
         description:
@@ -290,9 +392,10 @@ export async function extractItemFields(
 
   const response = await client.messages.create({
     model,
-    // 2000 (was 1500): the added buyer-facing `description` field needs a bit
-    // more headroom so the tool-call JSON can't truncate mid-string.
-    max_tokens: 2000,
+    // 2500 (was 2000): the buyer-facing `description` plus the US-821 canonical
+    // `attributes` object widen the tool-call JSON; extra headroom keeps it from
+    // truncating mid-string.
+    max_tokens: 2500,
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [EXTRACT_TOOL],
@@ -305,7 +408,32 @@ export async function extractItemFields(
     throw new Error("AI did not return structured fields");
   }
 
-  const raw = toolUse.input as Record<string, unknown>;
+  const decoded = decodeExtraction(
+    toolUse.input as Record<string, unknown>,
+    hasPhotos,
+  );
+
+  return {
+    ...decoded,
+    model,
+    tokensIn:
+      response.usage.input_tokens +
+      (response.usage.cache_read_input_tokens ?? 0) +
+      (response.usage.cache_creation_input_tokens ?? 0),
+    tokensOut: response.usage.output_tokens,
+  };
+}
+
+/**
+ * Pure decoder for the extract_item_fields tool output. Split out from the
+ * transport so the schema-decode + the original-9-field regression can be unit
+ * tested without an AI call (US-821). Returns everything in ExtractionResult
+ * except the transport-only model/token fields.
+ */
+export function decodeExtraction(
+  raw: Record<string, unknown>,
+  hasPhotos: boolean,
+): Omit<ExtractionResult, "model" | "tokensIn" | "tokensOut"> {
   const defaultSource = hasPhotos ? "photo" : "text";
   const suggestions: Record<string, FieldSuggestion> = {};
 
@@ -332,6 +460,42 @@ export async function extractItemFields(
       confidence,
       source,
     };
+  }
+
+  // Canonical attributes (US-821). Each slot is { value | values, confidence,
+  // source }; normalize to an always-array AttributeSuggestion. Drop empties.
+  const attributes: Record<string, AttributeSuggestion> = {};
+  const rawAttrs =
+    raw.attributes && typeof raw.attributes === "object"
+      ? (raw.attributes as Record<string, unknown>)
+      : {};
+  for (const spec of CANONICAL_ATTRIBUTES) {
+    const slot = rawAttrs[spec.key];
+    if (!slot || typeof slot !== "object") continue;
+    const s = slot as {
+      value?: unknown;
+      values?: unknown;
+      confidence?: unknown;
+      source?: unknown;
+    };
+    const rawValues = Array.isArray(s.values)
+      ? s.values
+      : s.value !== undefined && s.value !== null
+        ? [s.value]
+        : [];
+    let values = rawValues
+      .map((v) => (typeof v === "string" ? v.trim() : String(v).trim()))
+      .filter((v) => v.length > 0 && v.toLowerCase() !== "unknown");
+    if (!MULTI_ATTRIBUTE_KEYS.has(spec.key)) values = values.slice(0, 1);
+    if (values.length === 0) continue;
+    let confidence = Number(s.confidence);
+    if (Number.isNaN(confidence)) confidence = 0.5;
+    confidence = Math.max(0, Math.min(1, confidence));
+    const source =
+      typeof s.source === "string" && s.source.trim() !== ""
+        ? s.source
+        : defaultSource;
+    attributes[spec.key] = { values, confidence, source };
   }
 
   const conditionSummary =
@@ -378,17 +542,27 @@ export async function extractItemFields(
 
   return {
     suggestions,
+    attributes,
     conditionSummary,
     conflicts,
     measurements: Object.keys(measurements).length > 0 ? measurements : null,
     ebayCategoryQuery,
-    model,
-    tokensIn:
-      response.usage.input_tokens +
-      (response.usage.cache_read_input_tokens ?? 0) +
-      (response.usage.cache_creation_input_tokens ?? 0),
-    tokensOut: response.usage.output_tokens,
   };
+}
+
+/**
+ * Maps decoded AttributeSuggestions to the persisted inventory_items.attributes
+ * column form (canonical key -> scalar string | string[] for multi). US-821.
+ */
+export function attributesToColumn(
+  attributes: Record<string, AttributeSuggestion>,
+): CanonicalAttributeColumn {
+  const out: CanonicalAttributeColumn = {};
+  for (const [key, sug] of Object.entries(attributes)) {
+    if (sug.values.length === 0) continue;
+    out[key] = MULTI_ATTRIBUTE_KEYS.has(key) ? sug.values : sug.values[0]!;
+  }
+  return out;
 }
 
 // ─── eBay aspect-aware extraction (Week 2) ────────────────────────

@@ -1876,3 +1876,18 @@ Branch: ralph/gradethread-build
 - Notes: Server columns already existed (00104). The /flipdesk/subscribe guard was already present (US-?); this story added the symmetric /flipdesk/downgrade guard, the read-path fields, and the entire web-side awareness. Both endpoints return 409 {error:'ACTIVE_APPSTORE_SUBSCRIPTION', action:'manage_in_app'}. Consumables (credit packs, per-grade) intentionally never blocked. Verified: deno test appstore-precedence (5/0), deno check + lint clean, web tsc -b + npm run build + past-due-banner.test (3/3) all green.
 - Timestamp: 2026-06-13
 ---
+
+## US-821: Canonical attribute capture — extend AI extract to the full listing field set
+- Status: COMPLETE
+- Files changed:
+  * supabase/migrations/00182_inventory_canonical_attributes.sql (NEW — attributes jsonb + GIN index, condition_summary, ebay_category_query; idempotent)
+  * services/edge-functions/src/lib/schema-version.ts (EXPECTED_SCHEMA_VERSION 00181 → 00182)
+  * services/edge-functions/src/lib/ai-extract.ts (CANONICAL_ATTRIBUTES specs + attributes tool schema in the SAME call; split out pure decodeExtraction() + attributesToColumn(); max_tokens 2000→2500)
+  * services/edge-functions/src/routes/flipdesk-ai.ts (/extract + /bulk-extract gap-fill-persist attributes + condition_summary + ebay_category_query, tenant-scoped; response returns them)
+  * services/edge-functions/src/tests/canonical-attributes_test.ts (NEW — 8 pure unit tests)
+  * src/types/database.ts (CanonicalAttributes + key constants + InventoryItemRow/Insert fields)
+  * ios/GradeThread/AIExtract/AIExtractTypes.swift (AttributeSuggestion + AIExtractResponse decodes attributes + ebay_category_query)
+  * prd.json (US-821 passes:true)
+- Notes: Found the US-821 edge/web/migration core already implemented in the working tree (uncommitted) but missing AC5's edge unit tests and the iOS model update — completed both. Key design: the server gap-fill-persists canonical attributes during /extract (existing/user values always win), so BOTH web and iOS get persistence (AC3) centrally without re-porting logic. AC4 caveat: iOS AIExtractView is the US-686 auto-apply flow (no per-field review screen anymore — review moved to the item canvas), so attribute review chips belong on the canvas surface; deferred to an iOS-CI session (Swift can't compile on Windows). Verified: web tsc --noEmit + npm run build + eslint clean; deno check + deno lint clean; 8 canonical-attribute tests + 9 schema-version tests green.
+- Timestamp: 2026-06-13
+---

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
+  attributesToColumn,
   estimateCost,
   extractEbayAspects,
   extractItemFields,
@@ -9,6 +10,7 @@ import {
   rewriteField,
   rewriteListingCopy,
   type AspectValueSuggestion,
+  type AttributeSuggestion,
   type EbayAspectSpec,
   type ExtractionResult,
   type ExtractPhoto,
@@ -306,6 +308,26 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     console.error("[flipdesk-ai] failed to write log row:", logErr.message);
   }
 
+  // US-821: persist the canonical attributes + condition_summary +
+  // ebay_category_query onto the item in the SAME pass (gap-fill, tenant-
+  // scoped). Best-effort — never fails the core extraction.
+  let persistedAttributes: Record<string, string | string[]> = {};
+  if (itemId) {
+    try {
+      const persisted = await persistCanonicalAttributes({
+        userId,
+        itemId,
+        extraction: result,
+      });
+      persistedAttributes = persisted.attributes;
+    } catch (err) {
+      console.error(
+        "[flipdesk-ai] canonical-attribute persistence failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    }
+  }
+
   // One-call listing prep: resolve the eBay category + fill its
   // item-specifics, persisting both onto the item. Best-effort — never
   // fails the core extraction.
@@ -336,7 +358,12 @@ flipdeskAiRoutes.post("/extract", async (c) => {
 
   return c.json({
     suggestions: result.suggestions,
+    // US-821: canonical attributes captured this pass (raw per-field
+    // confidence + source) plus the merged column form persisted on the item.
+    attributes: result.attributes,
+    persisted_attributes: persistedAttributes,
     condition_summary: result.conditionSummary,
+    ebay_category_query: result.ebayCategoryQuery,
     conflicts: result.conflicts,
     measurements: result.measurements,
     model: result.model,
@@ -801,6 +828,85 @@ async function runEbayAspectsPhase(args: {
   };
 }
 
+// US-821: persist the single-pass canonical attributes (+ condition_summary,
+// ebay_category_query) onto an OWNED item. Gap-fills inventory_items.attributes
+// (existing/user-entered keys win), records provenance in ai_field_sources, and
+// refreshes the two AI-owned display fields. Tenant-scoped by user_id; returns
+// the merged attribute column so the caller can reflect it to the client.
+// Best-effort — never throws into the extract response path.
+async function persistCanonicalAttributes(args: {
+  userId: string;
+  itemId: string;
+  extraction: ExtractionResult;
+}): Promise<{ attributes: Record<string, string | string[]> }> {
+  const { userId, itemId, extraction } = args;
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, attributes, ai_field_sources")
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .single();
+  if (!item || (item as { user_id: string }).user_id !== userId) {
+    return { attributes: {} };
+  }
+
+  const existing =
+    ((item as { attributes?: unknown }).attributes &&
+      typeof (item as { attributes?: unknown }).attributes === "object"
+      ? (item as { attributes: Record<string, string | string[]> }).attributes
+      : {}) as Record<string, string | string[]>;
+  const aiSources =
+    ((item as { ai_field_sources?: unknown }).ai_field_sources as Record<
+      string,
+      unknown
+    >) ?? {};
+
+  const suggested = attributesToColumn(extraction.attributes);
+  const merged: Record<string, string | string[]> = { ...existing };
+  let attributesChanged = false;
+  for (const [key, value] of Object.entries(suggested)) {
+    // Gap-fill only — never clobber an existing (likely user-entered) value.
+    const cur = existing[key];
+    const isEmpty =
+      cur === undefined ||
+      cur === null ||
+      (Array.isArray(cur) ? cur.length === 0 : String(cur).trim() === "");
+    if (!isEmpty) continue;
+    merged[key] = value;
+    const sug: AttributeSuggestion | undefined = extraction.attributes[key];
+    aiSources[key] = {
+      source: sug?.source ?? "ai",
+      confidence: sug?.confidence ?? 0,
+      accepted: true,
+    };
+    attributesChanged = true;
+  }
+
+  const update: Record<string, unknown> = {};
+  if (attributesChanged) {
+    update.attributes = merged;
+    update.ai_field_sources = aiSources;
+    update.ai_enriched_at = new Date().toISOString();
+  }
+  // condition_summary / ebay_category_query are AI-owned display fields —
+  // refresh them whenever the latest pass produced a value.
+  if (extraction.conditionSummary) {
+    update.condition_summary = extraction.conditionSummary;
+  }
+  if (extraction.ebayCategoryQuery) {
+    update.ebay_category_query = extraction.ebayCategoryQuery;
+  }
+
+  if (Object.keys(update).length > 0) {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update(update)
+      .eq("id", itemId)
+      .eq("user_id", userId);
+  }
+  return { attributes: merged };
+}
+
 // Item photos as typed { url, type } pairs from the public item-photos bucket.
 async function loadItemPhotos(itemId: string): Promise<ExtractPhoto[]> {
   const { data } = await supabaseAdmin
@@ -1127,7 +1233,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       const { data: item } = await supabaseAdmin
         .from("inventory_items")
         .select(
-          "id, user_id, title, brand, style, size, color, material, item_category, description, condition_notes, ai_field_sources"
+          "id, user_id, title, brand, style, size, color, material, item_category, description, condition_notes, ai_field_sources, attributes"
         )
         .eq("id", itemId)
         .single();
@@ -1208,6 +1314,44 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         }
       }
 
+      // US-821: gap-fill canonical attributes (existing/user values win) and
+      // refresh the AI-owned display fields in the same write.
+      const existingAttrs =
+        ((item as { attributes?: unknown }).attributes &&
+          typeof (item as { attributes?: unknown }).attributes === "object"
+          ? (item as { attributes: Record<string, string | string[]> })
+              .attributes
+          : {}) as Record<string, string | string[]>;
+      const suggestedAttrs = attributesToColumn(extraction.attributes);
+      const mergedAttrs: Record<string, string | string[]> = {
+        ...existingAttrs,
+      };
+      let attributesChanged = false;
+      for (const [key, value] of Object.entries(suggestedAttrs)) {
+        const cur = existingAttrs[key];
+        const isEmpty =
+          cur === undefined ||
+          cur === null ||
+          (Array.isArray(cur) ? cur.length === 0 : String(cur).trim() === "");
+        if (!isEmpty) continue;
+        mergedAttrs[key] = value;
+        const sug = extraction.attributes[key];
+        aiSources[key] = {
+          source: sug?.source ?? "ai",
+          confidence: sug?.confidence ?? 0,
+          accepted: true,
+        };
+        applied.push(key);
+        attributesChanged = true;
+      }
+      if (attributesChanged) update.attributes = mergedAttrs;
+      if (extraction.conditionSummary) {
+        update.condition_summary = extraction.conditionSummary;
+      }
+      if (extraction.ebayCategoryQuery) {
+        update.ebay_category_query = extraction.ebayCategoryQuery;
+      }
+
       const costUsd = estimateCost(
         extraction.model,
         extraction.tokensIn,
@@ -1229,10 +1373,13 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       if (applied.length > 0) {
         update.ai_field_sources = aiSources;
         update.ai_enriched_at = new Date().toISOString();
+      }
+      if (Object.keys(update).length > 0) {
         await supabaseAdmin
           .from("inventory_items")
           .update(update)
-          .eq("id", itemId);
+          .eq("id", itemId)
+          .eq("user_id", userId);
       }
 
       results.push({

@@ -11,6 +11,23 @@ struct FieldSuggestion: Codable, Equatable, Hashable {
     let source: String
 }
 
+/// US-821: one captured canonical listing attribute. Mirrors the wire shape
+/// from `ai-extract.ts:AttributeSuggestion` — always an array (a single-valued
+/// attribute is length 1; `features` is the only multi attribute), with a
+/// calibrated confidence + provenance source. These are CANONICAL keys
+/// (department, size_type, sleeve_length, …), NOT eBay aspect names — the
+/// per-category eBay mapping happens server-side (US-822). The edge service
+/// already gap-fill-persists these onto `inventory_items.attributes` during the
+/// extract call, so the client decodes them for display/telemetry, not to
+/// re-persist.
+struct AttributeSuggestion: Codable, Equatable, Hashable {
+    let values: [String]
+    /// 0…1.
+    let confidence: Double
+    /// e.g. "text", "photo:tag", "photo:front".
+    let source: String
+}
+
 /// Conflict surfaced when text + photo extraction disagree on the same
 /// field. The review screen exposes both candidates so the user can pick.
 struct FieldConflict: Codable, Equatable {
@@ -101,6 +118,16 @@ struct AIExtractResponse: Decodable, Equatable {
     /// Defaulted `var` so the synthesized memberwise init keeps working for
     /// callers that build synthetic responses (Live Text fallback, tests).
     var ebay: AIExtractEbayBlock? = nil
+    /// US-821: canonical listing attributes captured in the SAME extract pass
+    /// (department, size_type, sleeve_length, …). Keyed by canonical name. The
+    /// server has ALREADY gap-fill-persisted these onto inventory_items, so the
+    /// client uses them for display/telemetry only. Defaulted so synthetic
+    /// responses (Live Text fallback, tests) and older edge builds still decode.
+    var attributes: [String: AttributeSuggestion] = [:]
+    /// US-821: the generic eBay category search phrase (item type + department,
+    /// no brand/size/color). Persisted server-side so a later category change
+    /// can re-resolve without re-running AI.
+    var ebayCategoryQuery: String? = nil
 
     private enum CodingKeys: String, CodingKey {
         case suggestions
@@ -111,6 +138,8 @@ struct AIExtractResponse: Decodable, Equatable {
         case logId = "log_id"
         case actionsRemaining = "actions_remaining"
         case ebay
+        case attributes
+        case ebayCategoryQuery = "ebay_category_query"
     }
 }
 

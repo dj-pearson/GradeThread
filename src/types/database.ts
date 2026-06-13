@@ -713,6 +713,14 @@ export interface InventoryItemRow {
   // AI enrichment (US-158)
   ai_field_sources: Record<string, AiFieldSource>;
   ai_enriched_at: string | null;
+  // US-821: canonical listing attributes captured in the single AI extract
+  // pass. Lowercase snake_case key -> value (string) or values (string[] for
+  // multi attrs like `features`). NOT eBay aspect names — US-822 maps these to
+  // per-category eBay aspects. condition_summary + ebay_category_query were
+  // previously extracted but dropped; now persisted (migration 00182).
+  attributes: CanonicalAttributes;
+  condition_summary: string | null;
+  ebay_category_query: string | null;
   // eBay taxonomy mapping (migration 00030)
   ebay_category_id: string | null;
   ebay_aspects: Record<string, string[]> | null;
@@ -760,6 +768,35 @@ export interface AiFieldSource {
   confidence: number; // 0..1
   accepted: boolean;
 }
+
+// US-821: canonical listing attributes persisted on inventory_items.attributes
+// (jsonb). Single-value attributes store a scalar string; multi attributes
+// (currently only `features`) store a string[]. Keys are canonical lowercase
+// snake_case — the per-category eBay aspect mapping happens downstream (US-822).
+export type CanonicalAttributes = Record<string, string | string[]>;
+
+// The canonical attribute keys the AI extract pass can capture (US-821).
+export const CANONICAL_ATTRIBUTE_KEYS = [
+  "department",
+  "size_type",
+  "sleeve_length",
+  "neckline",
+  "pattern",
+  "fit",
+  "closure",
+  "features",
+  "garment_care",
+  "country_of_manufacture",
+  "vintage",
+  "theme",
+  "mpn",
+] as const;
+export type CanonicalAttributeKey = (typeof CANONICAL_ATTRIBUTE_KEYS)[number];
+
+// Only `features` is multi-valued; every other canonical attribute is single.
+export const MULTI_ATTRIBUTE_KEYS: readonly CanonicalAttributeKey[] = [
+  "features",
+];
 
 // US-766: how the Digital Slab (QR-bearing graded photo) is attached to a
 // listing's marketplace images. 'off' = not attached; 'hero' = lead image;
@@ -1752,6 +1789,10 @@ export interface InventoryItemInsert {
   comp_set?: ItemComp[];
   ai_field_sources?: Record<string, AiFieldSource>;
   ai_enriched_at?: string | null;
+  // US-821 canonical attributes (migration 00182)
+  attributes?: CanonicalAttributes;
+  condition_summary?: string | null;
+  ebay_category_query?: string | null;
   ebay_category_id?: string | null;
   ebay_aspects?: Record<string, string[]> | null;
   ai_generated_aspects_at?: string | null;
