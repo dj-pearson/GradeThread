@@ -24,7 +24,10 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Users, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Users, Search, Loader2, Crosshair } from "lucide-react";
+import { edgeFetch } from "@/lib/edge-fetch";
+import { toast } from "sonner";
 
 const ROLE_COLORS: Record<string, string> = {
   user: "bg-muted text-muted-foreground",
@@ -55,6 +58,26 @@ function formatDate(dateStr: string): string {
 
 const PAGE_SIZE = 20;
 
+interface LookupMatch {
+  user_id: string;
+  email: string;
+  full_name: string | null;
+  matched_on:
+    | "email"
+    | "user_id"
+    | "stripe_customer_id"
+    | "submission_id"
+    | "certificate_id";
+}
+
+const MATCHED_ON_LABEL: Record<LookupMatch["matched_on"], string> = {
+  email: "Email",
+  user_id: "User ID",
+  stripe_customer_id: "Stripe customer",
+  submission_id: "Submission ID",
+  certificate_id: "Certificate ID",
+};
+
 type UserListColumns = Pick<
   UserRow,
   "id" | "email" | "full_name" | "plan" | "role" | "grades_used_this_month" | "created_at"
@@ -80,6 +103,48 @@ export function AdminUsersPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
+
+  // US-581: global account lookup by email / Stripe customer / submission id /
+  // certificate id. Resolves to the owning user and jumps to their detail page.
+  const [lookupQ, setLookupQ] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupResults, setLookupResults] = useState<LookupMatch[] | null>(null);
+
+  async function handleLookup(e: React.FormEvent) {
+    e.preventDefault();
+    const q = lookupQ.trim();
+    if (q.length < 3) {
+      toast.error("Enter at least 3 characters to look up.");
+      return;
+    }
+    setLookupLoading(true);
+    setLookupResults(null);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/users/lookup?q=${encodeURIComponent(q)}`,
+        { silentGate: true },
+      );
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body?.error ?? `HTTP ${res.status}`);
+      }
+      const matches = (body.matches ?? []) as LookupMatch[];
+      if (matches.length === 0) {
+        toast.error("No account found for that identifier.");
+        setLookupResults([]);
+        return;
+      }
+      if (matches.length === 1) {
+        navigate(`/admin/users/${matches[0]!.user_id}`);
+        return;
+      }
+      setLookupResults(matches);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Lookup failed");
+    } finally {
+      setLookupLoading(false);
+    }
+  }
 
   // US-415: the users list paginates server-side via `.range()` + an exact
   // count. Filters/search are pushed into the query, and the per-user
@@ -142,6 +207,51 @@ export function AdminUsersPage() {
           {totalCount} user{totalCount !== 1 ? "s" : ""}
         </Badge>
       </div>
+
+      {/* Global lookup (US-581) — jump to any account by a unique identifier. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm font-medium">
+            <Crosshair className="h-4 w-4 text-brand-red-text" />
+            Global account lookup
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleLookup} className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              placeholder="Email, Stripe customer (cus_…), submission ID, or certificate ID"
+              value={lookupQ}
+              onChange={(e) => setLookupQ(e.target.value)}
+              className="flex-1"
+            />
+            <Button type="submit" disabled={lookupLoading} className="sm:w-32">
+              {lookupLoading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Crosshair className="mr-2 h-4 w-4" />
+              )}
+              Find account
+            </Button>
+          </form>
+          {lookupResults && lookupResults.length > 0 && (
+            <div className="mt-3 divide-y rounded-md border">
+              {lookupResults.map((m) => (
+                <button
+                  key={`${m.user_id}-${m.matched_on}`}
+                  onClick={() => navigate(`/admin/users/${m.user_id}`)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-muted/50"
+                >
+                  <span>
+                    <span className="font-medium">{m.full_name || m.email}</span>
+                    <span className="ml-2 text-muted-foreground">{m.email}</span>
+                  </span>
+                  <Badge variant="secondary">{MATCHED_ON_LABEL[m.matched_on]}</Badge>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Search and Filters */}
       <Card>

@@ -45,6 +45,7 @@ import { adminFlagsRoutes } from "./routes/admin-flags.ts";
 import { adminGradingRoutes } from "./routes/admin-grading.ts";
 import { adminDisputesRoutes } from "./routes/admin-disputes.ts";
 import { adminUsersRoutes } from "./routes/admin-users.ts";
+import { adminImpersonationRoutes } from "./routes/admin-impersonation.ts";
 import { adminModerationRoutes } from "./routes/admin-moderation.ts";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
@@ -513,6 +514,10 @@ app.route("/api/admin/grading", adminGradingRoutes);
 // certificate on a grade adjustment. Admin JWT + MFA via the /api/admin/* group.
 app.route("/api/admin/disputes", adminDisputesRoutes);
 app.route("/api/admin/users", adminUsersRoutes);
+// US-581 super-admin impersonation / "view as" + audited start/stop. Admin JWT
+// + AAL2 via the /api/admin/* group; start additionally requires super_admin +
+// a fresh MFA step-up (it mints a real session as the target user).
+app.route("/api/admin/impersonation", adminImpersonationRoutes);
 // US-476/477 admin content moderation (approve/reject/ban) — audited
 // service-role routes (admin JWT + AAL2 via the /api/admin/* group).
 app.route("/api/admin/moderation", adminModerationRoutes);

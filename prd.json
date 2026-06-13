@@ -8873,8 +8873,8 @@
         "Every impersonation start/stop is written to admin_audit_log"
       ],
       "priority": 581,
-      "passes": false,
-      "notes": "[P1][Admin] Deep-dive 2026-06-04. No impersonation/magic-link/view-as infra exists; users.tsx only lists+filters. #1 support gap per admin audit."
+      "passes": true,
+      "notes": "[P1][Admin] Deep-dive 2026-06-04. No impersonation/magic-link/view-as infra exists; users.tsx only lists+filters. #1 support gap per admin audit. | DONE 2026-06-12. Edge: admin-impersonation.ts (POST /start/:id = super_admin + requireStepUp + generateLink magic-token, audits admin.impersonate_start, refuses impersonating admin/super_admin; POST /stop audits admin.impersonate_stop) mounted at /api/admin/impersonation. Global lookup added as GET /api/admin/users/lookup (email ilike / cus_ Stripe id / UUID probed across users→submissions→grade_reports.certificate_id), admin+AAL2 gated, read-only. Frontend: impersonation-store.ts (sessionStorage-persisted record incl. stashed admin tokens), lib/impersonation.ts (start stashes admin session → start endpoint → verifyOtp swaps into target; stop restores admin session via setSession then audits), impersonation-banner.tsx persistent brand-red banner with hard Exit, wired into dashboard-layout. user-detail.tsx: super_admin-only 'View as user' button (hidden for admin/super_admin targets) → confirm → step-up retry. users.tsx: global lookup card jumping to /admin/users/:id (single match auto-navigates, multi shows list). tsc/build/deno-check/eslint/deno-lint all green."
     },
     {
       "id": "US-582",

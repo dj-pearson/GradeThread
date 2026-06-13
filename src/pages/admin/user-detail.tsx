@@ -54,7 +54,9 @@ import {
   Ban,
   CheckCircle,
   Loader2,
+  Eye,
 } from "lucide-react";
+import { startImpersonation } from "@/lib/impersonation";
 import { toast } from "sonner";
 import * as Sentry from "@sentry/react";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
@@ -138,6 +140,9 @@ export function AdminUserDetailPage() {
   const [suspendDialogOpen, setSuspendDialogOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [impersonateDialogOpen, setImpersonateDialogOpen] = useState(false);
+  const [impersonating, setImpersonating] = useState(false);
+  const [impersonateStepUpOpen, setImpersonateStepUpOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-user-detail", id],
@@ -317,6 +322,32 @@ export function AdminUserDetailPage() {
     }
   }
 
+  // US-581: super-admin "view as". Mints a session as the target user (gated by
+  // a fresh MFA step-up on the server) and swaps the browser into it, then hard-
+  // navigates to the target's dashboard. The persistent banner + Exit live in
+  // the dashboard layout.
+  async function handleImpersonate() {
+    if (!targetUser) return;
+    setImpersonating(true);
+    try {
+      const result = await startImpersonation(targetUser.id);
+      if (result.ok) {
+        setImpersonateDialogOpen(false);
+        window.location.assign("/dashboard");
+        return;
+      }
+      if (result.stepUpRequired) {
+        setImpersonateStepUpOpen(true); // dialog's onVerified retries
+        return;
+      }
+      toast.error(result.error || "Failed to start impersonation");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to start impersonation");
+    } finally {
+      setImpersonating(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -360,6 +391,19 @@ export function AdminUserDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-2xl font-bold">User Details</h1>
+        {adminProfile?.role === "super_admin" &&
+          targetUser.role !== "admin" &&
+          targetUser.role !== "super_admin" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setImpersonateDialogOpen(true)}
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              View as user
+            </Button>
+          )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -769,6 +813,39 @@ export function AdminUserDetailPage() {
         onOpenChange={setStepUpOpen}
         onVerified={() => {
           void handleRoleChange();
+        }}
+      />
+
+      {/* US-581: confirm "view as", then start impersonation. */}
+      <AlertDialog open={impersonateDialogOpen} onOpenChange={setImpersonateDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>View as this user?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You'll be signed into{" "}
+              <strong>{targetUser.full_name || targetUser.email}</strong>'s
+              account and see GradeThread exactly as they do. A banner will stay
+              visible the whole time, and any action you take affects their
+              account. This is logged. You may be asked to confirm your
+              authenticator first.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={impersonating}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleImpersonate} disabled={impersonating}>
+              {impersonating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              View as user
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* US-581: step-up re-auth for impersonation, then retry. */}
+      <MfaStepUpDialog
+        open={impersonateStepUpOpen}
+        onOpenChange={setImpersonateStepUpOpen}
+        onVerified={() => {
+          void handleImpersonate();
         }}
       />
     </div>
