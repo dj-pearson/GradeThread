@@ -1731,3 +1731,10 @@ Branch: ralph/gradethread-build
   - Verify: deno check src/main.ts (full graph), deno lint (7 files), deno test depop-api(9)+depop-client(5)+marketplace-adapters(5)+schema-version(9)+cross-listing-fields+shopify-orders+webhook-idempotency — all green; full suite 998 passed / 2 failed (the documented pre-existing rls-guard ai_usage_events/waitlist_entries + plan-gate failures, unrelated). Frontend tsc -b clean.
 - Timestamp: 2026-06-13
 ---
+
+## US-715: Decision spike — Poshmark via Rithum/Brand Closet (go/no-go gate, no scraping)
+- Status: COMPLETE
+- Files changed: docs/bizdev/poshmark-rithum-decision.md (new), prd.json, scripts/ralph/progress.txt
+- Notes: [NO-CODE] BizDev/Decision deliverable. Verdict = NO-GO on Rithum/Brand Closet. None of the 3 threshold conditions met (pre-launch: no >$50k/yr Poshmark-GMV customer with a 12-mo commitment at a price tier covering the $1.5-3k/mo Rithum seat). Documented Rithum onboarding reality (2-3 wk DSCO onboarding, listing creation stays largely manual — DSCO syncs qty/price/orders only). Explicitly ruled OUT server-side scraping / stored-cookie automation (Poshmark ToS §User Conduct + CFAA/DMCA/breach exposure). Poshmark coverage routes to the user-side extension path (US-716); Marketplaces UI/plan copy must reflect "via extension" not clean API (US-718). Re-evaluation trigger recorded. Followed docs/bizdev/ pattern from US-712. Doc-only change — no tsc/build impact.
+- Timestamp: 2026-06-13
+---

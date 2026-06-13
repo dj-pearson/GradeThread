@@ -10542,8 +10542,8 @@
         "If no-go: Poshmark coverage routes to the user-side extension path (US-716) instead"
       ],
       "priority": 715,
-      "passes": false,
-      "notes": "[P3][BizDev/Decision][NO-CODE] Source: Cross_Listing.md §3 + Phase 2. Rithum is the only aggregator with a real dev API that reaches Poshmark, but only Poshmark. Feeds [[US-716]],[[US-718]]."
+      "passes": true,
+      "notes": "[P3][BizDev/Decision][NO-CODE] Source: Cross_Listing.md §3 + Phase 2. Rithum is the only aggregator with a real dev API that reaches Poshmark, but only Poshmark. Feeds [[US-716]],[[US-718]]. DECIDED 2026-06-13: NO-GO on Rithum/Brand Closet (pre-launch, no >$50k/yr Poshmark-GMV customer under 12-mo / $1.5-3k-mo commitment). Server-side scraping explicitly ruled OUT (ToS/CFAA/DMCA). Poshmark coverage routes to US-716 extension path. Deliverable: docs/bizdev/poshmark-rithum-decision.md. Re-evaluate when threshold met."
     },
     {
       "id": "US-716",
