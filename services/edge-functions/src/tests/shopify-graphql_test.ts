@@ -16,6 +16,7 @@ Deno.env.set(
 
 const {
   BULK_RECORD_THRESHOLD,
+  SHOPIFY_WEBHOOK_TOPICS,
   buildProductSetVariables,
   computeThrottleWaitMs,
   gidToNumericId,
@@ -24,6 +25,18 @@ const {
   requiresBulk,
   toGid,
 } = await import("../lib/shopify-graphql.ts");
+
+Deno.test("SHOPIFY_WEBHOOK_TOPICS covers the US-711 sale/inventory/product set", () => {
+  assertEquals(
+    [...SHOPIFY_WEBHOOK_TOPICS].sort(),
+    [
+      "INVENTORY_LEVELS_UPDATE",
+      "ORDERS_CREATE",
+      "ORDERS_UPDATED",
+      "PRODUCTS_UPDATE",
+    ],
+  );
+});
 
 Deno.test("gidToNumericId extracts the numeric id and passes bare ids through", () => {
   assertEquals(gidToNumericId("gid://shopify/Product/123"), "123");

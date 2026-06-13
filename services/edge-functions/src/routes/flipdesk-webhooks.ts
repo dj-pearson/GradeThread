@@ -11,6 +11,15 @@ import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
 import { classifyEbayTopic } from "../lib/ebay-webhook-topics.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
+import {
+  isShopifyConfigured,
+  normalizeShopDomain,
+  verifyWebhookHmac,
+} from "../lib/shopify-client.ts";
+import {
+  handleShopifyOrderEvent,
+  parseShopifyWebhookOrder,
+} from "../lib/shopify-orders.ts";
 
 // Inbound webhooks for FlipDesk integrations.
 // These endpoints are public (no auth middleware) — they MUST verify a
@@ -109,6 +118,206 @@ flipdeskWebhookRoutes.post("/ebay", async (c) => {
 
   return c.body(null, 204);
 });
+
+// ── Shopify webhooks (US-711) ────────────────────────────────────────
+//
+// Receives orders/create, orders/updated, inventory_levels/update and
+// products/update. Verification: Shopify signs every webhook with HMAC-SHA256
+// over the RAW body using OUR app secret, presented base64 in the
+// `X-Shopify-Hmac-Sha256` header — only Shopify can produce a valid signature,
+// so AFTER verification the `X-Shopify-Shop-Domain` header is trusted to resolve
+// the workspace owner (US-472 pattern: resolve from the verified domain, NOT the
+// request body). Returns 200 promptly (Shopify expects 2xx within ~5s) and
+// defers the heavy lifting. Sandbox: WEBHOOK_PAYOUT_DEBUG bypasses verification
+// outside production only (isDebugAllowed), identical to the eBay receiver.
+flipdeskWebhookRoutes.post("/shopify", async (c) => {
+  if (!isShopifyConfigured()) {
+    return c.json({ error: "Webhook not configured" }, 503);
+  }
+
+  // Raw bytes are required for HMAC verification (re-serializing would change them).
+  const rawBody = await c.req.text();
+  const debug = isDebugAllowed("WEBHOOK_PAYOUT_DEBUG");
+  const hmacHeader = c.req.header("x-shopify-hmac-sha256") ?? "";
+
+  if (!debug) {
+    if (!hmacHeader) {
+      console.warn(
+        "[flipdesk-webhooks] Shopify event rejected: missing signature header",
+      );
+      return c.json({ error: "Missing signature" }, 401);
+    }
+    const ok = await verifyWebhookHmac(rawBody, hmacHeader);
+    if (!ok) {
+      console.warn(
+        "[flipdesk-webhooks] Shopify event rejected: signature mismatch",
+      );
+      return c.json({ error: "Invalid signature" }, 401);
+    }
+  }
+
+  const topic = c.req.header("x-shopify-topic") ?? "(unknown)";
+  const shopDomain = normalizeShopDomain(c.req.header("x-shopify-shop-domain"));
+  const webhookId = c.req.header("x-shopify-webhook-id") ?? null;
+
+  let payload: Record<string, unknown>;
+  try {
+    const json = JSON.parse(rawBody);
+    if (!json || typeof json !== "object") {
+      return c.json({ error: "Invalid JSON" }, 400);
+    }
+    payload = json as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  // Dispatch async — Shopify penalizes slow handlers.
+  processShopifyWebhookEvent({ topic, shopDomain, webhookId, payload }).catch(
+    (err) => {
+      console.error(
+        "[flipdesk-webhooks] Shopify event processing failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    },
+  );
+
+  return c.body(null, 200);
+});
+
+// Resolve the GradeThread owner from the verified shop domain (US-472 pattern).
+// The domain header was trusted only AFTER HMAC verification above. Connections
+// live on the workspace owner (account_handle = <shop>.myshopify.com).
+async function resolveShopifyConnectionUserId(
+  shopDomain: string | null,
+): Promise<string | null> {
+  if (!shopDomain) return null;
+  const { data: row } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("user_id")
+    .eq("marketplace", "shopify")
+    .eq("account_handle", shopDomain)
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  return (row as { user_id?: string } | null)?.user_id ?? null;
+}
+
+// products/update: a Shopify-side archive/delete/draft of a product we track
+// ends the local listing (the sync's status-refresh otherwise only catches this
+// on the next manual pull). Tenant-scoped: only the owner's listings are touched.
+async function handleShopifyProductUpdate(
+  userId: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const productId = payload.id != null ? String(payload.id) : null;
+  const status = typeof payload.status === "string" ? payload.status : null;
+  if (!productId) return;
+  // An active product is still live — nothing to end.
+  if (!status || status === "active") return;
+
+  const { data: rows } = await supabaseAdmin
+    .from("listings")
+    .select("id, inventory_items!inner(user_id)")
+    .eq("platform", "shopify")
+    .eq("platform_listing_id", productId)
+    .eq("inventory_items.user_id", userId)
+    .eq("is_active", true);
+  const ids = ((rows ?? []) as Array<{ id: string }>).map((r) => r.id);
+  if (ids.length === 0) return;
+  await supabaseAdmin
+    .from("listings")
+    .update({ listing_status: "ended", is_active: false })
+    .in("id", ids);
+}
+
+// Dispatches a verified Shopify webhook. orders/create + orders/updated drive
+// sale capture + refund status (handleShopifyOrderEvent); products/update ends a
+// delisted product; inventory_levels/update is metered (single-unit reseller
+// items already flip on the order event). Idempotent: deduped by Shopify's
+// X-Shopify-Webhook-Id before side effects (same tri-state as the eBay path).
+async function processShopifyWebhookEvent(args: {
+  topic: string;
+  shopDomain: string | null;
+  webhookId: string | null;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  const { topic, shopDomain, webhookId, payload } = args;
+  console.log(
+    `[flipdesk-webhooks] Shopify event: topic=${topic} shop=${shopDomain ?? "(none)"} id=${webhookId ?? "(no-id)"}`,
+  );
+
+  if (webhookId) {
+    const claim = await claimWebhookEvent("shopify", webhookId, topic);
+    if (claim === "duplicate") {
+      console.log(
+        `[flipdesk-webhooks] duplicate Shopify event id=${webhookId} — skipping`,
+      );
+      return;
+    }
+    // The downstream writes are idempotent (sale dedupe by listing_id, payout by
+    // ref, status update by listing_id), so a claim-write failure is safe to
+    // process fail-open — but make it observable.
+    if (claim === "error") {
+      recordMetric("webhook.fail_open", 1, { provider: "shopify", topic });
+      captureException(
+        new Error(`Shopify webhook idempotency claim failed; processing fail-open (topic=${topic})`),
+        { level: "warn", route: "flipdesk-webhooks.shopify", tags: { topic, decision: "fail_open" } },
+      );
+    }
+  }
+
+  recordMetric("webhook.received", 1, { provider: "shopify", topic });
+
+  const userId = await resolveShopifyConnectionUserId(shopDomain);
+  if (!userId) {
+    recordMetric("webhook.unmatched_seller", 1, { provider: "shopify", topic });
+    console.warn(
+      `[flipdesk-webhooks] no active Shopify connection matches shop=${shopDomain ?? "(none)"} topic=${topic} — dropping`,
+    );
+    return;
+  }
+
+  switch (topic) {
+    case "orders/create":
+    case "orders/updated": {
+      const order = parseShopifyWebhookOrder(payload);
+      if (!order) {
+        console.warn(
+          `[flipdesk-webhooks] Shopify ${topic} event had no usable order id — dropping`,
+        );
+        return;
+      }
+      const res = await handleShopifyOrderEvent(userId, order);
+      recordMetric("webhook.order_processed", 1, {
+        provider: "shopify",
+        topic,
+        kind: res.kind,
+      });
+      if (res.errors.length > 0) {
+        console.error(
+          `[flipdesk-webhooks] Shopify ${topic} ingest errors: ${res.errors.join(" | ")}`,
+        );
+      }
+      console.log(
+        `[flipdesk-webhooks] Shopify ${topic} → ${res.kind} (sales_new=${res.salesNew} sold=${res.soldFlipped} status_updated=${res.statusUpdated}) user=${userId}`,
+      );
+      return;
+    }
+    case "products/update": {
+      await handleShopifyProductUpdate(userId, payload);
+      return;
+    }
+    case "inventory_levels/update": {
+      recordMetric("webhook.inventory_update", 1, { provider: "shopify" });
+      return;
+    }
+    default:
+      recordMetric("webhook.unhandled_topic", 1, { provider: "shopify", topic });
+      console.log(
+        `[flipdesk-webhooks] dropping Shopify event with unhandled topic: ${topic}`,
+      );
+  }
+}
 
 // Signature verification lives in lib/ebay-notification-verify.ts so it can be
 // unit-tested (with an injected key fixture) without importing this route

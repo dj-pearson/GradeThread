@@ -558,6 +558,81 @@ export async function publishShopifyProduct(
   };
 }
 
+// ── Webhook subscriptions (US-711) ───────────────────────────────────
+//
+// Register the inbound-event subscriptions FlipDesk needs so a Shopify sale
+// flows back into the pipeline without polling: orders/create + orders/updated
+// drive sale capture + refund status, products/update detects archive/delete,
+// inventory_levels/update is a stock signal. We use the GraphQL
+// webhookSubscriptionCreate (the modern equivalent of the REST /webhooks.json
+// register) so registration shares the same cost-accounted client.
+
+// The four topics this story subscribes to, as GraphQL WebhookSubscriptionTopic
+// enum values. The inbound receiver keys off the slash-form header
+// (X-Shopify-Topic: orders/create), so keep these in lockstep with that switch.
+export const SHOPIFY_WEBHOOK_TOPICS = [
+  "ORDERS_CREATE",
+  "ORDERS_UPDATED",
+  "INVENTORY_LEVELS_UPDATE",
+  "PRODUCTS_UPDATE",
+] as const;
+
+const WEBHOOK_SUBSCRIPTION_CREATE = `
+mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $sub: WebhookSubscriptionInput!) {
+  webhookSubscriptionCreate(topic: $topic, webhookSubscription: $sub) {
+    webhookSubscription { id }
+    userErrors { field message }
+  }
+}`;
+
+export interface WebhookRegistrationResult {
+  registered: string[];
+  errors: string[];
+}
+
+// Subscribes the four topics to our HTTPS callback. Idempotent: Shopify rejects
+// a duplicate (topic, callbackUrl) pair with an "address has already been taken"
+// userError, which we treat as already-registered (success), not a failure — so
+// a reconnect / re-run doesn't error. Per-topic failures are collected, not
+// thrown, so one bad topic doesn't abort the rest.
+export async function registerShopifyWebhooks(
+  shop: string,
+  token: string,
+  callbackUrl: string,
+): Promise<WebhookRegistrationResult> {
+  const registered: string[] = [];
+  const errors: string[] = [];
+  for (const topic of SHOPIFY_WEBHOOK_TOPICS) {
+    try {
+      const { data } = await shopifyGraphql<{
+        webhookSubscriptionCreate: {
+          webhookSubscription: { id: string } | null;
+          userErrors: GraphqlError[];
+        };
+      }>(shop, token, WEBHOOK_SUBSCRIPTION_CREATE, {
+        topic,
+        sub: { callbackUrl, format: "JSON" },
+      });
+      const errs = data.webhookSubscriptionCreate.userErrors ?? [];
+      if (errs.length > 0) {
+        const alreadyExists = errs.some((e) =>
+          /already been taken|has already/i.test(e.message)
+        );
+        if (alreadyExists) {
+          registered.push(topic);
+        } else {
+          errors.push(`${topic}: ${errs.map((e) => e.message).join("; ")}`);
+        }
+      } else {
+        registered.push(topic);
+      }
+    } catch (err) {
+      errors.push(`${topic}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return { registered, errors };
+}
+
 // ── Bulk operations (>250 records, AC4) ──────────────────────────────
 //
 // The synchronous mutations above are correct for one garment at a time. Any

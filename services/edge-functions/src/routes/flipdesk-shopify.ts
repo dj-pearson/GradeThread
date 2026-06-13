@@ -2,13 +2,13 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
-import { autoEndCrossListings } from "../lib/cross-listings.ts";
+import { ingestShopifyOrder } from "../lib/shopify-orders.ts";
 import {
   buildConsentUrl,
-  estimateShopifyNet,
   exchangeCodeForToken,
   getProductStatus,
   getShopifyConnection,
+  getShopifyWebhookUrl,
   getShopInfo,
   isShopifyConfigured,
   listPaidOrders,
@@ -16,6 +16,7 @@ import {
   upsertShopifyConnection,
   verifyOAuthHmac,
 } from "../lib/shopify-client.ts";
+import { registerShopifyWebhooks } from "../lib/shopify-graphql.ts";
 
 // Shopify integration endpoints (US-599). Mounted at /api/flipdesk/shopify.
 //
@@ -188,6 +189,26 @@ flipdeskShopifyRoutes.get("/oauth/callback", async (c) => {
       scope: tokens.scope,
       externalAccountId: info?.id ?? null,
     });
+    // US-711: subscribe the order/inventory/product webhooks so sales flow back
+    // without polling. Best-effort — a registration hiccup must not fail the
+    // connect (the manual /listings/pull still reconciles), and Shopify dedupes
+    // a re-registration on reconnect.
+    try {
+      const { registered, errors: regErrors } = await registerShopifyWebhooks(
+        shop,
+        tokens.access_token,
+        getShopifyWebhookUrl(),
+      );
+      console.log(
+        `[flipdesk-shopify] webhooks registered for ${shop}: [${registered.join(", ")}]` +
+          (regErrors.length ? ` errors=[${regErrors.join(" | ")}]` : ""),
+      );
+    } catch (regErr) {
+      console.error(
+        "[flipdesk-shopify] webhook registration failed (continuing):",
+        regErr instanceof Error ? regErr.message : String(regErr),
+      );
+    }
   } catch (err) {
     console.error("[flipdesk-shopify] OAuth exchange failed:", err);
     return finish("exchange_failed");
@@ -304,127 +325,13 @@ flipdeskShopifyRoutes.post("/listings/pull", async (c) => {
 
   try {
     const orders = await listPaidOrders(conn.shop, conn.token, sinceIso);
-    // Collect product ids referenced by the orders, then map → local listings.
-    const productIds = new Set<string>();
-    for (const o of orders) {
-      for (const li of o.lineItems) {
-        if (li.productId) productIds.add(li.productId);
-      }
-    }
-    const listingByProduct = new Map<
-      string,
-      { id: string; inventory_item_id: string; listing_status: string }
-    >();
-    if (productIds.size > 0) {
-      const { data: matchRows } = await supabaseAdmin
-        .from("listings")
-        .select(
-          "id, inventory_item_id, platform_listing_id, listing_status, inventory_items!inner(user_id)",
-        )
-        .eq("platform", "shopify")
-        .eq("inventory_items.user_id", userId)
-        .in("platform_listing_id", [...productIds]);
-      for (
-        const r of (matchRows ?? []) as unknown as Array<{
-          id: string;
-          inventory_item_id: string;
-          platform_listing_id: string;
-          listing_status: string;
-        }>
-      ) {
-        listingByProduct.set(r.platform_listing_id, {
-          id: r.id,
-          inventory_item_id: r.inventory_item_id,
-          listing_status: r.listing_status,
-        });
-      }
-    }
-
+    // US-711: the per-order sale-capture logic lives in the shared
+    // ingestShopifyOrder so this pull and the live orders webhook can't drift.
     for (const order of orders) {
-      for (const li of order.lineItems) {
-        if (!li.productId) continue;
-        const listing = listingByProduct.get(li.productId);
-        if (!listing) continue;
-
-        const ref = `shopify:${order.id}:${li.productId}`;
-        const gross = li.price * (li.quantity > 0 ? li.quantity : 1);
-        const net = estimateShopifyNet(gross);
-        const soldAt = order.processedAt ?? new Date().toISOString();
-
-        // Mark the listing sold (idempotent).
-        if (listing.listing_status !== "sold") {
-          await supabaseAdmin
-            .from("listings")
-            .update({ listing_status: "sold", is_active: false })
-            .eq("id", listing.id);
-          await supabaseAdmin
-            .from("inventory_items")
-            .update({ status: "sold" })
-            .eq("id", listing.inventory_item_id);
-          // End the same garment's siblings on other marketplaces.
-          await autoEndCrossListings(userId, listing.id);
-        }
-
-        // Ensure a sale row exists for this listing (dedupe by listing_id).
-        const { data: existingSale } = await supabaseAdmin
-          .from("sales")
-          .select("id")
-          .eq("listing_id", listing.id)
-          .limit(1)
-          .maybeSingle();
-        if (!existingSale) {
-          const { error: saleErr } = await supabaseAdmin.from("sales").insert({
-            inventory_item_id: listing.inventory_item_id,
-            listing_id: listing.id,
-            sale_price: gross,
-            payout_amount: net,
-            payment_processing_fees: Math.max(0, Math.round((gross - net) * 100) / 100),
-            sold_at: soldAt,
-            sale_date: soldAt,
-            buyer_username: order.name || null,
-          });
-          if (saleErr) {
-            errors.push(`sale insert: ${saleErr.message}`);
-          } else {
-            salesNew++;
-          }
-        }
-
-        // Ensure a payout_imports row exists (dedupe by raw_payload->>external_id).
-        const { data: existingPayout } = await supabaseAdmin
-          .from("payout_imports")
-          .select("id")
-          .eq("user_id", userId)
-          .eq("raw_payload->>external_id", ref)
-          .limit(1)
-          .maybeSingle();
-        if (!existingPayout) {
-          const { error: payoutErr } = await supabaseAdmin
-            .from("payout_imports")
-            .insert({
-              user_id: userId,
-              marketplace: "shopify",
-              import_method: "api_sync",
-              amount: net,
-              payout_date: soldAt.slice(0, 10),
-              reconciled: false,
-              raw_payload: {
-                external_id: ref,
-                payoutid: ref,
-                order_id: order.id,
-                order_name: order.name,
-                product_id: li.productId,
-                gross,
-                net,
-              },
-            });
-          if (payoutErr) {
-            errors.push(`payout insert: ${payoutErr.message}`);
-          } else {
-            payoutsNew++;
-          }
-        }
-      }
+      const r = await ingestShopifyOrder(userId, order);
+      salesNew += r.salesNew;
+      payoutsNew += r.payoutsNew;
+      errors.push(...r.errors);
     }
   } catch (err) {
     errors.push(err instanceof Error ? err.message : String(err));

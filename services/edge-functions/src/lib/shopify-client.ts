@@ -58,6 +58,16 @@ export function getShopifyScopes(): string {
   return readEnv("SHOPIFY_SCOPES") ?? DEFAULT_SCOPES;
 }
 
+// The public HTTPS endpoint Shopify POSTs webhooks to (US-711). Overridable via
+// SHOPIFY_WEBHOOK_CALLBACK_URL; defaults to the consolidated edge container's
+// inbound-webhook path (the same host the eBay receiver lives on).
+export function getShopifyWebhookUrl(): string {
+  return (
+    readEnv("SHOPIFY_WEBHOOK_CALLBACK_URL") ??
+    "https://functions.gradethread.com/api/flipdesk/webhooks/shopify"
+  );
+}
+
 // ── Shop-domain handling ─────────────────────────────────────────────
 // Accepts "store", "store.myshopify.com", or "https://store.myshopify.com" and
 // normalizes to the canonical "<store>.myshopify.com". Returns null for an
@@ -132,6 +142,43 @@ export async function verifyOAuthHmac(
   let diff = 0;
   for (let i = 0; i < computed.length; i++) {
     diff |= computed.charCodeAt(i) ^ provided.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+// Verifies an inbound WEBHOOK's signature (US-711). Distinct from the OAuth
+// callback HMAC above: Shopify signs a webhook with HMAC-SHA256 over the RAW
+// request body (the exact bytes — re-serializing the JSON would change them) and
+// presents it BASE64-encoded in the `X-Shopify-Hmac-Sha256` header, NOT hex over
+// the query string. Verify with our app secret BEFORE trusting the body or the
+// X-Shopify-Shop-Domain header. Pure (Web Crypto only) + unit-tested.
+export async function verifyWebhookHmac(
+  rawBody: string,
+  hmacHeaderBase64: string,
+): Promise<boolean> {
+  const secret = readEnv("SHOPIFY_API_SECRET");
+  if (!secret || !hmacHeaderBase64) return false;
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sigBytes = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)),
+  );
+  // Base64-encode the computed signature to compare against the header.
+  let binary = "";
+  for (const b of sigBytes) binary += String.fromCharCode(b);
+  const computed = btoa(binary);
+
+  // Constant-time compare (lengths equal → XOR-accumulate).
+  if (computed.length !== hmacHeaderBase64.length) return false;
+  let diff = 0;
+  for (let i = 0; i < computed.length; i++) {
+    diff |= computed.charCodeAt(i) ^ hmacHeaderBase64.charCodeAt(i);
   }
   return diff === 0;
 }
@@ -522,6 +569,8 @@ export interface ShopifyOrder {
   totalPrice: number;
   /** Shopify's processing fee on this order, when expanded; null otherwise. */
   processedAt: string | null;
+  /** Set when the order was cancelled; null for live orders (US-711 refunds). */
+  cancelledAt: string | null;
   lineItems: ShopifyOrderLineItem[];
 }
 
@@ -558,6 +607,7 @@ export async function listPaidOrders(
       total_price?: string;
       processed_at?: string;
       created_at?: string;
+      cancelled_at?: string | null;
       line_items?: Array<{
         product_id?: number | null;
         quantity?: number;
@@ -571,6 +621,7 @@ export async function listPaidOrders(
     financialStatus: o.financial_status ?? null,
     totalPrice: o.total_price != null ? Number(o.total_price) : 0,
     processedAt: o.processed_at ?? o.created_at ?? null,
+    cancelledAt: o.cancelled_at ?? null,
     lineItems: (o.line_items ?? []).map((li) => ({
       productId: li.product_id != null ? String(li.product_id) : null,
       quantity: li.quantity ?? 1,

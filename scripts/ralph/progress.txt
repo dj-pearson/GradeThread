@@ -1666,3 +1666,21 @@ Branch: ralph/gradethread-build
 - Notes: Migrated the Shopify write path from REST to the GraphQL Admin API. New shopify-graphql.ts: shopifyGraphql() core reads extensions.cost.throttleStatus and retries THROTTLED (and 429/5xx) with leaky-bucket + exponential backoff (capped 30s). publishShopifyProduct orchestrates productSet (idempotent create-or-replace, subsumes productCreate+productVariantsBulkCreate) -> inventorySetQuantities scoped to the primary active Location -> publishablePublish to the Online Store publication. deleteProductGraphql delists idempotently (not-found userError -> "gone"); also exposed unpublishFromChannel. bulkOperationRunMutation + stagedUploadsCreate + currentBulkOperation + requiresBulk(>250) cover the 1000-cost-point ceiling for batch ops. Adapter publish/update/delist + cross-listings auto-end now call GraphQL. listings row gets platform_listing_id (bare numeric product id, REST-sync-compatible), platform_offer_id (variant id), listing_url. REST createProduct/updateProduct/deleteProduct kept as documented fallback; REST read/sync (getProductStatus, listPaidOrders) unchanged. 8 new pure-helper tests + existing shopify/adapter tests pass; deno check + deno lint clean. No migration (no schema change).
 - Timestamp: 2026-06-13
 ---
+## US-711: Shopify order + inventory webhooks → sale capture & cross-platform auto-delist
+- Status: COMPLETE
+- Files changed:
+  - services/edge-functions/src/lib/shopify-graphql.ts (registerShopifyWebhooks + SHOPIFY_WEBHOOK_TOPICS via webhookSubscriptionCreate)
+  - services/edge-functions/src/lib/shopify-client.ts (verifyWebhookHmac, getShopifyWebhookUrl, ShopifyOrder.cancelledAt)
+  - services/edge-functions/src/lib/shopify-orders.ts (NEW: shared ingestShopifyOrder/applyShopifyOrderStatus/handleShopifyOrderEvent/parseShopifyWebhookOrder/refundStatusForOrder)
+  - services/edge-functions/src/lib/webhook-idempotency.ts (add "shopify" to provider union)
+  - services/edge-functions/src/routes/flipdesk-shopify.ts (register webhooks on connect; pull now reuses ingestShopifyOrder)
+  - services/edge-functions/src/routes/flipdesk-webhooks.ts (POST /shopify receiver + processShopifyWebhookEvent + product-update/owner-resolve helpers)
+  - services/edge-functions/src/tests/{shopify-client_test,shopify-orders_test,shopify-graphql_test}.ts
+- Notes:
+  - HMAC: Shopify webhooks sign the RAW body with HMAC-SHA256 (base64) in X-Shopify-Hmac-Sha256 — distinct from the OAuth callback's hex-over-querystring HMAC. Verify BEFORE trusting the body or the X-Shopify-Shop-Domain header; only Shopify can produce a valid sig, so the domain header is trusted post-verify to resolve the owner (US-472 pattern).
+  - Idempotency: X-Shopify-Webhook-Id via claimWebhookEvent("shopify",…) tri-state; plus sale dedupe by listing_id and payout dedupe by ref → idempotent on shop order id. No migration: processed_webhook_events.provider is a free-text column.
+  - Refactored the manual /listings/pull per-order loop to call the shared ingestShopifyOrder so webhook + pull can't drift (behavior identical; per-order product lookup instead of one batch).
+  - Receiver returns 200 fast and dispatches async (Shopify penalizes slow handlers / expects 2xx within ~5s).
+  - Verify: deno lint + deno check (incl. main.ts graph) clean; new unit tests pass; full edge suite 982 passed / 2 failed — the 2 are the documented pre-existing plan-gate + rls-guard failures on clean main, unrelated to this change.
+- Timestamp: 2026-06-13
+---

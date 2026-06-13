@@ -18,6 +18,7 @@ const {
   estimateShopifyNet,
   normalizeShopDomain,
   verifyOAuthHmac,
+  verifyWebhookHmac,
 } = await import("../lib/shopify-client.ts");
 
 Deno.test("normalizeShopDomain accepts handles, hosts, and URLs", () => {
@@ -72,6 +73,35 @@ Deno.test("verifyOAuthHmac validates Shopify's signature and rejects tampering",
   assert(!(await verifyOAuthHmac({ ...params, shop: "attacker.myshopify.com", hmac })));
   // Missing hmac → fails.
   assert(!(await verifyOAuthHmac({ ...params })));
+
+  Deno.env.delete("SHOPIFY_API_SECRET");
+});
+
+Deno.test("verifyWebhookHmac validates the base64 body signature and rejects tampering (US-711)", async () => {
+  // Shopify signs a webhook with HMAC-SHA256 over the RAW body, base64-encoded.
+  const secret = "test_webhook_secret";
+  Deno.env.set("SHOPIFY_API_SECRET", secret);
+  const body = JSON.stringify({ id: 12345, financial_status: "paid" });
+
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)),
+  );
+  let binary = "";
+  for (const b of sig) binary += String.fromCharCode(b);
+  const hmac = btoa(binary);
+
+  assert(await verifyWebhookHmac(body, hmac));
+  // Tampered body → fails.
+  assert(!(await verifyWebhookHmac(body + " ", hmac)));
+  // Missing/empty header → fails.
+  assert(!(await verifyWebhookHmac(body, "")));
 
   Deno.env.delete("SHOPIFY_API_SECRET");
 });

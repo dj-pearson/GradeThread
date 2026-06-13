@@ -10485,8 +10485,8 @@
         "Returns/refunds update sale status; tenant-scoped writes (US-268)"
       ],
       "priority": 711,
-      "passes": false,
-      "notes": "[P2][FlipDesk/Shopify] Source: Cross_Listing.md §1. Shopify carries no marketplace fee/payout the way eBay Finances does — record gross + our costs; net is COGS-based. Depends on [[US-710]]."
+      "passes": true,
+      "notes": "[P2][FlipDesk/Shopify] Source: Cross_Listing.md §1. Shopify carries no marketplace fee/payout the way eBay Finances does — record gross + our costs; net is COGS-based. Depends on [[US-710]]. IMPLEMENTED: registerShopifyWebhooks (GraphQL webhookSubscriptionCreate) for ORDERS_CREATE/ORDERS_UPDATED/INVENTORY_LEVELS_UPDATE/PRODUCTS_UPDATE registered on OAuth connect (best-effort, idempotent on 'address already taken'). Inbound receiver POST /api/flipdesk/webhooks/shopify verifies X-Shopify-Hmac-Sha256 (base64 HMAC over raw body, verifyWebhookHmac) before trusting body/headers; owner resolved from the verified X-Shopify-Shop-Domain header (US-472 pattern), not the body. Idempotency via X-Shopify-Webhook-Id -> claimWebhookEvent('shopify',...) tri-state. Shared lib/shopify-orders.ts (ingestShopifyOrder/applyShopifyOrderStatus/handleShopifyOrderEvent/parseShopifyWebhookOrder) backs BOTH the live webhook and the manual /listings/pull so they cannot drift: paid order -> sales(platform=shopify)+items.status='sold'+autoEndCrossListings (US-564), idempotent on shop order id (sale dedupe by listing_id, payout by shopify:<order>:<product> ref); cancelled_at/refunded/voided -> sale.status flip (AC5). products/update archive ends the local listing. All writes tenant-scoped via inventory_items.user_id (US-268). Returns 200 fast. Tests added. No migration (processed_webhook_events.provider is free text)."
     },
     {
       "id": "US-712",
