@@ -877,6 +877,70 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
   }
 });
 
+// US-824: deterministic, NO-AI aspect refill for a category change. Given an
+// item + a (possibly new) eBay category, returns the aspects we can fill from
+// the item's columns + US-821 canonical attributes — mapped through the shared
+// registry (US-822) and normalized to eBay's allowed values (US-823) — plus the
+// new category's valid aspect names so the client can classify keep/drop. The
+// client calls this when the seller switches category so still-valid values are
+// kept and gaps are refilled WITHOUT an AI pass (mirrors the web composer's
+// remapAspectsForCategory). `knownAspects` are passed through as `existing` and
+// are NEVER overwritten (user-set / still-valid values win).
+//
+// Tenant-scoped (US-268): the item is loaded by id AND user_id — an item id in
+// the body alone never grants access to another tenant's row.
+flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = (c.get("workspaceOwnerId") ?? c.get("userId")) as
+    | string
+    | undefined;
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const categoryId = c.req.param("id");
+  if (!categoryId) return c.json({ error: "category id is required" }, 400);
+
+  let body: { itemId?: string; knownAspects?: Record<string, string[]> };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = (body.itemId ?? "").trim();
+  if (!itemId) return c.json({ error: "itemId is required" }, 400);
+  const known = body.knownAspects ?? {};
+
+  const { data: item, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select(
+      "id, user_id, title, brand, size, description, condition_notes, item_category, color, material, style, attributes",
+    )
+    .eq("id", itemId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (itemErr) return c.json({ error: "Could not load item." }, 500);
+  if (!item) return c.json({ error: "Item not found." }, 404);
+
+  try {
+    const aspectsResp = await getCategoryAspects(categoryId);
+    const raw = (aspectsResp.aspects as Record<string, unknown>).aspects;
+    const list = Array.isArray(raw) ? (raw as AspectSpecRaw[]) : [];
+    const validAspectNames = list
+      .map((a) => (a.localizedAspectName ?? "").trim())
+      .filter((n) => n.length > 0);
+    const derived = deriveAspectsFromItem(
+      item as unknown as PublishItem,
+      list,
+      known,
+    );
+    return c.json({ categoryId, derived, validAspectNames });
+  } catch (err) {
+    console.error("[flipdesk-ebay] derive-aspects failed:", err);
+    return c.json({ error: "Aspect derivation failed" }, 502);
+  }
+});
+
 // US-470: 501-stub classification. The eBay module is fully wired (OAuth, sync,
 // publish, policies, comps, reconciliation) — the old "Still-stubbed (Week 2-3)"
 // header here was stale; the helpers below ARE implemented. The only remaining

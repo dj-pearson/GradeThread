@@ -58,6 +58,28 @@ struct EbayCategorySpecificsView: View {
             Telemetry.event("ebay_specifics_opened")
             await model.start()
         }
+        // US-824: confirm before discarding specifics that don't carry over to
+        // a newly chosen category — never drop the seller's work silently.
+        .alert(
+            "Change category?",
+            isPresented: Binding(
+                get: { model.pendingCategoryChange != nil },
+                set: { if !$0 { model.cancelCategoryChange() } }
+            ),
+            presenting: model.pendingCategoryChange
+        ) { _ in
+            Button("Keep current", role: .cancel) { model.cancelCategoryChange() }
+            Button("Change & remove", role: .destructive) {
+                Task { await model.confirmCategoryChange() }
+            }
+        } message: { pending in
+            let names = pending.dropped.keys.sorted().joined(separator: ", ")
+            Text(
+                "\(pending.dropped.count) specific\(pending.dropped.count == 1 ? "" : "s") "
+                + "won't carry over and will be removed: \(names). "
+                + "Still-valid values are kept and gaps are refilled from this item — no AI is used."
+            )
+        }
     }
 
     // MARK: - Category

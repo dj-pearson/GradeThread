@@ -73,4 +73,43 @@ final class SpecificsEditorTests: XCTestCase {
         )
         XCTAssertTrue(values.isEmpty)
     }
+
+    // MARK: - US-824: category-change remap (keep / drop / derive)
+
+    func test_partition_keepsValid_dropsInapplicable() {
+        let newSpecs = [spec("Brand", .required), spec("Color", .recommended)]
+        let current = [
+            "Brand": ["Nike"],
+            "Color": ["Blue"],
+            "Sleeve Length": ["Long Sleeve"], // not in the new spec → dropped
+        ]
+        let part = SpecificsEditorModel.partitionForCategoryChange(
+            current: current, newSpecs: newSpecs
+        )
+        XCTAssertEqual(part.kept, ["Brand": ["Nike"], "Color": ["Blue"]])
+        XCTAssertEqual(part.dropped, ["Sleeve Length": ["Long Sleeve"]])
+    }
+
+    func test_partition_ignoresBlankValues() {
+        let newSpecs = [spec("Brand", .required)]
+        let current = ["Color": [""], "Size": []] // both empty → neither kept nor dropped
+        let part = SpecificsEditorModel.partitionForCategoryChange(
+            current: current, newSpecs: newSpecs
+        )
+        XCTAssertTrue(part.kept.isEmpty)
+        XCTAssertTrue(part.dropped.isEmpty)
+    }
+
+    func test_mergeDerived_fillsOnlyBlanks_neverOverwrites() {
+        let current = ["Brand": ["Nike"], "Size": [""]]
+        let derived = [
+            "Brand": ["Adidas"],        // present → must NOT overwrite
+            "Size": ["Medium"],         // blank → filled
+            "Sleeve Length": ["Long Sleeve"], // missing → filled
+        ]
+        let merged = SpecificsEditorModel.mergeDerived(into: current, derived: derived)
+        XCTAssertEqual(merged["Brand"], ["Nike"])
+        XCTAssertEqual(merged["Size"], ["Medium"])
+        XCTAssertEqual(merged["Sleeve Length"], ["Long Sleeve"])
+    }
 }

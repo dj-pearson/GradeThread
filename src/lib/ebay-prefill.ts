@@ -209,6 +209,51 @@ export function deriveAspectsFromItem(
   return out;
 }
 
+// US-824: classify how a draft's already-set aspect values carry into a NEWLY
+// selected category's spec — purely deterministic, NO AI/network call. This is
+// the remap that makes a category change non-destructive:
+//   • kept    — values whose aspect name still exists in the new spec (carried
+//               as-is; cross-category universals like Brand/Color/Material land
+//               here whenever they're valid in the new category)
+//   • derived — aspects newly filled from the item's columns + US-821 canonical
+//               attributes (remapped through the registry + US-823 normalization)
+//   • dropped — previously-set values that don't apply to the new category; the
+//               composer surfaces these in a confirm-before-discard summary so
+//               nothing is silently lost
+// `kept` is passed as `existing` to deriveAspectsFromItem so a kept value is
+// never overwritten by a derived one (user-set values win).
+export interface AspectRemapResult {
+  kept: Record<string, string[]>;
+  derived: Record<string, string[]>;
+  dropped: Record<string, string[]>;
+  /** SELECTION_ONLY value rewrites for the derived aspects ("M" → "Medium"). */
+  rewrites: Record<string, AspectRewrite>;
+}
+
+export function remapAspectsForCategory(
+  prev: Record<string, string[]>,
+  aspectList: EbayAspect[],
+  item: ItemAspectSource | null,
+): AspectRemapResult {
+  const valid = new Set(
+    aspectList
+      .map((a) => (a.localizedAspectName ?? "").trim())
+      .filter((n) => n.length > 0),
+  );
+  const kept: Record<string, string[]> = {};
+  const dropped: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(prev)) {
+    if (!values || values.length === 0) continue;
+    if (valid.has(name)) kept[name] = values;
+    else dropped[name] = values;
+  }
+  const rewrites: Record<string, AspectRewrite> = {};
+  const derived = item
+    ? deriveAspectsFromItem(item, aspectList, kept, rewrites)
+    : {};
+  return { kept, derived, dropped, rewrites };
+}
+
 // Grade → eBay condition mapping — mirrors the server's mapEbayCondition,
 // which is what publish falls back to when no condition was chosen. Surfacing
 // it in the composer makes the eventual publish value visible and editable.

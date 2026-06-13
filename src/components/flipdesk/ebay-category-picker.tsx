@@ -20,10 +20,21 @@ import {
 } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
 import {
-  deriveAspectsFromItem,
+  remapAspectsForCategory,
+  type AspectRemapResult,
   type AspectRewrite,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface Props {
   itemId: string;
@@ -107,45 +118,110 @@ export function EbayCategoryPicker({
     onAspectsChange?.(aspectValues);
   }, [aspectValues, onAspectsChange]);
 
-  const initialAspectsRef = useRef(initialAspects);
-  // When the user picks a different category, drop any aspect values that no
-  // longer apply. Keep the rest so a re-pick doesn't wipe the user's work.
-  // Then prefill any still-empty aspect from the item's structured columns
-  // (brand, size, color, material, style, inferred department) — the same
-  // mapping the server applies at publish — so the user only fills true gaps.
+  // US-824: deterministic, no-AI refill on category change. We read the live
+  // aspect map / category path through refs so this effect depends only on the
+  // fetched spec (and itemFields) — it must NOT re-run on every keystroke, or a
+  // re-derive could re-add a value the user just cleared.
+  const aspectValuesRef = useRef(aspectValues);
+  useEffect(() => {
+    aspectValuesRef.current = aspectValues;
+  }, [aspectValues]);
+  const categoryPathRef = useRef(categoryPath);
+  useEffect(() => {
+    categoryPathRef.current = categoryPath;
+  }, [categoryPath]);
+  // The category whose spec is currently reflected in `aspectValues`. Starts at
+  // the item's saved category so the first spec load is treated as initial
+  // (no discard prompt), not as a user-initiated change.
+  const appliedCategoryRef = useRef<string | null>(initialCategoryId);
+  const appliedCategoryPathRef = useRef<string | null>(null);
+  // When a category change would discard previously-entered specifics, we hold
+  // the change and ask first instead of dropping silently.
+  const [pendingDiscard, setPendingDiscard] = useState<{
+    toCategoryId: string;
+    toCategoryPath: string | null;
+    fromCategoryId: string | null;
+    fromCategoryPath: string | null;
+    dropped: Record<string, string[]>;
+  } | null>(null);
+
+  // Commit a remap result: keep still-valid values, add the derived gap-fills,
+  // refresh the "sent as" hints, and clear AI/hint markers for dropped aspects.
+  const commitRemap = (aspectList: EbayAspect[], result: AspectRemapResult) => {
+    setAspectValues({ ...result.kept, ...result.derived });
+    const valid = new Set(aspectList.map((a) => a.localizedAspectName));
+    setPrefillHints((prev) => {
+      const merged: Record<string, AspectRewrite> = {};
+      for (const [k, v] of Object.entries(prev)) if (valid.has(k)) merged[k] = v;
+      for (const [k, v] of Object.entries(result.rewrites)) merged[k] = v;
+      return merged;
+    });
+    if (Object.keys(result.dropped).length > 0) {
+      const droppedNames = Object.keys(result.dropped);
+      setAiFilled((prev) => {
+        const next = new Set(prev);
+        for (const n of droppedNames) next.delete(n);
+        return next;
+      });
+    }
+  };
+
+  // When the user picks a different category, refetch its spec and refill
+  // deterministically from data we already have (still-valid values + the
+  // item's columns/US-821 attributes mapped through the registry) — zero AI.
+  // A genuine change that would discard values is gated behind a confirm.
   useEffect(() => {
     if (!aspectsQuery.data) return;
     const aspectList = aspectsQuery.data.aspects.aspects ?? [];
-    const valid = new Set(aspectList.map((a) => a.localizedAspectName));
-    // Filled synchronously inside the updater below, then committed to state.
-    const rewrites: Record<string, AspectRewrite> = {};
-    setAspectValues((prev) => {
-      const next: Record<string, string[]> = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (valid.has(k)) next[k] = v;
-      }
-      // Re-seed from initial on first load if we haven't applied them yet.
-      if (initialAspectsRef.current && Object.keys(prev).length === 0) {
-        for (const [k, v] of Object.entries(initialAspectsRef.current)) {
-          if (valid.has(k)) next[k] = v;
-        }
-      }
-      if (itemFields) {
-        const derived = deriveAspectsFromItem(itemFields, aspectList, next, rewrites);
-        for (const [k, v] of Object.entries(derived)) next[k] = v;
-      }
-      return next;
-    });
-    // Drop hints for aspects that are no longer valid for this category.
-    setPrefillHints((prev) => {
-      const merged: Record<string, AspectRewrite> = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (valid.has(k)) merged[k] = v;
-      }
-      for (const [k, v] of Object.entries(rewrites)) merged[k] = v;
-      return merged;
-    });
+    const result = remapAspectsForCategory(
+      aspectValuesRef.current,
+      aspectList,
+      itemFields ?? null,
+    );
+    // Same id we last applied ⇒ first load or a re-fetch (itemFields change),
+    // not a user category switch — apply without prompting.
+    const isInitial = appliedCategoryRef.current === categoryId;
+    if (!isInitial && Object.keys(result.dropped).length > 0) {
+      setPendingDiscard({
+        toCategoryId: categoryId!,
+        toCategoryPath: categoryPathRef.current,
+        fromCategoryId: appliedCategoryRef.current,
+        fromCategoryPath: appliedCategoryPathRef.current,
+        dropped: result.dropped,
+      });
+      return;
+    }
+    commitRemap(aspectList, result);
+    appliedCategoryRef.current = categoryId;
+    appliedCategoryPathRef.current = categoryPathRef.current;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aspectsQuery.data, itemFields]);
+
+  function confirmDiscard() {
+    if (!pendingDiscard || !aspectsQuery.data) return;
+    const aspectList = aspectsQuery.data.aspects.aspects ?? [];
+    const result = remapAspectsForCategory(
+      aspectValuesRef.current,
+      aspectList,
+      itemFields ?? null,
+    );
+    commitRemap(aspectList, result);
+    appliedCategoryRef.current = pendingDiscard.toCategoryId;
+    appliedCategoryPathRef.current = pendingDiscard.toCategoryPath;
+    setPendingDiscard(null);
+  }
+
+  // Revert to the previous category (cached spec re-resolves instantly and the
+  // effect re-applies it as "initial", so no values are lost).
+  function cancelDiscard() {
+    if (!pendingDiscard) return;
+    const backId = pendingDiscard.fromCategoryId;
+    const backPath = pendingDiscard.fromCategoryPath;
+    setPendingDiscard(null);
+    setCategoryId(backId);
+    setCategoryPath(backPath);
+    onCategoryChange?.(backId);
+  }
 
   const aspects: EbayAspect[] = useMemo(
     () => aspectsQuery.data?.aspects.aspects ?? [],
@@ -194,6 +270,8 @@ export function EbayCategoryPicker({
     setAiFilled(new Set());
     setAiMeta({});
     setPrefillHints({});
+    appliedCategoryRef.current = null;
+    appliedCategoryPathRef.current = null;
     onCategoryChange?.(null);
   }
 
@@ -268,8 +346,13 @@ export function EbayCategoryPicker({
     }
   }
 
+  const droppedEntries = pendingDiscard
+    ? Object.entries(pendingDiscard.dropped)
+    : [];
+
   return (
-    <Card>
+    <>
+      <Card>
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -467,7 +550,50 @@ export function EbayCategoryPicker({
           </div>
         )}
       </CardContent>
-    </Card>
+      </Card>
+
+      {/* US-824: confirm before discarding specifics that don't carry over to
+          the new category — never drop the user's work silently. */}
+      <AlertDialog
+        open={!!pendingDiscard}
+        onOpenChange={(next) => {
+          if (!next) cancelDiscard();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {droppedEntries.length} item{" "}
+              {droppedEntries.length === 1 ? "specific" : "specifics"} won't
+              carry over
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              These values don't apply to the new category and will be removed.
+              Still-valid values (like Brand, Color, Material) are kept, and gaps
+              are refilled from this item — no AI is used.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs">
+            {droppedEntries.map(([name, values]) => (
+              <li key={name} className="flex justify-between gap-3">
+                <span className="font-medium">{name}</span>
+                <span className="truncate text-muted-foreground">
+                  {values.join(", ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelDiscard}>
+              Keep current category
+            </AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmDiscard}>
+              Change &amp; remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

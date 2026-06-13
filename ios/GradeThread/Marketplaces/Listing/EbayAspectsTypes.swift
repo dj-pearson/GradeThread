@@ -91,3 +91,18 @@ struct ExtractAspectsResponse: Decodable, Equatable {
         case suggestions
     }
 }
+
+// MARK: - Deterministic derive (US-824)
+
+/// Response of POST /api/flipdesk/ebay/category/:id/derive-aspects — the no-AI
+/// refill the editor uses on a category change. The server maps the item's
+/// columns + US-821 canonical attributes through the shared registry (US-822)
+/// and normalizes to eBay's allowed values (US-823); `validAspectNames` lets the
+/// client classify which existing values carry over vs. don't apply.
+struct DeriveAspectsResponse: Decodable, Equatable {
+    let categoryId: String?
+    /// Aspect name → value(s) filled deterministically (never overwrites known).
+    let derived: [String: [String]]
+    /// Every aspect name valid for the (new) category.
+    let validAspectNames: [String]
+}

@@ -1943,3 +1943,15 @@ Branch: ralph/gradethread-build
   - Verified: npx tsc -b clean, npm run build OK, eslint clean, deno lint clean, vitest 17 passed, deno test 27 passed.
 - Timestamp: 2026-06-13
 ---
+
+## US-824: Category change = deterministic aspect refill, no AI re-run, no silent loss
+- Status: COMPLETE
+- Files changed: src/lib/ebay-prefill.ts, src/components/flipdesk/ebay-category-picker.tsx, src/lib/__tests__/aspect-remap.test.ts, services/edge-functions/src/routes/flipdesk-ebay.ts, ios/GradeThread/Marketplaces/Listing/{EbayAspectsTypes,EbayAspectsService,SpecificsEditorModel,EbayCategorySpecificsView}.swift, ios/GradeThreadTests/SpecificsEditorTests.swift
+- Notes:
+  - WEB: new pure remapAspectsForCategory() (keep/derive/drop classification, no network) drives a confirm-before-discard AlertDialog in the composer, replacing the silent prune. Effect reads live state via refs to avoid re-derive on keystroke. deriveAspectsFromItem already drew from US-821 attributes (AC2 'not just legacy columns' was already satisfied). Cancel reverts to the cached prior category with zero loss.
+  - EDGE: added POST /api/flipdesk/ebay/category/:id/derive-aspects — deterministic NO-AI refill reusing resolveItemAspects, tenant-scoped (id AND user_id, US-268), returns {derived, validAspectNames}. iOS consumes this rather than porting the registry to Swift.
+  - iOS: select() fetches the new spec first, keeps still-valid values (partitionForCategoryChange), surfaces non-carrying ones via a confirm .alert, then refills gaps via the derive endpoint (mergeDerived). start() prefetches+derives on open (AC4). Swift compile relies on iOS CI (can't build on Windows); no-ungated-print passes.
+  - AC3 (no AI on category change) proven on web by a vitest fetch spy; on iOS the refill calls the deterministic derive endpoint, never /ai/extract-aspects.
+  - Verified: npx tsc -b clean, npm run build OK, eslint clean, vitest 167 lib tests passed (incl. new aspect-remap), deno check + deno lint clean, deno test 28 aspect tests passed, no-ungated-print OK.
+- Timestamp: 2026-06-13
+---

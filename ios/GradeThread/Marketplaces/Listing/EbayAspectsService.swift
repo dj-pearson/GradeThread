@@ -10,6 +10,11 @@ protocol AspectsProviding {
     func extractAspects(
         itemId: String, categoryId: String, categoryPath: String?, known: [String: [String]]
     ) async throws -> ExtractAspectsResponse
+    /// US-824: deterministic, NO-AI refill of a category's aspects from the
+    /// item's own data — called when the seller switches category.
+    func deriveAspects(
+        itemId: String, categoryId: String, known: [String: [String]]
+    ) async throws -> DeriveAspectsResponse
 }
 
 struct EbayAspectsService: AspectsProviding {
@@ -52,6 +57,19 @@ struct EbayAspectsService: AspectsProviding {
                 category_path: categoryPath,
                 known_aspects: known.isEmpty ? nil : known
             )
+        )
+    }
+
+    func deriveAspects(
+        itemId: String, categoryId: String, known: [String: [String]]
+    ) async throws -> DeriveAspectsResponse {
+        struct Body: Encodable {
+            let itemId: String
+            let knownAspects: [String: [String]]?
+        }
+        return try await post(
+            "/api/flipdesk/ebay/category/\(categoryId)/derive-aspects",
+            body: Body(itemId: itemId, knownAspects: known.isEmpty ? nil : known)
         )
     }
 
