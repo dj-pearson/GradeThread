@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { useItemsFull } from "@/hooks/use-items-full";
 import { ItemCanvas } from "@/components/flipdesk/item-canvas";
 import { ConditionIndexValueHint } from "@/components/flipdesk/condition-index-value-hint";
+import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 
@@ -79,6 +80,19 @@ export function FlipdeskItemPage() {
           {ITEM_STATUS_LABELS[item.status]}
         </Badge>
       </div>
+
+      {/* US-856: proactive grade-ROI nudge from the seller's own sold history.
+          CTA scrolls to the canvas grade section. Suppresses itself once the
+          item is graded or when the category sample is too thin. */}
+      <GradeRoiHint
+        category={item.category}
+        grade={item.grade_value}
+        priceHint={item.target_price ?? item.list_price ?? item.purchase_price}
+        onGrade={() => {
+          const el = document.getElementById("canvas-grading");
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
 
       {/* On the page, Save keeps the user here (the query refetches); only
           Cancel and the back button navigate away. */}

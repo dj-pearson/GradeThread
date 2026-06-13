@@ -122,6 +122,7 @@ export interface RoiSide {
   count: number;
   avgNetProfit: number | null;
   avgSalePrice: number | null;
+  medianDaysToSell: number | null;
 }
 
 export interface RoiBucket {
@@ -144,10 +145,14 @@ function sideStats(items: ItemFullRow[]): RoiSide {
   const price = items
     .map((i) => i.sale_price)
     .filter((n): n is number => n != null && Number.isFinite(n));
+  const days = items
+    .map((i) => i.days_to_sell)
+    .filter((n): n is number => n != null && Number.isFinite(n));
   return {
     count: items.length,
     avgNetProfit: mean(profit),
     avgSalePrice: mean(price),
+    medianDaysToSell: median(days),
   };
 }
 
@@ -208,4 +213,78 @@ export function gradingRoiBuckets(items: ItemFullRow[]): RoiBucket[] {
         a.category.localeCompare(b.category) ||
         bandOrder.indexOf(a.band) - bandOrder.indexOf(b.band),
     );
+}
+
+// ─── Grade-ROI estimate (intake / item detail) ───────────────────
+
+export interface GradeRoiEstimate {
+  category: string;
+  /** The price band the estimate is pinned to, or null when aggregated. */
+  band: PriceBandLabel | null;
+  graded: RoiSide;
+  ungraded: RoiSide;
+  /** graded.avgSalePrice − ungraded.avgSalePrice; positive = graded sells higher. */
+  priceLift: number | null;
+  /** ungraded.medianDaysToSell − graded.medianDaysToSell; positive = graded sells faster. */
+  daysFaster: number | null;
+  /** Both sides have >= MIN_BUCKET_SIZE sold items — safe to surface. */
+  meaningful: boolean;
+}
+
+export interface GradeRoiQuery {
+  category: string | null | undefined;
+  /** Optional sale-price hint (target/list/comp) to pin a specific band. */
+  priceHint?: number | null;
+}
+
+/**
+ * Single-category grade-vs-ungraded lift estimate for the intake / item-detail
+ * "grade this -> +$X" recommendation. Same sold-item comparison as
+ * {@link gradingRoiBuckets} but collapsed to one category (optionally one price
+ * band), reusing the shared `sideStats`/`bandFor`/MIN_BUCKET_SIZE helpers.
+ * Returns null when the category has no sold history at all; callers should
+ * additionally suppress display unless `meaningful` is true (low-n guard).
+ */
+export function gradeRoiEstimate(
+  items: ItemFullRow[],
+  query: GradeRoiQuery,
+): GradeRoiEstimate | null {
+  const category = query.category?.trim() || "Uncategorized";
+  const band =
+    query.priceHint != null && Number.isFinite(query.priceHint)
+      ? bandFor(query.priceHint)
+      : null;
+
+  const sold = items.filter((i) => {
+    if (i.sale_price == null || !Number.isFinite(i.sale_price)) return false;
+    const cat = i.category?.trim() || "Uncategorized";
+    if (cat.toLowerCase() !== category.toLowerCase()) return false;
+    if (band && bandFor(i.sale_price as number) !== band) return false;
+    return true;
+  });
+
+  if (sold.length === 0) return null;
+
+  const graded = sideStats(sold.filter((i) => i.grade_value != null));
+  const ungraded = sideStats(sold.filter((i) => i.grade_value == null));
+
+  const priceLift =
+    graded.avgSalePrice != null && ungraded.avgSalePrice != null
+      ? graded.avgSalePrice - ungraded.avgSalePrice
+      : null;
+  const daysFaster =
+    graded.medianDaysToSell != null && ungraded.medianDaysToSell != null
+      ? ungraded.medianDaysToSell - graded.medianDaysToSell
+      : null;
+
+  return {
+    category,
+    band,
+    graded,
+    ungraded,
+    priceLift,
+    daysFaster,
+    meaningful:
+      graded.count >= MIN_BUCKET_SIZE && ungraded.count >= MIN_BUCKET_SIZE,
+  };
 }

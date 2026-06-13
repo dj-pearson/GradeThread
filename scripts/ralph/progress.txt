@@ -2232,3 +2232,11 @@ Branch: ralph/gradethread-build
 - Verification: npx tsc --noEmit clean; vitest jsonld-parity + public-routes guard 20/20 pass; npm run build green (tsc -b + vite + 37-route prerender, was 32→37 with +5 cornerstone pages); dist/reduce-returns/index.html confirmed to carry both Article + FAQPage JSON-LD in the prerendered head. No migration (schema unchanged at 00192).
 - Timestamp: 2026-06-13
 ---
+
+## US-856: Grade-ROI recommendation at intake ('grade this -> +$X')
+- Status: COMPLETE
+- Files changed: src/lib/flipdesk-analytics.ts, src/components/flipdesk/grade-roi-hint.tsx (new), src/pages/flipdesk/item.tsx, src/pages/flipdesk/intake.tsx, src/lib/__tests__/grade-roi-estimate.test.ts (new), prd.json, scripts/ralph/progress.txt
+- Notes: Added pure helper gradeRoiEstimate() that collapses the existing graded-vs-ungraded sold-item comparison (reusing sideStats/bandFor/MIN_BUCKET_SIZE — same machinery as gradingRoiBuckets) to ONE category, optionally pinned to a price band via a priceHint. Returns avg-sale-price lift + median days-to-sell lift + a `meaningful` flag (both sides >= 5). Also extended RoiSide with medianDaysToSell (the in-progress diff already started this) so the days-faster signal is available. New shared <GradeRoiHint> reads items_full via useItemsFull (RLS-scoped => tenant-scoped), and renders a 'Graded <category> items sell ~$X higher and ~N days faster' nudge WITH sample basis; self-suppresses when already graded, no history, low-n, or no positive lift (no false precision). Wired into item detail (CTA scrolls to #canvas-grading) and intake (CTA routes to /dashboard/submissions/new).
+- Verification: npx tsc --noEmit clean; eslint clean on all changed files; 5 unit tests in grade-roi-estimate.test.ts pass; npm run build green (37 prerendered pages).
+- Timestamp: 2026-06-13
+---

@@ -12612,8 +12612,8 @@
         "npm run build passes"
       ],
       "priority": 856,
-      "passes": false,
-      "notes": "[EPIC: Grade ROI & Value 2026-06-11] Reuse src/lib/flipdesk-analytics.ts (gradingRoiBuckets) + grade_outcomes (00036). Pairs with US-848 (Condition Index value)."
+      "passes": true,
+      "notes": "[EPIC: Grade ROI & Value 2026-06-11] SHIPPED 2026-06-13. New pure helper gradeRoiEstimate() in src/lib/flipdesk-analytics.ts collapses the existing graded-vs-ungraded sold-item comparison (reusing sideStats/bandFor/MIN_BUCKET_SIZE — the same machinery as gradingRoiBuckets) to ONE category, optionally pinned to a price band via a priceHint; returns avg-sale-price lift + median days-to-sell lift and a `meaningful` flag (both sides >= MIN_BUCKET_SIZE=5). Also extended RoiSide with medianDaysToSell so the days-faster signal is available. New shared component src/components/flipdesk/grade-roi-hint.tsx reads items_full via useItemsFull (RLS-scoped => tenant-scoped by construction), computes the estimate, and renders a 'Graded <category> items sell ~$X higher and ~N days faster' nudge WITH its sample basis ('Based on G graded vs U ungraded sold (N items)'); it self-suppresses when the item is already graded, when the category has no sold history, when n is too low (meaningful=false), or when there's no positive lift — no false precision. Wired into both surfaces: item detail (src/pages/flipdesk/item.tsx) with a 'Grade this item' CTA that scrolls to the canvas grade section (#canvas-grading), and intake (src/pages/flipdesk/intake.tsx) with a 'Get a certified grade' CTA routing to /dashboard/submissions/new. tsc --noEmit + eslint clean; 5 unit tests in src/lib/__tests__/grade-roi-estimate.test.ts (null-on-no-history, price+days lift, low-n suppression, band pinning, case/trim match) green; npm run build passes (37 prerendered pages). Reuses gradingRoiBuckets helpers per the brief; grade_outcomes (00036) not needed since items_full already carries grade_value/days_to_sell/sale_price. Pairs with US-848 (Condition Index value)."
     },
     {
       "id": "US-857",

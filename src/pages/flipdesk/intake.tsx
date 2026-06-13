@@ -51,6 +51,7 @@ import {
 } from "@/hooks/use-ai-extract";
 import { useProductLookup } from "@/hooks/use-product-lookup";
 import { BarcodeScannerDialog } from "@/components/flipdesk/barcode-scanner-dialog";
+import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import {
   ITEM_CATEGORIES,
   ITEM_STATUSES,
@@ -729,6 +730,16 @@ export function FlipdeskIntakePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* US-856: grade-ROI nudge for the category being catalogued. Renders
+          only when the seller's own sold history supports a lift; routes into
+          the certified-grade submission flow. */}
+      <GradeRoiHint
+        category={form.item_category || null}
+        priceHint={priceOrNull(form.purchase_price)}
+        onGrade={() => navigate("/dashboard/submissions/new")}
+        ctaLabel="Get a certified grade"
+      />
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button
