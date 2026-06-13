@@ -8,6 +8,7 @@ import {
   remainingFraction as prorationRemainingFraction,
   unusedProrationCents,
 } from "../lib/proration.ts";
+import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 
 // Admin billing routes (US-221). All endpoints require admin role —
 // mounted with both authMiddleware + adminAuthMiddleware in main.ts.
@@ -24,23 +25,8 @@ type AdminEnv = {
 
 export const adminBillingRoutes = new Hono<AdminEnv>();
 
-const FLIPDESK_PRICE_IDS: Record<
-  "starter" | "pro" | "business",
-  Record<"monthly" | "yearly", string>
-> = {
-  starter: {
-    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_STARTER_MONTHLY") || "",
-    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_STARTER_YEARLY")  || "",
-  },
-  pro: {
-    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_PRO_MONTHLY") || "",
-    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_PRO_YEARLY")  || "",
-  },
-  business: {
-    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_BUSINESS_MONTHLY") || "",
-    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_BUSINESS_YEARLY")  || "",
-  },
-};
+// US-587: FlipDesk price IDs are data-driven (DB pricing_plans + env fallback),
+// loaded via getFlipdeskPriceIds() so a price-ID change in admin needs no deploy.
 
 function getStripe(): Stripe | null {
   const key = Deno.env.get("STRIPE_SECRET_KEY");
@@ -253,6 +239,7 @@ adminBillingRoutes.post("/users/:id/change-plan", async (c) => {
 
   // ─ Case 3: paid → paid (swap subscription price) ─
   if (plan !== "free" && targetUser.flipdesk_subscription_id) {
+    const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
     const priceId = FLIPDESK_PRICE_IDS[plan][interval];
     if (!priceId) {
       return c.json({ error: "Pricing not configured" }, 503);

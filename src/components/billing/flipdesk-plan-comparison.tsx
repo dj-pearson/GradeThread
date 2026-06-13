@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { FLIPDESK_PLANS, formatMarketplacesCap } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
+import { usePricingPlans } from "@/hooks/use-pricing-plans";
 import { cn } from "@/lib/utils";
 import { Check, X, Crown } from "lucide-react";
 
@@ -79,6 +80,8 @@ export function FlipdeskPlanComparison({
   const [interval, setInterval] = useState<BillingInterval>(
     currentInterval ?? "monthly",
   );
+  // US-587: live, operator-editable plan config (falls back to FLIPDESK_PLANS).
+  const { plans } = usePricingPlans();
 
   return (
     <div className="space-y-4">
@@ -107,7 +110,7 @@ export function FlipdeskPlanComparison({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {PLAN_ORDER.map((planKey) => {
-          const plan = FLIPDESK_PLANS[planKey];
+          const plan = plans[planKey];
           const isCurrent =
             planKey === currentPlan &&
             (currentInterval == null || interval === currentInterval);

@@ -5,6 +5,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { isProduction } from "../lib/env.ts";
 import { captureServer } from "../lib/posthog.ts";
 import { customerCreateIdempotencyKey } from "../lib/stripe-customer.ts";
+import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -27,24 +28,11 @@ export function perGradeIdempotencyKey(
 }
 
 // ── Catalog (mirrors src/lib/constants.ts US-202 / scripts/setup-stripe-pricing.mjs US-203) ──
-
-const FLIPDESK_PRICE_IDS: Record<
-  "starter" | "pro" | "business",
-  Record<"monthly" | "yearly", string>
-> = {
-  starter: {
-    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_STARTER_MONTHLY") || "",
-    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_STARTER_YEARLY")  || "",
-  },
-  pro: {
-    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_PRO_MONTHLY") || "",
-    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_PRO_YEARLY")  || "",
-  },
-  business: {
-    monthly: Deno.env.get("STRIPE_PRICE_FLIPDESK_BUSINESS_MONTHLY") || "",
-    yearly:  Deno.env.get("STRIPE_PRICE_FLIPDESK_BUSINESS_YEARLY")  || "",
-  },
-};
+//
+// US-587: FlipDesk subscription price IDs are now data-driven — loaded per-request
+// via getFlipdeskPriceIds() (DB pricing_plans with env fallback) so a price-ID
+// change in admin doesn't need a redeploy. Per-grade + credit-pack price IDs stay
+// env-driven below (not yet plan-editable).
 
 const GRADE_PRICE_IDS: Record<"standard" | "premium" | "express", string> = {
   standard: Deno.env.get("STRIPE_PRICE_GRADE_STANDARD") || "",
@@ -281,6 +269,7 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
     return c.json({ error: "interval must be 'monthly' or 'yearly'" }, 400);
   }
 
+  const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
   const priceId = FLIPDESK_PRICE_IDS[plan][interval];
   if (!priceId) {
     console.error(`Missing Stripe price ID for ${plan} ${interval}`);
@@ -687,6 +676,7 @@ paymentRoutes.post("/subscribe", async (c) => {
   const { data: user, error: userError } = await loadUser(userId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
 
+  const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
   const priceId = FLIPDESK_PRICE_IDS[mapped]?.monthly;
   if (!priceId) {
     console.error(`Missing Stripe price ID for ${mapped} monthly`);
@@ -1184,6 +1174,7 @@ paymentRoutes.post("/flipdesk/downgrade", async (c) => {
     return c.json({ error: "No subscription to downgrade" }, 400);
   }
 
+  const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
   const newPriceId = FLIPDESK_PRICE_IDS[plan][interval];
   if (!newPriceId) {
     return c.json({ error: "Pricing not configured" }, 503);

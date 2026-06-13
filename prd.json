@@ -8949,8 +8949,8 @@
         "Changes are audited and validated; frontend reads the live config"
       ],
       "priority": 587,
-      "passes": false,
-      "notes": "[P2][Admin/Billing] Deep-dive 2026-06-04. FLIPDESK_PRICE_IDS env-hardcoded in admin-billing.ts; PLANS in constants.ts; any change is a deploy."
+      "passes": true,
+      "notes": "[P2][Admin/Billing] Deep-dive 2026-06-04. FLIPDESK_PRICE_IDS env-hardcoded in admin-billing.ts; PLANS in constants.ts; any change is a deploy. DONE 2026-06-12: New pricing_plans table (00166) is canonical for FlipDesk plan prices/limits/gate-flags + Stripe price IDs. Edge reads via lib/pricing-config.ts (30s cache, fail-safe fallback to compiled FALLBACK_MATRIX + env price IDs); plan-gate.ts, payments.ts, admin-billing.ts now load the live matrix/price-ids. Admin editor at /admin/pricing (GET+PUT /api/admin/pricing/plans/:key) is super_admin + MFA step-up, validated, audited (admin_audit_log) and cache-busting. SPA reads live config via use-pricing-plans hook (FLIPDESK_PLANS fallback); billing comparison wired. marketplaces_cap seeded to 1 for all tiers (eBay-only at launch) reconciling the prior constants/plan-gate drift."
     },
     {
       "id": "US-588",

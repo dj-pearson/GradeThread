@@ -37,86 +37,20 @@
 import type { Context } from "hono";
 import { supabaseAdmin } from "./supabase.ts";
 import { effectivePlanFor } from "./grade-pricing.ts";
+import {
+  FALLBACK_MATRIX,
+  type FlipdeskPlan,
+  type GateFlags,
+  getPlanMatrix,
+  type PlanConfig,
+} from "./pricing-config.ts";
 
-// ── FlipDesk catalog (mirror of src/lib/constants.ts FLIPDESK_PLANS) ──
-
-type FlipdeskPlan = "free" | "starter" | "pro" | "business";
-
-interface GateFlags {
-  bulkActions: boolean;
-  scheduledActions: boolean;
-  compPulls: boolean;
-  autoRelist: boolean;
-  subAccounts: boolean;
-  apiAccess: boolean;
-  reconciliation: boolean;
-  prioritySupport: boolean;
-  /** AI AutoLister — bulk photos → generated eBay listings (US-323). Premium. */
-  autolister: boolean;
-}
-
-interface PlanConfig {
-  /** -1 = unlimited */
-  activeListingCap: number;
-  aiActionsPerMonth: number;
-  /** -1 = all */
-  marketplacesCap: number;
-  includedStandardGradesPerMonth: number;
-  /** US-388: additional team members (excludes the owner). 0 = no team. */
-  teamSeatCap: number;
-  gateFlags: GateFlags;
-}
-
-const PLAN_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
-  free: {
-    activeListingCap: 25,
-    aiActionsPerMonth: 25,
-    marketplacesCap: 1,
-    includedStandardGradesPerMonth: 3,
-    teamSeatCap: 0,
-    gateFlags: {
-      bulkActions: false, scheduledActions: false, compPulls: false,
-      autoRelist: false, subAccounts: false, apiAccess: false,
-      reconciliation: false, prioritySupport: false, autolister: false,
-    },
-  },
-  starter: {
-    activeListingCap: 250,
-    aiActionsPerMonth: 200,
-    marketplacesCap: 2,
-    includedStandardGradesPerMonth: 10,
-    teamSeatCap: 0,
-    gateFlags: {
-      bulkActions: false, scheduledActions: false, compPulls: false,
-      autoRelist: false, subAccounts: false, apiAccess: false,
-      reconciliation: false, prioritySupport: false, autolister: false,
-    },
-  },
-  pro: {
-    activeListingCap: 1000,
-    aiActionsPerMonth: 1000,
-    marketplacesCap: -1,
-    includedStandardGradesPerMonth: 30,
-    teamSeatCap: 0,
-    gateFlags: {
-      bulkActions: true, scheduledActions: true, compPulls: true,
-      autoRelist: true, subAccounts: false, apiAccess: false,
-      reconciliation: false, prioritySupport: false, autolister: true,
-    },
-  },
-  business: {
-    activeListingCap: -1,
-    aiActionsPerMonth: 5000,
-    marketplacesCap: -1,
-    includedStandardGradesPerMonth: 75,
-    teamSeatCap: 10,
-    gateFlags: {
-      bulkActions: true, scheduledActions: true, compPulls: true,
-      autoRelist: true, subAccounts: true, apiAccess: true,
-      reconciliation: true, prioritySupport: true, autolister: true,
-    },
-  },
-};
+// ── FlipDesk catalog ──
+//
+// US-587: the plan matrix (enforcement limits + feature gates) is now data-driven
+// — loaded from the pricing_plans table via getPlanMatrix() so operators can edit
+// limits/pricing from admin without a deploy. FALLBACK_MATRIX (in pricing-config)
+// is the compiled default used only when the DB row is missing or unreadable.
 
 const PLAN_RANK: Record<FlipdeskPlan, number> = {
   free: 0, starter: 1, pro: 2, business: 3,
@@ -239,7 +173,10 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
     new Date(),
     user.past_due_since,
   ) as FlipdeskPlan;
-  const plan = PLAN_MATRIX[effectivePlan];
+  // US-587: live, operator-editable matrix (DB-backed, cached) with the compiled
+  // fallback baked in.
+  const matrix = await getPlanMatrix();
+  const plan = matrix[effectivePlan];
 
   // ─ Feature check ─
   if (opts.feature) {
@@ -249,7 +186,7 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
           error: "FEATURE_LOCKED",
           feature: opts.feature,
           plan: effectivePlan,
-          requiredPlan: requiredPlanForFeature(opts.feature),
+          requiredPlan: requiredPlanForFeature(matrix, opts.feature),
         },
         402,
       );
@@ -273,7 +210,7 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
           delta,
           limit,
           plan: effectivePlan,
-          requiredPlan: requiredPlanForCapacity(opts.capacity.kind, used + delta),
+          requiredPlan: requiredPlanForCapacity(matrix, opts.capacity.kind, used + delta),
         },
         402,
       );
@@ -380,17 +317,24 @@ async function readCurrentUsage(
 }
 
 /** Smallest plan that satisfies a feature gate. */
-function requiredPlanForFeature(feature: FeatureKey): FlipdeskPlan {
+function requiredPlanForFeature(
+  matrix: Record<FlipdeskPlan, PlanConfig>,
+  feature: FeatureKey,
+): FlipdeskPlan {
   for (const plan of ["starter", "pro", "business"] as FlipdeskPlan[]) {
-    if (PLAN_MATRIX[plan].gateFlags[feature]) return plan;
+    if (matrix[plan].gateFlags[feature]) return plan;
   }
   return "business";
 }
 
 /** Smallest plan whose limit on `kind` covers `needed`. */
-function requiredPlanForCapacity(kind: CapacityKind, needed: number): FlipdeskPlan {
+function requiredPlanForCapacity(
+  matrix: Record<FlipdeskPlan, PlanConfig>,
+  kind: CapacityKind,
+  needed: number,
+): FlipdeskPlan {
   for (const plan of ["starter", "pro", "business"] as FlipdeskPlan[]) {
-    const limit = getLimit(PLAN_MATRIX[plan], kind);
+    const limit = getLimit(matrix[plan], kind);
     if (limit === -1 || needed <= limit) return plan;
   }
   return "business";
@@ -409,8 +353,10 @@ export function effectiveAiCap(planLimit: number, userLimit: number | null): num
 }
 
 // ── Exports for tests / introspection ────────────────────────────
+// PLAN_MATRIX here is the compiled fallback (DB is canonical at runtime). The
+// AI-quota drift test (ai-quota_test.ts) pins AI_ACTION_LIMITS against it.
 export const __testing = {
-  PLAN_MATRIX,
+  PLAN_MATRIX: FALLBACK_MATRIX,
   PLAN_RANK,
   requiredPlanForFeature,
   requiredPlanForCapacity,

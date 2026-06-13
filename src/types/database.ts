@@ -1925,6 +1925,28 @@ export interface FlipdeskSubscriptionEventInsert {
   raw_payload?: Record<string, unknown> | null;
 }
 
+// US-587: data-driven plan pricing/limits (00166_pricing_plans.sql). Read by the
+// SPA (anon SELECT) for pricing display; written only by the audited admin edge
+// route. gate_flags mirrors FlipdeskGateFlags in src/lib/constants.ts.
+export interface PricingPlanRow {
+  key: FlipdeskPlan;
+  name: string;
+  sort_order: number;
+  price_monthly_cents: number;
+  price_yearly_cents: number;
+  active_listing_cap: number;
+  ai_actions_per_month: number;
+  marketplaces_cap: number;
+  included_standard_grades_per_month: number;
+  team_seat_cap: number;
+  features: string[];
+  gate_flags: Record<string, boolean>;
+  stripe_price_monthly: string;
+  stripe_price_yearly: string;
+  updated_at: string;
+  updated_by: string | null;
+}
+
 // Closed-loop sale-outcome feedback (US-132). Written via SECURITY DEFINER
 // triggers on sales + disputes — never inserted from app code.
 export interface GradeOutcomeRow {
@@ -2548,6 +2570,12 @@ export interface Database {
       flipdesk_subscription_events: {
         Row: FlipdeskSubscriptionEventRow;
         Insert: FlipdeskSubscriptionEventInsert;
+        Update: never;
+      };
+      pricing_plans: {
+        Row: PricingPlanRow;
+        // Service-role only (audited admin edge route) — clients read but never write.
+        Insert: never;
         Update: never;
       };
       content_topics: {

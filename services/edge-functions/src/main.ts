@@ -42,6 +42,7 @@ import {
 } from "./routes/flipdesk-automations.ts";
 import { adminBillingRoutes } from "./routes/admin-billing.ts";
 import { adminFlagsRoutes } from "./routes/admin-flags.ts";
+import { adminPricingRoutes } from "./routes/admin-pricing.ts";
 import { adminWaitlistRoutes } from "./routes/admin-waitlist.ts";
 import { waitlistRoutes } from "./routes/waitlist.ts";
 import { accessGateMiddleware } from "./lib/access-gate.ts";
@@ -564,6 +565,9 @@ app.post("/api/jobs/publish-batch-reclaim", (c) => handlePublishBatchReclaimCron
 app.route("/api/admin", adminBillingRoutes);
 // US-507 admin kill-switch management (admin JWT + MFA via /api/admin/* group).
 app.route("/api/admin/feature-flags", adminFlagsRoutes);
+// US-587 data-driven plan pricing/limits editor. Admin JWT + AAL2 via the
+// /api/admin/* group; mutations additionally require super_admin + MFA step-up.
+app.route("/api/admin/pricing", adminPricingRoutes);
 // US-585 waitlist/beta-gating admin surface (admin JWT + AAL2 via /api/admin/*).
 app.route("/api/admin/waitlist", adminWaitlistRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);
