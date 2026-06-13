@@ -16,8 +16,8 @@ $ErrorActionPreference = 'SilentlyContinue'
 # Each rule: process image name + a regex that must match its command line.
 $rules = @(
   @{ Name = 'node.exe';   Rx = 'ralph[\\/]run\.mjs';        Label = 'ralph runner (run.mjs)' },
-  @{ Name = 'bash.exe';   Rx = 'ralph\.sh';                 Label = 'ralph loop (ralph.sh)' },
-  @{ Name = 'node.exe';   Rx = 'ralph\.sh';                 Label = 'ralph loop (node)' },
+  @{ Name = 'bash.exe';   Rx = 'ralph[\\/]ralph\.sh';                 Label = 'ralph loop (ralph.sh)' },
+  @{ Name = 'node.exe';   Rx = 'ralph[\\/]ralph\.sh';                 Label = 'ralph loop (node)' },
   @{ Name = 'node.exe';   Rx = 'scripts[\\/]prerender\.mjs';Label = 'prerender (build child)' },
   @{ Name = 'node.exe';   Rx = 'build-lock\.mjs';           Label = 'build-lock' },
   @{ Name = 'claude.exe'; Rx = '--print';                   Label = 'ralph agent (claude --print)' }
